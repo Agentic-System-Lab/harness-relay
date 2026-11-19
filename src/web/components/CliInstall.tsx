@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PROVIDER_LABEL, type CliInstallView, type Provider, type ProviderStatus } from '../../shared/types';
-import { api } from '../api';
+import { api, requestGitInstall } from '../api';
 import { cliInstallShown, logTail } from '../clis';
 import { useT } from '../i18n';
 import { LogoSpinner } from './Logo';
@@ -71,6 +71,11 @@ export function CliInstall({
     return (
       <div className="cli-install">
         <p className="muted small">{i.blocked[shown.block](label)}</p>
+        {shown.block === 'gitBash' && (
+          <button type="button" className="ghost" onClick={() => requestGitInstall('gitBash')}>
+            {t.gitInstall.install}
+          </button>
+        )}
       </div>
     );
   }

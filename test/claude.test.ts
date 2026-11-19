@@ -1433,7 +1433,7 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
         return tell;
       },
       program: () => undefined,
-      dispose: () => undefined,
+      dispose: async () => undefined,
     };
     return { hooks, seen };
   };

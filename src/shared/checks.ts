@@ -378,9 +378,9 @@ export function needsFix(o: Pick<CheckOutcome, 'status' | 'notRun' | 'configChan
   return blocking(o) && !o.configChanged?.length;
 }
 
-/** The conversation's latest team checks result (its message), if any. */
+/** The conversation's latest own team checks result (its message), if any. */
 export function latestChecks(messages: readonly ChatMessage[]): ChatMessage | undefined {
-  return messages.findLast((m) => m.checks);
+  return messages.findLast((m) => m.checks && !m.checks.historical);
 }
 
 /**

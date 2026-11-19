@@ -70,10 +70,12 @@ export function isGuarded(g: WriteGuard | undefined, path: string): boolean {
   if (!g) return false;
   const real = realPath(path);
   const patterns = compiled(g);
-  return realDirs(g).some((dir) => {
-    const rel = relativeInside(dir, real);
+  const matches = (dir: string, candidate: string) => {
+    const rel = relativeInside(dir, candidate);
     return rel !== undefined && isProtected(rel, patterns);
-  });
+  };
+  // A rule may match the link's own name or the file it leads to.
+  return g.dirs.some((dir) => matches(dir, path)) || realDirs(g).some((dir) => matches(dir, real));
 }
 
 /**

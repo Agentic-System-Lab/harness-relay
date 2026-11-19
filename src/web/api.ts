@@ -1,5 +1,5 @@
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
-import { CWD_MISSING, DEFAULT_ACCOUNT } from '../shared/types';
+import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
   AboutInfo,
   AccountUsage,
@@ -22,6 +22,8 @@ import type {
   FileChange,
   FileListing,
   FilePreview,
+  GitInstallView,
+  GitRequirement,
   GrokFolderTrust,
   InboxItem,
   InboxReadRequest,
@@ -90,6 +92,15 @@ export const SIGN_IN_TIMEOUT_MS = 30_000;
 const accountPath = (account: string) => encodeURIComponent(account || DEFAULT_ACCOUNT);
 /** An account as a query: none for the default account. */
 const accountQuery = (account: string) => (account ? `?account=${encodeURIComponent(account)}` : '');
+
+export const GIT_INSTALL_EVENT = 'relay:git-install';
+export const GIT_AVAILABLE_EVENT = 'relay:git-available';
+
+export function requestGitInstall(requirement: GitRequirement = 'git'): void {
+  window.dispatchEvent(new CustomEvent(GIT_INSTALL_EVENT, { detail: requirement }));
+}
+
+const gitInstallPath = (requirement: GitRequirement) => `/api/git-install${requirement === 'gitBash' ? '?bash=1' : ''}`;
 
 /** A request the server answered with an error; `status` is the HTTP status, `code` tells some errors apart. */
 export class ApiError extends Error {
@@ -167,6 +178,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     const err = data as { error?: string; code?: string; paths?: unknown };
     if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { resent: true });
     const paths = Array.isArray(err.paths) ? err.paths.filter((p): p is string => typeof p === 'string') : undefined;
+    if (err.code === GIT_MISSING) requestGitInstall();
     throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code, paths);
   }
   return data as T;
@@ -187,6 +199,7 @@ async function requestText(path: string, o: Sending = {}): Promise<string> {
       /* not JSON */
     }
     if (res.status === 401 && (await signedOut(code, key, o))) return requestText(path, { resent: true });
+    if (code === GIT_MISSING) requestGitInstall();
     throw new ApiError(msg, res.status, code);
   }
   return text;
@@ -551,6 +564,9 @@ export const api = {
   installCli: (p: Provider) => request<CliInstallView>('POST', `/api/clis/${p}/install`),
   cancelCliInstall: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}/install`),
   removeCli: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}`),
+  gitInstall: (requirement: GitRequirement, signal?: AbortSignal) =>
+    request<GitInstallView>('GET', gitInstallPath(requirement), undefined, signal),
+  installGit: (requirement: GitRequirement) => request<GitInstallView>('POST', gitInstallPath(requirement)),
   sandboxSetup: () => request<SandboxSetupView>('GET', '/api/sandbox-setup'),
   installSandboxSetup: () => request<SandboxSetupView>('POST', '/api/sandbox-setup/install'),
   cancelSandboxSetup: () => request<SandboxSetupView>('DELETE', '/api/sandbox-setup/install'),

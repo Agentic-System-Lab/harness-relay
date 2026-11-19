@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CliInstallView, Provider } from '../shared/types';
-import { api } from './api';
+import { GIT_AVAILABLE_EVENT, api } from './api';
 import { anyInstalling, followInstalls, installsEnded, withView } from './clis';
 
 /**
@@ -32,6 +32,8 @@ export function useCliInstalls(onEnded: (p: Provider) => void) {
 
   useEffect(() => {
     void refresh();
+    window.addEventListener(GIT_AVAILABLE_EVENT, refresh);
+    return () => window.removeEventListener(GIT_AVAILABLE_EVENT, refresh);
   }, [refresh]);
 
   // Settings closed with installs under way: they are followed until they end, for the sidebar's status.

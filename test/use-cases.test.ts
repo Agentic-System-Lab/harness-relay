@@ -227,19 +227,23 @@ describe('sharing a use case', () => {
   });
 
   it('links the conversation as shared, with how many files went along, and the attached files as GitHub shows them', () => {
-    const share = { url: 'https://gistpreview.github.io/?abc123', files: 2, attachments: ['notes.md', '銀行對帳單 10月.csv'] };
+    const share = {
+      url: 'https://agentic-system-lab.github.io/harness-relay/share/#someone/abc123',
+      files: 2,
+      attachments: ['notes.md', '銀行對帳單 10月.csv'],
+    };
     const en = useCaseLinks('reconcile-accounts', 'en', share, 14);
     expect(en).toBe(
       [
         '<ul class="usecase-links">',
-        '                <li><a href="https://gistpreview.github.io/?abc123">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>',
+        '                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#someone/abc123">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>',
         '                <li>Attached to the question: <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/notes.md">notes.md</a>, <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/%E9%8A%80%E8%A1%8C%E5%B0%8D%E5%B8%B3%E5%96%AE%2010%E6%9C%88.csv">銀行對帳單 10月.csv</a>.</li>',
         '              </ul>',
       ].join('\n'),
     );
     const zh = useCaseLinks('fix-a-bug', 'zh-TW', { ...share, files: 1, attachments: [] }, 0);
     expect(zh).toBe(
-      '<ul class="usecase-links">\n  <li><a href="https://gistpreview.github.io/?abc123">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 1 個檔案。</li>\n</ul>',
+      '<ul class="usecase-links">\n  <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#someone/abc123">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 1 個檔案。</li>\n</ul>',
     );
     expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 1, attachments: [] }, 0)).toContain('with the file its replies link to.');
     expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 0, attachments: [] }, 0)).toContain('as Harness Relay’s Share made it.</li>');

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Its own script only, reading GitHub's raw files (and its API, only when they cannot say where a
+         gist is). What the frame shows inherits this policy too: its own styles and data: images alone,
+         and no frame, form or connection of its own (it runs no script anyway: sandbox). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; connect-src https://gist.githubusercontent.com https://api.github.com; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <!-- A conversation is for those it was given to: never in a search engine's results. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Shared conversation · Harness Relay</title>
+    <!-- The site's favicon.svg, as a data URL: the policy (which the frame inherits) allows no other image. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%229%22 cy=%2216%22 r=%226%22 fill=%22%23d97757%22/%3E%3Ccircle cx=%2223%22 cy=%2210%22 r=%225%22 fill=%22%2310a37f%22/%3E%3Ccircle cx=%2223%22 cy=%2223%22 r=%225%22 fill=%22%237c5cff%22/%3E%3C/svg%3E" type="image/svg+xml" />
+    <style>
+      /* The app's colours (src/web/styles.css), as the shared page under the bar has them. */
+      :root {
+        --bg: #ffffff;
+        --border: #e4e4e7;
+        --text: #18181b;
+        --muted: #71717a;
+        --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #212121;
+          --border: #3a3a3d;
+          --text: #ececec;
+          --muted: #a1a1aa;
+        }
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+      }
+      .share-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        padding: 7px 18px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12.5px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .share-bar b {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .share-bar a {
+        margin-left: auto;
+        color: inherit;
+      }
+      .share-bar a:hover,
+      .share-bar a:focus-visible {
+        color: var(--text);
+      }
+      .share-status {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px 16px;
+        text-align: center;
+      }
+      .share-status p {
+        max-width: 34em;
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .share-status a {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .share-frame {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        border: 0;
+        display: block;
+      }
+      @media (max-width: 560px) {
+        .share-bar {
+          padding: 6px 14px;
+        }
+      }
+    </style>
+    <script type="module" src="../assets/share.js"></script>
+  </head>
+  <body>
+    <header class="share-bar" id="share-bar" hidden>
+      <span id="share-by"></span>
+      <a id="share-gist" href="https://gist.github.com/" target="_blank" rel="noopener noreferrer"></a>
+    </header>
+    <main class="share-status" id="share-status">
+      <p id="share-message"></p>
+      <a id="share-home" href="../"></a>
+      <noscript>
+        <p>This page needs JavaScript to show the shared conversation.</p>
+        <p lang="zh-TW">這個頁面需要 JavaScript 才能顯示分享的對話。</p>
+      </noscript>
+    </main>
+    <!-- No allow-scripts, no allow-same-origin: nothing the gist holds runs, and it has an origin of its own.
+         Its links open in a new tab, as a normal page (allow-popups-to-escape-sandbox), and the files that
+         went along download from there (allow-downloads: browsers count those the frame's own). -->
+    <iframe
+      id="share-frame"
+      class="share-frame"
+      sandbox="allow-downloads allow-popups allow-popups-to-escape-sandbox"
+      referrerpolicy="no-referrer"
+      hidden
+    ></iframe>
+  </body>
+</html>

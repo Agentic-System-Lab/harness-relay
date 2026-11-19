@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, symlinkSync, type Dirent } from 'node:fs';
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { CHECK_LIMITS, CHECK_RESULT_LIMITS, type CheckCommand, type CheckOutcome } from '../shared/types';
 import { AgentRunError } from './agents/types';
 import { removeTree } from './fsRemove';
@@ -422,6 +422,8 @@ const DEPENDENCY_CACHES = new Set(['.cache', '.vite', '.vite-temp', '.vitest', '
  * never in `exclude` (the CLIs' homes). Returns how many it linked.
  */
 export function linkDependencies(real: string, tree: string, exclude: readonly string[] = [], depth = 4): number {
+  if (!lstatSync(tree, { throwIfNoEntry: false })?.isDirectory()) return 0;
+  const treeRoot = realpathSync(tree);
   let linked = 0;
   let realRoot = real;
   try {
@@ -444,6 +446,9 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
     return src;
   };
   const walk = (rel: string, level: number) => {
+    // The proposed changes can include links. Only prepare dependencies inside existing, real check-tree folders.
+    const destination = join(treeRoot, rel);
+    if (!lstatSync(destination, { throwIfNoEntry: false })?.isDirectory() || realpathSync(destination) !== destination) return;
     let entries: Dirent[];
     try {
       entries = readdirSync(join(real, rel), { withFileTypes: true });
@@ -455,10 +460,10 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
       const r = rel ? join(rel, e.name) : e.name;
       const abs = join(real, r);
       if (exclude.some((ex) => abs === ex || abs.startsWith(ex.endsWith(sep) ? ex : ex + sep))) continue;
-      const target = join(tree, r);
+      const target = join(destination, e.name);
       if (DEPENDENCY_DIRS.has(e.name)) {
         // The tree has it (tracked), or not the folder it is in: left alone.
-        if (existsSync(target) || !existsSync(dirname(target))) continue;
+        if (lstatSync(target, { throwIfNoEntry: false })) continue;
         if (e.name === 'node_modules') {
           mkdirSync(target);
           for (const name of readdirSync(abs)) {
@@ -475,7 +480,7 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
         continue;
       }
       // Only into folders the tree has: an ignored one (a build's output) is not walked.
-      if (level < depth && existsSync(target)) walk(r, level + 1);
+      if (level < depth) walk(r, level + 1);
     }
   };
   walk('', 0);

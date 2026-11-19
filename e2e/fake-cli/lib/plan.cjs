@@ -206,7 +206,13 @@ const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
  * (exit) and `error` (a failure in the protocol). A CLI's module plays the steps it knows. `turn`: what the turn got besides its prompt (`cwd`, `images`, `mcp`,
  * `briefing`), and `mayRead(file)` where the CLI reads only some folders without asking (Claude Code).
  */
+const MODEL_CHECK_PROMPT = 'Reply with exactly RELAY_MODEL_OK.';
+
 function plan(prompt, turn) {
+  if (prompt.includes(MODEL_CHECK_PROMPT)) {
+    const fails = process.env.E2E_FAIL_MODEL_CHECK_CLIS?.split(',').includes(self.cli());
+    return [{ type: 'text', text: fails ? 'Model unavailable' : 'RELAY_MODEL_OK' }];
+  }
   if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {

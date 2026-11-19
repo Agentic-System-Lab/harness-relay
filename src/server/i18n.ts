@@ -356,7 +356,7 @@ const zhTW = {
 
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
-  shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
+  shareTooLarge: (mb: string, max: string) => `這個分享頁有 ${mb} MB，超過分享頁能放的 ${max}。請改成分享到比較前面的某則回覆。`,
   shareNoGh: (min: string) =>
     `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
   ghTooOld: (min: string, version?: string) =>
@@ -367,12 +367,12 @@ const zhTW = {
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
   shareNoUrl:
-    'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
+    'gh 沒有回傳 github.com 上的 gist 網址（分享頁只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
   unshareFailed: (detail: string) => `無法刪除 gist：${detail}`,
   unshareNotOwner: '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
   shareNotFound: '找不到這個分享',
   shareNoFileUrl: 'GitHub 沒有回傳上傳檔案的網址',
-  shareNotGithub: 'gist 不在 github.com 上，gistpreview 只能顯示 github.com 的 gist',
+  shareNotGithub: 'gist 不在 github.com 上，分享頁只能顯示 github.com 的 gist',
   shareBadFiles: '要附上的檔案清單格式不對',
   shareFileProblem: {
     missing: '找不到這個檔案（或它是資料夾）',
@@ -517,6 +517,19 @@ const zhTW = {
   planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
   planFailedKept: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），沿用目前的團隊。`,
   planKeepFits: '首席 agent 判斷目前的團隊也適合這個問題，沿用不變。',
+  planCheckAccounts: '檢查帳號與用量',
+  planCheckModel: '測試模型回覆',
+  planModelDefault: '預設模型',
+  planModelNoReply: '模型未回傳預期的測試回覆。',
+  planModelChecksFailed: (models: string) =>
+    models ? `以下模型未通過驗證：${models}。請檢查帳號與模型來源，再重新設計團隊。` : '模型驗證逾時，請重新設計團隊。',
+  planNoAvailableModel: (schedule: boolean) =>
+    `目前沒有可用的模型可以組隊。請到設定與登入查看帳號與用量，或稍後${schedule ? '在自動任務面板重新設計團隊' : '按「繼續」重試'}。`,
+  planEndpointUnavailable: (model: string) => `私人端點的模型「${model}」目前無法使用。請檢查 CLI 帳號與模型來源。`,
+  planAssignmentsAdjusted: '已調整部分成員的帳號或模型，讓他們使用可用的配置。',
+  planCurrentUnavailable: '目前的團隊有成員使用暫時無法執行的帳號或模型',
+  planLeadUnavailable: '首席 agent 的帳號或模型目前無法使用',
+  planFailedAdjusted: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），已替換目前團隊中無法使用的帳號或模型。`,
   planNoCurrentTeam: '這個對話還沒有團隊可以沿用',
   planAwaitingConfirm: '請先確認首席 agent 設計的團隊，團隊才會開始回答',
   // Asking the lead agent to change a team (team drawer)
@@ -835,6 +848,9 @@ const zhTW = {
   fileRootNotFound: '這個資料夾已經不存在',
 
   // Workspace
+  gitMissing: '這個操作需要 Git。請安裝 Git 後再試一次。',
+  gitInstallUnavailable: '這台電腦目前無法自動安裝 Git。',
+  gitInstallStillMissing: '安裝程式結束後，Harness Relay 仍找不到可用的 Git。',
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
   repoTooBroad: (root: string) =>
@@ -1274,7 +1290,7 @@ const en: ServerMessages = {
   opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
 
   shareEmpty: 'Nothing to share',
-  shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
+  shareTooLarge: (mb, max) => `This page is ${mb} MB, over the ${max} a shared page can hold. Share up to an earlier reply instead.`,
   shareNoGh: (min) =>
     `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
   ghTooOld: (min, version) =>
@@ -1285,13 +1301,13 @@ const en: ServerMessages = {
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',
   shareNoUrl:
-    'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
+    'gh did not return a gist address on github.com (a shared page can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
   unshareFailed: (detail) => `Could not delete the gist: ${detail}`,
   unshareNotOwner:
     'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
   shareNotFound: 'Share not found',
   shareNoFileUrl: 'GitHub returned no address for the uploaded files',
-  shareNotGithub: 'the gist is not on github.com, the only place gistpreview can show gists from',
+  shareNotGithub: 'the gist is not on github.com, the only place a shared page can show gists from',
   shareBadFiles: 'The list of files to include is not valid',
   shareFileProblem: {
     missing: 'it is not there (or it is a folder)',
@@ -1445,6 +1461,22 @@ const en: ServerMessages = {
   planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
   planFailedKept: (why) => `The lead agent did not produce a usable team design (${why}); keeping the current team.`,
   planKeepFits: 'The lead agent found the current team a good fit for this question too and keeps it as it is.',
+  planCheckAccounts: 'Checking accounts and usage',
+  planCheckModel: 'Testing model response',
+  planModelDefault: 'Default model',
+  planModelNoReply: 'The model check did not receive the expected reply.',
+  planModelChecksFailed: (models) =>
+    models
+      ? `Could not verify these models: ${models}. Check the accounts and model backends, then retry the design.`
+      : 'The model checks timed out. Try designing the team again.',
+  planNoAvailableModel: (schedule) =>
+    `No models are available for this team. Check your accounts and usage in Settings, or ${schedule ? 'try designing the team again from the automation panel' : 'choose Continue to try again later'}.`,
+  planEndpointUnavailable: (model) => `The private endpoint model "${model}" is unavailable. Check the CLI account and model backend.`,
+  planAssignmentsAdjusted: 'Some member assignments were adjusted to use available accounts or models.',
+  planCurrentUnavailable: 'a member of the current team uses an unavailable account or model',
+  planLeadUnavailable: 'the lead agent’s account or model is currently unavailable',
+  planFailedAdjusted: (why) =>
+    `The lead agent did not produce a usable team design (${why}). Unavailable accounts or models on the current team were replaced.`,
   planNoCurrentTeam: 'this conversation has no team to keep yet',
   planAwaitingConfirm: 'Confirm the team the lead agent designed first; then the team answers',
   reviseEmpty: 'Say how the team should change first',
@@ -1769,6 +1801,9 @@ const en: ServerMessages = {
     `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
 
+  gitMissing: 'This action needs Git. Install Git and try again.',
+  gitInstallUnavailable: 'Automatic Git installation is unavailable on this computer.',
+  gitInstallStillMissing: 'The installer exited and Harness Relay still cannot run Git.',
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,
   repoTooBroad: (root) =>

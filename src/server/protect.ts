@@ -194,9 +194,10 @@ export function relayBrowserDir(dataDir = DATA_DIR): string {
  * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
  * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
  * MCP config the servers' secret values), a Cursor turn's config folder, and a Copilot turn's home
- * (its settings, which decide its sandbox, and a copy of the account's sign-in state).
+ * (its settings, which decide its sandbox, and a copy of the account's sign-in state), and the
+ * gateway's tool and hook programs and token files.
  */
-export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-', gateway: 'gateway-' } as const;
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-', gateway: 'gateway-', hook: 'hook-' } as const;
 
 /**
  * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its

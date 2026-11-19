@@ -1,3 +1,4 @@
+import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
 import type { Messages } from './zh-TW';
 
 const EFFORT: Record<string, string> = {
@@ -873,6 +874,11 @@ export const en: Messages = {
   },
 
   plan: {
+    leadUnavailable: (lead) => `The lead agent (${lead}) was unavailable for this design.`,
+    leadUnavailableHint: 'You can choose another lead in Settings & sign-in → Lead agent.',
+    preparingFallback: 'Preparing a fallback team…',
+    checkOnConfirm: 'Confirm this team to test the models before they answer.',
+    activity: 'Team design progress',
     planning: (lead) => `The lead agent (${lead}) is choosing a team for this question…`,
     title: 'Team design',
     by: (lead) => `Lead agent: ${lead}`,
@@ -965,7 +971,7 @@ export const en: Messages = {
     failedAction: (why) => `That did not work: ${why}`,
     editorTitle: 'Team checks',
     editorHint:
-      'Once the team has answered, Harness Relay checks these rules itself, whichever CLI each member runs on and whatever its permission; hooks run as members use their tools. Only when the team may change files; the checks report, and undo nothing.',
+      'Harness Relay checks these rules in chats with Edit or Full access. Hooks run around supported tool calls, and results for completed work appear in the chat.',
     protectedPaths: 'Protected paths',
     protectedPathsHint:
       'One per line, written as in .gitignore: .env, *.pem, secrets/, config/prod.yml. Files git ignores are checked too.',
@@ -974,7 +980,7 @@ export const en: Messages = {
     commitPattern: 'Commit format (regular expression)',
     commitPatternHint: "Every commit's subject the team makes must match it. Checked in roundtable and relay mode only.",
     conventional: 'Use Conventional Commits',
-    readOnlyNote: 'The permission is read-only: the team changes no files, so nothing is checked.',
+    readOnlyNote: 'Team checks and hooks are skipped in read-only chats.',
     badPattern: (why) => `Not a valid regular expression: ${why}`,
     badPath: (p) => `"${p}" cannot be used: write a path relative to the working directory, without ..`,
     count: (n) => (n === 1 ? '1 rule' : `${n} rules`),
@@ -1332,7 +1338,7 @@ export const en: Messages = {
     copy: 'Copy',
     linkHeading: 'Public link',
     linkHint:
-      'Uploads this page to GitHub as a secret gist with your GitHub CLI (gh) account, shown through gistpreview.github.io. Anyone with the link can open it; it is not listed or searchable.',
+      "Uploads this page to GitHub as a secret gist with your GitHub CLI (gh) account, shown on Harness Relay's website. Anyone with the link can open it; it is not listed or searchable.",
     create: 'Create link',
     preparing: 'Making the page…',
     uploading: 'Uploading to GitHub…',
@@ -1340,9 +1346,9 @@ export const en: Messages = {
     open: 'Open',
     viewGist: 'View the gist on GitHub',
     manage: 'Manage or remove shares in Settings',
-    shrunk: 'Images were made smaller to fit in 1 MB.',
-    dropped: (n) => `${n} ${n === 1 ? 'image was' : 'images were'} left out (too large for 1 MB, or unreadable).`,
-    tooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
+    shrunk: (max) => `Images were made smaller to fit in ${max}.`,
+    dropped: (n, max) => `${n} ${n === 1 ? 'image was' : 'images were'} left out (too large for ${max}, or unreadable).`,
+    tooLarge: (mb, max) => `This page is ${mb} MB, over the ${max} a shared page can hold. Share up to an earlier reply instead.`,
     streaming: 'The team is still replying: create the link once this reply is done, so the page does not stop halfway through it.',
     gone: 'This reply is no longer in the conversation (it was retried or edited away). Share again from a reply that is there now.',
     editing: 'A message is being edited: send it or cancel the edit, then create the link.',
@@ -1982,7 +1988,7 @@ export const en: Messages = {
         tar: (p) => `Installing ${p} here takes tar (to unpack Node.js's download), which was not found.`,
         bash: (p) => `Installing ${p} here takes bash, which is not on the PATH.`,
         gitBash: (p) =>
-          `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (MinGit has no bash), then reload this page.`,
+          `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Choose Install Git to set it up.`,
         powershell: (p) => `Installing ${p} here takes Windows PowerShell, which was not found.`,
         system: (p) => `Harness Relay cannot install ${p} for you on this system: install it as its website says.`,
       },
@@ -2066,6 +2072,25 @@ export const en: Messages = {
     thanks: 'Thank you for your support!',
   },
 
+  gitInstall: {
+    title: 'Git is required',
+    body: 'This action needs Git on the computer running Harness Relay.',
+    bash: 'This CLI installer needs the Bash that comes with Git for Windows.',
+    methods: {
+      apple: 'macOS will ask you to install the Apple Command Line Tools, which include Git.',
+      winget: 'Windows Package Manager will install Git for Windows. Windows may ask you for permission.',
+      linux: 'Your system package manager will install Git. You may be asked for the administrator password.',
+    },
+    appleWaiting: 'Finish installing the Command Line Tools in the macOS dialog, then choose Check again.',
+    installing: 'Installing Git…',
+    ready: 'Git is ready. Close this dialog and try your action again.',
+    manual: 'This computer has no supported automatic installer. Install Git on the Harness Relay host, then choose Check again.',
+    instructions: 'Git installation instructions',
+    install: 'Install Git',
+    retry: 'Try installing again',
+    check: 'Check again',
+    later: 'Not now',
+  },
   sandboxSetup: {
     title: 'Sandboxes',
     hint: "Below full access, the commands agents run go in the operating system's sandbox: they write only in the working directories, and cannot reach your browsers' data or Harness Relay's database. When a sandbox lacks what it needs, Harness Relay does not let commands run outside it, so those agents' commands cannot run.",
@@ -2242,14 +2267,14 @@ export const en: Messages = {
       },
       {
         title: 'Team checks',
-        body: 'One set of rules for the whole team, in Team settings or a template, the same whatever agent or permission each member has:',
+        body: 'Set one list of rules for the whole team in Team settings or a template. Team checks run in chats with Edit or Full access.',
         points: [
           'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
           "Commit format: a regular expression every commit's subject must match",
           'Commands: such as npm test, which must succeed',
-          'Hooks: commands run before and after each tool call a member makes; a Before hook that fails refuses the call (Claude Code, Muse Code and Pi for now)',
+          `Hooks run around supported tool calls on macOS and Linux for ${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join(', ')}. A Before hook that fails refuses the call.`,
           "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
-          'It reports and undoes nothing; Settings → Tool library → Default team checks are the rules every new chat starts with',
+          'In Parallel mode, commands check a member’s result before you apply it. Set starting rules for new chats and automations in Settings → Tool library → Default team checks.',
         ],
       },
       {
@@ -2265,7 +2290,7 @@ export const en: Messages = {
         title: 'Share a conversation',
         body: "Share in a chat's header (under ⋯ on a phone) shares the whole chat; the share icon under an agent's reply shares everything up to that reply. Tool calls and thinking are left out:",
         points: [
-          'Copy it as Markdown, or create a public link: a page that looks like the chat, put on GitHub as a secret gist with your GitHub CLI (gh) and opened on gistpreview.github.io',
+          "Copy it as Markdown, or create a public link: a page that looks like the chat, put on GitHub as a secret gist with your GitHub CLI (gh) and opened on Harness Relay's website",
           'Settings → Shared conversations lists every link; remove the ones that should go, and their gists are deleted',
         ],
       },

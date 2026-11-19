@@ -1,5 +1,6 @@
 import { blocking, checksFailed, commitPatternError, needsFix, tidyFolder, tidyPattern } from '../shared/checks';
 import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckHook, type CheckList } from '../shared/types';
+import type { Messages } from './i18n';
 
 /*
  * Team checks in the page: the editor's fields (Team settings, the template editor, and Settings → Tool
@@ -49,6 +50,29 @@ export function hookProblem(h: Pick<CheckHook, 'run' | 'cwd' | 'timeoutSec'>): '
   const s = h.timeoutSec;
   if (s !== undefined && (!Number.isInteger(s) || s < 1 || s > CHECK_LIMITS.maxHookTimeoutSec)) return 'timeout';
   return undefined;
+}
+
+/** Validation shared by team, template and default checks forms. */
+export function checkProblems(list: CheckList | undefined, t: Messages['checks']): string[] {
+  if (!list) return [];
+  const problems: string[] = [];
+  const path = badPath(pathsText(list));
+  if (path) problems.push(t.badPath(path));
+  const pattern = badCommitPattern(list.commitPattern ?? '');
+  if (pattern) problems.push(t.badPattern(pattern));
+  for (const c of list.commands ?? []) {
+    const problem = commandProblem(c);
+    if (problem === 'run') problems.push(t.badCommand);
+    else if (problem === 'folder') problems.push(t.badFolder(c.cwd ?? ''));
+    else if (problem === 'timeout') problems.push(t.badTimeout(CHECK_LIMITS.maxTimeoutMin));
+  }
+  for (const h of list.hooks ?? []) {
+    const problem = hookProblem(h);
+    if (problem === 'run') problems.push(t.badCommand);
+    else if (problem === 'folder') problems.push(t.badFolder(h.cwd ?? ''));
+    else if (problem === 'timeout') problems.push(t.badHookTimeout(CHECK_LIMITS.maxHookTimeoutSec));
+  }
+  return problems;
 }
 
 /** A hook row as the list keeps it: trimmed, the defaults left out. */

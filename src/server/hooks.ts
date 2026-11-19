@@ -63,8 +63,8 @@ export interface TurnHooks {
    * cannot be given now (the gateway is not listening, or there is no Node.js to start it with).
    */
   program(handle: HookHandler, mode?: HookProgramMode): HookProgram | undefined;
-  /** The turn is over: its programs' grants end. */
-  dispose(): void;
+  /** The turn is over: revoke its grants, stop its commands, and wait for cleanup. */
+  dispose(): Promise<void>;
 }
 
 /** The longest value of the call's arguments in `RELAY_HOOK_INPUT` (a file's whole content is cut), and of all of it. */
@@ -199,8 +199,13 @@ export interface TurnHooksOptions {
 export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksOptions): TurnHooks | undefined {
   if (!hooks?.length) return undefined;
   const deps = o.deps ?? defaultCheckCommandDeps;
+  const end = new AbortController();
+  const turnSignal = o.place.signal ? AbortSignal.any([o.place.signal, end.signal]) : end.signal;
+  const pending = new Set<Promise<unknown>>();
+  const stopped = "Refused: the team's hook was stopped with the turn.";
   let notes = 0;
   const notice = (text: string) => {
+    if (turnSignal.aborted) return;
     notes++;
     if (notes <= HOOK_NOTICES) o.notice(text);
     else if (notes === HOOK_NOTICES + 1) o.notice(t().hookMoreNotices);
@@ -229,7 +234,7 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
     work: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> => {
     const stop = new AbortController();
-    const signal = o.place.signal ? AbortSignal.any([o.place.signal, stop.signal]) : stop.signal;
+    const signal = AbortSignal.any([turnSignal, stop.signal]);
     let timer: NodeJS.Timeout | undefined;
     const deadline = new Promise<T>((resolve) => {
       timer = setTimeout(
@@ -240,32 +245,40 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
         Math.min(budgetSec(when) + HOOK_WAIT.server, limitSec ?? Infinity) * 1000 * (o.deadlineScale ?? 1),
       );
     });
+    const running = work(signal);
+    pending.add(running);
+    const settled = () => pending.delete(running);
+    void running.then(settled, settled);
     try {
-      return await Promise.race([work(signal), deadline]);
+      return await Promise.race([running, deadline]);
     } finally {
       clearTimeout(timer);
     }
   };
   const applying = (when: CheckHook['when'], kind: HookCall['kind']) => hooks.filter((h) => h.when === when && hookApplies(h, kind));
   const revokes: (() => void)[] = [];
-  let over = false;
   return {
     program(handle, mode) {
-      if (over) return undefined;
+      if (turnSignal.aborted) return undefined;
       const grant = o.program?.(handle, mode);
       if (!grant) return undefined;
       revokes.push(grant.revoke);
       return grant.program;
     },
-    dispose() {
-      over = true;
-      for (const revoke of revokes.splice(0)) revoke();
+    async dispose() {
+      end.abort();
+      try {
+        for (const revoke of revokes.splice(0)) revoke();
+      } finally {
+        await Promise.allSettled(pending);
+      }
     },
     kinds: (when) => new Set(hooks.filter((h) => h.when === when).map((h) => h.tools)),
     budgetSec,
     async before(call, limitSec) {
       const list = applying('before', call.kind);
       if (!list.length) return undefined;
+      if (turnSignal.aborted) return stopped;
       // A hook must see all of the command it decides about: one too long to give it is refused, not cut.
       if (callTooLong(call)) {
         notice(t().hookCallTooLong(callLabel(call)));
@@ -280,24 +293,25 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
         // In the list's order; the first that does not pass refuses the call, and the rest are not run.
         for (const hook of list) {
           const outcome = await run(hook, call, signal);
+          if (signal.aborted) return turnSignal.aborted ? stopped : LATE;
           if (outcome.status === 'passed') continue;
-          if (signal.aborted && !o.place.signal?.aborted) return LATE;
           const said = hookSaid(outcome);
           notice(t().hookRefused(hook.run, callLabel(call), firstLine(said)));
           return `Refused by the team's hook \`${hook.run}\`, which Harness Relay runs before this kind of call:\n${said}`;
         }
         return undefined;
       });
-      return answer === LATE ? late() : answer;
+      return turnSignal.aborted ? stopped : answer === LATE ? late() : answer;
     },
     async after(call, limitSec) {
       const list = applying('after', call.kind);
-      if (!list.length) return undefined;
+      if (!list.length || turnSignal.aborted) return undefined;
       return within<string | undefined>('after', limitSec, undefined, async (signal) => {
         const told: string[] = [];
         for (const hook of list) {
           const outcome = await run(hook, call, signal);
-          if (outcome.status === 'passed' || signal.aborted) continue;
+          if (signal.aborted) break;
+          if (outcome.status === 'passed') continue;
           const said = hookSaid(outcome);
           notice(t().hookFailed(hook.run, callLabel(call), firstLine(said)));
           told.push(`The team's hook \`${hook.run}\` ran after this call and did not pass:\n${said}`);

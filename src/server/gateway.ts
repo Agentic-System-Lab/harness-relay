@@ -15,11 +15,11 @@ import {
   type Provider,
   type RelayToolGroup,
 } from '../shared/types';
-import { withLang } from './i18n';
+import { currentLang, withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
 import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
-import { realPath } from './protect';
+import { realPath, RUN_TMP_PREFIXES } from './protect';
 
 /*
  * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`), in one
@@ -444,10 +444,12 @@ export class ToolGateway {
     if (!this.server || !node) return undefined;
     const token = randomBytes(32).toString('base64url');
     const revoke = () => this.revokeHook(token);
+    const lang = currentLang();
+    const run: HookHandler = (when, payload) => withLang(lang, () => handle(when, payload));
     if (mode === 'inline') {
       const socketDir = realPath(dirname(this.socketPath));
       const socketPath = join(socketDir, basename(this.socketPath));
-      this.hookGrants.set(token, { handle });
+      this.hookGrants.set(token, { handle: run });
       return {
         program: {
           bin: node,
@@ -458,12 +460,18 @@ export class ToolGateway {
         revoke,
       };
     }
-    const name = `hook-${randomBytes(8).toString('hex')}`;
+    const name = `${RUN_TMP_PREFIXES.hook}${randomBytes(8).toString('hex')}`;
     const tokenFile = join(this.tokenDir, `${name}.token`);
     const shimFile = join(this.tokenDir, `${name}.mjs`);
     writeFileSync(tokenFile, token, { mode: 0o600 });
-    writeFileSync(shimFile, HOOK_SHIM_SOURCE, { mode: 0o600 });
-    this.hookGrants.set(token, { handle, files: [tokenFile, shimFile] });
+    try {
+      writeFileSync(shimFile, HOOK_SHIM_SOURCE, { mode: 0o600 });
+    } catch (err) {
+      rmSync(tokenFile, { force: true });
+      rmSync(shimFile, { force: true });
+      throw err;
+    }
+    this.hookGrants.set(token, { handle: run, files: [tokenFile, shimFile] });
     return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke };
   }
 

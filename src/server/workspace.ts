@@ -3,7 +3,8 @@ import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { FileChange } from '../shared/types';
 import { HttpError } from './errors';
-import { capture, tail } from './process';
+import { tail } from './process';
+import { captureGit, gitCommand } from './gitProcess';
 import { t } from './i18n';
 
 /**
@@ -58,15 +59,15 @@ const MAX_NESTED = 8;
  * `git add` runs `git status` in, each with its own config (the `-c` settings reach it); an agent
  * can write theirs, and in a worktree make one where a submodule's folder is empty.
  */
-export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nested = false, depth = 0): Promise<string[]> {
-  const r = await capture(
-    'git',
+export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nested = false, depth = 0, bin?: string): Promise<string[]> {
+  const r = await captureGit(
     ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.|^core\\.worktree$'],
     env,
     {
       cwd,
       timeoutMs: 30_000,
     },
+    bin,
   );
   // 1: none found. Anything else (a git too old for --show-scope, a config it cannot read): refuse,
   // rather than run the command without knowing what the repository would have it run.
@@ -95,21 +96,21 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nest
     for (const v of vars) out.push('-c', `${section}.${name}.${v}=`);
     if (section === 'filter') out.push('-c', `filter.${name}.required=false`);
   }
-  if (workTree) await ownWorkTree(cwd, env);
+  if (workTree) await ownWorkTree(cwd, env, bin);
   if (!nested) return out;
-  for (const sub of await submoduleRepos(cwd, env)) {
+  for (const sub of await submoduleRepos(cwd, env, bin)) {
     if (depth >= MAX_NESTED) throw new GitError(t().gitFailed('add', `repositories nested deeper than ${MAX_NESTED}`));
     // As git runs `git status` there: `cd <sub>; unset GIT_INDEX_FILE; GIT_DIR=.git`.
     const subEnv: NodeJS.ProcessEnv = { ...env, GIT_DIR: '.git' };
     delete subEnv.GIT_INDEX_FILE;
-    out.push(...(await repoDriverGuards(sub, subEnv, true, depth + 1)));
+    out.push(...(await repoDriverGuards(sub, subEnv, true, depth + 1, bin)));
   }
   return out;
 }
 
 /** Refuses a repository whose `core.worktree` is not the folder holding its `.git` (a submodule's points back through its `.git` file). */
-async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
-  const r = await capture('git', [...CONFIG, 'rev-parse', '--absolute-git-dir', '--show-toplevel'], env, { cwd, timeoutMs: 30_000 });
+async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv, bin?: string): Promise<void> {
+  const r = await captureGit([...CONFIG, 'rev-parse', '--absolute-git-dir', '--show-toplevel'], env, { cwd, timeoutMs: 30_000 }, bin);
   const [gitDir, top] = r.stdout.split('\n');
   let ok = false;
   try {
@@ -123,14 +124,19 @@ async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
 }
 
 /** The folders of the submodules (gitlinks) in `cwd`'s index that hold a repository (a `.git`). */
-async function submoduleRepos(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+async function submoduleRepos(cwd: string, env: NodeJS.ProcessEnv, bin?: string): Promise<string[]> {
   // `:/` lists the whole index, as `git add -A` takes it, with paths relative to `cwd`. Reading the
   // index would start its fsmonitor: `CONFIG` turns it off.
-  const r = await capture('git', [...CONFIG, 'ls-files', '-z', '--stage', '--', ':/'], env, {
-    cwd,
-    timeoutMs: 120_000,
-    maxCapture: MAX_OUTPUT_BYTES,
-  });
+  const r = await captureGit(
+    [...CONFIG, 'ls-files', '-z', '--stage', '--', ':/'],
+    env,
+    {
+      cwd,
+      timeoutMs: 120_000,
+      maxCapture: MAX_OUTPUT_BYTES,
+    },
+    bin,
+  );
   if (r.code !== 0) return []; // not a repository: `git add` fails by itself
   if (r.stdoutTruncated) throw new GitError(t().outputTooLarge('ls-files'));
   const out: string[] = [];
@@ -181,15 +187,21 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   env.GIT_NO_LAZY_FETCH = '1';
   // What the repository's own config would have git run is off (`repoDriverGuards`); a diff runs
   // no external diff or textconv either.
-  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env, args[0] === 'add') : [];
+  const bin = await gitCommand(env);
+  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env, args[0] === 'add', 0, bin) : [];
   const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
-  const r = await capture('git', [...CONFIG, ...guards, ...safe], env, {
-    cwd,
-    stdin: o.stdin,
-    timeoutMs: 120_000,
-    maxCapture: o.maxCapture,
-    keepStart: o.keepStart,
-  });
+  const r = await captureGit(
+    [...CONFIG, ...guards, ...safe],
+    env,
+    {
+      cwd,
+      stdin: o.stdin,
+      timeoutMs: 120_000,
+      maxCapture: o.maxCapture,
+      keepStart: o.keepStart,
+    },
+    bin,
+  );
   if (r.code !== 0 && !o.allowFail) {
     throw new GitError(t().gitFailed(String(args[0]), tail(r.stderr || r.stdout, 500)));
   }

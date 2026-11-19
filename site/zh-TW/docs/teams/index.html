@@ -365,8 +365,8 @@
         <section id="checks" aria-labelledby="checks-title">
           <h2 id="checks-title">團隊檢查</h2>
           <p>
-            團隊檢查是一份給整個團隊的規則，不論每位成員用哪個 coding agent、什麼權限都一樣，完全存取也包括在內。團隊回答後，Harness Relay
-            會自己檢查：直接看磁碟上的檔案和 commit，並執行指令，不靠 agent 自己回報。在<b>團隊設定</b>或範本的<b>團隊檢查</b>設定。
+            團隊檢查在<b>可編輯</b>與<b>完全存取</b>的對話中，讓整個團隊遵守同一份規則。Harness Relay 會自行檢查磁碟上的檔案和 commit，並執行指令。
+            到<b>團隊設定</b>或範本的<b>團隊檢查</b>設定規則。
           </p>
           <dl class="doc-terms">
             <dt>受保護路徑</dt>
@@ -385,7 +385,8 @@
             <dd>
               成員每次使用自己的工具時，在前後執行的指令（<b>新增 hook</b>）：<b>執行前</b>的 hook 對指令、檔案修改或所有呼叫執行，沒有成功就拒絕那次呼叫，它的輸出就是
               agent 收到的原因；<b>執行後</b>的 hook 沒有成功，輸出會交回給 agent 修正。hook 從 <code>RELAY_HOOK_COMMAND</code>、<code>RELAY_HOOK_FILES</code>
-              這類變數讀這次呼叫；它提到的、在你資料夾裡的腳本，會像受保護路徑一樣受保護。目前只給用 Claude Code、Codex、Copilot、Muse Code 和 Pi 的成員：其他成員的回覆會註明它的呼叫沒有經過 hook。
+              這類變數讀取這次呼叫。Harness Relay 也會保護 hook 指定的工作目錄腳本。Hook 可在 macOS 和 Linux 上用於 Claude Code、Codex、Copilot、Muse Code 和 Pi
+              支援的工具呼叫。成員未使用團隊 hook 時，回覆會註明。
             </dd>
           </dl>
           <p>
@@ -400,7 +401,8 @@
             </li>
           </ul>
           <p>
-            平行模式下，成員的結果會在你套用時檢查：它改的檔案對照受保護路徑，指令則在你的資料夾加上那個結果後執行。沒通過的結果不會套用，除非你按<b>仍要套用</b>。
+            平行模式會在套用成員的結果前，比對檔案與受保護路徑，並在套用結果後的工作目錄副本中執行指令。檢查未通過時，可以修正後重試，或選<b>仍要套用</b>。
+            如果結果修改了指令會讀取的設定，檢視後可選<b>確認後執行指令，通過就套用</b>。
             <a href="../permissions/#changes">檢視與套用修改</a>
           </p>
           <p>

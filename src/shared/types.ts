@@ -59,6 +59,17 @@ export function endpointEffort(p: EndpointCli, effort: string | undefined): stri
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
 
+/** Git needed by a user action is missing on the Harness Relay host. */
+export const GIT_MISSING = 'git-missing';
+export type GitRequirement = 'git' | 'gitBash';
+
+export interface GitInstallView {
+  available: boolean;
+  method?: 'apple' | 'winget' | 'linux';
+  command?: string;
+  job?: CliInstallJobView;
+}
+
 /**
  * The error `code` (with a 502) of the share routes when the GitHub CLI cannot be used: not installed
  * (`GH_MISSING`) or not signed in (`GH_SIGNED_OUT`). The UI then says what to do about it.
@@ -810,17 +821,20 @@ export interface ZipCheck {
 }
 
 /**
- * The largest shared page, in UTF-8 bytes. A shared page is a secret GitHub gist that
- * gistpreview.github.io shows, and it reads the gist's file through GitHub's API, which cuts a file's
- * content off at 1 MB.
+ * The largest shared page, in UTF-8 bytes. A shared page is a secret GitHub gist that Harness Relay's
+ * viewer reads from GitHub's raw files, which serve a gist's file whole up to 10 MB (a larger one only
+ * through git): a page of 9.9 MB went up with `gh gist create` and came back from them the same, also
+ * one of nothing but tags. (It was 1 MB while shares were read on gistpreview.github.io, which reads
+ * GitHub's API: that cuts a file's content off at 1 MB.)
  */
-export const SHARE_MAX_BYTES = 1_000_000;
+export const SHARE_MAX_BYTES = 10_000_000;
 
 /**
- * Where a shared conversation can be read: the page (`url`, on gistpreview) and its gist (`id`, and
- * `gistUrl` on GitHub). `filesGist`: the id of the second secret gist that holds the files the page
- * links to, when files went along (GitHub's API cuts a gist's content off in all, in name order, so a
- * large file next to the page would leave gistpreview a blank page: the files are kept apart).
+ * Where a shared conversation can be read: the page (`url`, on Harness Relay's viewer, `shareViewerUrl()`
+ * in src/shared/share.ts; on gistpreview.github.io for a share made before it) and its gist (`id`, and
+ * `gistUrl` on GitHub). `filesGist`: the id of the
+ * second secret gist that holds the files the page links to, when files went along (kept apart from the
+ * page: see shareToGist() in src/server/share.ts).
  */
 export interface ShareLink {
   id: string;
@@ -1250,6 +1264,8 @@ export interface ChecksResult {
   outcomes: CheckOutcome[];
   /** The replies whose work it checked (message ids), oldest first. */
   replyIds?: string[];
+  /** A result copied from another conversation when branching, shown in history only. */
+  historical?: true;
   /** When it was checked, and how long that took. */
   checkedAt: number;
   durationMs?: number;
@@ -1298,8 +1314,10 @@ export interface LeadAgentSettings {
 
 /** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
 export interface TeamPlan {
-  status: 'planning' | 'ready';
+  status: 'planning' | 'ready' | 'failed';
   lead: LeadAgentSettings;
+  /** The configured lead could not run for this design. */
+  leadUnavailable?: boolean;
   /**
    * kept: the current team, as it is; template: an existing template, as it is; adapted: a template
    * the lead changed for the question; custom: a team the lead designed from scratch; fallback:
@@ -1324,6 +1342,8 @@ export interface TeamPlan {
    * conversation keeps its current team. (Plans from before this step have none of these fields.)
    */
   awaitingConfirmation?: boolean;
+  /** Full-access checks can run after the user confirms this proposed team. */
+  checkOnConfirm?: boolean;
   /** The user confirmed it: the team became this one. */
   confirmedAt?: number;
   /** The user declined it: the current team stayed, and answered the question. */
@@ -2314,6 +2334,8 @@ export interface UsageLimit {
   kind?: UsageKind;
   /** What it is for, when not the whole plan: a model ("Fable"), or the CLI's own name for the limit. */
   scope?: string;
+  /** A model ID associated with the quota, when the CLI reports one separately from the display scope. */
+  model?: string;
   /** How much of it is used, 0–100. */
   usedPercent: number;
   /** When it starts over (ms since the epoch). */
@@ -2346,6 +2368,8 @@ export interface AccountUsage {
   /** The plan, as the CLI names it ("max", "prolite", "SuperGrok"). */
   plan?: string;
   limits: UsageLimit[];
+  /** The CLI explicitly says ordinary usage on this plan is blocked. */
+  planUsageBlocked?: boolean;
   /** Credits beside the plan's limits (Codex's), when the account has some. */
   credits?: { balance?: number; unlimited?: boolean };
   /** No limits to show, and why. */

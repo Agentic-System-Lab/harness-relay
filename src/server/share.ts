@@ -1,5 +1,6 @@
 // Sharing a conversation: the page the web app made of it goes up to GitHub as a secret gist, created
-// with the user's own GitHub CLI (`gh`), and is read through gistpreview.github.io. The files its
+// with the user's own GitHub CLI (`gh`), and is read on Harness Relay's website (`site/share/`, which
+// reads the gist's raw file: SHARE_VIEWER_URL). The files its
 // replies link to can go along, of any kind (text, PDF, slides, images…), in a second secret gist that
 // git pushes them into, the page's links pointing at them there.
 
@@ -8,11 +9,12 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileName } from '../shared/media';
-import { replaceFileLinks } from '../shared/share';
+import { megabytesOver, replaceFileLinks, shareSize, shareViewerUrl } from '../shared/share';
 import {
   GH_MIN_VERSION,
   GH_MISSING,
   GH_SIGNED_OUT,
+  GIT_MISSING,
   SHARE_FILE_LINKS_MAX,
   SHARE_FILE_MAX_BYTES,
   SHARE_FILES_MAX_BYTES,
@@ -24,20 +26,22 @@ import {
   type ShareLink,
 } from '../shared/types';
 import { HttpError } from './errors';
+import { gitCommand } from './gitProcess';
 import { t } from './i18n';
 import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
 import { DATA_DIR } from './settings';
 import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
-import { BREW_DIRS, findOnPath } from './voice';
+import { BREW_DIRS, findOnPath } from './executable';
 
 /**
- * The page's file in its gist. gistpreview.github.io (main.js) shows a gist's `index.html` when it has
- * one, else its first file; no file that goes along may take this name either.
+ * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as
+ * gistpreview.github.io, where shares made before it are read, shows a gist's `index.html` first); no
+ * file that goes along may take this name either.
  */
 export const SHARE_FILE = 'index.html';
 
-const GIST_URL = /https:\/\/gist\.github\.com\/(?:[A-Za-z0-9-]+\/)?([0-9a-f]{20,})\b/;
+const GIST_URL = /https:\/\/gist\.github\.com\/(?:([A-Za-z0-9-]+)\/)?([0-9a-f]{20,})\b/;
 
 /** `gh gist create` for a page on stdin: a secret gist (the default) with one HTML file. */
 export function gistArgs(description: string): string[] {
@@ -51,13 +55,16 @@ export function gistDescription(title: string): string {
 }
 
 /**
- * The links for the gist `gh gist create` printed. Only github.com gists: gistpreview reads them from
- * api.github.com, so one on a GitHub Enterprise host could not be shown.
+ * The links for the gist `gh gist create` printed. Only github.com gists: the viewer reads them from
+ * gist.githubusercontent.com, so one on a GitHub Enterprise host could not be shown. The viewer's
+ * address names the gist's owner, which gh prints in it (`https://gist.github.com/<owner>/<id>`); for
+ * an address without one, the id alone, whose owner the viewer asks GitHub's API for.
  */
 export function parseGistUrl(stdout: string): ShareLink | undefined {
   const m = GIST_URL.exec(stdout);
   if (!m) return undefined;
-  return { id: m[1]!, url: `https://gistpreview.github.io/?${m[1]}`, gistUrl: m[0] };
+  const [gistUrl, owner, id] = [m[0], m[1], m[2]!];
+  return { id, url: shareViewerUrl(owner, id), gistUrl };
 }
 
 /** A gist's id as `gh` takes it (hex only: nothing else can reach its command line). */
@@ -103,7 +110,7 @@ export function gistError(r: Pick<SpawnResult, 'stderr' | 'timedOut'>, failed: (
 export class ShareError extends Error {
   constructor(
     message: string,
-    public code?: typeof GH_MISSING | typeof GH_SIGNED_OUT,
+    public code?: typeof GH_MISSING | typeof GH_SIGNED_OUT | typeof GIT_MISSING,
     public leftover?: ShareLink,
   ) {
     super(message);
@@ -298,7 +305,7 @@ export function rawUrl(url: string): string | undefined {
 
 /**
  * The gist `gh api` created, from what CREATED_JQ printed: its links (`link`, only for a github.com
- * gist, which gistpreview can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
+ * gist, which the viewer can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
  * and each file's raw URL by name. `id` alone when that is all that can be read of it (so it can
  * still be deleted).
  */
@@ -353,9 +360,15 @@ const shareWords = (): FilesGistWords => ({
   notGithub: t().shareNotGithub,
 });
 
+/**
+ * How long gh may take to put the page up: up to SHARE_MAX_BYTES of it, sent as JSON (a 9.9 MB page of
+ * tags alone took 9 seconds on a fast line, and would take minutes on a slow one).
+ */
+export const PAGE_TIMEOUT_MS = 300_000;
+
 /** Creates the page's gist: one index.html, read from stdin. */
 async function createPageGist(html: string, description: string, run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<ShareLink> {
-  const r = await gh(run, gistArgs(description), html);
+  const r = await gh(run, gistArgs(description), html, PAGE_TIMEOUT_MS);
   const link = r.code === 0 ? parseGistUrl(r.stdout) : undefined;
   if (link) return link;
   throw r.code === 0 ? new ShareError(t().shareFailed(t().shareNoUrl)) : await ghFailure(run, r);
@@ -471,21 +484,23 @@ export function gitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv 
   return out;
 }
 
-/** Runs git for a share: what it printed, trimmed, or a ShareError saying why it failed. */
-async function git(
-  run: (o: SpawnOptions) => Promise<SpawnResult>,
-  args: string[],
-  o: { stdin?: string | Buffer; timeoutMs?: number } = {},
-): Promise<string> {
-  let r: SpawnResult;
-  try {
-    r = await run({ bin: 'git', args, env: gitEnv(), stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000 });
-  } catch (err) {
-    if (err instanceof CommandNotFoundError) throw new ShareError(t().shareFilesFailed(err.message));
-    throw err;
-  }
-  if (r.code === 0) return r.stdout.trim();
-  throw new ShareError(t().shareFilesFailed(r.timedOut ? t().timedOut : tail(r.stderr, 300) || t().shareNoDetail));
+type GistGit = (args: string[], o?: { stdin?: string | Buffer; timeoutMs?: number }) => Promise<string>;
+
+/** Resolve Git once and use the same executable for the preflight and all commands of a share. */
+async function gistGit(run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<GistGit> {
+  const env = gitEnv();
+  const bin = await gitCommand(env);
+  return async (args, o = {}) => {
+    let r: SpawnResult;
+    try {
+      r = await run({ bin, args, env, stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000 });
+    } catch (err) {
+      if (err instanceof CommandNotFoundError) throw new ShareError(t().gitMissing, GIT_MISSING);
+      throw err;
+    }
+    if (r.code === 0) return r.stdout.trim();
+    throw new ShareError(t().shareFilesFailed(r.timedOut ? t().timedOut : tail(r.stderr, 300) || t().shareNoDetail));
+  };
 }
 
 /** A git object id (SHA-1, or SHA-256). */
@@ -554,29 +569,31 @@ export async function pushToGist(
   files: GistUpload[],
   run: (o: SpawnOptions) => Promise<SpawnResult> = runProcess,
   root: string = shareTmpRoot(),
+  resolvedGit?: GistGit,
 ): Promise<void> {
   checkNames(files);
+  const git = resolvedGit ?? (await gistGit(run));
   await mkdir(root, { recursive: true, mode: 0o700 });
   const dir = await mkdtemp(join(root, CLONE_PREFIX));
   try {
     const repo = join(dir, 'gist.git');
     const config = gitConfig(ghBin());
     // `--template=`: no hooks or other files from the user's templates.
-    await git(run, [...config, 'clone', '--bare', '--quiet', '--template=', gistGitUrl(id), repo], { timeoutMs: 120_000 });
+    await git([...config, 'clone', '--bare', '--quiet', '--template=', gistGitUrl(id), repo], { timeoutMs: 120_000 });
     const at = [...config, '--git-dir', repo];
-    const branch = checked(await git(run, [...at, 'symbolic-ref', 'HEAD']), BRANCH);
+    const branch = checked(await git([...at, 'symbolic-ref', 'HEAD']), BRANCH);
     let tree = '';
     for (const f of files) {
-      const blob = checked(await git(run, [...at, 'hash-object', '-w', '--no-filters', '--stdin'], { stdin: f.data }), OBJECT_ID);
+      const blob = checked(await git([...at, 'hash-object', '-w', '--no-filters', '--stdin'], { stdin: f.data }), OBJECT_ID);
       // `mktree -z` takes each name as it is (gistFileNames leaves no slash, control character or NUL in one).
       tree += `100644 blob ${blob}\t${f.name}\0`;
     }
-    const treeId = checked(await git(run, [...at, 'mktree', '-z'], { stdin: tree }), OBJECT_ID);
+    const treeId = checked(await git([...at, 'mktree', '-z'], { stdin: tree }), OBJECT_ID);
     const commit = checked(
-      await git(run, [...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']),
+      await git([...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']),
       OBJECT_ID,
     );
-    await git(run, [...at, 'push', '--quiet', '--no-verify', gistGitUrl(id), `${commit}:${branch}`], { timeoutMs: PUSH_TIMEOUT_MS });
+    await git([...at, 'push', '--quiet', '--no-verify', gistGitUrl(id), `${commit}:${branch}`], { timeoutMs: PUSH_TIMEOUT_MS });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -640,6 +657,8 @@ export async function filesToGist(
   words: FilesGistWords = shareWords(),
 ): Promise<{ gist: { id: string; url?: string }; urls: string[] }> {
   checkNames(files); // before anything is made
+  const git = await gistGit(run);
+  await git(['--version'], { timeoutMs: 4000 });
   const token = o.token ?? shareToken();
 
   const r = await gh(run, createGistArgs(), createGistBody(filesGistDescription(description, token)));
@@ -654,7 +673,7 @@ export async function filesToGist(
   try {
     o.onFilesGist?.(leftoverLink(gist.id, gist.url));
     if (!created.link) throw new ShareError(words.notGithub);
-    await pushToGist(created.id, files, run, o.tmpRoot);
+    await pushToGist(created.id, files, run, o.tmpRoot, git);
     urls = o.readBack === false ? [] : await pushedUrls(run, created.id, files, o.wait ?? sleep);
   } catch (err) {
     return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message), words);
@@ -671,11 +690,12 @@ export async function filesToGist(
  * 1. the files (filesToGist), with each file's raw URL;
  * 2. the page, as without files, its links pointing at those raw URLs.
  *
- * They are kept apart because GitHub's API, which gistpreview reads, gives a gist's files only so much
- * content in all (about 900 KB in a real test), in name order: in one gist, a large file named before
- * index.html left the page's content empty, and gistpreview showed a blank page. If the files or the
- * page cannot go up, the files gist is deleted again; if that fails too, the error says so and carries
- * it (`leftover`).
+ * They are kept apart so that the page's gist holds the page alone, as a share without files does
+ * (they came apart for gistpreview.github.io, which shares were read on before the viewer: it reads
+ * GitHub's API, which gives a gist's files only so much content in all, about 900 KB in a real test,
+ * in name order, so that a large file named before index.html left it a blank page). If the files or
+ * the page cannot go up, the files gist is deleted again; if that fails too, the error says so and
+ * carries it (`leftover`).
  */
 export async function shareToGist(
   html: string,
@@ -689,7 +709,8 @@ export async function shareToGist(
   const { gist, urls } = await filesToGist(description, files, run, o, words);
   const page = replaceFileLinks(html, (n) => urls[n]);
   const bytes = Buffer.byteLength(page);
-  if (bytes > SHARE_MAX_BYTES) return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1))), words);
+  if (bytes > SHARE_MAX_BYTES)
+    return dropFilesGist(run, gist, new ShareError(t().shareTooLarge(megabytesOver(bytes), shareSize(SHARE_MAX_BYTES))), words);
   try {
     return { ...(await createPageGist(page, description, run)), filesGist: gist.id };
   } catch (err) {

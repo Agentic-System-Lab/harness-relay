@@ -2184,7 +2184,7 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
     before: async () => refuse,
     after: async () => tell,
     program: () => undefined,
-    dispose: () => undefined,
+    dispose: async () => undefined,
   });
   const program = { bin: '/usr/bin/node', args: ['/data/tmp/hook-1.mjs', '/data/gateway/relay.sock', '/data/tmp/hook-1.token'] };
 

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
 import { PAGE_FILES, SITE_PAGES } from './site-pages';
@@ -122,7 +122,12 @@ const DATES = SITE_PAGES.map((p) => [p.url, p.url === ZH ? '2026-02-03T00:00:00Z
 function checkout(): string {
   const repo = mkdtempSync(join(tmp, 'repo-'));
   git(repo, ['init', '-q']);
-  cpSync(new URL('../site', import.meta.url), join(repo, 'site'), { recursive: true });
+  // Keep the real pages and sitemap. The workflow dates HTML files, so the media files need no history here.
+  for (const file of [...PAGE_FILES, 'site/sitemap.xml', 'site/assets/site.css']) {
+    const dest = join(repo, file);
+    mkdirSync(dirname(dest), { recursive: true });
+    cpSync(new URL(`../${file}`, import.meta.url), dest);
+  }
   git(repo, ['add', '.']);
   git(repo, ['commit', '-q', '-m', 'site'], '2026-01-02T03:04:05+08:00');
   appendFileSync(join(repo, 'site/zh-TW/index.html'), '\n');

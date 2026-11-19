@@ -26,6 +26,7 @@ import type {
   OutboxItem,
   ProgressStatus,
   Provider,
+  LeadAgentSettings,
   RunPause,
   TrackedRun,
   TeamPreset,
@@ -35,6 +36,7 @@ import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
+  GIT_MISSING,
   HOOK_PROVIDERS,
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
@@ -67,15 +69,20 @@ import { AutoGrouper } from './grouping';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
+  PlanUnavailableError,
   REVISER_BRIEFING,
+  assignmentKey,
+  assignmentModel,
   buildPlannerPrompt,
   buildRevisePrompt,
   decidePlan,
   decideRevision,
   draftPlace,
   fallbackPlan,
+  fitAgents,
   historyForLead,
   keepMemberIds,
+  memberAvailable,
   planFollowsTeam,
   parsePlanReply,
   teamSettings,
@@ -96,6 +103,7 @@ import {
 } from './attachments';
 import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
+import { checkModel } from './modelCheck';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import {
   RunCheck,
@@ -160,7 +168,7 @@ import { currentLang, isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
-import { writeGuard, type WriteGuard } from './writeGuard';
+import { realPath, writeGuard, type WriteGuard } from './writeGuard';
 import { turnHooks, type TurnHooks } from './hooks';
 
 /** A member's turn's `guard` (the team's protected paths, for its CLI to refuse writing), none when there is none. */
@@ -173,6 +181,21 @@ function guardOf(list: ConversationSettings['checks'], dirs: string[]): { guard?
     console.warn(`[checks] could not give the team's protected paths to the turn: ${(err as Error).message}`);
     return {};
   }
+}
+
+/** Translate a rule's absolute folder to the copy of its most specific working directory. */
+function mapCheckFolder<T extends { cwd?: string }>(rule: T, copies: readonly { userCwd: string; cwd: string }[]): T {
+  if (!rule.cwd || !isAbsolute(rule.cwd)) return rule;
+  const dir = realPath(rule.cwd);
+  let best: { originalLength: number; cwd: string } | undefined;
+  for (const copy of copies) {
+    const original = realPath(copy.userCwd);
+    const within = dir === original ? '' : relativeInside(original, dir);
+    if (within !== undefined && (!best || original.length > best.originalLength)) {
+      best = { originalLength: original.length, cwd: join(copy.cwd, within) };
+    }
+  }
+  return best ? { ...rule, cwd: best.cwd } : rule;
 }
 
 export { HttpError };
@@ -253,6 +276,8 @@ interface Run {
   refuseApprovals?: boolean;
   /** Auto team: the lead agent designs the team for the question, and that is all this run does. */
   designs?: boolean;
+  /** Verify an approved full-access design before applying its team. */
+  checkPlan?: ChatMessage;
   /** The design is for the conversation's schedule: this is its message, which nobody posted (`designForSchedule`). */
   designFor?: string;
   /** The design needed no confirmation (`autoConfirm`): once this run ends, the team answers. */
@@ -267,6 +292,8 @@ interface Run {
   tracking?: TrackedRun & { from: number };
   /** Where this run's replies begin in the chat (the team checks' card reads them from there). */
   from: number;
+  /** The result posted before an answer resumed this run, if it still needs its checks completed. */
+  pausedChecks?: ChatMessage;
   /** The team checks of this run (`ConversationSettings.checks`): where its folders started, who changed what since. */
   checks?: RunCheck;
   /** The team checks could not start (why): the run's card says so; never a pass. */
@@ -276,6 +303,8 @@ interface Run {
    * pass are a failure of the schedule of this conversation (its id).
    */
   unattended?: string;
+  /** Only scheduled messages may leave the queue during this run. */
+  scheduledQueueOnly?: boolean;
   /** The user asked a member to fix this team checks result (its message id): the member is shown it, seen or not. */
   fixChecks?: string;
 }
@@ -297,6 +326,8 @@ interface StartOptions {
   files?: AttachmentPart[];
   /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
   queue?: boolean;
+  /** Leave the user's messages waiting for a failed check to be resolved. */
+  scheduledQueueOnly?: boolean;
   /** The conversation's schedule sends the message (it is marked `scheduled`). */
   scheduled?: boolean;
   /** The body a program sent through the schedule's webhook, kept with the scheduled message (`ChatMessage.event`). */
@@ -311,6 +342,7 @@ interface StartOptions {
   fixChecks?: string;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
   designSchedule?: boolean;
+  checkPlan?: ChatMessage;
   /**
    * Refuse approval requests automatically in this run (see `Run.refuseApprovals`) — if every message
    * it starts with came from the schedule.
@@ -327,7 +359,8 @@ export type ScheduledSend =
   | { result: 'sent'; chatId?: string }
   | { result: 'queued' }
   | { result: 'busy'; reason?: string }
-  | { result: 'skipped' | 'failed'; reason: string };
+  | { result: 'skipped'; reason: string }
+  | { result: 'failed'; reason: string; code?: string };
 
 /** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
 type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
@@ -335,7 +368,7 @@ type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 /** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
-  return { result: 'failed', reason: (err as Error).message };
+  return { result: 'failed', reason: (err as Error).message, ...(err instanceof HttpError && err.code ? { code: err.code } : {}) };
 }
 
 /** A conversation's name taken from a message: its first line, shortened to 40 characters. */
@@ -359,6 +392,10 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   });
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
   for (const m of copies) {
+    if (m.checks) {
+      m.checks.historical = true;
+      if (m.checks.replyIds) m.checks.replyIds = m.checks.replyIds.flatMap((id) => ids.get(id) ?? []);
+    }
     if (!m.review) continue;
     if (m.review.replyIds) m.review.replyIds = m.review.replyIds.flatMap((id) => ids.get(id) ?? []);
     // Where a review that failed or was stopped started: the branch's next review reads from there too.
@@ -389,12 +426,12 @@ const MAX_PRESET_NAME = 100;
  * waits for its team, so Continue designs it again.
  */
 function designOwed(messages: ChatMessage[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
-    if (m.author.kind === 'agent') return false;
-    if (m.plan) return m.plan.status !== 'ready';
-  }
-  return false;
+  const plan = latestDesignSinceReply(messages);
+  return Boolean(plan && plan.status !== 'ready');
+}
+
+function latestDesignSinceReply(messages: ChatMessage[]): ChatMessage['plan'] {
+  return messages.findLast((m) => m.author.kind === 'agent' || m.plan)?.plan;
 }
 
 /**
@@ -411,7 +448,7 @@ export interface PlannerSource {
    * What the lead may choose from; with `cwd`, also what each CLI loads by itself there (with the
    * other working directories, `addDirs`, as runs have them).
    */
-  context(cwd?: string, addDirs?: readonly string[]): Promise<PlannerContext>;
+  context(cwd?: string, addDirs?: readonly string[], checkUsage?: boolean): Promise<PlannerContext>;
   /**
    * The model an open agent with none of its own runs on: the one its model picker shows as the
    * default (Settings' default, else its CLI catalog's default on a configured backend). The other
@@ -1096,6 +1133,7 @@ export class Orchestrator {
       const own = !waiting || opts.event !== undefined;
       await this.start(conv, own ? s.text : '', {
         queue: true,
+        scheduledQueueOnly: Boolean(checksHold(conv.messages)),
         keepTeam: true,
         scheduled: own,
         ...(own ? event : {}),
@@ -1385,7 +1423,10 @@ export class Orchestrator {
    * wherever they are — a scheduled message kept back while the user answers stays where it is, and
    * what the user wrote behind it still goes now.
    */
-  private deliverQueued(conv: Conversation, which: { recipients: AgentConfig[] } | { ids: Set<string> }): ChatMessage[] {
+  private deliverQueued(
+    conv: Conversation,
+    which: { recipients: AgentConfig[]; scheduledOnly?: boolean } | { ids: Set<string> },
+  ): ChatMessage[] {
     const queue = conv.queue ?? [];
     const posted: ChatMessage[] = [];
     for (let i = 0; i < queue.length;) {
@@ -1395,8 +1436,12 @@ export class Orchestrator {
           i++;
           continue;
         }
-      } else if (!isFor(next, which.recipients, conv.agents)) {
-        break;
+      } else {
+        if (which.scheduledOnly && !next.scheduled) {
+          i++;
+          continue;
+        }
+        if (!isFor(next, which.recipients, conv.agents)) break;
       }
       // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.
       conv.messages.push(next);
@@ -1419,13 +1464,16 @@ export class Orchestrator {
    */
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
+    if (latestDesignSinceReply(conv.messages)?.status === 'failed') return false;
     // An agent asked the user something: what was written before the question waits for the answer.
     if (conv.pause) return false;
     // Team checks that did not pass hold what the user wrote meanwhile: they decide (Send, Skip, Fix).
-    if (checksHold(conv.messages) && conv.queue.some((m) => !m.scheduled)) return false;
+    const scheduledQueueOnly = Boolean(checksHold(conv.messages));
+    const eligible = scheduledQueueOnly ? conv.queue.filter((m) => m.scheduled) : conv.queue;
+    if (!eligible.length) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
-    const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
-    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals: unattended });
+    const unattended = eligible.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
+    this.startInBackground(conv, { queue: true, scheduledQueueOnly, keepTeam: true, refuseApprovals: unattended });
     return true;
   }
 
@@ -1686,7 +1734,7 @@ export class Orchestrator {
     const convId = conv.id;
     // A run that designs the team writes nothing (the lead agent is read-only and nobody else
     // speaks), so it locks nothing.
-    const planning = this.designs(conv, text, opts);
+    const planning = Boolean(opts.checkPlan) || this.designs(conv, text, opts);
     // Reserved until the run is registered, so a settings change or an apply cannot slip in while the
     // workspace is prepared, and a delete waits for it; a message sent meanwhile waits in the queue.
     const release = this.reserve(convId);
@@ -1695,7 +1743,9 @@ export class Orchestrator {
     // Messages queued from now on were sent after this one: they wait for the first turn. When the
     // user answers an agent's question, scheduled messages stay queued too: the run picks up where
     // the team stopped, so they wait for a turn of an agent they are for, or for a run of their own.
-    const ahead = opts.queue ? new Set((conv.queue ?? []).filter((m) => !(conv.pause && m.scheduled)).map((m) => m.id)) : undefined;
+    const ahead = opts.queue
+      ? new Set((conv.queue ?? []).filter((m) => (m.scheduled ? !conv.pause : !opts.scheduledQueueOnly)).map((m) => m.id))
+      : undefined;
     let lockRoots: string[] | undefined;
     let run: Run;
     let posted: ChatMessage[] = [];
@@ -1718,7 +1768,9 @@ export class Orchestrator {
       });
       if (own) posted.push(own);
       const pausedTracked = conv.pause?.tracked;
-      resume = this.takePause(conv, posted, only, planning);
+      const resumed = this.takePause(conv, posted, only, planning);
+      resume = resumed?.schedule;
+      const pausedChecks = resumed ? this.pendingPauseChecks(conv) : undefined;
       tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
       run = {
         abort: new AbortController(),
@@ -1729,10 +1781,13 @@ export class Orchestrator {
         // Only while nothing the user wrote starts it: when they write, they are here.
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
+        ...(opts.checkPlan ? { checkPlan: opts.checkPlan } : {}),
         ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
         ...(tracking ? { tracking: { ...tracking, from: conv.messages.length } } : {}),
         from: conv.messages.length,
+        ...(pausedChecks ? { pausedChecks } : {}),
         ...(posted.length && posted.every((m) => m.scheduled) ? { unattended: opts.scheduleSource ?? convId } : {}),
+        ...(opts.scheduledQueueOnly ? { scheduledQueueOnly: true } : {}),
         ...(opts.fixChecks ? { fixChecks: opts.fixChecks } : {}),
         done: Promise.resolve(),
       };
@@ -2121,11 +2176,17 @@ export class Orchestrator {
         const confirm = Boolean(o.confirm && mine);
         if (force && !mine!.checks!.applied) card = mine;
         if (!force && hasChecks(conv.settings.checks)) {
+          const folders = await this.foldersNow(conv);
+          if (conv.settings.checks.commands?.length && this.checkCommandDeps.platform !== 'win32') {
+            const extra = [...new Set(folders.map((f) => f.root))].filter((root) => !roots.includes(root));
+            this.lockDirs(extra, conv);
+            roots.push(...extra);
+          }
           checkedFirst = true;
           this.checking.set(convId, abort);
           this.emitStatus(convId);
           try {
-            card = await this.checkBeforeApply(conv, of, checked, span, abort.signal, confirm);
+            card = await this.checkBeforeApply(conv, folders, of, checked, span, abort.signal, confirm);
           } finally {
             this.checking.delete(convId);
             this.emitStatus(convId);
@@ -2193,6 +2254,7 @@ export class Orchestrator {
    */
   private async checkBeforeApply(
     conv: Conversation,
+    folders: { cwd: string; root: string }[],
     of: { agentId: string; name: string; heads: string },
     checked: CheckedPatch[],
     span: Map<string, { base: string; head: string; files: Set<string> }>,
@@ -2201,7 +2263,6 @@ export class Orchestrator {
   ): Promise<ChatMessage> {
     const list = conv.settings.checks!;
     const started = Date.now();
-    const folders = await this.foldersNow(conv);
     const real = (p: string) => {
       try {
         return realpathSync(p);
@@ -2268,21 +2329,14 @@ export class Orchestrator {
         paths.set(root, path);
       }
       const cwds = folders.map((f) => worktreeCwd(f.root, f.cwd, paths.get(f.root)!));
-      // A command's folder given as a full path in a working directory: the same folder in its tree.
-      const mapCommand = (c: CheckCommand): CheckCommand => {
-        if (!c.cwd || !isAbsolute(c.cwd)) return c;
-        const at = folders.findIndex((f) => relativeInside(real(f.cwd), real(c.cwd!)) !== undefined || real(f.cwd) === real(c.cwd!));
-        if (at < 0) return c;
-        const rel = relativeInside(real(folders[at]!.cwd), real(c.cwd)) ?? '';
-        return { ...c, cwd: rel ? join(cwds[at]!, ...rel.split('/')) : cwds[at]! };
-      };
+      const copies = folders.map((f, i) => ({ userCwd: f.cwd, cwd: cwds[i]! }));
       // In the sandbox whenever it starts here; with full access and none, as the agents run.
       const sandboxed = conv.settings.permission !== 'full' || (await this.checkCommandDeps.sandboxAvailable()).ok;
       await this.runResultCommands(conv, msg, commands, {
         signal,
         startedAt: started,
         cwds,
-        mapCommand,
+        mapCommand: (command) => mapCheckFolder(command, copies),
         as: sandboxed ? 'edit' : 'full',
       });
     } catch (err) {
@@ -2301,8 +2355,19 @@ export class Orchestrator {
    * applied nor shown.
    */
   private async currentWorktrees(conv: Conversation, agentId: string): Promise<AgentWorktree[]> {
-    const roots = new Set(await Promise.all(cwdsOf(conv.settings).map((cwd) => repoRoot(cwd).catch(() => null))));
-    return (conv.worktrees[agentId] ?? []).filter((w) => roots.has(w.root));
+    const worktrees = conv.worktrees[agentId] ?? [];
+    if (!worktrees.length) return [];
+    const roots = new Set(
+      await Promise.all(
+        cwdsOf(conv.settings).map((cwd) =>
+          repoRoot(cwd).catch((err) => {
+            if (err instanceof HttpError && err.code === GIT_MISSING) throw err;
+            return null;
+          }),
+        ),
+      ),
+    );
+    return worktrees.filter((w) => roots.has(w.root));
   }
 
   /** The diffs of several repositories, one after another; with more than one, their paths start with their folders' names. */
@@ -2324,6 +2389,134 @@ export class Orchestrator {
     const wts = conv ? await this.currentWorktrees(conv, agentId) : [];
     if (!wts.length) throw new HttpError(404, t().noWorktree);
     return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
+  }
+
+  private activity(convId: string, msg: ChatMessage, e: AgentEvent): void {
+    switch (e.type) {
+      case 'thinking': {
+        const last = msg.parts.at(-1);
+        if (last?.type === 'thinking') {
+          last.text += e.text;
+          this.hub.emit(convId, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
+          break;
+        }
+        msg.parts.push({ type: 'thinking', text: e.text });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'plan': {
+        const part = msg.parts.find((p) => p.type === 'plan');
+        if (part) part.entries = e.entries;
+        else msg.parts.push({ type: 'plan', entries: e.entries });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'tool_start':
+        msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      case 'tool_end': {
+        const part = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
+        if (part?.type === 'tool') {
+          part.status = e.ok ? 'done' : 'error';
+          if (e.detail) part.detail = e.detail;
+          if (e.error) part.error = e.error;
+          if (e.output) part.output = e.output;
+          this.hub.emit(convId, { type: 'message', message: msg });
+        }
+        break;
+      }
+      default:
+        return;
+    }
+    this.store.saveMessage(convId, msg);
+  }
+
+  private pinPlanModels(ctx: PlannerContext, agents: AgentConfig[]): AgentConfig[] {
+    return agents.map((a) => {
+      const model = assignmentModel(ctx, a);
+      return model && !a.model ? { ...a, model } : a;
+    });
+  }
+
+  /** Check each distinct assignment once per design. Failed choices can only be replaced by checked ones. */
+  private async checkTeam(
+    conv: Conversation,
+    run: Run,
+    msg: ChatMessage,
+    ctx: PlannerContext,
+    lead: LeadAgentSettings,
+    decision: PlanDecision,
+    usage: RunResult[],
+    replace = true,
+  ): Promise<PlanDecision> {
+    const signal = AbortSignal.any([run.abort.signal, AbortSignal.timeout(60_000)]);
+    const failedModels = new Set<string>();
+    const checks = new Map<string, Promise<boolean>>();
+    let agents = this.pinPlanModels(ctx, decision.agents);
+    let replaced = false;
+    let failed: AgentConfig[] = [];
+    const verify = async (a: AgentConfig): Promise<boolean> => {
+      const id = randomUUID();
+      const label = `${PROVIDER_LABEL[a.provider]} · ${assignmentModel(ctx, a) || t().planModelDefault}`;
+      this.activity(conv.id, msg, { type: 'tool_start', id, name: t().planCheckModel, detail: label });
+      let ok = false;
+      try {
+        const account = this.settings.resolveAccount(a.provider, a.account);
+        const result = await checkModel(runners[a.provider], {
+          bin: this.settings.bin(a.provider),
+          env: this.settings.env(a.provider, account),
+          backends: this.settings.backendsFor(a.provider),
+          permission: conv.settings.permission === 'full' ? 'full' : 'read-only',
+          sandboxTerminal: this.settings.sandboxTerminal(a.provider),
+          model: await this.modelFor(a.provider, a.model, account),
+          signal,
+        });
+        ok = result.ok;
+        if (result.usage) usage.push(result.usage);
+      } catch {
+        // A failed setup counts like a failed request. Let the other checks settle before fitting again.
+      }
+      this.activity(conv.id, msg, { type: 'tool_end', id, ok, ...(ok ? {} : { error: t().planModelNoReply }) });
+      return ok;
+    };
+    // A ceiling on both time and retries keeps a broken backend from running through every model.
+    for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
+      const results = await Promise.all(
+        agents.map((a) => {
+          const key = assignmentKey(ctx, a);
+          let check = checks.get(key);
+          if (!check) {
+            check = verify(a);
+            checks.set(key, check);
+          }
+          return check;
+        }),
+      );
+      run.abort.signal.throwIfAborted();
+      failed = agents.filter((_, i) => !results[i]);
+      if (!failed.length) {
+        if (!replaced) return { ...decision, agents };
+        const kept = decision.source === 'kept';
+        const reason = [kept ? '' : decision.reason, t().planAssignmentsAdjusted].filter(Boolean).join(' ');
+        return { ...decision, source: kept ? 'fallback' : decision.source, agents, reason };
+      }
+      for (const a of failed) failedModels.add(assignmentKey(ctx, a));
+      if (!replace || attempt === 2 || signal.aborted) break;
+      try {
+        agents = this.pinPlanModels(
+          ctx,
+          fitAgents(agents, { ...ctx, staffing: { ...ctx.staffing!, failedModels } }, lead, undefined, false),
+        );
+        replaced = true;
+      } catch (err) {
+        if (!(err instanceof PlanUnavailableError)) throw err;
+        break;
+      }
+    }
+    throw new PlanUnavailableError(
+      t().planModelChecksFailed(failed.map((a) => `@${a.name} (${assignmentModel(ctx, a) ?? PROVIDER_LABEL[a.provider]})`).join(', ')),
+    );
   }
 
   /**
@@ -2362,13 +2555,22 @@ export class Orchestrator {
       : undefined;
     const history = historyForLead(conv.messages.slice(0, since));
     const started = Date.now();
-    let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
+    let ctx: PlannerContext | undefined;
+    let failure: string | undefined;
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
+    const checks: RunResult[] = [];
+    const discovery = randomUUID();
+    this.activity(conv.id, msg, { type: 'tool_start', id: discovery, name: t().planCheckAccounts });
     try {
-      ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds);
+      ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds, true);
+      this.activity(conv.id, msg, { type: 'tool_end', id: discovery, ok: true });
+      run.abort.signal.throwIfAborted();
+      if (!memberAvailable(ctx, lead)) msg.plan!.leadUnavailable = true;
+      if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
+      if (msg.plan!.leadUnavailable) throw new Error(t().planLeadUnavailable);
       let reply = '';
-      result = await runners[lead.provider].run({
+      const leadRun = runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
@@ -2390,7 +2592,12 @@ export class Orchestrator {
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
           else if (e.type === 'text_end') reply += '\n';
+          else this.activity(conv.id, msg, e);
         },
+      });
+      result = await leadRun.catch((err: unknown) => {
+        if (!run.abort.signal.aborted) msg.plan!.leadUnavailable = true;
+        throw err;
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
@@ -2398,29 +2605,52 @@ export class Orchestrator {
     } catch (err) {
       if (!run.abort.signal.aborted) {
         console.warn('[orchestrator] team design failed:', (err as Error).message);
-        decision = fallbackPlan(ctx, lead, (err as Error).message, current);
+        failure = (err as Error).message;
+        if (ctx && !(err instanceof PlanUnavailableError)) {
+          try {
+            decision = fallbackPlan(ctx, lead, failure, current);
+          } catch (fallbackError) {
+            failure = (fallbackError as Error).message;
+          }
+        }
       }
     }
 
+    const checkOnConfirm = Boolean(ctx?.staffing && conv.settings.permission === 'full' && !conv.settings.autoConfirm);
+    if (decision && ctx?.staffing && !checkOnConfirm && !run.abort.signal.aborted) {
+      try {
+        decision = await this.checkTeam(conv, run, msg, ctx, lead, decision, checks);
+      } catch (err) {
+        decision = undefined;
+        failure = (err as Error).message;
+      }
+    }
+    for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
+    const usage = (key: 'costUsd' | 'inputTokens' | 'outputTokens') =>
+      [result, ...checks].reduce<number | undefined>((total, r) => (r?.[key] === undefined ? total : (total ?? 0) + r[key]), undefined);
     msg.meta = {
       durationMs: Date.now() - started,
-      costUsd: result?.costUsd,
-      inputTokens: result?.inputTokens,
-      outputTokens: result?.outputTokens,
+      costUsd: usage('costUsd'),
+      inputTokens: usage('inputTokens'),
+      outputTokens: usage('outputTokens'),
     };
-    if (run.abort.signal.aborted || !decision) {
+    if (run.abort.signal.aborted) {
       msg.status = 'aborted';
+    } else if (!decision) {
+      msg.plan = { ...msg.plan!, status: 'failed', reason: failure };
+      msg.status = 'done';
     } else {
       // Members who stay on keep their ids, and with them their sessions.
-      const agents = keepMemberIds(decision.agents, conv.agents);
+      const proposed = checkOnConfirm && ctx ? this.pinPlanModels(ctx, decision.agents) : decision.agents;
+      const agents = keepMemberIds(proposed, conv.agents, !ctx?.staffing);
       const now = Boolean(conv.settings.autoConfirm);
       msg.plan = {
+        ...msg.plan!,
         status: 'ready',
-        lead,
         ...decision,
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
-        ...(run.designFor !== undefined ? { forSchedule: true } : {}),
+        ...(checkOnConfirm ? { checkOnConfirm: true } : {}),
       };
       msg.status = 'done';
       // Used at once, or kept on the card until the user confirms it: until then the current team
@@ -2700,6 +2930,7 @@ export class Orchestrator {
     conv: Conversation,
     agent: AgentConfig,
     cwds: string[],
+    workspace: BriefingWorkspace,
     signal: AbortSignal,
     notice: (text: string) => void,
   ): TurnHooks | undefined {
@@ -2711,7 +2942,8 @@ export class Orchestrator {
     }
     const place = { ...this.commandPlace(conv, signal), cwds };
     const gateway = this.gateway;
-    return turnHooks(list, {
+    const hooks = workspace.kind === 'isolated' ? list.map((hook) => mapCheckFolder(hook, workspace.folders)) : list;
+    return turnHooks(hooks, {
       place,
       agent: agent.name,
       provider: agent.provider,
@@ -2742,8 +2974,11 @@ export class Orchestrator {
    */
   private heldGate(conv: Conversation): string[] {
     // A card that ran none but shows the gate it carries on counts too: skipping it ends the gate.
-    const last = conv.messages.findLast((m) =>
-      m.checks?.outcomes.some((o) => o.rule === 'command' && ((o.status !== 'na' && !o.notRun) || Boolean(o.configChanged?.length))),
+    const last = conv.messages.findLast(
+      (m) =>
+        m.checks &&
+        !m.checks.historical &&
+        m.checks.outcomes.some((o) => o.rule === 'command' && ((o.status !== 'na' && !o.notRun) || Boolean(o.configChanged?.length))),
     );
     if (!last?.checks || last.checks.skippedAt) return [];
     return [...new Set(last.checks.outcomes.flatMap((o) => o.configChanged ?? []))];
@@ -2833,6 +3068,26 @@ export class Orchestrator {
     return msg;
   }
 
+  /** The current pause's unfinished checks, using the latest baseline after an interrupted recheck. */
+  private pendingPauseChecks(conv: Conversation): ChatMessage | undefined {
+    const latest = latestChecks(conv.messages);
+    const checks = latest?.checks;
+    if (!checks || checks.skippedAt) return undefined;
+    const question = conv.messages.findLast((m) => m.author.kind === 'agent' && m.asked);
+    if (!question || !checks.replyIds?.includes(question.id)) return undefined;
+    if (checks.when === 'pause') return latest;
+    if (
+      checks.when !== 'recheck' ||
+      !checks.outcomes.some((o) => o.rule === 'command' && (o.notRun === 'stopped' || o.notRun === 'interrupted'))
+    ) {
+      return undefined;
+    }
+    const paused = conv.messages.findLast(
+      (m) => m.checks?.when === 'pause' && !m.checks.historical && isDeepStrictEqual(m.checks.replyIds, checks.replyIds),
+    );
+    return paused && !paused.checks?.skippedAt ? latest : undefined;
+  }
+
   /**
    * Before the first turn of a run that may write (edit or full access), in a conversation with team
    * checks: where its folders stand (`RunCheck.start`). While the latest result has not passed and the
@@ -2842,8 +3097,8 @@ export class Orchestrator {
   private async startChecks(conv: Conversation, run: Run): Promise<void> {
     const list = conv.settings.checks;
     if (!hasChecks(list) || !run.ws.folders?.length) return;
-    const held = checksHold(conv.messages);
-    const carried = held ? this.store.checksBaseline<StoredBaseline>(conv.id, held.id) : undefined;
+    const previous = run.pausedChecks ?? checksHold(conv.messages);
+    const carried = previous ? this.store.checksBaseline<StoredBaseline>(conv.id, previous.id) : undefined;
     try {
       run.checks = await RunCheck.start(list, this.checkFolders(run.ws.folders, run.ws.isolated), this.clock(), carried);
     } catch (err) {
@@ -2873,7 +3128,7 @@ export class Orchestrator {
       // The commands are posted below when they can run; when the checks could not start, as these.
       outcomes = this.unchecked(conv, (err as Error).message, !run.checks);
     }
-    if (!touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
+    if (!run.pausedChecks && !touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
     // Commands the latest result was kept from running for stay kept from it until the user confirms
     // or skips it: a later run that did not touch the settings again does not run them unconfirmed.
     const carried = this.heldGate(conv);
@@ -2881,20 +3136,30 @@ export class Orchestrator {
     // user something, nor in parallel mode, whose results are in the members' worktrees.
     const commands = run.checks ? (conv.settings.checks?.commands ?? []) : [];
     const skipped = conv.pause ? t().checksCommandsAtEnd : run.ws.isolated ? t().checksCommandsParallel : undefined;
+    let why: string | undefined;
+    let changed: string[] = [];
+    if (commands.length && !run.ws.isolated) {
+      try {
+        changed = await this.changedCheckConfig(conv, replies, commands);
+      } catch (err) {
+        why = (err as Error).message;
+      }
+    }
+    const files = [...new Set([...carried, ...changed])];
     const msg = this.postChecks(
       conv,
       checksResult(
         [
           ...outcomes,
-          // Not run while the team waits for the user: a gate carried on shows on the card, which then offers to confirm it.
+          // The command waits until the team is done, but the confirmation requirement is recorded now.
           ...commands.map((c) => ({
             ...this.commandPending(c, skipped ? 'na' : 'running', skipped),
-            ...(conv.pause && carried.length ? { configChanged: carried } : {}),
+            ...(conv.pause && files.length ? { configChanged: files } : {}),
           })),
         ],
         {
           when: conv.pause ? 'pause' : 'run',
-          replyIds: replies.map((m) => m.id),
+          replyIds: [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)],
           checkedAt: started,
           durationMs: Date.now() - started,
         },
@@ -2902,14 +3167,14 @@ export class Orchestrator {
     );
     if (run.checks) this.store.saveChecksBaseline(conv.id, msg.id, run.checks.baseline);
     if (commands.length && !skipped) {
-      let why: string | undefined;
       try {
-        const files = [...new Set([...carried, ...(await this.changedCheckConfig(conv, replies, commands))])];
-        await this.runResultCommands(conv, msg, commands, {
-          signal: run.abort.signal,
-          startedAt: started,
-          ...(files.length ? { gate: { files, unattended: Boolean(run.unattended) } } : {}),
-        });
+        if (!why) {
+          await this.runResultCommands(conv, msg, commands, {
+            signal: run.abort.signal,
+            startedAt: started,
+            ...(files.length ? { gate: { files, unattended: Boolean(run.unattended) } } : {}),
+          });
+        }
       } catch (err) {
         why = (err as Error).message;
       } finally {
@@ -3187,6 +3452,63 @@ export class Orchestrator {
     this.emitConversation(conv);
   }
 
+  private async checkConfirmedTeam(conv: Conversation, run: Run, msg: ChatMessage): Promise<void> {
+    const plan = msg.plan!;
+    const started = Date.now();
+    const usage: RunResult[] = [];
+    msg.status = 'streaming';
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+    try {
+      // Check the approved assignments exactly. A newly unavailable one needs a new design.
+      const ctx = await this.planner.context(undefined, undefined, true);
+      run.abort.signal.throwIfAborted();
+      if (!plan.agents!.every((a) => memberAvailable(ctx, a))) throw new PlanUnavailableError(t().planCurrentUnavailable);
+      const checked = await this.checkTeam(
+        conv,
+        run,
+        msg,
+        ctx,
+        plan.lead,
+        {
+          agents: plan.agents!,
+          settings: plan.settings!,
+          source: plan.source!,
+          reason: plan.reason ?? '',
+          name: plan.name ?? '',
+        },
+        usage,
+        false,
+      );
+      run.abort.signal.throwIfAborted();
+      plan.agents = checked.agents;
+      msg.status = 'done';
+      delete plan.checkOnConfirm;
+      this.applyPlan(conv, plan);
+      this.markAnswered(conv, msg, 'confirm');
+      run.answerNext = true;
+    } catch (err) {
+      if (!run.abort.signal.aborted) {
+        plan.status = 'failed';
+        plan.reason = (err as Error).message;
+        delete plan.awaitingConfirmation;
+        delete plan.checkOnConfirm;
+      }
+    } finally {
+      msg.status = 'done';
+      for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
+      msg.meta ??= {};
+      msg.meta.durationMs = (msg.meta.durationMs ?? 0) + Date.now() - started;
+      for (const r of usage) {
+        for (const key of ['costUsd', 'inputTokens', 'outputTokens'] as const) {
+          if (r[key] !== undefined) msg.meta[key] = (msg.meta[key] ?? 0) + r[key];
+        }
+      }
+      this.store.saveMessage(conv.id, msg, true);
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    }
+  }
+
   /** The user accepts the lead agent's team design: it becomes the team, and answers the question. */
   confirmPlan(convId: string, messageId: string): void {
     this.answerPlan(convId, messageId, 'confirm');
@@ -3209,6 +3531,10 @@ export class Orchestrator {
     if (answer === 'decline' && conv.agents.length === 0) throw new HttpError(400, t().planNoCurrentTeam);
     // Not while something else holds the conversation: the team could not answer now.
     this.checkAvailable(convId, t().busy);
+    if (answer === 'confirm' && msg.plan.checkOnConfirm) {
+      this.startInBackground(conv, { checkPlan: msg });
+      return;
+    }
     if (answer === 'confirm') this.applyPlan(conv, msg.plan);
     this.markAnswered(conv, msg, answer);
     // The team answers the question now, with what the user wrote while it waited for confirmation.
@@ -3241,6 +3567,7 @@ export class Orchestrator {
 
   private markAnswered(conv: Conversation, msg: ChatMessage, answer: 'confirm' | 'decline'): void {
     delete msg.plan!.awaitingConfirmation;
+    delete msg.plan!.checkOnConfirm;
     if (answer === 'confirm') msg.plan!.confirmedAt = Date.now();
     else msg.plan!.declinedAt = Date.now();
     this.store.saveMessage(conv.id, msg, true);
@@ -3440,7 +3767,8 @@ export class Orchestrator {
     if (run.designs) {
       // The lead agent designs the team for the question, and that is all this run does. Once the
       // team is confirmed (or needs no confirmation), a run of its own answers the question.
-      await this.designTeam(conv, run);
+      if (run.checkPlan) await this.checkConfirmedTeam(conv, run, run.checkPlan);
+      else await this.designTeam(conv, run);
       return;
     }
     await this.startChecks(conv, run);
@@ -3562,7 +3890,8 @@ export class Orchestrator {
    * wrote means they are here: the run asks for approvals again, even if a schedule started it.
    */
   private deliverBefore(conv: Conversation, run: Run, recipients: AgentConfig[]): void {
-    if (this.deliverQueued(conv, { recipients }).some((m) => !m.scheduled)) {
+    if (run.fixChecks) return;
+    if (this.deliverQueued(conv, { recipients, scheduledOnly: run.scheduledQueueOnly }).some((m) => !m.scheduled)) {
       run.refuseApprovals = false;
       run.unattended = undefined;
     }
@@ -3597,11 +3926,16 @@ export class Orchestrator {
    * The user replied while the team waited for an answer: the team picks up where it stopped, and
    * the agents that asked answer first — unless the reply is Continue (nothing posted), which lets
    * the others go on without them. A reply that @mentions anyone else, a retry, a team design or a
-   * changed mode starts afresh, as does Continue with nobody left to speak. Either way the team no
-   * longer waits. Only what the user wrote counts: a scheduled message that waited in the queue is no
-   * answer, and its @mentions do not start afresh.
+   * changed mode starts afresh. Continue with nobody left to speak starts a fresh speaking order
+   * but still completes the checks for the work before the pause. Only what the user wrote counts:
+   * a scheduled message that waited in the queue is no answer, and its @mentions do not start afresh.
    */
-  private takePause(conv: Conversation, posted: ChatMessage[], only: AgentConfig[] | undefined, planning: boolean): Schedule | undefined {
+  private takePause(
+    conv: Conversation,
+    posted: ChatMessage[],
+    only: AgentConfig[] | undefined,
+    planning: boolean,
+  ): { schedule?: Schedule } | undefined {
     const pause = conv.pause;
     if (!pause) return undefined;
     conv.pause = undefined;
@@ -3618,15 +3952,17 @@ export class Orchestrator {
       return agent ? [{ agent, handedBy: r.handedBy }] : [];
     });
     const first = [...(skip ? [] : askers.map((agent) => ({ agent }))), ...rest];
-    if (!first.length && (pause.mode === 'relay' || pause.round >= pause.rounds)) return undefined;
+    if (!first.length && (pause.mode === 'relay' || pause.round >= pause.rounds)) return {};
     const participants = pause.participants.flatMap((id) => byId(id) ?? []);
     return {
-      participants: participants.length ? participants : conv.agents,
-      round: pause.round,
-      rounds: pause.rounds,
-      first,
-      hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
-      answering: new Set(skip ? [] : askers.map((a) => a.id)),
+      schedule: {
+        participants: participants.length ? participants : conv.agents,
+        round: pause.round,
+        rounds: pause.rounds,
+        first,
+        hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+        answering: new Set(skip ? [] : askers.map((a) => a.id)),
+      },
     };
   }
 
@@ -3817,51 +4153,19 @@ export class Orchestrator {
         case 'text_end':
           textOpen = false;
           return;
-        case 'thinking': {
-          textOpen = false;
-          const last = msg.parts[msg.parts.length - 1];
-          if (last?.type === 'thinking') {
-            last.text += e.text;
-            this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
-          } else {
-            msg.parts.push({ type: 'thinking', text: e.text });
-            this.hub.emit(conv.id, { type: 'message', message: msg });
-          }
-          break;
-        }
-        case 'plan': {
-          const current = msg.parts.find((p) => p.type === 'plan');
-          if (current?.type === 'plan') current.entries = e.entries;
-          else {
-            textOpen = false;
-            msg.parts.push({ type: 'plan', entries: e.entries });
-          }
-          this.hub.emit(conv.id, { type: 'message', message: msg });
-          break;
-        }
+        case 'plan':
+          // Replacing an existing to-do list does not close a streaming text block.
+          if (!msg.parts.some((part) => part.type === 'plan')) textOpen = false;
+          this.activity(conv.id, msg, e);
+          return;
+        case 'thinking':
         case 'tool_start':
           textOpen = false;
-          msg.parts.push({
-            type: 'tool',
-            id: e.id,
-            name: e.name,
-            detail: e.detail,
-            ...(e.kind ? { kind: e.kind } : {}),
-            status: 'running',
-          });
-          this.hub.emit(conv.id, { type: 'message', message: msg });
-          break;
-        case 'tool_end': {
-          const part = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
-          if (part?.type === 'tool') {
-            part.status = e.ok ? 'done' : 'error';
-            if (e.detail) part.detail = e.detail;
-            if (e.error) part.error = e.error;
-            if (e.output) part.output = e.output;
-            this.hub.emit(conv.id, { type: 'message', message: msg });
-          }
-          break;
-        }
+          this.activity(conv.id, msg, e);
+          return;
+        case 'tool_end':
+          this.activity(conv.id, msg, e);
+          return;
       }
       this.store.saveMessage(conv.id, msg);
     };
@@ -4012,7 +4316,6 @@ export class Orchestrator {
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       };
-      const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], run.abort.signal, notice);
       // The account's own: its home has its own skills, MCP servers and hooks.
       const nativeOff = this.settings.nativeOff(agent.provider, account);
       const nativeItems = this.settings.nativeItems(agent.provider, account);
@@ -4023,9 +4326,10 @@ export class Orchestrator {
       // program; below full access, a CLI whose sandbox holds its MCP servers gets no stdio stand-in
       // (`GATEWAY_SANDBOXED_MCP`), and one with no HTTP way at all none (`GATEWAY_FULL_ACCESS_ONLY`).
       const full = conv.settings.permission === 'full';
-      // Ends the gateway's calls with the turn, however the turn ends (its CLI done, failed or timed out),
-      // not only when the run is stopped: a page still opening then lets the next call have the browser.
+      // End gateway calls and hooks when the CLI finishes, fails, times out, or receives Stop.
       const turnEnd = new AbortController();
+      const turnSignal = AbortSignal.any([run.abort.signal, turnEnd.signal]);
+      const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], workspace, turnSignal, notice);
       const relay =
         this.gateway && this.outbox && tools.relayGroups.length && (full || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
           ? this.gateway.grant(
@@ -4040,7 +4344,7 @@ export class Orchestrator {
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
                 toOutbox,
-                signal: AbortSignal.any([run.abort.signal, turnEnd.signal]),
+                signal: turnSignal,
               },
               tools.relayGroups,
               { http: GATEWAY_OVER_HTTP.includes(agent.provider), fallback: full || !GATEWAY_SANDBOXED_MCP.includes(agent.provider) },
@@ -4091,7 +4395,7 @@ export class Orchestrator {
       } finally {
         turnEnd.abort();
         relay?.revoke();
-        hooks?.dispose();
+        await hooks?.dispose();
       }
     };
 

@@ -2,6 +2,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { USE_CASES } from '../scripts/demo/use-cases/cases';
 import { USE_CASE_PAGES, useCaseFiles, useCaseMedia } from '../scripts/demo/use-cases/publish';
+import { SHARE_VIEWER_URL } from '../src/shared/share';
+import { gistOf } from '../site/assets/share.js';
+import { markupText, unescapeHtml } from './site-pages';
 
 // The website's use cases: the use-cases page in each language (site/use-cases/, site/zh-TW/use-cases/), each
 // use case's section with its recording, chapters and what was asked, the home pages' list of them, the
@@ -20,24 +23,8 @@ type Node = Record<string, unknown> & { '@type': string; '@id': string };
 /** Text as a page has it in its markup (what `html.escape` writes). */
 const escaped = (s: string) =>
   s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#x27;');
-const unescaped = (s: string) =>
-  s.replaceAll('&quot;', '"').replaceAll('&#x27;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
-
-/**
- * Markup's text: every tag dropped, from its `<` to the `>` that ends it, in one walk (a pattern removed
- * once could leave a tag that its removal put together, as `<scr<b>ipt>` would `<script>`), then the
- * entities read. No `<` of the markup is left: one in the text is the `&lt;` it was written as.
- */
-function textOf(html: string): string {
-  let text = '';
-  let inTag = false;
-  for (const c of html) {
-    if (inTag) inTag = c !== '>';
-    else if (c === '<') inTag = true;
-    else text += c;
-  }
-  return unescaped(text);
-}
+const unescaped = unescapeHtml;
+const textOf = markupText;
 
 /** A use case section's heading, as text (its phrase spans dropped). */
 const h2Text = (section: string) => textOf(section.match(/<h2 id="[^"]+">([\s\S]*?)<\/h2>/)![1]!);
@@ -208,8 +195,11 @@ describe('the use-cases pages', () => {
         expect(links, `${uc.slug} ${lang}`).toBeTruthy();
         // Right under what was asked.
         expect(s, `${uc.slug} ${lang}`).toMatch(/<\/blockquote>\s*<ul class="usecase-links">/);
-        const shared = [...links!.matchAll(/href="(https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{20,})"/g)];
+        // On Harness Relay's own viewer, which reads GitHub's raw files: never gistpreview's, which reads GitHub's API (60 times an hour for each reader).
+        const shared = [...links!.matchAll(/href="([^"]*)">(?:Read the whole conversation|看完整對話)</g)].map((m) => m[1]!);
         expect(shared, `${uc.slug} ${lang}`).toHaveLength(1);
+        expect(shared[0]!.startsWith(SHARE_VIEWER_URL), shared[0]).toBe(true);
+        expect(gistOf(new URL(shared[0]!).hash), shared[0]).toBeDefined();
         // Every attached file it links to is in the repository, shown on GitHub (never a download), and nothing else is in its folder.
         expect(links!, `${uc.slug} ${lang}`).not.toContain(' download');
         const files = [...links!.matchAll(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay\/blob\/main\/([^"]+)"/g)].map(

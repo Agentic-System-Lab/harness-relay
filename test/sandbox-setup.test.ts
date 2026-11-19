@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/server/app';
-import { NODE_VERSION, folderNpm, type NodeBuild } from '../src/server/cliInstall';
+import { InstallJob, NODE_VERSION, folderNpm, type NodeBuild } from '../src/server/cliInstall';
 import { openDatabase } from '../src/server/db';
 import { Hub } from '../src/server/hub';
 import { withLang } from '../src/server/i18n';
@@ -422,6 +422,22 @@ describe('installing what the sandboxes need', () => {
     expect(calls[0]!.env).toMatchObject({ KEEP: 'me', NO_COLOR: '1' });
     expect(v.job?.log).toContain('$ sudo apt-get install bubblewrap socat ripgrep slirp4netns iproute2 iptables util-linux');
     expect(changed).toHaveBeenCalled();
+  });
+
+  it('serializes shared package installs across Git and sandbox jobs', async () => {
+    let release!: (value: SpawnResult) => void;
+    const installing = new Promise<SpawnResult>((resolve) => {
+      release = resolve;
+    });
+    const { s, calls } = setup({ onRun: (step) => (step.args.includes('HARNESS_RELAY_PACKAGES=git') ? installing : undefined) });
+    const git = s.linux.install(new InstallJob(), ['git']);
+    s.install();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]!.args).toContain('HARNESS_RELAY_PACKAGES=git');
+    release(result(0));
+    await git;
+    expect((await ended(s)).job?.state).toBe('success');
+    expect(calls).toHaveLength(2);
   });
 
   it('as root, runs the script itself; with pkexec, asks once for the password, and says so when it was not given', async () => {

@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { checksHold } from '../src/shared/checks';
+import { checksHold, latestChecks } from '../src/shared/checks';
 import {
   agentMessages,
   calls,
@@ -172,6 +172,29 @@ describe('team checks', () => {
     expect(() => orchestrator.skipChecks(conv.id, again.id)).toThrow();
   });
 
+  it('keeps the source chat’s check result as history in a branch', async () => {
+    const conv = checked();
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const source = lastCard(conv);
+    await orchestrator.send(conv.id, '@Bob continue');
+    await finish(conv.id);
+
+    const branch = await orchestrator.branch(conv.id, agentMessages(conv).at(-1)!.id);
+    const copied = lastCard(branch);
+    expect(copied.checks).toMatchObject({
+      status: 'failed',
+      replyIds: agentMessages(branch)
+        .slice(0, 2)
+        .map((m) => m.id),
+    });
+    expect(latestChecks(branch.messages)).toBeUndefined();
+    expect(checksHold(branch.messages)).toBeUndefined();
+    await expect(orchestrator.recheckChecks(branch.id, copied.id)).rejects.toMatchObject({ status: 409 });
+    expect(checksHold(conv.messages)).toBe(source);
+  });
+
   it('asks one member to fix it: a message from the user, and a turn of its own that is shown the result', async () => {
     const conv = checked();
     fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
@@ -190,6 +213,23 @@ describe('team checks', () => {
     // Bob put it back: the run's own result passes.
     expect(lastCard(conv).checks!.status).toBe('passed');
     await expect(orchestrator.fixChecks(conv.id, lastCard(conv).id, 'b')).rejects.toThrow();
+  });
+
+  it('keeps a held follow-up out of the designated fix turn', async () => {
+    const conv = checked();
+    let release!: () => void;
+    fake.gates.Bob = new Promise((resolve) => (release = resolve));
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Bob')).toBe(true));
+    await orchestrator.send(conv.id, 'my queued question');
+    release();
+    await finish(conv.id);
+
+    await orchestrator.fixChecks(conv.id, lastCard(conv).id, 'b');
+    await finish(conv.id);
+    expect(promptOf('Bob')).not.toContain('my queued question');
+    expect(conv.queue?.map(textOf)).toEqual(['my queued question']);
   });
 
   it('marks the latest result stale once a later turn changes the working directory', async () => {
@@ -264,6 +304,36 @@ describe('team checks', () => {
     });
     expect(lastCard(conv).checks!.status).toBe('failed');
     expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'The team checks did not pass' });
+  });
+
+  it('leaves a held user follow-up in the queue when an automation runs', async () => {
+    const conv = checked();
+    let release!: () => void;
+    fake.gates.Bob = new Promise((resolve) => (release = resolve));
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Bob')).toBe(true));
+    await orchestrator.send(conv.id, 'my queued question');
+    release();
+    await finish(conv.id);
+    expect(checksHold(conv.messages)).toBeDefined();
+
+    conv.schedule = {
+      text: 'nightly',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: Date.now(),
+    };
+    store.saveSchedule(conv);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    expect(conv.messages.filter((m) => m.author.kind === 'user').map(textOf)).toEqual(['go', 'nightly']);
+    expect(conv.queue?.map(textOf)).toEqual(['my queued question']);
   });
 
   it('copies a template’s list into a conversation that has none, and never over one it has', async () => {
@@ -440,6 +510,73 @@ describe('team checks: commands', () => {
     await orchestrator.send(parallel.id, 'go');
     await finish(parallel.id);
     expect(commandOf(parallel)).toMatchObject({ status: 'na' });
+  });
+
+  it.each([
+    ['an answer', 'ANSWER: go on'],
+    ['Continue', ''],
+  ])('checks earlier edits when %s ends a pause with no new changes', async (_action, text) => {
+    const conv = commanded('true');
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    const ran = vi.fn();
+    orchestrator.checkCommandDeps = gated(Promise.resolve(), ran);
+    fake.asking.add('Bob');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const paused = lastCard(conv);
+    expect(paused.checks).toMatchObject({ when: 'pause', status: 'na' });
+    expect(ran).not.toHaveBeenCalled();
+
+    fake.asking.clear();
+    await orchestrator.send(conv.id, text);
+    await finish(conv.id);
+    expect(ran).toHaveBeenCalledTimes(1);
+    expect(commandOf(conv)).toMatchObject({ status: 'passed' });
+    expect(lastCard(conv).checks!.replyIds).toEqual(agentMessages(conv).map((m) => m.id));
+  });
+
+  it('does not repeat a command completed by Check again during a pause', async () => {
+    const conv = commanded('true');
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    const ran = vi.fn();
+    orchestrator.checkCommandDeps = gated(Promise.resolve(), ran);
+    fake.asking.add('Bob');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    await finish(conv.id);
+    expect(commandOf(conv).status).toBe('passed');
+    expect(conv.pause).toBeDefined();
+
+    fake.asking.clear();
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes pending checks when a Check again attempt was stopped during a pause', async () => {
+    const conv = commanded('true');
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    fake.asking.add('Bob');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    const began = vi.fn();
+    orchestrator.checkCommandDeps = gated(new Promise(() => {}), began);
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    await vi.waitFor(() => expect(began).toHaveBeenCalledTimes(1));
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'error', notRun: 'stopped' });
+
+    const completed = vi.fn();
+    orchestrator.checkCommandDeps = gated(Promise.resolve(), completed);
+    fake.asking.clear();
+    await orchestrator.send(conv.id, 'ANSWER: go on');
+    await finish(conv.id);
+    expect(completed).toHaveBeenCalledTimes(1);
+    expect(commandOf(conv).status).toBe('passed');
+    expect(lastCard(conv).checks!.replyIds).toEqual(agentMessages(conv).map((m) => m.id));
   });
 
   it('Check again runs them in the background: the chat is busy meanwhile, a message waits, and Stop stops them', async () => {
@@ -721,6 +858,31 @@ describe('team checks: applying a parallel result', () => {
   const parallel = (checks: NonNullable<Parameters<typeof conversation>[0]['checks']>, permission: 'edit' | 'full' = 'full') =>
     conversation({ mode: 'parallel', permission, checks });
   const commandOf = (conv: Conversation) => applyCard(conv).checks!.outcomes.find((o) => o.rule === 'command')!;
+
+  it.skipIf(process.platform === 'win32')('reserves every working directory the pre-apply commands check', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'true' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    const extra = join(root, `extra-${conv.id}`);
+    mkdirSync(extra);
+    const next = { ...conv.settings, extraCwds: [extra] };
+    await orchestrator.prepareWorkspace({ ...conv, settings: next });
+    conv.settings = next;
+    store.saveMeta(conv);
+    const other = conversation({ cwd: extra, mode: 'roundtable', permission: 'full' });
+    let release!: () => void;
+    fake.gates.Alice = new Promise((resolve) => (release = resolve));
+    orchestrator.checkCommandDeps = { ...defaultCheckCommandDeps, sandboxAvailable: async () => ({ ok: false, reason: 'test' }) };
+    await orchestrator.send(other.id, 'write to the added folder');
+    try {
+      await expect(orchestrator.applyAgentWork(conv.id, 'b')).rejects.toMatchObject({ status: 409 });
+    } finally {
+      release();
+      await finish(other.id);
+    }
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+  });
 
   it('holds a result that changes a protected file, and applies it anyway when asked', async () => {
     const conv = parallel({ protectedPaths: ['Bob.txt'] });

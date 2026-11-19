@@ -264,8 +264,9 @@ export function keepImages(base: number, sizes: (number | undefined)[], limit = 
 }
 
 /**
- * Nothing on a shared page loads from anywhere: no scripts, and only styles and images it holds.
- * (Through gistpreview.github.io, too, which writes the page into its own.)
+ * Nothing on a shared page loads from anywhere: no scripts, and only styles and images it holds. (In
+ * Harness Relay's viewer too, site/share/, whose frame runs no script anyway; and on
+ * gistpreview.github.io, which writes the page into its own, for shares made before the viewer.)
  */
 export const SHARE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
 
@@ -304,8 +305,8 @@ export function shareDocument(o: { lang: string; title: string; css: string; bod
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="referrer" content="no-referrer">',
     // Anyone with the link can open it, but it is for those it was given to: never in a search engine's
-    // results, nor its links followed from here. gistpreview writes it into its own page, where the
-    // crawlers that run scripts (Google's) still read this.
+    // results, nor its links followed from here. (The viewer says so for its own page too, as
+    // gistpreview, which writes it into its own page, leaves this for crawlers that run scripts.)
     '<meta name="robots" content="noindex, nofollow">',
     '<meta name="generator" content="Harness Relay">',
     `<title>${escapeHtml(o.title)} · Harness Relay</title>`,
@@ -320,7 +321,7 @@ export function shareDocument(o: { lang: string; title: string; css: string; bod
     .join('\n');
 }
 
-/** A share's files gist on GitHub (only github.com gists are kept: gistpreview reads no other). */
+/** A share's files gist on GitHub (only github.com gists are kept: the viewer reads no other). */
 export function filesGistUrl(id: string): string {
   return `https://gist.github.com/${id}`;
 }

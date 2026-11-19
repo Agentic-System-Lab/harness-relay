@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { crc32 } from 'node:zlib';
 import { tmpdir } from 'node:os';
@@ -428,7 +429,7 @@ describe('uploading the screenshots', () => {
     const pushed: Buffer[] = [];
     let n = 0;
     const run = async (o: SpawnOptions) => {
-      if (o.bin === 'git') {
+      if (/^git(?:\.exe)?$/i.test(basename(o.bin))) {
         if (gitCommand(o.args) === 'hash-object') pushed.push(o.stdin as Buffer);
         return git(o);
       }
@@ -459,7 +460,8 @@ describe('uploading the screenshots', () => {
   });
 
   it('says how to install gh when it is missing, with the code the dialog explains', async () => {
-    const run = async () => {
+    const run = async (o: SpawnOptions) => {
+      if (o.args[0] === '--version') return result({ stdout: 'git version 2.50.1' });
       throw new CommandNotFoundError('gh');
     };
     const err = (await uploadScreenshots(files, run, opts).catch((e: unknown) => e)) as ShareError;

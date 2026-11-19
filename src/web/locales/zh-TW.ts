@@ -1,3 +1,4 @@
+import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
 import type {
   OAuthProviderId,
   OAuthUse,
@@ -887,6 +888,11 @@ export const zhTW = {
   },
 
   plan: {
+    leadUnavailable: (lead: string) => `首席 agent（${lead}）本次無法使用。`,
+    leadUnavailableHint: '你可以到「設定與登入 → 首席 agent」切換。',
+    preparingFallback: '正在準備備援團隊…',
+    checkOnConfirm: '確認這個團隊後，會先測試模型再開始回答。',
+    activity: '團隊設計進度',
     planning: (lead: string) => `首席 agent（${lead}）正在為這個問題組隊…`,
     title: '團隊設計',
     by: (lead: string) => `首席 agent：${lead}`,
@@ -981,7 +987,7 @@ export const zhTW = {
     // Team settings and the template editor.
     editorTitle: '團隊檢查',
     editorHint:
-      '團隊回答後，Harness Relay 會自己檢查這些規則，不論成員用哪個 CLI、什麼權限；hook 則在成員使用工具的當下執行。只在可以修改檔案時檢查；檢查只回報，不會撤銷修改。',
+      'Harness Relay 會在可編輯與完全存取的對話中依這些規則檢查成果。Hook 會在支援的工具呼叫前後執行，成果檢查的結果會顯示在對話裡。',
     protectedPaths: '受保護路徑',
     protectedPathsHint: '一行一條，寫法同 .gitignore，例如 .env、*.pem、secrets/、config/prod.yml。被 git 忽略的檔案也會檢查。',
     protectedPathsBefore:
@@ -989,7 +995,7 @@ export const zhTW = {
     commitPattern: 'commit 格式（正規表示式）',
     commitPatternHint: '團隊每個 commit 的標題都要符合。只在圓桌和接力模式檢查。',
     conventional: '填入 Conventional Commits',
-    readOnlyNote: '目前是唯讀權限，團隊不會修改檔案，所以不會檢查。',
+    readOnlyNote: '唯讀對話會略過團隊檢查與 hook。',
     badPattern: (why: string) => `不是有效的正規表示式：${why}`,
     badPath: (p: string) => `無法使用「${p}」：請寫工作目錄裡的相對路徑，不能有 ..`,
     count: (n: number) => `${n} 條規則`,
@@ -1344,7 +1350,7 @@ export const zhTW = {
     copy: '複製',
     linkHeading: '公開連結',
     linkHint:
-      '用你的 GitHub CLI（gh）帳號把這個頁面上傳成 secret gist，透過 gistpreview.github.io 顯示。有連結的人都能打開，但不會被列出，也搜尋不到。',
+      '用你的 GitHub CLI（gh）帳號把這個頁面上傳成 secret gist，在 Harness Relay 的網站上顯示。有連結的人都能打開，但不會被列出，也搜尋不到。',
     create: '建立連結',
     preparing: '正在製作頁面…',
     uploading: '正在上傳到 GitHub…',
@@ -1352,9 +1358,9 @@ export const zhTW = {
     open: '開啟',
     viewGist: '在 GitHub 查看 gist',
     manage: '在「設定」管理或移除分享',
-    shrunk: '為了放進 1 MB，圖片已縮小。',
-    dropped: (n: number) => `有 ${n} 張圖片沒有放進去（放不進 1 MB，或讀不到）。`,
-    tooLarge: (mb: string) => `這個頁面有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
+    shrunk: (max: string) => `為了放進 ${max}，圖片已縮小。`,
+    dropped: (n: number, max: string) => `有 ${n} 張圖片沒有放進去（放不進 ${max}，或讀不到）。`,
+    tooLarge: (mb: string, max: string) => `這個頁面有 ${mb} MB，超過分享頁能放的 ${max}。請改成分享到比較前面的某則回覆。`,
     streaming: '團隊還在回覆：等這段回覆寫完再建立連結，頁面才不會停在寫到一半的地方。',
     gone: '這則回覆已經不在對話裡了（重試或編輯過）。請從現在的回覆重新分享。',
     editing: '有一則訊息正在編輯：送出或取消編輯後再建立連結。',
@@ -1982,8 +1988,7 @@ export const zhTW = {
         curl: (p: string) => `要在這裡安裝 ${p} 需要 curl，但 PATH 上找不到。`,
         tar: (p: string) => `要在這裡安裝 ${p} 需要 tar（用來解開 Node.js 的下載檔），但找不到。`,
         bash: (p: string) => `要在這裡安裝 ${p} 需要 bash，但 PATH 上找不到。`,
-        gitBash: (p: string) =>
-          `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
+        gitBash: (p: string) => `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請按「安裝 Git」完成設定。`,
         powershell: (p: string) => `要在這裡安裝 ${p} 需要 Windows PowerShell，但找不到。`,
         system: (p: string) => `Harness Relay 無法在這個系統上替你安裝 ${p}，請到它的官網照說明安裝。`,
       } as Record<CliInstallBlock, (p: string) => string>,
@@ -2069,6 +2074,25 @@ export const zhTW = {
   },
 
   /** What the agents' sandboxes need: Settings → Sandboxes, and the dialog New chat opens while something is missing. */
+  gitInstall: {
+    title: '需要 Git',
+    body: '這個操作需要在執行 Harness Relay 的電腦上安裝 Git。',
+    bash: '這個 CLI 安裝程式需要 Git for Windows 隨附的 Bash。',
+    methods: {
+      apple: 'macOS 會詢問是否安裝包含 Git 的 Apple 命令列工具。',
+      winget: 'Windows 套件管理員會安裝 Git for Windows。Windows 可能會要求確認權限。',
+      linux: '系統套件管理員會安裝 Git，過程中可能會要求輸入管理員密碼。',
+    },
+    appleWaiting: '請在 macOS 對話框完成命令列工具安裝，再按「重新檢查」。',
+    installing: '正在安裝 Git…',
+    ready: 'Git 已可使用。請關閉對話框，再試一次原本的操作。',
+    manual: '這台電腦沒有可用的自動安裝方式。請在執行 Harness Relay 的電腦上安裝 Git，再按「重新檢查」。',
+    instructions: 'Git 安裝說明',
+    install: '安裝 Git',
+    retry: '重新安裝',
+    check: '重新檢查',
+    later: '稍後再說',
+  },
   sandboxSetup: {
     title: '沙箱',
     hint: '在完全存取以外，agent 執行的指令都在作業系統的沙箱裡跑：只能寫入工作目錄，也碰不到你的瀏覽器資料與 Harness Relay 的資料庫。沙箱少了需要的東西時，Harness Relay 不會讓指令在沙箱外執行，所以那些 agent 的指令就無法執行。',
@@ -2241,14 +2265,14 @@ export const zhTW = {
       },
       {
         title: '團隊檢查',
-        body: '一份給整個團隊的規則，在團隊設定或範本裡設定，不論成員用哪個 agent、什麼權限都一樣：',
+        body: '在團隊設定或範本裡設定一份給整個團隊的規則。團隊檢查會在可編輯或完全存取的對話中執行。',
         points: [
           '受保護路徑：寫法同 .gitignore，例如 .env、*.pem，團隊不能新增、修改或刪除',
           'commit 格式：每個 commit 的標題都要符合的正規表示式',
           '指令：例如 npm test，要成功才算通過',
-          'Hook：成員每次使用工具前後執行的指令，「執行前」的 hook 沒成功就拒絕那次呼叫（目前限 Claude Code、Muse Code 和 Pi）',
+          `Hook 會在 macOS 和 Linux 上、${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join('、')} 支援的工具呼叫前後執行。「執行前」的 hook 沒成功就拒絕那次呼叫。`,
           '團隊回答後，Harness Relay 自己檢查，回覆後面的卡片寫出每條的結果；沒通過時，成員下一次發言會被要求修正，你也可以重新檢查、請成員修正或略過',
-          '只回報，不會撤銷修改；設定 → 工具庫 → 團隊檢查預設，是每個新對話一開始帶著的規則',
+          '平行模式會在套用成員的結果前執行檢查指令。到「設定 → 工具庫 → 團隊檢查預設」可設定新對話和新自動任務一開始帶著的規則。',
         ],
       },
       {
@@ -2264,7 +2288,7 @@ export const zhTW = {
         title: '分享對話',
         body: '對話上方的「分享」（手機上在 ⋯ 裡）會分享整段對話；agent 回覆下方的分享圖示會分享到這則回覆為止的內容。工具呼叫和思考過程都不會放進去：',
         points: [
-          '可以複製成 Markdown，或建立公開連結：一個和聊天室一樣的頁面，用你的 GitHub CLI（gh）上傳成 GitHub 上的 secret gist，在 gistpreview.github.io 打開',
+          '可以複製成 Markdown，或建立公開連結：一個和聊天室一樣的頁面，用你的 GitHub CLI（gh）上傳成 GitHub 上的 secret gist，在 Harness Relay 的網站上打開',
           '「設定 → 分享的對話」列出所有連結；移除不要的，它的 gist 就會被刪除',
         ],
       },

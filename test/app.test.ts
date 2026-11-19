@@ -40,7 +40,7 @@ import {
   type TeamRevision,
   type WorkingDirectories,
 } from '../src/shared/types';
-import { shareFileHref } from '../src/shared/share';
+import { shareFileHref, shareViewerUrl } from '../src/shared/share';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -494,6 +494,81 @@ describe('settings', () => {
     writeFileSync(file, '');
     expect((await put({ defaultCwd: file, createCwd: true })).status).toBe(400);
     expect((await put({ defaultCwd: join(file, 'sub'), createCwd: true })).status).toBe(400);
+  });
+
+  it('allows only a signed-in JSON POST to start Git installation', async () => {
+    const { AuthStore, SESSION_COOKIE } = await import('../src/server/auth');
+    const { GitInstall } = await import('../src/server/gitInstall');
+    const db = openDatabase(':memory:');
+    const auth = new AuthStore(db);
+    const signIn = auth.redeem(auth.createCode(60_000).code, 'Git setup test')!;
+    const settings = new SettingsStore(db);
+    const ownStore = new Store(db);
+    const ownHub = new Hub();
+    let available = false;
+    const install = vi.fn(async () => {
+      available = true;
+    });
+    const gitInstall = new GitInstall(
+      { packageManager: () => 'apt', adminWay: () => 'sudo', install },
+      { platform: 'linux', hasGit: async () => available },
+    );
+    const own = createApp({
+      auth,
+      store: ownStore,
+      settings,
+      hub: ownHub,
+      orchestrator: new Orchestrator(ownStore, ownHub, settings),
+      providers: new ProviderService(settings),
+      gitInstall,
+    });
+    const url = '/api/git-install';
+    const signedIn = { ...HOST, cookie: `${SESSION_COOKIE}=${signIn.cookie}`, 'x-relay-key': signIn.key };
+    try {
+      expect((await own.request(url, json('POST', {}))).status).toBe(401);
+      expect((await own.request(url, json('POST', {}, { ...signedIn, origin: 'https://another.example' }))).status).toBe(403);
+      expect((await own.request(url, { method: 'POST', headers: signedIn })).status).toBe(415);
+      expect(await (await own.request(url, { headers: signedIn })).json()).toMatchObject({ available: false, method: 'linux' });
+      expect(install).not.toHaveBeenCalled();
+      const started = await own.request(url, json('POST', {}, signedIn));
+      expect(started.status).toBe(200);
+      expect(install).toHaveBeenCalledExactlyOnceWith(expect.anything(), ['git']);
+      await vi.waitFor(async () => {
+        expect(await (await own.request(url, { headers: signedIn })).json()).toMatchObject({ available: true });
+      });
+    } finally {
+      await gitInstall.shutdown();
+      db.close();
+    }
+  });
+
+  it('offers to install missing Git only when the conversation needs it, then allows a retry', async () => {
+    const process = await import('../src/server/process');
+    const capture = process.capture;
+    const spy = vi.spyOn(process, 'capture').mockImplementation(async (bin, args, env, opts) => {
+      if (args.includes('--show-scope')) throw new process.CommandNotFoundError(bin);
+      return capture(bin, args, env, opts);
+    });
+    const post = (permission: string) =>
+      app.request(
+        '/api/conversations',
+        json('POST', {
+          agents: [{ name: 'Alice', provider: 'claude', role: '' }],
+          settings: { cwd: project, permission },
+        }),
+      );
+    try {
+      const missing = await post('edit');
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toMatchObject({ code: 'git-missing' });
+      expect(store.list(() => false)).toHaveLength(0);
+      expect(existsSync(join(project, '.git'))).toBe(false);
+      expect((await post('read-only')).status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await post('edit')).status).toBe(200);
+    expect(existsSync(join(project, '.git'))).toBe(true);
   });
 
   it('creates a missing conversation directory only when asked to, after checking the team', async () => {
@@ -3731,7 +3806,7 @@ describe('schedules', () => {
 
 describe('sharing conversations', () => {
   const ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
-  const link = (id = ID) => ({ id, url: `https://gistpreview.github.io/?${id}`, gistUrl: `https://gist.github.com/me/${id}` });
+  const link = (id = ID) => ({ id, url: shareViewerUrl('me', id), gistUrl: `https://gist.github.com/me/${id}` });
 
   type Upload = { name: string; data: Buffer };
   type Link = ReturnType<typeof link> & { filesGist?: string };
@@ -3857,13 +3932,18 @@ describe('sharing conversations', () => {
     }
   });
 
-  it('refuses an empty page, one too large for gistpreview, and an unknown conversation', async () => {
+  it('refuses an empty page, one over the 10 MB a shared page can hold, and an unknown conversation', async () => {
     const conv = await createConversation();
     const own = shareApp({});
     const send = (id: string, body: unknown) => own.request(`/api/conversations/${id}/share`, json('POST', body));
     expect((await send(conv.id, { html: '  ' })).status).toBe(400);
     expect((await send(conv.id, { html: 42 })).status).toBe(400);
-    expect((await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) })).status).toBe(413);
+    // The raw file the viewer reads is whole up to 10 MB; counted in UTF-8 bytes (é is two).
+    expect(SHARE_MAX_BYTES).toBe(10_000_000);
+    const big = await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) });
+    expect(big.status).toBe(413);
+    // Rounded up: 2 bytes over reads 10.1 MB, never "10.0 MB, over the 10 MB".
+    expect((await big.json()).error).toBe('這個分享頁有 10.1 MB，超過分享頁能放的 10 MB。請改成分享到比較前面的某則回覆。');
     expect((await send('missing', { html: '<p>hi</p>' })).status).toBe(404);
     expect(store.listShares()).toEqual([]);
   });

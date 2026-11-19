@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import {
@@ -17,12 +19,12 @@ import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
 const LEAD_TEAM_MAX = 5;
 
-/** The animations in the team design cards: each one's name, element (its classes), timing, what it changes and its keyframes' transforms. */
+/** The animations of the team design card's mark: each one's name, element (its classes), timing, what it changes and its keyframes' transforms. */
 const cardAnimations = (page: Page) =>
   page.evaluate(() =>
     document
       .getAnimations()
-      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'))
+      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo'))
       .map((a) => {
         const effect = a.effect as KeyframeEffect;
         const timing = effect.getComputedTiming();
@@ -53,9 +55,11 @@ const cardAnimations = (page: Page) =>
  */
 const angles = (page: Page, times: number[]) =>
   page.evaluate((times) => {
-    const mark = document.querySelector('.plan-card .logo-motion')!;
+    const mark = document.querySelector('.plan-card .plan-logo')!;
     const orbit = mark.querySelector('.logo-motion-orbit')!;
-    const parts = document.getAnimations().filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'));
+    const parts = document
+      .getAnimations()
+      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo'));
     for (const a of parts) a.pause();
     const matrix = (el: Element) => {
       const transform = getComputedStyle(el).transform;
@@ -74,9 +78,9 @@ const angles = (page: Page, times: number[]) =>
  */
 const markDrawing = (page: Page) =>
   page.evaluate(() => {
-    const mark = document.querySelector('.plan-card .logo-motion')!;
+    const mark = document.querySelector('.plan-card .plan-logo')!;
     for (const a of document.getAnimations()) {
-      if (!((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card')) continue;
+      if (!((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo')) continue;
       a.pause();
       a.currentTime = 1600;
     }
@@ -94,6 +98,123 @@ const LOGO_DOTS = [
   { cx: 23, cy: 10, r: 5 },
   { cx: 23, cy: 23, r: 5 },
 ];
+
+test.describe('auto team with exhausted CLI quotas', () => {
+  test.use({ openBackend: false });
+
+  test('refreshes quota before starting the next team and replaces a newly exhausted model', async ({ page, relay }) => {
+    await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'codex' } } });
+    const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
+    await send(page, 'Choose Claude first e2e:team=claude');
+    await expect((await finishedReply(page, 'Claude')).locator('.provider-tag')).toHaveText('Claude Code');
+    await settled(relay, id);
+
+    const claudeUsage = relay.fakeLog().find((entry) => entry.cli === 'claude' && entry.usage === 42);
+    expect(claudeUsage?.home).toBeTruthy();
+    writeFileSync(join(claudeUsage!.home!, 'e2e-plan-exhausted'), '');
+    await send(page, 'Choose Claude again e2e:team=claude');
+    await expect(page.locator('.plan-card').last()).toContainText('adjusted to use available accounts or models');
+    await expect((await finishedReply(page, 'Claude')).locator('.provider-tag')).toHaveText('Codex');
+
+    const conv = await settled(relay, id);
+    expect(conv.messages.findLast((m) => m.plan)?.plan?.agents?.map((a) => a.provider)).toEqual(['codex']);
+    const lead = relay.fakeLog().findLast((entry) => entry.cli === 'codex' && entry.prompt?.includes('Coding agents you can use'));
+    expect(lead?.prompt).toBeDefined();
+    expect(lead?.prompt).not.toContain('- claude (Claude Code)');
+  });
+
+  test.describe('the configured lead is exhausted', () => {
+    test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude' } });
+
+    test('shows the unavailable lead inside the fallback team card', async ({ page, relay }) => {
+      await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'claude' } } });
+      const id = await startChat(page, { permission: 'read-only' });
+      await send(page, 'Choose a team');
+      const card = awaitingPlan(page);
+      const warning = card.getByRole('status').filter({ hasText: 'The lead agent (Claude Code) was unavailable for this design.' });
+      await expect(warning).toContainText('Settings & sign-in → Lead agent');
+      await expect(card).toContainText('Using the template "General-question panel" instead');
+      await page.reload();
+      await expect(warning).toBeVisible();
+
+      const conv = await settled(relay, id);
+      expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ leadUnavailable: true, status: 'ready', source: 'fallback' });
+      expect(relay.fakeLog().some((e) => e.cli === 'claude' && e.prompt?.includes('Coding agents you can use'))).toBe(false);
+    });
+  });
+
+  test.describe('all CLIs are exhausted', () => {
+    test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude,codex,grok' } });
+
+    test('explains why it cannot start a team', async ({ page, relay }) => {
+      const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
+      await send(page, 'Choose a team');
+      const card = page.locator('.plan-card.failed');
+      await expect(card.getByRole('status').filter({ hasText: 'No models are available for this team.' })).toBeVisible();
+      await expect(card.getByRole('status').filter({ hasText: /lead agent .* was unavailable for this design/ })).toBeVisible();
+
+      const conv = await settled(relay, id);
+      expect(conv.messages.find((m) => m.plan)?.plan?.status).toBe('failed');
+      expect(conv.agents).toEqual([]);
+      expect(conv.messages.some((m) => m.author.kind === 'agent')).toBe(false);
+    });
+  });
+});
+
+test.describe('team design progress and model checks', () => {
+  test('shows collapsible progress during design and keeps it open when the model check finishes', async ({ page, relay }) => {
+    const id = await startChat(page);
+    await send(page, 'Choose a team e2e:slowplan=3');
+    const progress = 'details[aria-label="Team design progress"]';
+    const liveActivity = page.locator('.plan-card.planning').locator(progress);
+    await expect(liveActivity).toBeVisible();
+    await expect(liveActivity).not.toHaveAttribute('open', '');
+    await liveActivity.locator('summary').first().click();
+    await expect(liveActivity).toHaveAttribute('open', '');
+    await expect(liveActivity.locator('li.tool').first()).toContainText('Checking accounts and usage');
+
+    const activity = awaitingPlan(page).locator(progress);
+    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity.locator('li.tool.done').last()).toContainText('Testing model response');
+    const probes = relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
+    expect(probes.map((e) => e.cli)).toEqual(['claude']);
+    expect(probes[0]?.prompt).not.toContain('Choose a team');
+    expect((await settled(relay, id)).messages.some((m) => m.author.kind === 'agent')).toBe(false);
+
+    await activity.locator('summary').first().click();
+    await expect(activity).not.toHaveAttribute('open', '');
+    await confirmTeam(page);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Choose a team');
+  });
+
+  test('checks a full-access team only after confirmation', async ({ page, relay }) => {
+    await startChat(page, { permission: 'full' });
+    await send(page, 'Choose a full-access team');
+    await expect(awaitingPlan(page)).toContainText('Confirm this team to test the models before they answer.');
+    const checks = () => relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
+    expect(checks()).toEqual([]);
+
+    await confirmTeam(page);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Choose a full-access team');
+    expect(checks().map((e) => e.cli)).toEqual(['claude']);
+  });
+
+  test.describe('when checks receive no successful reply', () => {
+    test.use({ openBackend: false, serverEnv: { E2E_FAIL_MODEL_CHECK_CLIS: 'claude,codex,grok' } });
+
+    test('shows the failed check and starts no team even with auto-confirm on', async ({ page, relay }) => {
+      const id = await startChat(page, { autoConfirm: true });
+      await send(page, 'Choose a team');
+      await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible();
+      const activity = page.locator('.plan-card.failed details[aria-label="Team design progress"]');
+      await activity.locator('summary').first().click();
+      await expect(activity.locator('li.tool.error').first()).toContainText('Testing model response');
+      const conv = await settled(relay, id);
+      expect(conv.agents).toEqual([]);
+      expect(conv.messages.some((m) => m.author.kind === 'agent')).toBe(false);
+    });
+  });
+});
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
@@ -125,7 +246,7 @@ test.describe('a new chat', () => {
     await send(page, 'Take your time e2e:slowplan');
     const card = page.locator('.plan-card.planning').last();
     await expect(card).toContainText('is choosing a team for this question');
-    const mark = card.locator('.logo-motion');
+    const mark = card.locator('.plan-logo');
     await expect(mark).toBeVisible();
 
     // The dots spiral in once while the mark turns (as on the home page), then it turns again and
@@ -173,10 +294,14 @@ test.describe('a new chat', () => {
 
     // Stopped, the card says so, with its mark and animations gone, and its ✦ in the mark's place: the
     // text stays where it was.
-    const text = card.locator(':scope > span').last();
+    const text = card.locator('.plan-status > span').last();
+    const activity = card.locator('details[aria-label="Team design progress"]');
+    await activity.locator('summary').first().click();
+    await expect(activity).toHaveAttribute('open', '');
     const before = (await text.boundingBox())!.x;
     await page.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(card).toContainText('Team design was stopped');
+    await expect(activity).toHaveAttribute('open', '');
     await expect(mark).toHaveCount(0);
     expect(await cardAnimations(page)).toEqual([]);
     expect((await text.boundingBox())!.x).toBeCloseTo(before, 0);
@@ -186,7 +311,7 @@ test.describe('a new chat', () => {
     await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
     await send(page, 'Once more e2e:slowplan');
     await expect(page.locator('.plan-card.planning')).toHaveCount(2);
-    const still = page.locator('.plan-card.planning').last().locator('.logo-motion');
+    const still = page.locator('.plan-card.planning').last().locator('.plan-logo');
     await expect(still).toBeVisible();
     expect(await cardAnimations(page)).toEqual([]);
     const colors = await still.locator('.logo-dot').evaluateAll((dots) => dots.map((d) => getComputedStyle(d).backgroundColor));

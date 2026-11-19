@@ -13,7 +13,7 @@ import {
   type ToolLibraryView,
 } from '../../shared/types';
 import { api } from '../api';
-import { ruleCount, sameChecks } from '../checks';
+import { checkProblems, ruleCount, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
@@ -703,6 +703,7 @@ function ChecksDefaultSection() {
   }, []);
 
   const changed = !sameChecks(list, saved);
+  const problem = checkProblems(list, t.checks)[0];
   const save = async () => {
     setError('');
     try {
@@ -730,11 +731,11 @@ function ChecksDefaultSection() {
           }}
         />
       )}
-      {error && <p className="error-line">{error}</p>}
+      {(problem || error) && <p className="error-line">{problem || error}</p>}
       {loaded && (
         <div className="button-row">
           <span className="muted small">{done && !changed ? t.tools.saved : ''}</span>
-          <button className="primary" disabled={!changed} onClick={() => void save()}>
+          <button className="primary" disabled={!changed || Boolean(problem)} onClick={() => void save()}>
             {t.common.save}
           </button>
         </div>

@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { needsOf } from '../shared/notify';
-import type { ConversationGroup, ConversationSummary, InboxSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
-import { SIGNED_OUT_EVENT, api } from './api';
+import type {
+  ConversationGroup,
+  ConversationSummary,
+  GitRequirement,
+  InboxSummary,
+  ProviderModels,
+  ProviderStatus,
+  UpdateStatus,
+} from '../shared/types';
+import { GIT_INSTALL_EVENT, SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
 import { InboxButton } from './components/InboxButton';
+import { GitInstallDialog } from './components/GitInstallDialog';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
@@ -415,9 +424,24 @@ function RelayApp() {
     fastUntil.current = Date.now() + AFTER_UPDATE_MS;
     pollUpdate.current();
   }, [update]);
+  const [gitOffer, setGitOffer] = useState<{ requirement: GitRequirement; open: boolean; revision: number }>();
+  useEffect(() => {
+    const request = (event: Event) => {
+      const requirement = (event as CustomEvent<GitRequirement>).detail;
+      setGitOffer((previous) => ({
+        requirement: previous?.open && previous.requirement === 'gitBash' ? previous.requirement : requirement,
+        open: true,
+        revision: previous?.open ? previous.revision : (previous?.revision ?? 0) + 1,
+      }));
+    };
+    window.addEventListener(GIT_INSTALL_EVENT, request);
+    return () => window.removeEventListener(GIT_INSTALL_EVENT, request);
+  }, []);
+  const closeGitInstall = () => setGitOffer((previous) => previous && { ...previous, open: false });
+
   // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
   const dialogs = useDialogsOpen();
-  const held = useDialogsHeld() > 0;
+  const held = useDialogsHeld() > 0 || gitOffer?.open === true;
   // Closed without Later (Escape, ×): not offered again while the page is open.
   const [closedFor, setClosedFor] = useState<string>();
   const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent), closedFor);
@@ -596,6 +620,14 @@ function RelayApp() {
           onUpdate={installUpdate}
           onLater={() => dismiss(update.available!.version)}
           onClose={() => setClosedFor(update.available!.version)}
+        />
+      )}
+      {gitOffer && (
+        <GitInstallDialog
+          key={`${gitOffer.requirement}:${gitOffer.revision}`}
+          requirement={gitOffer.requirement}
+          open={gitOffer.open}
+          onClose={closeGitInstall}
         />
       )}
     </div>

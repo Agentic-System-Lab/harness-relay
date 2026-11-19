@@ -1047,6 +1047,7 @@ function TeamDrawer({
   /** The team as it was when the draft was copied from it. */
   const [base, setBase] = useState<Team>(current);
   const [team, setTeam] = useState<Team>(current);
+  const [checksEditorVersion, setChecksEditorVersion] = useState(0);
   const [saving, setSaving] = useState(false);
   /** The lead agent is changing the team at the user's request. */
   const [revising, setRevising] = useState(false);
@@ -1064,6 +1065,8 @@ function TeamDrawer({
   const reload = useCallback(() => {
     setBase(current);
     setTeam(current);
+    // The checks editor keeps its own text and unfinished rows until the draft is reloaded.
+    setChecksEditorVersion((version) => version + 1);
   }, [current]);
   useEffect(() => {
     if (status === 'refresh') reload();
@@ -1140,6 +1143,7 @@ function TeamDrawer({
             leadLabel={leadText}
             schedule={conv.schedule}
             convId={conv.id}
+            checksEditorVersion={checksEditorVersion}
           />
         </fieldset>
         <footer className="drawer-foot">

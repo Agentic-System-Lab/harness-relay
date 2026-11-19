@@ -97,6 +97,52 @@ test.describe('team checks', () => {
     await expect(checkCards(page)).toHaveCount(2);
   });
 
+  test('Team settings preserves updated checks when an open drawer refreshes its draft', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
+      permission: 'edit',
+      checks: { protectedPaths: ['first-note.txt'] },
+    });
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    const paths = drawer.getByLabel('Protected paths');
+    await expect(paths).toHaveValue('first-note.txt');
+
+    await relay.api(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      body: {
+        agents: [{ id: 'm1', name: 'Reviewer', provider: 'claude', role: 'Review notes.' }],
+        settings: { checks: { protectedPaths: ['second-note.txt'] } },
+      },
+    });
+    await expect(drawer.getByLabel('Agent name')).toHaveValue('Reviewer');
+    await expect(paths).toHaveValue('second-note.txt');
+
+    await drawer.getByRole('button', { name: 'Use Conventional Commits' }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    expect((await settled(relay, id)).settings.checks?.protectedPaths).toEqual(['second-note.txt']);
+  });
+
+  test('Team settings requires a valid hook folder and time limit before saving', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await drawer.locator('.checks-editor summary').click();
+    await drawer.getByRole('button', { name: 'Add a hook' }).click();
+    await drawer.getByRole('textbox', { name: 'Hook command' }).fill('echo hello');
+    const folder = drawer.getByLabel('Folder (relative to the first working directory; optional)', { exact: true });
+    const timeout = drawer.getByLabel('Time limit (seconds)', { exact: true });
+    const save = drawer.getByRole('button', { name: 'Save', exact: true });
+
+    await folder.fill('../outside');
+    await expect(save).toBeDisabled();
+    await folder.fill('');
+    await timeout.fill('0');
+    await expect(save).toBeDisabled();
+    await timeout.fill('5');
+    await expect(save).toBeEnabled();
+  });
+
   test("hooks set in Team settings run around a member's calls: a before hook refuses a command, an after hook's failure goes back to it", async ({
     page,
     relay,
@@ -256,6 +302,41 @@ test.describe('team checks', () => {
     await expect.poll(() => existsSync(join(relay.workDir, 'result.txt'))).toBe(true);
     // What the check wrote stayed in its own tree.
     expect(existsSync(join(relay.workDir, 'from-check.txt'))).toBe(false);
+  });
+
+  test('default team checks require valid command and hook settings before saving', async ({ page, relay }) => {
+    await page.goto(`${relay.base}/#/settings/tools`);
+    const section = page.locator('.checks-default');
+    await section.locator('.checks-editor summary').click();
+    const save = section.getByRole('button', { name: 'Save', exact: true });
+    const folderLabel = 'Folder (relative to the first working directory; optional)';
+
+    await section.getByRole('button', { name: 'Add a hook' }).click();
+    const hook = section.locator('.checks-hook-row');
+    await hook.getByRole('textbox', { name: 'Hook command' }).fill('echo hook');
+    await hook.getByLabel(folderLabel, { exact: true }).fill('../outside');
+    await expect(save).toBeDisabled();
+    await hook.getByLabel(folderLabel, { exact: true }).fill('');
+    await hook.getByLabel('Time limit (seconds)', { exact: true }).fill('0');
+    await expect(save).toBeDisabled();
+    await hook.getByLabel('Time limit (seconds)', { exact: true }).fill('5');
+    await expect(save).toBeEnabled();
+
+    await section.getByRole('button', { name: 'Add a command' }).click();
+    const command = section.locator('.checks-command-row');
+    await command.getByRole('textbox', { name: 'Command', exact: true }).fill('echo check');
+    await command.getByLabel(folderLabel, { exact: true }).fill('../outside');
+    await expect(save).toBeDisabled();
+    await command.getByLabel(folderLabel, { exact: true }).fill('');
+    await command.getByLabel('Time limit (minutes)', { exact: true }).fill('0');
+    await expect(save).toBeDisabled();
+    await command.getByLabel('Time limit (minutes)', { exact: true }).fill('1');
+    await save.click();
+    await expect(section).toContainText('Saved');
+    expect((await relay.api<SettingsView>('/api/settings')).checksDefault).toMatchObject({
+      commands: [{ run: 'echo check', timeoutMin: 1 }],
+      hooks: [{ run: 'echo hook', timeoutSec: 5 }],
+    });
   });
 
   test('a default set in Settings starts each new chat and automation, which can change or remove it', async ({ page, relay }) => {

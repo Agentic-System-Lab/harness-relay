@@ -9,13 +9,13 @@ const FOCUSABLE =
  * open, Tab stays inside it, Escape closes it, and focus goes back to where it was on close. Only the
  * top dialog takes keys, when one opens over another (src/web/dialogs.ts).
  */
-export function useDialog(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
+export function useDialog(ref: RefObject<HTMLElement | null>, onClose: () => void, enabled = true): void {
   const close = useRef(onClose);
   close.current = onClose;
 
   useEffect(() => {
     const dialog = ref.current;
-    if (!dialog) return;
+    if (!enabled || !dialog) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.focus();
     const entry = openDialog();
@@ -51,7 +51,7 @@ export function useDialog(ref: RefObject<HTMLElement | null>, onClose: () => voi
       document.removeEventListener('keydown', onKey);
       if (opener?.isConnected) opener.focus();
     };
-  }, [ref]);
+  }, [ref, enabled]);
 }
 
 /** How many dialogs are open on the page, kept up to date. */

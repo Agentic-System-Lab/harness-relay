@@ -12,6 +12,7 @@ import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from '
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
+import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -77,7 +78,7 @@ import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, 
 import { HttpError, forClient, scheduleForClient, titleFrom, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
-import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
+import { fileLinkCount, fileLinksIn, megabytesOver, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
 import {
   ShareError,
   findShareFiles,
@@ -156,6 +157,7 @@ export interface AppDeps {
   clis?: CliInstaller;
   /** What the agents' sandboxes need that is missing here, and installing it; created when not given. */
   sandboxSetup?: SandboxSetup;
+  gitInstall?: GitInstall;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -225,7 +227,7 @@ function refuseShareFiles(found: FoundShareFile[]): void {
   if (found.length > SHARE_FILES_MAX) throw new HttpError(413, t().shareFilesTooMany(SHARE_FILES_MAX));
   const total = found.reduce((sum, f) => sum + (f.info.size ?? 0), 0);
   if (total > SHARE_FILES_MAX_BYTES) {
-    throw new HttpError(413, t().shareFilesTooLarge((total / 1_000_000).toFixed(1), shareSize(SHARE_FILES_MAX_BYTES)));
+    throw new HttpError(413, t().shareFilesTooLarge(megabytesOver(total), shareSize(SHARE_FILES_MAX_BYTES)));
   }
 }
 
@@ -293,6 +295,7 @@ export function createApp({
   voice = new VoiceService(settings),
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
+  gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -1067,6 +1070,9 @@ export function createApp({
   // Stop the install under way.
   app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
 
+  app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
+  app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
+
   // --- Voice input -------------------------------------------------------------------
 
   app.get('/api/voice', (c) => c.json(voice.status()));
@@ -1623,7 +1629,7 @@ export function createApp({
     const sent = await orchestrator.sendScheduled(c.req.param('id'));
     if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
       const reason = sent.reason ?? t().scheduleBusy;
-      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
+      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1), sent.result === 'failed' ? sent.code : undefined);
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
     return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
@@ -1636,7 +1642,7 @@ export function createApp({
   });
 
   // Share the conversation: the web app makes the page (what it shows, without tool calls and
-  // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on gistpreview.
+  // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on Harness Relay's viewer.
   // `upTo`: the agent reply it ends with (recorded, for the list in Settings). `files`: the links of
   // the files to take along (each placeholder link on the page names one by its place here): the
   // files go into a second secret gist, read only as the replies' download links would serve them.
@@ -1649,7 +1655,7 @@ export function createApp({
     if (!refs || linked.some((n) => n >= refs.length)) throw new HttpError(400, t().shareBadFiles);
     // Each link to a file grows to its address on GitHub.
     const bytes = Buffer.byteLength(b.html) + fileLinkCount(b.html) * SHARE_FILE_URL_MAX;
-    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1)));
+    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge(megabytesOver(bytes), shareSize(SHARE_MAX_BYTES)));
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.

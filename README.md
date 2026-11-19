@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**Website:** https://agentic-system-lab.github.io/harness-relay/ · **Docs:** https://agentic-system-lab.github.io/harness-relay/docs/
+**Website:** https://agentic-system-lab.github.io/harness-relay/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
@@ -32,7 +32,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 
 ## Use cases
 
-Twelve kinds of work to hand the team, each a real run recorded as it happened, with its chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/):
+These twelve examples are just a starting point. Bring your curiosity and a task of your own, and see what else your team can do. Each example has a recording of the real run, with chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/).
 
 - **[Fix a bug three ways, keep the best one](https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug)**: in parallel mode, Claude Code, Codex and Grok each fix a failing test in a git worktree of its own; you read the diffs and apply one to your working directory.
 - **[Turn customer interviews into a spec](https://agentic-system-lab.github.io/harness-relay/use-cases/#product-spec)**: attach five customer interviews; in relay mode one agent pulls out the pain points, the next writes the PRD, the last challenges it, and before the PRD is written they ask you which customers come first.
@@ -51,7 +51,7 @@ Twelve kinds of work to hand the team, each a real run recorded as it happened, 
 
 - **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [model backends](docs/user-guide.md#open-source-agents-and-model-backends))
 - **A team for every question**: the lead agent picks or designs the team (roles, models, reasoning effort, turn order) from your templates, you confirm it, and once the team has answered it reviews the replies and marks what needs your attention. ([Auto team](docs/user-guide.md#auto-team), [templates](docs/user-guide.md#templates), [lead review](docs/user-guide.md#lead-review))
-- **One set of rules for every CLI**: protected paths, a commit format and commands such as `npm test` that Harness Relay checks itself once the team has answered (the commands in its own sandbox), for every member whatever its CLI or permission, and hooks it runs around the members' tool calls as they happen; what failed goes back to the team. ([Team checks](docs/user-guide.md#team-checks))
+- **Team checks**: set protected paths, a commit format and commands such as `npm test` for your whole team in Edit and Full access chats. Harness Relay checks the work itself, and runs hooks around supported tool calls. ([Team checks](docs/user-guide.md#team-checks))
 - **Agents talk to each other**: roundtable, parallel or relay, and `@mentions` to address one of them. ([Conversation rules](docs/user-guide.md#conversation-rules))
 - **Safe editing with git**: each working directory (up to eight per chat) becomes a git repository, each reply shows the files it changed with a diff, and in parallel mode every agent works in its own worktree. ([Reviewing and applying changes](docs/user-guide.md#reviewing-and-applying-changes))
 - **You stay in charge**: a permission per chat (read-only, edit, full access), approvals in the chat for anything beyond it, agents that ask you rather than guess, and messages you can send while they reply. ([Approvals](docs/user-guide.md#approvals), [chatting](docs/user-guide.md#4-chat))
@@ -95,7 +95,7 @@ How to set them up, and what to expect from each agent: [Open-source agents and 
 
 ## Desktop app
 
-Rather not keep a terminal open? The desktop app for macOS (Apple Silicon), Windows and Linux runs the same server in the background and shows the chat in a window of its own. Closing the window leaves the server running behind an icon in the menu bar or system tray, so your phone keeps working. It can open at login, keep the computer awake, share with your phone in one click, and updates itself. It needs the agent CLIs (and Git) but not Node.js, except for the open-source agents' sandbox.
+Rather not keep a terminal open? The desktop app for macOS (Apple Silicon), Windows and Linux runs the same server in the background and shows the chat in a window of its own. Closing the window leaves the server running behind an icon in the menu bar or system tray, so your phone keeps working. It can open at login, keep the computer awake, share with your phone in one click, and updates itself. The app can install the agent CLIs from Settings and offers to [install Git when needed](docs/user-guide.md#conversation-rules). The open-source agents’ sandbox may need Node.js.
 
 Download it from the [website](https://agentic-system-lab.github.io/harness-relay/) or [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). The installers are not signed yet, so the system warns the first time: [Desktop app](docs/user-guide.md#desktop-app) in the user guide says what to do, how updates work and how to build one yourself.
 

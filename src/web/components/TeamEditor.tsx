@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
-  CHECK_LIMITS,
   PROVIDERS,
   PROVIDER_LABEL,
   catalogFor,
@@ -18,6 +17,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
+import { checkProblems } from '../checks';
 import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
@@ -35,7 +35,6 @@ import {
   switchProvider,
   type ModelChoice,
 } from '../util';
-import { badCommitPattern, badPath, commandProblem } from '../checks';
 import { AccountPicker } from './AccountPicker';
 import { ChecksEditor } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
@@ -68,6 +67,8 @@ interface Props {
   schedule?: ConversationSchedule;
   /** The conversation being edited (Team settings): its team checks' commands can be tried there. */
   convId?: string;
+  /** Reset unfinished check fields when the parent reloads its draft. */
+  checksEditorVersion?: number;
 }
 
 const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
@@ -93,18 +94,7 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
     }
   }
   if (!opts.template && !team.settings.cwd.trim()) out.push(p.needCwd);
-  // Team checks the server would refuse.
-  const checks = team.settings.checks;
-  const path = badPath((checks?.protectedPaths ?? []).join('\n'));
-  if (path) out.push(t.checks.badPath(path));
-  const pattern = badCommitPattern(checks?.commitPattern ?? '');
-  if (pattern) out.push(t.checks.badPattern(pattern));
-  for (const c of checks?.commands ?? []) {
-    const problem = commandProblem(c);
-    if (problem === 'run') out.push(t.checks.badCommand);
-    else if (problem === 'folder') out.push(t.checks.badFolder(c.cwd ?? ''));
-    else if (problem === 'timeout') out.push(t.checks.badTimeout(CHECK_LIMITS.maxTimeoutMin));
-  }
+  out.push(...checkProblems(team.settings.checks, t.checks));
   return out;
 }
 
@@ -119,6 +109,7 @@ export function TeamEditor({
   leadLabel,
   schedule,
   convId,
+  checksEditorVersion,
 }: Props) {
   const t = useT();
   const { maxTeamAgents } = useLimits();
@@ -331,6 +322,7 @@ export function TeamEditor({
           </div>
         )}
         <ChecksEditor
+          key={checksEditorVersion}
           value={settings.checks}
           permission={template ? undefined : settings.permission}
           convId={template ? undefined : convId}

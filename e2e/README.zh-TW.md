@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、486 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 39 個 spec 檔、502 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,12 +36,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
-| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
-| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 6 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
+| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 11 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
-| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 9 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
+| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 12 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 14 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -55,11 +55,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 2 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 2 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
-| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
+| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
+| [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
@@ -115,10 +116,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 團隊卡片寫出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
-| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動）；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
+| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動），已展開的進度也維持展開；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
 | 不詢問直接採用首席 agent 組的團隊 | Claude Code | 卡片寫著**已直接採用**（Used without asking），團隊不必等待就回答。 |
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
+| 下一次設計重新查詢額度 | Claude Code、Codex | Claude Code 回答第一個問題。它的額度用完後，第二次組隊不提供它作為候選，首席 agent 仍選到它時也會用 Codex 取代。 |
+| 指定的首席 agent 無法使用 | Claude Code | 備援團隊卡片標明額度用盡的首席 agent，提示可到設定切換。重新載入後提示仍在。 |
+| 沒有可用的模型 | Claude Code、Codex、Grok | 三個 CLI 的額度都用完時，失敗卡片標明無法使用的首席 agent，並說明直接採用為何無法啟動團隊。 |
+| 可展開的團隊設計進度 | Claude Code | 在設計卡片裡展開進度，模型實測完成後仍在同一卡片內維持展開。團隊回答前，模型只收到固定測試提示。 |
+| 完全存取團隊確認後才實測 | Claude Code | 等待確認時沒有用完全存取實測。確認後才實測並啟動團隊。 |
+| 模型實測全數失敗 | Claude Code | 直接採用會顯示實測失敗，且不會啟動團隊。 |
 
 ## 範本
 
@@ -159,7 +166,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
 | 新自動任務頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新自動任務**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立自動任務**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
 | 重點上的 @名稱 把它引用的文字帶到對話中間，即使在比視窗還高的回覆開頭 | Claude Code | 用 `e2e:long`（回覆多了四十段），卡片引用回覆開頭的幾個字，在畫面中的卡片上方很遠處；按它的 **@Claude** 會捲動對話，直到那段標記離中間不到 30px，並在標記上加強顯示（`review-focus`），對話停在那裡。 |
-| 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。以網頁開啟（離線攔截）並捲到底後，點連結會把標記帶進畫面，成為頁面的 `:target` 並加上底線。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
+| 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。在 Harness Relay 的分享頁開啟（離線攔截），在它不執行腳本的框架裡捲到底後，點連結會把標記帶進畫面，成為框架的 `:target`（`about:srcdoc#quote-…`）並加上底線，分享頁本身的網址不變。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。在分享頁上它們是兩個標記，每個項目各一個、項目之間沒有，那一點的 **@Claude** 連到第一個。 |
 | 針對回覆但沒有引用文字的重點會跳到回覆，在分享頁上它的 @名稱 連到回覆 | Claude Code | 用 `e2e:reviewquote=none`，那一點不引用任何文字：它的 **@Claude** 讓回覆閃一下並取得焦點，不加強顯示任何文字；在分享頁上它連到回覆（`#msg-…`），也沒有任何標記。 |
 | 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為未勾選，錯誤列說明原因。 |
@@ -173,6 +180,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 團隊寫入受保護檔案時檢查未通過，擋住使用者這段時間寫的訊息，略過後才送出 | Claude Code | 在保護 `secret.txt`（透過 API 設定）的編輯對話裡，一則很慢的回覆寫入它，同時使用者再送出一則訊息。回覆後，**Team checks** 卡片顯示 **Failed**、**Protected paths**、「secret.txt added · in @Claude's turn」，以及不會撤銷任何修改；佇列說等待的訊息還沒送出，並提供 **Send anyway**。按 **Skip**（確認）後卡片標為已略過，佇列消失、訊息送出；卡片仍顯示 **Failed**，也不再有 **Skip**。 |
 | 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在 **Team settings** 的 **Team checks** 裡，版面是一欄（每條規則的名稱在輸入框上方，最後一個按鈕 **Add a hook** 和下一列分開；有些瀏覽器不理會 `<details>` 上的 `display: flex`），`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
+| 團隊設定重新載入後保留新版規則 | — | 另一個工作階段更新受保護路徑。抽屜重新載入後，修改 commit 格式並儲存會保留新版路徑。 |
+| 團隊檢查預設要求有效的指令和 hook 設定 | — | 在**設定 → 工具庫**中，指令和 hook 的資料夾或時限無效時不可儲存。修正後可儲存為預設規則。 |
+| 團隊設定要求有效的 hook 資料夾和時限 | — | 資料夾或時限無效時不可儲存。修正後，儲存按鈕重新啟用。 |
 | 在團隊設定設的 hook 在成員的呼叫前後執行：「執行前」的 hook 拒絕指令，「執行後」的 hook 沒通過時交回給它 | Claude Code | 在完整權限的對話裡，**Team settings** 加上兩個 hook：**Before**、**Commands**，印出指令後失敗；**After**、**File changes**，印出檔名後失敗（對話設定裡兩個都有）。執行 `echo e2e-approval` 的回覆說團隊的 hook 拒絕了它，附上 hook 的話，回覆裡的註記說 hook 拒絕了 `` `echo e2e-approval` ``；寫入 `notes.txt` 的回覆說出「執行後」hook 的話（`lint: notes.txt has 1 problem`），註記說它沒有通過，檔案也寫入了（「執行後」的 hook 不會撤銷任何事）。Windows 上略過（那裡還不能執行 hook）。 |
 | 唯讀對話不檢查 | Claude Code | 唯讀對話設了同樣的清單，想寫入的回覆不會有卡片。 |
 | 未通過的指令顯示它怎麼結束和它的輸出；團隊設定可以試跑指令 | Claude Code | 在完整權限的對話裡，指令在 `broken.txt` 存在時會失敗；寫入它的回覆後，卡片顯示 **Failed**、指令列、「exit 3」、沒有在沙箱裡執行，以及 **Output (the end)** 裡它印出的內容。在 **Team settings** 按 **Add a command**、再按 **Try it**，顯示 **Passed**；存檔後對話有兩條指令。Windows 上略過（那裡還不能執行指令）。 |
@@ -348,13 +358,13 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 複製與分享
 
-[`share.spec.ts`](specs/share.spec.ts)：分享透過使用者自己的 `gh`，這裡是假的那個。
+[`share.spec.ts`](specs/share.spec.ts)：分享透過使用者自己的 `gh`，這裡是假的那個。分享在 Harness Relay 的分享頁（`site/share/`）閱讀，以儲存庫裡的樣子放在網站的網址打開，GitHub 的原始檔與 API 由測試代替（`e2e/support/share.ts`）；分享頁自己的測試打開它們自己寫的 gist，不需要伺服器。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 回答的複製按鈕複製的是 Markdown，而不是畫面上的文字 | Codex | 剪貼簿裡是原始內容（標題、表格的直線、程式碼區塊的圍欄），按鈕顯示已複製。只在 Chromium。 |
 | 分享對話框把整個對話，或到某則回答為止的部分，複製成 Markdown | Claude Code | 標題列的對話框複製整段對話；某則回答自己的**分享**只複製到它為止。只在 Chromium。 |
-| 分享的對話是瀏覽器產生的頁面做成的 secret gist，在設定中列出直到移除 | Claude Code | `gh gist create --filename index.html …` 存下一個 secret gist，頁面有問題與回答，但沒有中間的步驟（思考、工具）；連結是 gistpreview 的，旁邊是 gist 本身的連結；**設定 → 分享**列出它，按**移除**會刪掉 gist（`gist delete <id> --yes`）。 |
+| 分享的對話是瀏覽器產生的頁面做成的 secret gist，在 Harness Relay 的網站上打開，在設定中列出直到移除 | Claude Code | `gh gist create --filename index.html …` 存下一個 secret gist，頁面有問題與回答，但沒有中間的步驟（思考、工具）；連結是 Harness Relay 的分享頁（`…/harness-relay/share/#relay-e2e/<id>`），旁邊是 gist 本身的連結。打開時（儲存庫的 `site/` 放在網站的網址、假 `gh` 的 gist 放在 GitHub 原始檔的網址，都由測試攔截，離線進行），分享頁只讀一次 gist 的原始 `index.html`，完全不呼叫 GitHub 的 API，說明這是誰的 gist 並附上它在 GitHub 上的連結，使用頁面的標題，並把回覆顯示在只允許彈出視窗的 sandbox 框架裡。**設定 → 分享**列出它，按**移除**會刪掉 gist（`gist delete <id> --yes`）；之後它的連結會在問過一次 GitHub 的 API 它是否在別處（這裡被拒絕）後，說 GitHub 上沒有這個對話。 |
 | gh 未登入時，分享會說明如何登入，什麼都不分享 | Grok | `E2E_FAKE_SIGNED_OUT=gh`：說明中寫著 `gh auth login`，可以再按一次**建立連結**，也沒有存下任何東西。 |
 | gh 未登入時，對話框用 GitHub 的代碼登入它，再建立連結 | Grok | **登入 GitHub** 在伺服器上執行 `gh auth login --web --hostname github.com`；對話框顯示 GitHub 的代碼和它的裝置頁面（終端機的指令仍保留，作為另一種方法）；測試核准之後（假 `gh` 的 `fake-github/approve`），gh 就登入了，對話框會自己建立連結。 |
 | 從對話框開始的登入可以取消，也能再開始 | Grok | **取消**會停止 gh 的登入（對話框顯示已取消，代碼消失），什麼都沒分享，**登入 GitHub** 會開始新的登入並顯示它的代碼。 |
@@ -363,6 +373,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | gh 未登入時，在設定移除分享會在那裡登入，再移除 | Grok | 先透過對話框的登入建立一個分享，再讓 gh 登出（刪掉假 gh 的 `signed-in`）：在設定按**移除**會顯示同樣的說明，在那裡登入（說明接著只寫已登入 GitHub。與接下來怎麼做，卡片上也不再說 gh 沒有登入），下一次就移除成功（移除會先詢問，所以不會自己重做）。 |
 | 網路很慢時，登入後仍只建立一個連結，而且只建立一次 | Grok | 每次詢問登入狀態都要 2.5 秒（比兩次詢問的間隔一秒還久）：核准後對話框只建立一個連結，還在路上的回應不會再建立第二個。 |
 | 沒有 gh 時，分享會說明如何安裝並登入 | Claude Code | 無法啟動的 `gh` 得到含安裝指令與重新啟動提醒的說明。Windows 上跳過，因為那裡不能用 `#!` 行代替不存在的程式。 |
+| 分享頁：一起附上的檔案在新分頁下載 | — | 一個 gist 頁面（由測試寫入，沒有伺服器）連到第二個 gist 裡不是文字的檔案，GitHub 會以下載提供：在分享頁的框架裡點它會完整下載（框架的 `allow-downloads`）。不在 WebKit 執行，Playwright 下的 WebKit 不會下載連結打開的任何東西。 |
+| 分享頁：gist 的頁面不執行、不載入任何東西，也不能把頁面導到別處 | — | 一個惡意的 gist 頁面：它的腳本和圖片的 `onerror` 什麼都加不進去，別處的圖片與重新整理都連不到；它指向最上層、帶 `rel="opener"` 與沒有 target 的連結，都在新分頁打開，新分頁的頁面拿不到 `opener`（所以不能把分享頁的分頁導走），表單也送不出去；分享頁的網址保持不變。 |
+| 分享頁用頁面或瀏覽器的語言說明它不能顯示的情況 | — | 中文頁面的上方列也是中文，並使用它的標題；`#` 後面換成另一個 gist（不重新載入）、而它沒說是 Harness Relay 做的，就不顯示，也不用它的標題；沒有指向 gist 的網址不會問 GitHub，並有回首頁的連結；GitHub 回 503 時會說明，也不問它的 API。 |
+| 擁有者改了名稱或連結沒寫擁有者時，分享頁透過 GitHub 的 API 找到 gist | — | 原始檔在舊名稱底下回 404：問一次（替身）API，它指出新名稱底下的原始檔，上方列寫出新的擁有者；只有 id 的連結先問 API；在現在的擁有者底下則完全不問 API。 |
 
 ## 側邊欄
 
@@ -426,6 +440,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 找不到的 CLI 裝進專屬的資料夾，再移除 | Copilot | 卡片顯示**未安裝**（Not installed，沒有「找不到」那一行，也沒有官網連結），有 **Install Copilot** 與資料夾（`<data>/clis/copilot`），不顯示會執行的指令。安裝中（`fake-npm/hold`）：**Installing Copilot…**、目前為止 npm 的輸出（第一行是它的指令），以及 **Cancel install**；這時關掉設定頁，裝好後側欄的紅點一樣會消失。完成：「Installed by Harness Relay in …」、標題顯示版本且沒有狀態標籤、**執行檔**是裝好的程式、側邊欄的圓點不再是紅色，而 npm 收到的是 `install --global --prefix <資料夾> --cache <資料夾>/install-cache/npm … @github/copilot`，裝完後那個快取（假的 npm 會寫入它）已經不在。**Remove**（確認後）刪掉資料夾，卡片又提供安裝，顯示**未安裝**（執行檔設定改回安裝前的）。 |
 | 安裝失敗會說明原因且不留下任何東西；安裝中可以取消 | Cline | `fake-npm/fail`：**Install failed**、「npm install -g --prefix … cline@3.0.74 failed (exit 1)」、安裝程式的輸出裡有 npm 自己的 404，而且沒有資料夾。用 `fake-npm/hold` 按 **Try again**，再按 **Cancel install**：「Install cancelled; nothing was left behind.」、**Try again**，且沒有資料夾。 |
 | 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版，但不顯示它的指令 | Grok | **Install Grok** 與安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），不顯示它的指令；`GET /api/clis` 說那是 `curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），沒有「找不到」那一行，也沒有官網連結。 |
+
+## 安裝 Git
+
+[`git-install.spec.ts`](specs/git-install.spec.ts) 模擬伺服器的 Git 安裝與狀態回應，確認需要 Git 時會開啟對話框、可以先關閉、安裝後會保留新對話的輸入，無法自動安裝時可查看手動指令並重新檢查，以及關閉對話框後設定頁仍會更新 Git Bash 的狀態。測試可在各平台上執行，使用模擬安裝程式。
 
 ## 沙箱需要的元件
 
@@ -660,13 +678,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 設定中的版本與「可使用」，用假端點 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 沒有模型來源時還不能用 | ✓ | — | — | — | — |
-| 從設定頁的卡片安裝 | — | — | 安裝失敗與取消（用假的 npm） | — | — |
+| 從設定頁的卡片安裝 | — | 提供 Git Bash 並在安裝後更新卡片（模擬） | 安裝失敗與取消（用假的 npm） | — | — |
 | 成員的模型（端點的）與推理強度 | ✓（沒有推理強度） | ✓（`off`） | ✓ | ✓ | ✓ |
 | 在五個組成的團隊中：依序回答、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | ✓（npm 給程式的） | — | ✓（npm 給 Node 腳本的） | — | ✓（npm 給 Node 腳本的） |
 
 ## 平台與瀏覽器
 
+- [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每次推送到 `main` 時，以及每個碰到它們依賴的檔案的 pull request 上（`scripts/ci-scope.ts`：只改文件、單元測試、桌面 app 或網站首頁的 pull request 不會跑；手動執行一定會跑），以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec：每一種都分成兩個 job，各跑一半的測試（Playwright 的 `--shard=1/2` 與 `2/2`），讓每個 job 都不超過七分鐘多少。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
 - 開源 agent 只在 macOS 與 Linux 上（Linux 需要 bubblewrap、socat 與 ripgrep）以完全存取以外的權限執行：在 Harness Relay 自己的沙箱不支援的 Windows 上，它們只能以完全存取執行，Linux 上的 OpenCode 也是。在那裡，與權限有關的測試會跳過它們並說明原因，其他測試以完全存取執行它們，而 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)會檢查權限低於完全存取的對話不會啟動它們。在沒有這個沙箱的 Mac 或 Linux 電腦上，需要它的測試會跳過並說明原因（`E2E_RELAY_SANDBOX`，由 `global-setup.ts` 判斷一次）。
 - 在 CI 上（`E2E_SYSTEM_CLIS=1`），每個 CLI 自己的測試在 Linux 上十二個都跑，在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同、而且它的假 CLI 看得出差別的 CLI（`support/clis/<cli>.ts` 的 `testedOn`，那裡寫了原因）；在其他系統上會跳過並說明在哪裡執行。**macOS**：五個開源 agent（Harness Relay 自己的沙箱在那裡由 Seatbelt 構成，OpenCode 只在那裡以完全存取以外的權限執行，還有 OpenHands 的終端機開關），以及代表有登入的七個 CLI 的 Claude Code，它們的假 CLI 在那裡做的事和在 Linux 上一樣。**Windows**：有登入的七個（Claude Code 沒有沙箱設定、Codex 沒有權限設定檔、Grok 的 `workspace` 設定檔、Cursor 的 session 以 junction 連進來、Antigravity 的家目錄以 `USERPROFILE` 傳給它、Copilot 的資料夾以 junction 連進來、Muse Code 的登入用複本，以及它的 PowerShell），OpenCode 與 Goose（用它們自己的 shell），以及 OpenHands（它的 PowerShell 終端機）；Cline 與 Pi 不在其中，它們在那裡只能以完全存取執行，和在 Linux 上以完全存取執行時一樣（[在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) 仍會在那裡啟動它們）。在本機沒有設定這個變數時，每個 CLI 的測試在每個系統上都跑；手動執行 workflow 並勾選 **every_cli**，macOS 與 Windows 上也會十二個都跑。
@@ -680,17 +699,18 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
-- [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」則在 Windows 上跳過。
+- [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
 ## 沒有測到的部分
 
-- **團隊檢查的大部分。**端對端只測受保護路徑和指令，而且只用 Claude Code 的假 CLI：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。
+- **團隊檢查的大部分。**端對端測試檢查編輯器、受保護路徑、指令與 hook，需要 CLI 時用 Claude Code 的替身。以下情況由離線測試涵蓋：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。
+- **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現；那些錄音是 adapter 當初所依據的版本，所以 CLI 的新版本要用 `scripts/cli-check.ts` 對真正的 CLI 手動檢查（[開發者指南「檢查 CLI 的新版本」](../docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
-- **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
+- **真正的 GitHub 與網站上的分享頁。**測試從儲存庫的 `site/` 與測試自己的 gist 打開分享頁，都用真正的網址但由測試攔截：GitHub 原始檔主機與 API 本身（它們的快取與限制、改了名稱的帳號）和發布出去的網站沒有測，WebKit 中的下載也沒有；分享頁曾用使用情境的分享在 Chromium、Firefox 與 WebKit 中對真正的 GitHub 手動試過。gistpreview.github.io 上的連結（分享頁出現之前的分享）沒有打開。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
 - **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試；透過 XOAUTH2 的郵件工具、郵件觸發與 IDLE、被拒的權杖的更新、為郵件登入的權限範圍、Google 的漸進式同意與 Gmail，在 `test/oauth-mail.test.ts` 中測試。在瀏覽器裡，透過登入的郵件只有登入與測試（沒有 agent 讀信或寄信），而且是以純 TCP 連到替身。這些測試不登入真的帳號：真的 Google 帳號（它的行事曆，以及 Gmail 接受它的權杖）是手動試過的，見架構文件的已知限制；Microsoft 的還沒有。
 - **真正需要登入的 MCP 伺服器，以及它們登入的其他方式。** [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器)只對替身登入，而且只把權杖交給 Claude Code 的假 CLI（每個 CLI 怎麼拿 HTTP 伺服器的標頭，是[除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西)測的）。探索的其他形式（well-known 網址、OpenID 的中繼資料、challenge 的權限範圍）與它失敗的情形、各種拒絕（沒有 S256 的 PKCE、沒有註冊、別的資源或伺服器路徑上層的中繼資料、別的發行者、連到別台電腦的純 http、不要求登入的伺服器）、不在這台電腦上的伺服器（只連網際網路上的位址，用替身查詢位址，並固定連到查過的位址）、RFC 9207 的 `iss`、對兩個替身的混淆攻擊（冒充伺服器的中繼資料指向另一台授權伺服器的頁面：先經過確認，它的授權碼也絕不會送到冒充的權杖端點）、為另一個重新導向網址或在更新拒絕用戶端後重新註冊、用戶端密碼（登入、更新與撤銷時用 Basic 或放在表單）、貼上網址、沒有更新權杖的登入、其他原因的更新失敗、十分鐘以內的權杖、沒有拿到伺服器或用 Antigravity 的成員、主機規則、太大的回應或太長的權杖、撤銷失敗、登入取代舊登入時撤銷舊的更新權杖、移除伺服器或改網址、探索進行中時的等待上限，以及重新啟動，都在單元測試中測試（`test/mcp-oauth.test.ts`、`test/orchestrator-mcp-oauth.test.ts`）。

@@ -21,8 +21,8 @@ import {
   turnHooks,
   type TurnHooks,
 } from '../src/server/hooks';
-import { withLang } from '../src/server/i18n';
-import { runProcess, runShellScript } from '../src/server/process';
+import { currentLang, withLang } from '../src/server/i18n';
+import { runProcess, runShellScript, type SpawnResult } from '../src/server/process';
 import { removeTree } from '../src/server/fsRemove';
 import { slow } from './timeouts';
 
@@ -280,6 +280,49 @@ describe.skipIf(process.platform === 'win32')('running the hooks of a turn', () 
     expect(notes).toEqual([expect.stringContaining('a.ts')]);
   });
 
+  it('aborts active hook commands and waits for their cleanup when the turn ends', async () => {
+    let launched!: (signal: AbortSignal) => void;
+    let complete!: (result: SpawnResult) => void;
+    const started = new Promise<AbortSignal>((resolve) => {
+      launched = resolve;
+    });
+    const completed = new Promise<SpawnResult>((resolve) => {
+      complete = resolve;
+    });
+    const runShellScript = vi.fn<CheckCommandDeps['runShellScript']>(async (_shell, _flags, _script, options) => {
+      launched(options.signal!);
+      return completed;
+    });
+    const { hooks, notes } = hooksOf([hook({ run: 'check' }), hook({ run: 'second' })], deps({ runShellScript }));
+    const hookResult = hooks.before({ kind: 'command', tool: 'Bash', command: 'ls' });
+    const signal = await started;
+    let finished = false;
+    const disposing = Promise.resolve(hooks.dispose()).then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    const wasAborted = signal.aborted;
+    const finishedEarly = finished;
+    complete({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stdoutBytes: Buffer.alloc(0),
+      stdoutTruncated: false,
+      stdoutSize: 0,
+      stderr: '',
+      timedOut: false,
+      aborted: wasAborted,
+    });
+    await disposing;
+    expect(wasAborted).toBe(true);
+    expect(finishedEarly).toBe(false);
+    expect(await hookResult).toContain('Refused');
+    expect(notes).toEqual([]);
+    expect((await hooks.before({ kind: 'command', tool: 'Bash' }))?.startsWith('Refused')).toBe(true);
+    expect(runShellScript).toHaveBeenCalledTimes(1);
+  });
+
   it("runs a hook with a check command's environment: none of the server's secrets, CI=1", async () => {
     const { hooks } = hooksOf([hook({ run: 'test -z "$SECRET_TOKEN" && test "$CI" = 1 && test "$RELAY_HOOK_AGENT" = Builder' })]);
     expect(await hooks.before({ kind: 'command', tool: 'Bash', command: 'ls' })).toBeUndefined();
@@ -319,7 +362,7 @@ describe('the answers to a hook program of a CLI that takes Claude Code’s', ()
     before: async () => refuse,
     after: async () => tell,
     program: () => undefined,
-    dispose: () => undefined,
+    dispose: async () => undefined,
   });
   const toCall = (p: Record<string, any>) => ({
     kind: 'command' as const,
@@ -409,6 +452,12 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
     expect((await runProgram(args, 'before', '{}', env)).code).toBe(2);
   });
 
+  it('runs gateway hooks in the language of the turn that requested them', async () => {
+    const grant = withLang('en', () => gateway.hookProgram(async () => ({ code: 0, stdout: currentLang() })))!;
+    expect(await runProgram(grant.program.args, 'before', '{}')).toMatchObject({ code: 0, stdout: 'en' });
+    grant.revoke();
+  });
+
   it(
     'refuses the call before it when it gets no answer (the turn is over, input that is not JSON), and says nothing after it',
     async () => {
@@ -481,7 +530,7 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
     })!;
     const program = hooks.program(async () => ({ code: 0 }))!;
     expect(existsSync(program.args[0]!)).toBe(true);
-    hooks.dispose();
+    await hooks.dispose();
     expect(existsSync(program.args[0]!)).toBe(false);
     expect(hooks.program(async () => ({ code: 0 }))).toBeUndefined();
   });

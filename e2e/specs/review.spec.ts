@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { RelayServer } from '../support/relay';
+import { fakeGithub, openShared } from '../support/share';
 import {
   LEAD_REVIEW,
   awaitingPlan,
@@ -23,16 +24,17 @@ import {
  * risk, and suggests a step for the user and one for the team (`reviewReply` in e2e/fake-cli/lib/plan.cjs).
  */
 /** Shares the open chat as a link (into the fake `gh`'s gist) and returns the page made, its body and the gist's id. */
-async function shareOpenChat(page: Page, relay: RelayServer): Promise<{ html: string; body: string; gistId: string }> {
+async function shareOpenChat(page: Page, relay: RelayServer): Promise<{ html: string; body: string; gistId: string; url: string }> {
   await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Share conversation' });
   await dialog.getByRole('button', { name: 'Create link' }).click();
   const link = dialog.getByRole('textbox', { name: 'Public link' });
-  await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
-  const gistId = (await link.inputValue()).split('?')[1]!;
+  await expect(link).toHaveValue(/^https:\/\/agentic-system-lab\.github\.io\/harness-relay\/share\/#relay-e2e\/[0-9a-f]{32}$/);
+  const url = await link.inputValue();
+  const gistId = url.split('/').pop()!;
   const html = readFileSync(join(relay.root, 'fake-github', 'gists', gistId, 'index.html'), 'utf8');
   await dialog.getByRole('button', { name: 'Close' }).first().click();
-  return { html, body: html.slice(html.indexOf('<body')), gistId };
+  return { html, body: html.slice(html.indexOf('<body')), gistId, url };
 }
 
 /** The words a review point's @name just jumped to (the `review-focus` highlight). */
@@ -323,7 +325,7 @@ test.describe('lead review', () => {
     await expect(page.locator('.plan-review')).toHaveCount(1);
     await settled(relay, id);
 
-    const { html, body, gistId } = await shareOpenChat(page, relay);
+    const { body, url } = await shareOpenChat(page, relay);
     // The review: its summary, the point and the member it is about (as text), the steps.
     expect(body).toContain("Lead agent's review");
     expect(body).toContain('The fake lead agent read 1 reply.');
@@ -338,18 +340,18 @@ test.describe('lead review', () => {
     expect(body).not.toContain('to note');
     expect(body).not.toContain('<button');
 
-    // Opened as gistpreview shows it, the link brings the words into view, set apart from other marks.
-    const shared = await page.context().newPage();
-    await shared.route('https://share.e2e.test/**', (route) => route.fulfill({ contentType: 'text/html', body: html }));
-    await shared.goto(`https://share.e2e.test/?${gistId}`);
-    const words = shared.locator('mark.review-quote-mark');
-    await shared.locator('.messages').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    // Opened on Harness Relay's viewer, in its frame that runs no script, the link brings the words into
+    // view, set apart from other marks; the viewer's own address stays as it was.
+    const shared = await openShared(page.context(), fakeGithub(relay), url);
+    const words = shared.frame.locator('mark.review-quote-mark');
+    await shared.frame.locator('.messages').evaluate((el) => el.scrollTo(0, el.scrollHeight));
     await expect(words).not.toBeInViewport();
-    await shared.locator('a.review-reply-link').click();
+    await shared.frame.locator('a.review-reply-link').click();
     await expect(words).toBeInViewport();
-    await expect(shared).toHaveURL(new RegExp(`#${target}$`));
+    await expect.poll(() => shared.page.mainFrame().childFrames()[0]?.url()).toBe(`about:srcdoc#${target}`);
     expect(await words.evaluate((el) => el.matches(':target') && getComputedStyle(el).textDecorationLine)).toBe('underline');
-    await shared.close();
+    expect(shared.page.url()).toBe(url);
+    await shared.page.close();
   });
 
   test("a point's @name brings the words it quotes to the middle of the chat, at the top of a reply taller than the window", async ({

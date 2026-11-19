@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/ · **文件：** https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/
+**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
@@ -32,7 +32,7 @@
 
 ## 使用情境
 
-交給團隊的十二種工作，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
+這十二個範例只是起點。帶著好奇心，把自己想解決的問題交給團隊，探索更多可能性。每個範例都有實際執行的錄影，可到[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)依章節觀看。
 
 - **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
 - **[把客戶訪談變成產品規格](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#product-spec)**：附上五份客戶訪談；在接力模式下，一位整理痛點，下一位寫 PRD，最後一位挑戰它；動筆之前，他們會先問你要先為哪一群客戶做。
@@ -54,7 +54,7 @@
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、完全存取），超出範圍的動作在對話中請你核准；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
-- **一份規則，每個 CLI 都適用**：受保護路徑、commit 格式和 `npm test` 這類指令，團隊回答後由 Harness Relay 自己檢查（指令在它自己的沙箱裡跑），不論成員用哪個 CLI、什麼權限，還有在成員使用工具當下執行的 hook；沒通過的會交回給團隊修正。（[團隊檢查](docs/user-guide.zh-TW.md#團隊檢查)）
+- **團隊檢查**：在可編輯與完全存取的對話中，為整個團隊設定受保護路徑、commit 格式和 `npm test` 這類指令。Harness Relay 會自行檢查成果，也會在支援的工具呼叫前後執行 hook。（[團隊檢查](docs/user-guide.zh-TW.md#團隊檢查)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；任何一則回覆都能複製、編輯、重試或分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
 - **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；會送到別人那裡的東西在待送出匣等你送出。Microsoft 365、Outlook.com 與 Google 的行事曆與郵件在瀏覽器中登入（OAuth），權杖不會交給 agent。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
@@ -95,7 +95,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你
 
 ## 桌面 app
 
-不想一直開著終端機？macOS（Apple Silicon）、Windows 與 Linux 的桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示對話。關掉視窗後，伺服器會留在選單列或系統匣的圖示後面繼續執行，所以手機照常能用。它可以登入時自動啟動、不讓電腦睡著、一鍵分享到手機，也會自己更新。它需要 agent 的 CLI（以及 Git），但不需要 Node.js；只有開源 agent 的沙箱例外。
+不想一直開著終端機？macOS（Apple Silicon）、Windows 與 Linux 的桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示對話。關掉視窗後，伺服器會留在選單列或系統匣的圖示後面繼續執行，所以手機照常能用。它可以登入時自動啟動、不讓電腦睡著、一鍵分享到手機，也會自己更新。可以在設定頁安裝 agent 的 CLI，也會在[需要 Git 時詢問是否安裝](docs/user-guide.zh-TW.md#對話規則)。開源 agent 的沙箱可能需要 Node.js。
 
 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載。安裝檔還沒有簽署，所以第一次打開時系統會警告：使用者說明的[桌面 app](docs/user-guide.zh-TW.md#桌面-app) 說明該怎麼做、怎麼更新，以及怎麼自己建置。
 

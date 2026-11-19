@@ -235,8 +235,8 @@
             </li>
             <li>
               <b>The lead agent reviews the replies</b>: a short summary, what to look at closely, and the next
-              steps. You can turn this off for any chat. If the chat has team checks, Harness Relay first checks the
-              team's work against them, and the review reads the result.
+              steps. You can turn this off for any chat. When Harness Relay reports team check results for the run, the
+              lead agent reads them before reviewing the replies.
             </li>
           </ol>
           <figure class="doc-figure">
@@ -316,7 +316,7 @@
             <dt>Approval</dt>
             <dd>A card in the chat when an agent wants to do something its permission does not cover. It waits until you allow or decline it.</dd>
             <dt>Team checks</dt>
-            <dd>Rules Harness Relay checks itself once the team has answered: files the team may not touch, a commit format, and commands such as <code>npm test</code> that must pass.</dd>
+            <dd>Rules Harness Relay checks in Edit and Full access chats, including protected paths, a commit format, and commands such as <code>npm test</code>.</dd>
             <dt>Model backend</dt>
             <dd>An API key, or a model server of your own, that the open-source agents run on, since they have no sign-in of their own.</dd>
           </dl>
