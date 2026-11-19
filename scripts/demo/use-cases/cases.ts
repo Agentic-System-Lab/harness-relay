@@ -1246,7 +1246,7 @@ const writeAQuiz: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'The student scores full marks and the marker finds no question to misread, so nothing goes back; each lists its files.',
+        say: 'Grok scores 10/10 and flags four ambiguous questions. Codex explains the ambiguity, and Claude rewrites those questions and their answer key.',
       },
       { at: 'files', kind: 'you', say: 'Open quiz.md in Files, rendered as the class will read it.' },
       { at: 'zip', kind: 'you', say: 'Download the folder as a ZIP file: the quiz and its answer key together.' },

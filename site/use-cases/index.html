@@ -194,8 +194,8 @@
             "description": "Recording: three agents write a quiz from a chapter in relay, one taking it as a student and one marking it, then the quiz is opened in Files",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/write-a-quiz-en.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/write-a-quiz-en.mp4",
-            "uploadDate": "2026-11-18T01:08:20Z",
-            "duration": "PT1M20S",
+            "uploadDate": "2026-11-19T19:37:43Z",
+            "duration": "PT1M21S",
             "inLanguage": "en"
           },
           {
@@ -1366,7 +1366,7 @@
           <div class="usecase-head">
             <p class="usecase-role">For teachers</p>
             <h2 id="write-a-quiz-title">Write a quiz, and try it on a student first</h2>
-            <p class="lead">Ask for a quiz, and for a team that tests it: in relay mode one agent writes the questions and the answer key, the next takes the quiz as a student would, without the key, and the last marks it. Any question the student could misread goes back to be rewritten (here the student scored full marks, and none did). The quiz and its key are saved in your working directory; download the folder as one ZIP file.</p>
+            <p class="lead">Ask for a quiz, and for a team that tests it: in relay mode one agent writes the questions and the answer key, the next takes the quiz as a student would, without the key, and the last marks it. The student earned 10/10 and flagged four questions that could be read two ways. The marker sent them back, and the writer revised the quiz and answer key. The quiz and its key are saved in your working directory; download the folder as one ZIP file.</p>
             <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
           </div>
           <div class="screening-grid usecase-screen">
@@ -1398,8 +1398,8 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="9">
-                    <time>0:09</time>
+                  <button class="chapter" type="button" data-t="10">
+                    <time>0:10</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Attach the chapter, and ask for a 10-question quiz, tried on a student first.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1412,7 +1412,7 @@
                       ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">Adapts the Architect → Builder → Reviewer template for the question: QuizWriter, Student and Marker, in relay, and says why.</span>
+                    <span class="say">Adapts the Architect → Builder → Reviewer template for the question: Quiz_Writer, Student and Marker, in relay, and says why.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1429,6 +1429,17 @@
                   </button>
                 </li>
                 <li>
+                  <button class="chapter t-claude" type="button" data-t="49">
+                    <time>0:49</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">Q</span><span class="who">@Quiz_Writer</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
                   <button class="chapter t-team" type="button" data-t="55">
                     <time>0:55</time>
                     <span class="actor"
@@ -1436,21 +1447,21 @@
                         ><span class="av t-claude">Q</span><span class="av t-grok">S</span><span class="av t-codex">M</span></span
                       ><span class="who">All three</span></span
                     >
-                    <span class="say">The student scores full marks and the marker finds no question to misread, so nothing goes back; each lists its files.</span>
+                    <span class="say">Grok scores 10/10 and flags four ambiguous questions. Codex explains the ambiguity, and Claude rewrites those questions and their answer key.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="65">
-                    <time>1:05</time>
+                  <button class="chapter" type="button" data-t="66">
+                    <time>1:06</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Open quiz.md in Files, rendered as the class will read it.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="75">
-                    <time>1:15</time>
+                  <button class="chapter" type="button" data-t="76">
+                    <time>1:16</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Download the folder as a ZIP file: the quiz and its answer key together.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1464,7 +1475,7 @@
               <h3>What you ask</h3>
               <blockquote>Attached is chapter 5 for my grade 8 class. Make a 10-question quiz from it, as a relay: Claude Code writes quiz.md (4 easy, 4 medium, 2 hard) and answer-key.md; Grok takes the quiz as a student would, without opening the answer key; Codex marks Grok’s answers and sends any question a student could misread back to Claude Code to rewrite.</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/ab0041cb908778b31915715f7ee35f0c">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 4 files its replies link to.</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/27d3dd3572a96e96d6c3476e52d8b3ab">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 5 files its replies link to.</li>
                 <li>Attached to the question: <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/write-a-quiz/en/chapter-5-photosynthesis.md">chapter-5-photosynthesis.md</a>.</li>
               </ul>
             </div>
