@@ -35,7 +35,8 @@ import { runProcess, runShellScript, stripAnsi, tail, type RunOptions, type Spaw
 import { cliFolder } from './protect';
 import { parseVersion } from './providers';
 import type { SettingsStore } from './settings';
-import { BREW_DIRS, findOnPath } from './voice';
+import { windowsGitRoots } from './gitProcess';
+import { BREW_DIRS, findOnPath } from './executable';
 
 /*
  * Installing a CLI from Settings, for anyone who does not have it yet (a GitHub codespace has the
@@ -399,9 +400,7 @@ export function gitBash(env: NodeJS.ProcessEnv, isFile: (path: string) => boolea
     const dir = win32.dirname(git);
     roots.push(/\\mingw(32|64)\\bin$/i.test(dir) ? win32.dirname(win32.dirname(dir)) : win32.dirname(dir));
   }
-  for (const base of [env.ProgramFiles, env.ProgramW6432, env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Programs')]) {
-    if (base) roots.push(win32.join(base, 'Git'));
-  }
+  roots.push(...windowsGitRoots(env));
   return [...new Set(roots)]
     .flatMap((root) => [win32.join(root, 'bin', 'bash.exe'), win32.join(root, 'usr', 'bin', 'bash.exe')])
     .find(isFile);
@@ -1251,6 +1250,15 @@ export class CliInstaller {
     rmSync(file, { force: true });
   }
 
+  /** Share the Windows PATH queue with system installers, retaining their intended PATH changes. */
+  async withWindowsUserPath(job: InstallJob, fn: () => Promise<void>): Promise<void> {
+    if (this.userPathWaiting > 0) job.append('Waiting for another install to end: one at a time may change the user PATH\n');
+    await this.userPathQueue(async () => {
+      await this.restoreSaved();
+      await fn();
+    }, job.abort.signal);
+  }
+
   /**
    * Runs `fn`, a script that may change the user's PATH on Windows, and puts the PATH back as it was
    * before it once it ended, however it ended: a script given the CLI's folder as its home that reads
@@ -1260,10 +1268,7 @@ export class CliInstaller {
    * What the PATH was is kept in `USER_PATH_SAVED` until it is back, for `recover`.
    */
   private async keepingUserPath(job: InstallJob, fn: () => Promise<void>): Promise<void> {
-    if (this.userPathWaiting > 0) job.append('Waiting for another install to end: one at a time may change the user PATH\n');
-    await this.userPathQueue(async () => {
-      // One that could not be put back earlier, first: it is what the user's PATH was.
-      await this.restoreSaved();
+    await this.withWindowsUserPath(job, async () => {
       let saved: string;
       try {
         saved = await this.host.readUserPath();
@@ -1284,7 +1289,7 @@ export class CliInstaller {
         failure ??= err;
       }
       if (failure !== undefined) throw failure;
-    }, job.abort.signal);
+    });
   }
 
   /**

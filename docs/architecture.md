@@ -554,6 +554,8 @@ When something is left out, asking the CLI (above) asks it a second time the way
 
 ## Workspaces and file changes
 
+When a Git-dependent request cannot find the executable, the server returns `git-missing`. The web client opens the Git installation dialog for that request. A signed-in browser must explicitly start its install job. The server uses Apple’s Command Line Tools installer, WinGet’s `Git.Git` package, or the same Linux package runner used for sandbox setup. The client checks for usable Git before offering to retry the original action.
+
 With **read-only** permission agents simply run in the working directory (`cwd`). With **edit** or **full access**, Harness Relay uses git to keep agents from overwriting each other and to record what each one changed (`src/server/workspace.ts`):
 
 - **Automatic repository** — if `cwd` is not inside a git repository, Harness Relay runs `git init` there and adds common generated folders (`node_modules/`, `.venv/`, `target/`…) to `.git/info/exclude`. It refuses to do this in the home directory, a filesystem or volume root (`/Volumes/<name>`) or a folder above the home directory, and it refuses an existing repository rooted at the home directory or a filesystem root (for example a dotfiles repository), since every turn would snapshot all of it. Nothing is ever committed to the user's branch.

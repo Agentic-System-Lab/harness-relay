@@ -1,3 +1,4 @@
+import { addWindowsGitToPath } from './gitProcess';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -892,6 +893,7 @@ export class SettingsStore {
    */
   env(p: Provider, account?: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
+    if (process.platform === 'win32') addWindowsGitToPath(env);
     for (const k of NESTED_AGENT_VARS) delete env[k];
     if (isOpenProvider(p)) {
       // Only the backends set up in Settings: not a key or an address the server inherited.

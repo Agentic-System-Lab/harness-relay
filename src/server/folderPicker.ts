@@ -6,7 +6,7 @@ import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, win32 } from 'node:path';
 import { runProcess, runShellScript, tail, type RunOptions, type SpawnResult } from './process';
-import { findOnPath } from './voice';
+import { findOnPath } from './executable';
 
 export type PickerKind = 'osascript' | 'zenity' | 'kdialog' | 'powershell';
 

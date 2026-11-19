@@ -1886,8 +1886,7 @@ export const zhTW = {
         curl: (p: string) => `要在這裡安裝 ${p} 需要 curl，但 PATH 上找不到。`,
         tar: (p: string) => `要在這裡安裝 ${p} 需要 tar（用來解開 Node.js 的下載檔），但找不到。`,
         bash: (p: string) => `要在這裡安裝 ${p} 需要 bash，但 PATH 上找不到。`,
-        gitBash: (p: string) =>
-          `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
+        gitBash: (p: string) => `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請按「安裝 Git」完成設定。`,
         powershell: (p: string) => `要在這裡安裝 ${p} 需要 Windows PowerShell，但找不到。`,
         system: (p: string) => `Harness Relay 無法在這個系統上替你安裝 ${p}，請到它的官網照說明安裝。`,
       } as Record<CliInstallBlock, (p: string) => string>,
@@ -1973,6 +1972,25 @@ export const zhTW = {
   },
 
   /** What the agents' sandboxes need: Settings → Sandboxes, and the dialog New chat opens while something is missing. */
+  gitInstall: {
+    title: '需要 Git',
+    body: '這個操作需要在執行 Harness Relay 的電腦上安裝 Git。',
+    bash: '這個 CLI 安裝程式需要 Git for Windows 隨附的 Bash。',
+    methods: {
+      apple: 'macOS 會詢問是否安裝包含 Git 的 Apple 命令列工具。',
+      winget: 'Windows 套件管理員會安裝 Git for Windows。Windows 可能會要求確認權限。',
+      linux: '系統套件管理員會安裝 Git，過程中可能會要求輸入管理員密碼。',
+    },
+    appleWaiting: '請在 macOS 對話框完成命令列工具安裝，再按「重新檢查」。',
+    installing: '正在安裝 Git…',
+    ready: 'Git 已可使用。請關閉對話框，再試一次原本的操作。',
+    manual: '這台電腦沒有可用的自動安裝方式。請在執行 Harness Relay 的電腦上安裝 Git，再按「重新檢查」。',
+    instructions: 'Git 安裝說明',
+    install: '安裝 Git',
+    retry: '重新安裝',
+    check: '重新檢查',
+    later: '稍後再說',
+  },
   sandboxSetup: {
     title: '沙箱',
     hint: '在完全存取以外，agent 執行的指令都在作業系統的沙箱裡跑：只能寫入工作目錄，也碰不到你的瀏覽器資料與 Harness Relay 的資料庫。沙箱少了需要的東西時，Harness Relay 不會讓指令在沙箱外執行，所以那些 agent 的指令就無法執行。',

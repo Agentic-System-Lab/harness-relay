@@ -94,7 +94,7 @@ How to set them up, and what to expect from each agent: [Open-source agents and 
 
 ## Desktop app
 
-Rather not keep a terminal open? The desktop app for macOS (Apple Silicon), Windows and Linux runs the same server in the background and shows the chat in a window of its own. Closing the window leaves the server running behind an icon in the menu bar or system tray, so your phone keeps working. It can open at login, keep the computer awake, share with your phone in one click, and updates itself. It needs the agent CLIs (and Git) but not Node.js, except for the open-source agents' sandbox.
+Rather not keep a terminal open? The desktop app for macOS (Apple Silicon), Windows and Linux runs the same server in the background and shows the chat in a window of its own. Closing the window leaves the server running behind an icon in the menu bar or system tray, so your phone keeps working. It can open at login, keep the computer awake, share with your phone in one click, and updates itself. The app can install the agent CLIs from Settings and offers to [install Git when needed](docs/user-guide.md#conversation-rules). The open-source agents’ sandbox may need Node.js.
 
 Download it from the [website](https://agentic-system-lab.github.io/harness-relay/) or [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases). The installers are not signed yet, so the system warns the first time: [Desktop app](docs/user-guide.md#desktop-app) in the user guide says what to do, how updates work and how to build one yourself.
 

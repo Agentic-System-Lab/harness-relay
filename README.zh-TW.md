@@ -94,7 +94,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你
 
 ## 桌面 app
 
-不想一直開著終端機？macOS（Apple Silicon）、Windows 與 Linux 的桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示對話。關掉視窗後，伺服器會留在選單列或系統匣的圖示後面繼續執行，所以手機照常能用。它可以登入時自動啟動、不讓電腦睡著、一鍵分享到手機，也會自己更新。它需要 agent 的 CLI（以及 Git），但不需要 Node.js；只有開源 agent 的沙箱例外。
+不想一直開著終端機？macOS（Apple Silicon）、Windows 與 Linux 的桌面 app 會在背景執行同一個伺服器，並在它自己的視窗裡顯示對話。關掉視窗後，伺服器會留在選單列或系統匣的圖示後面繼續執行，所以手機照常能用。它可以登入時自動啟動、不讓電腦睡著、一鍵分享到手機，也會自己更新。可以在設定頁安裝 agent 的 CLI，也會在[需要 Git 時詢問是否安裝](docs/user-guide.zh-TW.md#對話規則)。開源 agent 的沙箱可能需要 Node.js。
 
 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載。安裝檔還沒有簽署，所以第一次打開時系統會警告：使用者說明的[桌面 app](docs/user-guide.zh-TW.md#桌面-app) 說明該怎麼做、怎麼更新，以及怎麼自己建置。
 
