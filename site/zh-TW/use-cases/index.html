@@ -180,7 +180,7 @@
             "description": "錄影：三位 agent 上網研究四天工作週、辯論證據並寫出附來源的摘要，再由首席 agent 審閱他們的回覆",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/literature-review-zh-TW.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/literature-review-zh-TW.mp4",
-            "uploadDate": "2026-11-18T01:04:15Z",
+            "uploadDate": "2026-11-19T19:48:18Z",
             "duration": "PT1M16S",
             "inLanguage": "zh-TW"
           },
@@ -1231,7 +1231,7 @@
           <div class="usecase-head">
             <p class="usecase-role">給研究人員</p>
             <h2 id="literature-review-title"><span class="phrase">研究怎麼說，</span><span class="phrase">每個來源都附上</span></h2>
-            <p class="lead">不是每件事都是寫程式。問一個需要讀資料的問題，agent 會自己上網搜尋、讀研究，再以圓桌輪流回應彼此的論點，全程唯讀。你得到一份附上參考連結的摘要；首席 agent 的審閱標出他們意見不同的地方，點審閱裡的每一點，就會捲到回覆中它引用的文字。</p>
+            <p class="lead">不是每件事都是寫程式。問一個需要讀資料的問題，agent 會自己上網搜尋、讀研究，再以圓桌輪流回應彼此的論點，全程唯讀。你可以對照摘要和原始來源。首席 agent 標出上會前要補的數字和證據不足的說法，點審閱引用的文字就能回到原回覆。</p>
             <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">圓桌 × 2</span></li><li><span class="chip">唯讀</span></li><li><span class="chip">首席審閱</span></li></ul>
           </div>
           <div class="screening-grid usecase-screen">
@@ -1263,16 +1263,16 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="6">
-                    <time>0:06</time>
+                  <button class="chapter" type="button" data-t="4">
+                    <time>0:04</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
                     <span class="say">提問：四天工作週的研究怎麼說？每個來源都要附連結。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="24">
-                    <time>0:24</time>
+                  <button class="chapter t-claude" type="button" data-t="13">
+                    <time>0:13</time>
                     <span class="actor"
                       ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
                       ><span class="via">Claude Code</span></span
@@ -1282,14 +1282,25 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-team" type="button" data-t="31">
-                    <time>0:31</time>
+                  <button class="chapter t-team" type="button" data-t="20">
+                    <time>0:20</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
                         ><span class="av t-codex">C</span><span class="av t-grok">G</span><span class="av t-claude">C</span></span
                       ><span class="who">三位成員</span></span
                     >
                     <span class="say">每位上網搜尋、讀研究，再回應其他人的論點。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-grok" type="button" data-t="28">
+                    <time>0:28</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">G</span><span class="who">@Grok_Skeptic</span
+                      ><span class="via">Grok</span></span
+                    >
+                    <span class="say">要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1301,7 +1312,7 @@
                         ><span class="av t-codex">C</span><span class="av t-grok">G</span><span class="av t-claude">C</span></span
                       ><span class="who">三位成員</span></span
                     >
-                    <span class="say">給主管的一頁摘要：哪些證據站得住、哪些還薄弱，附上他們讀過的連結。</span>
+                    <span class="say">團隊整理出附來源的主管摘要。減少耗竭的證據比提升產出更明確，建議先做有對照組的小規模試行。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1312,13 +1323,13 @@
                       ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">審閱回覆：哪裡意見不同、哪些說法該由你親自確認。</span>
+                    <span class="say">首席 agent 指出，摘要把一家機構停辦的理由套到了十二家，並標出上會前還要補哪些數字。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="69">
-                    <time>1:09</time>
+                  <button class="chapter" type="button" data-t="68">
+                    <time>1:08</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
                     <span class="say">點審閱裡的一點：回覆隨即捲到它引用的文字，並標示出來。</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1332,7 +1343,7 @@
               <h3>你問的</h3>
               <blockquote>先讀 BRIEF.md。關於四天工作週的產出、過勞，以及每天服務客戶的團隊，研究怎麼說？請 Claude Code、Codex 和 Grok 各自找試行計畫和研究，辯論證據有多可靠，再給主管一頁摘要，每個來源都附上連結。</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/17d035c0b75b8653b52bc23fffe21532">看完整對話</a>：Harness Relay 的「分享」做出的頁面。</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/3c5f50cd61048338a15de80c7ba3b8e6">看完整對話</a>：Harness Relay 的「分享」做出的頁面。</li>
               </ul>
             </div>
             <div class="usecase-shows">
