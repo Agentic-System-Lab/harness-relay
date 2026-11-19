@@ -1669,7 +1669,7 @@ const translateStrings: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: '翻譯、不看英文回譯，再檢查：日文兩個字串退回重翻，其中一個就是你補充的 Snooze。',
+        say: 'Copilot 回譯後，Claude Code 核對七個字串並全部通過。Snooze 的繁中和日文都採用你指定的用詞。',
       },
       { at: 'diff', kind: 'you', say: '打開 @{diff:agent} 的差異：只動了新字串，每個 placeholder 都保留。' },
     ],
