@@ -4,6 +4,7 @@ import {
   closeFences,
   conversationMarkdown,
   copyText,
+  fallbackExplanation,
   mentionWarning,
   messageText,
   planChecksMentions,
@@ -112,11 +113,43 @@ describe('naming the team the lead agent chose', () => {
     // A failed design keeps the current team, or uses the default template when there is none.
     expect(planHeadline({ status: 'ready', lead, source: 'fallback', name: 'A · B' }, en)).toBe('Keeping the current team');
     expect(planHeadline({ status: 'ready', lead, source: 'fallback', presetId: 'builtin-general', name: 'General' }, en)).toBe(
-      'Using the template "General" instead',
+      'Default team for this task · General',
     );
     expect(planHeadline({ status: 'ready', lead, source: 'adapted', name: 'Pair', basedOn: { id: 'x', name: 'Debate' } }, zhTW)).toBe(
       '依範本「Debate」調整的團隊「Pair」',
     );
+  });
+
+  it('reads explicit usage limits on older cards in either language without guessing an unspecified reset', () => {
+    const base = { status: 'ready', source: 'fallback', lead } as const;
+    const reason = '首席 agent 沒有給出可用的團隊設計（You’ve hit your weekly limit · resets Nov 20, 6pm (Asia/Taipei)），改用預設範本。';
+    expect(fallbackExplanation({ ...base, reason }, zhTW, 'zh-TW')).toEqual({
+      explanation: '首席 agent（Claude Code）的每週額度已達上限。服務回報的重設時間為 Nov 20, 6pm (Asia/Taipei)。',
+      diagnostic: reason,
+    });
+    const quota = 'The lead agent did not produce a usable team design (quota exceeded); keeping the current team.';
+    expect(fallbackExplanation({ ...base, reason: quota }, en, 'en').explanation).toBe(
+      'The lead agent (Claude Code) reached its usage limit.',
+    );
+    for (const detail of [
+      'Reached your weekly usage limit. The provider could not provide a reset time.',
+      'Usage limit reached. Try again later. See details.',
+      'Usage limit reached. Resets when your subscription renews.',
+    ]) {
+      expect(fallbackExplanation({ ...base, fallback: { diagnostic: detail } }, en, 'en').explanation).not.toMatch(/reset time/i);
+    }
+    const timestamp = '2026-11-20T06:00:00.000Z';
+    expect(
+      fallbackExplanation({ ...base, reason: `Usage limit reached. Try again at ${timestamp}, or upgrade.` }, en, 'en').explanation,
+    ).toContain(timestamp);
+    expect(fallbackExplanation({ ...base, reason: 'Did not hit your weekly limit.' }, en, 'en').explanation).toBeUndefined();
+    const offline = 'the CLI could not read weekly usage';
+    expect(fallbackExplanation({ ...base, reason: offline, leadUnavailable: true }, zhTW, 'zh-TW')).toEqual({
+      explanation: zhTW.plan.leadUnavailable('Claude Code'),
+      diagnostic: offline,
+    });
+    expect(fallbackExplanation(base, en, 'en')).toEqual({ diagnostic: undefined, explanation: undefined });
+    expect(fallbackExplanation({ ...base, fallback: {}, reason: 'Changed models.' }, en, 'en').explanation).toBeUndefined();
   });
 
   it('says in a copied conversation when the user declined the design', () => {

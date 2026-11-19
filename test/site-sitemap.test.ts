@@ -122,7 +122,8 @@ const DATES = SITE_PAGES.map((p) => [p.url, p.url === ZH ? '2026-02-03T00:00:00Z
 function checkout(): string {
   const repo = mkdtempSync(join(tmp, 'repo-'));
   git(repo, ['init', '-q']);
-  cpSync(new URL('../site', import.meta.url), join(repo, 'site'), { recursive: true });
+  // Only pages get dated. The scratch clone need not pack the recordings on every run.
+  cpSync(new URL('../site', import.meta.url), join(repo, 'site'), { recursive: true, filter: (file) => !file.endsWith('.mp4') });
   git(repo, ['add', '.']);
   git(repo, ['commit', '-q', '-m', 'site'], '2026-01-02T03:04:05+08:00');
   appendFileSync(join(repo, 'site/zh-TW/index.html'), '\n');

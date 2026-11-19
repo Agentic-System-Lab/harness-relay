@@ -27,6 +27,7 @@ import {
   type TeamPlan,
   type TeamPreset,
   type ToolLibraryView,
+  type UsageLimit,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
@@ -235,43 +236,46 @@ function privateEndpoint(provider: Provider, model: string | undefined, staffing
   return undefined;
 }
 
-function modelAllowed(
+/** An exhausted window explains why the specific assignment is unavailable on a fallback card. */
+function modelAvailability(
   provider: Provider,
   catalog: ProviderModels | undefined,
   chosen: string | undefined,
   usage: AccountUsage | undefined,
   staffing: Staffing,
   requireListed = false,
-): boolean {
+): 'available' | 'unavailable' | UsageLimit {
   const model = chosen || catalog?.defaultModel;
   const option = catalog?.models.find((m) => m.id === model);
   const endpoint = privateEndpoint(provider, model, staffing);
-  if (endpoint && staffing.backends?.deletedEndpoints.includes(endpoint)) return false;
-  if (requireListed && chosen && !option && chosen !== catalog?.defaultModel) return false;
+  if (endpoint && staffing.backends?.deletedEndpoints.includes(endpoint)) return 'unavailable';
+  if (requireListed && chosen && !option && chosen !== catalog?.defaultModel) return 'unavailable';
   if (isOpenProvider(provider)) {
     const backend = model && parseBackendModel(model)?.backend;
-    if (!backend || (staffing.backends && !staffing.backends.configured.includes(backend))) return false;
+    if (!backend || (staffing.backends && !staffing.backends.configured.includes(backend))) return 'unavailable';
   }
-  if (usage?.problem === 'cliMissing') return false;
+  if (usage?.problem === 'cliMissing') return 'unavailable';
   // An endpoint uses its own backend, even when the same CLI's subscription is exhausted.
-  if (option?.endpoint || endpoint) return true;
-  if (usage?.planUsageBlocked || usage?.none === 'signedOut' || usage?.none === 'noAllowance') return false;
-  return !usage?.limits.some((limit) => {
-    if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= staffing.now)) return false;
-    // Copilot's completions are unrelated to chat. Premium request quotas do not apply to every
-    // model it lists, and the catalog does not say which models consume them.
-    if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
-    if (!limit.scope && !limit.model) return true;
-    const scopes = [
-      ...(limit.model ? [limit.model] : []),
-      ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
-    ];
-    return scopes.some((scope) =>
-      model
-        ? scopeMatches(provider, scope, model, option?.label)
-        : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
-    );
-  });
+  if (option?.endpoint || endpoint) return 'available';
+  if (usage?.none === 'signedOut' || usage?.none === 'noAllowance') return 'unavailable';
+  return (
+    usage?.limits.find((limit) => {
+      if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= staffing.now)) return false;
+      // Copilot's completions are unrelated to chat. Premium request quotas do not apply to every
+      // model it lists, and the catalog does not say which models consume them.
+      if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
+      if (!limit.scope && !limit.model) return true;
+      const scopes = [
+        ...(limit.model ? [limit.model] : []),
+        ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
+      ];
+      return scopes.some((scope) =>
+        model
+          ? scopeMatches(provider, scope, model, option?.label)
+          : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
+      );
+    }) ?? (usage?.planUsageBlocked ? 'unavailable' : 'available')
+  );
 }
 
 type ModelAssignment = Pick<AgentConfig, 'provider' | 'account' | 'model'>;
@@ -292,14 +296,14 @@ export function memberAvailable(ctx: PlannerContext, member: ModelAssignment, re
   const { provider, model, account = '' } = member;
   return Boolean(
     ctx.accounts?.[provider]?.includes(account) &&
-    modelAllowed(
+    modelAvailability(
       provider,
       catalogFor(ctx.catalog, provider, account),
       model,
       usageFor(ctx.staffing, provider, account),
       ctx.staffing,
       requireListed,
-    ),
+    ) === 'available',
   );
 }
 
@@ -365,7 +369,9 @@ export async function plannerContext(
       ? ids.filter((id) => {
           const c = catalogFor(catalog, provider, id);
           const usage = usageFor(staffing, provider, id);
-          return [undefined, ...(c?.models.map((m) => m.id) ?? [])].some((m) => modelAllowed(provider, c, m, usage, staffing));
+          return [undefined, ...(c?.models.map((m) => m.id) ?? [])].some(
+            (m) => modelAvailability(provider, c, m, usage, staffing) === 'available',
+          );
         })
       : ids;
     if (!kept.length) return [];
@@ -430,7 +436,7 @@ export interface PlanConversation {
 
 /** The parts of a TeamPlan the planner decides. */
 export type PlanDecision = Required<Pick<TeamPlan, 'source' | 'name' | 'reason' | 'settings' | 'agents'>> &
-  Pick<TeamPlan, 'presetId' | 'basedOn' | 'description'>;
+  Pick<TeamPlan, 'presetId' | 'basedOn' | 'description' | 'fallback'>;
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const FALLBACK_PRESET = 'builtin-general';
@@ -1050,10 +1056,18 @@ export function fallbackPlan(
   why: string,
   current?: PlanConversation['current'],
 ): PlanDecision {
+  const fallback: NonNullable<TeamPlan['fallback']> = { diagnostic: why };
+  if (ctx.staffing) {
+    const catalog = catalogFor(ctx.catalog, lead.provider, lead.account);
+    const usage = usageFor(ctx.staffing, lead.provider, lead.account ?? '');
+    const availability = modelAvailability(lead.provider, catalog, lead.model, usage, ctx.staffing);
+    if (typeof availability === 'object') fallback.limit = { span: availability.span, resetsAt: availability.resetsAt };
+  }
   if (current?.agents.length) {
-    if (current.agents.every((a) => memberAvailable(ctx, a))) return keptDecision(current, 'fallback', t().planFailedKept(why));
+    if (current.agents.every((a) => memberAvailable(ctx, a))) return { ...keptDecision(current, 'fallback', ''), fallback };
     return {
-      ...keptDecision(current, 'fallback', t().planFailedAdjusted(why)),
+      ...keptDecision(current, 'fallback', t().planAssignmentsAdjusted),
+      fallback,
       agents: fitAgents(current.agents, ctx, lead, undefined, false),
     };
   }
@@ -1061,7 +1075,7 @@ export function fallbackPlan(
   const usable = usablePresets(ctx);
   const preset =
     usable.find((p) => p.id === FALLBACK_PRESET) ?? usable[0] ?? ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
-  return templateDecision(preset, 'fallback', t().planFailed(why), ctx, lead);
+  return { ...templateDecision(preset, 'fallback', '', ctx, lead), fallback };
 }
 
 /**

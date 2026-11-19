@@ -4,6 +4,7 @@ import {
   FOLLOW_MS,
   FOLLOW_TRIES,
   anyInstalling,
+  assistantReadiness,
   cliInstallShown,
   followInstalls,
   installsEnded,
@@ -80,6 +81,34 @@ describe('statusBeforeInstall', () => {
     expect(statusBeforeInstall(status({ checkedAt: 150 }), view({ installed: { ...ours, inUse: false } }))).toBe(false);
     expect(statusBeforeInstall(status({ checkedAt: 150 }), view())).toBe(false);
     expect(statusBeforeInstall(undefined, view({ installed: ours }))).toBe(false);
+  });
+});
+
+describe('assistantReadiness', () => {
+  it('keeps checking, blocked installations and work in progress distinct from a missing CLI', () => {
+    expect(assistantReadiness(undefined, undefined).kind).toBe('checking');
+    expect(assistantReadiness(status(), view({ installed: ours })).kind).toBe('checking');
+    expect(assistantReadiness(status(), view({ blocked: 'npm' })).kind).toBe('requirements');
+    expect(assistantReadiness(status(), view({ job: job('running') })).kind).toBe('installing');
+    expect(assistantReadiness(status(), view()).kind).toBe('install');
+    expect(assistantReadiness(status({ checkedAt: 300 }), view({ installed: ours })).kind).toBe('executable');
+  });
+
+  it('finds a confirmed sign-in or key on any account and keeps an unknown sign-in distinct', () => {
+    const first = { id: '', label: '', auth: { loggedIn: false }, usingStoredApiKey: false };
+    const work = { ...first, id: 'work', label: 'Work', usingStoredApiKey: true };
+    const installed = status({ installed: true, auth: first.auth, accounts: [first] });
+    expect(assistantReadiness(installed, undefined).kind).toBe('signIn');
+    expect(assistantReadiness({ ...installed, accounts: [first, work] }, undefined)).toEqual({ kind: 'ready', account: work });
+    expect(assistantReadiness({ ...installed, accounts: [{ ...first, auth: { loggedIn: true } }] }, undefined)).toEqual({ kind: 'ready' });
+    expect(assistantReadiness({ ...installed, accounts: [{ ...first, auth: { loggedIn: null } }] }, undefined).kind).toBe('unknown');
+  });
+
+  it('sends an installed open agent with no backend to model backends', () => {
+    const open = status({ provider: 'pi', installed: true, auth: { loggedIn: false } });
+    expect(assistantReadiness(open, undefined).kind).toBe('backend');
+    expect(assistantReadiness({ ...open, auth: { loggedIn: true } }, undefined).kind).toBe('ready');
+    expect(assistantReadiness({ ...open, installed: false }, undefined).kind).toBe('install');
   });
 });
 

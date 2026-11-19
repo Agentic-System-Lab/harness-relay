@@ -227,6 +227,7 @@ describe('a team the lead agent designs', () => {
   });
 
   it('marks the unavailable lead and uses a different account for the current member', async () => {
+    const resetsAt = Date.now() + 60_000;
     const work = settings.addAccount('claude', 'Work');
     setOrchestrator(
       new Orchestrator(store, new Hub(), settings, {
@@ -237,7 +238,7 @@ describe('a team the lead agent designs', () => {
           presets: store.listPresets(),
           staffing: {
             now: Date.now(),
-            usage: [{ provider: 'claude', account: '', checkedAt: Date.now(), limits: [{ usedPercent: 100 }] }],
+            usage: [{ provider: 'claude', account: '', checkedAt: Date.now(), limits: [{ usedPercent: 100, span: 'week', resetsAt }] }],
           },
         }),
       }),
@@ -252,7 +253,12 @@ describe('a team the lead agent designs', () => {
 
     expect(calls.map((c) => [c.name, c.home])).toEqual([[member.name, settings.env('claude', work).CLAUDE_CONFIG_DIR]]);
     expect(conv.agents[0]).toMatchObject({ id: member.id, provider: 'claude', account: work, tools: { memory: false } });
-    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'ready', source: 'fallback', leadUnavailable: true });
+    expect(new Store(db).get(conv.id)!.messages.find((m) => m.plan)?.plan).toMatchObject({
+      status: 'ready',
+      source: 'fallback',
+      leadUnavailable: true,
+      fallback: { limit: { span: 'week', resetsAt } },
+    });
   });
 
   it('keeps the unavailable lead marked when the CLI fails and its fallback team cannot pass verification', async () => {

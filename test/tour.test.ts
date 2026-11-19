@@ -49,9 +49,9 @@ describe('guided tour', () => {
       .update(JSON.stringify([zhTW.tour.steps, en.tour.steps]))
       .digest('hex')
       .slice(0, 12);
-    // The steps changed? Raise TOUR_VERSION in src/web/components/Onboarding.tsx so people who finished the tour
+    // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see it again, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 19, fingerprint: 'e6e7ea0600fb' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 20, fingerprint: '8b95c795f5a8' });
   });
 });

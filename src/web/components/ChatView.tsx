@@ -523,6 +523,19 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
 
+  // An earlier card is history as soon as the next question or design arrives.
+  const lastDesignOrQuestion = conv.messages.findLast((m) => m.plan || m.author.kind === 'user');
+  const fallback = lastDesignOrQuestion?.plan;
+  let fallbackStatus: string | undefined;
+  if (fallback?.status === 'ready' && fallback.source === 'fallback' && !fallback.awaitingConfirmation && !fallback.declinedAt) {
+    if (pending.length) fallbackStatus = t.sidebar.waiting;
+    else if (questions.length) fallbackStatus = t.chat.asking(askers);
+    else if (reviewing) fallbackStatus = t.review.reviewing(leadText);
+    else if (running) fallbackStatus = t.plan.teamWorking;
+    else if (fallback.forSchedule) fallbackStatus = conv.schedule ? t.plan.scheduleReady : undefined;
+    else fallbackStatus = t.plan.canContinue;
+  }
+
   const send = async (text: string, attachments: AttachmentUpload[], interrupt = false) => {
     setError('');
     try {
@@ -713,6 +726,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onConfirmPlan={onConfirmPlan}
                 onDeclinePlan={onDeclinePlan}
                 latestPlan={m.id === latestPlanId}
+                fallbackStatus={m.id === lastDesignOrQuestion?.id ? fallbackStatus : undefined}
                 scheduleText={m.plan ? conv.schedule?.text : undefined}
                 onSavePlan={onSavePlan}
                 onAdjustTeam={onAdjustTeam}

@@ -80,7 +80,7 @@ npm run build
 npm start
 ```
 
-Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`; Harness Relay takes only browsers that signed in, see [Safety](#safety)), check under **Settings & sign-in** that each agent is signed in (or set up a model backend for the open-source agents, below), then click **New chat**, choose the working directory and permission, and ask your first question: the lead agent proposes a team for it.
+Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`; Harness Relay takes only browsers that signed in, see [Safety](#safety)), then open **Settings & sign-in** to find a ready assistant or connect one. Choose **Start a new chat**, enter your question, check the working directory and permission, and send. You can review the proposed team before it answers or let it start right away.
 
 - After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 - To use it from your phone, share it with your tailnet: [Use it from your phone (Tailscale)](docs/remote-access.md#1-share-the-server-with-your-tailnet).

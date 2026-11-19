@@ -1,24 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  PROVIDER_LABEL,
   cwdSettings,
   cwdsOf,
   type Conversation,
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
-  type TeamPreset,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
+import { settingsHref } from '../route';
 import { leadLabel } from '../util';
-import { Deferred, lazyPart } from './Deferred';
-import { MemberDots } from './MemberDots';
-import { TeamEditor, teamProblems, type Team } from './TeamEditor';
-
-// Loaded when a template is first opened, not with the page.
-const TemplateEditor = lazyPart(() => import('./TemplateEditor').then((m) => m.TemplateEditor));
+import { TemplateLibrary } from './TemplateLibrary';
+import { CreationOptions, CreationTeamOptions } from './CreationOptions';
+import { teamProblems, type Team } from './TeamEditor';
 
 /** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
 const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
@@ -67,53 +63,71 @@ export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
   };
 }
 
-/** The template open in the dialog (none: a new one); `key` gives each opening a fresh editor. */
-type Editing = { key: string; preset?: TeamPreset };
+/** Kept by the signed-in application while the user visits settings or another chat. */
+export interface NewChatDraft {
+  question: string;
+  title: string;
+  team?: Team;
+}
+export const emptyChatDraft: NewChatDraft = { question: '', title: '' };
 
 interface Props {
+  draft: NewChatDraft;
+  onDraft: (draft: NewChatDraft) => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  error: string;
+  setError: (message: string) => void;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onCreated: (c: Conversation) => void;
 }
 
-export function NewChat({ providers, catalog, onCreated }: Props) {
+export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
-  const [presets, setPresets] = useState<TeamPreset[]>([]);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
-  const [editing, setEditing] = useState<Editing | null>(null);
-  const [title, setTitle] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [defaults, setDefaults] = useState<Team | null>(null);
+  const [loadError, setLoadError] = useState('');
 
-  const initialized = useRef(false);
+  const team = draft.team ?? defaults;
 
-  // Built-in templates come back in the UI language, so reload them when it changes.
   useEffect(() => {
-    Promise.all([api.listPresets(), api.getSettings()])
-      .then(([ps, settings]) => {
-        setPresets(ps);
+    let current = true;
+    api
+      .getSettings()
+      .then((settings) => {
+        if (!current) return;
         setLead(settings.lead);
-        if (initialized.current) return;
-        initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => {
+        if (current) setLoadError(String(e.message ?? e));
+      });
+    return () => {
+      current = false;
+    };
   }, [lang]);
 
-  if (!team) return <div className="page-center muted">{error || t.common.loading}</div>;
+  if (!team || !lead) return <div className="page-center muted">{loadError || t.common.loading}</div>;
 
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
-  const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
+  const leadText = leadLabel(lead);
 
   const start = async () => {
     setBusy(true);
     setError('');
     try {
       const conv = await orCreateCwd(
-        (createCwd) => api.createConversation({ title, agents: [], settings: team.settings, createCwd }),
+        (createCwd) =>
+          api.createConversation({
+            title: draft.title,
+            firstMessage: draft.question.trim() || undefined,
+            agents: [],
+            settings: team.settings,
+            createCwd,
+          }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -125,103 +139,55 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
     }
   };
 
-  const open = (preset?: TeamPreset) => setEditing({ key: preset ? preset.id : `new-${Date.now()}`, preset });
-
-  const saved = (p: TeamPreset) => {
-    setPresets((ps) => (ps.some((x) => x.id === p.id) ? ps.map((x) => (x.id === p.id ? p : x)) : [...ps, p]));
-    setEditing(null);
-  };
-
-  const deletePreset = async (p: TeamPreset) => {
-    if (!confirm(t.newChat.confirmDeleteTemplate(p.name))) return;
-    try {
-      await api.deletePreset(p.id);
-      setPresets((ps) => ps.filter((x) => x.id !== p.id));
-      if (editing?.preset?.id === p.id) setEditing(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
   return (
     <div className="page new-chat-page">
       <div className="scroll new-chat-body">
         <div className="page-inner">
           <header className="page-head">
             <h1>{t.newChat.title}</h1>
-            <p className="muted">{t.newChat.intro(leadText)}</p>
+            <p className="muted">
+              {t.newChat.intro(leadText, Boolean(team.settings.autoConfirm))} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
+            </p>
           </header>
-
-          <section>
-            <div className="section-head">
-              <h3>{t.newChat.templates}</h3>
-              <span className="muted small">{t.newChat.templatesHint}</span>
+          <fieldset className="first-task" disabled={busy} aria-label={t.newChat.title}>
+            <label className="first-question" htmlFor="first-question">
+              {t.newChat.question}
+            </label>
+            <textarea
+              className="task-input"
+              id="first-question"
+              rows={4}
+              value={draft.question}
+              onChange={(e) => onDraft({ ...draft, question: e.target.value })}
+            />
+            <CreationOptions
+              team={team}
+              onTeam={(next) => onDraft({ ...draft, team: next })}
+              providers={providers}
+              catalog={catalog}
+              title={draft.title}
+              onTitle={(title) => onDraft({ ...draft, title })}
+              titlePlaceholder={t.newChat.titlePlaceholder}
+            />
+            <TemplateLibrary providers={providers} catalog={catalog} />
+            <div className="start-bar first-task-actions">
+              <CreationTeamOptions
+                team={team}
+                onTeam={(next) => onDraft({ ...draft, team: next })}
+                automaticLabel={t.newChat.startImmediately}
+              />
+              <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
+                {busy ? t.newChat.creating : draft.question.trim() ? t.newChat.sendQuestion : t.newChat.start}
+              </button>
             </div>
-            <div className="preset-row">
-              {presets.map((p) => (
-                <div key={p.id} className="preset-card">
-                  {/* Every card the same size: a long name or description ends in "…" (in full on hover). */}
-                  <button className="preset-main" onClick={() => open(p)} aria-haspopup="dialog">
-                    <span className="preset-top">
-                      <MemberDots agents={p.agents} className="preset-dots" max={6} />
-                      {p.builtin && <span className="preset-tag">{t.newChat.builtin}</span>}
-                    </span>
-                    <strong className="preset-name" title={p.name}>
-                      {p.name}
-                    </strong>
-                    {p.description && (
-                      <span className="muted small preset-desc" title={p.description}>
-                        {p.description}
-                      </span>
-                    )}
-                  </button>
-                  {!p.builtin && (
-                    <button className="icon-button preset-delete" aria-label={t.newChat.deleteTemplate} onClick={() => deletePreset(p)}>
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-              <div className="preset-card new-template">
-                <button className="preset-main" onClick={() => open()} aria-haspopup="dialog">
-                  <strong className="preset-name">＋ {t.newChat.newTemplate}</strong>
-                  <span className="muted small preset-desc">{t.newChat.newTemplateDescription}</span>
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
+            {(problems.length > 0 || error) && (
+              <p role="alert" className="error-line">
+                {error || problems[0]}
+              </p>
+            )}
+          </fieldset>
         </div>
       </div>
-
-      {/* Outside the scrolling area, so it stays at the bottom of the window. */}
-      <footer className="start-dock">
-        <div className="start-bar">
-          <input
-            className="title-input"
-            value={title}
-            placeholder={t.newChat.titlePlaceholder}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
-            {busy ? t.newChat.creating : t.newChat.start}
-          </button>
-        </div>
-        {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
-      </footer>
-      {editing && (
-        <Deferred onClose={() => setEditing(null)}>
-          <TemplateEditor
-            key={editing.key}
-            preset={editing.preset}
-            providers={providers}
-            catalog={catalog}
-            onSaved={saved}
-            onClose={() => setEditing(null)}
-          />
-        </Deferred>
-      )}
     </div>
   );
 }

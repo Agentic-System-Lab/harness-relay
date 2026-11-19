@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   SCHEDULE_KINDS,
   SCHEDULE_LIMITS,
@@ -41,7 +41,8 @@ export function ScheduleForm({
   saved,
   settings,
   team,
-  hook,
+  creation,
+  children,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -51,20 +52,25 @@ export function ScheduleForm({
   settings: Pick<ConversationSettings, 'mode' | 'permission' | 'approvals'>;
   /** The team's names; absent while there is no team yet (the lead agent names its members after the @mentions). */
   team?: string[];
-  /** New automation only: Create a webhook too, folded away under When (the drawer adds one to a saved automation). */
-  hook?: { checked: boolean; onChange: (on: boolean) => void };
+  /** New automation only: Create a webhook too, under optional run settings (the drawer adds one to a saved automation). */
+  creation?: { withHook: boolean; onHook: (on: boolean) => void };
+  children?: ReactNode;
 }) {
   const { t, lang } = useI18n();
   const w = t.schedule.watch;
   const { turnTimeoutMinutes } = useLimits();
   const intervalHintId = useId();
+  const messageId = useId();
+  const goalId = useId();
+  const goalHintId = useId();
+  const whenId = useId();
   const kindsRow = useRef<HTMLDivElement>(null);
   useEffect(() => revealChosen(kindsRow.current), [draft.kind]);
   // @mentions that reach nobody on the team.
   const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
   // "Add one once it is saved" only where the automation is not saved yet and no webhook can be made on the page.
-  const manualHint = hook || saved ? t.schedule.manualHintNew : t.schedule.manualHint;
+  const manualHint = creation || saved ? t.schedule.manualHintNew : t.schedule.manualHint;
   // The preview under the times is about the times: a message still to be typed is said elsewhere.
   const problems = draftProblems({ ...draft, text: draft.text.trim() || '-' }, now, t);
   const upcoming = problems.length ? [] : previewRuns(draft, now, saved);
@@ -117,50 +123,142 @@ export function ScheduleForm({
   );
   const sourceHint = [...(several ? [w.severalHint] : []), ...hints].join(' ');
 
+  const runOptions = (
+    <>
+      <div className="field">
+        <label className="check-row">
+          <input type="checkbox" checked={draft.newChat} onChange={(e) => onEdit({ newChat: e.target.checked })} />
+          {t.schedule.newChat}
+        </label>
+        <span className="small muted">{t.schedule.newChatHint[draft.newChat ? 'on' : 'off']}</span>
+        {draft.newChat && mode === 'parallel' && permission !== 'read-only' && (
+          <span className="small warn-text">{t.schedule.newChatParallel}</span>
+        )}
+      </div>
+
+      <h3 className="schedule-sub">{t.schedule.unattended}</h3>
+
+      <div className="field">
+        <span>{t.schedule.approvals}</span>
+        <div className="segmented wide" role="radiogroup" aria-label={t.schedule.approvals}>
+          {(['deny', 'ask'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={draft.approvals === v}
+              className={draft.approvals === v ? 'on' : ''}
+              onClick={() => onEdit({ approvals: v })}
+            >
+              {v === 'deny' ? t.schedule.approvalsDeny : t.schedule.approvalsAsk}
+            </button>
+          ))}
+        </div>
+        <span className="small muted">
+          {permission === 'full'
+            ? t.schedule.approvalsFull
+            : settings.approvals === 'deny'
+              ? t.schedule.approvalsTeamDeny
+              : draft.approvals === 'ask'
+                ? t.schedule.approvalsHint.ask(turnTimeoutMinutes)
+                : t.schedule.approvalsHint.deny}
+        </span>
+      </div>
+
+      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed (new mail
+          that came meanwhile is found at the first check). */}
+      {draft.kind !== 'manual' && !watching && (
+        <div className="field">
+          <span>{t.schedule.missed}</span>
+          <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
+            {(['skip', 'run'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={draft.missed === v}
+                className={draft.missed === v ? 'on' : ''}
+                onClick={() => onEdit({ missed: v })}
+              >
+                {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
+              </button>
+            ))}
+          </div>
+          <span className="small muted">{t.schedule.missedHint[draft.missed]}</span>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <section className="schedule-form">
-      <label className="field">
-        <span>{t.schedule.message}</span>
+      <div className="field">
+        <label className={creation ? 'first-question' : undefined} htmlFor={messageId}>
+          {creation ? t.newSchedule.task : t.schedule.message}
+        </label>
         <textarea
+          className={creation ? 'task-input' : undefined}
+          id={messageId}
           value={draft.text}
           rows={4}
           maxLength={SCHEDULE_LIMITS.maxText}
-          placeholder={t.schedule.messagePlaceholder}
+          placeholder={creation ? t.newSchedule.example : t.schedule.messagePlaceholder}
           onChange={(e) => onEdit({ text: e.target.value })}
         />
-        <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
+        {(!creation || draft.text.includes('@')) && (
+          <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
+        )}
         {warning && <span className="small warn-text">{warning}</span>}
-      </label>
+      </div>
 
-      <label className="field">
-        <span>{t.schedule.goal}</span>
+      <div className="field">
+        <label htmlFor={goalId}>{t.schedule.goal}</label>
         <textarea
+          id={goalId}
+          aria-describedby={goalHintId}
           value={draft.goal}
           rows={2}
           maxLength={SCHEDULE_LIMITS.maxGoal}
           placeholder={t.schedule.goalPlaceholder}
           onChange={(e) => onEdit({ goal: e.target.value })}
         />
-        <span className="small muted">{t.schedule.goalHint}</span>
-      </label>
+        <span className="small muted" id={goalHintId}>
+          {creation ? t.newSchedule.goalHint : t.schedule.goalHint}
+        </span>
+      </div>
 
       <div className="field">
-        <span>{t.schedule.repeat}</span>
-        {/* One row, scrolled sideways where it does not fit (a phone), the chosen kind in view. */}
-        <div ref={kindsRow} className="segmented schedule-kinds" role="radiogroup" aria-label={t.schedule.repeat}>
-          {SCHEDULE_KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              aria-checked={draft.kind === k}
-              className={draft.kind === k ? 'on' : ''}
-              onClick={() => onEdit({ kind: k })}
-            >
-              {t.schedule.kinds[k]}
-            </button>
-          ))}
-        </div>
+        {creation ? (
+          <>
+            <label htmlFor={whenId}>{t.schedule.repeat}</label>
+            <select id={whenId} value={draft.kind} onChange={(e) => onEdit({ kind: e.target.value as ScheduleDraft['kind'] })}>
+              {SCHEDULE_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {t.schedule.kinds[k]}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <>
+            <span>{t.schedule.repeat}</span>
+            {/* One row, scrolled sideways where it does not fit (a phone), the chosen kind in view. */}
+            <div ref={kindsRow} className="segmented schedule-kinds" role="radiogroup" aria-label={t.schedule.repeat}>
+              {SCHEDULE_KINDS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.kind === k}
+                  className={draft.kind === k ? 'on' : ''}
+                  onClick={() => onEdit({ kind: k })}
+                >
+                  {t.schedule.kinds[k]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {draft.kind === 'once' && (
           <input
@@ -284,84 +382,25 @@ export function ScheduleForm({
         </span>
       </div>
 
-      {/* Folded away at first, under words anyone can read: most people never need a webhook. */}
-      {hook && (
-        <details className="sub">
-          <summary>{t.schedule.hook.title}</summary>
-          <div className="sub-body">
-            <p className="small muted">{t.schedule.hook.intro}</p>
-            <div className="field">
-              <label className="check-row">
-                <input type="checkbox" checked={hook.checked} onChange={(e) => hook.onChange(e.target.checked)} />
-                {t.newSchedule.withHook}
-              </label>
-              <span className="small muted">{t.newSchedule.withHookHint}</span>
+      {creation ? (
+        <div className="automation-settings">
+          {children}
+          <details className="automation-options">
+            <summary>{t.newSchedule.runOptions}</summary>
+            <div className="schedule-form-options">
+              <div className="field">
+                <label className="check-row">
+                  <input type="checkbox" checked={creation.withHook} onChange={(e) => creation.onHook(e.target.checked)} />
+                  {t.newSchedule.withHook}
+                </label>
+                <span className="small muted">{creation.withHook ? t.newSchedule.withHookHint : t.schedule.hook.intro}</span>
+              </div>
+              {runOptions}
             </div>
-          </div>
-        </details>
-      )}
-
-      <div className="field">
-        <label className="check-row">
-          <input type="checkbox" checked={draft.newChat} onChange={(e) => onEdit({ newChat: e.target.checked })} />
-          {t.schedule.newChat}
-        </label>
-        <span className="small muted">{t.schedule.newChatHint[draft.newChat ? 'on' : 'off']}</span>
-        {draft.newChat && mode === 'parallel' && permission !== 'read-only' && (
-          <span className="small warn-text">{t.schedule.newChatParallel}</span>
-        )}
-      </div>
-
-      <h3 className="schedule-sub">{t.schedule.unattended}</h3>
-
-      <div className="field">
-        <span>{t.schedule.approvals}</span>
-        <div className="segmented wide" role="radiogroup" aria-label={t.schedule.approvals}>
-          {(['deny', 'ask'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="radio"
-              aria-checked={draft.approvals === v}
-              className={draft.approvals === v ? 'on' : ''}
-              onClick={() => onEdit({ approvals: v })}
-            >
-              {v === 'deny' ? t.schedule.approvalsDeny : t.schedule.approvalsAsk}
-            </button>
-          ))}
+          </details>
         </div>
-        <span className="small muted">
-          {permission === 'full'
-            ? t.schedule.approvalsFull
-            : settings.approvals === 'deny'
-              ? t.schedule.approvalsTeamDeny
-              : draft.approvals === 'ask'
-                ? t.schedule.approvalsHint.ask(turnTimeoutMinutes)
-                : t.schedule.approvalsHint.deny}
-        </span>
-      </div>
-
-      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed (new mail
-          that came meanwhile is found at the first check). */}
-      {draft.kind !== 'manual' && !watching && (
-        <div className="field">
-          <span>{t.schedule.missed}</span>
-          <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
-            {(['skip', 'run'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                role="radio"
-                aria-checked={draft.missed === v}
-                className={draft.missed === v ? 'on' : ''}
-                onClick={() => onEdit({ missed: v })}
-              >
-                {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
-              </button>
-            ))}
-          </div>
-          <span className="small muted">{t.schedule.missedHint[draft.missed]}</span>
-        </div>
+      ) : (
+        runOptions
       )}
     </section>
   );

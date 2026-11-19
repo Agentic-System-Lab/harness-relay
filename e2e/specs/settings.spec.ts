@@ -1,10 +1,40 @@
-import type { Provider } from '../../src/shared/types';
+import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, finishedReply, openTeamChat, replies, send, startChat } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test.describe('assistant setup on a fresh installation', () => {
+  test.use({ missingClis: PROVIDERS, lang: 'zh-TW', signIn: false });
+
+  test('waits for assistant status and opens the first setup choices', async ({ page, relay }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/api\/providers(?:\?|$)/, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    const overview = page.locator('#settings-overview');
+    try {
+      await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+      await page.getByRole('link', { name: /設定與登入/ }).click();
+      await expect(overview.getByRole('heading', { name: '可用的 AI 助理' })).toBeInViewport();
+      await expect(overview.getByRole('status')).toHaveText('檢查中…');
+      await expect(overview.getByText('需要安裝')).toHaveCount(0);
+    } finally {
+      release();
+    }
+    const setup = overview.getByRole('link', { name: /^Codex (需要安裝|查看安裝需求)$/ });
+    await expect(setup).toBeVisible();
+    await setup.press('Enter');
+    await expect(page.locator('#settings-codex .section-title a')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#settings-codex :focus')).toHaveCount(1);
+    await expect(page.locator('#settings-codex')).toBeInViewport();
+  });
+});
 
 test.describe('a CLI that is not signed in', () => {
   eachCli(SIGNED_IN, (cli) => {
@@ -46,6 +76,14 @@ test.describe('a CLI that is not installed', () => {
 
   test('shows so in Settings and the sidebar', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const overview = page.locator('#settings-overview');
+    await expect(overview).toBeInViewport();
+    await expect(overview.getByRole('link', { name: 'Claude Code Ready' })).toBeVisible();
+    const cursor = overview.getByRole('link', { name: /^Cursor (Needs installation|View install requirements)$/ });
+    await expect(cursor).toBeHidden();
+    await overview.getByText('Connect another assistant').click();
+    await cursor.click();
+    await expect(page.locator('#settings-cursor')).toBeInViewport();
     for (const c of SIGNED_IN.filter((x) => x.provider === 'cursor' || x.provider === 'antigravity')) {
       await expect(page.locator(`.provider-health .health.off[href="#/settings/${c.provider}"]`)).toHaveAttribute(
         'title',
@@ -72,6 +110,13 @@ test.describe('an open agent without a model backend', () => {
       `${cli!.label} · No model backend yet`,
     );
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const overview = page.locator('#settings-overview');
+    await overview.getByText('Connect another assistant').click();
+    await overview.getByRole('link', { name: `${cli!.label} Set up a model backend` }).press('Enter');
+    await expect(page.locator('#settings-backends .section-title a')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#settings-backends :focus')).toHaveCount(1);
+    await expect(page.locator('#settings-backends')).toBeInViewport();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
     await expect(card).toContainText('No model backend set up yet (Settings → Model backends)');
@@ -157,6 +202,7 @@ test.describe('settings', () => {
     const menu = page.getByRole('menu', { name: 'Agents' });
     // One entry for the twelve agents' cards, where their links were; the other links as they were.
     await expect(nav.getByRole('link')).toHaveText([
+      'Overview',
       'Version',
       'Language',
       'Appearance',
@@ -396,7 +442,7 @@ test.describe('settings', () => {
     await lead.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(lead).toContainText('Lead agent saved');
     await page.getByRole('button', { name: 'New chat' }).first().click();
-    await expect(page.getByText(/the lead agent \(Codex\)/).first()).toBeVisible();
+    await expect(page.getByText(/Codex will choose a team/)).toBeVisible();
 
     await startChat(page);
     await askAndConfirm(page, 'Who picks the team? e2e:team=grok');

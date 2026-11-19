@@ -92,7 +92,7 @@ export interface UseCase {
 }
 
 const M = (s: Session) => UI[s.lang];
-const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .preset-card' };
+const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .first-question' };
 const re = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A working directory made anew: the last recording's left nothing behind. */
@@ -119,6 +119,7 @@ async function startChat(s: Session, o: { permission: Permission; leadReview: bo
   await s.moveTo(700, 420, 300);
   await sleep(1200);
   if (o.permission !== 'read-only') {
+    await moveClick('.chat-options > summary');
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: M(s).permissions[o.permission].label, exact: true }), {
       after: 900,
     });
@@ -265,6 +266,10 @@ async function newAutomation(
   await moveClick(page.locator('.schedule-form textarea').first(), { after: 250 });
   await typeSlow(o.message, 22);
   await sleep(700);
+  const runOptions = page.locator('.automation-options');
+  const openRunOptions = async () => {
+    if (!(await runOptions.evaluate((el) => el.hasAttribute('open')))) await moveClick(runOptions.locator('summary'), { after: 350 });
+  };
   if (o.goal) {
     await moveClick(page.locator('.schedule-form textarea').nth(1), { after: 250 });
     await typeSlow(o.goal, 26);
@@ -272,7 +277,7 @@ async function newAutomation(
     mark('goal');
   }
   if (o.weekdaysAt) {
-    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.weekly }), { after: 700 });
+    await page.getByRole('combobox', { name: T.schedule.repeat }).selectOption('weekly');
     // Monday to Friday, by each day's name (the picker starts on Monday, and may start with some days on).
     const weekdays = new Set([1, 2, 3, 4, 5].map((d) => T.schedule.weekdayNames[d]));
     const days = page.locator('.day-picker button');
@@ -290,7 +295,7 @@ async function newAutomation(
   }
   if (o.calendar || o.file) {
     const w = T.schedule.watch;
-    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.event }), { after: 900 });
+    await page.getByRole('combobox', { name: T.schedule.repeat }).selectOption('event');
     const trigger = page.locator('.schedule-form .schedule-trigger').first();
     const source = trigger.locator('.schedule-trigger-head select');
     await moveClick(source, { after: 300 });
@@ -313,19 +318,22 @@ async function newAutomation(
     mark('when', { repeat: 'event', source: o.calendar ? 'calendar' : 'file' });
   }
   if (o.webhook) {
-    await moveClick(page.locator('.schedule-form details.sub > summary', { hasText: T.schedule.hook.title }), { after: 700 });
+    await openRunOptions();
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.newSchedule.withHook }).locator('input'), { after: 700 });
     mark('webhook-on');
   }
   if (o.newChat) {
+    await openRunOptions();
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.schedule.newChat }).locator('input'), { after: 900 });
     mark('new-chat-each');
   }
   if (o.askUnwatched) {
+    await openRunOptions();
     const approvals = page.getByRole('radiogroup', { name: T.schedule.approvals, exact: true });
     await moveClick(approvals.getByRole('radio', { name: T.schedule.approvalsAsk, exact: true }), { after: 900 });
     mark('ask-unwatched');
   }
+  if ((o.permission && o.permission !== 'read-only') || o.title) await moveClick('.chat-options > summary', { after: 350 });
   if (o.permission && o.permission !== 'read-only') {
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: T.permissions[o.permission].label, exact: true }), {
       after: 900,
@@ -333,12 +341,9 @@ async function newAutomation(
     mark('permission', { permission: o.permission });
   }
   // Without lead review: the automations' runs are read when they come.
-  await page
-    .locator('.lead-review input[type="checkbox"]')
-    .uncheck()
-    .catch(() => {});
+  await page.locator('.lead-review input[type="checkbox"]').uncheck();
   if (o.title) {
-    await moveClick('.start-bar .title-input', { after: 200 });
+    await moveClick('.chat-options .title-input', { after: 200 });
     await typeSlow(o.title, 45);
     await sleep(600);
   }
@@ -1319,7 +1324,7 @@ const contractReview: UseCase = {
       await sleep(3000);
     }
     await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
-    await page.waitForSelector('.new-chat-page .preset-card');
+    await page.waitForSelector('.new-chat-page .first-question');
     const id = await startChat(s, { permission: 'edit', leadReview: false });
     const plan = await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
     const off = (plan?.agents ?? []).filter((a) => a.model && a.model !== ENDPOINT.member());

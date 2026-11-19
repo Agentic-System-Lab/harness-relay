@@ -368,7 +368,14 @@ class El {
     return k in this.attrs;
   }
   matches(selector: string) {
-    return this.hasAttribute(selector.replace(/^\[|\]$/g, ''));
+    const attribute = selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);
+    return !!attribute && this.hasAttribute(attribute[1]) && (attribute[2] === undefined || this.attrs[attribute[1]] === attribute[2]);
+  }
+  cloneNode() {
+    return new El(this.attrs, this.children);
+  }
+  replaceChildren(...children: El[]) {
+    this.children = children;
   }
   querySelector(selector: string): El | null {
     return this.children.find((c) => c.matches(selector)) ?? null;
@@ -393,16 +400,18 @@ function page() {
     label,
     hero: new El({ 'data-release-meta': '', 'data-hero': '' }),
     line: new El({ 'data-release-meta': '' }),
+    current: new El({ 'data-current-installer': '' }),
+    notes: ['mac', 'win', 'linux'].map((os) => new El({ 'data-open-on': os })),
     cards: Object.fromEntries(Object.keys(INSTALLERS).map((s) => [s, new El({ 'data-download': s, href: RELEASES_PAGE })])) as Record<
       string,
       El
     >,
   };
   el.hero.hidden = true;
-  const all = [el.root, el.primary, el.hero, el.line, ...Object.values(el.cards)];
+  const all = () => [el.root, el.primary, el.hero, el.line, el.current, ...el.current.children, ...el.notes, ...Object.values(el.cards)];
   const doc = {
-    querySelector: (sel: string) => all.find((e) => e.matches(sel)) ?? null,
-    querySelectorAll: (sel: string) => all.filter((e) => e.matches(sel)),
+    querySelector: (sel: string) => all().find((e) => e.matches(sel)) ?? null,
+    querySelectorAll: (sel: string) => all().filter((e) => e.matches(sel)),
   };
   return { el, doc };
 }
@@ -431,6 +440,7 @@ describe('the download buttons on the page', () => {
     expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-11-mac-arm64\.dmg$/);
     expect(el.cards.win!.attrs.href).toMatch(/-win-x64\.exe$/);
     expect(el.cards.mac!.classes.has('is-yours')).toBe(true);
+    expect(el.current.children.map((e) => e.attrs)).toEqual([el.cards.mac!.attrs, { 'data-open-on': 'mac' }]);
     expect(el.cards.win!.classes.has('is-yours')).toBe(false);
     expect(el.line.textContent).toBe('Release 2026-11-11');
     // The line under the main button stays hidden on a computer.
@@ -452,6 +462,7 @@ describe('the download buttons on the page', () => {
     const win = page();
     await wire({ doc: win.doc, nav: chromiumOn('Win32', UA.win, 'arm'), storage: memoryStorage(), fetchJson: releases, now: () => 1000 });
     expect(win.el.label.textContent).toBe('Download for Windows on Arm');
+    expect(win.el.current.children.map((e) => e.attrs)).toEqual([win.el.cards['win-arm64']!.attrs, { 'data-open-on': 'win' }]);
     expect(win.el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-11-win-arm64\.exe$/);
     expect(win.el.cards['win-arm64']!.classes.has('is-yours')).toBe(true);
     expect(win.el.cards.win!.classes.has('is-yours')).toBe(false);
@@ -544,6 +555,7 @@ describe('the download buttons on the page', () => {
     expect(el.hero.hidden).toBe(false);
     expect(el.hero.textContent).toBe('Runs on a computer.');
     expect(Object.values(el.cards).some((c) => c.classes.has('is-yours'))).toBe(false);
+    expect(el.current.children).toEqual([]);
     // The quick start still offers every installer.
     expect(el.cards.linux!.attrs.href).toMatch(/\.AppImage$/);
   });

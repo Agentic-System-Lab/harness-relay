@@ -1122,6 +1122,16 @@ p {
   animation: home-line-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.65s both;
 }
 
+.home-start {
+  text-decoration: none;
+  padding: 10px 22px;
+}
+.home-waiting {
+  max-width: min(440px, 85vw);
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 /*
  * On a phone the tagline is smaller and each of its lines stays one line: as large as fits the
  * screen less the hero's 16px gutters, at most 18px. At those sizes the longest line, English's
@@ -1316,7 +1326,7 @@ p {
 
 .preset-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   /* Every row as tall as the tallest: with names on one line and descriptions on three at most, the cards are all one size. */
   grid-auto-rows: 1fr;
   gap: 10px;
@@ -2193,16 +2203,142 @@ details.sub .model-picker {
   padding-bottom: 30px;
 }
 
-/* Same width as .page-inner; above the home indicator on phones. */
-.start-dock {
+.new-chat-body > .page-inner:has(.first-task) {
+  max-width: 820px;
+}
+.first-task {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px, 3vw, 28px);
+}
+.first-question {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.first-task .task-input {
   width: 100%;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 0 24px env(safe-area-inset-bottom);
+  min-height: 108px;
+  padding: 12px;
+  font: inherit;
+}
+.chat-options,
+.template-library {
+  min-width: 0;
+}
+.chat-options {
+  margin: 12px 0 0;
+}
+.chat-options[open] {
+  margin-bottom: 8px;
+}
+.chat-options > summary,
+.automation-options > summary,
+.template-library > summary {
+  cursor: pointer;
+  min-height: 36px;
+  padding: 6px 0;
+}
+.chat-options:not([open]) > summary {
+  padding-bottom: 2px;
+}
+@media (pointer: coarse) {
+  .chat-options > summary,
+  .automation-options > summary,
+  .template-library > summary {
+    min-height: 44px;
+  }
+}
+.chat-options > summary span {
+  display: block;
+  padding-inline-start: 1em;
+  overflow-wrap: anywhere;
+}
+.chat-options .team-editor {
+  margin: 14px 0;
+}
+.template-library {
+  margin-bottom: 8px;
+}
+.template-library[open] {
+  margin-bottom: 24px;
+}
+.template-library summary {
+  font-weight: 600;
+}
+.template-library .preset-row {
+  margin-top: 12px;
+}
+.first-task .first-task-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding-bottom: 0;
+}
+.creation-team-options {
+  display: grid;
+  gap: 16px;
+  flex: 1 1 340px;
+  min-width: 0;
+}
+.creation-team-options .lead-review {
+  margin: 0;
+}
+.first-task-actions > .primary {
+  margin-inline-start: auto;
+  align-self: flex-end;
+}
+.team-confirmation {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.team-confirmation legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-confirmation label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.team-confirmation input {
+  margin: 0;
 }
 
-.start-dock > .error-line {
-  margin: 0 0 12px;
+.automation-task .first-question {
+  margin: 0;
+}
+.automation-task .schedule-form select {
+  max-width: 100%;
+}
+.automation-settings .chat-options {
+  margin-top: 0;
+}
+.automation-options > summary {
+  font-weight: 600;
+}
+.schedule-form-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 8px 0;
+}
+@media (max-width: 360px) {
+  /* Keep the form border while leaving the fields as wide as the page heading. */
+  .first-task {
+    margin-inline: -8px;
+    padding: 12px 7px;
+  }
 }
 
 .start-bar {
@@ -4491,6 +4627,106 @@ video.chat-media {
   gap: 12px;
 }
 
+/* The entry point to assistant setup. Each row links to the card that can finish the next step. */
+.settings-overview .section-title {
+  font-size: 19px;
+}
+
+.settings-assistant-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(165px, 100%), 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-assistant-link {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  text-decoration: none;
+}
+
+.settings-assistant-link:hover {
+  background: var(--surface);
+}
+
+.settings-assistant-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-assistant-name i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.settings-assistant-state {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-assistant-state svg {
+  flex: none;
+  color: var(--ok);
+}
+
+.settings-assistant-link > svg {
+  grid-area: 1 / 2 / span 2;
+  color: var(--muted);
+}
+
+.settings-assistant-more {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.settings-assistant-more summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 8px 0 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.settings-assistant-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-assistant-more[open] summary > svg {
+  transform: rotate(90deg);
+}
+
+.settings-assistant-more .settings-assistant-list {
+  margin-top: 10px;
+}
+
+.settings-return-draft {
+  align-self: flex-start;
+  font-size: 14px;
+}
+
 .provider-head {
   display: flex;
   align-items: center;
@@ -5095,11 +5331,6 @@ details.sub summary {
     padding: 60px 16px 40px;
   }
 
-  .start-dock {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-
   .option-row {
     grid-template-columns: 1fr;
   }
@@ -5330,6 +5561,20 @@ details.sub summary {
   margin: 0;
   font-size: 13.5px;
   line-height: 1.55;
+}
+
+.plan-diagnostic {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.plan-diagnostic summary {
+  cursor: pointer;
+}
+
+.plan-diagnostic pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* A team for the schedule that misses someone its message @mentions. */

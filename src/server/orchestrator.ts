@@ -2192,7 +2192,7 @@ export class Orchestrator {
         if (!replaced) return { ...decision, agents };
         const kept = decision.source === 'kept';
         const reason = [kept ? '' : decision.reason, t().planAssignmentsAdjusted].filter(Boolean).join(' ');
-        return { ...decision, source: kept ? 'fallback' : decision.source, agents, reason };
+        return { ...decision, ...(kept ? { source: 'fallback' as const, fallback: {} } : {}), agents, reason };
       }
       for (const a of failed) failedModels.add(assignmentKey(ctx, a));
       if (!replace || attempt === 2 || signal.aborted) break;
@@ -2249,6 +2249,7 @@ export class Orchestrator {
     const history = historyForLead(conv.messages.slice(0, since));
     const started = Date.now();
     let ctx: PlannerContext | undefined;
+    let reply = '';
     let failure: string | undefined;
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
@@ -2262,7 +2263,6 @@ export class Orchestrator {
       if (!memberAvailable(ctx, lead)) msg.plan!.leadUnavailable = true;
       if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
       if (msg.plan!.leadUnavailable) throw new Error(t().planLeadUnavailable);
-      let reply = '';
       const leadRun = runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
@@ -2301,7 +2301,9 @@ export class Orchestrator {
         failure = (err as Error).message;
         if (ctx && !(err instanceof PlanUnavailableError)) {
           try {
-            decision = fallbackPlan(ctx, lead, failure, current);
+            const raw = reply.trim();
+            const diagnostic = raw && raw !== failure ? `${failure}\n\n${raw}` : failure;
+            decision = fallbackPlan(ctx, lead, diagnostic, current);
           } catch (fallbackError) {
             failure = (fallbackError as Error).message;
           }

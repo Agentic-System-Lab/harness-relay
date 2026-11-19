@@ -17,7 +17,27 @@ function store(key, value) {
 // ---------- Language: remember the visitor's choice; both pages' <head> scripts honour it ----------
 
 for (const link of document.querySelectorAll('[data-lang]')) {
+  const keepSection = () => (link.hash = location.hash);
+  keepSection();
+  window.addEventListener('hashchange', keepSection);
   link.addEventListener('click', () => store('harness-relay.lang', link.dataset.lang));
+}
+
+// The header's narrow-screen disclosure also works without JavaScript.
+const explore = document.querySelector('.explore');
+if (explore) {
+  document.addEventListener('click', (event) => {
+    if (!explore.contains(event.target) || event.target.closest('a')) explore.open = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && explore.open) {
+      explore.open = false;
+      explore.querySelector('summary').focus();
+    }
+  });
+  explore.addEventListener('focusout', (event) => {
+    if (event.relatedTarget && !explore.contains(event.relatedTarget)) explore.open = false;
+  });
 }
 
 // ---------- Header border once the page scrolls ----------
