@@ -2263,6 +2263,9 @@ details.sub .model-picker {
 .template-library {
   margin-bottom: 8px;
 }
+.template-library[open] {
+  margin-bottom: 24px;
+}
 .template-library summary {
   font-weight: 600;
 }

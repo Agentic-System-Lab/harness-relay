@@ -11,6 +11,12 @@ export type Route =
   | { page: 'chat'; id: string }
   | { page: 'settings'; section?: SettingsSection };
 
+/** Where to continue after visiting Settings from a creation form. */
+export interface SettingsReturn {
+  page: 'new' | 'schedule';
+  createdId?: string;
+}
+
 /**
  * The cards of the settings page, in page order; each is the element `settings-<section>`. The model
  * backends come before every CLI: the open agents run on them, and Claude Code, Codex and Grok can run

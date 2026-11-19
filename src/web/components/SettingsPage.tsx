@@ -48,6 +48,7 @@ import {
   hashFor,
   settingsHref,
   type SettingsSection,
+  type SettingsReturn,
 } from '../route';
 import { hasNativePanel } from '../native';
 import { assistantReadiness, statusBeforeInstall } from '../clis';
@@ -77,7 +78,7 @@ import { LogoSpinner } from './Logo';
 interface Props {
   /** The card to scroll to (#/settings/<section>). */
   section?: SettingsSection;
-  draftPage?: 'new' | 'schedule';
+  settingsReturn?: SettingsReturn;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
@@ -117,7 +118,7 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = {
 
 export function SettingsPage({
   section,
-  draftPage,
+  settingsReturn,
   providers,
   catalog,
   refreshProviders,
@@ -129,9 +130,14 @@ export function SettingsPage({
   const { t, lang, setLang } = useI18n();
   /** A language chosen whose words could not be loaded. */
   const [langFailed, setLangFailed] = useState<Lang | null>(null);
-  const draftLink = draftPage && (
-    <a className="settings-return-draft" href={hashFor({ page: draftPage })}>
-      <span aria-hidden="true">←</span> {draftPage === 'new' ? t.newChat.returnToDraft : t.newSchedule.returnToDraft}
+  const returnText = settingsReturn?.page === 'new' ? t.newChat : t.newSchedule;
+  const draftLink = settingsReturn && (
+    <a
+      className="settings-return-draft"
+      href={hashFor(settingsReturn.createdId ? { page: 'chat', id: settingsReturn.createdId } : { page: settingsReturn.page })}
+    >
+      <span aria-hidden="true">{settingsReturn.createdId ? '→' : '←'}</span>{' '}
+      <span aria-live="polite">{settingsReturn.createdId ? returnText.openCreated : returnText.returnToDraft}</span>
     </a>
   );
   const theme = useThemeChoice();

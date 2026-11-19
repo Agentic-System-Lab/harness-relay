@@ -144,7 +144,10 @@ test.describe('the home page', () => {
           await expect(review).not.toBeChecked();
         } else {
           const { id } = await response.json();
-          const created = page.locator(`.sidebar a[href="#/c/${id}"]`);
+          await page.setViewportSize({ width: 390, height: 844 });
+          const created = page.getByRole('link', { name: automation ? 'Open created automation' : 'Open created chat' });
+          await expect(created).toHaveAttribute('href', `#/c/${id}`);
+          await expect(page.getByRole('link', { name: /Return to .*draft/ })).toHaveCount(0);
           await expect(created).toBeVisible();
           await expect(page).toHaveURL(/#\/settings\/lead$/);
           await created.click();

@@ -84,8 +84,17 @@ test.describe('templates', () => {
     await goal.fill('Each issue has an owner');
     await when.selectOption('weekly');
     const library = page.locator('.first-task > .template-library:has(+ .start-bar .team-confirmation)');
+    const checkDividerGap = async () => {
+      const [cards, actions] = await Promise.all([
+        library.locator('.preset-row').boundingBox(),
+        page.locator('.first-task-actions').boundingBox(),
+      ]);
+      expect(actions!.y - (cards!.y + cards!.height)).toBeGreaterThanOrEqual(23);
+    };
     await expect(library).toBeVisible();
     await library.locator('summary').click();
+    await expect(library.locator('.preset-row')).toBeVisible();
+    await checkDividerGap();
     await library.getByRole('button', { name: /Three-way debate/ }).click();
     const editor = page.getByRole('dialog');
     await editor.getByRole('textbox', { name: en.template.name, exact: true }).fill('Triage crew');
@@ -95,6 +104,7 @@ test.describe('templates', () => {
     await openNewChat(page);
     await library.locator('summary').click();
     await expect(library.getByRole('button', { name: /Triage crew/ })).toBeVisible();
+    await checkDividerGap();
     await page.getByRole('button', { name: en.newSchedule.title }).click();
     await expect(task).toHaveValue('Review incoming work');
     await expect(goal).toHaveValue('Each issue has an owner');

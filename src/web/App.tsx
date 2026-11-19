@@ -20,7 +20,7 @@ import { NewChat, emptyChatDraft } from './components/NewChat';
 import { NewSchedule, type NewAutomationDraft } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
-import { hashFor, routeFromHash, type Route } from './route';
+import { hashFor, routeFromHash, type Route, type SettingsReturn } from './route';
 import { askSignedIn, runFirstCheck, signInWhere, signInWithLink, type LinkDeps, type LinkResult, type PageStart } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { MenuIcon, PanelIcon } from './components/icons';
@@ -184,7 +184,7 @@ function RelayApp() {
   const [scheduleDraft, setScheduleDraft] = useState<NewAutomationDraft | null>(null);
   const [creatingSchedule, setCreatingSchedule] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
-  const [draftPage, setDraftPage] = useState<'new' | 'schedule'>();
+  const [settingsReturn, setSettingsReturn] = useState<SettingsReturn>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -209,8 +209,8 @@ function RelayApp() {
     const onHash = () => {
       const next = parseHash();
       setRoute(next);
-      if (next.page !== 'settings') setDraftPage(undefined);
-      else if (previous.page === 'new' || previous.page === 'schedule') setDraftPage(previous.page);
+      if (next.page !== 'settings') setSettingsReturn(undefined);
+      else if (previous.page === 'new' || previous.page === 'schedule') setSettingsReturn({ page: previous.page });
       previous = next;
       setSidebarOpen(false);
     };
@@ -272,6 +272,12 @@ function RelayApp() {
       unreachable.current = false;
     });
   }, [alerts]);
+
+  const showCreated = (page: SettingsReturn['page'], id: string) => {
+    refreshConversations();
+    if (parseHash().page === page) navigate({ page: 'chat', id });
+    else setSettingsReturn((from) => (from?.page === page ? { page, createdId: id } : from));
+  };
 
   // Each CLI's status as the server checked it last (`newerStatuses`): an answer that comes in after a
   // newer one (asked before an account was added, or from the server's cache) cannot put it back.
@@ -555,8 +561,7 @@ function RelayApp() {
             catalog={catalog}
             onCreated={(conv) => {
               setChatDraft(emptyChatDraft);
-              refreshConversations();
-              if (parseHash().page === 'new') navigate({ page: 'chat', id: conv.id });
+              showCreated('new', conv.id);
             }}
           />
         )}
@@ -572,8 +577,7 @@ function RelayApp() {
             catalog={catalog}
             onCreated={(conv) => {
               setScheduleDraft(null);
-              refreshConversations();
-              if (parseHash().page === 'schedule') navigate({ page: 'chat', id: conv.id });
+              showCreated('schedule', conv.id);
             }}
           />
         )}
@@ -590,7 +594,7 @@ function RelayApp() {
         {route.page === 'settings' && (
           <Deferred inPage>
             <SettingsPage
-              draftPage={draftPage}
+              settingsReturn={settingsReturn}
               section={route.section}
               providers={providers}
               catalog={catalog}
