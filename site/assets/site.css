@@ -2913,9 +2913,10 @@ body:has(.cs-dialog[open]) {
    page names at its end (.doc-more). On a wide screen, three columns: the docs' pages (.doc-nav, a search
    field above them), the page (its title and a button that copies it as Markdown), and its sections
    (.doc-toc), the menu and the contents sticky; at 1180px and narrower the sections go above the page's text,
-   in a box, and at 920px and narrower the pages fold behind a button that stays at the top, under the search
-   field and the header (with JavaScript; without it they show in full above the page, and the search field
-   and the copy button stay hidden). */
+   in a box, and at 920px and narrower the pages fold behind a button that shares one row with the search
+   field, under the header. The field is the narrower of the two until it is opened, when it fills the row
+   (with JavaScript; without it the pages show in full above the page, and the search field and the copy
+   button stay hidden). */
 
 .doc-layout {
   display: grid;
@@ -3646,25 +3647,62 @@ body:has(.cs-dialog[open]) {
     background: var(--bg);
   }
 
-  /* With JavaScript, the search field and the docs' button stay at the top while the page scrolls, under the
-     header, on the page's background from edge to edge; the pages, opened, scroll inside the screen that is
-     left. (Without it the pages show in full, and scroll away with the page.) */
+  /* With JavaScript, the search field and the docs' button share one row and stay at the top while the page
+     scrolls, under the header, on the page's background from edge to edge; the pages, opened, scroll inside
+     the screen that is left. (Without it the pages show in full, and scroll away with the page.) The field
+     is the narrower of the two. Opening it (or leaving its results open) lets the field fill the row. */
   .js .doc-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
     position: sticky;
     top: 64px;
     z-index: 40;
   }
 
-  /* A section a link leads to starts below the header, the search field and the docs' button. */
+  .js .doc-search {
+    /* Narrower than the docs' button. 7.75rem fits 搜尋文件 and "Search"; the cap keeps that on a small screen. */
+    flex: 0 1 7.75rem;
+    max-width: 42%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    position: static;
+    background: transparent;
+    transition:
+      max-width 0.16s var(--ease),
+      flex-basis 0.16s var(--ease);
+  }
+
+  .js .doc-search:focus-within,
+  .js .doc-search.is-wide {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+
+  .js .doc-search:focus-within ~ .doc-nav-toggle,
+  .js .doc-search.is-wide ~ .doc-nav-toggle {
+    display: none;
+  }
+
+  .js .doc-search-field {
+    height: 46px;
+    border-radius: 12px;
+  }
+
+  /* A section a link leads to starts below the header and that one row (padding 8 + the row 46 + padding 8). */
   html.js:has(.doc-nav) {
-    scroll-padding-top: 196px;
+    scroll-padding-top: 126px;
   }
 
   .js .doc-nav-toggle {
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     min-height: 46px;
     padding: 8px 14px;
     border: 1px solid var(--border);
@@ -3681,6 +3719,9 @@ body:has(.cs-dialog[open]) {
   .doc-nav-toggle b {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 650;
   }
 
@@ -3701,8 +3742,9 @@ body:has(.cs-dialog[open]) {
   }
 
   .js .doc-nav-list {
-    max-height: calc(100vh - 64px - 134px);
-    max-height: calc(100dvh - 64px - 134px);
+    flex: 1 0 100%;
+    max-height: calc(100vh - 64px - 70px);
+    max-height: calc(100dvh - 64px - 70px);
     margin-top: 8px;
     padding: 14px 16px 16px 26px;
     overflow-y: auto;
@@ -3711,6 +3753,12 @@ body:has(.cs-dialog[open]) {
     border-radius: 12px;
     background: var(--bg);
     box-shadow: var(--shadow);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .js .doc-search {
+      transition: none;
+    }
   }
 }
 

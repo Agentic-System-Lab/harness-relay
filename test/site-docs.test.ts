@@ -239,6 +239,7 @@ describe('the docs', () => {
     const words = {
       en: {
         search: 'Search the docs',
+        placeholder: 'Search',
         empty: 'No matching pages',
         pending: 'Searching…',
         failed: 'Search is unavailable',
@@ -250,6 +251,7 @@ describe('the docs', () => {
       },
       'zh-TW': {
         search: '搜尋文件',
+        placeholder: '搜尋文件',
         empty: '沒有符合的頁面',
         pending: '搜尋中…',
         failed: '目前無法搜尋',
@@ -270,7 +272,7 @@ describe('the docs', () => {
       if (page.lang === 'en') expect(page.menu, page.file).toContain(`data-results-one="${words.en.resultsOne}"`);
       else expect(page.menu, page.file).not.toContain('data-results-one');
       expect(page.menu, page.file).toContain(`>${own.search}</label>`);
-      expect(page.menu, page.file).toContain(`placeholder="${own.search}"`);
+      expect(page.menu, page.file).toContain(`placeholder="${own.placeholder}"`);
       expect(page.menu, page.file).not.toContain(other.search);
       const head = slice(page.body, '<header class="doc-head">', '</header>');
       expect(head, page.file).toContain(`data-copied="${own.copied}"`);
@@ -286,7 +288,18 @@ describe('the docs', () => {
     expect(css).toMatch(/\.js \.doc-actions \{[^}]*display: block;/s);
     expect(css).toMatch(/\.doc-search-field:focus-within \{[^}]*box-shadow: inset 0 0 0 1px var\(--grok-ink\)/s);
     expect(css).not.toMatch(/\.doc-search-field:focus-within \{[^}]*outline-offset/s);
+    // On a narrow screen the search field and the docs' button share one row. The field stays the narrower
+    // one until it is opened, then it fills the row, and a jumped-to heading clears that one row.
+    expect(css).toMatch(/@media \(max-width: 920px\) \{[\s\S]*\.js \.doc-search \{[^}]*max-width: 42%;/);
+    expect(css).toMatch(/\.js \.doc-search:focus-within,\s*\.js \.doc-search\.is-wide \{[^}]*max-width: 100%;/s);
+    expect(css).toMatch(
+      /\.js \.doc-search:focus-within ~ \.doc-nav-toggle,\s*\.js \.doc-search\.is-wide ~ \.doc-nav-toggle \{[^}]*display: none;/s,
+    );
+    const narrowPad = css.match(/html\.js:has\(\.doc-nav\) \{\n {4}scroll-padding-top: (\d+)px;\n {2}\}/);
+    expect(narrowPad?.[1]).toBeTruthy();
     const behavior = read('site/assets/site.js');
+    expect(behavior).toContain(`: ${narrowPad?.[1]}) + 24`);
+    expect(read('site/assets/docs.js')).toContain("form.classList.add('is-wide')");
     expect(behavior).toContain("matchMedia('(max-width: 920px)')");
     expect(behavior).toContain('scrollPaddingTop');
     expect(behavior).not.toContain('getBoundingClientRect().top < 120');

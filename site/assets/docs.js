@@ -614,9 +614,13 @@ function wireSearch() {
     options = [];
     active = -1;
     if (status) status.textContent = '';
+    form.classList.remove('is-wide');
   };
 
   const openPanel = () => {
+    // The results sit on document.body, so focus can leave the field while they stay open. Keep the narrow
+    // row's field full width for as long as the results are open; place() reads the field after that.
+    form.classList.add('is-wide');
     place();
     panel.hidden = false;
     input.setAttribute('aria-expanded', 'true');
@@ -803,6 +807,11 @@ function wireSearch() {
   window.addEventListener('resize', () => {
     if (!panel.hidden) place();
   });
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => {
+      if (!panel.hidden) place();
+    }).observe(field);
+  }
   window.addEventListener(
     'scroll',
     () => {
