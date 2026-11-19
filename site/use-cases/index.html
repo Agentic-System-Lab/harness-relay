@@ -117,8 +117,8 @@
             "description": "Recording: three agents fix a failing test in parallel, each in a worktree of its own, then one fix is applied to the working directory",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-en.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-en.mp4",
-            "uploadDate": "2026-11-18T02:22:33Z",
-            "duration": "PT1M16S",
+            "uploadDate": "2026-11-19T17:25:51Z",
+            "duration": "PT1M15S",
             "inLanguage": "en"
           },
           {
@@ -403,7 +403,7 @@
             <p class="usecase-role">For software engineers</p>
             <h2 id="fix-a-bug-title">Fix a bug three ways, keep the best one</h2>
             <p class="lead">A test fails, and one fix is a guess. Ask for three: in parallel mode each agent works in a git worktree of its own, so their fixes never touch each other or your files. Each reply lists the files it changed; you read the diffs and apply the one you want to your working directory, uncommitted, to check with your usual tools.</p>
-            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel</span></li><li><span class="chip">Edit</span></li></ul>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-cursor"><span class="pill">Cursor</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel</span></li><li><span class="chip">Edit</span></li></ul>
           </div>
           <div class="screening-grid usecase-screen">
             <div class="player">
@@ -434,30 +434,30 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="7">
-                    <time>0:07</time>
+                  <button class="chapter" type="button" data-t="8">
+                    <time>0:08</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Ask: the tests fail, splitBill gains or loses a cent. Have all three fix it in parallel, each in its own worktree.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="23">
-                    <time>0:23</time>
+                  <button class="chapter t-claude" type="button" data-t="30">
+                    <time>0:30</time>
                     <span class="actor"
                       ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">Adapts the Parallel comparison template for the question: Claude, Codex and Grok, each on its own, and says why.</span>
+                    <span class="say">Adapts the Parallel comparison template for the question: Claude, Codex_sub and Grok, each on its own, and says why.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-team" type="button" data-t="30">
-                    <time>0:30</time>
+                  <button class="chapter t-team" type="button" data-t="37">
+                    <time>0:37</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
-                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                        ><span class="av t-claude">C</span><span class="av t-cursor">C</span><span class="av t-grok">G</span></span
                       ><span class="who">All three</span></span
                     >
                     <span class="say">Each fixes it in a git worktree of its own, then runs npm test there.</span>
@@ -465,11 +465,11 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="31">
-                    <time>0:31</time>
+                  <button class="chapter t-cursor" type="button" data-t="39">
+                    <time>0:39</time>
                     <span class="actor"
-                      ><span class="av" aria-hidden="true">C</span><span class="who">@Claude</span
-                      ><span class="via">Claude Code</span></span
+                      ><span class="av" aria-hidden="true">C</span><span class="who">@Codex_sub</span
+                      ><span class="via">Cursor</span></span
                     >
                     <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -480,7 +480,7 @@
                     <time>0:49</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
-                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                        ><span class="av t-claude">C</span><span class="av t-cursor">C</span><span class="av t-grok">G</span></span
                       ><span class="who">All three</span></span
                     >
                     <span class="say">Three fixes side by side, each with the files it changed.</span>
@@ -488,8 +488,8 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="63">
-                    <time>1:03</time>
+                  <button class="chapter" type="button" data-t="62">
+                    <time>1:02</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Open the smallest fix’s diff, @Claude’s.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -511,7 +511,7 @@
               <h3>What you ask</h3>
               <blockquote>The tests fail: splitBill gains or loses a cent when the bill doesn’t divide evenly. Have Claude Code, Codex and Grok each fix it in parallel, each in the git worktree Harness Relay gives it, and run npm test there.</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/13bde97ed96300757dd45939d2129141">Read the whole conversation</a>, as Harness Relay’s Share made it.</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/13319829449d3bd80001099246308bfe">Read the whole conversation</a>, as Harness Relay’s Share made it.</li>
               </ul>
             </div>
             <div class="usecase-shows">
