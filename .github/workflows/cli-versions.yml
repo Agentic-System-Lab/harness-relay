@@ -3,14 +3,18 @@ name: CLI versions
 # Every day, whether a newer version of an agent CLI than the one Harness Relay was checked with
 # (src/shared/cliVersions.ts) is out, and the new version checked on Linux (docs/developer-guide.md,
 # "Checking a CLI's new version"):
-# - versions: layer 1 of scripts/cli-check.ts, from the makers' own public sources. It keeps one open
-#   issue labelled cli-check for each CLI that is behind, and lists the new versions whose issue holds
-#   no report yet;
+# - versions: layer 1 of scripts/cli-check.ts, from the makers' own public sources. It updates or closes
+#   the open cli-check issues, and lists each new version not checked yet. A check that already settled
+#   is remembered from the previous successful run that was not a pull request (its cli-check-seen
+#   artifact), so a clean one is not run again. A pull request uploads no artifact, so its success
+#   is not that run;
 # - check: for each of them, the new version and the one checked, got apart from where their makers
 #   publish them, layers 2 to 4 of each, the new one compared with the one checked as it ran here
 #   (scripts/cli-check/ci.ts). It runs what it downloads, so it gets a token that reads only, and every
 #   CLI runs in scratch folders with none of the job's variables;
-# - report: each check's report posted to its CLI's issue, once.
+# - report: an issue opened only when the check found a failed check or something removed, and the
+#   report posted there, once. A clean check opens none and closes an open issue for that CLI. The
+#   versions it settled are uploaded for the next run.
 # A pull request that changes the check runs the checks for every CLI's newest version, and posts nothing.
 on:
   schedule:
@@ -42,6 +46,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       count: ${{ steps.matrix.outputs.count }}
@@ -66,12 +71,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
 
+      # The previous successful run's settled versions, skipping a pull request: one posts nothing
+      # and uploads no artifact, but its checks can still succeed. This run is still in progress, so
+      # it is not the one listed. A run with no such artifact (the first, or a download that failed)
+      # checks again.
+      - name: Versions already checked
+        run: |
+          id=$(gh run list --workflow cli-versions.yml --status success --limit 100 --json databaseId,event | npx tsx scripts/cli-check/ci.ts seen-run)
+          if [ -n "$id" ]; then
+            gh run download "$id" --name cli-check-seen --dir "$RUNNER_TEMP/cli-check-seen" || true
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: The new versions to check
         id: matrix
         run: npx tsx scripts/cli-check/ci.ts matrix
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          CLI_CHECK_SEEN: ${{ runner.temp }}/cli-check-seen/seen.json
 
   # On a pull request that changes the check: every CLI's newest version, with a token that reads only.
   newest:
@@ -176,12 +195,15 @@ jobs:
   report:
     name: Post the reports
     needs: [versions, check]
-    if: ${{ !cancelled() && needs.versions.result == 'success' && needs.versions.outputs.count != '0' }}
+    # Also when nothing was checked: the settled versions are uploaded again, or the next success
+    # would have no artifact and check every CLI once more. A failed check still reports the others.
+    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.versions.outputs.count != '0' || needs.check.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       issues: write
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -195,12 +217,35 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The same previous run as the versions job reads. A pull request's success is not it.
+      - name: Versions already checked
+        run: |
+          id=$(gh run list --workflow cli-versions.yml --status success --limit 100 --json databaseId,event | npx tsx scripts/cli-check/ci.ts seen-run)
+          if [ -n "$id" ]; then
+            gh run download "$id" --name cli-check-seen --dir "$RUNNER_TEMP/cli-check-seen-prev" || true
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - uses: actions/download-artifact@v8
+        if: ${{ needs.versions.outputs.count != '0' }}
         with:
           pattern: cli-check-*
           path: ${{ runner.temp }}/reports
 
       - name: Post them to the issues
-        run: npx tsx scripts/cli-check/ci.ts report "$RUNNER_TEMP/reports"
+        run: |
+          mkdir -p "$RUNNER_TEMP/reports" "$RUNNER_TEMP/cli-check-seen"
+          npx tsx scripts/cli-check/ci.ts report "$RUNNER_TEMP/reports"
         env:
           GH_TOKEN: ${{ github.token }}
+          CLI_CHECK_SEEN: ${{ runner.temp }}/cli-check-seen-prev/seen.json
+          CLI_CHECK_SEEN_OUT: ${{ runner.temp }}/cli-check-seen/seen.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-check-seen
+          path: ${{ runner.temp }}/cli-check-seen/seen.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

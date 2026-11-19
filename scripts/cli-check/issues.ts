@@ -15,7 +15,16 @@ export type Gh = (args: string[], stdin?: string) => Promise<string>;
 export async function keepIssues(rows: readonly VersionRow[], dryRun: boolean, gh: Gh): Promise<string[]> {
   // `gh label create --force` makes the label or updates it: the first run has none yet.
   if (!dryRun) {
-    await gh(['label', 'create', ISSUE_LABEL, '--color', '5319E7', '--description', 'A newer version of an agent CLI to check', '--force']);
+    await gh([
+      'label',
+      'create',
+      ISSUE_LABEL,
+      '--color',
+      '5319E7',
+      '--description',
+      'A new agent CLI version whose check found something to fix',
+      '--force',
+    ]);
   }
   const open = JSON.parse(
     await gh(['issue', 'list', '--label', ISSUE_LABEL, '--state', 'open', '--json', 'number,title,body', '--limit', '200']),
