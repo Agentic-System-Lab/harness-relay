@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   PROVIDER_LABEL,
   isInlineImage,
@@ -117,7 +117,19 @@ function ThoughtStep({ text }: { text: string }) {
  * The tool calls and thinking between two pieces of reply text, as one collapsed row: how many actions
  * and thoughts, or while it streams, the step in progress. Open it to see every step in order.
  */
-function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boolean; last: boolean }) {
+function ActivityGroup({
+  items,
+  live,
+  last,
+  label,
+  children,
+}: {
+  items: ActivityItem[];
+  live: boolean;
+  last: boolean;
+  label?: string;
+  children?: ReactNode;
+}) {
   const t = useT();
   const { actions, thoughts, failed } = activityCounts(items);
   const tail = items[items.length - 1];
@@ -128,7 +140,7 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
   const counts = [actions > 0 && t.message.actions(actions), thoughts > 0 && t.message.thoughts(thoughts)].filter(Boolean).join(' · ');
   const busy = thinking !== undefined || running !== undefined;
   return (
-    <details className="tool-group">
+    <details className="tool-group" aria-label={label}>
       <summary>
         <span className="tool-icon" aria-hidden>
           {busy ? <LogoSpinner /> : actions > 0 ? '⚙' : '💭'}
@@ -152,12 +164,13 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
             )}
           </span>
         ) : (
-          <span className="tool-summary">{actions === 0 && thoughts === 1 ? t.activity.thought : counts}</span>
+          <span className="tool-summary">{label ?? (actions === 0 && thoughts === 1 ? t.activity.thought : counts)}</span>
         )}
-        {busy && items.length > 1 && <span className="activity-count">{counts}</span>}
+        {(label || (busy && items.length > 1)) && <span className="activity-count">{counts}</span>}
         {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
       <ul>{items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}</ul>
+      {children}
     </details>
   );
 }
@@ -579,13 +592,13 @@ function PlanCard({
       {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
       {awaiting && (
         <div className="plan-confirm">
-          <span className="small">{wording.confirmHint}</span>
-          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming}>
-            {confirming ? t.plan.confirming : t.plan.confirm}
+          <span className="small">{plan.checkOnConfirm ? t.plan.checkOnConfirm : wording.confirmHint}</span>
+          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming || running}>
+            {confirming || msg.status === 'streaming' ? t.plan.confirming : t.plan.confirm}
           </button>
           {adjust}
           {declinable && (
-            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming}>
+            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming || running}>
               {t.plan.decline}
             </button>
           )}
@@ -612,6 +625,19 @@ function PlanCard({
       </div>
     </section>
   );
+}
+
+/** Keep the same disclosure mounted while the team card changes from planning to its result. */
+function PlanActivity({ msg }: { msg: ChatMessage }) {
+  const t = useT();
+  const groups = segments(msg.parts);
+  const items = groups.flatMap((segment) => (segment.kind === 'activity' ? segment.items : []));
+  const todo = groups.find((segment) => segment.kind === 'todo');
+  return items.length ? (
+    <ActivityGroup items={items} label={t.plan.activity} live={msg.status === 'streaming'} last>
+      {todo && <TodoList entries={todo.entries} />}
+    </ActivityGroup>
+  ) : null;
 }
 
 /** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */
@@ -1009,20 +1035,23 @@ export const MessageItem = memo(function MessageItem({
     if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} readNext={readNext} />;
     if (msg.plan) {
       return (
-        <PlanCard
-          msg={msg}
-          cwd={cwd}
-          agents={agents}
-          latestPlan={latestPlan}
-          scheduleText={scheduleText}
-          onConfirmPlan={onConfirmPlan}
-          onDeclinePlan={onDeclinePlan}
-          onSavePlan={onSavePlan}
-          onAdjustTeam={onAdjustTeam}
-          running={running}
-          leadReview={leadReview}
-          onLeadReview={onLeadReview}
-        />
+        <div className="plan-message">
+          <PlanCard
+            msg={msg}
+            cwd={cwd}
+            agents={agents}
+            latestPlan={latestPlan}
+            scheduleText={scheduleText}
+            onConfirmPlan={onConfirmPlan}
+            onDeclinePlan={onDeclinePlan}
+            onSavePlan={onSavePlan}
+            onAdjustTeam={onAdjustTeam}
+            running={running}
+            leadReview={leadReview}
+            onLeadReview={onLeadReview}
+          />
+          <PlanActivity msg={msg} />
+        </div>
       );
     }
     return (

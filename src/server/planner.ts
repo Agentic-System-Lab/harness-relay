@@ -90,7 +90,12 @@ export interface PlannerContext {
   catalog: ProviderModels[];
   presets: TeamPreset[];
   /** A snapshot for auto team, including any usage that answered before the deadline. */
-  staffing?: { usage: AccountUsage[]; now: number; backends?: { configured: string[]; deletedEndpoints: string[] } };
+  staffing?: {
+    usage: AccountUsage[];
+    now: number;
+    backends?: { configured: string[]; deletedEndpoints: string[] };
+    failedModels?: ReadonlySet<string>;
+  };
   /**
    * What each available CLI loads by itself in the working directory (as Harness Relay runs it), asked
    * in the home of the account its new members get; a CLI that was not asked is absent.
@@ -269,13 +274,21 @@ function modelAllowed(
   });
 }
 
+type ModelAssignment = Pick<AgentConfig, 'provider' | 'account' | 'model'>;
+
+export function assignmentModel(ctx: PlannerContext, { provider, account, model }: ModelAssignment): string | undefined {
+  return model || catalogFor(ctx.catalog, provider, account)?.defaultModel;
+}
+
+/** Defaults and explicit selections of the same model share a check on the same CLI account. */
+export function assignmentKey(ctx: PlannerContext, member: ModelAssignment): string {
+  return JSON.stringify([member.provider, member.account ?? '', assignmentModel(ctx, member) ?? '']);
+}
+
 /** Whether this exact assignment can be used, including the account's default when no model was picked. */
-export function memberAvailable(
-  ctx: PlannerContext,
-  member: Pick<AgentConfig, 'provider' | 'account' | 'model'>,
-  requireListed = false,
-): boolean {
+export function memberAvailable(ctx: PlannerContext, member: ModelAssignment, requireListed = false): boolean {
   if (!ctx.staffing) return true;
+  if (ctx.staffing.failedModels?.has(assignmentKey(ctx, member))) return false;
   const { provider, model, account = '' } = member;
   return Boolean(
     ctx.accounts?.[provider]?.includes(account) &&
@@ -813,7 +826,7 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgentSettings, requireListed: boolean): void {
   if (memberAvailable(ctx, member, requireListed)) return;
   const { provider, model, account } = member;
-  const effective = model || catalogFor(ctx.catalog, provider, account)?.defaultModel;
+  const effective = assignmentModel(ctx, member);
   const staffing = ctx.staffing!;
   const endpoint = privateEndpoint(provider, effective, staffing);
   if (endpoint && staffing.backends?.deletedEndpoints.includes(endpoint)) {
@@ -836,9 +849,12 @@ function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgent
       const c = catalogFor(ctx.catalog, p, account);
       return [undefined, ...(c?.models.map((m) => m.id) ?? [])].map((model) => ({ provider: p, account, model }));
     });
-    // A private model can be reassigned to another signed-in account on the same CLI. Keep its
-    // backend when no such account exists, so automatic staffing cannot send the prompt elsewhere.
-    const next = sameModel || (!endpoint && choices.find((a) => memberAvailable(ctx, a)));
+    // A private member may change model or CLI within its endpoint. Never send its prompt elsewhere.
+    const next =
+      sameModel ||
+      choices.find(
+        (a) => (!endpoint || privateEndpoint(a.provider, assignmentModel(ctx, a), staffing) === endpoint) && memberAvailable(ctx, a),
+      );
     if (!next) continue;
     if (provider !== next.provider || effective !== (next.model || catalogFor(ctx.catalog, p, next.account)?.defaultModel)) {
       delete member.effort;

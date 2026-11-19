@@ -873,6 +873,8 @@ export const en: Messages = {
   },
 
   plan: {
+    checkOnConfirm: 'Confirm this team to test the models before they answer.',
+    activity: 'Team design progress',
     planning: (lead) => `The lead agent (${lead}) is choosing a team for this question…`,
     title: 'Team design',
     by: (lead) => `Lead agent: ${lead}`,

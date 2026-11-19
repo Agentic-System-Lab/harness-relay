@@ -169,6 +169,10 @@ beforeAll(() => {
   runners.claude = {
     provider: 'claude',
     async run(o) {
+      if (o.prompt === 'Reply with exactly RELAY_MODEL_OK.') {
+        o.onEvent({ type: 'text', text: 'RELAY_MODEL_OK' });
+        return {};
+      }
       if (o.systemPrompt === GROUPER_BRIEFING) {
         calls.push({
           name: 'sorter',

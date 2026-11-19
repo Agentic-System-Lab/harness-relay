@@ -1115,6 +1115,8 @@ export interface TeamPlan {
    * conversation keeps its current team. (Plans from before this step have none of these fields.)
    */
   awaitingConfirmation?: boolean;
+  /** Full-access checks can run after the user confirms this proposed team. */
+  checkOnConfirm?: boolean;
   /** The user confirmed it: the team became this one. */
   confirmedAt?: number;
   /** The user declined it: the current team stayed, and answered the question. */

@@ -137,6 +137,60 @@ test.describe('auto team with exhausted CLI quotas', () => {
   });
 });
 
+test.describe('team design progress and model checks', () => {
+  test('shows collapsible progress during design and keeps it open when the model check finishes', async ({ page, relay }) => {
+    const id = await startChat(page);
+    await send(page, 'Choose a team e2e:slowplan=3');
+    const activity = page.locator('details[aria-label="Team design progress"]');
+    await expect(activity).toBeVisible();
+    await expect(page.locator('.plan-card.planning')).toBeVisible();
+    await activity.locator('summary').first().click();
+    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity.locator('li.tool').first()).toContainText('Checking accounts and usage');
+
+    await expect(awaitingPlan(page)).toBeVisible();
+    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity.locator('li.tool.done').last()).toContainText('Testing model response');
+    const probes = relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
+    expect(probes.map((e) => e.cli)).toEqual(['claude']);
+    expect(probes[0]?.prompt).not.toContain('Choose a team');
+    expect((await settled(relay, id)).messages.some((m) => m.author.kind === 'agent')).toBe(false);
+
+    await activity.locator('summary').first().click();
+    await expect(activity).not.toHaveAttribute('open', '');
+    await confirmTeam(page);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Choose a team');
+  });
+
+  test('checks a full-access team only after confirmation', async ({ page, relay }) => {
+    await startChat(page, { permission: 'full' });
+    await send(page, 'Choose a full-access team');
+    await expect(awaitingPlan(page)).toContainText('Confirm this team to test the models before they answer.');
+    const checks = () => relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
+    expect(checks()).toEqual([]);
+
+    await confirmTeam(page);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Choose a full-access team');
+    expect(checks().map((e) => e.cli)).toEqual(['claude']);
+  });
+
+  test.describe('when checks receive no successful reply', () => {
+    test.use({ openBackend: false, serverEnv: { E2E_FAIL_MODEL_CHECK_CLIS: 'claude,codex,grok' } });
+
+    test('shows the failed check and starts no team even with auto-confirm on', async ({ page, relay }) => {
+      const id = await startChat(page, { autoConfirm: true });
+      await send(page, 'Choose a team');
+      await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible();
+      const activity = page.locator('details[aria-label="Team design progress"]');
+      await activity.locator('summary').first().click();
+      await expect(activity.locator('li.tool.error').first()).toContainText('Testing model response');
+      const conv = await settled(relay, id);
+      expect(conv.agents).toEqual([]);
+      expect(conv.messages.some((m) => m.author.kind === 'agent')).toBe(false);
+    });
+  });
+});
+
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
     await startChat(page);

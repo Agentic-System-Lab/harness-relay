@@ -24,6 +24,7 @@ import {
   Orchestrator,
   project,
   root,
+  runners,
   setOrchestrator,
   settings,
   store,
@@ -32,6 +33,166 @@ import {
 } from './orchestrator-harness';
 
 describe('a team the lead agent designs', () => {
+  it('streams lead activity and checks each distinct proposed model before showing the team', async () => {
+    const ctx: PlannerContext = {
+      available: ['claude'],
+      accounts: { claude: [''] },
+      presets: store.listPresets(),
+      catalog: [
+        { provider: 'claude', source: 'builtin', models: [{ id: 'sonnet' }, { id: 'haiku' }], efforts: [], defaultModel: 'sonnet' },
+      ],
+      staffing: { now: Date.now(), usage: [] },
+    };
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context: async () => ctx }));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true, rounds: 1 });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      agents: [
+        { name: 'Alice', provider: 'claude' },
+        { name: 'Bob', provider: 'claude' },
+      ],
+    });
+    const tasks: { model?: string; cwd: string; prompt: string; session?: string }[] = [];
+    const real = runners.claude.run;
+    const stub = vi.spyOn(runners.claude, 'run').mockImplementation(async (o) => {
+      if (o.stateKey?.startsWith('lead.')) {
+        o.onEvent({ type: 'thinking', text: 'Choosing roles' });
+        o.onEvent({ type: 'tool_start', id: 'read', name: 'Read', detail: 'README.md' });
+        o.onEvent({ type: 'tool_end', id: 'read', ok: true });
+      }
+      if (!o.stateKey) {
+        tasks.push({ model: o.model, cwd: o.cwd, prompt: o.prompt, session: o.sessionId });
+        if (!o.model || o.model === 'sonnet') throw new Error('endpoint unavailable');
+        o.onEvent({ type: 'text', text: 'RELAY_MODEL_OK' });
+        return {};
+      }
+      return real(o);
+    });
+    try {
+      await orchestrator.send(conv.id, 'private question for the team');
+      await finish(conv.id);
+
+      expect(tasks.map((task) => task.model)).toEqual(['sonnet', 'haiku']);
+      expect(tasks.every((task) => task.cwd !== project && !task.session && !task.prompt.includes('private question'))).toBe(true);
+      const plan = conv.messages.find((m) => m.plan)!;
+      expect(plan.parts).toEqual(
+        expect.arrayContaining([
+          { type: 'thinking', text: 'Choosing roles' },
+          expect.objectContaining({ type: 'tool', id: 'read', status: 'done' }),
+        ]),
+      );
+      expect(plan.plan?.agents?.map((a) => a.model)).toEqual(['haiku', 'haiku']);
+      expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2);
+    } finally {
+      stub.mockRestore();
+    }
+  });
+
+  it('stops before using a cloud model when the selected private endpoint fails its check', async () => {
+    const ctx: PlannerContext = {
+      available: ['claude'],
+      accounts: { claude: [''] },
+      presets: store.listPresets(),
+      catalog: [
+        {
+          provider: 'claude',
+          source: 'builtin',
+          models: [{ id: 'private/local-model', endpoint: 'private' }, { id: 'sonnet' }],
+          efforts: [],
+        },
+      ],
+      staffing: { now: Date.now(), usage: [], backends: { configured: ['private'], deletedEndpoints: [] } },
+    };
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context: async () => ctx }));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
+    conv.agents = [{ ...conv.agents[0]!, model: 'private/local-model' }];
+    store.saveMeta(conv);
+    fake.leadReply = JSON.stringify({ choice: 'keep' });
+    const real = runners.claude.run;
+    const stub = vi.spyOn(runners.claude, 'run').mockImplementation(async (o) => {
+      if (o.stateKey) return real(o);
+      o.onEvent({ type: 'text', text: 'I cannot respond with RELAY_MODEL_OK.' });
+      return {};
+    });
+    try {
+      await orchestrator.send(conv.id, 'private question for the team');
+      await finish(conv.id);
+      expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({
+        status: 'failed',
+        reason: expect.stringContaining('private/local-model'),
+      });
+      expect(agentMessages(conv)).toEqual([]);
+    } finally {
+      stub.mockRestore();
+    }
+  });
+
+  it('waits for confirmation before testing a full-access team and keeps a failed plan from answering', async () => {
+    const ctx: PlannerContext = {
+      available: ['claude'],
+      accounts: { claude: [''] },
+      presets: store.listPresets(),
+      catalog: [],
+      staffing: { now: Date.now(), usage: [] },
+    };
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context: async () => ctx }));
+    const conv = conversation({ mode: 'roundtable', permission: 'full', autoTeam: true });
+    fake.leadReply = JSON.stringify({ choice: 'keep' });
+    const real = runners.claude.run;
+    const probe = vi.fn(async () => {
+      throw new Error('check refused');
+    });
+    const stub = vi.spyOn(runners.claude, 'run').mockImplementation((o) => (o.stateKey ? real(o) : probe()));
+    try {
+      await orchestrator.send(conv.id, 'verify the proposed team');
+      await finish(conv.id);
+      const msg = conv.messages.find((m) => m.plan)!;
+      expect(msg.plan).toMatchObject({ status: 'ready', awaitingConfirmation: true, checkOnConfirm: true });
+      expect(probe).not.toHaveBeenCalled();
+
+      orchestrator.confirmPlan(conv.id, msg.id);
+      await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
+      await finish(conv.id);
+      expect(msg.plan?.status).toBe('failed');
+      expect(agentMessages(conv)).toEqual([]);
+    } finally {
+      stub.mockRestore();
+    }
+  });
+
+  it('cancels a running model test when the user stops the design', async () => {
+    const ctx: PlannerContext = {
+      available: ['claude'],
+      accounts: { claude: [''] },
+      presets: store.listPresets(),
+      catalog: [],
+      staffing: { now: Date.now(), usage: [] },
+    };
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context: async () => ctx }));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
+    fake.leadReply = JSON.stringify({ choice: 'keep' });
+    const real = runners.claude.run;
+    let signal: AbortSignal | undefined;
+    const stub = vi.spyOn(runners.claude, 'run').mockImplementation(async (o) => {
+      if (o.stateKey) return real(o);
+      signal = o.signal;
+      await new Promise<void>((resolve) => signal!.addEventListener('abort', () => resolve(), { once: true }));
+      return {};
+    });
+    try {
+      await orchestrator.send(conv.id, 'check the team');
+      await vi.waitFor(() => expect(signal).toBeDefined());
+      orchestrator.stop(conv.id);
+      await finish(conv.id);
+      expect(signal?.aborted).toBe(true);
+      const msg = conv.messages.find((m) => m.plan)!;
+      expect(msg).toMatchObject({ status: 'aborted', plan: { status: 'planning' } });
+      expect(agentMessages(conv)).toEqual([]);
+    } finally {
+      stub.mockRestore();
+    }
+  });
+
   it('does not start a team or drain its queue when all available models are exhausted', async () => {
     const context = vi.fn<() => Promise<PlannerContext>>(async () => ({
       available: [],

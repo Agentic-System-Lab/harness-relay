@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 486 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 489 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -37,7 +37,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#conversation-rules) |
-| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 8 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
+| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 11 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
@@ -119,6 +119,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | A follow-up question gets a team again | Claude Code, Codex | The second question gets a team of its own, and only its member answers it. |
 | The next design refreshes the quota | Claude Code, Codex | Claude Code answers the first question. After its quota is exhausted, the second design leaves it out of the prompt and uses Codex even when the proposed team named Claude Code. |
 | No models are available | Claude Code, Codex, Grok | When the three quotas are exhausted, the chat explains why and auto-confirm starts no team. |
+| Collapsible team design progress | Claude Code | Open progress during planning. The same disclosure stays open with the finished model check, and the check receives a fixed prompt before the team answers. |
+| Full-access team checks after confirmation | Claude Code | Waiting for confirmation performs no full-access model test. Confirming starts the test and then the team. |
+| All model tests fail | Claude Code | Auto-confirm shows the failed checks and starts no team. |
 
 ## Templates
 

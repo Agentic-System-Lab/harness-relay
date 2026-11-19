@@ -887,6 +887,8 @@ export const zhTW = {
   },
 
   plan: {
+    checkOnConfirm: '確認這個團隊後，會先測試模型再開始回答。',
+    activity: '團隊設計進度',
     planning: (lead: string) => `首席 agent（${lead}）正在為這個問題組隊…`,
     title: '團隊設計',
     by: (lead: string) => `首席 agent：${lead}`,

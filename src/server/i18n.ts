@@ -444,6 +444,12 @@ const zhTW = {
   planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
   planFailedKept: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），沿用目前的團隊。`,
   planKeepFits: '首席 agent 判斷目前的團隊也適合這個問題，沿用不變。',
+  planCheckAccounts: '檢查帳號與用量',
+  planCheckModel: '測試模型回覆',
+  planModelDefault: '預設模型',
+  planModelNoReply: '模型未回傳預期的測試回覆。',
+  planModelChecksFailed: (models: string) =>
+    models ? `以下模型未通過驗證：${models}。請檢查帳號與模型來源，再重新設計團隊。` : '模型驗證逾時，請重新設計團隊。',
   planNoAvailableModel: (schedule: boolean) =>
     `目前沒有可用的模型可以組隊。請到設定與登入查看帳號與用量，或稍後${schedule ? '在自動任務面板重新設計團隊' : '按「繼續」重試'}。`,
   planEndpointUnavailable: (model: string) => `私人端點的模型「${model}」目前無法使用。請檢查 CLI 帳號與模型來源。`,
@@ -1300,6 +1306,14 @@ const en: ServerMessages = {
   planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
   planFailedKept: (why) => `The lead agent did not produce a usable team design (${why}); keeping the current team.`,
   planKeepFits: 'The lead agent found the current team a good fit for this question too and keeps it as it is.',
+  planCheckAccounts: 'Checking accounts and usage',
+  planCheckModel: 'Testing model response',
+  planModelDefault: 'Default model',
+  planModelNoReply: 'The model check did not receive the expected reply.',
+  planModelChecksFailed: (models) =>
+    models
+      ? `Could not verify these models: ${models}. Check the accounts and model backends, then retry the design.`
+      : 'The model checks timed out. Try designing the team again.',
   planNoAvailableModel: (schedule) =>
     `No models are available for this team. Check your accounts and usage in Settings, or ${schedule ? 'try designing the team again from the automation panel' : 'choose Continue to try again later'}.`,
   planEndpointUnavailable: (model) => `The private endpoint model "${model}" is unavailable. Check the CLI account and model backend.`,

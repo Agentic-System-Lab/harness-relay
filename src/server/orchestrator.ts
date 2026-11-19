@@ -20,6 +20,7 @@ import type {
   OutboxItem,
   ProgressStatus,
   Provider,
+  LeadAgentSettings,
   RunPause,
   TrackedRun,
   TeamPreset,
@@ -63,12 +64,15 @@ import {
   PLANNER_BRIEFING,
   PlanUnavailableError,
   REVISER_BRIEFING,
+  assignmentKey,
+  assignmentModel,
   buildPlannerPrompt,
   buildRevisePrompt,
   decidePlan,
   decideRevision,
   draftPlace,
   fallbackPlan,
+  fitAgents,
   historyForLead,
   keepMemberIds,
   memberAvailable,
@@ -92,6 +96,7 @@ import {
 } from './attachments';
 import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
+import { checkModel } from './modelCheck';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
@@ -195,6 +200,8 @@ interface Run {
   refuseApprovals?: boolean;
   /** Auto team: the lead agent designs the team for the question, and that is all this run does. */
   designs?: boolean;
+  /** Verify an approved full-access design before applying its team. */
+  checkPlan?: ChatMessage;
   /** The design is for the conversation's schedule: this is its message, which nobody posted (`designForSchedule`). */
   designFor?: string;
   /** The design needed no confirmation (`autoConfirm`): once this run ends, the team answers. */
@@ -236,6 +243,7 @@ interface StartOptions {
   tracking?: TrackedRun;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
   designSchedule?: boolean;
+  checkPlan?: ChatMessage;
   /**
    * Refuse approval requests automatically in this run (see `Run.refuseApprovals`) — if every message
    * it starts with came from the schedule.
@@ -1600,7 +1608,7 @@ export class Orchestrator {
     const convId = conv.id;
     // A run that designs the team writes nothing (the lead agent is read-only and nobody else
     // speaks), so it locks nothing.
-    const planning = this.designs(conv, text, opts);
+    const planning = Boolean(opts.checkPlan) || this.designs(conv, text, opts);
     // Reserved until the run is registered, so a settings change or an apply cannot slip in while the
     // workspace is prepared, and a delete waits for it; a message sent meanwhile waits in the queue.
     const release = this.reserve(convId);
@@ -1643,6 +1651,7 @@ export class Orchestrator {
         // Only while nothing the user wrote starts it: when they write, they are here.
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
+        ...(opts.checkPlan ? { checkPlan: opts.checkPlan } : {}),
         ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
         ...(tracking ? { tracking: { ...tracking, from: conv.messages.length } } : {}),
         done: Promise.resolve(),
@@ -2075,6 +2084,134 @@ export class Orchestrator {
     return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
   }
 
+  private activity(convId: string, msg: ChatMessage, e: AgentEvent): void {
+    switch (e.type) {
+      case 'thinking': {
+        const last = msg.parts.at(-1);
+        if (last?.type === 'thinking') {
+          last.text += e.text;
+          this.hub.emit(convId, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
+          break;
+        }
+        msg.parts.push({ type: 'thinking', text: e.text });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'plan': {
+        const part = msg.parts.find((p) => p.type === 'plan');
+        if (part) part.entries = e.entries;
+        else msg.parts.push({ type: 'plan', entries: e.entries });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'tool_start':
+        msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      case 'tool_end': {
+        const part = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
+        if (part?.type === 'tool') {
+          part.status = e.ok ? 'done' : 'error';
+          if (e.detail) part.detail = e.detail;
+          if (e.error) part.error = e.error;
+          if (e.output) part.output = e.output;
+          this.hub.emit(convId, { type: 'message', message: msg });
+        }
+        break;
+      }
+      default:
+        return;
+    }
+    this.store.saveMessage(convId, msg);
+  }
+
+  private pinPlanModels(ctx: PlannerContext, agents: AgentConfig[]): AgentConfig[] {
+    return agents.map((a) => {
+      const model = assignmentModel(ctx, a);
+      return model && !a.model ? { ...a, model } : a;
+    });
+  }
+
+  /** Check each distinct assignment once per design. Failed choices can only be replaced by checked ones. */
+  private async checkTeam(
+    conv: Conversation,
+    run: Run,
+    msg: ChatMessage,
+    ctx: PlannerContext,
+    lead: LeadAgentSettings,
+    decision: PlanDecision,
+    usage: RunResult[],
+    replace = true,
+  ): Promise<PlanDecision> {
+    const signal = AbortSignal.any([run.abort.signal, AbortSignal.timeout(60_000)]);
+    const failedModels = new Set<string>();
+    const checks = new Map<string, Promise<boolean>>();
+    let agents = this.pinPlanModels(ctx, decision.agents);
+    let replaced = false;
+    let failed: AgentConfig[] = [];
+    const verify = async (a: AgentConfig): Promise<boolean> => {
+      const id = randomUUID();
+      const label = `${PROVIDER_LABEL[a.provider]} · ${assignmentModel(ctx, a) || t().planModelDefault}`;
+      this.activity(conv.id, msg, { type: 'tool_start', id, name: t().planCheckModel, detail: label });
+      let ok = false;
+      try {
+        const account = this.settings.resolveAccount(a.provider, a.account);
+        const result = await checkModel(runners[a.provider], {
+          bin: this.settings.bin(a.provider),
+          env: this.settings.env(a.provider, account),
+          backends: this.settings.backendsFor(a.provider),
+          permission: conv.settings.permission === 'full' ? 'full' : 'read-only',
+          sandboxTerminal: this.settings.sandboxTerminal(a.provider),
+          model: await this.modelFor(a.provider, a.model, account),
+          signal,
+        });
+        ok = result.ok;
+        if (result.usage) usage.push(result.usage);
+      } catch {
+        // A failed setup counts like a failed request. Let the other checks settle before fitting again.
+      }
+      this.activity(conv.id, msg, { type: 'tool_end', id, ok, ...(ok ? {} : { error: t().planModelNoReply }) });
+      return ok;
+    };
+    // A ceiling on both time and retries keeps a broken backend from running through every model.
+    for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
+      const results = await Promise.all(
+        agents.map((a) => {
+          const key = assignmentKey(ctx, a);
+          let check = checks.get(key);
+          if (!check) {
+            check = verify(a);
+            checks.set(key, check);
+          }
+          return check;
+        }),
+      );
+      run.abort.signal.throwIfAborted();
+      failed = agents.filter((_, i) => !results[i]);
+      if (!failed.length) {
+        if (!replaced) return { ...decision, agents };
+        const kept = decision.source === 'kept';
+        const reason = [kept ? '' : decision.reason, t().planAssignmentsAdjusted].filter(Boolean).join(' ');
+        return { ...decision, source: kept ? 'fallback' : decision.source, agents, reason };
+      }
+      for (const a of failed) failedModels.add(assignmentKey(ctx, a));
+      if (!replace || attempt === 2 || signal.aborted) break;
+      try {
+        agents = this.pinPlanModels(
+          ctx,
+          fitAgents(agents, { ...ctx, staffing: { ...ctx.staffing!, failedModels } }, lead, undefined, false),
+        );
+        replaced = true;
+      } catch (err) {
+        if (!(err instanceof PlanUnavailableError)) throw err;
+        break;
+      }
+    }
+    throw new PlanUnavailableError(
+      t().planModelChecksFailed(failed.map((a) => `@${a.name} (${assignmentModel(ctx, a) ?? PROVIDER_LABEL[a.provider]})`).join(', ')),
+    );
+  }
+
   /**
    * Auto team: the lead agent (Settings) chooses the team for the user's question — keeping the
    * current team, using or adapting a template, or designing a new one — shown as a plan card. When
@@ -2115,8 +2252,12 @@ export class Orchestrator {
     let failure: string | undefined;
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
+    const checks: RunResult[] = [];
+    const discovery = randomUUID();
+    this.activity(conv.id, msg, { type: 'tool_start', id: discovery, name: t().planCheckAccounts });
     try {
       ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds, true);
+      this.activity(conv.id, msg, { type: 'tool_end', id: discovery, ok: true });
       run.abort.signal.throwIfAborted();
       if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
       if (!memberAvailable(ctx, lead)) throw new Error(t().planLeadUnavailable);
@@ -2143,6 +2284,7 @@ export class Orchestrator {
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
           else if (e.type === 'text_end') reply += '\n';
+          else this.activity(conv.id, msg, e);
         },
       });
       // The lead agent's session belongs to this conversation too.
@@ -2162,11 +2304,23 @@ export class Orchestrator {
       }
     }
 
+    const checkOnConfirm = Boolean(ctx?.staffing && conv.settings.permission === 'full' && !conv.settings.autoConfirm);
+    if (decision && ctx?.staffing && !checkOnConfirm && !run.abort.signal.aborted) {
+      try {
+        decision = await this.checkTeam(conv, run, msg, ctx, lead, decision, checks);
+      } catch (err) {
+        decision = undefined;
+        failure = (err as Error).message;
+      }
+    }
+    for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
+    const usage = (key: 'costUsd' | 'inputTokens' | 'outputTokens') =>
+      [result, ...checks].reduce<number | undefined>((total, r) => (r?.[key] === undefined ? total : (total ?? 0) + r[key]), undefined);
     msg.meta = {
       durationMs: Date.now() - started,
-      costUsd: result?.costUsd,
-      inputTokens: result?.inputTokens,
-      outputTokens: result?.outputTokens,
+      costUsd: usage('costUsd'),
+      inputTokens: usage('inputTokens'),
+      outputTokens: usage('outputTokens'),
     };
     if (run.abort.signal.aborted) {
       msg.status = 'aborted';
@@ -2175,7 +2329,8 @@ export class Orchestrator {
       msg.status = 'done';
     } else {
       // Members who stay on keep their ids, and with them their sessions.
-      const agents = keepMemberIds(decision.agents, conv.agents, !ctx?.staffing);
+      const proposed = checkOnConfirm && ctx ? this.pinPlanModels(ctx, decision.agents) : decision.agents;
+      const agents = keepMemberIds(proposed, conv.agents, !ctx?.staffing);
       const now = Boolean(conv.settings.autoConfirm);
       msg.plan = {
         status: 'ready',
@@ -2183,6 +2338,7 @@ export class Orchestrator {
         ...decision,
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
+        ...(checkOnConfirm ? { checkOnConfirm: true } : {}),
         ...(run.designFor !== undefined ? { forSchedule: true } : {}),
       };
       msg.status = 'done';
@@ -2335,6 +2491,63 @@ export class Orchestrator {
     this.emitConversation(conv);
   }
 
+  private async checkConfirmedTeam(conv: Conversation, run: Run, msg: ChatMessage): Promise<void> {
+    const plan = msg.plan!;
+    const started = Date.now();
+    const usage: RunResult[] = [];
+    msg.status = 'streaming';
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+    try {
+      // Check the approved assignments exactly. A newly unavailable one needs a new design.
+      const ctx = await this.planner.context(undefined, undefined, true);
+      run.abort.signal.throwIfAborted();
+      if (!plan.agents!.every((a) => memberAvailable(ctx, a))) throw new PlanUnavailableError(t().planCurrentUnavailable);
+      const checked = await this.checkTeam(
+        conv,
+        run,
+        msg,
+        ctx,
+        plan.lead,
+        {
+          agents: plan.agents!,
+          settings: plan.settings!,
+          source: plan.source!,
+          reason: plan.reason ?? '',
+          name: plan.name ?? '',
+        },
+        usage,
+        false,
+      );
+      run.abort.signal.throwIfAborted();
+      plan.agents = checked.agents;
+      msg.status = 'done';
+      delete plan.checkOnConfirm;
+      this.applyPlan(conv, plan);
+      this.markAnswered(conv, msg, 'confirm');
+      run.answerNext = true;
+    } catch (err) {
+      if (!run.abort.signal.aborted) {
+        plan.status = 'failed';
+        plan.reason = (err as Error).message;
+        delete plan.awaitingConfirmation;
+        delete plan.checkOnConfirm;
+      }
+    } finally {
+      msg.status = 'done';
+      for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
+      msg.meta ??= {};
+      msg.meta.durationMs = (msg.meta.durationMs ?? 0) + Date.now() - started;
+      for (const r of usage) {
+        for (const key of ['costUsd', 'inputTokens', 'outputTokens'] as const) {
+          if (r[key] !== undefined) msg.meta[key] = (msg.meta[key] ?? 0) + r[key];
+        }
+      }
+      this.store.saveMessage(conv.id, msg, true);
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    }
+  }
+
   /** The user accepts the lead agent's team design: it becomes the team, and answers the question. */
   confirmPlan(convId: string, messageId: string): void {
     this.answerPlan(convId, messageId, 'confirm');
@@ -2357,6 +2570,10 @@ export class Orchestrator {
     if (answer === 'decline' && conv.agents.length === 0) throw new HttpError(400, t().planNoCurrentTeam);
     // Not while something else holds the conversation: the team could not answer now.
     this.checkAvailable(convId, t().busy);
+    if (answer === 'confirm' && msg.plan.checkOnConfirm) {
+      this.startInBackground(conv, { checkPlan: msg });
+      return;
+    }
     if (answer === 'confirm') this.applyPlan(conv, msg.plan);
     this.markAnswered(conv, msg, answer);
     // The team answers the question now, with what the user wrote while it waited for confirmation.
@@ -2389,6 +2606,7 @@ export class Orchestrator {
 
   private markAnswered(conv: Conversation, msg: ChatMessage, answer: 'confirm' | 'decline'): void {
     delete msg.plan!.awaitingConfirmation;
+    delete msg.plan!.checkOnConfirm;
     if (answer === 'confirm') msg.plan!.confirmedAt = Date.now();
     else msg.plan!.declinedAt = Date.now();
     this.store.saveMessage(conv.id, msg, true);
@@ -2588,7 +2806,8 @@ export class Orchestrator {
     if (run.designs) {
       // The lead agent designs the team for the question, and that is all this run does. Once the
       // team is confirmed (or needs no confirmation), a run of its own answers the question.
-      await this.designTeam(conv, run);
+      if (run.checkPlan) await this.checkConfirmedTeam(conv, run, run.checkPlan);
+      else await this.designTeam(conv, run);
       return;
     }
     await this.teamTurns(conv, posted, run, only, resume);
@@ -2955,51 +3174,19 @@ export class Orchestrator {
         case 'text_end':
           textOpen = false;
           return;
-        case 'thinking': {
-          textOpen = false;
-          const last = msg.parts[msg.parts.length - 1];
-          if (last?.type === 'thinking') {
-            last.text += e.text;
-            this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
-          } else {
-            msg.parts.push({ type: 'thinking', text: e.text });
-            this.hub.emit(conv.id, { type: 'message', message: msg });
-          }
-          break;
-        }
-        case 'plan': {
-          const current = msg.parts.find((p) => p.type === 'plan');
-          if (current?.type === 'plan') current.entries = e.entries;
-          else {
-            textOpen = false;
-            msg.parts.push({ type: 'plan', entries: e.entries });
-          }
-          this.hub.emit(conv.id, { type: 'message', message: msg });
-          break;
-        }
+        case 'plan':
+          // Replacing an existing to-do list does not close a streaming text block.
+          if (!msg.parts.some((part) => part.type === 'plan')) textOpen = false;
+          this.activity(conv.id, msg, e);
+          return;
+        case 'thinking':
         case 'tool_start':
           textOpen = false;
-          msg.parts.push({
-            type: 'tool',
-            id: e.id,
-            name: e.name,
-            detail: e.detail,
-            ...(e.kind ? { kind: e.kind } : {}),
-            status: 'running',
-          });
-          this.hub.emit(conv.id, { type: 'message', message: msg });
-          break;
-        case 'tool_end': {
-          const part = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
-          if (part?.type === 'tool') {
-            part.status = e.ok ? 'done' : 'error';
-            if (e.detail) part.detail = e.detail;
-            if (e.error) part.error = e.error;
-            if (e.output) part.output = e.output;
-            this.hub.emit(conv.id, { type: 'message', message: msg });
-          }
-          break;
-        }
+          this.activity(conv.id, msg, e);
+          return;
+        case 'tool_end':
+          this.activity(conv.id, msg, e);
+          return;
       }
       this.store.saveMessage(conv.id, msg);
     };

@@ -114,8 +114,8 @@ export interface RelayServer {
   newSignInCode(): Promise<string>;
   /** A request to the API, signed in (as a browser of its own). */
   api<T = unknown>(path: string, init?: { method?: string; body?: unknown }): Promise<T>;
-  /** What the fake CLIs logged so far. */
-  fakeLog(): FakeLogEntry[];
+  /** What the fake CLIs logged so far, excluding synthetic model-check turns unless requested. */
+  fakeLog(includeModelChecks?: boolean): FakeLogEntry[];
   /** The test's fake model endpoint. */
   fakeEndpoint: FakeEndpoint;
   /** The server's output so far. */
@@ -464,12 +464,15 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
       async newSignInCode() {
         return (await api<{ code: string }>('/api/auth/codes', { body: {} })).code;
       },
-      fakeLog() {
+      fakeLog(includeModelChecks = false) {
         if (!existsSync(fakeLog)) return [];
-        return readFileSync(fakeLog, 'utf8')
+        const entries = readFileSync(fakeLog, 'utf8')
           .split('\n')
           .filter(Boolean)
           .map((l) => JSON.parse(l) as FakeLogEntry);
+        if (includeModelChecks) return entries;
+        const probes = new Set(entries.filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.')).map((e) => e.proc));
+        return entries.filter((e) => !e.proc || !probes.has(e.proc));
       },
       fakeEndpoint: fake.endpoint,
       output: () => output,

@@ -5272,6 +5272,12 @@ details.sub summary {
   min-width: 0;
 }
 
+.plan-message {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .plan-card.planning {
   flex-direction: row;
   align-items: center;
