@@ -498,25 +498,29 @@ function PlanCard({
 
   if (plan.status === 'failed')
     return (
-      <div className="msg-error" role="status">
-        ⚠ {plan.reason}
-      </div>
+      <PlanCardLayout msg={msg} className="failed">
+        <div className="msg-error" role="status">
+          ⚠ {plan.reason}
+        </div>
+      </PlanCardLayout>
     );
 
   if (plan.status === 'planning') {
     const live = msg.status === 'streaming';
     return (
-      <div className="plan-card planning" role="status">
-        {/* While the lead agent designs the team: the home page's mark, turning until the design is in. */}
-        {live ? (
-          <AnimatedLogo className="plan-logo" turning />
-        ) : (
-          <span className="tool-icon plan-logo-stopped" aria-hidden>
-            ✦
-          </span>
-        )}
-        <span>{live ? wording.planning : wording.aborted}</span>
-      </div>
+      <PlanCardLayout msg={msg} className="planning">
+        <div className="plan-status" role="status">
+          {/* While the lead agent designs the team: the home page's mark, turning until the design is in. */}
+          {live ? (
+            <AnimatedLogo className="plan-logo" turning />
+          ) : (
+            <span className="tool-icon plan-logo-stopped" aria-hidden>
+              ✦
+            </span>
+          )}
+          <span>{live ? wording.planning : wording.aborted}</span>
+        </div>
+      </PlanCardLayout>
     );
   }
 
@@ -559,7 +563,7 @@ function PlanCard({
   };
 
   return (
-    <section className={`plan-card ${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`} aria-label={t.plan.title}>
+    <PlanCardLayout msg={msg} className={`${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`}>
       <header className="plan-head">
         <Logo size={18} />
         <strong>{t.plan.title}</strong>
@@ -623,11 +627,21 @@ function PlanCard({
         {!awaiting && latestPlan && adjust}
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
+    </PlanCardLayout>
+  );
+}
+
+/** The disclosure stays mounted inside the card when the design changes from planning to its result. */
+function PlanCardLayout({ msg, className, children }: { msg: ChatMessage; className: string; children: ReactNode }) {
+  const t = useT();
+  return (
+    <section className={`plan-card ${className}`} aria-label={t.plan.title}>
+      {children}
+      <PlanActivity msg={msg} />
     </section>
   );
 }
 
-/** Keep the same disclosure mounted while the team card changes from planning to its result. */
 function PlanActivity({ msg }: { msg: ChatMessage }) {
   const t = useT();
   const groups = segments(msg.parts);
@@ -1035,23 +1049,20 @@ export const MessageItem = memo(function MessageItem({
     if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} readNext={readNext} />;
     if (msg.plan) {
       return (
-        <div className="plan-message">
-          <PlanCard
-            msg={msg}
-            cwd={cwd}
-            agents={agents}
-            latestPlan={latestPlan}
-            scheduleText={scheduleText}
-            onConfirmPlan={onConfirmPlan}
-            onDeclinePlan={onDeclinePlan}
-            onSavePlan={onSavePlan}
-            onAdjustTeam={onAdjustTeam}
-            running={running}
-            leadReview={leadReview}
-            onLeadReview={onLeadReview}
-          />
-          <PlanActivity msg={msg} />
-        </div>
+        <PlanCard
+          msg={msg}
+          cwd={cwd}
+          agents={agents}
+          latestPlan={latestPlan}
+          scheduleText={scheduleText}
+          onConfirmPlan={onConfirmPlan}
+          onDeclinePlan={onDeclinePlan}
+          onSavePlan={onSavePlan}
+          onAdjustTeam={onAdjustTeam}
+          running={running}
+          leadReview={leadReview}
+          onLeadReview={onLeadReview}
+        />
       );
     }
     return (

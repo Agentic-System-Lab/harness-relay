@@ -19,12 +19,12 @@ import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
 const LEAD_TEAM_MAX = 5;
 
-/** The animations in the team design cards: each one's name, element (its classes), timing, what it changes and its keyframes' transforms. */
+/** The animations of the team design card's mark: each one's name, element (its classes), timing, what it changes and its keyframes' transforms. */
 const cardAnimations = (page: Page) =>
   page.evaluate(() =>
     document
       .getAnimations()
-      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'))
+      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo'))
       .map((a) => {
         const effect = a.effect as KeyframeEffect;
         const timing = effect.getComputedTiming();
@@ -55,9 +55,11 @@ const cardAnimations = (page: Page) =>
  */
 const angles = (page: Page, times: number[]) =>
   page.evaluate((times) => {
-    const mark = document.querySelector('.plan-card .logo-motion')!;
+    const mark = document.querySelector('.plan-card .plan-logo')!;
     const orbit = mark.querySelector('.logo-motion-orbit')!;
-    const parts = document.getAnimations().filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'));
+    const parts = document
+      .getAnimations()
+      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo'));
     for (const a of parts) a.pause();
     const matrix = (el: Element) => {
       const transform = getComputedStyle(el).transform;
@@ -76,9 +78,9 @@ const angles = (page: Page, times: number[]) =>
  */
 const markDrawing = (page: Page) =>
   page.evaluate(() => {
-    const mark = document.querySelector('.plan-card .logo-motion')!;
+    const mark = document.querySelector('.plan-card .plan-logo')!;
     for (const a of document.getAnimations()) {
-      if (!((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card')) continue;
+      if (!((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card .plan-logo')) continue;
       a.pause();
       a.currentTime = 1600;
     }
@@ -141,14 +143,15 @@ test.describe('team design progress and model checks', () => {
   test('shows collapsible progress during design and keeps it open when the model check finishes', async ({ page, relay }) => {
     const id = await startChat(page);
     await send(page, 'Choose a team e2e:slowplan=3');
-    const activity = page.locator('details[aria-label="Team design progress"]');
-    await expect(activity).toBeVisible();
-    await expect(page.locator('.plan-card.planning')).toBeVisible();
-    await activity.locator('summary').first().click();
-    await expect(activity).toHaveAttribute('open', '');
-    await expect(activity.locator('li.tool').first()).toContainText('Checking accounts and usage');
+    const progress = 'details[aria-label="Team design progress"]';
+    const liveActivity = page.locator('.plan-card.planning').locator(progress);
+    await expect(liveActivity).toBeVisible();
+    await expect(liveActivity).not.toHaveAttribute('open', '');
+    await liveActivity.locator('summary').first().click();
+    await expect(liveActivity).toHaveAttribute('open', '');
+    await expect(liveActivity.locator('li.tool').first()).toContainText('Checking accounts and usage');
 
-    await expect(awaitingPlan(page)).toBeVisible();
+    const activity = awaitingPlan(page).locator(progress);
     await expect(activity).toHaveAttribute('open', '');
     await expect(activity.locator('li.tool.done').last()).toContainText('Testing model response');
     const probes = relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
@@ -181,7 +184,7 @@ test.describe('team design progress and model checks', () => {
       const id = await startChat(page, { autoConfirm: true });
       await send(page, 'Choose a team');
       await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible();
-      const activity = page.locator('details[aria-label="Team design progress"]');
+      const activity = page.locator('.plan-card.failed details[aria-label="Team design progress"]');
       await activity.locator('summary').first().click();
       await expect(activity.locator('li.tool.error').first()).toContainText('Testing model response');
       const conv = await settled(relay, id);
@@ -221,7 +224,7 @@ test.describe('a new chat', () => {
     await send(page, 'Take your time e2e:slowplan');
     const card = page.locator('.plan-card.planning').last();
     await expect(card).toContainText('is choosing a team for this question');
-    const mark = card.locator('.logo-motion');
+    const mark = card.locator('.plan-logo');
     await expect(mark).toBeVisible();
 
     // The dots spiral in once while the mark turns (as on the home page), then it turns again and
@@ -269,10 +272,14 @@ test.describe('a new chat', () => {
 
     // Stopped, the card says so, with its mark and animations gone, and its ✦ in the mark's place: the
     // text stays where it was.
-    const text = card.locator(':scope > span').last();
+    const text = card.locator('.plan-status > span').last();
+    const activity = card.locator('details[aria-label="Team design progress"]');
+    await activity.locator('summary').first().click();
+    await expect(activity).toHaveAttribute('open', '');
     const before = (await text.boundingBox())!.x;
     await page.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(card).toContainText('Team design was stopped');
+    await expect(activity).toHaveAttribute('open', '');
     await expect(mark).toHaveCount(0);
     expect(await cardAnimations(page)).toEqual([]);
     expect((await text.boundingBox())!.x).toBeCloseTo(before, 0);
@@ -282,7 +289,7 @@ test.describe('a new chat', () => {
     await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
     await send(page, 'Once more e2e:slowplan');
     await expect(page.locator('.plan-card.planning')).toHaveCount(2);
-    const still = page.locator('.plan-card.planning').last().locator('.logo-motion');
+    const still = page.locator('.plan-card.planning').last().locator('.plan-logo');
     await expect(still).toBeVisible();
     expect(await cardAnimations(page)).toEqual([]);
     const colors = await still.locator('.logo-dot').evaluateAll((dots) => dots.map((d) => getComputedStyle(d).backgroundColor));

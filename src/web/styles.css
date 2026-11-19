@@ -5272,19 +5272,18 @@ details.sub summary {
   min-width: 0;
 }
 
-.plan-message {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
 .plan-card.planning {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
   font-size: 13.5px;
   color: var(--muted);
   padding: 10px 14px;
+}
+
+.plan-status,
+.review-card.planning {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 
 /* While the lead agent designs the team, the home page's mark turning (`.logo-motion`), at the 18px of the card's Logo once the design is in. */
