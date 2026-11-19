@@ -204,7 +204,7 @@ function hookOptions(c: Ctx, when: CheckHook['when']): Partial<RunOptions> {
     agent: 'cli-check',
     provider: c.provider,
     notice: () => undefined,
-    ...(gateway ? { program: (h) => gateway.hookProgram(h) } : {}),
+    ...(gateway ? { program: (h, mode) => gateway.hookProgram(h, mode) } : {}),
   });
   return hooks ? { hooks } : {};
 }

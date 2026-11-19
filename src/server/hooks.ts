@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 import { hookApplies } from '../shared/checks';
 import { CHECK_LIMITS, CHECK_RESULT_LIMITS, type CheckHook, type CheckOutcome, type HookTools, type Provider } from '../shared/types';
 import { defaultCheckCommandDeps, keptOutput, runCheckCommand, type CheckCommandDeps, type CheckCommandPlace } from './checkCommands';
-import type { HookHandler, HookProgram } from './gateway';
+import type { HookHandler, HookProgram, HookProgramMode } from './gateway';
 import { t } from './i18n';
 
 /*
@@ -62,7 +62,7 @@ export interface TurnHooks {
    * call to `handle` over Harness Relay's gateway, good until the turn is over. Undefined when it
    * cannot be given now (the gateway is not listening, or there is no Node.js to start it with).
    */
-  program(handle: HookHandler): HookProgram | undefined;
+  program(handle: HookHandler, mode?: HookProgramMode): HookProgram | undefined;
   /** The turn is over: its programs' grants end. */
   dispose(): void;
 }
@@ -191,7 +191,7 @@ export interface TurnHooksOptions {
   /** For tests: the deadline's seconds as this many (a fraction makes it come at once). */
   deadlineScale?: number;
   /** A hook program's grant from the gateway (`ToolGateway.hookProgram()`), when it has one. */
-  program?: (handle: HookHandler) => { program: HookProgram; revoke: () => void } | undefined;
+  program?: (handle: HookHandler, mode?: HookProgramMode) => { program: HookProgram; revoke: () => void } | undefined;
   deps?: CheckCommandDeps;
 }
 
@@ -250,9 +250,9 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
   const revokes: (() => void)[] = [];
   let over = false;
   return {
-    program(handle) {
+    program(handle, mode) {
       if (over) return undefined;
-      const grant = o.program?.(handle);
+      const grant = o.program?.(handle, mode);
       if (!grant) return undefined;
       revokes.push(grant.revoke);
       return grant.program;

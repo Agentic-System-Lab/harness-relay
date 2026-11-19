@@ -56,7 +56,6 @@ import {
   GATEWAY_SANDBOXED_MCP,
   gatewayToolNamed,
   reservedMcpName,
-  type HookHandler,
   type ToolGateway,
 } from './gateway';
 import type { Outbox } from './outbox';
@@ -2717,7 +2716,7 @@ export class Orchestrator {
       agent: agent.name,
       provider: agent.provider,
       notice,
-      ...(gateway ? { program: (handle: HookHandler) => gateway.hookProgram(handle) } : {}),
+      ...(gateway ? { program: gateway.hookProgram.bind(gateway) } : {}),
       deps: this.checkCommandDeps,
     });
   }

@@ -18,7 +18,7 @@ import {
 import { withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
-import { HOOK_SHIM_SOURCE } from './hookShim';
+import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
 
 /*
  * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`), in one
@@ -155,13 +155,15 @@ export type HookHandler = (when: 'before' | 'after', payload: unknown) => Promis
 export interface HookProgram {
   bin: string;
   args: string[];
+  /** Passed only to an inline hook command, never to the CLI's process environment. */
+  env?: Record<string, string>;
 }
+export type HookProgramMode = 'file' | 'inline';
 
 /** A turn's hook grant: its handler, and its program's token file and copy. */
 interface HookGrant {
   handle: HookHandler;
-  tokenFile: string;
-  shimFile: string;
+  files?: string[];
 }
 
 /** How a turn gets the gateway (`ToolGateway.grant()`). */
@@ -429,28 +431,41 @@ export class ToolGateway {
   /**
    * A turn's hook program (`hookShim.ts`): a copy and its token's file in `data/tmp`, where sandboxed
    * commands cannot reach them, and `handle` to answer each call it passes on. Its token serves every
-   * connection until `revoke`, as the CLI runs the program once for each call. Undefined when it cannot
+   * connection until `revoke`, as the CLI runs the program once for each call. The inline program
+   * carries its token in the hook-specific environment, so it can run inside Copilot's sandbox without
+   * opening the temporary folder. Undefined when the program cannot
    * be given now (not listening, no Node.js to start it with).
    */
-  hookProgram(handle: HookHandler): { program: HookProgram; revoke: () => void } | undefined {
+  hookProgram(handle: HookHandler, mode: HookProgramMode = 'file'): { program: HookProgram; revoke: () => void } | undefined {
     const node = this.node();
     if (!this.server || !node) return undefined;
     const token = randomBytes(32).toString('base64url');
+    const revoke = () => this.revokeHook(token);
+    if (mode === 'inline') {
+      this.hookGrants.set(token, { handle });
+      return {
+        program: {
+          bin: node,
+          args: ['--input-type=module', '-e', HOOK_SHIM_SOURCE, '--', 'relay-hook', this.socketPath, ''],
+          env: { [HOOK_INLINE_TOKEN_ENV]: token },
+        },
+        revoke,
+      };
+    }
     const name = `hook-${randomBytes(8).toString('hex')}`;
     const tokenFile = join(this.tokenDir, `${name}.token`);
     const shimFile = join(this.tokenDir, `${name}.mjs`);
     writeFileSync(tokenFile, token, { mode: 0o600 });
     writeFileSync(shimFile, HOOK_SHIM_SOURCE, { mode: 0o600 });
-    this.hookGrants.set(token, { handle, tokenFile, shimFile });
-    return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke: () => this.revokeHook(token) };
+    this.hookGrants.set(token, { handle, files: [tokenFile, shimFile] });
+    return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke };
   }
 
   private revokeHook(token: string): void {
     const grant = this.hookGrants.get(token);
     if (!grant) return;
     this.hookGrants.delete(token);
-    rmSync(grant.tokenFile, { force: true });
-    rmSync(grant.shimFile, { force: true });
+    for (const file of grant.files ?? []) rmSync(file, { force: true });
   }
 
   private revoke(token: string): void {
@@ -472,6 +487,7 @@ export class ToolGateway {
     let buffer = '';
     let grant: Grant | undefined;
     let hookToken: string | undefined;
+    let hookAsked = false;
     let authed = false;
     let taken = false;
     const reply = (msg: unknown) => {
@@ -540,15 +556,22 @@ export class ToolGateway {
         const req = msg as Request;
         if (typeof req?.id !== 'number') continue;
         if (hookToken) {
+          // Each invocation makes one call on its own connection.
+          if (hookAsked) return;
+          hookAsked = true;
           // Looked up again: a turn that ended takes its hooks with it.
           const hook = this.hookGrants.get(hookToken);
           if (!hook || req.method !== 'hook' || (req.when !== 'before' && req.when !== 'after')) {
             reply({ id: req.id, error: hook ? 'Unknown request' : 'This turn is over: Harness Relay has no hooks for it any more' });
             return void sock.end();
           }
+          const finish = (message: unknown) => {
+            reply(message);
+            sock.end();
+          };
           void hook.handle(req.when, req.payload).then(
-            (result) => reply({ id: req.id, result }),
-            (err: Error) => reply({ id: req.id, error: err.message }),
+            (result) => finish({ id: req.id, result }),
+            (err: Error) => finish({ id: req.id, error: err.message }),
           );
           continue;
         }

@@ -353,9 +353,12 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
   afterEach(() => gateway.stop());
 
   /** Runs the program as a CLI runs its hook command: the call on stdin, `when` after its arguments. */
-  const runProgram = (args: string[], when: string, input: string) =>
+  const runProgram = (args: string[], when: string, input: string, env?: Record<string, string>) =>
     new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn(process.execPath, when ? [...args, when] : args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, when ? [...args, when] : args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...(env ? { env: { ...process.env, ...env } } : {}),
+      });
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (d) => (stdout += d));
@@ -392,6 +395,16 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
     },
     slow(20_000),
   );
+
+  it('runs the inline program with a hook-only token and revokes it with the turn', async () => {
+    const grant = gateway.hookProgram(async () => ({ code: 0, stdout: 'inline acknowledged' }), 'inline')!;
+    const { args, env } = grant.program;
+    expect(JSON.stringify(args)).not.toContain(env!.RELAY_HOOK_TOKEN);
+    expect(await runProgram(args, 'before', '{}', env)).toEqual({ code: 0, stdout: 'inline acknowledged', stderr: '' });
+    expect((await runProgram(args, 'before', '{}')).code).toBe(2);
+    grant.revoke();
+    expect((await runProgram(args, 'before', '{}', env)).code).toBe(2);
+  });
 
   it(
     'refuses the call before it when it gets no answer (the turn is over, input that is not JSON), and says nothing after it',
