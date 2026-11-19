@@ -10,6 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Locator } from 'playwright-core';
 import type { ChatMessage, Conversation, ConversationSummary, Permission, Provider, TeamPlan } from '../../../src/shared/types';
+import { PROVIDER_LABEL } from '../../../src/shared/types';
 import { en } from '../../../src/web/locales/en';
 import { zhTW, type Messages } from '../../../src/web/locales/zh-TW';
 import type { ChapterSpec } from '../chapters';
@@ -158,11 +159,11 @@ async function askTeam(
   s: Session,
   id: string,
   question: string,
-  o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string } = {},
+  o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string; adjust?: (plan: TeamPlan) => Promise<boolean> } = {},
 ): Promise<TeamPlan | undefined> {
   await s.ask(question);
   s.mark('asked', { question });
-  const plan = await s.designAndConfirm(id, 'q1', { poster: false });
+  const plan = await s.designAndConfirm(id, 'q1', { adjust: o.adjust });
   await s.waitAnswered(id, 'q1', (o.replies ?? firstRound)(plan), { answer: o.answer });
   await sleep(800);
   return plan;
@@ -1326,9 +1327,25 @@ const contractReview: UseCase = {
     await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
     await page.waitForSelector('.new-chat-page .first-question');
     const id = await startChat(s, { permission: 'edit', leadReview: false });
-    const plan = await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
-    const off = (plan?.agents ?? []).filter((a) => a.model && a.model !== ENDPOINT.member());
-    if (off.length) s.log('WARNING: members not on the endpoint:', off.map((a) => `${a.name} ${a.model}`).join(', '));
+    const expected = this.providers;
+    await askTeam(s, id, this.text[s.lang]!.question!, {
+      replies: allOf,
+      async adjust(plan) {
+        const members = plan.agents ?? [];
+        if (members.length !== expected.length || members.some((a) => a.model && a.model !== ENDPOINT.member()))
+          throw new Error('The contract needs three members on the configured private endpoint');
+        if (members.every((a, i) => a.provider === expected[i])) return false;
+        await moveClick(page.locator('.plan-confirm').getByRole('button', { name: T.plan.adjust }));
+        const drawer = page.getByRole('dialog', { name: T.chat.teamSettings });
+        for (const [i, provider] of expected.entries()) {
+          if (members[i]!.provider !== provider)
+            await moveClick(drawer.locator('.agent-card').nth(i).getByRole('radio', { name: PROVIDER_LABEL[provider], exact: true }));
+        }
+        await moveClick(drawer.getByRole('button', { name: T.common.save, exact: true }));
+        await drawer.waitFor({ state: 'hidden' });
+        return true;
+      },
+    });
     await readBack(s, 1800);
     mark('q1-read');
     // The first reply that changed the contract: its diff is the redline.
@@ -1359,8 +1376,17 @@ const contractReview: UseCase = {
         say: 'One edits the clauses, one checks each edit, one writes the memo for the vendor.',
       },
       { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'Each reply lists the files it changed: the contract, then the memo.' },
-      { at: 'redline', kind: 'you', say: 'Open @{redline:agent}’s diff of contract.md: the redline, clause by clause.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'The memo covers six revised clauses and explains why the team kept the confidentiality and governing law clauses.',
+      },
+      {
+        at: 'redline',
+        kind: 'you',
+        say: 'Open @{redline:agent}’s diff. CHANGE-LIST.md shows the original wording, the edit and the playbook rule for each clause.',
+      },
       { at: 'files', kind: 'you', say: 'Open REDLINE-MEMO.md in Files: each change, its rule, and what to tell the vendor.' },
     ],
     'zh-TW': [

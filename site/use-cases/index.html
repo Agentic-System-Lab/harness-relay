@@ -205,8 +205,8 @@
             "description": "Recording: three agents and the lead agent on Qwen3.8 27B served by vLLM redline a vendor contract against a playbook in relay, then the contract’s diff and the memo are opened",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/contract-review-en.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/contract-review-en.mp4",
-            "uploadDate": "2026-11-18T01:36:17Z",
-            "duration": "PT1M28S",
+            "uploadDate": "2026-11-19T17:20:13Z",
+            "duration": "PT1M25S",
             "inLanguage": "en"
           },
           {
@@ -1526,30 +1526,30 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="17">
-                    <time>0:17</time>
+                  <button class="chapter" type="button" data-t="19">
+                    <time>0:19</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">In vendor-contract, with Edit: ask for a redline of the vendor’s draft against your playbook.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="39">
-                    <time>0:39</time>
+                  <button class="chapter t-claude" type="button" data-t="40">
+                    <time>0:40</time>
                     <span class="actor"
                       ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">Adapts the Architect → Builder → Reviewer template for the question: Redliner, Checker and MemoWriter, in relay, each on your server, and says why.</span>
+                    <span class="say">Adapts the Architect → Builder → Reviewer template for the question: Editor, Checker and Memo, in relay, each on your server, and says why.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-team" type="button" data-t="46">
-                    <time>0:46</time>
+                  <button class="chapter t-team" type="button" data-t="47">
+                    <time>0:47</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
-                        ><span class="av t-claude">R</span><span class="av t-codex">C</span><span class="av t-grok">M</span></span
+                        ><span class="av t-claude">E</span><span class="av t-codex">C</span><span class="av t-grok">M</span></span
                       ><span class="who">All three</span></span
                     >
                     <span class="say">One edits the clauses, one checks each edit, one writes the memo for the vendor.</span>
@@ -1557,39 +1557,28 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="47">
-                    <time>0:47</time>
-                    <span class="actor"
-                      ><span class="av" aria-hidden="true">R</span><span class="who">@Redliner</span
-                      ><span class="via">Claude Code</span></span
-                    >
-                    <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
-                    <span class="bar" aria-hidden="true"></span>
-                  </button>
-                </li>
-                <li>
-                  <button class="chapter t-team" type="button" data-t="54">
-                    <time>0:54</time>
+                  <button class="chapter t-team" type="button" data-t="53">
+                    <time>0:53</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
-                        ><span class="av t-claude">R</span><span class="av t-codex">C</span><span class="av t-grok">M</span></span
+                        ><span class="av t-claude">E</span><span class="av t-codex">C</span><span class="av t-grok">M</span></span
                       ><span class="who">All three</span></span
                     >
-                    <span class="say">Each reply lists the files it changed: the contract, then the memo.</span>
+                    <span class="say">The memo covers six revised clauses and explains why the team kept the confidentiality and governing law clauses.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="68">
-                    <time>1:08</time>
+                  <button class="chapter" type="button" data-t="66">
+                    <time>1:06</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                    <span class="say">Open @Redliner’s diff of contract.md: the redline, clause by clause.</span>
+                    <span class="say">Open @Editor’s diff. CHANGE-LIST.md shows the original wording, the edit and the playbook rule for each clause.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="76">
-                    <time>1:16</time>
+                  <button class="chapter" type="button" data-t="74">
+                    <time>1:14</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Open REDLINE-MEMO.md in Files: each change, its rule, and what to tell the vendor.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1603,7 +1592,7 @@
               <h3>What you ask</h3>
               <blockquote>Redline contract.md against our playbook.md, as a relay: Claude Code edits each clause that departs from the playbook, right in contract.md; Codex checks every edit against the playbook and the original wording; Grok writes REDLINE-MEMO.md: each change, the rule behind it, and what to tell the vendor. The contract is confidential: every member runs on homelab/qwen3.8-27b-nvfp4-unsloth, our own vLLM server.</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/fb366be3985dd4a801d9997f48e07682">Read the whole conversation</a>, as Harness Relay’s Share made it.</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/b639d75763bf2c77cca5637aba1712c3">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>
               </ul>
             </div>
             <div class="usecase-shows">

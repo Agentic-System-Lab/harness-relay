@@ -201,7 +201,11 @@ export interface Session {
    */
   waitWork(id: string, done: (s: ConversationSummary | undefined) => Promise<boolean>, o?: WaitOptions): Promise<void>;
   /** The lead agent designs the team: shows its card, then confirms it. `poster` leaves the poster mark on it. */
-  designAndConfirm(id: string, label: string, o?: { poster?: boolean }): Promise<TeamPlan | undefined>;
+  designAndConfirm(
+    id: string,
+    label: string,
+    o?: { poster?: boolean; adjust?: (plan: TeamPlan) => Promise<boolean> },
+  ): Promise<TeamPlan | undefined>;
   /** Waits until the team has given at least `replies` replies in all and its run (and a lead review) stays over. */
   waitAnswered(id: string, label: string, replies: number, o?: WaitOptions): Promise<void>;
 }
@@ -464,7 +468,11 @@ export async function recordSession(
       await sleep(1500);
       await page.locator('.plan-confirm').last().scrollIntoViewIfNeeded({ timeout: 30_000 });
       await sleep(1500);
-      const plan = [...(await conversation(id)).messages].reverse().find((m) => m.plan?.status === 'ready')?.plan;
+      const readPlan = async () => [...(await conversation(id)).messages].reverse().find((m) => m.plan?.status === 'ready')?.plan;
+      let plan = await readPlan();
+      // Saving a team in the drawer also confirms it and starts its turn.
+      if (plan && (await o.adjust?.(plan))) plan = await readPlan();
+      else await moveClick('.plan-confirm .primary', { after: 900 });
       log(
         label,
         'plan',
@@ -475,7 +483,6 @@ export async function recordSession(
         plan?.agents?.map((a) => `${a.name}/${a.provider}`).join(' '),
       );
       log(label, 'reason', plan?.reason);
-      await moveClick('.plan-confirm .primary', { after: 900 });
       mark(`${label}-confirmed`, planFacts(plan));
       return plan;
     };
