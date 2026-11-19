@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   GATEWAY_SERVER_NAME,
   OPEN_PROVIDERS,
@@ -19,6 +19,7 @@ import { withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
 import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
+import { realPath } from './protect';
 
 /*
  * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`), in one
@@ -157,6 +158,8 @@ export interface HookProgram {
   args: string[];
   /** Passed only to an inline hook command, never to the CLI's process environment. */
   env?: Record<string, string>;
+  /** The inline hook's Unix socket directory. Linux must make this directory visible to the hook. */
+  socketDir?: string;
 }
 export type HookProgramMode = 'file' | 'inline';
 
@@ -442,12 +445,15 @@ export class ToolGateway {
     const token = randomBytes(32).toString('base64url');
     const revoke = () => this.revokeHook(token);
     if (mode === 'inline') {
+      const socketDir = realPath(dirname(this.socketPath));
+      const socketPath = join(socketDir, basename(this.socketPath));
       this.hookGrants.set(token, { handle });
       return {
         program: {
           bin: node,
-          args: ['--input-type=module', '-e', HOOK_SHIM_SOURCE, '--', 'relay-hook', this.socketPath, ''],
+          args: ['--input-type=module', '-e', HOOK_SHIM_SOURCE, '--', 'relay-hook', socketPath, ''],
           env: { [HOOK_INLINE_TOKEN_ENV]: token },
+          socketDir,
         },
         revoke,
       };

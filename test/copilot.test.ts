@@ -121,6 +121,19 @@ describe('Copilot team hooks', () => {
     });
   });
 
+  it('preserves raw and JSON-encoded freeform patch arguments and resolves all their paths', () => {
+    const cwd = realpathSync(dataDir);
+    const patch = '*** Begin Patch\n*** Add File:  notes.md\n+Hello\n*** Delete File: old.md\n*** End Patch';
+    for (const toolArgs of [patch, JSON.stringify(patch)]) {
+      expect(copilotHookCall({ toolName: 'apply_patch', toolArgs }, cwd)).toEqual({
+        kind: 'edit',
+        tool: 'apply_patch',
+        files: [join(cwd, ' notes.md'), join(cwd, 'old.md')],
+        input: patch,
+      });
+    }
+  });
+
   it('requires every expected event to name this run’s hook file in the environment inventory', () => {
     const file = join(dataDir, 'relay-team.json');
     const list = `**Hooks**\n\n- preToolUse: 2 hooks (sources: \`${file}\`, \`/own.json\`)\n- postToolUse: 1 hook (sources: \`${file}\`)\n\n**Extensions**\n\nNone.`;
@@ -145,7 +158,7 @@ describe('Copilot team hooks', () => {
           program: (_handler, mode) => {
             expect(mode).toBe('inline');
             return {
-              program: { bin: '/node', args: ['relay-hook'], env: { RELAY_HOOK_TOKEN: 'test-capability' } },
+              program: { bin: '/node', args: ['relay-hook'], env: { RELAY_HOOK_TOKEN: 'test-capability' }, socketDir: dataDir },
               revoke: () => undefined,
             };
           },
@@ -1429,7 +1442,10 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
       provider: 'copilot',
       notice: () => undefined,
       place: { cwds: [dataDir], protectedPaths: [], privateRoots: [], unsandboxed: true },
-      program: () => ({ program: { bin: '/node', args: [], env: { RELAY_HOOK_TOKEN: 'test-capability' } }, revoke: () => undefined }),
+      program: () => ({
+        program: { bin: '/node', args: [], env: { RELAY_HOOK_TOKEN: 'test-capability' }, socketDir: dataDir },
+        revoke: () => undefined,
+      }),
     });
 
   it('verifies the team hook file before sending the prompt, even with native hooks left out', async () => {
@@ -1439,6 +1455,11 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(starts(r)[0]?.files.hooks).toBeUndefined();
     expect(starts(r)[1]?.files.hooks).toEqual({ dir: true });
     expect(JSON.parse(starts(r)[1]?.files['settings.json']).disableAllHooks).toBe(true);
+    if (process.platform === 'linux') {
+      const fs = JSON.parse(starts(r)[1]?.files['settings.json']).sandbox.userPolicy.filesystem;
+      expect(fs.readonlyPaths).toContain(dataDir);
+      expect(fs.deniedPaths).toContain(relayTmpDir());
+    }
     expect(
       r
         .log()

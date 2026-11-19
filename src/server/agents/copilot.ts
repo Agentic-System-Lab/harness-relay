@@ -378,7 +378,7 @@ export function prepareCopilotRun(accountHome: string, policy: CopilotRunPolicy,
       const hooks = join(dir, 'hooks');
       mkdirSync(hooks, { recursive: true, mode: 0o700 });
       teamHooksFile = join(hooks, `harness-relay-${basename(dir)}.json`);
-      writeFileSync(teamHooksFile, JSON.stringify({ version: 1, hooks: policy.teamHooks }), { flag: 'wx', mode: 0o600 });
+      writeFileSync(teamHooksFile, JSON.stringify({ version: 1, hooks: policy.teamHooks.events }), { flag: 'wx', mode: 0o600 });
     }
   } catch (err) {
     done();
@@ -788,7 +788,7 @@ export function copilotPolicyPaths(text: string, section?: string): Record<strin
  */
 export function copilotPolicyProblem(
   text: string,
-  p: { permission: Permission; cwd: string; protectedPaths?: readonly string[]; addDirs?: readonly string[] },
+  p: { permission: Permission; cwd: string; protectedPaths?: readonly string[]; addDirs?: readonly string[]; hookSocketDir?: string },
   platform: NodeJS.Platform = process.platform,
 ): string | undefined {
   const policy = stripAnsi(text);
@@ -810,6 +810,9 @@ export function copilotPolicyProblem(
   const listed = (path: string, kind: string) => spellings(path).some((s) => (paths[kind] ?? []).some((l) => norm(l) === norm(s)));
   const notDenied = (p.protectedPaths ?? []).find((path) => !listed(path, 'denied'));
   if (notDenied) return `${notDenied} is not among its denied paths`;
+  if (p.hookSocketDir && (!listed(p.hookSocketDir, 'read-only') || listed(p.hookSocketDir, 'read-write'))) {
+    return 'the team hook gateway directory is not read-only';
+  }
   if (p.permission === 'edit') {
     const notWritable = (p.addDirs ?? []).find((path) => !listed(path, 'read-write'));
     return notWritable ? `${notWritable} is not among its read-write paths` : undefined;
@@ -1352,6 +1355,9 @@ export const copilotRunner: AgentRunner = {
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
     const projectHooks = await copilotProjectGate(o);
     const teamHooks = o.hooks && copilotTeamHooks(o.hooks, o.cwd);
+    // Bubblewrap's mount namespace needs the socket's containing directory. The grant is read-only
+    // and holds only the gateway socket. The run's home and token files stay in the denied tmp dir.
+    const hookSocketDir = process.platform === 'linux' && o.permission === 'edit' ? teamHooks?.socketDir : undefined;
     // What it may read besides the working directories (only folders that exist: bubblewrap refuses a missing one),
     // and in a read-only run the working directory's repository, which its sandbox then does not grant by itself (`copilotRepoPaths`).
     const dirs = [o.cwd, ...(o.addDirs ?? [])];
@@ -1361,6 +1367,7 @@ export const copilotRunner: AgentRunner = {
         : [
             ...new Set([
               ...(o.readDirs ?? []),
+              ...(hookSocketDir ? [hookSocketDir] : []),
               ...(o.attachmentsDir ? [o.attachmentsDir] : []),
               ...(o.permission === 'read-only' ? copilotRepoPaths(o.cwd) : []),
               ...copilotReadOnlyPaths(dirs, o.env),
@@ -1402,7 +1409,7 @@ export const copilotRunner: AgentRunner = {
       const p = policy(more);
       const run = prepare(() => prepareCopilotRun(copilotHome(o.env), p, o.systemPrompt));
       try {
-        const how = { cwd: o.cwd, protectedPaths, readOnly: p.readDirs ?? [], onEndpoint: Boolean(endpoint) };
+        const how = { cwd: o.cwd, protectedPaths, readOnly: p.readDirs ?? [], onEndpoint: Boolean(endpoint), hookSocketDir };
         // Its sandbox checked before a session that would run something by itself (hooks) opens.
         if (!checked && copilotStartsSomething(run.dir, projectHooks)) {
           const home = prepare(() => prepareCopilotPolicyHome(copilotHome(o.env), p));
@@ -1424,7 +1431,7 @@ export const copilotRunner: AgentRunner = {
         }
         return await copilotTurn(o, args(withEffort), copilotEnv(o.env, run.dir, o.nativeOff, endpoint), {
           ...how,
-          ...(run.teamHooksFile && teamHooks ? { teamHooks: { file: run.teamHooksFile, events: Object.keys(teamHooks) } } : {}),
+          ...(run.teamHooksFile && teamHooks ? { teamHooks: { file: run.teamHooksFile, events: Object.keys(teamHooks.events) } } : {}),
         });
       } catch (err) {
         // A model that takes no reasoning effort refuses to open a session with one: it runs at its own.
@@ -1452,6 +1459,7 @@ interface CopilotTurnHow {
   /** The run's working directory, as its sandbox settings name it (a check in a start of its own runs in an empty folder). */
   cwd: string;
   protectedPaths: readonly string[];
+  hookSocketDir?: string;
   /** What its sandbox keeps read-only (the settings' `readonlyPaths`). */
   readOnly: readonly string[];
   onEndpoint: boolean;
@@ -1593,7 +1601,13 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       // Its sandbox must be what the run set up, or no command of it may run: asked without the model.
       const { text, reachedModel } = await inspect('/sandbox policy');
       if (reachedModel) throw new AgentRunError(t().copilotSandbox('/sandbox policy reached the model'));
-      const problem = copilotPolicyProblem(text, { permission: o.permission, cwd: how.cwd, protectedPaths, addDirs: o.addDirs });
+      const problem = copilotPolicyProblem(text, {
+        permission: o.permission,
+        cwd: how.cwd,
+        protectedPaths,
+        addDirs: o.addDirs,
+        hookSocketDir: how.hookSocketDir,
+      });
       if (problem) {
         // A working directory its sandbox keeps writable by itself (a temporary folder): not one a read-only chat can protect.
         const kept = o.permission === 'read-only' ? copilotKeptWritable(text, [how.cwd, ...(o.addDirs ?? [])]) : undefined;

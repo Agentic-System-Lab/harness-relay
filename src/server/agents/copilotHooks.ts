@@ -11,34 +11,39 @@ import { AgentRunError } from './types';
 const COMMANDS = ['bash', 'powershell', 'write_bash', 'write_powershell'];
 const EDITS = ['create', 'edit', 'str_replace_editor', 'apply_patch'];
 
-function hookInput(args: unknown): Record<string, unknown> {
-  if (typeof args === 'string') {
-    try {
-      args = JSON.parse(args);
-    } catch {
-      throw new Error('Copilot sent invalid tool arguments to its hook');
-    }
+function hookInput(args: unknown): unknown {
+  if (typeof args !== 'string') return args;
+  try {
+    return JSON.parse(args);
+  } catch {
+    // Freeform tools such as apply_patch can supply plain text.
+    return args;
   }
-  return args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
 }
 
-export function copilotHookCall(payload: Record<string, any>, cwd: string): HookResult {
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+export function copilotHookCall(payload: Record<string, unknown>, cwd: string): HookResult {
   const tool = payload.toolName;
   if (typeof tool !== 'string' || !tool) throw new Error('Copilot did not name the tool in its hook');
   const input = hookInput(payload.toolArgs);
-  const failed = typeof payload.error === 'string' || payload.toolResult?.resultType === 'failure';
-  const output = payload.error ?? payload.toolResult?.textResultForLlm;
+  const args = record(input);
+  const toolResult = record(payload.toolResult);
+  const failed = typeof payload.error === 'string' || toolResult.resultType === 'failure';
+  const output = payload.error ?? toolResult.textResultForLlm;
   const result = { tool, input, ...(typeof output === 'string' ? { output } : {}), ...(failed ? { failed } : {}) };
   if (COMMANDS.includes(tool)) {
-    const command = input.command ?? input.input;
+    const command = typeof input === 'string' ? input : (args.command ?? args.input);
     return { ...result, kind: 'command', command: typeof command === 'string' ? command : undefined };
   }
   if (EDITS.includes(tool)) {
     const dir = typeof payload.cwd === 'string' ? resolve(cwd, payload.cwd) : cwd;
-    const files = [input.path, input.fileName, input.file_path, input.filePath]
+    const files = [args.path, args.fileName, args.file_path, args.filePath]
       .filter((path): path is string => typeof path === 'string' && Boolean(path))
       .map((path) => resolve(dir, path));
-    if (tool === 'apply_patch') files.push(...patchFilePaths(input.patch ?? input.input, dir));
+    if (tool === 'apply_patch') files.push(...patchFilePaths(typeof input === 'string' ? input : (args.patch ?? args.input), dir));
     return { ...result, kind: 'edit', files: [...new Set(files)] };
   }
   return { ...result, kind: 'other' };
@@ -46,7 +51,7 @@ export function copilotHookCall(payload: Record<string, any>, cwd: string): Hook
 
 function hookHandler(hooks: TurnHooks, cwd: string): HookHandler {
   return async (when, payload) => {
-    const call = copilotHookCall((payload ?? {}) as Record<string, unknown>, cwd);
+    const call = copilotHookCall(record(payload), cwd);
     if (when === 'before') {
       if (call.kind === 'command' && call.command === undefined) throw new Error('Copilot did not supply the shell command to its hook');
       const reason = await hooks.before(call);
@@ -66,12 +71,15 @@ interface CopilotHookCommand {
   timeoutSec: number;
 }
 
-export type CopilotTeamHooks = Record<string, CopilotHookCommand[]>;
+export interface CopilotTeamHooks {
+  events: Record<string, CopilotHookCommand[]>;
+  socketDir: string;
+}
 
 export function copilotTeamHooks(hooks: TurnHooks, cwd: string): CopilotTeamHooks {
   const program = hooks.program(hookHandler(hooks, cwd), 'inline');
-  if (!program?.env) throw new AgentRunError(t().hooksNoProgram(PROVIDER_LABEL.copilot));
-  const config: CopilotTeamHooks = {};
+  if (!program?.env || !program.socketDir) throw new AgentRunError(t().hooksNoProgram(PROVIDER_LABEL.copilot));
+  const events: CopilotTeamHooks['events'] = {};
   for (const when of ['before', 'after'] as const) {
     if (!hooks.kinds(when).size) continue;
     const budget = hooks.budgetSec(when);
@@ -82,13 +90,13 @@ export function copilotTeamHooks(hooks: TurnHooks, cwd: string): CopilotTeamHook
       env: program.env,
       timeoutSec: budget + HOOK_WAIT.cli,
     };
-    if (when === 'before') config.preToolUse = [action];
+    if (when === 'before') events.preToolUse = [action];
     else {
-      config.postToolUse = [action];
-      config.postToolUseFailure = [action];
+      events.postToolUse = [action];
+      events.postToolUseFailure = [action];
     }
   }
-  return config;
+  return { events, socketDir: program.socketDir };
 }
 
 /** Copilot's local /env lists each loaded event and its source files. */

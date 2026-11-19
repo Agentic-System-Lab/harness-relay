@@ -39,8 +39,10 @@ function done(code, stdout, stderr) {
   process.exitCode = code;
 }
 function failed(why) {
-  if (when === 'before') done(2, '', "Refused: the team's hook could not be asked (" + why + ').');
-  else done(0);
+  if (when !== 'before') return done(0);
+  const reason = "Refused: the team's hook could not be asked (" + why + ').';
+  if (tokenFile) done(2, '', reason);
+  else done(2, JSON.stringify({ permissionDecision: 'deny', permissionDecisionReason: reason }), reason);
 }
 // Its own time limit (seconds, its fourth argument): no answer by then is a refusal, before the CLI's
 // time limit for its hook ends (a CLI may let the call go on then). It exits, whatever is still open.
