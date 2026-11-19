@@ -3,6 +3,7 @@ import {
   PROVIDERS,
   currentPlan,
   planSavable,
+  type AccountUsage,
   type AgentConfig,
   type ChatMessage,
   type ProviderModels,
@@ -29,6 +30,7 @@ import {
   REVISER_BRIEFING,
   sameTeam,
   teamSettings,
+  memberAvailable,
   memberLibraryTools,
   type LibraryItem,
   type PlannerContext,
@@ -1402,6 +1404,122 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       ['Bob', { memory: false }],
       ['Cy', undefined],
     ]);
+  });
+
+  it('keeps pinned Claude models and applies family quota to aliases and versions', () => {
+    const now = Date.now();
+    const checked: PlannerContext = {
+      ...ctx,
+      accounts: { claude: [''] },
+      catalog: [{ ...catalog[0]!, defaultModel: 'opus[1m]' }],
+      staffing: { now, usage: [] },
+    };
+    const pinned = { provider: 'claude' as const, model: 'claude-sonnet-4-6' };
+    expect(memberAvailable(checked, pinned)).toBe(true);
+    checked.staffing!.usage.push({ provider: 'claude', account: '', checkedAt: now, limits: [{ scope: 'Opus', usedPercent: 100 }] });
+    expect(memberAvailable(checked, pinned)).toBe(true);
+    expect(memberAvailable(checked, { provider: 'claude' })).toBe(false);
+    expect(memberAvailable(checked, { provider: 'claude', model: 'claude-opus-4-6' })).toBe(false);
+  });
+
+  it('excludes an explicitly blocked subscription without excluding the same CLI’s endpoint models', () => {
+    const now = Date.now();
+    const checked: PlannerContext = {
+      ...ctx,
+      accounts: { codex: [''] },
+      catalog: [{ provider: 'codex', models: [{ id: 'local/model', endpoint: 'local' }], efforts: [], source: 'cli' }],
+      staffing: { now, usage: [{ provider: 'codex', account: '', checkedAt: now, planUsageBlocked: true, limits: [] }] },
+    };
+    expect(memberAvailable(checked, { provider: 'codex' })).toBe(false);
+    expect(memberAvailable(checked, { provider: 'codex', model: 'local/model' })).toBe(true);
+  });
+
+  it('chooses a configured model when an open agent’s default backend is unavailable', () => {
+    const checked: PlannerContext = {
+      ...ctx,
+      available: ['pi'],
+      accounts: { pi: [''] },
+      catalog: [
+        {
+          provider: 'pi',
+          source: 'cli',
+          efforts: [],
+          defaultModel: 'anthropic/claude-sonnet-4-6',
+          models: [{ id: 'openai/gpt-5.4' }],
+        },
+      ],
+      staffing: { now: Date.now(), usage: [], backends: { configured: ['openai'], deletedEndpoints: [] } },
+    };
+    const [before] = fitAgents([{ id: 'x', name: 'Analyst', provider: 'pi', role: 'Analyze' }], checked, lead);
+    expect(before).toMatchObject({ provider: 'pi', model: 'openai/gpt-5.4' });
+  });
+
+  it('excludes exhausted accounts and model families but keeps other models, reset windows and unknown usage', async () => {
+    const now = Date.now();
+    const usage = (provider: AccountUsage['provider'], account: string, limits: AccountUsage['limits']): AccountUsage => ({
+      provider,
+      account,
+      checkedAt: now,
+      limits,
+    });
+    const statuses = (['claude', 'codex', 'grok', 'cursor'] as const).map((provider) => ({
+      provider,
+      installed: true,
+      bin: provider,
+      auth: { loggedIn: true },
+      usingStoredApiKey: false,
+      accounts: (provider === 'claude' ? ['', 'work'] : ['']).map((id) => ({
+        id,
+        label: '',
+        auth: { loggedIn: true },
+        usingStoredApiKey: false,
+      })),
+    }));
+    const reports = [
+      usage('claude', '', [{ usedPercent: 100, span: 'week', resetsAt: now + 60_000 }]),
+      usage('claude', 'work', [{ usedPercent: 100, scope: 'Opus' }]),
+      usage('codex', '', [{ usedPercent: 100, resetsAt: now - 1000 }]),
+      { ...usage('cursor', '', []), problem: 'cliMissing' as const },
+    ];
+    const native = vi.fn(async () => ({ skills: [], mcpServers: [] }));
+    const checked = await plannerContext(
+      {
+        statuses: async () => statuses,
+        catalog: async () => [...catalog, { ...catalog[0]!, account: 'work' }],
+        usage: async (provider, account) =>
+          provider === 'grok' ? new Promise(() => {}) : reports.find((r) => r.provider === provider && r.account === account),
+        presets: () => ctx.presets,
+        library: () => {
+          throw new Error('no library');
+        },
+        native,
+      },
+      '/work',
+      50,
+    );
+    expect(checked.available).toEqual(['claude', 'codex', 'grok']);
+    expect(checked.accounts).toEqual({ claude: ['work'], codex: [''], grok: [''] });
+    expect(native).toHaveBeenCalledWith('claude', '/work', 'work', []);
+    const prompt = buildPlannerPrompt('q', { mode: 'roundtable', rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' }, checked);
+    expect(prompt).toContain('Models: haiku');
+    expect(prompt).not.toContain('Models: opus');
+    expect(prompt).not.toContain('Default model opus');
+    const current = {
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
+      agents: [{ id: 'old', name: 'Analyst', provider: 'claude' as const, role: 'Analyze', model: 'opus', effort: 'high' }],
+    };
+    const raw = { choice: 'custom', agents: current.agents };
+    const template: TeamPreset = { ...ctx.presets[0]!, id: 'test-template', agents: current.agents };
+    const choices = [
+      decidePlan(raw, checked, lead, current),
+      decidePlan({ choice: 'template', templateId: template.id }, { ...checked, presets: [template] }, lead),
+      fallbackPlan(checked, lead, 'bad answer', current),
+    ];
+    for (const plan of choices) {
+      expect(plan.agents[0]).toMatchObject({ provider: 'claude', account: 'work', model: 'haiku' });
+      expect(plan.agents[0]?.effort).toBeUndefined();
+    }
+    expect(() => decidePlan({ choice: 'keep' }, checked, lead, current)).toThrow();
   });
 
   it('gathers the context: CLIs with a usable account, their tools asked in the home their new members get, the library', async () => {

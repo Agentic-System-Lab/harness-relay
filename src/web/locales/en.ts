@@ -873,6 +873,11 @@ export const en: Messages = {
   },
 
   plan: {
+    leadUnavailable: (lead) => `The lead agent (${lead}) was unavailable for this design.`,
+    leadUnavailableHint: 'You can choose another lead in Settings & sign-in → Lead agent.',
+    preparingFallback: 'Preparing a fallback team…',
+    checkOnConfirm: 'Confirm this team to test the models before they answer.',
+    activity: 'Team design progress',
     planning: (lead) => `The lead agent (${lead}) is choosing a team for this question…`,
     title: 'Team design',
     by: (lead) => `Lead agent: ${lead}`,

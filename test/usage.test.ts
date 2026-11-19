@@ -130,9 +130,31 @@ describe("Codex's account and rate limits", () => {
       limits: [
         { span: 'fiveHour', usedPercent: 10, resetsAt: 1795003102000 },
         { span: 'week', usedPercent: 30, resetsAt: 1795500000000 },
-        { minutes: 120, scope: 'gpt-6.1-spark', usedPercent: 50, resetsAt: 1795003102000 },
+        { minutes: 120, scope: 'gpt-6.1-spark', model: 'gpt-6.1-spark', usedPercent: 50, resetsAt: 1795003102000 },
       ],
     });
+  });
+
+  it('retains the model slug of a single named Codex quota', () => {
+    expect(
+      parseCodexUsage(undefined, {
+        rateLimits: {
+          limitId: 'spark',
+          limitName: 'Spark plan quota',
+          normalModelSlug: 'gpt-6.1-spark',
+          primary: { usedPercent: 100, windowDurationMins: 300 },
+        },
+      })?.limits,
+    ).toEqual([{ span: 'fiveHour', scope: 'Spark plan quota', model: 'gpt-6.1-spark', usedPercent: 100 }]);
+  });
+
+  it('retains an explicit Codex usage block even when no windows are reported', () => {
+    expect(
+      parseCodexUsage(undefined, {
+        ordinaryUsageAllowed: false,
+        rateLimits: { limitId: 'codex', primary: null, secondary: null },
+      }),
+    ).toMatchObject({ planUsageBlocked: true, limits: [] });
   });
 
   it('says an API key has no plan limits, and a signed-out Codex is signed out', () => {

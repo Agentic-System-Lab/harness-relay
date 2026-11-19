@@ -887,6 +887,11 @@ export const zhTW = {
   },
 
   plan: {
+    leadUnavailable: (lead: string) => `首席 agent（${lead}）本次無法使用。`,
+    leadUnavailableHint: '你可以到「設定與登入 → 首席 agent」切換。',
+    preparingFallback: '正在準備備援團隊…',
+    checkOnConfirm: '確認這個團隊後，會先測試模型再開始回答。',
+    activity: '團隊設計進度',
     planning: (lead: string) => `首席 agent（${lead}）正在為這個問題組隊…`,
     title: '團隊設計',
     by: (lead: string) => `首席 agent：${lead}`,

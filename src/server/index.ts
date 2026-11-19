@@ -100,11 +100,20 @@ const orchestrator = new Orchestrator(
   settings,
   {
     // What the lead agent may choose from when it designs a team.
-    context(cwd, addDirs) {
+    context(cwd, addDirs, checkUsage) {
       return plannerContext(
         {
           statuses: () => providers.statusAll(),
           catalog: () => providers.modelsAll(),
+          ...(checkUsage
+            ? {
+                usage: (p, account) => providers.usage(p, account, true),
+                backends: () => ({
+                  configured: settings.backends.configured(),
+                  deletedEndpoints: settings.backends.view().deletedEndpoints ?? [],
+                }),
+              }
+            : {}),
           presets: () => store.listPresets(),
           library: () => settings.tools.view(),
           native: (p, dir, account, dirs) => native.recent(p, dir, account || undefined, dirs),

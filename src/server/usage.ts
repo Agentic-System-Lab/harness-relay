@@ -206,14 +206,14 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
   if (!r || typeof r !== 'object') return undefined;
   const byId = r.rateLimitsByLimitId && typeof r.rateLimitsByLimitId === 'object' ? Object.values(r.rateLimitsByLimitId) : [];
   const snapshots = (byId.length ? byId : [r.rateLimits]).filter((s): s is Record<string, any> => Boolean(s) && typeof s === 'object');
-  const several = snapshots.length > 1;
   const limits: UsageLimit[] = [];
   let plan = text(a?.planType);
   let credits: AccountUsage['credits'];
   for (const s of snapshots) {
     plan ??= text(s.planType);
     // The default limit ("codex") needs no name; another one (a model's own) is named.
-    const scope = text(s.limitName) ?? (several && s.limitId !== 'codex' ? (text(s.normalModelSlug) ?? text(s.limitId)) : undefined);
+    const model = text(s.normalModelSlug);
+    const scope = text(s.limitId) === 'codex' && !model ? undefined : (text(s.limitName) ?? model ?? text(s.limitId));
     for (const w of [s.primary, s.secondary]) {
       const usedPercent = num(w?.usedPercent);
       if (usedPercent === undefined) continue;
@@ -223,6 +223,7 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
       limits.push({
         ...(span ? { span } : minutes ? { minutes } : {}),
         ...(scope ? { scope } : {}),
+        ...(model ? { model } : {}),
         usedPercent: clampPercent(usedPercent),
         ...(resetsAt ? { resetsAt } : {}),
       });
@@ -236,6 +237,7 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
   return {
     ...(plan ? { plan } : {}),
     limits,
+    ...(r.ordinaryUsageAllowed === false ? { planUsageBlocked: true } : {}),
     ...(credits ? { credits } : {}),
     ...(limits.length || credits ? {} : { none: 'noData' as const }),
   };

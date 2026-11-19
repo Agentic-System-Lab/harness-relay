@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   PROVIDER_LABEL,
   isInlineImage,
@@ -117,7 +117,19 @@ function ThoughtStep({ text }: { text: string }) {
  * The tool calls and thinking between two pieces of reply text, as one collapsed row: how many actions
  * and thoughts, or while it streams, the step in progress. Open it to see every step in order.
  */
-function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boolean; last: boolean }) {
+function ActivityGroup({
+  items,
+  live,
+  last,
+  label,
+  children,
+}: {
+  items: ActivityItem[];
+  live: boolean;
+  last: boolean;
+  label?: string;
+  children?: ReactNode;
+}) {
   const t = useT();
   const { actions, thoughts, failed } = activityCounts(items);
   const tail = items[items.length - 1];
@@ -128,7 +140,7 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
   const counts = [actions > 0 && t.message.actions(actions), thoughts > 0 && t.message.thoughts(thoughts)].filter(Boolean).join(' · ');
   const busy = thinking !== undefined || running !== undefined;
   return (
-    <details className="tool-group">
+    <details className="tool-group" aria-label={label}>
       <summary>
         <span className="tool-icon" aria-hidden>
           {busy ? <LogoSpinner /> : actions > 0 ? '⚙' : '💭'}
@@ -152,12 +164,13 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
             )}
           </span>
         ) : (
-          <span className="tool-summary">{actions === 0 && thoughts === 1 ? t.activity.thought : counts}</span>
+          <span className="tool-summary">{label ?? (actions === 0 && thoughts === 1 ? t.activity.thought : counts)}</span>
         )}
-        {busy && items.length > 1 && <span className="activity-count">{counts}</span>}
+        {(label || (busy && items.length > 1)) && <span className="activity-count">{counts}</span>}
         {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
       <ul>{items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}</ul>
+      {children}
     </details>
   );
 }
@@ -482,21 +495,41 @@ function PlanCard({
   const plan = msg.plan!;
   const lead = leadLabel(plan.lead);
   const wording = planWording(plan, t, lead);
+  const leadWarning = plan.leadUnavailable && (
+    <div className="plan-lead-warning" role="status">
+      <strong>{t.plan.leadUnavailable(lead)}</strong>
+      <span>{t.plan.leadUnavailableHint}</span>
+    </div>
+  );
+
+  if (plan.status === 'failed')
+    return (
+      <PlanCardLayout msg={msg} className="failed">
+        {leadWarning}
+        <div className="msg-error" role="status">
+          ⚠ {plan.reason}
+        </div>
+      </PlanCardLayout>
+    );
 
   if (plan.status === 'planning') {
     const live = msg.status === 'streaming';
+    const status = plan.leadUnavailable ? t.plan.preparingFallback : wording.planning;
     return (
-      <div className="plan-card planning" role="status">
-        {/* While the lead agent designs the team: the home page's mark, turning until the design is in. */}
-        {live ? (
-          <AnimatedLogo className="plan-logo" turning />
-        ) : (
-          <span className="tool-icon plan-logo-stopped" aria-hidden>
-            ✦
-          </span>
-        )}
-        <span>{live ? wording.planning : wording.aborted}</span>
-      </div>
+      <PlanCardLayout msg={msg} className="planning">
+        <div className="plan-status" role="status">
+          {/* While the lead agent designs the team: the home page's mark, turning until the design is in. */}
+          {live ? (
+            <AnimatedLogo className="plan-logo" turning />
+          ) : (
+            <span className="tool-icon plan-logo-stopped" aria-hidden>
+              ✦
+            </span>
+          )}
+          <span>{live ? status : wording.aborted}</span>
+        </div>
+        {leadWarning}
+      </PlanCardLayout>
     );
   }
 
@@ -539,12 +572,13 @@ function PlanCard({
   };
 
   return (
-    <section className={`plan-card ${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`} aria-label={t.plan.title}>
+    <PlanCardLayout msg={msg} className={`${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`}>
       <header className="plan-head">
         <Logo size={18} />
         <strong>{t.plan.title}</strong>
-        <span className="muted small">{t.plan.by(lead)}</span>
+        {!plan.leadUnavailable && <span className="muted small">{t.plan.by(lead)}</span>}
       </header>
+      {leadWarning}
       <p className="plan-headline">
         <strong>{planHeadline(plan, t)}</strong>
         <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>
@@ -572,13 +606,13 @@ function PlanCard({
       {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
       {awaiting && (
         <div className="plan-confirm">
-          <span className="small">{wording.confirmHint}</span>
-          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming}>
-            {confirming ? t.plan.confirming : t.plan.confirm}
+          <span className="small">{plan.checkOnConfirm ? t.plan.checkOnConfirm : wording.confirmHint}</span>
+          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming || running}>
+            {confirming || msg.status === 'streaming' ? t.plan.confirming : t.plan.confirm}
           </button>
           {adjust}
           {declinable && (
-            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming}>
+            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming || running}>
               {t.plan.decline}
             </button>
           )}
@@ -603,8 +637,31 @@ function PlanCard({
         {!awaiting && latestPlan && adjust}
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
+    </PlanCardLayout>
+  );
+}
+
+/** The disclosure stays mounted inside the card when the design changes from planning to its result. */
+function PlanCardLayout({ msg, className, children }: { msg: ChatMessage; className: string; children: ReactNode }) {
+  const t = useT();
+  return (
+    <section className={`plan-card ${className}`} aria-label={t.plan.title}>
+      {children}
+      <PlanActivity msg={msg} />
     </section>
   );
+}
+
+function PlanActivity({ msg }: { msg: ChatMessage }) {
+  const t = useT();
+  const groups = segments(msg.parts);
+  const items = groups.flatMap((segment) => (segment.kind === 'activity' ? segment.items : []));
+  const todo = groups.find((segment) => segment.kind === 'todo');
+  return items.length ? (
+    <ActivityGroup items={items} label={t.plan.activity} live={msg.status === 'streaming'} last>
+      {todo && <TodoList entries={todo.entries} />}
+    </ActivityGroup>
+  ) : null;
 }
 
 /** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */

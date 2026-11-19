@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、484 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、489 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -37,7 +37,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
-| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 6 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
+| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 11 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
@@ -115,10 +115,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 團隊卡片寫出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
-| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動）；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
+| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動），已展開的進度也維持展開；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
 | 不詢問直接採用首席 agent 組的團隊 | Claude Code | 卡片寫著**已直接採用**（Used without asking），團隊不必等待就回答。 |
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
+| 下一次設計重新查詢額度 | Claude Code、Codex | Claude Code 回答第一個問題。它的額度用完後，第二次組隊不提供它作為候選，首席 agent 仍選到它時也會用 Codex 取代。 |
+| 指定的首席 agent 無法使用 | Claude Code | 備援團隊卡片標明額度用盡的首席 agent，提示可到設定切換。重新載入後提示仍在。 |
+| 沒有可用的模型 | Claude Code、Codex、Grok | 三個 CLI 的額度都用完時，失敗卡片標明無法使用的首席 agent，並說明直接採用為何無法啟動團隊。 |
+| 可展開的團隊設計進度 | Claude Code | 在設計卡片裡展開進度，模型實測完成後仍在同一卡片內維持展開。團隊回答前，模型只收到固定測試提示。 |
+| 完全存取團隊確認後才實測 | Claude Code | 等待確認時沒有用完全存取實測。確認後才實測並啟動團隊。 |
+| 模型實測全數失敗 | Claude Code | 直接採用會顯示實測失敗，且不會啟動團隊。 |
 
 ## 範本
 
