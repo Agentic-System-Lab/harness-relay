@@ -1173,9 +1173,14 @@ const literatureReview: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'One summary for leadership: what holds up, what is thin, and the links they read.',
+        say: 'Claude drafts a one-page summary. The team finds stronger evidence for reduced burnout than for productivity or customer support coverage.',
       },
-      { at: 'review', kind: 'lead', team: 'q1', say: 'Reviews the replies: where they disagree, and which claims to check yourself.' },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: 'The lead points to two corrections and new council findings that the draft still needs before leadership sees it.',
+      },
       { at: 'jump', kind: 'you', say: 'Click a point of the review: the reply opens at the words it quotes, marked.' },
     ],
     'zh-TW': [

@@ -183,8 +183,8 @@
             "description": "Recording: three agents research four-day work weeks on the web, debate the evidence and write a summary with sources, then the lead agent reviews their replies",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/literature-review-en.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/literature-review-en.mp4",
-            "uploadDate": "2026-11-18T01:03:49Z",
-            "duration": "PT1M25S",
+            "uploadDate": "2026-11-19T19:43:05Z",
+            "duration": "PT1M16S",
             "inLanguage": "en"
           },
           {
@@ -1234,8 +1234,8 @@
           <div class="usecase-head">
             <p class="usecase-role">For researchers</p>
             <h2 id="literature-review-title">What the research says, with every source</h2>
-            <p class="lead">Not every task is code. Ask a question that needs reading, and the agents search the web and read the studies themselves, then answer each other’s points in a roundtable, read-only all along. You get one summary with the links they read; the lead agent’s review marks where they disagree, and each of its points leads to the words it quotes in the replies.</p>
-            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Roundtable × 2</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Lead review</span></li></ul>
+            <p class="lead">Ask what the studies say about a four-day week. Three agents gather evidence independently in the first round, then compare findings and check each other’s claims in the next two. The workspace stays read-only. Read the draft and its sources, then open the lead agent’s review to see what still needs revision. Each quoted point links back to the original reply.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel × 3</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Lead review</span></li></ul>
           </div>
           <div class="screening-grid usecase-screen">
             <div class="player">
@@ -1266,21 +1266,44 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="6">
-                    <time>0:06</time>
+                  <button class="chapter" type="button" data-t="4">
+                    <time>0:04</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Ask what the research says about four-day weeks, with a link to every source.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="40">
-                    <time>0:40</time>
+                  <button class="chapter t-claude" type="button" data-t="21">
+                    <time>0:21</time>
                     <span class="actor"
                       ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">Adapts the Three-way debate template for the question: Codex_Researcher, Grok_Skeptic and Claude_Synthesizer, two rounds, and says why.</span>
+                    <span class="say">Adapts the Parallel comparison template for the question: Claude, Codex and Grok, three rounds, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="28">
+                    <time>0:28</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">Each searches the web and reads the studies, then answers the others’ points.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="31">
+                    <time>0:31</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">@Claude</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Asks before running a command read-only does not cover by itself: you allow it.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1289,50 +1312,27 @@
                     <time>0:47</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
-                        ><span class="av t-codex">C</span><span class="av t-grok">G</span><span class="av t-claude">C</span></span
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
                       ><span class="who">All three</span></span
                     >
-                    <span class="say">Each searches the web and reads the studies, then answers the others’ points.</span>
+                    <span class="say">Claude drafts a one-page summary. The team finds stronger evidence for reduced burnout than for productivity or customer support coverage.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-claude" type="button" data-t="49">
-                    <time>0:49</time>
-                    <span class="actor"
-                      ><span class="av" aria-hidden="true">C</span><span class="who">@Claude_Synthesizer</span
-                      ><span class="via">Claude Code</span></span
-                    >
-                    <span class="say">Asks before running a command read-only does not cover by itself: you allow it.</span>
-                    <span class="bar" aria-hidden="true"></span>
-                  </button>
-                </li>
-                <li>
-                  <button class="chapter t-team" type="button" data-t="56">
-                    <time>0:56</time>
-                    <span class="actor"
-                      ><span class="stack" aria-hidden="true"
-                        ><span class="av t-codex">C</span><span class="av t-grok">G</span><span class="av t-claude">C</span></span
-                      ><span class="who">All three</span></span
-                    >
-                    <span class="say">One summary for leadership: what holds up, what is thin, and the links they read.</span>
-                    <span class="bar" aria-hidden="true"></span>
-                  </button>
-                </li>
-                <li>
-                  <button class="chapter t-claude" type="button" data-t="68">
-                    <time>1:08</time>
+                  <button class="chapter t-claude" type="button" data-t="59">
+                    <time>0:59</time>
                     <span class="actor"
                       ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
                       ><span class="via">Claude Code</span></span
                     >
-                    <span class="say">Reviews the replies: where they disagree, and which claims to check yourself.</span>
+                    <span class="say">The lead points to two corrections and new council findings that the draft still needs before leadership sees it.</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="78">
-                    <time>1:18</time>
+                  <button class="chapter" type="button" data-t="68">
+                    <time>1:08</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
                     <span class="say">Click a point of the review: the reply opens at the words it quotes, marked.</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1346,13 +1346,13 @@
               <h3>What you ask</h3>
               <blockquote>Read BRIEF.md. What does the research say about four-day weeks: output, burnout and teams that serve customers every day? Have Claude Code, Codex and Grok each find the trials and studies themselves, debate how strong the evidence is, and give leadership a one-page summary with a link to every source.</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/462e7494cea7595b9e99194f36cd5ae5">Read the whole conversation</a>, as Harness Relay’s Share made it.</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/59339462cb7790d01a6b6e4b6ee3b7f9">Read the whole conversation</a>, as Harness Relay’s Share made it.</li>
               </ul>
             </div>
             <div class="usecase-shows">
               <h3>What it shows</h3>
               <ul>
-              <li><b>Roundtable mode.</b> They speak in turn, each reading and answering what came before. <a href="../docs/teams/#modes">The three modes</a></li>
+              <li><b>Parallel mode.</b> Each agent researches independently in the first round. In later rounds they can read and challenge the others’ findings. <a href="../docs/teams/#modes">The three modes</a></li>
               <li><b>Read-only.</b> The agents search and read, and change nothing; a command beyond that asks you first. <a href="../docs/permissions/#levels">The three permission levels</a></li>
               <li><b>Lead review.</b> It marks where the replies disagree and what to check yourself, each point linked to the words it quotes. <a href="../docs/first-chat/#lead-review">The lead agent's review</a></li>
               </ul>
