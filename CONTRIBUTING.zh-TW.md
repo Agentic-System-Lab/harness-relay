@@ -130,7 +130,7 @@ npm run build
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 
-如果你的修改把某個 agent CLI 推到較新的版本（`src/shared/cliVersions.ts`），請先用 `npx tsx scripts/cli-check.ts <cli> --bin <新版本>` 檢查那個版本並跑它的實機測試，說明它們報告了什麼，並在同一個 commit 裡存下新版本的形狀（`--accept`）、更新使用指南那一行（兩種語言），以及你用它重新試過之後，其他說明某個行為是在哪個版本看到的文件：見[檢查 CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)。每個出了新版本的 CLI，CLI versions workflow 都會開一個 issue（標籤 `cli-check`）。
+如果你的修改把某個 agent CLI 推到較新的版本（`src/shared/cliVersions.ts`），請先用 `npx tsx scripts/cli-check.ts <cli> --bin <新版本>` 檢查那個版本並跑它的實機測試，說明它們報告了什麼，並在同一個 commit 裡存下新版本的形狀（`--accept`）、更新使用指南那一行（兩種語言），以及你用它重新試過之後，其他說明某個行為是在哪個版本看到的文件：見[檢查 CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)。CLI versions workflow 會在 Linux 上檢查每個新版本，只有檢查失敗或有東西消失時才開一個 issue（標籤 `cli-check`）。
 
 ## Commit 訊息
 
