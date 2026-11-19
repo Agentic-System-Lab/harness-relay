@@ -6,7 +6,7 @@
     <title>給團隊的工具 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill 與記憶，並選擇誰拿到哪一項。"
+      content="Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill、記憶與 hook，並選擇誰拿到哪一項。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="給團隊的工具 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="給團隊比 agent 本身更多的工具：Harness Relay 自己的瀏覽器、郵件與行事曆，任何會送到別人那裡的東西都在待送出匣等你按「送出」；還有你自己的 MCP 伺服器、skill 與記憶筆記，設定一次就能給每個 agent 用。"
+      content="給團隊比 agent 本身更多的工具：Harness Relay 自己的瀏覽器、郵件與行事曆，任何會送到別人那裡的東西都在待送出匣等你按「送出」；還有你自己的 MCP 伺服器、skill、記憶筆記與 hook，設定一次就能給每個 agent 用。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -54,7 +54,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/",
         "name": "給團隊的工具 · Harness Relay 文件",
-        "description": "Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill 與記憶，並選擇誰拿到哪一項。",
+        "description": "Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill、記憶與 hook，並選擇誰拿到哪一項。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -195,7 +195,7 @@
         <h1>給團隊的工具</h1>
         <p class="lead">
           每個 agent 都帶著自己的工具。Harness Relay 還能給整個團隊更多：一個瀏覽器、你的郵件與行事曆，以及你自己的
-          MCP 伺服器、skill 與筆記。在<b>設定 → 工具庫</b>設定一次，再選擇哪些 agent 拿到哪一項。
+          MCP 伺服器、skill、筆記與 hook。在<b>設定 → 工具庫</b>設定一次，再選擇哪些 agent 拿到哪一項。這裡的 hook 是新對話和新自動任務一開始帶著的。
         </p>
       </header>
 
@@ -205,7 +205,7 @@
           <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
           <li><a href="#outbox">沒有你，什麼都不會送到別人那裡</a></li>
           <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
-          <li><a href="#library">你的 MCP 伺服器、skill 與記憶</a></li>
+          <li><a href="#library">你的 MCP 伺服器、skill、記憶與 hook</a></li>
           <li><a href="#per-member">給單一成員的工具</a></li>
           <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
         </ol>
@@ -318,7 +318,7 @@
         </section>
 
         <section id="library" aria-labelledby="library-title">
-          <h2 id="library-title">你的 MCP 伺服器、skill 與記憶</h2>
+          <h2 id="library-title">你的 MCP 伺服器、skill、記憶與 hook</h2>
           <p>
             <b>工具庫</b>其餘的部分放你自己加的東西。不管 agent 跑在哪個程式上都能用，而且是加在 agent 自己的設定之外。變更從 agent 的下一回合開始生效。
           </p>
@@ -337,6 +337,10 @@
             </dd>
             <dt>記憶</dt>
             <dd>每個 agent 在每個對話裡都會拿到的筆記，例如你的偏好與專案慣例：可以給<b>所有成員</b>，或寫在各 agent 自己的分頁裡，只給那種 agent。</dd>
+            <dt>Hook</dt>
+            <dd>
+              在<b>記憶</b>正下方的 <b>Hooks</b>：整個團隊一開始共用的指令。新對話和新自動任務會帶著它們，每個團隊可以再改。在 macOS 和 Linux 上，會在 Claude Code、Codex、Copilot、Muse Code 和 Pi 支援的工具呼叫前後執行。見<a href="../teams/#checks">團隊檢查</a>。
+            </dd>
             <dt>預設提供給</dt>
             <dd>每個 MCP 伺服器與 skill 都會給你選的 agent：全部（預設）、其中幾種，或都不給，這時只給你在團隊設定裡勾選的成員。</dd>
           </dl>

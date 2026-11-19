@@ -6,7 +6,7 @@
     <title>Tools for the team · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills and memory, and choose who gets each."
+      content="Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills, memory and hooks, and choose who gets each."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Tools for the team · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Give the team more than the agents bring: Harness Relay's own browser, mail and calendar, with anything that reaches other people waiting in the outbox for your Send, and your own MCP servers, skills and memory notes, set up once for every agent."
+      content="Give the team more than the agents bring: Harness Relay's own browser, mail and calendar, with anything that reaches other people waiting in the outbox for your Send, and your own MCP servers, skills, memory notes and hooks, set up once for every agent."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -57,7 +57,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/tools/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/tools/",
         "name": "Tools for the team · Harness Relay docs",
-        "description": "Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills and memory, and choose who gets each.",
+        "description": "Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills, memory and hooks, and choose who gets each.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -198,8 +198,8 @@
         <h1>Tools for the team</h1>
         <p class="lead">
           Each agent comes with its own tools. Harness Relay can give the whole team more: a browser, your mail and
-          calendar, and your own MCP servers, skills and notes. You set them up once, under <b>Settings → Tool library</b>,
-          and choose which agents get each one.
+          calendar, and your own MCP servers, skills, notes and hooks. You set them up once, under <b>Settings → Tool library</b>,
+          and choose which agents get each one. The hooks are what new chats and automations start with.
         </p>
       </header>
 
@@ -209,7 +209,7 @@
           <li><a href="#browser-mail-calendar">Browser, mail and calendar</a></li>
           <li><a href="#outbox">Nothing reaches other people without you</a></li>
           <li><a href="#accounts">Your mail and calendar accounts</a></li>
-          <li><a href="#library">Your MCP servers, skills and memory</a></li>
+          <li><a href="#library">Your MCP servers, skills, memory and hooks</a></li>
           <li><a href="#per-member">Tools for one member</a></li>
           <li><a href="#own-setup">What each agent loads by itself</a></li>
         </ol>
@@ -348,7 +348,7 @@
         </section>
 
         <section id="library" aria-labelledby="library-title">
-          <h2 id="library-title">Your MCP servers, skills and memory</h2>
+          <h2 id="library-title">Your MCP servers, skills, memory and hooks</h2>
           <p>
             The rest of the <b>Tool library</b> holds what you add yourself. Every agent can use it, whichever program it runs
             on, on top of the agent's own setup. Changes reach an agent at its next turn.
@@ -376,6 +376,13 @@
             <dd>
               Notes every agent gets in every conversation, such as your preferences and your project's conventions: for
               <b>All members</b>, or in each agent's own tab, only for that agent.
+            </dd>
+            <dt>Hooks</dt>
+            <dd>
+              Under <b>Hooks</b>, directly below <b>Memory</b>: commands the whole team starts with. New chats and automations
+              get them, and you can change them for each team. On macOS and Linux they run around supported tool calls for
+              Claude Code, Codex, Copilot, Muse Code and Pi. See
+              <a href="../teams/#checks">Team checks</a>.
             </dd>
             <dt>Given by default to</dt>
             <dd>

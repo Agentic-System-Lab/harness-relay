@@ -833,6 +833,7 @@
               </div>
             </div>
           </div>
+          <p class="excerpt-note"><a href="docs/teams/#modes">The three modes</a></p>
         </div>
       </section>
 
@@ -844,18 +845,20 @@
               <strong>The lead agent picks it.</strong> For each new question, it reads the question, the conversation so
               far, the current team and every template in full. Then it keeps the team, uses a template as it is, adapts
               one, or designs a new team, and says why. You confirm before the team answers, or let it answer right away.
+              <a href="docs/teams/#auto-team">How the lead agent picks a team</a>.
             </p>
             <p>
               <strong>It writes each role for its model.</strong> Claude, GPT, Gemini, Grok, Meta's Muse, Cursor's Composer
               and open-weight models each take instructions their own way, as their makers' own guides say. The lead agent
               writes each member's role the way that member's model takes it best, and reads only the guides for the
-              models your agents run.
+              models your agents run. <a href="docs/teams/#writing-roles">Writing good roles</a>.
             </p>
             <p>
               <strong>It reads the answers too.</strong> The lead agent's review is on in every new chat; turn it off
               in a chat that does not need it. Once the team has answered, it marks what needs a close look right in
               the replies (a risk, a decision for you, members who disagree, a claim to check) and suggests the next
               steps; one click puts a step's message to the team in your message box.
+              <a href="docs/first-chat/#lead-review">The lead agent's review</a>.
             </p>
             <p>
               <strong>Set rules for the whole team.</strong> In Edit and Full access chats, Harness Relay checks protected
@@ -1007,7 +1010,7 @@
               </div>
             </article>
           </div>
-          <p class="excerpt-note">Interface excerpts recreated from the app, with sample content.</p>
+          <p class="excerpt-note">Interface excerpts recreated from the app, with sample content. <a href="docs/permissions/">Permissions and approvals</a></p>
         </div>
       </section>
 
@@ -1015,6 +1018,11 @@
         <div class="wrap">
           <div class="section-head">
             <h2 id="more-title">Also in every conversation</h2>
+            <p class="lead">
+              Each of these is in the <a href="docs/">docs</a>: <a href="docs/first-chat/">your first chat</a>,
+              <a href="docs/conversations/">conversations</a>, <a href="docs/automations/">automations</a> and
+              <a href="docs/tools/">tools</a>.
+            </p>
           </div>
           <ul class="more">
             <li><b>Attach files</b>Paste screenshots or drop files. Every agent gets their paths, and the agents that take images see them directly.</li>
@@ -1030,7 +1038,7 @@
             <li><b>Notifications and sound</b>A notification and a short sound when a reply is done or an agent needs you, and push notifications even with the phone locked, once Harness Relay is on its home screen. The bell in the sidebar keeps every one.</li>
             <li><b>Sign in from the app</b>Sign in to Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, or give the open-source agents a model backend. Turn off what an agent loads by itself, where it allows.</li>
             <li><b>Automations</b>Send the team a message at set times, when something happens (a new mail, an upcoming event, a pull request or a failed CI run, a file in the working directory) or from a webhook. Nobody may be watching, so by default anything beyond the permission is refused. Give it a goal, and it reports progress each run and switches off once it is reached.</li>
-            <li><b>One tool library for every member</b>MCP servers, skills and memory set up once, for every member or only some, on top of each agent’s own; an MCP server that uses OAuth signs in right there. Harness Relay’s own tools come with it: a browser of its own, and your mail and calendar, where a mail waits in the outbox until you click Send.</li>
+            <li><b>One tool library for every member</b>MCP servers, skills and memory set up once, for every member or only some, on top of each agent’s own, and the hooks new chats start with; an MCP server that uses OAuth signs in right there. Harness Relay’s own tools come with it: a browser of its own, and your mail and calendar, where a mail waits in the outbox until you click Send.</li>
             <li><b>Every session in AgentsView</b>Optionally, see each conversation in <a href="https://www.agentsview.io">AgentsView</a> as one thread, with every agent’s own session under it: its tool calls, tokens and cost.</li>
             <li><b>English and 繁體中文</b>The interface follows your browser’s language, with a guided tour on the first visit.</li>
           </ul>
@@ -1185,7 +1193,7 @@
                   Android. Then turn on <b>Settings → Notifications and sound</b> there, to be told when the team finishes or
                   needs you, even with the phone locked.
                 </p>
-                <p><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">Step by step, with keeping it running and troubleshooting</a></p>
+                <p><a href="docs/phone/">The full steps, and keeping it reachable</a>. <a href="docs/troubleshooting/#phone">Phone troubleshooting</a></p>
               </div>
             </li>
           </ol>
@@ -1200,7 +1208,16 @@
             </p>
             <nav class="docs" aria-label="Documentation">
               <a href="docs/">Docs</a>
-              <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md">User guide</a>
+              <a href="docs/install/">Install</a>
+              <a href="docs/agents/">Connect your agents</a>
+              <a href="docs/first-chat/">Your first chat</a>
+              <a href="docs/teams/">Teams and modes</a>
+              <a href="docs/permissions/">Permissions and approvals</a>
+              <a href="docs/conversations/">Conversations</a>
+              <a href="docs/automations/">Automations</a>
+              <a href="docs/tools/">Tools</a>
+              <a href="docs/phone/">Use it from your phone</a>
+              <a href="docs/troubleshooting/">Troubleshooting</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.md">Open agents</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/architecture.md">Architecture</a>
               <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.md">Developer guide</a>
