@@ -289,15 +289,13 @@ describe('the use-cases pages’ structured data', () => {
 });
 
 describe('the use cases on the home pages and in the READMEs', () => {
-  it('feature a sourced excerpt of the recorded product spec beside the hero download', () => {
+  it('pair the installer with the guide and keep the interview recording in the use cases section', () => {
     for (const lang of LANGS) {
       const hero = read(HOME[lang]).match(/<section class="hero"[^>]*>[\s\S]*?<\/section>/)![0];
-      expect(hero, lang).toMatch(
-        /<figure class="hero-example">[\s\S]*?<blockquote cite="https:\/\/gist\.githubusercontent\.com\/[^"]+\/PRD\.md">[^<]+<\/blockquote>/,
-      );
-      const actions = hero.match(/<div class="download-row">[\s\S]*?<\/div>/)![0];
-      expect(actions, lang).toContain('data-download-primary');
-      expect(actions, lang).toContain('href="use-cases/#product-spec"');
+      expect(hero, lang).not.toContain('use-cases/#product-spec');
+      const downloadRow = hero.match(/<div class="download-row">([\s\S]*?)<\/div>/)![1]!;
+      expect(downloadRow, lang).toContain('data-download-primary');
+      expect(downloadRow, lang).toContain('<a class="install-link" href="#start"');
     }
   });
 
