@@ -1303,6 +1303,22 @@ describe('default team checks', () => {
     expect(new SettingsStore(db).view().checksDefault).toBeUndefined();
   });
 
+  it('merges independent edits to default hooks and checks, including clears, and rejects invalid patches atomically', async () => {
+    const patch = (fields: unknown) => app.request('/api/settings/checks-default', json('PATCH', fields));
+    const view = async () => ((await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView).checksDefault;
+    const hooks = [{ id: 'hook', when: 'before', tools: 'command', run: 'echo hook' }];
+    const protectedPaths = ['*.pem'];
+    const results = await Promise.all([patch({ hooks }), patch({ protectedPaths })]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(await view()).toEqual({ hooks, protectedPaths });
+
+    expect((await patch({ protectedPaths: [], hooks: 'invalid' })).status).toBe(400);
+    expect(await view()).toEqual({ hooks, protectedPaths });
+    expect(await (await patch({ protectedPaths: [] })).json()).toEqual({ hooks });
+    expect(await (await patch({ hooks: [] })).json()).toEqual({});
+    expect(await view()).toBeUndefined();
+  });
+
   it('keeps the mark of a copied default in a new chat, and never in a template', async () => {
     const conv = await createConversation({ checks: { protectedPaths: ['.env'], fromDefault: true } });
     expect(store.get(conv.id)!.settings.checks).toEqual({ protectedPaths: ['.env'], fromDefault: true });

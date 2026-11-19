@@ -526,6 +526,14 @@ export function createApp({
 
   app.get('/api/settings', (c) => c.json(settingsView()));
 
+  app.patch('/api/settings/checks-default', async (c) => {
+    const patch = await body<Omit<CheckList, 'fromDefault'>>(c);
+    // Merge with the current default so simultaneous saves of hooks and other checks both survive.
+    const { fromDefault: _copied, ...list } = validateChecks({ ...settings.checksDefault, ...patch });
+    settings.setChecksDefault(hasRules(list) ? list : undefined);
+    return c.json(list);
+  });
+
   app.put('/api/settings', async (c) => {
     const b = await body<{
       defaultCwd?: unknown;

@@ -1520,6 +1520,7 @@ export const en: Messages = {
     memoryFor: (scope) => `Memory: ${scope}`,
     memoryPlaceholder: 'For example: Lead with the conclusion. Indent code with 2 spaces.',
     checksDefault: 'Default team checks',
+    hooksDefaultHint: 'New chats and automations start with these hooks. You can change them for each team.',
     checksDefaultHint:
       'New chats and automations start with these team checks, which you can change or remove there. Changing them here later leaves the chats and automations made before as they are. While these are unchanged, a template the lead agent picks with team checks of its own adds them (its commit format, when it has one, takes the place of this one).',
     chars: (n, max) => `${n} / ${max} characters`,
@@ -2274,7 +2275,7 @@ export const en: Messages = {
           'Commands: such as npm test, which must succeed',
           `Hooks run around supported tool calls on macOS and Linux for ${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join(', ')}. A Before hook that fails refuses the call.`,
           "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
-          'In Parallel mode, commands check a member’s result before you apply it. Set starting rules for new chats and automations in Settings → Tool library → Default team checks.',
+          'In Parallel mode, commands check a member’s result before you apply it. In Settings → Tool library, set the starting rules for new chats and automations under Hooks and Default team checks.',
         ],
       },
       {

@@ -36,7 +36,7 @@ import {
   type ModelChoice,
 } from '../util';
 import { AccountPicker } from './AccountPicker';
-import { ChecksEditor } from './ChecksEditor';
+import { ChecksEditor, useChecksEnvironment } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { CliPicker } from './CliPicker';
@@ -112,6 +112,7 @@ export function TeamEditor({
   checksEditorVersion,
 }: Props) {
   const t = useT();
+  const checksEnv = useChecksEnvironment();
   const { maxTeamAgents } = useLimits();
   const { agents, settings } = value;
   /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
@@ -324,6 +325,7 @@ export function TeamEditor({
         <ChecksEditor
           key={checksEditorVersion}
           value={settings.checks}
+          env={checksEnv}
           permission={template ? undefined : settings.permission}
           convId={template ? undefined : convId}
           onChange={(checks) => {

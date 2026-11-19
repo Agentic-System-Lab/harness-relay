@@ -1029,7 +1029,7 @@ export const zhTW = {
     badFolder: (f: string) => `無法使用資料夾「${f}」：不能有 ..`,
     badTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
     // Hooks: the editor.
-    hooks: 'Hook',
+    hooks: 'Hooks',
     hooksHint:
       '成員每次使用工具的前後，Harness Relay 執行的指令。「執行前」的 hook 沒有成功（exit 0）就拒絕那次呼叫，它的輸出就是 agent 收到的原因；「執行後」的 hook 沒有成功，輸出會交給 agent。指令從環境變數讀這次呼叫：RELAY_HOOK_COMMAND、RELAY_HOOK_FILES（一行一個完整路徑）、RELAY_HOOK_TOOL、RELAY_HOOK_INPUT（JSON）。和指令一樣，低於完全存取時在 Harness Relay 的沙箱裡執行；每次呼叫都會等它跑完。它從工作目錄執行的腳本（例如 ./scripts/allow.sh、sh ci/check.sh）會像受保護路徑一樣受保護；其他它會讀的檔案請自己列進受保護路徑。',
     hooksWho: (clis: string[]) => `目前由 ${clis.join('、')} 執行；其他 agent 的成員，工具呼叫不經過 hook，對話中會註明。`,
@@ -1533,6 +1533,7 @@ export const zhTW = {
     memoryFor: (scope: string) => `記憶：${scope}`,
     memoryPlaceholder: '例如：先給結論再說明。程式碼使用 2 個空格縮排。',
     checksDefault: '團隊檢查預設',
+    hooksDefaultHint: '新對話和新自動任務會帶入這些 Hooks，你可以在各團隊的設定中調整。',
     checksDefaultHint:
       '新對話和新自動任務一開始就帶著這份團隊檢查，在那裡可以修改或拿掉。之後再改這裡，不會動到已經建立的對話和自動任務。這份預設沒改過時，首席 agent 選用的範本若有自己的團隊檢查，會加進來（範本有 commit 格式時以範本的為準）。',
     chars: (n: number, max: number) => `${n} / ${max} 字`,
@@ -2272,7 +2273,7 @@ export const zhTW = {
           '指令：例如 npm test，要成功才算通過',
           `Hook 會在 macOS 和 Linux 上、${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join('、')} 支援的工具呼叫前後執行。「執行前」的 hook 沒成功就拒絕那次呼叫。`,
           '團隊回答後，Harness Relay 自己檢查，回覆後面的卡片寫出每條的結果；沒通過時，成員下一次發言會被要求修正，你也可以重新檢查、請成員修正或略過',
-          '平行模式會在套用成員的結果前執行檢查指令。到「設定 → 工具庫 → 團隊檢查預設」可設定新對話和新自動任務一開始帶著的規則。',
+          '平行模式會在套用成員的結果前執行檢查指令。在「設定 → 工具庫」的「Hooks」與「團隊檢查預設」可設定新對話和新自動任務一開始帶著的規則。',
         ],
       },
       {

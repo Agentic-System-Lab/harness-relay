@@ -9,23 +9,25 @@ import {
   type McpTransport,
   type MemoryScope,
   type Provider,
+  type SettingsView,
   type SkillCandidate,
   type ToolLibraryView,
 } from '../../shared/types';
 import { api } from '../api';
-import { checkProblems, ruleCount, sameChecks } from '../checks';
+import { checkProblems, hooksFromRows, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
-import { ChecksEditor } from './ChecksEditor';
+import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
 /** Settings → Tool library: MCP servers, skills and the shared memory every agent can be given. */
-export function ToolsCard() {
+export function ToolsCard({ settings }: { settings: SettingsView | null }) {
+  const env = useChecksEnvironment();
   const t = useT();
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
   const [error, setError] = useState('');
@@ -59,7 +61,12 @@ export function ToolsCard() {
           <McpSection lib={lib} change={change} />
           <SkillsSection lib={lib} change={change} />
           <MemorySection lib={lib} change={change} />
-          <ChecksDefaultSection />
+          {settings && (
+            <>
+              <ChecksDefaultSection part="hooks" defaults={settings.checksDefault} env={env} />
+              <ChecksDefaultSection part="checks" defaults={settings.checksDefault} env={env} />
+            </>
+          )}
         </>
       )}
     </section>
@@ -675,71 +682,75 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
   );
 }
 
-/**
- * The team checks new chats and automations start with (`SettingsView.checksDefault`), in the same editor
- * as a template's (no command to try: there is no conversation yet). Saved on the server, for every
- * browser; chats and automations made before keep their own.
- */
-function ChecksDefaultSection() {
+/** One independently saved section of the defaults copied into new chats and automations. */
+function ChecksDefaultSection({
+  part,
+  defaults,
+  env,
+}: {
+  part: 'hooks' | 'checks';
+  defaults?: CheckList;
+  env: ReturnType<typeof useChecksEnvironment>;
+}) {
   const t = useT();
-  /** What the server keeps (undefined: none); `loaded` once it answered. */
-  const [saved, setSaved] = useState<CheckList | undefined>();
-  const [loaded, setLoaded] = useState(false);
-  const [list, setList] = useState<CheckList | undefined>();
-  /** Starts the editor afresh from what was saved, as the server tidied it. */
+  const hooksOnly = part === 'hooks';
+  const sectionOf = (list: CheckList = {}): CheckList => {
+    const { hooks, ...checks } = list;
+    return hooksOnly ? { hooks } : checks;
+  };
+  const [saved, setSaved] = useState(() => sectionOf(defaults));
+  const [draft, setDraft] = useState<CheckList | undefined>(saved);
   const [opened, setOpened] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    api.getSettings().then(
-      (s) => {
-        setSaved(s.checksDefault);
-        setList(s.checksDefault);
-        setLoaded(true);
-      },
-      (e: Error) => setError(e.message),
-    );
-  }, []);
-
-  const changed = !sameChecks(list, saved);
-  const problem = checkProblems(list, t.checks)[0];
+  const changed = !sameChecks(draft, saved);
+  const problem = checkProblems(draft, t.checks)[0];
+  const edit = (next: CheckList | undefined) => {
+    setDraft(next);
+    setDone(false);
+    setError('');
+  };
   const save = async () => {
+    setBusy(true);
     setError('');
     try {
-      const s = await api.updateSettings({ checksDefault: list && ruleCount(list) > 0 ? list : null });
-      setSaved(s.checksDefault);
-      setList(s.checksDefault);
+      const patch = hooksOnly
+        ? { hooks: draft?.hooks ?? [] }
+        : { protectedPaths: draft?.protectedPaths ?? [], commitPattern: draft?.commitPattern ?? '', commands: draft?.commands ?? [] };
+      const kept = sectionOf(await api.updateCheckDefaults(patch));
+      setSaved(kept);
+      setDraft(kept);
       setOpened((n) => n + 1);
       setDone(true);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
+  const title = hooksOnly ? t.checks.hooks : t.tools.checksDefault;
   return (
-    <div className="tools-section checks-default">
-      <h4>{t.tools.checksDefault}</h4>
-      <p className="muted small">{t.tools.checksDefaultHint}</p>
-      {loaded && (
-        <ChecksEditor
-          key={opened}
-          value={saved}
-          onChange={(next) => {
-            setList(next);
-            setDone(false);
-          }}
-        />
-      )}
+    <section className={`tools-section ${part}-default`} aria-label={title}>
+      <h4>{title}</h4>
+      <p className="muted small">{hooksOnly ? t.tools.hooksDefaultHint : t.tools.checksDefaultHint}</p>
+      <fieldset className="team-fieldset" disabled={busy} aria-label={title}>
+        {hooksOnly ? (
+          <HooksEditor key={opened} value={saved.hooks} env={env} onChange={(hooks) => edit({ hooks: hooksFromRows(hooks) })} />
+        ) : (
+          <ChecksEditor key={opened} value={draft} onChange={edit} env={env} includeHooks={false} />
+        )}
+      </fieldset>
       {(problem || error) && <p className="error-line">{problem || error}</p>}
-      {loaded && (
-        <div className="button-row">
-          <span className="muted small">{done && !changed ? t.tools.saved : ''}</span>
-          <button className="primary" disabled={!changed || Boolean(problem)} onClick={() => void save()}>
-            {t.common.save}
-          </button>
-        </div>
-      )}
-    </div>
+      <div className="button-row">
+        <span className="muted small" role="status">
+          {done && !changed ? t.tools.saved : ''}
+        </span>
+        <button className="primary" disabled={busy || !changed || Boolean(problem)} onClick={() => void save()}>
+          {t.common.save}
+        </button>
+      </div>
+    </section>
   );
 }

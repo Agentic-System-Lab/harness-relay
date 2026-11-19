@@ -304,39 +304,55 @@ test.describe('team checks', () => {
     expect(existsSync(join(relay.workDir, 'from-check.txt'))).toBe(false);
   });
 
-  test('default team checks require valid command and hook settings before saving', async ({ page, relay }) => {
+  test('hooks below Memory and default team checks validate and save independently', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/tools`);
-    const section = page.locator('.checks-default');
-    await section.locator('.checks-editor summary').click();
-    const save = section.getByRole('button', { name: 'Save', exact: true });
+    const hooks = page.getByRole('region', { name: 'Hooks', exact: true });
+    const checks = page.getByRole('region', { name: 'Default team checks', exact: true });
+    await expect(page.locator('.tools-section:has(.memory-input) + section')).toHaveAccessibleName('Hooks');
+    await checks.locator('.checks-editor summary').click();
+    await expect(checks.getByRole('button', { name: 'Add a hook' })).toHaveCount(0);
+
+    const saveHooks = hooks.getByRole('button', { name: 'Save', exact: true });
+    const saveChecks = checks.getByRole('button', { name: 'Save', exact: true });
     const folderLabel = 'Folder (relative to the first working directory; optional)';
+    await checks.getByRole('button', { name: 'Add a command' }).click();
+    const command = checks.getByRole('textbox', { name: 'Command', exact: true });
+    await command.fill('echo check');
+    await checks.getByLabel(folderLabel, { exact: true }).fill('../outside');
+    await expect(saveChecks).toBeDisabled();
 
-    await section.getByRole('button', { name: 'Add a hook' }).click();
-    const hook = section.locator('.checks-hook-row');
-    await hook.getByRole('textbox', { name: 'Hook command' }).fill('echo hook');
-    await hook.getByLabel(folderLabel, { exact: true }).fill('../outside');
-    await expect(save).toBeDisabled();
-    await hook.getByLabel(folderLabel, { exact: true }).fill('');
-    await hook.getByLabel('Time limit (seconds)', { exact: true }).fill('0');
-    await expect(save).toBeDisabled();
-    await hook.getByLabel('Time limit (seconds)', { exact: true }).fill('5');
-    await expect(save).toBeEnabled();
+    await hooks.getByRole('button', { name: 'Add a hook' }).click();
+    const hook = hooks.getByRole('textbox', { name: 'Hook command' });
+    await hook.fill('echo hook');
+    await hooks.getByLabel(folderLabel, { exact: true }).fill('../outside');
+    await expect(saveHooks).toBeDisabled();
+    await hooks.getByLabel(folderLabel, { exact: true }).fill('');
+    await hooks.getByLabel('Time limit (seconds)', { exact: true }).fill('0');
+    await expect(saveHooks).toBeDisabled();
+    await hooks.getByLabel('Time limit (seconds)', { exact: true }).fill('5');
+    await saveHooks.click();
+    await expect(hooks.getByRole('status')).toHaveText('Saved');
+    const defaults = async () => (await relay.api<SettingsView>('/api/settings')).checksDefault;
+    expect(await defaults()).toEqual({ hooks: [expect.objectContaining({ run: 'echo hook', timeoutSec: 5 })] });
+    await expect(command).toHaveValue('echo check');
+    await expect(checks.getByLabel(folderLabel, { exact: true })).toHaveValue('../outside');
 
-    await section.getByRole('button', { name: 'Add a command' }).click();
-    const command = section.locator('.checks-command-row');
-    await command.getByRole('textbox', { name: 'Command', exact: true }).fill('echo check');
-    await command.getByLabel(folderLabel, { exact: true }).fill('../outside');
-    await expect(save).toBeDisabled();
-    await command.getByLabel(folderLabel, { exact: true }).fill('');
-    await command.getByLabel('Time limit (minutes)', { exact: true }).fill('0');
-    await expect(save).toBeDisabled();
-    await command.getByLabel('Time limit (minutes)', { exact: true }).fill('1');
-    await save.click();
-    await expect(section).toContainText('Saved');
-    expect((await relay.api<SettingsView>('/api/settings')).checksDefault).toMatchObject({
-      commands: [{ run: 'echo check', timeoutMin: 1 }],
-      hooks: [{ run: 'echo hook', timeoutSec: 5 }],
-    });
+    await hook.fill('unsaved hook');
+    await checks.getByLabel(folderLabel, { exact: true }).fill('');
+    await checks.getByLabel('Time limit (minutes)', { exact: true }).fill('0');
+    await expect(saveChecks).toBeDisabled();
+    await checks.getByLabel('Time limit (minutes)', { exact: true }).fill('1');
+    await saveChecks.click();
+    await expect(checks.getByRole('status')).toHaveText('Saved');
+    await expect(hook).toHaveValue('unsaved hook');
+
+    await page.reload();
+    await expect(hook).toHaveValue('echo hook');
+    await expect(command).toHaveValue('echo check');
+    await hooks.getByRole('button', { name: 'Remove this hook' }).click();
+    await saveHooks.click();
+    await expect(hooks.getByRole('status')).toHaveText('Saved');
+    expect(await defaults()).toEqual({ commands: [expect.objectContaining({ run: 'echo check', timeoutMin: 1 })] });
   });
 
   test('a default set in Settings starts each new chat and automation, which can change or remove it', async ({ page, relay }) => {

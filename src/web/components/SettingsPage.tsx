@@ -281,7 +281,7 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
 
         {settings && <LeadCard lead={settings.lead} providers={providers} catalog={catalog} onSettings={setSettings} />}
 
-        <ToolsCard />
+        <ToolsCard settings={settings} />
 
         <VoiceCard />
 

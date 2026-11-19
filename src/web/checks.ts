@@ -88,6 +88,11 @@ function keptHook(h: CheckHook): CheckHook {
   };
 }
 
+/** Hook rows ready to save, leaving out empty command lines. */
+export function hooksFromRows(rows: readonly CheckHook[]): CheckHook[] {
+  return rows.filter((h) => h.run.trim()).map(keptHook);
+}
+
 /** A command row as the list keeps it: trimmed, the defaults left out. */
 function keptCommand(c: CheckCommand): CheckCommand {
   const cwd = c.cwd?.trim();
@@ -116,7 +121,7 @@ export function listFrom(
   const protectedPaths = pathsFromText(paths);
   const pattern = commitPattern.trim();
   const kept = commands.filter((c) => c.run.trim()).map(keptCommand);
-  const keptHooks = hooks.filter((h) => h.run.trim()).map(keptHook);
+  const keptHooks = hooksFromRows(hooks);
   if (!protectedPaths.length && !pattern && !kept.length && !keptHooks.length) return before === undefined ? undefined : {};
   return {
     ...(protectedPaths.length ? { protectedPaths } : {}),
