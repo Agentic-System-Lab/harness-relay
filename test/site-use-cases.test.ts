@@ -216,25 +216,22 @@ describe('the use-cases pages', () => {
     }
   });
 
-  it('link the user guide in the page’s language', () => {
+  it('link the docs in the page’s language, at a section that is there', () => {
+    const targets = (lang: (typeof LANGS)[number]) => {
+      const shows = page(lang).html.match(/<div class="usecase-shows">[\s\S]*?<\/div>/g) ?? [];
+      return shows.flatMap((ul) => [...ul.matchAll(/href="([^"]+)"/g)].map((m) => m[1]!));
+    };
+    const en = targets('en');
+    expect(en.length).toBeGreaterThanOrEqual(15);
+    expect(targets('zh-TW')).toEqual(en);
     for (const lang of LANGS) {
-      const guide = lang === 'en' ? 'docs/user-guide.md' : 'docs/user-guide.zh-TW.md';
-      const doc = read(guide);
-      const anchors = new Set(
-        [...doc.matchAll(/^#{2,3} (.+)$/gm)].map((m) =>
-          m[1]!
-            .toLowerCase()
-            .replace(/[^\p{L}\p{N}\s-]/gu, '')
-            .replace(/\s/g, '-'),
-        ),
-      );
-      const links = [
-        ...page(lang).html.matchAll(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay\/blob\/main\/(docs\/[^"#]+)#([^"]+)"/g),
-      ];
-      expect(links.length, lang).toBeGreaterThanOrEqual(15);
-      for (const [, file, anchor] of links) {
-        expect(file, lang).toBe(guide);
-        expect(anchors.has(anchor!), `${lang} #${anchor}`).toBe(true);
+      const root = lang === 'en' ? 'site/docs' : 'site/zh-TW/docs';
+      for (const href of targets(lang)) {
+        expect(href.startsWith('../docs/'), `${lang} ${href}`).toBe(true);
+        const [path, hash] = href.slice('../docs/'.length).split('#');
+        const file = `${root}/${path}index.html`;
+        expect(exists(file), `${lang} ${href}`).toBe(true);
+        if (hash) expect(read(file), `${lang} ${href}`).toContain(`id="${hash}"`);
       }
     }
   });
