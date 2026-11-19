@@ -2259,10 +2259,11 @@ export class Orchestrator {
       ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds, true);
       this.activity(conv.id, msg, { type: 'tool_end', id: discovery, ok: true });
       run.abort.signal.throwIfAborted();
+      if (!memberAvailable(ctx, lead)) msg.plan!.leadUnavailable = true;
       if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
-      if (!memberAvailable(ctx, lead)) throw new Error(t().planLeadUnavailable);
+      if (msg.plan!.leadUnavailable) throw new Error(t().planLeadUnavailable);
       let reply = '';
-      result = await runners[lead.provider].run({
+      const leadRun = runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
@@ -2286,6 +2287,10 @@ export class Orchestrator {
           else if (e.type === 'text_end') reply += '\n';
           else this.activity(conv.id, msg, e);
         },
+      });
+      result = await leadRun.catch((err: unknown) => {
+        if (!run.abort.signal.aborted) msg.plan!.leadUnavailable = true;
+        throw err;
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
@@ -2333,13 +2338,12 @@ export class Orchestrator {
       const agents = keepMemberIds(proposed, conv.agents, !ctx?.staffing);
       const now = Boolean(conv.settings.autoConfirm);
       msg.plan = {
+        ...msg.plan!,
         status: 'ready',
-        lead,
         ...decision,
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
         ...(checkOnConfirm ? { checkOnConfirm: true } : {}),
-        ...(run.designFor !== undefined ? { forSchedule: true } : {}),
       };
       msg.status = 'done';
       // Used at once, or kept on the card until the user confirms it: until then the current team

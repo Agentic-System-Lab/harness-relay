@@ -495,10 +495,17 @@ function PlanCard({
   const plan = msg.plan!;
   const lead = leadLabel(plan.lead);
   const wording = planWording(plan, t, lead);
+  const leadWarning = plan.leadUnavailable && (
+    <div className="plan-lead-warning" role="status">
+      <strong>{t.plan.leadUnavailable(lead)}</strong>
+      <span>{t.plan.leadUnavailableHint}</span>
+    </div>
+  );
 
   if (plan.status === 'failed')
     return (
       <PlanCardLayout msg={msg} className="failed">
+        {leadWarning}
         <div className="msg-error" role="status">
           ⚠ {plan.reason}
         </div>
@@ -507,6 +514,7 @@ function PlanCard({
 
   if (plan.status === 'planning') {
     const live = msg.status === 'streaming';
+    const status = plan.leadUnavailable ? t.plan.preparingFallback : wording.planning;
     return (
       <PlanCardLayout msg={msg} className="planning">
         <div className="plan-status" role="status">
@@ -518,8 +526,9 @@ function PlanCard({
               ✦
             </span>
           )}
-          <span>{live ? wording.planning : wording.aborted}</span>
+          <span>{live ? status : wording.aborted}</span>
         </div>
+        {leadWarning}
       </PlanCardLayout>
     );
   }
@@ -567,8 +576,9 @@ function PlanCard({
       <header className="plan-head">
         <Logo size={18} />
         <strong>{t.plan.title}</strong>
-        <span className="muted small">{t.plan.by(lead)}</span>
+        {!plan.leadUnavailable && <span className="muted small">{t.plan.by(lead)}</span>}
       </header>
+      {leadWarning}
       <p className="plan-headline">
         <strong>{planHeadline(plan, t)}</strong>
         <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>

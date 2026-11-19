@@ -118,7 +118,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | A team of every CLI answers in turn | two teams | Each member answers with its own CLI's tag, in roundtable order: Claude Code, Codex, Grok, Cursor; Antigravity, Copilot, Muse Code; and OpenCode, Goose, Cline, OpenHands, Pi (a team with a CLI that runs only with full access here in a chat with full access). The lead agent puts at most five members in a team for a new question, so the seven with a sign-in answer as two teams, of four and three, each in a chat of its own. |
 | A follow-up question gets a team again | Claude Code, Codex | The second question gets a team of its own, and only its member answers it. |
 | The next design refreshes the quota | Claude Code, Codex | Claude Code answers the first question. After its quota is exhausted, the second design leaves it out of the prompt and uses Codex even when the proposed team named Claude Code. |
-| No models are available | Claude Code, Codex, Grok | When the three quotas are exhausted, the chat explains why and auto-confirm starts no team. |
+| The configured lead is unavailable | Claude Code | An exhausted lead is named in the fallback card, which points to the lead agent settings. The notice survives a reload. |
+| No models are available | Claude Code, Codex, Grok | When the three quotas are exhausted, the failed card names the unavailable lead and explains why auto-confirm starts no team. |
 | Collapsible team design progress | Claude Code | Open progress inside the card during planning. It stays open inside the finished card, and the model check receives a fixed prompt before the team answers. |
 | Full-access team checks after confirmation | Claude Code | Waiting for confirmation performs no full-access model test. Confirming starts the test and then the team. |
 | All model tests fail | Claude Code | Auto-confirm shows the failed checks and starts no team. |

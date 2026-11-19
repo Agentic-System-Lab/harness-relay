@@ -64,6 +64,7 @@ test.describe("changing a chat's team", () => {
     await send(page, 'Pick something e2e:badplan');
     const card = awaitingPlan(page);
     await expect(card).toContainText('Using the template "General-question panel" instead');
+    await expect(card.getByText(/was unavailable for this design/)).toHaveCount(0);
     await card.getByRole('button', { name: 'Confirm team' }).click();
     for (const name of ['Analyst', 'Critic', 'Synthesizer'])
       await expect(await finishedReply(page, name)).toContainText('You said: “Pick something”.');

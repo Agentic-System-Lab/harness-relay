@@ -120,7 +120,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
 | 下一次設計重新查詢額度 | Claude Code、Codex | Claude Code 回答第一個問題。它的額度用完後，第二次組隊不提供它作為候選，首席 agent 仍選到它時也會用 Codex 取代。 |
-| 沒有可用的模型 | Claude Code、Codex、Grok | 三個 CLI 的額度都用完時，對話顯示原因，即使設定直接採用也不會啟動團隊。 |
+| 指定的首席 agent 無法使用 | Claude Code | 備援團隊卡片標明額度用盡的首席 agent，提示可到設定切換。重新載入後提示仍在。 |
+| 沒有可用的模型 | Claude Code、Codex、Grok | 三個 CLI 的額度都用完時，失敗卡片標明無法使用的首席 agent，並說明直接採用為何無法啟動團隊。 |
 | 可展開的團隊設計進度 | Claude Code | 在設計卡片裡展開進度，模型實測完成後仍在同一卡片內維持展開。團隊回答前，模型只收到固定測試提示。 |
 | 完全存取團隊確認後才實測 | Claude Code | 等待確認時沒有用完全存取實測。確認後才實測並啟動團隊。 |
 | 模型實測全數失敗 | Claude Code | 直接採用會顯示實測失敗，且不會啟動團隊。 |

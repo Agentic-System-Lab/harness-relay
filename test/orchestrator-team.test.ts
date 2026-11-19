@@ -226,7 +226,7 @@ describe('a team the lead agent designs', () => {
     expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2);
   });
 
-  it('uses a different account when the configured lead and the current member have exhausted their quota', async () => {
+  it('marks the unavailable lead and uses a different account for the current member', async () => {
     const work = settings.addAccount('claude', 'Work');
     setOrchestrator(
       new Orchestrator(store, new Hub(), settings, {
@@ -252,7 +252,34 @@ describe('a team the lead agent designs', () => {
 
     expect(calls.map((c) => [c.name, c.home])).toEqual([[member.name, settings.env('claude', work).CLAUDE_CONFIG_DIR]]);
     expect(conv.agents[0]).toMatchObject({ id: member.id, provider: 'claude', account: work, tools: { memory: false } });
-    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'ready', source: 'fallback' });
+    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'ready', source: 'fallback', leadUnavailable: true });
+  });
+
+  it('keeps the unavailable lead marked when the CLI fails and its fallback team cannot pass verification', async () => {
+    const context: PlannerContext = {
+      available: ['claude'],
+      accounts: { claude: [''] },
+      catalog: [],
+      presets: store.listPresets(),
+      staffing: { now: Date.now(), usage: [] },
+    };
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context: async () => context }));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
+    const real = runners.claude.run;
+    const stub = vi.spyOn(runners.claude, 'run').mockImplementation(async (o) => {
+      if (o.stateKey?.startsWith('lead.')) throw new Error('lead endpoint is down');
+      if (!o.stateKey) throw new Error('backup model is down');
+      return real(o);
+    });
+    try {
+      await orchestrator.send(conv.id, 'design my team');
+      await finish(conv.id);
+      const reloaded = new Store(db).get(conv.id)!;
+      expect(reloaded.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'failed', leadUnavailable: true });
+      expect(agentMessages(reloaded)).toEqual([]);
+    } finally {
+      stub.mockRestore();
+    }
   });
 
   it('stops a kept team whose private endpoint has been deleted', async () => {
@@ -690,15 +717,17 @@ describe('auto team', () => {
 
     // Stopped while designing: Continue designs again, for the question that still waits.
     calls.length = 0;
-    let release!: () => void;
-    fake.leadGate = new Promise((r) => (release = r));
+    let reject!: (error: Error) => void;
+    fake.leadGate = new Promise((_, r) => (reject = r));
     fake.leadReply = JSON.stringify({ choice: 'keep' });
     await orchestrator.send(conv.id, 'A third question');
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['lead']), { interval: 20 });
     orchestrator.stop(conv.id);
-    release();
+    reject(new Error('lead run cancelled'));
     await finish(conv.id);
-    expect(plans(conv).at(-1)!.status).toBe('aborted');
+    const stopped = plans(conv).at(-1)!;
+    expect(stopped.status).toBe('aborted');
+    expect(stopped.plan!.leadUnavailable).toBeUndefined();
     fake.leadGate = undefined;
     await orchestrator.send(conv.id, '');
     await finish(conv.id);

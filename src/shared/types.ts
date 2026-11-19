@@ -1091,6 +1091,8 @@ export interface LeadAgentSettings {
 export interface TeamPlan {
   status: 'planning' | 'ready' | 'failed';
   lead: LeadAgentSettings;
+  /** The configured lead could not run for this design. */
+  leadUnavailable?: boolean;
   /**
    * kept: the current team, as it is; template: an existing template, as it is; adapted: a template
    * the lead changed for the question; custom: a team the lead designed from scratch; fallback:

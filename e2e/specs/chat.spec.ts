@@ -123,13 +123,35 @@ test.describe('auto team with exhausted CLI quotas', () => {
     expect(lead?.prompt).not.toContain('- claude (Claude Code)');
   });
 
+  test.describe('the configured lead is exhausted', () => {
+    test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude' } });
+
+    test('shows the unavailable lead inside the fallback team card', async ({ page, relay }) => {
+      await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'claude' } } });
+      const id = await startChat(page, { permission: 'read-only' });
+      await send(page, 'Choose a team');
+      const card = awaitingPlan(page);
+      const warning = card.getByRole('status').filter({ hasText: 'The lead agent (Claude Code) was unavailable for this design.' });
+      await expect(warning).toContainText('Settings & sign-in → Lead agent');
+      await expect(card).toContainText('Using the template "General-question panel" instead');
+      await page.reload();
+      await expect(warning).toBeVisible();
+
+      const conv = await settled(relay, id);
+      expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ leadUnavailable: true, status: 'ready', source: 'fallback' });
+      expect(relay.fakeLog().some((e) => e.cli === 'claude' && e.prompt?.includes('Coding agents you can use'))).toBe(false);
+    });
+  });
+
   test.describe('all CLIs are exhausted', () => {
     test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude,codex,grok' } });
 
     test('explains why it cannot start a team', async ({ page, relay }) => {
       const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
       await send(page, 'Choose a team');
-      await expect(page.getByRole('status').filter({ hasText: 'No models are available for this team.' })).toBeVisible();
+      const card = page.locator('.plan-card.failed');
+      await expect(card.getByRole('status').filter({ hasText: 'No models are available for this team.' })).toBeVisible();
+      await expect(card.getByRole('status').filter({ hasText: /lead agent .* was unavailable for this design/ })).toBeVisible();
 
       const conv = await settled(relay, id);
       expect(conv.messages.find((m) => m.plan)?.plan?.status).toBe('failed');
