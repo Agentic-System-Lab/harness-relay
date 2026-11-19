@@ -66,7 +66,7 @@ flowchart LR
 | `src/server/backends.ts` | 開源 agent 的模型來源：OpenAI、Anthropic、xAI 的 API key，以及使用者的 OpenAI 相容端點（金鑰存在作業系統的金鑰儲存區），還有一次執行拿到什麼（`backendRun()`）；Claude Code、Codex、Grok 或 Copilot 的一次執行是否在某個端點上，以及在已刪除的端點上時拒絕執行（`endpointRunModel()`，已刪除的 id 在 `deleted_endpoints`） |
 | `src/server/relaySandbox.ts`、`relaySandboxHost.ts` | 完全存取以外，包住開源 agent 的 Harness Relay 自己的沙箱（`@anthropic-ai/sandbox-runtime`，每次執行一個 host 程序；見[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）；`sandboxProcs.ts` 在 macOS 上依沙箱找出某次執行殘留的行程 |
 | `src/server/i18n.ts` | 兩種語言的伺服器訊息；每個請求與執行所用的語言（AsyncLocalStorage） |
-| `src/server/process.ts` | 以獨立 process group 啟動程序（在 Windows 上改為附著並帶隱藏主控台，讓它啟動的程式不會另開視窗：`detachedChild()`）、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
+| `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出，中止或逾時時先對該 group 送 SIGTERM，再送 SIGKILL。在 Windows 上改為附著並帶隱藏主控台（`detachedChild()`），讓它啟動的程式不會另開視窗；Windows 沒有 process group，同樣的訊號只結束那個程序 |
 | `src/server/winLaunch.ts` | 在 Windows 上，找到的 CLI 是 `.cmd` 時要啟動什麼：npm 包裝檔指名的程式或 Node 腳本，或 Cursor 的最新版本（見 [CLI 轉接器](#cli-轉接器)） |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
 | `src/server/login.ts` | 在沒有終端機的情況下執行 CLI 自己的登入（`CliLogin`）：它的輸出、其中的連結與代碼、貼給它的內容、取消與 15 分鐘的上限；設定頁裡各 CLI 的登入與分享用的 gh 登入（`GhLogin`）都是它 |
