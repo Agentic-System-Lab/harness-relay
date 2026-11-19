@@ -1266,7 +1266,7 @@ const writeAQuiz: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: '學生拿到滿分，批改也沒找到會讓人誤解的題目，所以沒有退回；每則回覆都列出它的檔案。',
+        say: '原卷得了 100 分，批改時仍發現四題有歧義。Claude 改題後，Grok 重答其中三題，Codex 複核通過。',
       },
       { at: 'files', kind: 'you', say: '在「檔案」打開 quiz.md，看學生拿到時的樣子。' },
       { at: 'zip', kind: 'you', say: '把資料夾下載成 ZIP 檔：考卷和解答一起帶走。' },

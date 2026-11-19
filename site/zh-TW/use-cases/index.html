@@ -191,7 +191,7 @@
             "description": "錄影：三位 agent 以接力根據課文出小考，一位像學生一樣試考、一位批改，再在「檔案」打開考卷",
             "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/write-a-quiz-zh-TW.webp",
             "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/write-a-quiz-zh-TW.mp4",
-            "uploadDate": "2026-11-18T01:08:32Z",
+            "uploadDate": "2026-11-19T19:45:43Z",
             "duration": "PT1M20S",
             "inLanguage": "zh-TW"
           },
@@ -1352,7 +1352,7 @@
           <div class="usecase-head">
             <p class="usecase-role">給老師</p>
             <h2 id="write-a-quiz-title"><span class="phrase">出一份小考，</span><span class="phrase">先讓學生試考</span></h2>
-            <p class="lead">請他們出題，也請他們試考：在接力模式下，一位寫題目和解答，下一位像學生一樣作答、不看解答，最後一位批改。學生可能誤解的題目會退回改寫（這次學生拿到滿分，沒有題目退回）。考卷和解答存在你的工作目錄裡；整個資料夾可以下載成一個 ZIP 檔。</p>
+            <p class="lead">請他們出題，也請他們試考：在接力模式下，一位寫題目和解答，下一位像學生一樣作答、不看解答，最後一位批改。這次學生原卷拿了滿分，批改時仍退回四道容易誤解的題目。出題者修訂後，學生重答其中三題，批改者再逐題複核。考卷和解答存在你的工作目錄裡；整個資料夾可以下載成一個 ZIP 檔。</p>
             <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">接力</span></li><li><span class="chip">可編輯</span></li></ul>
           </div>
           <div class="screening-grid usecase-screen">
@@ -1384,8 +1384,8 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter" type="button" data-t="9">
-                    <time>0:09</time>
+                  <button class="chapter" type="button" data-t="10">
+                    <time>0:10</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
                     <span class="say">附上課文，請他們出一份 10 題的小考，先讓「學生」試考。</span>
                     <span class="bar" aria-hidden="true"></span>
@@ -1415,14 +1415,25 @@
                   </button>
                 </li>
                 <li>
-                  <button class="chapter t-team" type="button" data-t="54">
-                    <time>0:54</time>
+                  <button class="chapter t-claude" type="button" data-t="41">
+                    <time>0:41</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">Q</span><span class="who">@QuizWriter</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">要執行權限之外的指令前先問你：你選擇允許。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="55">
+                    <time>0:55</time>
                     <span class="actor"
                       ><span class="stack" aria-hidden="true"
                         ><span class="av t-claude">Q</span><span class="av t-grok">S</span><span class="av t-codex">G</span></span
                       ><span class="who">三位成員</span></span
                     >
-                    <span class="say">學生拿到滿分，批改也沒找到會讓人誤解的題目，所以沒有退回；每則回覆都列出它的檔案。</span>
+                    <span class="say">原卷得了 100 分，批改時仍發現四題有歧義。Claude 改題後，Grok 重答其中三題，Codex 複核通過。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1450,7 +1461,7 @@
               <h3>你問的</h3>
               <blockquote>附件是我八年級班上的第五章。請用接力的方式出一份 10 題的小考：Claude Code 寫 quiz.md（4 題簡單、4 題中等、2 題難）和 answer-key.md；Grok 像學生一樣作答，不打開解答；Codex 批改 Grok 的答案，學生可能誤解的題目退回給 Claude Code 改寫。</blockquote>
               <ul class="usecase-links">
-                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/7258d54d9bec60124736fbdb9af72e3d">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 4 個檔案。</li>
+                <li><a href="https://agentic-system-lab.github.io/harness-relay/share/#cyyeh/6395c5131f2db68b05d8a68ce613184f">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 5 個檔案。</li>
                 <li>問題附上的檔案：<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/write-a-quiz/zh-TW/%E7%AC%AC%E4%BA%94%E7%AB%A0-%E5%85%89%E5%90%88%E4%BD%9C%E7%94%A8.md">第五章-光合作用.md</a>。</li>
               </ul>
             </div>
