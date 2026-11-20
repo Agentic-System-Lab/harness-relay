@@ -1,18 +1,46 @@
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import type { Conversation } from '../../src/shared/types';
+import type { Conversation, VoiceStatus } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
+
+/** A tone stands in for a microphone so the browser records without a physical device. */
+async function syntheticMicrophone(page: Page, status: VoiceStatus) {
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const ctx = new AudioContext();
+      const tone = ctx.createOscillator();
+      const dest = ctx.createMediaStreamDestination();
+      tone.connect(dest);
+      tone.start();
+      await ctx.resume();
+      return dest.stream;
+    };
+  });
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { ...status, ready: true } }));
+  await page.route('**/api/voice/prepare', (route) => route.fulfill({ json: { ok: true } }));
+}
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Daily check');
+    await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
     await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await expect(drawer).toBeVisible();
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    await drawer
+      .locator('input[type=file]')
+      .setInputFiles({ name: 'build.txt', mimeType: 'text/plain', buffer: Buffer.from('build instructions') });
+    await drawer.getByRole('button', { name: en.voice.start }).click();
+    await expect(drawer.getByRole('button', { name: en.voice.stop })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer.getByRole('button', { name: en.voice.start })).toBeVisible();
+    await expect(drawer.getByRole('textbox', { name: 'Message to send the team' })).toHaveValue('Check the build');
+    await expect(drawer.getByRole('button', { name: en.composer.removeFile('build.txt') })).toBeVisible();
     await drawer.getByRole('radio', { name: 'Every day' }).click();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     // Saved, it closes; the sidebar shows the chat has a schedule.
@@ -26,7 +54,92 @@ test.describe('schedules', () => {
     const sent = page.locator('.msg-user', { hasText: 'Check the build' });
     await expect(sent).toBeVisible();
     await expect(sent).toContainText('Automation');
-    await expect(await finishedReply(page, 'Codex')).toContainText('You said: “Check the build”.');
+    const attached = sent.getByRole('link', { name: /build.txt/ });
+    await expect(attached).toBeVisible();
+    await finishedReply(page, 'Codex');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: en.composer.removeFile('build.txt') }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    const download = await page.request.get(await attached.evaluate((link: HTMLAnchorElement) => link.href));
+    expect(await download.text()).toBe('build instructions');
+    // A slow attachment read from a dismissed draft cannot reinstate an automation deleted afterwards.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+    await page.evaluate(() => {
+      const read = FileReader.prototype.readAsDataURL;
+      FileReader.prototype.readAsDataURL = function (file) {
+        document.addEventListener(
+          'finish-test-read',
+          () => {
+            this.addEventListener('loadend', () => document.dispatchEvent(new Event('test-file-read')), { once: true });
+            read.call(this, file);
+          },
+          { once: true },
+        );
+        FileReader.prototype.readAsDataURL = read;
+      };
+    });
+    const updates: string[] = [];
+    page.on('request', (req) => {
+      if (req.method() === 'PUT' && req.url().endsWith('/schedule')) updates.push(req.url());
+    });
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer.getByRole('button', { name: en.schedule.remove })).toBeDisabled();
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await drawer.getByRole('button', { name: en.schedule.remove }).click();
+    await expect(drawer).toBeHidden();
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          document.addEventListener('test-file-read', () => done(), { once: true });
+          document.dispatchEvent(new Event('finish-test-read'));
+        }),
+    );
+    expect(updates).toEqual([]);
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveCount(0);
+  });
+
+  test('deleting a reopened automation waits for its pending attachment upload', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+    const open = page.locator('.chat-head').getByRole('button', { name: 'Automation' });
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await open.click();
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Pending upload');
+    await drawer.getByRole('radio', { name: 'Every day' }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await open.click();
+    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+
+    // Record the order in which the UI actually sends its mutations. Hold the upload before it reaches the server.
+    const calls = await page.evaluateHandle(() => {
+      const methods: string[] = [];
+      const fetch = window.fetch.bind(window);
+      window.fetch = async (url, options) => {
+        if (String(url).endsWith('/schedule') && options?.method) {
+          methods.push(options.method);
+          if (options.method === 'PUT') {
+            await new Promise<void>((resolve) => window.addEventListener('release-test-upload', () => resolve(), { once: true }));
+          }
+        }
+        return fetch(url, options);
+      };
+      return methods;
+    });
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => calls.jsonValue()).toEqual(['PUT']);
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await open.click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await drawer.getByRole('button', { name: en.schedule.remove }).click();
+    expect(await calls.jsonValue()).toEqual(['PUT']);
+    await page.evaluate(() => window.dispatchEvent(new Event('release-test-upload')));
+    await expect(drawer).toBeHidden();
+    expect(await calls.jsonValue()).toEqual(['PUT', 'DELETE']);
+    expect((await relay.api<Conversation>('/api/conversations/' + id)).schedule).toBeUndefined();
   });
 
   test('a schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached', async ({ page, relay }) => {
@@ -149,6 +262,13 @@ test.describe('schedules', () => {
     page,
     relay,
   }) => {
+    await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
+    await page.route('**/api/voice/transcribe', async (route) => {
+      const audio = Buffer.from(route.request().postDataJSON().audio, 'base64');
+      expect(audio.toString('ascii', 0, 4)).toBe('RIFF');
+      expect(audio.length).toBeGreaterThan(44);
+      await route.fulfill({ json: { text: 'merged pull requests' } });
+    });
     await page.getByRole('button', { name: 'New automation' }).click();
     const task = page.getByRole('textbox', { name: en.newSchedule.task });
     const when = page.getByRole('combobox', { name: en.schedule.repeat });
@@ -159,12 +279,27 @@ test.describe('schedules', () => {
     const create = page.getByRole('button', { name: en.newSchedule.create });
     await expect(create).toBeDisabled();
     await expect(goal).toBeVisible();
+    const attach = page.getByRole('button', { name: en.composer.attach });
+    const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     await task.press('Tab');
+    await expect(attach).toBeFocused();
+    await attach.press('Tab');
+    await expect(mic).toBeFocused();
+    await mic.press('Tab');
     await expect(goal).toBeFocused();
     await goal.press('Tab');
     await expect(when).toBeFocused();
     await expect(title).toBeHidden();
-    await task.fill('Summarize merged pull requests');
+    await page
+      .locator('.first-input input[type=file]')
+      .setInputFiles({ name: 'scope.txt', mimeType: 'text/plain', buffer: Buffer.from('main') });
+    await expect(create).toBeDisabled();
+    await task.fill('Summarize');
+    await mic.click();
+    const stop = page.getByRole('button', { name: en.voice.stop });
+    await expect(stop).toHaveText(/0:0[1-9]/);
+    await stop.click();
+    await expect(task).toHaveValue('Summarize merged pull requests');
     await goal.fill('All changes reviewed');
     await when.selectOption('weekly');
     await page.getByLabel(en.schedule.time, { exact: true }).fill('11:15');
@@ -176,6 +311,7 @@ test.describe('schedules', () => {
     await page.getByRole('link', { name: en.newChat.changeLead }).click();
     await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
     await expect(task).toHaveValue('Summarize merged pull requests');
+    await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toBeVisible();
     await expect(when).toHaveValue('weekly');
     await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
     await create.click();
@@ -187,6 +323,7 @@ test.describe('schedules', () => {
       schedule: {
         text: 'Summarize merged pull requests',
         goal: 'All changes reviewed',
+        attachments: [{ type: 'attachment', name: 'scope.txt', mimeType: 'text/plain', size: 4 }],
         repeat: { kind: 'weekly', time: '11:15' },
         newChat: true,
       },
@@ -194,6 +331,7 @@ test.describe('schedules', () => {
     expect(conv.messages.filter((m) => m.author.kind === 'user')).toHaveLength(0);
     await page.getByRole('button', { name: 'New automation' }).click();
     await expect(task).toHaveValue('');
+    await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toHaveCount(0);
     await expect(when).toHaveValue('manual');
     await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
   });

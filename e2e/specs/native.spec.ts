@@ -134,8 +134,7 @@ test.describe("Grok's trust in a folder", () => {
     relay,
   }) => {
     ownRepository(relay);
-    await startChat(page);
-    await send(page, 'Look at this project e2e:team=grok');
+    await startChat(page, 'Look at this project e2e:team=grok');
     const card = awaitingPlan(page);
     await expect(card.locator('.grok-trust')).toContainText(`Grok does not trust ${relay.workDir}`);
     acceptNextDialog(page);
@@ -151,8 +150,7 @@ test.describe("Grok's trust in a folder", () => {
 
   test('the team starts without trusting the folder when the user declines, and nothing is recorded', async ({ page, relay }) => {
     ownRepository(relay);
-    await startChat(page);
-    await send(page, 'Look at this project e2e:team=grok');
+    await startChat(page, 'Look at this project e2e:team=grok');
     const card = awaitingPlan(page);
     await expect(card.locator('.grok-trust')).toContainText('Grok does not trust');
     // The confirmation dismissed: nothing is written, and the note stays.

@@ -113,3 +113,26 @@ test.describe("voice input's install", () => {
     await expect(page.locator('.voice-progress')).toHaveCount(0);
   });
 });
+
+test('leaving New chat releases a microphone granted after navigation', async ({ page }) => {
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { ready: true } }));
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  const mic = page.getByRole('button', { name: 'Voice input', exact: true });
+  await page.evaluate(() => {
+    const ctx = new AudioContext();
+    const stream = ctx.createMediaStreamDestination().stream;
+    navigator.mediaDevices.getUserMedia = () =>
+      new Promise((resolve) => {
+        document.addEventListener('grant-test-microphone', () => resolve(stream), { once: true });
+        const track = stream.getAudioTracks()[0]!;
+        Object.defineProperty(window, 'testMicState', { get: () => track.readyState });
+      });
+  });
+  await mic.click();
+  const trackState = () => page.evaluate(() => Reflect.get(window, 'testMicState'));
+  await expect.poll(trackState).toBe('live');
+  await page.getByRole('link', { name: 'Change the lead agent' }).click();
+  await expect(mic).toHaveCount(0);
+  await page.evaluate(() => document.dispatchEvent(new Event('grant-test-microphone')));
+  await expect.poll(trackState).toBe('ended');
+});

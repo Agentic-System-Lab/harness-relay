@@ -15,6 +15,7 @@ import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { hashFor } from '../route';
+import { TaskInput } from './TaskInput';
 import { revealChosen } from './CliPicker';
 import {
   browserTimeZone,
@@ -43,6 +44,7 @@ export function ScheduleForm({
   team,
   creation,
   children,
+  disabled,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -55,6 +57,7 @@ export function ScheduleForm({
   /** New automation only: Create a webhook too, under optional run settings (the drawer adds one to a saved automation). */
   creation?: { withHook: boolean; onHook: (on: boolean) => void };
   children?: ReactNode;
+  disabled?: boolean;
 }) {
   const { t, lang } = useI18n();
   const w = t.schedule.watch;
@@ -196,14 +199,22 @@ export function ScheduleForm({
         <label className={creation ? 'first-question' : undefined} htmlFor={messageId}>
           {creation ? t.newSchedule.task : t.schedule.message}
         </label>
-        <textarea
+        <TaskInput
           className={creation ? 'task-input' : undefined}
           id={messageId}
-          value={draft.text}
-          rows={4}
+          text={draft.text}
+          onText={(text) => onEdit({ text })}
+          files={draft.files}
+          onFiles={(files) => onEdit({ files })}
+          saved={
+            saved?.attachments && {
+              files: saved.attachments.filter((f) => !draft.removeAttachments.includes(f.id)),
+              remove: (id) => onEdit({ removeAttachments: [...draft.removeAttachments, id] }),
+            }
+          }
+          disabled={disabled}
           maxLength={SCHEDULE_LIMITS.maxText}
           placeholder={creation ? t.newSchedule.example : t.schedule.messagePlaceholder}
-          onChange={(e) => onEdit({ text: e.target.value })}
         />
         {(!creation || draft.text.includes('@')) && (
           <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>

@@ -1,7 +1,17 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { InboxItem } from '../../src/shared/types';
-import { acceptNextDialog, awaitingPlan, chatId, confirmTeam, finishedReply, homePage, send, settled, startChat } from '../support/app';
+import {
+  acceptNextDialog,
+  awaitingPlan,
+  confirmTeam,
+  finishedReply,
+  homePage,
+  openTeamChat,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 
 /*
  * Settings → Notifications, and what the page does when agents finish or need the user. The browser's
@@ -127,11 +137,9 @@ test.describe('notifications and sound', () => {
     relay,
   }) => {
     await recordAlerts(page, { prefs: ON, allowed: true });
-    await startChat(page);
-    const id = chatId(page);
     await setFocused(page, false);
 
-    await send(page, 'Tell me when you are done');
+    const id = await startChat(page, 'Tell me when you are done');
     await expect(awaitingPlan(page)).toBeVisible();
     await expect.poll(() => bodies(page), { timeout: 15_000 }).toContain("The lead agent's team is ready for you to confirm");
     await confirmTeam(page);
@@ -156,18 +164,15 @@ test.describe('notifications and sound', () => {
 
   test("an agent's question shows a notification with what it asked", async ({ page }) => {
     await recordAlerts(page, { prefs: { ...ON, sound: false }, allowed: true });
-    await startChat(page, { autoConfirm: true });
     await setFocused(page, false);
-    await send(page, 'Plan the release e2e:ask');
+    await startChat(page, 'Plan the release e2e:ask', { autoConfirm: true });
     await expect.poll(() => bodies(page), { timeout: 15_000 }).toEqual([expect.stringMatching(/^Claude asked you something\n/)]);
     expect((await recorded(page)).tones).toBe(0);
   });
 
   test('says nothing of the chat the user is looking at, and only plays the sound for another one', async ({ page, relay }) => {
     await recordAlerts(page, { prefs: ON, allowed: true });
-    await startChat(page, { autoConfirm: true });
-    const id = chatId(page);
-    await send(page, 'First question');
+    const id = await startChat(page, 'First question', { autoConfirm: true });
     await finishedReply(page, 'Claude');
     await settled(relay, id);
     await polled(page);
@@ -206,8 +211,9 @@ test.describe('the notification inbox', () => {
   }) => {
     // Notifications and sound off: the inbox keeps them all the same. The window behind another, so the chat on screen reads nothing.
     await recordAlerts(page);
-    await startChat(page);
-    const id = chatId(page);
+    // A saved auto-team chat with no messages yet can still be used.
+    const id = await openTeamChat(page, relay, [], { autoTeam: true }, '');
+    await expect(page.locator('.team-intro')).toHaveCount(0);
     await setFocused(page, false);
     await expect(bell(page)).toHaveAccessibleName('Notifications');
     await expect(bell(page).locator('.inbox-badge')).toHaveCount(0);
@@ -268,9 +274,7 @@ test.describe('the notification inbox', () => {
     page,
     relay,
   }) => {
-    await startChat(page, { autoConfirm: true });
-    const first = chatId(page);
-    await send(page, 'First question');
+    const first = await startChat(page, 'First question', { autoConfirm: true });
     await finishedReply(page, 'Claude');
     await settled(relay, first);
     // Kept, and read: the user was looking.

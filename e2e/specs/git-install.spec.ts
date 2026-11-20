@@ -25,7 +25,9 @@ test('offers Git only when an edit action needs it, and preserves the chat form 
   await page.locator('.chat-options > summary').click();
   const dialog = page.getByRole('dialog', { name: 'Git is required' });
   const title = page.getByPlaceholder(/Conversation title/);
-  const start = page.getByRole('button', { name: 'Start chat →' });
+  const question = page.getByLabel('What would you like to accomplish?');
+  await question.fill('Review this project');
+  const start = page.getByRole('button', { name: 'Send question' });
   await expect(dialog).toHaveCount(0);
   await title.fill('Keep this title');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -40,6 +42,7 @@ test('offers Git only when an edit action needs it, and preserves the chat form 
   await expect(dialog).toContainText('Git is ready.');
   await dialog.locator('footer').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(title).toHaveValue('Keep this title');
+  await expect(question).toHaveValue('Review this project');
   expect(installs).toBe(1);
   expect(attempts).toBe(2);
   await start.click();
@@ -58,7 +61,8 @@ test('shows a manual installation command and can check again', async ({ page })
     route.fulfill({ json: ready ? { available: true } : { available: false, command: 'sudo apt-get install -y git' } }),
   );
   await openNewChat(page);
-  await page.getByRole('button', { name: 'Start chat →' }).click();
+  await page.getByLabel('What would you like to accomplish?').fill('Review this project');
+  await page.getByRole('button', { name: 'Send question' }).click();
   const dialog = page.getByRole('dialog', { name: 'Git is required' });
   await expect(dialog.getByText('sudo apt-get install -y git')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Install Git', exact: true })).toHaveCount(0);

@@ -2,7 +2,6 @@ import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import {
-  askAndConfirm,
   awaitingPlan,
   finishedReply,
   heightWithoutAddCard,
@@ -12,11 +11,13 @@ import {
   send,
   settled,
   startChat,
+  confirmTeam,
 } from '../support/app';
 
 test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await expect(page.getByRole('heading', { name: 'The team is ready' })).toBeVisible();
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.getByRole('textbox', { name: 'Ask the lead agent' }).fill('Add a second opinion e2e:add=grok e2e:slowrevise=2');
@@ -60,8 +61,7 @@ test.describe("changing a chat's team", () => {
   });
 
   test("when the lead agent's answer cannot be read, a template stands in", async ({ page }) => {
-    await startChat(page);
-    await send(page, 'Pick something e2e:badplan e2e:slow=2@claude');
+    await startChat(page, 'Pick something e2e:badplan e2e:slow=2@claude');
     const card = awaitingPlan(page);
     await expect(card).toContainText('Default team for this task · General-question panel');
     await expect(card.getByText(/was unavailable for this design/)).toHaveCount(0);
@@ -81,8 +81,8 @@ test.describe("changing a chat's team", () => {
   });
 
   test('a team proposed for a new question can be declined, and the current team answers', async ({ page }) => {
-    await startChat(page);
-    await askAndConfirm(page, 'First');
+    await startChat(page, 'First');
+    await confirmTeam(page);
     await finishedReply(page, 'Claude');
     await send(page, 'Second e2e:team=codex');
     const card = awaitingPlan(page);
@@ -98,8 +98,7 @@ test.describe("changing a chat's team", () => {
     page,
     relay,
   }) => {
-    const id = await startChat(page, { autoConfirm: true, leadReview: true });
-    await send(page, 'Take your time e2e:slow=4 e2e:slowreview');
+    const id = await startChat(page, 'Take your time e2e:slow=4 e2e:slowreview', { autoConfirm: true, leadReview: true });
     // The design's card (a review card is one too).
     const card = page.locator('.plan-card:not(.review-card)').last();
     await expect(card).toContainText('Used without asking');

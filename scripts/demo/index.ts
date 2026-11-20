@@ -4,7 +4,7 @@
  *
  *   npm run demo                         record both languages, cut them, publish them
  *   npm run demo -- record --lang en     only one step, or one language
- *   npm run demo -- record --dry         check the UI flow up to the open chat, without agents
+ *   npm run demo -- record --dry         check the UI flow up to sending the first question, without agents
  *
  * Steps (all three when none is named):
  *   record   build the UI, start Harness Relay on its own port and data folder, run the demo in a
@@ -104,7 +104,7 @@ async function recordOne(o: Options, lang: DemoLang, port: number): Promise<void
   try {
     await checkProviders(server.base, log);
     const frames = await record({ lang, outDir: dir, port, dry: o.dry, waitLimitMin: o.wait }, server.base, log);
-    log(o.dry ? `dry run done: ${frames} frames, the open chat in ${join(dir, 'dry.png')}` : `recorded ${frames} frames in ${dir}`);
+    log(o.dry ? `dry run done: ${frames} frames, the new chat form in ${join(dir, 'dry.png')}` : `recorded ${frames} frames in ${dir}`);
   } finally {
     await server.stop();
   }

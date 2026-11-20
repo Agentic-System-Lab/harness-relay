@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { LEAD_REVIEW, acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
+import { LEAD_REVIEW, acceptNextDialog, chatId, finishedReply, openTeamChat, send, submitFirstQuestion } from '../support/app';
 import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
@@ -71,12 +71,10 @@ test.describe('several working directories', () => {
     await page.getByRole('radio', { name: 'Start answering right away' }).check();
     // No lead review here (the page ticks it in every new chat): these tests are about the folders.
     await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
-    await page.getByRole('button', { name: 'Start chat →' }).click();
-    await page.waitForURL(/#\/c\//);
+    await submitFirstQuestion(page, 'Note it in both e2e:write=one.txt e2e:writeother=two.txt');
     const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);
     expect([conv.settings.cwd, ...(conv.settings.extraCwds ?? [])]).toEqual([relay.workDir, second]);
 
-    await send(page, 'Note it in both e2e:write=one.txt e2e:writeother=two.txt');
     await expect(await finishedReply(page, 'Claude')).toContainText('I wrote one.txt. I wrote two.txt.');
     expect(existsSync(join(relay.workDir, 'one.txt'))).toBe(true);
     expect(existsSync(join(second, 'two.txt'))).toBe(true);
@@ -203,8 +201,7 @@ test.describe('the folder dialog', () => {
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await page.getByRole('radio', { name: 'Start answering right away' }).check();
       await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
-      await page.getByRole('button', { name: 'Start chat →' }).click();
-      await page.waitForURL(/#\/c\//);
+      await submitFirstQuestion(page, 'Check the three folders');
       const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);
       expect([conv.settings.cwd, ...(conv.settings.extraCwds ?? [])]).toEqual([relay.workDir, second, third]);
     });

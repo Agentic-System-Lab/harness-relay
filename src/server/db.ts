@@ -512,6 +512,15 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX task_requests_conversation ON task_requests(conversation_id);
   `,
+  // 38: the original files an automation sends on each run, separate from any message's working copies.
+  `
+  CREATE TABLE schedule_attachments (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES schedules(conversation_id) ON DELETE CASCADE,
+    name TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL
+  );
+  CREATE INDEX schedule_files_by_conversation ON schedule_attachments(conversation_id);
+  `,
 ];
 
 /**

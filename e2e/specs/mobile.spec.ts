@@ -753,7 +753,7 @@ test.describe('on a phone', () => {
       // Only the hash changes from one language to the next: load the page again in the new one.
       await page.reload();
       await page.setViewportSize({ width: 250, height: 640 });
-      const library = page.locator('.first-task > .template-library');
+      const library = page.locator('.creation-fields > .template-library');
       await library.locator('summary').tap();
       await expect(library.locator('.preset-card').first()).toBeVisible();
       expect(await sideways(), `${lang}, expanded team templates`).toEqual([]);

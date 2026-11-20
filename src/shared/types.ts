@@ -1909,6 +1909,8 @@ export interface NewScheduleHook {
  */
 export interface ConversationSchedule {
   text: string;
+  /** Files sent with every run. Only their metadata goes to the browser. */
+  attachments?: Extract<MessagePart, { type: 'attachment' }>[];
   repeat: ScheduleRepeat;
   /** IANA time zone the times are in (the browser's when it was saved). */
   timeZone: string;

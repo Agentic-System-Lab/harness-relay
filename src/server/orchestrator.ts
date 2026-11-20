@@ -98,6 +98,7 @@ import {
   imageInputs,
   removeAttachments,
   saveAttachments,
+  writeAttachments,
   type AttachmentPart,
   type AttachmentUpload,
 } from './attachments';
@@ -1138,7 +1139,7 @@ export class Orchestrator {
       if (locked) return { result: 'busy', reason: locked };
       // An earlier scheduled message left waiting goes out now instead; a webhook's body still goes, in a message of its own.
       const own = !waiting || opts.event !== undefined;
-      await this.start(conv, own ? s.text : '', {
+      await this.startScheduledMessage(conv, conv.id, own ? s.text : '', {
         queue: true,
         scheduledQueueOnly: Boolean(checksHold(conv.messages)),
         keepTeam: true,
@@ -1152,6 +1153,17 @@ export class Orchestrator {
     } catch (err) {
       if (err instanceof HttpError && err.status === 404) throw err;
       return sendFailure(err);
+    }
+  }
+
+  private async startScheduledMessage(conv: Conversation, sourceId: string, text: string, options: StartOptions): Promise<void> {
+    // An older queued message already owns its files; only a newly posted one needs copies.
+    const files = options.scheduled ? writeAttachments(conv.id, this.store.scheduleFileData(sourceId)) : [];
+    try {
+      await this.start(conv, text, { ...options, files });
+    } catch (err) {
+      removeAttachments(conv.id, files);
+      throw err;
     }
   }
 
@@ -1195,7 +1207,7 @@ export class Orchestrator {
       // Where the schedule's conversation shows: its family's group.
       this.store.moveToGroup(id, this.store.familyGroupOf(conv.id));
       this.systemNote(chat, t().scheduleChatNote(name));
-      await this.start(chat, s.text, {
+      await this.startScheduledMessage(chat, conv.id, s.text, {
         keepTeam: true,
         scheduled: true,
         scheduleSource: conv.id,
@@ -1391,7 +1403,7 @@ export class Orchestrator {
   ): void {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
-    const files = saveAttachments(conv.id, uploads);
+    const files = scheduled ? writeAttachments(conv.id, this.store.scheduleFileData(conv.id)) : saveAttachments(conv.id, uploads);
     // Marked only when it joins a team's discussion: not a question written while the lead agent
     // designs the team, its design waits for confirmation, or the lead reviews the team's replies.
     const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id) && !this.reviewing.has(conv.id);
@@ -2564,11 +2576,14 @@ export class Orchestrator {
     // stopped design leaves its question standing). What was said before is its context.
     const since = questionStart(conv.messages);
     const asked = conv.messages.slice(since).filter((m) => m.author.kind === 'user');
-    const fileNames = asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
+    const fileNames =
+      run.designFor !== undefined
+        ? (conv.schedule?.attachments ?? []).map((p) => p.name)
+        : asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
     // A design for the schedule is for its message, which nobody posted.
     const question =
-      run.designFor ??
-      asked.map(textOf).filter(Boolean).join('\n\n') + (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
+      (run.designFor ?? asked.map(textOf).filter(Boolean).join('\n\n')) +
+      (fileNames.length ? `\n\n(Attached files: ${fileNames.join(', ')})` : '');
     const current: PlanConversation['current'] = conv.agents.length
       ? { agents: conv.agents, settings: { mode: conv.settings.mode, rounds: conv.settings.rounds, maxHops: conv.settings.maxHops } }
       : undefined;

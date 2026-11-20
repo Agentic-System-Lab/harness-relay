@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDERS, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, askAndConfirm, chatId, finishedReply, homePage, openTeamChat, send, settled, startChat } from '../support/app';
+import { acceptNextDialog, chatId, finishedReply, homePage, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
 import type { RelayServer } from '../support/relay';
 import { REPO, REPO_URL } from '../../src/web/star';
 
@@ -39,8 +39,7 @@ test.describe('the sidebar', () => {
     const group = page.locator('.conv-group', { has: page.locator('.group-name', { hasText: 'Billing' }) });
     await expect(group).toBeVisible();
 
-    await startChat(page, { autoConfirm: true });
-    await send(page, 'The Billing export drops the last row');
+    await startChat(page, 'The Billing export drops the last row', { autoConfirm: true });
     await finishedReply(page, 'Claude');
     await expect(group.locator('.conv-link', { hasText: 'The Billing export drops the last row' })).toBeVisible();
     await settled(relay, chatId(page));
@@ -111,8 +110,8 @@ test.describe('the sidebar', () => {
   });
 
   test('a conversation started in the UI keeps its title from the first question', async ({ page }) => {
-    await startChat(page, { title: 'My named chat' });
-    await askAndConfirm(page, 'Anything');
+    await startChat(page, 'Anything', { title: 'My named chat' });
+    await confirmTeam(page);
     await finishedReply(page, 'Claude');
     await expect(page.locator('.chat-title')).toHaveText('My named chat');
     await expect(page.locator('.conv-link', { hasText: 'My named chat' })).toBeVisible();

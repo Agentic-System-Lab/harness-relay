@@ -4,7 +4,7 @@ import { inflateRawSync } from 'node:zlib';
 import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, askAndConfirm, finishedReply, openTeamChat, send, startChat } from '../support/app';
+import { acceptNextDialog, finishedReply, openTeamChat, send, startChat, confirmTeam } from '../support/app';
 import { CLIS, eachCli, eachHalf, endsTurnNote, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
@@ -43,8 +43,8 @@ async function downloadZip(page: Page, button: Locator): Promise<{ download: Dow
 
 test.describe('files and changes', () => {
   test('in edit mode an agent changes files, and the chat shows what changed', async ({ page, relay }) => {
-    await startChat(page, { permission: 'edit' });
-    await askAndConfirm(page, 'Write the plan down e2e:write=notes/plan.md');
+    await startChat(page, 'Write the plan down e2e:write=notes/plan.md', { permission: 'edit' });
+    await confirmTeam(page);
     const reply = await finishedReply(page, 'Claude');
     await expect(reply).toContainText('I wrote notes/plan.md.');
 

@@ -31,14 +31,24 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
   cb.current = { onText, onError };
   const mode = voiceMode(status, canRecord());
 
-  useEffect(() => () => recorder.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      recorder.current?.cancel();
+      recorder.current = null;
+    },
+    [],
+  );
 
   const start = async () => {
     setRec('starting');
     const r = new Recorder();
+    recorder.current = r;
     try {
       await r.start();
     } catch (e) {
+      r.cancel();
+      if (recorder.current !== r) return;
+      recorder.current = null;
       setRec('idle');
       const err = e as DOMException;
       cb.current.onError(
@@ -46,7 +56,11 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
       );
       return;
     }
-    recorder.current = r;
+    // The user may have left the form while the browser was asking for the microphone.
+    if (recorder.current !== r) {
+      r.cancel();
+      return;
+    }
     startedAt.current = Date.now();
     setSeconds(0);
     setRec('recording');
@@ -102,14 +116,16 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
     const release = holdDialogs();
     const below = dialogsOpen();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing || dialogsOpen() > below) return;
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || dialogsOpen() > below) return;
+      // Cancel before an enclosing automation drawer handles Escape and discards its draft.
+      e.stopPropagation();
       e.preventDefault();
       cancelRef.current();
     };
-    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       clearInterval(timer);
-      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       release();
     };
   }, [rec, t]);

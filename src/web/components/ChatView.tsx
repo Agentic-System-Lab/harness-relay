@@ -766,7 +766,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         }}
       >
         <div className="messages-inner">
-          {conv.messages.length === 0 && <TeamIntro conv={conv} leadText={leadText} />}
+          {conv.messages.length === 0 && conv.agents.length > 0 && <TeamIntro conv={conv} />}
           {conv.messages.map((m, i) => {
             const item = (
               <MessageItem
@@ -1028,16 +1028,8 @@ function BranchFrom({
   );
 }
 
-function TeamIntro({ conv, leadText }: { conv: Conversation; leadText: string }) {
+function TeamIntro({ conv }: { conv: Conversation }) {
   const t = useT();
-  if (conv.settings.autoTeam && conv.agents.length === 0) {
-    return (
-      <div className="team-intro">
-        <h2>{t.chat.autoIntroTitle}</h2>
-        <p className="muted">{t.chat.autoIntro(leadText, !conv.settings.autoConfirm)}</p>
-      </div>
-    );
-  }
   return (
     <div className="team-intro">
       <h2>{t.chat.teamReady}</h2>

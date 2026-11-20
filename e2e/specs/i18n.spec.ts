@@ -22,12 +22,10 @@ test.describe('in Traditional Chinese', () => {
     await page.locator('.chat-options > summary').click();
     await page.getByRole('checkbox', { name: '團隊回答後，請首席 agent 審閱回覆' }).uncheck();
 
-    await page.getByRole('button', { name: '開始對話 →' }).click();
-    await page.waitForURL(/#\/c\//);
-    const box = page.locator('.composer-row textarea');
-    await expect(box).toHaveAttribute('placeholder', '提出你的問題，首席 agent 會先為它組隊…');
-    await box.fill('這個專案在做什麼？');
-    await box.press('Enter');
+    const submit = page.getByRole('button', { name: '送出問題' });
+    await expect(submit).toBeDisabled();
+    await page.getByRole('textbox', { name: '你想完成什麼？' }).fill('這個專案在做什麼？');
+    await submit.click();
     const plan = page.locator('.plan-card.awaiting');
     await expect(plan).toContainText('自訂團隊「E2E team」');
     await plan.getByRole('button', { name: '確認團隊' }).click();

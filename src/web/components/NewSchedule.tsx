@@ -14,9 +14,11 @@ import { useLimits } from '../limits';
 import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
+import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
 import { settingsHref } from '../route';
+import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
@@ -93,13 +95,14 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       // The drawer that shows a webhook's token, loaded before the token is made: in a page open across an
       // update it cannot be, and the page reloads for it (`loadPart`), which would lose a token made first.
       if (withHook) await loadPart(() => import('./ScheduleDrawer'));
+      const attachments = await readUploads(draft.files, t.composer.readFailed);
       const { newHook, ...conv } = await orCreateCwd(
         (createCwd) =>
           api.createSchedule({
             title: title.trim() || undefined,
             settings: team.settings,
             createCwd,
-            schedule: toUpdate(draft),
+            schedule: { ...toUpdate(draft), ...(attachments.length ? { attachments } : {}) },
             ...(withHook ? { hook: true } : {}),
           }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
@@ -115,52 +118,41 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
   };
 
   return (
-    <div className="page new-chat-page">
-      <div className="scroll new-chat-body">
-        <div className="page-inner">
-          <header className="page-head">
-            <h1>{t.newSchedule.title}</h1>
-            <p className="muted">
-              {t.newSchedule.intro(leadLabel(lead), automatic)} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
-            </p>
-          </header>
-          <fieldset className="first-task automation-task" disabled={busy} aria-label={t.newSchedule.title}>
-            <ScheduleForm
-              draft={draft}
-              onEdit={edit}
-              settings={team.settings}
-              creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
-            >
-              <CreationOptions
-                team={team}
-                onTeam={(next) => onDraft({ ...current, team: next })}
-                providers={providers}
-                catalog={catalog}
-                title={title}
-                onTitle={(next) => onDraft({ ...current, title: next })}
-                titlePlaceholder={t.newSchedule.titlePlaceholder}
-                schedule={schedule}
-              />
-            </ScheduleForm>
-            <TemplateLibrary providers={providers} catalog={catalog} />
-            <div className="start-bar first-task-actions">
-              <CreationTeamOptions
-                team={team}
-                onTeam={(next) => onDraft({ ...current, team: next })}
-                automaticLabel={t.newSchedule.useTeam}
-              />
-              <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
-                {busy ? t.newSchedule.creating : t.newSchedule.create}
-              </button>
-            </div>
-            {(error || (savedDraft && problems.length > 0)) && (
-              <p role="alert" className="error-line">
-                {error || problems[0]}
-              </p>
-            )}
-          </fieldset>
-        </div>
-      </div>
-    </div>
+    <CreationPage
+      title={t.newSchedule.title}
+      intro={
+        <>
+          {t.newSchedule.intro(leadLabel(lead), automatic)} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
+        </>
+      }
+      busy={busy}
+      error={error}
+      problem={savedDraft ? problems[0] : undefined}
+      automation
+      onSubmit={create}
+      submitLabel={busy ? t.newSchedule.creating : t.newSchedule.create}
+      disabled={problems.length > 0}
+    >
+      <ScheduleForm
+        draft={draft}
+        disabled={busy}
+        onEdit={edit}
+        settings={team.settings}
+        creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
+      >
+        <CreationOptions
+          team={team}
+          onTeam={(next) => onDraft({ ...current, team: next })}
+          providers={providers}
+          catalog={catalog}
+          title={title}
+          onTitle={(next) => onDraft({ ...current, title: next })}
+          titlePlaceholder={t.newSchedule.titlePlaceholder}
+          schedule={schedule}
+        />
+      </ScheduleForm>
+      <TemplateLibrary providers={providers} catalog={catalog} />
+      <CreationTeamOptions team={team} onTeam={(next) => onDraft({ ...current, team: next })} automaticLabel={t.newSchedule.useTeam} />
+    </CreationPage>
   );
 }

@@ -55,8 +55,7 @@ test.describe('lead review', () => {
     page,
     relay,
   }) => {
-    const id = await startChat(page, { autoConfirm: true, leadReview: true });
-    await send(page, 'Check my plan');
+    const id = await startChat(page, 'Check my plan', { autoConfirm: true, leadReview: true });
     const reply = await finishedReply(page, 'Claude');
     const card = reviewCards(page).last();
     await expect(card).toContainText("Lead agent's review");
@@ -110,9 +109,9 @@ test.describe('lead review', () => {
     expect(relay.fakeLog().some((e) => e.prompt?.includes('<reply n="1" from="@Claude (Claude Code)">\nHello from Claude'))).toBe(true);
 
     // Every new chat starts with it on, whatever the last one had.
-    await startChat(page, { leadReview: false });
+    await startChat(page, 'Check the draft', { leadReview: false });
     await openNewChat(page);
-    await expect(page.locator('.first-task-actions').getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(page.locator('.creation-fields').getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
   });
 
   test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({
@@ -248,8 +247,7 @@ test.describe('lead review', () => {
     page,
     relay,
   }) => {
-    const id = await startChat(page, { leadReview: false });
-    await send(page, 'Build and check it');
+    const id = await startChat(page, 'Build and check it', { leadReview: false });
     const card = awaitingPlan(page);
     const box = card.getByRole('checkbox', { name: LEAD_REVIEW });
     await expect(box).not.toBeChecked();
@@ -295,7 +293,7 @@ test.describe('lead review', () => {
     const create = async (review: boolean) => {
       await page.getByRole('button', { name: 'New automation' }).click();
       await page.getByRole('textbox', { name: 'What should the team do?' }).fill('Check the build');
-      const box = page.locator('.first-task-actions').getByRole('checkbox', { name: LEAD_REVIEW });
+      const box = page.locator('.creation-fields').getByRole('checkbox', { name: LEAD_REVIEW });
       await expect(box).toBeChecked();
       await box.setChecked(review);
       // The new chats it opens each time copy its setting, as they copy its other settings.
@@ -319,8 +317,7 @@ test.describe('lead review', () => {
     page,
     relay,
   }) => {
-    const id = await startChat(page, { autoConfirm: true, leadReview: true, title: 'Reviewed chat' });
-    await send(page, 'Check my plan e2e:long');
+    const id = await startChat(page, 'Check my plan e2e:long', { autoConfirm: true, leadReview: true, title: 'Reviewed chat' });
     await finishedReply(page, 'Claude');
     await expect(reviewCards(page)).toContainText('Suggested next steps');
     await expect(page.locator('.plan-review')).toHaveCount(1);
@@ -440,8 +437,7 @@ test.describe('lead review', () => {
   });
 
   test("the design card's box goes back when the server refuses the change, and says why", async ({ page }) => {
-    await startChat(page);
-    await send(page, 'Build it');
+    await startChat(page, 'Build it');
     const box = awaitingPlan(page).getByRole('checkbox', { name: LEAD_REVIEW });
     await expect(box).not.toBeChecked();
     await page.route('**/lead-review', (route) =>

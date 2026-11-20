@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 39 個 spec 檔、513 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 39 個 spec 檔、517 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,7 +36,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
-| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 8 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 10 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
@@ -57,7 +57,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 11 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
+| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
@@ -67,7 +67,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [方案用量](#方案用量) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [使用者說明 → 方案用量](../docs/user-guide.zh-TW.md#方案用量)、[架構 → Provider](../docs/architecture.zh-TW.md#provider狀態登入與模型) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
-| [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
+| [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 3 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 10 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](../docs/user-guide.zh-TW.md#通知收件匣)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
@@ -103,7 +103,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 從收合側欄的首頁提出第一個問題 | 前往首席 agent 設定再返回後，問題、標題、資料夾、權限與組隊確認方式都保留。問題只送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
+| 新對話與新自動任務的固定操作區（兩個案例） | 長說明在文字框內捲動。內容少時外框隨內容縮短，送出按鈕固定在框內底部。有無捲動箭頭時，按鈕列的上下留白都相等。組隊選項與首席審閱隨表單捲動，點箭頭會往下捲。最後一個欄位完全可見時箭頭隱藏，包含下方只剩留白的情況，偏好減少動態效果時箭頭靜止。 |
+| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。前往首席 agent 設定再返回後，問題、附件、標題、資料夾、權限與組隊確認方式都保留。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
 | 新對話與新自動任務的建立請求較慢時（各測一次） | 從設定返回後，失敗訊息、草稿與表單上的審閱選擇都保留。重試成功時仍停留在設定，在手機寬度也能從該頁直接開啟剛建立的對話或自動任務、取得一次性 webhook 權杖。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
@@ -117,7 +118,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 團隊卡片寫出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
+| 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 從新對話送出問題會直接看到團隊卡片，列出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
 | 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動），已展開的進度也維持展開；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
 | 不詢問直接採用首席 agent 組的團隊 | Claude Code | 卡片寫著**已直接採用**（Used without asking），團隊不必等待就回答。 |
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
@@ -149,7 +150,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent；它工作時（`e2e:slowrevise=2`），app 的載入標示排在它說的話前面，在同一行裡：14px，在文字之前並對齊文字的中線；之後抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
+| 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 已有成員的空白對話會顯示團隊介紹。在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent；它工作時（`e2e:slowrevise=2`），app 的載入標示排在它說的話前面，在同一行裡：14px，在文字之前並對齊文字的中線；之後抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
 | 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 卡片顯示改用的預設團隊，原始回應收在「技術細節」。確認到完成期間會顯示任務狀態，提出新問題後，舊卡片的即時狀態會消失。 |
 | 拒絕為新問題提議的團隊 | Claude Code、Codex | 按**不採用，沿用目前的團隊**（No, keep the current team）：卡片顯示沒有採用，由目前的團隊回答，提議的成員不回答。 |
 | agent 工作時（團隊回答中、首席 agent 審閱中）團隊設計卡片的「調整團隊」不能按，調整團隊後卡片顯示調整後的團隊 | Claude Code | 回覆緩慢串流時，卡片的**調整團隊**（Adjust team）是停用的，提示說明原因，審閱很慢時也一樣；按 **■ 停止**停止審閱後可以按。在它開啟的抽屜中為成員改名並儲存：卡片列出 **@Ada** 而不是 **@Claude**，寫著*你調整過這個團隊*（You adjusted this team），伺服器保存的設計（`adjustedAt`）與重新載入後的卡片也是。 |
@@ -406,7 +407,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為自動任務的訊息，成員回答。 |
+| 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為自動任務的訊息與附件，成員回答。按 Esc 取消錄音時，抽屜保留已編輯的訊息和附件。讀取附件時關閉抽屜會取消這次編輯，稍後刪除的任務不會重新出現。從任務移除附件後，仍可從先前的訊息下載原本的內容。 |
+| 上傳附件時重開自動任務並刪除 | Codex | 上傳途中關閉抽屜，重開後刪除任務。瀏覽器等上傳完成才送出刪除請求，並向伺服器確認任務已刪除。 |
 | 追蹤目標的排程會顯示回覆回報的進度，目標達成時自動關閉 | Codex | 加上目標儲存後，視窗的**進度**（Progress）說還沒有紀錄；按**立即執行一次**（假 CLI 用 `e2e:progress` 在回覆最後加上 `<progress status="done">` 區塊，寫出 briefing 給它的目標）：回覆顯示**已達成**（Done）卡片而不是區塊的文字，一則說明寫著目標已達成、自動任務已關閉，視窗列出這一則紀錄、**已達成**，**啟用**（On）也取消了勾選。 |
 | 回覆說目標卡住的執行，會把對話標為需要你，自動任務維持啟用 | Codex | 回覆（假 CLI 的 `e2e:progress=blocked`）顯示 **卡住了**（Blocked）卡片和目標卡住的說明；側邊欄把對話標為 **目標卡住了**（Goal held up），分頁標題也算進去；抽屜的 **進度**（Progress）顯示 **卡住了**。使用者回答、成員回覆之後，標記就消失。 |
 | 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**讓其他程式啟動它（Webhook）**（Let another program start it (webhook)）收起來，打開才看得到；**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令（Windows 上是 PowerShell 的 `Invoke-RestMethod`），以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為自動任務，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
@@ -414,7 +416,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工作目錄中出現檔案時啟動的自動任務：第一次檢查記下已經在的檔案，新的檔案以路徑送到團隊，從不送出內容 | Codex | **要等的事** → **工作目錄中的檔案出現或變動**（When something happens → A file appears or changes in the working directory），樣式 `reports/*.csv`；說明寫著只列出檔名、不列內容，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory**。**立即檢查** 記下 `reports/jan.csv`，什麼都不送；新的 `reports/feb.csv`（以及樣式不包含的 `notes.txt`），都在一分鐘前就寫完了，讓下一次 **立即檢查** 送出訊息一次，它的 **The files that appeared or changed** 區塊把 `reports/feb.csv` 列為新檔案，沒有 `jan.csv`、`notes.txt`，也沒有檔案裡的內容；agent 收到的是 `<event source="file">` |
 | 等兩件事的自動任務，任何一件發生都會啟動：每件各自檢查、各一行顯示，各送自己的訊息 | Codex | **當某件事發生時**選**工作目錄中的檔案出現或變動**（A file appears or changes in the working directory），樣式 `reports/*.csv`：只有一件時沒有**移除**（Remove）；**再等一件事**（Add another）加上**要等的第 2 件事**（Thing 2 to wait for），同樣是檔案樣式，樣式還是空的。在那裡填 `./reports/*.csv` 時表單說 **Two of the things to wait for are the same**，**儲存**變灰；改填 `invoices/*.pdf` 就能儲存，說明寫著每件各自檢查，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory, or when a file matching invoices/\*.pdf appears or changes in the working directory**。再打開時抽屜列出兩件，各在自己的群組裡、各有**移除**；**立即檢查**記下已經在的檔案，什麼都不送，狀態裡每件的檢查情況各一行。新的 `reports/feb.csv` 讓下一次**立即檢查**送出訊息一次，它的區塊寫著 `reports/*.csv` 並列出 `reports/feb.csv`；Codex 回覆之後，新的 `invoices/inv-7.pdf` 讓再下一次送出另一則訊息，只列出這張發票（沒有 `feb.csv`，也沒有舊的發票）；Codex 收到的是 `<event source="file">`。關掉之後（取消勾選**啟用**（On）並儲存），狀態寫著兩件事與 **paused**，沒有每件一行；**移除要等的第 1 件事**（Remove thing 1 to wait for）之後只剩 `invoices/*.pdf`，不在群組裡，也沒有**移除**，儲存後狀態只寫著它，仍然是 **paused**。 |
 | GitHub 上開了 pull request 時啟動的自動任務：透過 gh 檢查，第一次檢查記下已經在的，新開的以資料送到團隊 | Codex | **要等的事** → **GitHub 上有新的 pull request 或 CI 失敗**（A pull request or a failed CI run on GitHub）；填 `not a repo` 時表單說 **Give the GitHub repository as owner/name**（和伺服器一樣），`https://github.com/octo/app` 當作 `octo/app`；說明提到你自己的 GitHub CLI，側邊欄的時鐘寫著 **when a pull request is opened in octo/app**。**立即檢查** 執行假的 `gh`（`pr list --repo octo/app --state all …`），記下 #41，什麼都不送；標題含有 `</event>` 的 #42 讓下一次 **立即檢查** 送出訊息一次，它的 **What is new on GitHub** 區塊列出 #42 與它的分支，沒有 #41；Codex 收到的是 `<event source="github">`，標題的 `<` 寫成 `\u003c`。 |
-| 每週自動任務草稿 | Claude Code | 經過首席設定仍保留訊息、時間、目標、標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
+| 每週自動任務草稿 | Claude Code | 以合成音訊錄音並將轉寫結果插入任務欄位。只加附件時不能建立。經過首席設定仍保留訊息、附件、時間、目標、標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
 | 事件草稿 | Claude Code | 從連接帳號設定返回，保留事件草稿，改選檔案事件並儲存。 |
 | 建立 webhook | Claude Code | 從「Webhook 與執行設定」建立 webhook；權杖只顯示一次，外部程式可用它啟動任務。 |
 
@@ -548,6 +550,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
+| 離開新對話後才取得麥克風權限 | 開啟首席設定後才允許使用合成麥克風，音軌會立即關閉。 |
 | 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色；安裝狀態旁有 app 的載入標示，對話中麥克風的右上角也有，12px。 |
 | 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |
 
@@ -570,7 +573,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 通知與提示音
 
-[`notifications.spec.ts`](specs/notifications.spec.ts)：**設定 → 通知與提示音**、團隊回覆完或需要使用者時頁面怎麼做，以及伺服器保存、在側邊欄鈴鐺後面的通知收件匣。瀏覽器的通知與提示音由替身記錄（`Notification`、`AudioContext`，以及模擬視窗被擋住的 `document.hasFocus()`），在 app 的程式之前就設定好；這個瀏覽器也沒有推播服務（拿掉 `PushManager`），所以由頁面自己告訴使用者，就像桌面 app 的視窗。團隊是一個 Claude 成員。
+[`notifications.spec.ts`](specs/notifications.spec.ts)：**設定 → 通知與提示音**、團隊回覆完或需要使用者時頁面怎麼做，以及伺服器保存、在側邊欄鈴鐺後面的通知收件匣。瀏覽器的通知與提示音由替身記錄（`Notification`、`AudioContext`，以及模擬視窗被擋住的 `document.hasFocus()`），在 app 的程式之前就設定好；這個瀏覽器也沒有推播服務（拿掉 `PushManager`），所以由頁面自己告訴使用者，就像桌面 app 的視窗。團隊是一個 Claude 成員。收件匣情境會開啟既有的空白自動組隊對話，確認畫面沒有組隊介紹後送出第一個問題。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
@@ -598,7 +601,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| app、範本與首席 agent 的卡片都是中文，agent 收到英文 prompt | 在 zh-TW 下，首頁的標語、新對話頁、內建範本、輸入框的提示與團隊卡片都是中文，而回合的 prompt 是英文（見 [AGENTS.md](../AGENTS.md) 的「Prompts and languages」）。 |
+| app、範本與首席 agent 的卡片都是中文，agent 收到英文 prompt | 在 zh-TW 下，首頁的標語、新對話頁、內建範本、必填的問題欄位、送出按鈕與團隊卡片都是中文，而回合的 prompt 是英文（見 [AGENTS.md](../AGENTS.md) 的「Prompts and languages」）。 |
 | 登入頁與伺服器自己的訊息跟著語言 | 登入頁與伺服器對錯誤代碼的訊息都是中文。 |
 | 只抓取顯示的語言，和頁面自己的檔案一起；另一種在選了之後才抓 | 頁面的 head 會要求記住的語言的檔案（`modulepreload` 連結），而且只抓取這種語言；在設定裡選繁體中文時才抓它，重新載入後 head 就改要求它。 |
 | 選了文字載入不了的語言：頁面為它重新載入一次，之後說明原因並維持原樣 | 中文的檔案不見時（404），選繁體中文會讓頁面重新載入一次；再選一次會說無法載入，而且仍選著 English；檔案回來後重新載入，頁面就會切換。 |
@@ -738,7 +741,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **真正安裝沙箱需要的元件。**[沙箱需要的元件](#沙箱需要的元件)由測試代替伺服器回答：不會執行任何套件管理工具、sudo、pkexec 或 AppArmor。`test/sandbox-setup.test.ts` 涵蓋 Harness Relay 執行的東西（固定的腳本、它的環境變數、取得系統管理員權限的方式），並用 apt-get 與 apparmor_parser 的替身真的執行那個腳本；套件與桌面 app 的 Node.js 則在 Linux 與 macOS 上，透過打包好的桌面 app 與 `npm start` 的對話框真的裝過（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西)）。
 - **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv，也不會連到 nodejs.org：PATH 上沒有 npm 時把 Node.js 官方版本放進 CLI 資料夾、再安裝 Claude Code、Codex 或 Copilot，由 `test/cli-install.test.ts` 涵蓋，它們的程式用那份 Node 啟動，由 `test/winLaunch.test.ts` 與 `test/process.test.ts` 涵蓋，並在 macOS、Linux 與 Windows 上手動試過。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
 - **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
-- **還沒有 spec 走過的功能**：同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；實體麥克風與下載的引擎一起執行語音轉寫（自動任務的瀏覽器測試使用合成音訊與固定的轉寫結果）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
 

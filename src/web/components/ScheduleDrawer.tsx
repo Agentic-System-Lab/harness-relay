@@ -16,6 +16,7 @@ import {
   type ScheduleDraft,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
+import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { ScheduleHookPanel, ScheduleProgress } from './ScheduleTracking';
 import { useDialog } from './useDialog';
@@ -96,8 +97,15 @@ export function ScheduleDrawer({
     setSaving(true);
     setError('');
     try {
-      await api.saveSchedule(conv.id, toUpdate(draft));
-      onClose();
+      const attachments = await readUploads(draft.files, t.composer.readFailed);
+      // The drawer can be dismissed while a file is still being read. Drop that unfinished edit.
+      if (!dialog.current) return;
+      await api.saveSchedule(conv.id, {
+        ...toUpdate(draft),
+        ...(attachments.length ? { attachments } : {}),
+        ...(draft.removeAttachments.length ? { removeAttachments: draft.removeAttachments } : {}),
+      });
+      if (dialog.current) onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -106,12 +114,15 @@ export function ScheduleDrawer({
   };
 
   const remove = async () => {
-    if (!confirm(t.schedule.confirmRemove)) return;
+    if (saving || !confirm(t.schedule.confirmRemove)) return;
+    setSaving(true);
     try {
       await api.deleteSchedule(conv.id);
-      onClose();
+      if (dialog.current) onClose();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -231,7 +242,7 @@ export function ScheduleDrawer({
               >
                 {t.schedule.runNow}
               </button>
-              <button type="button" className="ghost small-button danger" onClick={remove}>
+              <button type="button" className="ghost small-button danger" disabled={saving} onClick={remove}>
                 {t.schedule.remove}
               </button>
             </div>
@@ -259,7 +270,7 @@ export function ScheduleDrawer({
         )}
 
         <div className="schedule-form">
-          <ScheduleForm draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
+          <ScheduleForm disabled={saving} draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
 
           <div className="field">
             <span>{t.schedule.team}</span>
