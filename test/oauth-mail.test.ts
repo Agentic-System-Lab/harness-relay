@@ -1063,6 +1063,40 @@ describe('chat tools for common apps', () => {
     await expect(call('drive_search')).rejects.toThrow();
     await expect(service.startSignIn({ provider: 'microsoft', uses: ['drive'], port: 8787 })).rejects.toThrow();
   });
+  it('routes Teams reads to a connected PowerShell account and disambiguates older OAuth accounts', async () => {
+    let connected = true;
+    const graph = {
+      connected: () => connected,
+      status: async () => ({ status: 'connected' as const, account: 'ming@contoso.com' }),
+      list: async () => ({ value: [{ id: 'ps', displayName: 'PowerShell team' }] }),
+      messages: async () => [{ time: '2026-11-20', body: 'PowerShell message' }],
+    };
+    const tools = appTools(
+      service,
+      () => undefined,
+      () => ({}),
+      undefined,
+      graph,
+    );
+    const list = tools.find((tool) => tool.name === 'teams_list')!;
+    const messages = tools.find((tool) => tool.name === 'teams_messages')!;
+    expect(list.unavailable?.()).toBeUndefined();
+    expect((await list.run!({}, ctx)).text).toContain('PowerShell team');
+    expect((await messages.run!({ account: 'ming@contoso.com', team: 't', channel: 'c' }, ctx)).text).toContain('PowerShell message');
+    await expect(list.run!({ account: 'someone-else' }, ctx)).rejects.toThrow('Choose an account');
+    const { done } = await signInFull(['teams']);
+    await expect(list.run!({}, ctx)).rejects.toThrow('Choose an account');
+    expect((await list.run!({ account: 'ming@contoso.com' }, ctx)).text).toContain('Product');
+    expect((await list.run!({ account: 'powershell' }, ctx)).text).toContain('PowerShell team');
+    connected = false;
+    expect((await list.run!({}, ctx)).text).toContain('Product');
+    await expect(list.run!({ account: 'powershell' }, ctx)).rejects.toThrow();
+    service.broker.forget(done.account!.id);
+    service.store.needsSignIn(done.account!.id, 'expired');
+    connected = true;
+    expect((await list.run!({}, ctx)).text).toContain('PowerShell team');
+    await expect(list.run!({ account: 'ming@contoso.com' }, ctx)).rejects.toThrow();
+  });
   it('requests only the Teams Graph scopes and reads teams, channels and messages', async () => {
     const { started, done } = await signInFull(['teams']);
     expect(done.status).toBe('done');

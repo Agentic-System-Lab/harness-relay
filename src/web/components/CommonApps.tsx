@@ -13,6 +13,7 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { settingsHref } from '../route';
 import { AppSignIn } from './McpSignIn';
+import { TeamsSignIn } from './TeamsSignIn';
 import { GhSignIn } from './GhHelp';
 
 const accounts = { mail: 'Gmail', drive: 'Google Drive', calendar: 'Google Calendar', teams: 'Microsoft Teams' } as const;
@@ -132,7 +133,9 @@ export function CommonApps({
                   </div>
                 );
               })}
-              {!oauth ? (
+              {use === 'teams' ? (
+                <TeamsSignIn>{!linked.some((x) => x.status !== 'reauth') && enable('teams')}</TeamsSignIn>
+              ) : !oauth ? (
                 t.common.loading
               ) : configured ? (
                 <AppSignIn

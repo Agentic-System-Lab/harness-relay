@@ -24,6 +24,7 @@ import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { TeamsGraph } from './connectors/teams';
 import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
@@ -137,6 +138,7 @@ const orchestrator = new Orchestrator(
 
 // Harness Relay's own tools (browser, mail, calendar), which agents reach through one MCP server of
 // Harness Relay's (the gateway), and the outbox of what they asked to send.
+const teams = new TeamsGraph();
 const outbox = new Outbox(db);
 const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
 const browser = new BrowserService({
@@ -155,6 +157,8 @@ gateway.register([
     settings.oauth,
     () => settings.tools.obsidianVault(),
     () => agentFolderOptions(settings),
+    undefined,
+    teams,
   ),
 ]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
@@ -232,6 +236,7 @@ const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
 const app = createApp({
+  teams,
   auth,
   store,
   settings,
@@ -368,6 +373,7 @@ async function shutdown(code = 0): Promise<void> {
   browser.closeAll();
   providers.shutdown();
   voice.shutdown();
+  teams.disconnect();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
   const installsStopped = Promise.all([clis.shutdown(), sandboxSetup.shutdown(), gitInstall.shutdown()]);
   // Let stopped runs write their final state while the database is still open.

@@ -529,6 +529,10 @@ export const api = {
   startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
     request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
   setObsidianVault: (path: string) => request<ToolLibraryView>('PUT', '/api/apps/obsidian', { path }),
+  teamsStatus: () => request<import('../shared/types').TeamsConnection>('GET', '/api/apps/teams'),
+  teamsInstall: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/install'),
+  teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),
+  teamsDisconnect: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/signin'),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),

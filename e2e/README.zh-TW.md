@@ -340,7 +340,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
 | 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在 **新的登入用於：**（A new sign-in is for:）取消勾選 **行事曆**、勾選 **郵件** 後，**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。帳號顯示 **用於：郵件**（Used for: Mail）與 **用於行事曆**（Use for calendars），沒有 **行事曆**；它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **用於郵件**（Use for mail）不必重新登入就再加入它，之後這個按鈕就不見了；帳號的 **移除** 也會移除它的郵件帳號。 |
-| 從常用 App 連結 Teams 和 Obsidian 筆記庫 | — | 頁面列出九個 App。在新分頁同意 Teams 授權，重新載入後兩個連結都還在。可以開放或關閉聊天存取。解除筆記庫連結後筆記仍在。測試使用 Microsoft 與系統資料夾選擇器的替身。 |
+| 從常用 App 連結 Teams 與本機 Obsidian 筆記庫 | — | 頁面列出九個 App。Teams 卡片可在沒有發行者 Microsoft 用戶端 ID 時，提示安裝工具、顯示登入代碼、取消、重新載入及解除連結。測試以替身模擬 Graph PowerShell。可切換聊天存取，解除筆記庫連結後筆記仍在。 |
 
 ## 需要登入的 MCP 伺服器
 

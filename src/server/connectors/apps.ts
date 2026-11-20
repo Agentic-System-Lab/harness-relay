@@ -12,6 +12,7 @@ import { overlaps, protectedReads, relayFolderRefusal, type AgentFolderOptions }
 import { signedOut } from '../share';
 import { runGh, type GhRunner } from '../watch';
 import { answerText } from './caldav';
+import type { TeamsGraph } from './teams';
 
 export async function githubStatus(gh: GhRunner = runGh): Promise<GithubConnection> {
   try {
@@ -90,6 +91,7 @@ export function appTools(
   vault: () => string | undefined,
   options: () => AgentFolderOptions,
   gh: GhRunner = runGh,
+  teams?: Pick<TeamsGraph, 'connected' | 'status' | 'list' | 'messages'>,
 ): GatewayTool[] {
   const root = () => {
     const path = vault();
@@ -122,6 +124,25 @@ export function appTools(
     return encodeURIComponent(v);
   };
   const none = (use: 'drive' | 'teams') => () => (accounts(use).length ? undefined : t().appsConnectFirst);
+  // Existing Microsoft OAuth accounts keep their identity, even if PowerShell signs in with
+  // the same email (the two sessions may belong to different tenants).
+  const teamsAccount = {
+    type: 'string',
+    description:
+      'Account email, or "powershell" for the Microsoft Graph PowerShell connection. Required when several accounts are connected.',
+  };
+  const usePowerShell = async (which: unknown) => {
+    if (!teams?.connected()) return false;
+    const session = await teams.status();
+    if (session.status !== 'connected') return false;
+    const saved = accounts('teams');
+    if (which === 'powershell') return true;
+    if (which !== undefined && saved.some((a) => a.email === which)) return false;
+    const active = saved.filter((a) => a.status !== 'reauth');
+    if (which === session.account || (which === undefined && !active.length)) return true;
+    throw new Error(`Choose an account: ${[...active.map((a) => a.email), `powershell (${session.account})`].join(', ')}`);
+  };
+  const noTeams = () => (teams?.connected() ? undefined : none('teams')());
   const noVault = () => (vault() ? undefined : t().appsVault);
   return [
     readTool(
@@ -200,24 +221,26 @@ export function appTools(
       'teams',
       'teams_list',
       'List your Microsoft Teams teams, or the channels in one team.',
-      { account: accountSchema, team: string },
+      { account: teamsAccount, team: string },
       [],
       async (a) => {
+        if (teams && (await usePowerShell(a.account))) return teams.list(a.team);
         const graph = api('teams', a.account);
         if (a.team) return graph(`teams/${id(a.team)}/channels`, { $select: 'id,displayName' });
         // Graph's joinedTeams endpoint does not accept OData query parameters.
         const page = await graph('me/joinedTeams', {});
         return { value: page.value.map(({ id, displayName }: { id: string; displayName: string }) => ({ id, displayName })) };
       },
-      none('teams'),
+      noTeams,
     ),
     readTool(
       'teams',
       'teams_messages',
       'Read recent messages from a Microsoft Teams channel.',
-      { account: accountSchema, team: string, channel: string },
+      { account: teamsAccount, team: string, channel: string },
       ['team', 'channel'],
       async (a) => {
+        if (teams && (await usePowerShell(a.account))) return teams.messages(a.team, a.channel);
         const page = await api('teams', a.account)(`teams/${id(a.team)}/channels/${id(a.channel)}/messages`, { $top: '20' });
         return page.value.map((m: { createdDateTime: string; body?: { content?: string }; webUrl?: string }) => ({
           time: m.createdDateTime,
@@ -225,7 +248,7 @@ export function appTools(
           link: m.webUrl,
         }));
       },
-      none('teams'),
+      noTeams,
     ),
     readTool(
       'github',

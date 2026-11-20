@@ -325,13 +325,13 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 | --- | --- |
 | Gmail / Google Calendar | 找郵件、查明天的行程。要寄出的郵件會先進待送出匣。 |
 | Google Drive | 用檔名找檔案，或請助理摘要一份 Google 文件。 |
-| Microsoft Teams | 列出團隊與頻道、讀取近期頻道訊息。使用工作或學校帳號，組織可能需要管理員同意。 |
+| Microsoft Teams | 列出團隊、頻道並讀取近期訊息。第一次使用時，若卡片提示缺少 PowerShell 7，請用卡片的連結在執行 Harness Relay 的電腦安裝。按「安裝 Teams 需要的 Microsoft Graph 工具」→「連結」，用工作或學校帳號在 Microsoft 頁面輸入代碼。讀取頻道訊息可能需要公司管理員核准。 |
 | Notion / Heptabase | 在授權的工作區或知識庫裡使用官方工具。授權頁會說明可存取的內容。 |
 | Slack | 搜尋公開頻道並讀取訊息。工作區可能需要管理員核准。 |
 | GitHub | 列出儲存庫的拉取請求。分享對話及自動任務也使用同一個 GitHub 登入。若尚未安裝 GitHub CLI，可點卡片上的連結安裝，再到 GitHub 輸入登入代碼。 |
 | Obsidian | 選擇執行 Harness Relay 的電腦上的筆記庫，就能列出資料夾、讀取 Markdown 筆記。遠端瀏覽器可填入筆記庫路徑。解除連結後，筆記會留在原處。 |
 
-Google、Microsoft 和 Slack 使用安裝版本提供的服務註冊資料。卡片若顯示尚未設定登入，可請發行或代管 Harness Relay 的人開通。[發行者設定方式](developer-guide.zh-TW.md#常用-app-的服務註冊)
+Google 與 Slack 使用發行者提供的註冊資料。Teams 使用 Microsoft 官方登入工具，連線持續到 Harness Relay 結束。重新啟動後，請再按「連結」。在 Windows 上，Microsoft Graph PowerShell 下次登入時可能會提示上次使用的帳號。先前透過工具庫連結的 Teams 帳號仍可繼續使用。[發行者設定方式](developer-guide.zh-TW.md#常用-app-的服務註冊)
 
 ### Harness Relay 的工具：瀏覽器、郵件與行事曆
 

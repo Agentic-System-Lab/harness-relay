@@ -3971,6 +3971,33 @@ describe('sharing conversations', () => {
     });
   }
 
+  it('opens, observes and cancels a Teams device sign-in without a publisher registration', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    let state: import('../src/shared/types').TeamsConnection = { status: 'missing-module' };
+    const teams = {
+      status: async () => state,
+      install: async () => (state = { status: 'installing' }),
+      connect: async () => (state = { status: 'signing-in', code: 'ABC123' }),
+      disconnect: () => {
+        state = { status: 'signed-out' };
+      },
+    };
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), teams });
+    const request = async (path = '', method = 'GET') => {
+      const res = await own.request('/api/apps/teams' + path, {
+        method,
+        headers: { ...HOST, 'content-type': 'application/json' },
+        body: method === 'POST' ? '{}' : undefined,
+      });
+      expect(res.status).toBe(200);
+      return res.json();
+    };
+    expect(await request()).toEqual({ status: 'missing-module' });
+    expect(await request('/install', 'POST')).toEqual({ status: 'installing' });
+    expect(await request('/signin', 'POST')).toEqual({ status: 'signing-in', code: 'ABC123' });
+    expect(await request()).toEqual({ status: 'signing-in', code: 'ABC123' });
+    expect(await request('/signin', 'DELETE')).toEqual({ status: 'signed-out' });
+  });
   it("runs gh's own sign-in for sharing when the dialog asks, shows it, and stops it", async () => {
     const view = (state: CliLoginView['state']): CliLoginView => ({
       id: 'l1',

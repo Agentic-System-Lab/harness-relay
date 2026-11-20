@@ -599,6 +599,8 @@ const zhTW = {
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
   oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
   oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
+  teamsSetupFailed: '無法設定 Microsoft Graph。請確認已安裝 PowerShell 7 並可連至 PowerShell Gallery，再試一次。',
+  teamsReadFailed: '無法讀取 Teams。請確認網路連線和帳號權限，再試一次。',
   appsGithubFailed: '無法讀取 GitHub。請確認網路連線和帳號權限，再試一次。',
   appsTooLarge: '內容太大，請縮小讀取範圍。',
   appsConnectFirst: '請先在「設定 → 常用 App」連結帳號。',
@@ -1555,6 +1557,9 @@ const en: ServerMessages = {
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
   oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
   oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
+  teamsSetupFailed:
+    'Could not set up Microsoft Graph. Check that PowerShell 7 is installed and can reach the PowerShell Gallery, then try again.',
+  teamsReadFailed: 'Could not read Teams. Check your connection and account access, then try again.',
   appsGithubFailed: 'Could not read GitHub. Check the connection and account access, then try again.',
   appsTooLarge: 'This response is too large. Request less content.',
   appsConnectFirst: 'Connect an account in Settings → Common apps first.',

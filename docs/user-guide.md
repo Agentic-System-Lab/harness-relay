@@ -323,13 +323,13 @@ Open **Settings → Common apps**. Choose **Connect** beside an app and approve 
 | --- | --- |
 | Gmail / Google Calendar | Find a message or check tomorrow’s schedule. Messages you want to send go through the outbox. |
 | Google Drive | Find a file by name or summarize a Google Docs document. |
-| Microsoft Teams | List your teams and channels or read recent messages from a channel. Use a work or school account. Your organization may require administrator consent. |
+| Microsoft Teams | List teams, channels and recent channel messages. On the computer running Harness Relay, follow the card’s PowerShell 7 installation link if needed. Choose **Install Microsoft Graph for Teams**, then **Connect**. Enter the displayed code on Microsoft’s page with your work or school account. Your organization may need to approve reading channel messages. |
 | Notion / Heptabase | Use the tools in the workspace or knowledge base you authorized. The consent page describes the access being granted. |
 | Slack | Search public channels and read their messages. Your workspace may require administrator approval. |
 | GitHub | List pull requests in a repository. The same GitHub CLI sign-in serves sharing and automations. If needed, install GitHub CLI from the card and enter the code on GitHub. |
 | Obsidian | Choose your vault on the computer running Harness Relay, then list folders or read a Markdown note. A remote browser can enter the vault’s path. Disconnecting leaves the notes on disk. |
 
-Google, Microsoft and Slack use a registration supplied with your installation. When a card says sign-in has not been set up, the person distributing or hosting Harness Relay can enable it. [Distributor setup](developer-guide.md#common-app-registrations)
+Google and Slack use a registration supplied with your installation. Teams uses Microsoft's sign-in tool and keeps its connection while Harness Relay is running. Connect again after restarting Harness Relay. On Windows, Microsoft Graph PowerShell may remember which account you chose the next time you sign in. Existing Teams accounts connected through the tool library still work. [Distributor setup](developer-guide.md#common-app-registrations)
 
 ### Harness Relay's tools: browser, mail and calendar
 

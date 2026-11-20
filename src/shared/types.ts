@@ -449,6 +449,12 @@ export interface SkillCandidate {
   added: boolean;
 }
 
+export type TeamsConnection =
+  | { status: 'missing-powershell' | 'missing-module' | 'signed-out' | 'installing' }
+  | { status: 'signing-in'; code?: string; url?: string }
+  | { status: 'connected'; account: string }
+  | { status: 'error'; message: string };
+
 export type GithubConnection = { status: 'connected'; login: string } | { status: 'missing' | 'signed-out' };
 
 export interface ToolLibraryView {

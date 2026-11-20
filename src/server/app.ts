@@ -16,6 +16,7 @@ import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { APP_SERVERS } from '../shared/apps';
 import { appClients } from './oauth/appClients';
+import { TeamsGraph } from './connectors/teams';
 import { checkedVault, githubStatus } from './connectors/apps';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -202,6 +203,7 @@ export interface AppDeps {
     remove(id: string): Promise<void>;
   };
   /** Signs gh in for sharing from the share dialog (`GhLogin`: gh's own device sign-in; fakes in tests). */
+  teams?: Pick<TeamsGraph, 'status' | 'install' | 'connect' | 'disconnect'>;
   ghLogin?: Pick<GhLogin, 'start' | 'view' | 'cancel'>;
   /** Browsers' push subscriptions and sending to them (`push.ts`); without it, no push notifications. */
   push?: PushService;
@@ -314,6 +316,7 @@ export function createApp({
   },
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
   ghLogin = new GhLogin(),
+  teams = new TeamsGraph(),
   updates = new Updates(undefined, version),
   desktopLang,
   limits = limitsOf(CONFIG),
@@ -799,6 +802,14 @@ export function createApp({
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
+
+  app.get('/api/apps/teams', async (c) => c.json(await teams.status()));
+  app.post('/api/apps/teams/install', async (c) => c.json(await teams.install()));
+  app.post('/api/apps/teams/signin', async (c) => c.json(await teams.connect()));
+  app.delete('/api/apps/teams/signin', async (c) => {
+    teams.disconnect();
+    return c.json(await teams.status());
+  });
 
   app.post('/api/apps/:app/signin', async (c) => {
     const app = c.req.param('app');
