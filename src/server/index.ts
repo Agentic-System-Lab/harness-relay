@@ -9,6 +9,7 @@ import { signInLink } from './signin';
 import { exitAfterRunDatabaseReads, exitOnUncaughtException, lockDataDir, openDatabase, runDatabaseReadsLeft } from './db';
 import { Hub } from './hub';
 import { Orchestrator } from './orchestrator';
+import { findTailscale, Tailscale } from './tailscale';
 import { desktopParent } from './parent';
 import { Updates } from './updates';
 import { relayVersion } from './about';
@@ -38,6 +39,7 @@ import {
   gatewayNode,
   localAddresses,
   noteListeningPort,
+  servingPort,
   relayPorts,
   relaySandboxHostRoot,
   relaySandboxRoot,
@@ -206,7 +208,6 @@ hub.subscribeAll(() => {
 
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();
-
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '')
   .split(',')
   .map((h) => h.trim())
@@ -235,6 +236,12 @@ const app = createApp({
   native,
   extraHosts,
   desktopApp: Boolean(parent),
+  phoneAddress: () => {
+    if (!extraHosts.some((name) => name.toLowerCase().endsWith('.ts.net'))) return undefined;
+    const bin = findTailscale(process.env);
+    if (bin) return new Tailscale(bin, process.env).servedUrl(servingPort());
+    return undefined;
+  },
   updates,
   desktopLang,
   push,

@@ -90,7 +90,7 @@ import {
 } from './update';
 import { decodeUpdateSource, type BuiltUpdateSource } from './updateSource';
 import { MIRROR } from '../../site/assets/downloads.js';
-import { findTailscale, sharePlan, Tailscale } from './tailscale';
+import { findTailscale, sharePlan, Tailscale } from '../../src/server/tailscale';
 
 /** The version the app was built as (desktop/scripts/build.ts): a release's date version, or the package's. */
 declare const __RELAY_VERSION__: string;
@@ -529,10 +529,15 @@ function run(): void {
   }
 
   /** Opens the chat in the default browser, signed in with a new one-time code from the server. */
-  async function openBrowser(): Promise<void> {
+  async function openBrowser(pairPhone = false): Promise<void> {
     const state = supervisor.state;
     if (state.kind !== 'running') return;
-    await shell.openExternal(chatAddress(state.url, await supervisor.signInLink()));
+    const url = new URL(chatAddress(state.url, await supervisor.signInLink()));
+    if (pairPhone) {
+      if (url.hash) url.searchParams.set('pair', '1');
+      else url.hash = '/settings/home-screen';
+    }
+    await shell.openExternal(url.href);
   }
 
   /** The server's address, while it runs (the window's pages must come from it). */
@@ -619,7 +624,7 @@ function run(): void {
   }
 
   async function shareWithPhone(): Promise<void> {
-    await loadEnv();
+    await loadEnv(true);
     const net = await tailnet();
     if (!net.tailscale) {
       const { response } = await dialog.showMessageBox({
@@ -630,11 +635,18 @@ function run(): void {
         defaultId: 0,
         cancelId: 1,
       });
-      if (response === 0) void shell.openExternal('https://tailscale.com/download');
-      return;
+      if (response !== 0) return;
+      await shell.openExternal('https://tailscale.com/download');
     }
-    if (!net.running || !net.dnsName) {
-      await dialog.showMessageBox({ type: 'info', message: t.tailscaleNotRunning, detail: t.tailscaleNotRunningDetail, buttons: [t.ok] });
+    if (!net.tailscale || !net.running || !net.dnsName) {
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        message: t.tailscaleNotRunning,
+        detail: t.tailscaleNotRunningDetail,
+        buttons: [t.checkConnection, t.cancel],
+        cancelId: 1,
+      });
+      if (response === 0) await shareWithPhone();
       return;
     }
     rememberTailnet(net.dnsName);
@@ -690,18 +702,11 @@ function run(): void {
         defaultId: 0,
         cancelId: 1,
       });
-      if (response === 0) await restartServer(false);
-      return;
+      if (response !== 0) return;
+      await restartServer(false);
+      if (supervisor.state.kind !== 'running' || !phoneUrl) return;
     }
-    const { response } = await dialog.showMessageBox({
-      type: 'info',
-      message: t.shared,
-      detail: t.sharedDetail(url),
-      buttons: [t.copyAddress, t.ok],
-      defaultId: 1,
-      cancelId: 1,
-    });
-    if (response === 0) clipboard.writeText(url);
+    await openBrowser(true);
   }
 
   // --- Updates ------------------------------------------------------------------------------

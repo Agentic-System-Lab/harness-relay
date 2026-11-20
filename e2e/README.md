@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 509 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 513 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -69,11 +69,11 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
-| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 9 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
+| [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 10 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Notification inbox](../docs/user-guide.md#notification-inbox), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
 | [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [Architecture → Languages](../docs/architecture.md#languages) |
-| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 13 | [Use it from your phone](../docs/remote-access.md) |
+| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 16 | [Use it from your phone](../docs/remote-access.md) |
 
 ## Signing in
 
@@ -555,6 +555,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
+| Returning browser | A browser that missed several releases sees the revised steps once each. Reloading an unfinished tour restarts those steps. Settings can still replay the full tour. |
 | The tour shows on a first visit, steps through to the end, and is not shown again | It opens at step 1 without Back; Next, Back and the arrow keys move; the last step has no Skip, **Get started** closes it, and a reload does not bring it back. |
 | The tour can be skipped, and Settings starts it again | Skipped, it stays away after a reload; **Settings → Guided tour → Replay the tour** opens it at step 1, Escape closes it, and it stays done. |
 | On a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons | At 390×560, the longest step (file permission) sits at the bottom of the screen with **Next** inside it; its text scrolls, also with End while **Next** has the focus, a line shows above the buttons, and the next step starts at its top. |
@@ -609,6 +610,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
+| Desktop phone pairing | — | The sidebar and collapsed home link open pairing inside the **Connect your phone** guide. Signed-in browsers retains the sign-out controls. The phone opens the illustrated guide, switches Android/iPhone, and reaches notification settings. Closing and signing out the phone update the desktop status. |
+| Phone setup and single-use pairing | — | Shows a separate Tailscale download QR. A stand-in Serve address on port 8443 and a real code pair an independent browser once. |
+| Lost acknowledgement, approval and download | Claude Code | Drops the response after task acceptance, retries once, and checks for one task. Another client approves while the phone is offline. A simulated notification click refreshes the result and the phone downloads the report. |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within a tenth of a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A swipe right opens the sidebar and a swipe left closes it; a scroll, a swipe in the message box or on a wide screen does not, and a wide screen closes it | Grok | Touch events sent from the page to what is under the finger (Playwright's touchscreen only taps; WebKit has no `Touch` constructor, so there they are made with `document.createTouch`, as Playwright makes them): a move 60px sideways and 150px up the chat leaves the sidebar shut; a swipe right from the middle of the chat, not the screen's edge, opens it; a swipe left on the sidebar, once it is wholly in view, and one on the dimmed page right of it close it; a swipe right that starts in the message box leaves it shut; open at a phone's width, a 1000px-wide screen closes it, a swipe there does nothing, and back at a phone's width it is shut. |
 | A quick flick opens the sidebar; a slow short drag, a cancelled touch, a long press, a second finger, a dialog or selected text do not | Grok | 40px right, short of a swipe's 50px, sent at once is a flick and opens the sidebar (and a flick left closes it), while the same 40px cancelled (`touchcancel`) does nothing, nor does it moved slowly and stopped 150ms before it lifts; a finger that rests 450ms before it moves (a long press) and a second finger joining a swipe leave the sidebar shut; with a message's text selected a swipe does nothing, while text selected in the message box, focused or not (Chromium still calls it a selection then), does not stop one; with **Files** open a swipe on it, or on its dimmed backdrop beside it, does nothing, and once it is closed a swipe opens the sidebar. |

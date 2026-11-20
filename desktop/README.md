@@ -45,7 +45,7 @@ src/updateSource.ts  where the app downloads its updates from (RELAY_UPDATES_REP
                      that the installers were built with them and that an app can download the copies
 src/traymenu.ts      the tray menu while it is open
 src/lifecycle.ts     its decisions without Electron, and the window's guards
-src/tailscale.ts     sharing with the tailnet (tailscale serve)
+../src/server/tailscale.ts  sharing with the tailnet (tailscale serve)
 src/autostart.ts     open at login on Linux
 src/prefs.ts         desktop.json: the port, the window's size, the tailnet name, the language
 src/profile.ts       the window's browser folder, kept from agents
@@ -80,6 +80,6 @@ Releases are made only by the Release workflow, run by hand: it builds the insta
 - [Developer guide → The desktop app](../docs/developer-guide.md#the-desktop-app): how it runs, building, the checks, fuses, signing and the installers.
 - [Architecture → Desktop app](../docs/architecture.md#desktop-app): the process, signing in, the environment, the tailnet, the window and updates.
 - [Developer guide → Releasing](../docs/developer-guide.md#releasing): the Release workflow and the version rules.
-- [Use it from your phone → With the desktop app](../docs/remote-access.md#with-the-desktop-app): sharing with the tailnet from the tray menu.
+- [Use it from your phone → With the desktop app](../docs/remote-access.md#with-the-desktop-app): checking the Tailscale installation, sharing privately and opening phone pairing in **Connect your phone** from the tray menu.
 - [OS sandboxes by platform](../docs/sandboxing.md) and [Architecture → Security](../docs/architecture.md#security): what agents may not read, the window's sign-in included.
 - [Contributing](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md): the rules for every change.

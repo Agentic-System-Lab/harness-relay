@@ -1,31 +1,54 @@
-// Whether this browser has seen the guided tour: what the page needs at once, apart from the tour
-// itself (components/Onboarding.tsx), which loads only when it opens.
-
-/** The version of the tour this browser last finished (or skipped); before versions, `'1'`. */
+// This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
 const DONE_KEY = 'relay:onboarded';
+export const TOUR_VERSION = 23;
 
-/**
- * Raise it when the steps change in a way worth seeing: people who finished an earlier version see the tour again
- * once, on their next visit. `test/tour.test.ts` fails when the steps change, as a reminder.
- */
-export const TOUR_VERSION = 21;
+/** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
+export const TOUR_STEPS: { target?: string; revision: number }[] = [
+  { revision: 17 }, // welcome
+  { target: 'settings', revision: 20 }, // check agents
+  { target: 'pair-phone', revision: 23 }, // connect a phone
+  { target: 'settings', revision: 12 }, // open-source agents
+  { target: 'new-chat', revision: 20 }, // new chat
+  { revision: 20 }, // auto team
+  { revision: 1 }, // modes
+  { revision: 9 }, // writing a message
+  { revision: 1 }, // while the team replies
+  { revision: 18 }, // when the team needs you
+  { target: 'settings', revision: 23 }, // notifications and sound
+  { target: 'inbox', revision: 18 },
+  { revision: 14 }, // permissions
+  { revision: 21 }, // team checks
+  { revision: 7 }, // files
+  { revision: 20 }, // share
+  { target: 'new-schedule', revision: 19 },
+  { target: 'organize', revision: 17 },
+  { target: 'settings', revision: 19 }, // tools
+  { target: 'settings', revision: 4 }, // agent sessions
+  { target: 'settings', revision: 20 }, // settings
+];
 
-/** Whether the stored version (`DONE_KEY`) means the current tour was seen; a newer one counts too. */
-export function tourSeen(stored: string | null, version = TOUR_VERSION): boolean {
-  return Number(stored) >= version;
+export function tourIndices(since: number): number[] {
+  return TOUR_STEPS.flatMap((step, index) => (step.revision > since ? [index] : []));
 }
 
-export function onboardingDone(): boolean {
+function storedVersion(stored: string | null): number {
+  const version = Number(stored);
+  return Number.isSafeInteger(version) && version > 0 ? version : 0;
+}
+
+/** Zero opens the full tour, a positive version opens the changes since then, null means up to date. */
+export function pendingTour(): number | null {
   try {
-    return tourSeen(localStorage.getItem(DONE_KEY));
+    const seen = storedVersion(localStorage.getItem(DONE_KEY));
+    return seen >= TOUR_VERSION ? null : seen;
   } catch {
-    return true; // no storage: don't show the tour on every visit
+    return null; // No storage: the full tour stays available from Settings.
   }
 }
 
 export function markDone(): void {
   try {
-    localStorage.setItem(DONE_KEY, String(TOUR_VERSION));
+    if (storedVersion(localStorage.getItem(DONE_KEY)) < TOUR_VERSION) localStorage.setItem(DONE_KEY, String(TOUR_VERSION));
   } catch {
     /* storage unavailable */
   }

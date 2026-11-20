@@ -147,6 +147,7 @@ export const SIGNED_OUT_EVENT = 'relay:signed-out';
 interface Sending {
   resent?: boolean;
   signIn?: boolean;
+  task?: boolean;
 }
 
 /**
@@ -163,26 +164,79 @@ async function signedOut(code: string | undefined, key: string | null, o: Sendin
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, o: Sending = {}): Promise<T> {
   const key = readKey();
+  const requestHeaders = headers(method !== 'GET', key);
+  if ((path === '/api/auth' || path === '/api/auth/login') && /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+    requestHeaders['X-Relay-iPad'] = '1';
   const res = await fetch(path, {
     method,
     // Always JSON: the server rejects non-JSON writes as a CSRF guard.
-    headers: headers(method !== 'GET', key),
+    headers: requestHeaders,
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
   });
-  const data = await res.json().catch(() => {
+  const data = await res.json().catch((err: unknown) => {
+    if (o.task && res.ok) throw err;
     // Given up (its signal) while the answer was read: not an answer, but the request given up.
     if (signal?.aborted) throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
     return {};
   });
   if (!res.ok) {
     const err = data as { error?: string; code?: string; paths?: unknown };
-    if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { resent: true });
+    if (res.status === 401 && (await signedOut(err.code, key, o))) return request<T>(method, path, body, signal, { ...o, resent: true });
     const paths = Array.isArray(err.paths) ? err.paths.filter((p): p is string => typeof p === 'string') : undefined;
     if (err.code === GIT_MISSING) requestGitInstall();
     throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code, paths);
   }
   return data as T;
+}
+
+// An uncertain delivery retains its ID across retries and reloads. Only the digest
+// is persisted, so sending attachments does not put their contents in browser storage.
+const taskAttempts = new Map<string, string>();
+async function postTask<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const serialized = JSON.stringify({ ...body, createCwd: undefined, interrupt: undefined });
+  const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const digest = crypto.subtle
+    ? hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized))))
+    : serialized;
+  const slot = 'relay:task:' + path + ':' + digest;
+  let saved = taskAttempts.get(slot);
+  try {
+    if (!saved && crypto.subtle) saved = sessionStorage.getItem(slot) ?? undefined;
+  } catch {
+    /* memory only */
+  }
+  // The original interrupt choice belongs to the attempt: a team may finish before the phone retries.
+  const requestId = saved?.slice(0, 32) ?? hex(crypto.getRandomValues(new Uint8Array(16)));
+  const interrupt = saved ? saved.endsWith('+') : body.interrupt === true;
+  const entry = requestId + (interrupt ? '+' : '-');
+  taskAttempts.set(slot, entry);
+  try {
+    if (crypto.subtle) sessionStorage.setItem(slot, entry);
+  } catch {
+    /* memory only */
+  }
+  const forget = () => {
+    if (taskAttempts.get(slot) !== entry) return;
+    taskAttempts.delete(slot);
+    try {
+      if (crypto.subtle) sessionStorage.removeItem(slot);
+    } catch {
+      /* memory only */
+    }
+  };
+  try {
+    const payload = { ...body, ...(typeof body.interrupt === 'boolean' ? { interrupt } : {}), requestId };
+    const result = await request<T>('POST', path, payload, undefined, { task: true });
+    forget();
+    return result;
+  } catch (err) {
+    if (err instanceof ApiError) {
+      if (err.status === 400 || err.status === 404 || err.status === 409 || err.status === 422) forget();
+      throw err;
+    }
+    throw new Error(currentMessages().chat.deliveryUnknown, { cause: err });
+  }
 }
 
 async function requestText(path: string, o: Sending = {}): Promise<string> {
@@ -240,7 +294,7 @@ export const api = {
       })(),
     ),
   /** A one-time code for another device (a phone), from this signed-in browser. */
-  newSignInCode: () => request<{ code: string; expiresAt: number }>('POST', '/api/auth/codes'),
+  newSignInCode: () => request<{ code: string; expiresAt: number; phoneUrl?: string }>('POST', '/api/auth/codes'),
   signedInBrowsers: () => request<AuthSessionView[]>('GET', '/api/auth/sessions'),
   /** Signs a browser out; this one's key goes too when it is this one. */
   signOut: async (id: string, current: boolean) => {
@@ -299,7 +353,7 @@ export const api = {
     agents: AgentConfig[];
     settings: ConversationSettings;
     createCwd?: boolean;
-  }) => request<Conversation>('POST', '/api/conversations', b),
+  }) => postTask<Conversation>('/api/conversations', b),
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>> & { createCwd?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
@@ -342,7 +396,7 @@ export const api = {
   deleteGroup: (id: string) => request<{ ok: true }>('DELETE', `/api/groups/${id}`),
   /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */
   send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false) =>
-    request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/messages`, { text, attachments, interrupt }),
+    postTask<{ ok: true; queued: boolean }>(`/api/conversations/${id}/messages`, { text, attachments, interrupt }),
   /** Take back a message still waiting to be delivered; returns it. */
   withdraw: (id: string, messageId: string) => request<ChatMessage>('DELETE', `/api/conversations/${id}/queue/${messageId}`),
   attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,

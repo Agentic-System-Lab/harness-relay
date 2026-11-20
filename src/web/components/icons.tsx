@@ -18,6 +18,27 @@ function Svg({ size = 18, children }: { size?: number; children: React.ReactNode
   );
 }
 
+export function SettingsIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path
+        d="m9.5 4 .6-2h3.8l.6 2 1.3.8 2.1-.5 1.9 3.3-1.5 1.6v1.6l1.5 1.6-1.9 3.3-2.1-.5-1.3.8-.6 2h-3.8l-.6-2-1.3-.8-2.1.5-1.9-3.3 1.5-1.6V9.2L4.2 7.6l1.9-3.3 2.1.5Z"
+        transform="translate(0 2)"
+      />
+      <circle cx="12" cy="12" r="3" />
+    </Svg>
+  );
+}
+
+export function PhoneIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <rect x="6" y="2" width="12" height="20" rx="3" />
+      <path d="M11 18h2" />
+    </Svg>
+  );
+}
+
 /** A window with a left panel: show / hide the sidebar. */
 export function PanelIcon({ size }: { size?: number }) {
   return (

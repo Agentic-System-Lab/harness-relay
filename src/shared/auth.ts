@@ -53,8 +53,13 @@ export function codeFromHash(hash: string): string | undefined {
   }
 }
 
+/** The system portion of a stored browser label, including sessions from before phone pairing. */
+export function mobileBrowserLabel(label: string): boolean {
+  return /^(iPhone|iPad|Android)$/.test(label.split(' · ').at(-1) ?? '');
+}
+
 /** A short name for a signed-in browser, from its User-Agent ("Chrome on macOS"). */
-export function browserLabel(userAgent: string | undefined): string {
+export function browserLabel(userAgent: string | undefined, desktopIpad = false): string {
   const ua = userAgent ?? '';
   const browser = /Edg\//.test(ua)
     ? 'Edge'
@@ -67,7 +72,7 @@ export function browserLabel(userAgent: string | undefined): string {
           : '';
   const os = /iPhone/.test(ua)
     ? 'iPhone'
-    : /iPad/.test(ua)
+    : /iPad/.test(ua) || (desktopIpad && /Macintosh/.test(ua))
       ? 'iPad'
       : /Android/.test(ua)
         ? 'Android'

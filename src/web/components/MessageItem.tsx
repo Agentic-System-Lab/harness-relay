@@ -294,7 +294,7 @@ function ApprovalCard({
   part: ApprovalPart;
   agentName: string;
   live: boolean;
-  onAnswer: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
+  onAnswer: ((approvalId: string, answer: ApprovalAnswer) => Promise<void>) | undefined;
 }) {
   const t = useT();
   const [note, setNote] = useState('');
@@ -331,6 +331,7 @@ function ApprovalCard({
   }
 
   const answer = async (a: ApprovalAnswer) => {
+    if (!onAnswer) return;
     setSending(true);
     try {
       await onAnswer(part.id, a);
@@ -362,18 +363,23 @@ function ApprovalCard({
         }}
       />
       <div className="approval-actions">
-        <button type="button" className="primary small-button" disabled={sending} onClick={() => answer({ allow: true })}>
+        <button type="button" className="primary small-button" disabled={sending || !onAnswer} onClick={() => answer({ allow: true })}>
           {t.approval.allow}
         </button>
         {part.ruleLabel && (
-          <button type="button" className="ghost small-button" disabled={sending} onClick={() => answer({ allow: true, always: true })}>
+          <button
+            type="button"
+            className="ghost small-button"
+            disabled={sending || !onAnswer}
+            onClick={() => answer({ allow: true, always: true })}
+          >
             {part.kind === 'edit' ? t.approval.alwaysEdits : t.approval.always(part.ruleLabel)}
           </button>
         )}
         <button
           type="button"
           className="ghost small-button approval-deny"
-          disabled={sending}
+          disabled={sending || !onAnswer}
           onClick={() => answer({ allow: false, note: note.trim() || undefined })}
         >
           {t.approval.deny}
@@ -440,7 +446,7 @@ interface Props {
   onLeadReview?: (on: boolean) => Promise<boolean>;
   onAdjustTeam: () => void;
   /** Answer an agent's approval request. */
-  onApproval: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
+  onApproval: ((approvalId: string, answer: ApprovalAnswer) => Promise<void>) | undefined;
   /** Let the agent answer again (drops this reply and what follows). */
   onRetry: (messageId: string) => Promise<void>;
   /** This reply's question waits for the user's answer (the team stopped for it). */

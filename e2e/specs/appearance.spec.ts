@@ -80,6 +80,34 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toHaveCount(0);
   });
 
+  test('a returning browser sees only the changed steps, and can still replay the full tour', async ({ page }) => {
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    await page.evaluate(() => localStorage.setItem('relay:onboarded', '20'));
+    await page.reload();
+    const update = page.getByRole('dialog');
+    await expect(update).toHaveAccessibleName('Connect your phone');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 3');
+    await expect(update.locator('.tour-art')).toHaveCount(0);
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Notifications and sound');
+    // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
+    await page.reload();
+    await expect(update).toHaveAccessibleName('Connect your phone');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 3');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Notifications and sound');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Team checks');
+    await update.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.reload();
+    await appShown(page);
+    await expect(update).toHaveCount(0);
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await expect(update).toHaveAccessibleName('Welcome to Harness Relay');
+    expect(await tourSteps(page)).toBe(en.tour.steps.length);
+  });
+
   test('can be skipped, and Settings starts it again', async ({ page }) => {
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
     await tour(page).getByRole('button', { name: 'Skip tour' }).click();

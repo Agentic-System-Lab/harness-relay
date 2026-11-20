@@ -384,6 +384,7 @@ export const zhTW = {
   },
 
   chat: {
+    deliveryUnknown: '還沒收到電腦的回應。重新連線後，再送出同一份內容即可確認是否送達。',
     rename: '重新命名',
     renamePrompt: '對話標題',
     hops: (n: number) => `${n} 棒`,
@@ -1231,7 +1232,7 @@ export const zhTW = {
     whereDesktop: '從桌面 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「在瀏覽器打開」：它會用新的登入連結在瀏覽器打開對話。',
     whereDesktopWindow:
       '從 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「打開 Harness Relay」：這個視窗會用新的登入連結重新登入。',
-    whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
+    whereOther: '或從另一個已登入的瀏覽器：設定 → 連接手機 → 讓另一個裝置登入（例如手機）。',
   },
 
   notifications: {
@@ -1270,7 +1271,54 @@ export const zhTW = {
     testTitle: 'Harness Relay',
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
   },
+  homeScreen: {
+    title: '連接手機',
+    installHeading: '加入主畫面',
+    platform: '選擇手機系統',
+    ios: {
+      menu: '在 Safari 點「分享」',
+      menuHint: '用 Safari 打開已配對的 Harness Relay，點方框向上箭頭。若網址列旁只有選單，先點選單，再選「分享」。',
+      action: '加入主畫面',
+      install: '把圖示加入主畫面',
+      installHint: '在分享選單往下滑，選「加入主畫面」。若有「以網頁 App 開啟」，請開啟，再點右上角「加入」。',
+      confirm: '加入',
+      launch: '從主畫面開啟',
+      launchHint: '回到主畫面，點三個彩色圓點的 Harness Relay 圖示。若出現登入畫面，從電腦取得新的登入碼。',
+      notify:
+        '要收鎖屏通知，請用 iOS 16.4 以上，從主畫面圖示打開 Harness Relay。在「設定 → 通知與提示音」開啟「顯示系統通知」，點「允許」，再按「傳送測試通知」。',
+    },
+    android: {
+      menu: '打開 Chrome 選單',
+      menuHint: '用 Chrome 打開已配對的 Harness Relay，點網址列右側的直排三點。',
+      action: '安裝並建立捷徑',
+      install: '安裝到手機',
+      installHint: '選「安裝並建立捷徑」，再點「安裝」。部分版本的選項叫「加到主畫面」或「安裝應用程式」。',
+      confirm: '安裝',
+      launch: '從圖示開啟',
+      launchHint: '回到主畫面或應用程式清單，點三個彩色圓點的 Harness Relay 圖示。',
+      notify:
+        '要收通知，在手機的 Harness Relay「設定 → 通知與提示音」開啟「顯示系統通知」，允許 Chrome 或網頁 App 傳送通知，再按「傳送測試通知」。',
+    },
+    notifications: '手機通知',
+    openNotifications: '開啟這台手機的通知設定',
+  },
   browsers: {
+    phoneTitle: { unpaired: '連接手機', paired: '手機已配對', online: '手機已連線', unknown: '手機連線' },
+    phoneDetail: {
+      unpaired: '掃碼就能用手機連回這台電腦，繼續對話。',
+      paired: '在手機上開啟 Harness Relay 即可重新連線。',
+      online: '手機正在開啟 Harness Relay。',
+      unknown: '開啟手機配對設定。',
+    },
+    localLink: '在這台電腦上使用的連結',
+    expired: '登入碼已過期，請按「讓另一個裝置登入」取得新碼。',
+    install: '手機還沒安裝 Tailscale？',
+    setup: '用手機相機掃描下載碼，或在這台電腦開啟下載頁。兩端安裝後登入同一個 Tailscale 帳號，並在手機允許 VPN 連線。',
+    download: '開啟 Tailscale 官方下載頁',
+    ready: '手機連上 Tailscale 後，按下方按鈕產生一次性登入碼。',
+    scan: '掃描此碼登入 Harness Relay',
+    local:
+      '要顯示手機登入 QR code，請在桌面 App 選「分享到手機」，使用 npm start 時，請確認已啟用 Tailscale Serve，並將分享名稱加入 RELAY_ALLOWED_HOSTS。也可以在手機上的登入頁手動輸入下方代碼。',
     title: '已登入的瀏覽器',
     hint: '能操作 Harness Relay 的瀏覽器，最近使用的在前。不再使用的請登出。',
     current: '這個瀏覽器',
@@ -1279,8 +1327,7 @@ export const zhTW = {
     confirmCurrent: '要登出這個瀏覽器嗎？之後需要新的代碼才能再登入。',
     confirm: (label: string) => `要登出「${label}」嗎？`,
     add: '讓另一個裝置登入',
-    codeHint: (until: string) =>
-      `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
+    codeHint: (until: string) => `用手機掃描登入碼，或在手機登入頁輸入下方代碼。代碼可用一次，有效至 ${until}。`,
     link: '連結：',
   },
 
@@ -1874,6 +1921,7 @@ export const zhTW = {
       sessions: 'Agent 的 session',
       shares: '分享',
       browsers: '已登入的瀏覽器',
+      'home-screen': '連接手機',
       tour: '使用導覽',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
       agents: '助理設定',
@@ -2206,6 +2254,8 @@ export const zhTW = {
     skip: '跳過導覽',
     done: '開始使用',
     label: '使用導覽',
+    updated: '這次更新的功能',
+    finishUpdate: '完成',
     steps: [
       {
         title: '歡迎使用 Harness Relay',
@@ -2213,7 +2263,16 @@ export const zhTW = {
       },
       {
         title: '先確認各 agent 可以使用',
-        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。若要從手機使用，到「已登入的瀏覽器」取得代碼。',
+        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。',
+      },
+      {
+        title: '連接手機',
+        body: '用手機交辦任務、核准請求、下載結果。Agent 會在你的電腦上執行。',
+        points: [
+          '在電腦側欄「設定與登入」上方點「連接手機」，即可配對，接著照圖解把圖示加入手機主畫面。收合側欄時，入口在首頁右上角。',
+          '還沒裝 Tailscale？先掃下載碼，讓電腦和手機用相同帳號登入，再掃另行產生的 Harness Relay 一次性登入碼。',
+          '「手機已連線」表示手機正在開啟網頁，鎖屏後仍會保留配對。傳送後若斷線，在同一分頁重送同一份內容即可。',
+        ],
       },
       {
         title: '開源 agent 與模型來源',
@@ -2280,7 +2339,7 @@ export const zhTW = {
         points: [
           '顯示系統通知：分頁在背景或視窗被擋住時跳出通知，點一下就打開那個對話',
           '播放提示音：回覆完是兩個音，需要你是三個音',
-          '手機用 https:// 網址（透過 Tailscale）打開，在那裡開啟（iPhone 與 iPad 要先加到主畫面）：即使 App 沒開著、手機鎖定了也收得到推播，只要電腦上的 Harness Relay 還在執行',
+          '在手機的「設定 → 連接手機」可看 iPhone 或 Android 的操作圖解。要在 iPhone 鎖定畫面收通知，請從主畫面圖示開啟後，再啟用通知',
           '可以只選「回覆完成」或「需要你」，也能先傳一則測試通知試試看',
         ],
       },

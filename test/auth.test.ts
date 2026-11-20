@@ -44,6 +44,7 @@ describe('sign-in codes', () => {
   it('name a browser by its User-Agent', () => {
     const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
     expect(browserLabel(mac)).toBe('Chrome · macOS');
+    expect(browserLabel(mac, true)).toBe('Chrome · iPad');
     expect(
       browserLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'),
     ).toBe('Safari · iPhone');
@@ -121,7 +122,7 @@ describe('signed-in browsers', () => {
     expect(auth.check(s.cookie, s.key)).toBe(s.id);
     clock += 1;
     expect(auth.check(s.cookie, s.key)).toBeUndefined();
-    auth.createCode(CODE_TTL_MS.device); // and it goes from the list
+    // Expired sessions disappear from the list even before another code is made.
     expect(auth.sessions()).toEqual([]);
   });
 
@@ -153,6 +154,7 @@ describe('the API with sign-in', () => {
   const HOST = { host: '127.0.0.1:8787' };
   let app: ReturnType<typeof createApp>;
   let auth: InstanceType<typeof AuthStore>;
+  let phoneUrl: string | undefined;
   let store: InstanceType<typeof Store>;
   beforeEach(() => {
     const db = openDatabase(':memory:');
@@ -160,7 +162,10 @@ describe('the API with sign-in', () => {
     store = new Store(db);
     const hub = new Hub();
     auth = new AuthStore(db);
+    phoneUrl = undefined;
     app = createApp({
+      extraHosts: ['computer.example.ts.net'],
+      phoneAddress: () => phoneUrl,
       auth,
       store,
       settings,
@@ -300,6 +305,22 @@ describe('the API with sign-in', () => {
     expect((await app.request(`/api/conversations/${conv.id}/files?root=`, { headers: { ...HOST, cookie } })).status).toBe(401);
   });
 
+  it('offers the allowed HTTPS pairing origin and preserves its Serve port', async () => {
+    const { cookie, key } = await signIn();
+    const code = async () =>
+      (await post('/api/auth/codes', {}, { cookie, [AUTH_KEY_HEADER]: key })).json() as Promise<{ phoneUrl?: string }>;
+    for (phoneUrl of [
+      undefined,
+      'https://unshared.example.ts.net',
+      'http://computer.example.ts.net',
+      'https://computer.example.ts.net/somewhere',
+    ]) {
+      expect(await code()).not.toHaveProperty('phoneUrl');
+    }
+    phoneUrl = 'https://computer.example.ts.net:8443';
+    expect(await code()).toMatchObject({ phoneUrl, code: expect.any(String) });
+  });
+
   it('gives a signed-in browser a code for another device, lists the browsers and signs one out', async () => {
     expect((await post('/api/auth/codes', {})).status).toBe(401);
     const first = await signIn();
@@ -320,6 +341,8 @@ describe('the API with sign-in', () => {
     expect(list.map((s) => s.label).sort()).toEqual(['Firefox · macOS', 'Safari · iPhone']);
     const me = list.find((s) => s.current)!;
     expect(me.label).toBe('Firefox · macOS');
+    expect(me).not.toHaveProperty('phone');
+    expect(list.find((s) => !s.current)).toHaveProperty('phone', 'paired');
     // Signing this browser out clears its cookie, and it is no longer let in.
     const out = await app.request(`/api/auth/sessions/${me.id}`, {
       method: 'DELETE',
@@ -328,6 +351,16 @@ describe('the API with sign-in', () => {
     expect(out.status).toBe(200);
     expect(out.headers.get('set-cookie')).toMatch(new RegExp(`^${SESSION_COOKIE}=;.*Max-Age=0`));
     expect((await app.request('/api/conversations', { headers: { ...HOST, ...firstHeaders } })).status).toBe(401);
+  });
+
+  it('updates a previously paired desktop-mode iPad when its current session reports touch support', async () => {
+    const { cookie, key } = await signIn();
+    const headers = { ...HOST, cookie, [AUTH_KEY_HEADER]: key, 'user-agent': 'Mozilla/5.0 (Macintosh) Firefox/140.0' };
+    await app.request('/api/auth', { headers });
+    expect(auth.sessions()[0]?.label).toBe('Firefox · macOS');
+    await app.request('/api/auth', { headers: { ...headers, 'X-Relay-iPad': '1' } });
+    const response = await app.request('/api/auth/sessions', { headers });
+    expect(await response.json()).toMatchObject([{ label: 'Firefox · iPad', phone: 'paired' }]);
   });
 
   it('refuses more codes for a minute after ten wrong ones', async () => {

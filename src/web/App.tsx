@@ -22,6 +22,8 @@ import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route, type SettingsReturn } from './route';
 import { askSignedIn, runFirstCheck, signInWhere, signInWithLink, type LinkDeps, type LinkResult, type PageStart } from './signin';
+import { useBrowserSessions } from './browserSessions';
+import { PhoneLink } from './components/PhoneLink';
 import { Sidebar } from './components/Sidebar';
 import { MenuIcon, PanelIcon } from './components/icons';
 import { useI18n, useT } from './i18n';
@@ -30,8 +32,8 @@ import {
   PageAlerts,
   SOUND_UNLOCK_EVENTS,
   alertPrefsNow,
+  isIos,
   listenForClicks,
-  pushActive,
   syncPush,
   unlockSound,
   useAlertPrefs,
@@ -54,7 +56,7 @@ import {
 } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 import { useSidebarDrawer } from './components/useSidebarDrawer';
-import { onboardingDone } from './tour';
+import { pendingTour } from './tour';
 
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
@@ -105,7 +107,12 @@ const LINK: LinkDeps = {
   status: api.authStatus,
   signIn: api.signIn,
   hash: () => window.location.hash,
-  dropCode: () => history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`),
+  dropCode: () => {
+    const url = new URL(location.href);
+    url.hash = url.searchParams.get('pair') === '1' ? '/settings/home-screen' : '/';
+    url.searchParams.delete('pair');
+    history.replaceState(null, '', url);
+  },
 };
 
 /**
@@ -176,7 +183,8 @@ export function App() {
 
 function RelayApp() {
   const t = useT();
-  const [tourOpen, setTourOpen] = useState(() => !onboardingDone());
+  const [tourSince, setTourSince] = useState(pendingTour);
+  const tourOpen = tourSince !== null;
   const [route, setRoute] = useState<Route>(parseHash);
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
   const [startingChat, setStartingChat] = useState(false);
@@ -195,6 +203,9 @@ function RelayApp() {
   useSidebarDrawer(sidebarOpen, setSidebarOpen);
   /** Wide screens: the sidebar is collapsed (remembered in this browser). */
   const [collapsed, setCollapsedState] = useState(readCollapsed);
+  const mobile = isIos(navigator) || /Android/.test(navigator.userAgent);
+  const browsers = useBrowserSessions(route.page === 'settings' || (!mobile && (!collapsed || route.page === 'home')));
+  const phoneLink = !mobile && <PhoneLink phone={browsers.phone} />;
   const setCollapsed = (v: boolean) => {
     setCollapsedState(v);
     try {
@@ -361,14 +372,14 @@ function RelayApp() {
     // list, and its subscription is checked (the server may have dropped it).
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') {
-        if (pushActive()) api.presence(false, alerts.id);
+        api.presence(false, alerts.id);
         return;
       }
       alerts.returned();
       refreshConversations();
       void syncPush(api, alertPrefsNow());
     };
-    const onHide = () => pushActive() && api.presence(false, alerts.id);
+    const onHide = () => api.presence(false, alerts.id);
     const resync = setInterval(() => void syncPush(api, alertPrefsNow()), PUSH_RESYNC_MS);
     // Browsers let a page play a sound only after the user did something on it.
     const unlock = () => alertPrefsNow().sound && unlockSound();
@@ -508,6 +519,7 @@ function RelayApp() {
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
+        phoneLink={phoneLink}
         onCollapse={() => setCollapsed(true)}
         inbox={inbox}
         onOpenInbox={() => setInboxOpen(true)}
@@ -548,7 +560,12 @@ function RelayApp() {
             <InboxButton unread={inbox.unread} onOpen={() => setInboxOpen(true)} />
           </div>
         )}
-        {route.page === 'home' && <Home waiting={conversations.find((c) => c.confirmTeam)} />}
+        {route.page === 'home' && (
+          <>
+            {phoneLink && <div className="home-phone-corner">{phoneLink}</div>}
+            <Home mobile={mobile} waiting={conversations.find((c) => c.confirmTeam)} />
+          </>
+        )}
         {route.page === 'new' && (
           <NewChat
             draft={chatDraft}
@@ -594,12 +611,13 @@ function RelayApp() {
         {route.page === 'settings' && (
           <Deferred inPage>
             <SettingsPage
+              browsers={browsers}
               settingsReturn={settingsReturn}
               section={route.section}
               providers={providers}
               catalog={catalog}
               refreshProviders={refreshProviderInfo}
-              onShowTour={() => setTourOpen(true)}
+              onShowTour={() => setTourSince(0)}
               update={update}
               onCheckUpdate={checkUpdate}
               onInstallUpdate={installUpdate}
@@ -618,8 +636,8 @@ function RelayApp() {
         </Deferred>
       )}
       {tourOpen && (
-        <Deferred onClose={() => setTourOpen(false)}>
-          <Onboarding onClose={() => setTourOpen(false)} />
+        <Deferred onClose={() => setTourSince(null)}>
+          <Onboarding since={tourSince!} onClose={() => setTourSince(null)} />
         </Deferred>
       )}
       {sandboxOpen && sandbox.view && (

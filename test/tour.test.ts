@@ -2,16 +2,17 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../src/shared/types';
-import { TOUR_TARGETS, TOUR_VERSION, scrollBy, tourSeen } from '../src/web/components/Onboarding';
+import { scrollBy } from '../src/web/components/Onboarding';
+import { markDone, pendingTour, TOUR_STEPS, TOUR_VERSION, tourIndices } from '../src/web/tour';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
 describe('guided tour', () => {
   it('points at one target (or none) per step', () => {
-    expect(TOUR_TARGETS).toHaveLength(en.tour.steps.length);
-    expect(TOUR_TARGETS).toHaveLength(zhTW.tour.steps.length);
+    expect(TOUR_STEPS).toHaveLength(en.tour.steps.length);
+    expect(TOUR_STEPS).toHaveLength(zhTW.tour.steps.length);
   });
 
   it('points only at elements the app has (a data-tour attribute in the client)', () => {
@@ -21,15 +22,37 @@ describe('guided tour', () => {
         e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
       );
     const names = new Set(files(web).flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/data-tour="([^"]+)"/g)].map((m) => m[1])));
-    for (const target of TOUR_TARGETS) if (target) expect([...names], `data-tour="${target}"`).toContain(target);
+    for (const { target } of TOUR_STEPS) if (target) expect([...names], `data-tour="${target}"`).toContain(target);
   });
 
-  it('opens again for people who finished an earlier version', () => {
-    expect(tourSeen(null, 2)).toBe(false); // first visit
-    expect(tourSeen('1', 2)).toBe(false); // finished the tour before it had versions
-    expect(tourSeen('2', 2)).toBe(true);
-    expect(tourSeen('3', 2)).toBe(true); // a newer version was seen in this browser
-    expect(tourSeen('yes', 2)).toBe(false);
+  it('remembers a browser, shows changes since its version, and preserves a newer marker during manual replay', () => {
+    let value: string | null = null;
+    vi.stubGlobal('localStorage', {
+      getItem: () => value,
+      setItem: (_: string, v: string) => {
+        value = v;
+      },
+    });
+    try {
+      expect(pendingTour()).toBe(0);
+      expect(tourIndices(0)).toHaveLength(en.tour.steps.length);
+      const titles = (since: number) => tourIndices(since).map((i) => en.tour.steps[i]!.title);
+      expect(titles(20)).toEqual(['Connect your phone', 'Notifications and sound', 'Team checks']);
+      expect(titles(21)).toEqual(['Connect your phone', 'Notifications and sound']);
+      expect(titles(22)).toEqual(['Connect your phone', 'Notifications and sound']);
+      expect(tourIndices(23)).toEqual([]);
+      value = '21';
+      expect(pendingTour()).toBe(21);
+      markDone();
+      expect(pendingTour()).toBeNull();
+      value = '999';
+      markDone();
+      expect(value).toBe('999');
+      value = 'broken';
+      expect(pendingTour()).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([en, zhTW])('explains the permissions and CLI support for team checks in $langName', (messages) => {
@@ -59,8 +82,8 @@ describe('guided tour', () => {
       .digest('hex')
       .slice(0, 12);
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
-    // see it again, then update both values here. For a change not worth showing again (a typo), update only the
+    // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 21, fingerprint: 'ed948360fa24' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 23, fingerprint: '52bb2b7a061d' });
   });
 });

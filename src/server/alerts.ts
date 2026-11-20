@@ -152,7 +152,7 @@ export class AlertWatcher {
   }
 
   /** Whether a page of the browser is in front (pages that stopped polling are forgotten). */
-  private inFront(session: string | undefined): boolean {
+  inFront(session: string | undefined): boolean {
     const pages = this.present.get(sessionKey(session));
     if (!pages) return false;
     const now = this.now();

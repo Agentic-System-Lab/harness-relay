@@ -692,6 +692,12 @@ const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, too
 
 const seenKey = (convId: string, agentId: string) => `${convId}\u0000${agentId}`;
 
+export interface TaskRequest {
+  scope: string;
+  id: string;
+  digest: string;
+}
+
 /**
  * SQLite-backed persistence. Conversations being used are kept in memory (the orchestrator mutates
  * them while streaming); changes are written back explicitly, message writes debounced.
@@ -970,8 +976,22 @@ export class Store {
     };
   }
 
+  taskReceipt(request: TaskRequest) {
+    return this.db
+      .prepare('SELECT conversation_id AS conversationId, digest, queued FROM task_requests WHERE scope = ? AND request_id = ?')
+      .get(request.scope, request.id) as { conversationId: string; digest: string; queued: number | null } | undefined;
+  }
+
+  recordTask(request: TaskRequest, convId: string, queued: boolean | null): void {
+    this.db
+      .prepare(
+        'INSERT INTO task_requests (scope, request_id, digest, conversation_id, queued) VALUES (?, ?, ?, ?, ?) ON CONFLICT(scope, request_id) DO UPDATE SET queued = excluded.queued',
+      )
+      .run(request.scope, request.id, request.digest, convId, queued === null ? null : Number(queued));
+  }
+
   /** Save a new conversation: its settings, its team, and the messages it starts with (a branch's copies). */
-  create(conv: Conversation): void {
+  create(conv: Conversation, request?: TaskRequest): void {
     transaction(this.db, () => {
       const s = conv.settings;
       this.db
@@ -1000,6 +1020,7 @@ export class Store {
           conv.branch ? JSON.stringify(conv.branch) : null,
           s.checks ? JSON.stringify(s.checks) : null,
         );
+      if (request) this.recordTask(request, conv.id, null);
       this.writeAgents(conv);
       if (conv.messages.length) this.insertMessages(conv.id, conv, new Set(conv.messages.map((m) => m.id)));
     });
@@ -1086,9 +1107,18 @@ export class Store {
   }
 
   /** Persist the messages waiting to be delivered. */
-  saveQueue(conv: Conversation): void {
+  saveQueue(conv: Conversation, request?: TaskRequest): void {
     if (this.deleted.has(conv.id)) return;
-    this.db.prepare('UPDATE conversations SET queue = ? WHERE id = ?').run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
+    const save = () =>
+      this.db
+        .prepare('UPDATE conversations SET queue = ? WHERE id = ?')
+        .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
+    if (request)
+      transaction(this.db, () => {
+        save();
+        this.recordTask(request, conv.id, true);
+      });
+    else save();
   }
 
   // Schedules ----------------------------------------------------------------------
@@ -1222,13 +1252,13 @@ export class Store {
   // Messages -------------------------------------------------------------------
 
   /** Queue a message for writing; `immediate` writes it (and anything else pending) now. */
-  saveMessage(convId: string, msg: ChatMessage, immediate = false): void {
+  saveMessage(convId: string, msg: ChatMessage, immediate = false, request?: TaskRequest): void {
     if (this.deleted.has(convId)) return;
     let set = this.dirty.get(convId);
     if (!set) this.dirty.set(convId, (set = new Set()));
     set.add(msg.id);
-    if (immediate) {
-      this.flush(convId);
+    if (immediate || request) {
+      this.flush(convId, request);
     } else if (!this.timers.has(convId)) {
       // Streaming changes a message many times per second; batch them.
       this.scheduleFlush(convId, 1000);
@@ -1250,7 +1280,7 @@ export class Store {
     );
   }
 
-  flush(convId: string): void {
+  flush(convId: string, request?: TaskRequest): void {
     clearTimeout(this.timers.get(convId));
     this.timers.delete(convId);
     const ids = this.dirty.get(convId);
@@ -1259,7 +1289,7 @@ export class Store {
     if (!ids?.size || !conv) return;
 
     try {
-      this.writeMessages(convId, conv, ids);
+      this.writeMessages(convId, conv, ids, request);
     } catch (err) {
       // Keep them pending for the next flush.
       const pending = this.dirty.get(convId);
@@ -1269,8 +1299,11 @@ export class Store {
     }
   }
 
-  private writeMessages(convId: string, conv: Conversation, ids: Set<string>): void {
-    transaction(this.db, () => this.insertMessages(convId, conv, ids));
+  private writeMessages(convId: string, conv: Conversation, ids: Set<string>, request?: TaskRequest): void {
+    transaction(this.db, () => {
+      this.insertMessages(convId, conv, ids);
+      if (request) this.recordTask(request, convId, false);
+    });
   }
 
   /** Write these of the conversation's messages, with their parts and file changes (inside the caller's transaction). */

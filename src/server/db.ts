@@ -502,6 +502,16 @@ const MIGRATIONS: string[] = [
     data            TEXT NOT NULL
   );
   `,
+  // 37: receipts for task submissions and retries.
+  `
+  CREATE TABLE task_requests (
+    scope TEXT NOT NULL, request_id TEXT NOT NULL, digest TEXT NOT NULL,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    queued INTEGER,
+    PRIMARY KEY(scope, request_id)
+  );
+  CREATE INDEX task_requests_conversation ON task_requests(conversation_id);
+  `,
 ];
 
 /**

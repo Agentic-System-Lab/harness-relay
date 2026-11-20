@@ -51,7 +51,6 @@ const zhTW = {
   cancel: '取消',
   retry: '再試一次',
   later: '稍後',
-  copyAddress: '複製網址',
   restartNow: '立即重新啟動',
   quitApp: '結束 Harness Relay',
   openInBrowser: '在瀏覽器打開',
@@ -95,7 +94,8 @@ const zhTW = {
   tailscaleMissing: '找不到 Tailscale',
   tailscaleMissingDetail: '要從手機使用，請在這台電腦和手機都安裝 Tailscale，並登入同一個 tailnet。在 Mac 上，裝好 Tailscale app 即可。',
   tailscaleNotRunning: 'Tailscale 還沒有連線',
-  tailscaleNotRunningDetail: '請打開 Tailscale 並登入，再選一次「分享到手機」。',
+  checkConnection: '檢查連線',
+  tailscaleNotRunningDetail: '開啟 Tailscale 並登入帳號，完成後回到這裡檢查連線。',
   tailscaleApproval: '要先為你的 tailnet 開啟 Serve 和 HTTPS',
   tailscaleApprovalDetail: '已經在瀏覽器打開 Tailscale 的頁面。在那裡允許之後，再選一次「分享到手機」。',
   tailscaleAccessDenied: 'Tailscale 不允許這個使用者變更設定',
@@ -107,9 +107,6 @@ const zhTW = {
     '讀不到這台電腦目前在 tailnet 分享了什麼（tailscale serve status 沒有回應），為了不蓋掉其他服務或 Funnel，這次沒有分享。請確認 Tailscale 正常執行，再選一次「分享到手機」。',
   tailscalePortsTaken:
     '這台電腦的 tailnet 網址上，HTTPS 的 443、8443 與 10000 都已經分享了其他服務。請照「用手機連線」的說明手動分享，或先用 tailscale serve --https=<port> off 停止其中一個。',
-  shared: '已經分享到你的 tailnet',
-  sharedDetail: (url: string) =>
-    `在手機打開 Tailscale，然後用瀏覽器打開：\n\n${url}\n\n也可以把它加到主畫面。這個分享會一直保留，電腦重新開機後也一樣。`,
   needsRestart: '伺服器要重新啟動，才會接受從手機來的連線',
   needsRestartDetail: (url: string) => `重新啟動後，在手機打開：\n\n${url}\n\n正在回覆的對話會被中斷。`,
   loginItemApproval: '請在系統設定允許 Harness Relay 登入時啟動',
@@ -175,7 +172,6 @@ const en: DesktopMessages = {
   cancel: 'Cancel',
   retry: 'Try again',
   later: 'Later',
-  copyAddress: 'Copy address',
   restartNow: 'Restart now',
   quitApp: 'Quit Harness Relay',
   openInBrowser: 'Open in browser',
@@ -219,7 +215,8 @@ const en: DesktopMessages = {
   tailscaleMissingDetail:
     'To use Harness Relay from your phone, install Tailscale on this computer and on the phone, signed in to the same tailnet. On a Mac, the Tailscale app is enough.',
   tailscaleNotRunning: 'Tailscale is not connected',
-  tailscaleNotRunningDetail: 'Open Tailscale and sign in, then choose Share with your phone again.',
+  checkConnection: 'Check connection',
+  tailscaleNotRunningDetail: 'Open Tailscale and sign in. When setup finishes, return here to check the connection.',
   tailscaleApproval: 'Serve and HTTPS have to be turned on for your tailnet first',
   tailscaleApprovalDetail: "Tailscale's page is open in your browser. Allow it there, then choose Share with your phone again.",
   tailscaleAccessDenied: 'Tailscale does not let this user change its settings',
@@ -231,9 +228,6 @@ const en: DesktopMessages = {
     'Could not read what this computer already shares with the tailnet (tailscale serve status did not answer), so nothing was shared: it could take over another service or Funnel. Check that Tailscale runs, then choose Share with your phone again.',
   tailscalePortsTaken:
     "HTTPS ports 443, 8443 and 10000 of this computer's tailnet address already share something else. Share Harness Relay by hand, as in Use it from your phone, or first stop one of them with tailscale serve --https=<port> off.",
-  shared: 'Shared with your tailnet',
-  sharedDetail: (url) =>
-    `Turn Tailscale on in your phone and open this address in its browser:\n\n${url}\n\nYou can add it to the home screen too. The sharing stays on, also after the computer restarts.`,
   needsRestart: 'The server has to restart to accept connections from your phone',
   needsRestartDetail: (url) => `After the restart, open this on your phone:\n\n${url}\n\nConversations that are replying will be stopped.`,
   loginItemApproval: 'Allow Harness Relay to open at login in System Settings',

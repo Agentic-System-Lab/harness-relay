@@ -72,6 +72,7 @@ describe('client routes', () => {
       'sessions',
       'shares',
       'browsers',
+      'home-screen',
       'tour',
     ]);
   });
@@ -99,6 +100,7 @@ describe("the settings links row's agents' menu", () => {
       'sessions',
       'shares',
       'browsers',
+      'home-screen',
       'tour',
     ]);
   });
