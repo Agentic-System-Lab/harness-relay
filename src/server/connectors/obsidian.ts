@@ -18,7 +18,7 @@ import {
   type BigIntStats,
 } from 'node:fs';
 import { isAbsolute, join, posix } from 'node:path';
-import type { OutboxPreview } from '../../shared/types';
+import type { ObsidianVault, OutboxPreview } from '../../shared/types';
 import { HttpError } from '../errors';
 import { resolveInRoot } from '../files';
 import type { GatewayTool, PreparedOutboxCall } from '../gateway';
@@ -41,6 +41,51 @@ export function checkedVault(path: string, options: AgentFolderOptions): string 
   return root;
 }
 
+export const vaultParameter = {
+  type: 'string',
+  description: 'Vault ID from obsidian_list_vaults. Required when more than one vault is connected.',
+};
+
+export function selectedVault(vaults: readonly ObsidianVault[], id: unknown, options: AgentFolderOptions): ObsidianVault {
+  const candidates = id === undefined ? vaults : vaults.filter((v) => v.id === id);
+  if (candidates.length !== 1) throw new Error(vaults.length ? t().obsidianChoose : t().appsVault);
+  const entry = candidates[0];
+  if (checkedVault(entry.path, options) !== entry.path) throw new Error(t().appsVault);
+  return entry;
+}
+
+/** Keep every page inside the gateway's text limit, including long paths and literal data-block tags. */
+export function vaultInventory(vaults: readonly ObsidianVault[], offset: unknown, options: AgentFolderOptions): string {
+  const start = offset === undefined ? 0 : offset;
+  if (typeof start !== 'number' || !Number.isSafeInteger(start) || start < 0) throw new Error(t().invalidField('offset'));
+  const page: (ObsidianVault & { available: boolean })[] = [];
+  const encode = (data: unknown) => JSON.stringify(data).replace(/</g, '\\u003c');
+  let length = 0;
+  for (const entry of vaults.slice(start, start + 32)) {
+    let available = false;
+    try {
+      available = checkedVault(entry.path, options) === entry.path;
+    } catch {
+      // A temporarily inaccessible vault still has an ID, and other selections remain usable.
+    }
+    const item = { ...entry, available };
+    length += encode(item).length + 1;
+    if (page.length && length > 59000) break;
+    page.push(item);
+  }
+  const next = start + page.length;
+  return encode({ vaults: page, ...(next < vaults.length ? { nextOffset: next } : {}) });
+}
+
+/** A vault inside another is an independent selection. Do not cross its marker, even after it is disconnected. */
+export function nestedVault(path: string): boolean {
+  try {
+    return Boolean(lstatSync(join(path, '.obsidian'), { throwIfNoEntry: false }));
+  } catch {
+    return true;
+  }
+}
+
 export function vaultPath(root: string, input: unknown) {
   const path = input ?? '';
   if (
@@ -54,6 +99,13 @@ export function vaultPath(root: string, input: unknown) {
   const found = resolveInRoot(root, path);
   // A directory alias or a file link could point to hidden settings or a different type of file.
   if (found.rel !== path || realpathSync.native(found.real) !== join(root, ...path.split('/'))) throw new Error(t().fileNotFound);
+  let folder = root;
+  const parts = path.split('/').filter(Boolean);
+  if (!lstatSync(found.real).isDirectory()) parts.pop();
+  for (const part of parts) {
+    folder = join(folder, part);
+    if (nestedVault(folder)) throw new Error(t().fileNotFound);
+  }
   return found;
 }
 
@@ -175,7 +227,7 @@ function replaceText(fd: number, text: string) {
 
 const digest = (note: Note) => createHash('sha256').update(JSON.stringify(note)).digest('hex');
 
-export function noteWriteTools(selectedVault: () => string, unavailable: () => string | undefined, vaultId = () => ''): GatewayTool[] {
+export function noteWriteTools(select: (id: unknown) => ObsidianVault, unavailable: () => string | undefined): GatewayTool[] {
   return (['create', 'edit'] as const).map((operation): GatewayTool => {
     const create = operation === 'create';
     return {
@@ -186,6 +238,7 @@ export function noteWriteTools(selectedVault: () => string, unavailable: () => s
       inputSchema: {
         type: 'object',
         properties: {
+          vault: vaultParameter,
           path: { type: 'string', description: 'Vault-relative .md path.' },
           content: { type: 'string', description: 'Complete proposed Markdown.' },
         },
@@ -197,7 +250,7 @@ export function noteWriteTools(selectedVault: () => string, unavailable: () => s
       prepare(a): PreparedOutboxCall {
         const path = notePath(a.path);
         const after = markdown(a.content);
-        const vault = selectedVault();
+        const { id: vaultId, path: vault } = select(a.vault);
         const { full, parentKey, vaultKey } = location(vault, path);
         const existing = create ? undefined : original(vault, path);
         if (create && lstatSync(full, { throwIfNoEntry: false })) throw new Error(t().obsidianExists);
@@ -205,7 +258,7 @@ export function noteWriteTools(selectedVault: () => string, unavailable: () => s
         return {
           title: create ? t().obsidianCreate(path) : t().obsidianEdit(path),
           preview: { fields: [], note },
-          args: { vaultId: vaultId(), vaultKey, parentKey, version: existing?.version ?? null, digest: digest(note) },
+          args: { vaultId, vaultKey, parentKey, version: existing?.version ?? null, digest: digest(note) },
         };
       },
       send: async (args, item) => {
@@ -214,7 +267,15 @@ export function noteWriteTools(selectedVault: () => string, unavailable: () => s
         const path = notePath(note.path);
         const after = markdown(note.after);
         const destination = () => {
-          if (selectedVault() !== note.vault || vaultId() !== args.vaultId) throw conflict();
+          // Only the pre-ID single-vault store could queue an empty ID. Its migrated connection is 'legacy'.
+          if (typeof args.vaultId !== 'string') throw conflict();
+          let selected: ObsidianVault;
+          try {
+            selected = select(args.vaultId || 'legacy');
+          } catch {
+            throw conflict();
+          }
+          if (selected.path !== note.vault) throw conflict();
           const dest = location(note.vault, path);
           if (dest.parentKey !== args.parentKey || dest.vaultKey !== args.vaultKey) throw conflict();
           return dest;

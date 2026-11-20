@@ -75,6 +75,7 @@ export type KeepSignIn = (s: SignedIn) => Promise<OAuthAccountView | undefined>;
 /** Why a sign-in fails that was not given a use's access. */
 export function noAccess(provider: string, use: OAuthUse): string {
   if (use === 'teams') return t().oauthNoTeamsAccess;
+  if (use === 'documents') return t().oauthNoDocumentsAccess;
   if (use === 'drive') return t().oauthNoDriveAccess;
   return use === 'mail' ? t().oauthNoMailAccess(provider) : t().oauthNoCalendarAccess(provider);
 }

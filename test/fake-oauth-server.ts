@@ -54,7 +54,7 @@ export interface FakeGoogle {
   clientId: string;
   secret: string;
   /** Where its sign-in, userinfo and CalDAV are: what `googleProvider()` takes. */
-  urls: { authorize: string; token: string; revoke: string; userinfo: string; drive?: string; caldav: string };
+  urls: { authorize: string; token: string; revoke: string; userinfo: string; drive?: string; docs?: string; caldav: string };
   /** The account that signs in. */
   me: { sub: string; email: string; name: string };
   /** What CalDAV discovery finds: the account's calendars, none, or a server error. */
@@ -483,6 +483,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     userinfo: `${self.url}/google/userinfo`,
     caldav: `${self.url}/caldav/v2`,
     drive: `${self.url}/drive/v3`,
+    docs: `${self.url}/docs/v1`,
   };
   return self;
 }

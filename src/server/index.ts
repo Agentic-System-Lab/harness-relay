@@ -157,11 +157,10 @@ gateway.register([
   ...connectorTools(settings.connectors, settings.oauth),
   ...appTools(
     settings.oauth,
-    () => settings.tools.obsidianVault(),
+    () => settings.tools.obsidianVaults(),
     () => agentFolderOptions(settings),
     undefined,
     teams,
-    () => settings.tools.obsidianVaultId(),
   ),
 ]);
 orchestrator.onDelete = (id) => void browser.close(id, true);

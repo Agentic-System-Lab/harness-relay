@@ -114,7 +114,10 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     port: number;
     device?: boolean;
   }): Promise<OAuthSignInView> {
-    if ((o.provider !== 'google' && o.uses.includes('drive')) || (o.provider !== 'microsoft' && o.uses.includes('teams')))
+    if (
+      (o.provider !== 'google' && (o.uses.includes('drive') || o.uses.includes('documents'))) ||
+      (o.provider !== 'microsoft' && o.uses.includes('teams'))
+    )
       throw new HttpError(400, t().invalidField('uses'));
     const provider = this.provider(o.provider);
     const { account: accountId, ...rest } = o;

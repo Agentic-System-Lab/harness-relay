@@ -35,6 +35,7 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
     mail: lang === 'en' ? 'Mail' : '郵件',
     calendar: lang === 'en' ? 'Calendar' : '行事曆',
     drive: 'Google Drive',
+    documents: 'Google Drive',
     teams: 'Microsoft Teams',
   }[use];
   return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
@@ -611,6 +612,7 @@ const zhTW = {
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
   oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
+  oauthNoDocumentsAccess: '若要建立或編輯 Google 文件，請重新登入 Google 並授權文件編輯。',
   oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
   teamsSetupFailed: '無法設定 Microsoft Graph。請確認已安裝 PowerShell 7 並可連至 PowerShell Gallery，再試一次。',
   teamsForbidden: 'Teams 拒絕存取這個目的地（HTTP 403）。請檢查該頻道或聊天的存取權限。',
@@ -619,9 +621,30 @@ const zhTW = {
   teamsPostingChanged: 'Teams 的傳送帳號或目的地與預覽不符。請重新準備訊息。',
   teamsPostFailed: '無法確認 Teams 是否已發送訊息。請先查看目的地，再決定是否重試。',
   teamsReadFailed: '無法讀取 Teams。請確認網路連線和帳號權限，再試一次。',
+  appsGithubChanged: 'GitHub 帳號已變更。請確認目前顯示的帳號，再選擇是否登出。',
+  appsGithubToken: (name: string) => `請從啟動 Relay 的環境移除 ${name}，然後重新啟動 Relay。`,
+  appsGithubSignOutFailed: 'GitHub CLI 無法登出這個帳號。請重新檢查帳號後再試一次。',
   appsGithubFailed: '無法讀取 GitHub。請確認網路連線和帳號權限，再試一次。',
   appsTooLarge: '內容太大，請縮小讀取範圍。',
   appsConnectFirst: '請先在「設定 → App 與工具 → 常用 App」連結帳號。',
+  obsidianChoose: '請用 obsidian_list_vaults 查詢筆記庫，並以 vault 參數指定其中一個 ID。',
+  obsidianMultiple: '已連結多個筆記庫。請選擇要管理的個別筆記庫。',
+  obsidianOverlap: '不能同時連結一個筆記庫及其上層或下層筆記庫。',
+  obsidianVaultMissing: '找不到這個已連結的筆記庫。',
+  docsGrant: '請先在「常用 App」的 Google Drive 帳號授權 Google 文件編輯。',
+  docsAccount: '請指定一個已授權 Google 文件編輯的 Google 帳號電子郵件。',
+  docsChanged: '文件、帳號、授權或版本已變更。請重新預覽。',
+  docsInvalid: 'Google 文件回應的檔案、分頁或版本無法驗證。',
+  docsMatch: '請提供一般內文段落中唯一符合的完整文字。涉及建議修訂或其他文件結構的文字無法修改。',
+  docsTabs: (tabs: string) => `請指定要編輯的分頁 ID（${tabs}）。`,
+  docsCreate: (title: string) => `建立 Google 文件「${title}」`,
+  docsEdit: (title: string) => `編輯 Google 文件「${title}」`,
+  docsSaved: (title: string, link: string) => `已儲存 Google 文件「${title}」。\n${link}`,
+  docsFailed: (title: string, why: string) => `Google 文件「${title}」的變更未確認完成。${why}`,
+  docsDiscarded: (title: string) => `已捨棄 Google 文件「${title}」的變更。`,
+  docsUnknown: (target: string) => `無法確認最後結果。請在 Google 文件中檢查「${target}」後再提出新要求。`,
+  docsCreatedCheck: (title: string, link: string) => `已建立 Google 文件「${title}」。請開啟檢查內容後再提出新要求。\n${link}`,
+  docsHttp: (code: number) => `Google 文件回應 HTTP ${code}。請檢查文件權限及版本後再試。`,
   obsidianPath: '請指定現有資料夾中的 .md 筆記，路徑須相對於筆記庫，且不得包含隱藏項目。',
   obsidianWriteFailed: '無法完成筆記寫入。請檢查檔案系統的狀態。',
   obsidianContent: '每份筆記的原文與新內容都必須是 48 KiB 以內的 UTF-8 文字。',
@@ -654,11 +677,13 @@ const zhTW = {
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
   oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
-    use === 'teams'
-      ? `請為 ${email} 連結 Teams`
-      : use === 'drive'
-        ? `請為 ${email} 連結 Google Drive`
-        : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+    use === 'documents'
+      ? `請為 ${email} 開啟 Google 文件編輯。`
+      : use === 'teams'
+        ? `請為 ${email} 連結 Teams`
+        : use === 'drive'
+          ? `請為 ${email} 連結 Google Drive`
+          : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
@@ -1601,6 +1626,7 @@ const en: ServerMessages = {
   oauthNoCalendarAccess: (provider) =>
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
   oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
+  oauthNoDocumentsAccess: 'To create or edit Google documents, sign in again and allow document editing.',
   oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
   teamsSetupFailed:
     'Could not set up Microsoft Graph. Check that PowerShell 7 is installed and can reach the PowerShell Gallery, then try again.',
@@ -1610,9 +1636,31 @@ const en: ServerMessages = {
   teamsPostingChanged: 'The Teams sender or destination differs from the preview. Prepare a new message.',
   teamsPostFailed: 'Could not confirm delivery to Teams. Check the destination before trying again.',
   teamsReadFailed: 'Could not read Teams. Check your connection and account access, then try again.',
+  appsGithubChanged: 'The GitHub account changed. Check the current account before signing out.',
+  appsGithubToken: (name) => `Remove ${name} from the environment that starts Relay, then restart Relay.`,
+  appsGithubSignOutFailed: 'GitHub CLI could not sign out this account. Check the current account and try again.',
   appsGithubFailed: 'Could not read GitHub. Check the connection and account access, then try again.',
   appsTooLarge: 'This response is too large. Request less content.',
   appsConnectFirst: 'Connect an account in Settings → Apps and tools → Common apps first.',
+  obsidianChoose: 'Use obsidian_list_vaults to find a connected vault, then pass its ID as vault.',
+  obsidianMultiple: 'Several vaults are connected. Manage each vault separately.',
+  obsidianOverlap: 'A connected vault cannot contain another connected vault.',
+  obsidianVaultMissing: 'No such connected Obsidian vault.',
+  docsGrant: 'Enable document editing for your Google account in Common apps → Google Drive.',
+  docsAccount: 'Specify the email of one connected Google account with document editing enabled.',
+  docsChanged: 'The document, revision, account or grant changed. Request a fresh preview.',
+  docsInvalid: 'Google Docs returned a document, tab or revision that could not be verified.',
+  docsMatch:
+    'Choose a unique literal passage in a regular body paragraph. Suggested changes and other document structures cannot be edited.',
+  docsTabs: (tabs) => `Specify the tab ID to edit (${tabs}).`,
+  docsCreate: (title) => `Create Google Doc “${title}”`,
+  docsEdit: (title) => `Edit Google Doc “${title}”`,
+  docsSaved: (title, link) => `Saved Google Doc “${title}”.\n${link}`,
+  docsFailed: (title, why) => `The change to Google Doc “${title}” could not be confirmed. ${why}`,
+  docsDiscarded: (title) => `Discarded the change to Google Doc “${title}”.`,
+  docsUnknown: (target) => `The outcome is uncertain. Check “${target}” in Google Docs before requesting another change.`,
+  docsCreatedCheck: (title, link) => `Google Doc “${title}” was created. Check its contents before requesting another change.\n${link}`,
+  docsHttp: (code) => `Google Docs returned HTTP ${code}. Check the document permission and revision before retrying.`,
   obsidianPath: 'Choose a vault-relative .md note path under an existing folder, with no hidden entries.',
   obsidianWriteFailed: 'The note could not be written. Check the filesystem.',
   obsidianContent: 'Each original and proposed note must be UTF-8 text of at most 48 KiB.',
@@ -1646,11 +1694,13 @@ const en: ServerMessages = {
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
   oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,
   oauthNotFor: (email, use) =>
-    use === 'teams'
-      ? `Connect Teams for ${email}`
-      : use === 'drive'
-        ? `Connect Google Drive for ${email}`
-        : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in ${signInSettings('en', use)} first`,
+    use === 'documents'
+      ? `Enable Google document editing for ${email}.`
+      : use === 'teams'
+        ? `Connect Teams for ${email}`
+        : use === 'drive'
+          ? `Connect Google Drive for ${email}`
+          : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in ${signInSettings('en', use)} first`,
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',

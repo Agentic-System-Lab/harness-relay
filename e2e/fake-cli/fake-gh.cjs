@@ -16,6 +16,7 @@
  *   test wrote them in `fake-github/repos/<owner>/<name>/pulls.json` and `runs.json` (none when not
  *   there), the newest first as gh lists them, at most `--limit`; a repository without a folder there
  *   fails as gh does for one it cannot find;
+ * - The active account and account-specific logout on github.com, with state in this test’s own folder.
  * - `--version`.
  * Anything else fails ("not faked"): the files that go along with a page take `gh api` and a git push
  * to GitHub, so a share with files fails before git is started.
@@ -67,7 +68,7 @@ async function main() {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .includes('gh') && !fs.existsSync(path.join(github, 'signed-in'));
-  if (signedOut) {
+  if (signedOut || fs.existsSync(path.join(github, 'signed-out'))) {
     fail(
       'To get started with GitHub CLI, please run:  gh auth login\n' +
         'Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.',
@@ -75,6 +76,12 @@ async function main() {
     );
   }
   if (args.join(' ') === 'api --hostname github.com user --jq .login') return process.stdout.write('relay-test');
+  if (args.join(' ') === 'auth logout --hostname github.com --user relay-test') {
+    fs.mkdirSync(github, { recursive: true });
+    fs.writeFileSync(path.join(github, 'signed-out'), 'relay-test');
+    fs.rmSync(path.join(github, 'signed-in'), { force: true });
+    return;
+  }
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);
@@ -101,6 +108,7 @@ async function login(github) {
     if (waited > 60_000) fail('error: timed out waiting for authorization');
     await new Promise((done) => setTimeout(done, 100));
   }
+  fs.rmSync(path.join(github, 'signed-out'), { force: true });
   fs.writeFileSync(path.join(github, 'signed-in'), 'relay-e2e\n');
   process.stderr.write('✓ Authentication complete.\n✓ Logged in as relay-e2e\n');
 }

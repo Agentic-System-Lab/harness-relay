@@ -4410,6 +4410,16 @@ video.chat-media {
   overflow-wrap: anywhere;
 }
 
+.document-preview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.document-preview .outbox-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .outbox-card.outbox-sent {
   border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
 }
@@ -4493,7 +4503,7 @@ video.chat-media {
 
 /* Mail and calendar accounts (Settings → Tool library). */
 .connectors h5 {
-  margin: 14px 0 6px;
+  margin: 0;
   font-size: 0.85rem;
 }
 
@@ -4725,7 +4735,6 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .oauth-accounts .ok-text {
@@ -7330,7 +7339,7 @@ summary + .checks-editor-body {
   border-bottom: 1px solid var(--border);
 }
 .app-options > summary,
-.app-quick {
+.app-quick-action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px 14px;
@@ -7386,35 +7395,39 @@ summary + .checks-editor-body {
 .app-row-body .app-row-body {
   padding: 8px 0 0;
 }
-.app-row .small-button {
-  min-height: 30px;
+.app-quick .mcp-signin-row,
+.app-quick .lib-row-actions {
+  display: block;
 }
-.app-quick .mcp-signin-row button {
-  padding-inline: 0;
-  border-color: transparent;
-  background: transparent;
+.app-quick-action {
+  width: 100%;
+  text-align: start;
+  border: 0;
+  border-radius: 6px;
   color: inherit;
+  background: transparent;
 }
-.app-quick .mcp-signin-row button:focus-visible,
-.app-quick .mcp-signin-row button:hover {
+.app-quick-action:disabled {
+  opacity: 1;
+}
+.app-quick-action:disabled .app-row-action {
+  opacity: 0.45;
+}
+.app-quick-action:enabled:hover,
+.app-quick-action:focus-visible {
   background: var(--surface);
 }
-.app-quick > .mcp-signin {
-  display: contents;
+.app-quick-action:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: -2px;
 }
-.app-quick > .mcp-signin > :not(.mcp-signin-row),
-.app-quick > [role='alert'] {
-  grid-column: 1 / -1;
+.app-quick .mcp-signin > :not(.mcp-signin-row) {
+  margin: 0 4px 8px;
 }
 .hosted-actions a {
   display: inline-flex;
   align-items: center;
   text-decoration: none;
-}
-@media (max-width: 600px) {
-  .app-row .small-button {
-    min-height: 44px;
-  }
 }
 
 .lib-row-main {

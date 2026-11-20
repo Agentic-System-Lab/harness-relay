@@ -990,7 +990,7 @@ describe('chat tools for common apps', () => {
   const call = (name: string, args: Record<string, unknown> = {}) =>
     appTools(
       service,
-      () => undefined,
+      () => [],
       () => ({}),
     ).find((t) => t.name === name)!.run!(args, ctx);
   it('reads Markdown notes from the chosen vault and omits hidden files and links', async () => {
@@ -1001,7 +1001,7 @@ describe('chat tools for common apps', () => {
     if (process.platform !== 'win32') symlinkSync(join(vault, '.obsidian', 'internal.md'), join(vault, 'alias.md'));
     const tools = appTools(
       service,
-      () => vault,
+      () => [{ id: 'v', path: vault }],
       () => ({}),
     );
     const read = (name: string, a: Record<string, unknown>) => tools.find((x) => x.name === name)!.run!(a, ctx);
@@ -1013,11 +1013,55 @@ describe('chat tools for common apps', () => {
       await expect(read('obsidian_read', { path })).rejects.toThrow();
   });
 
+  it('lists vault IDs and canonical paths, disambiguates identical filenames and never reads a nested or disconnected vault by another path', async () => {
+    const dir = realpathSync.native(mkdtempSync(join(root, 'vaults-')));
+    const first = join(dir, 'one', 'Notes'),
+      second = join(dir, 'two', 'Notes');
+    const nested = join(first, 'Nested');
+    for (const v of [first, second, nested]) mkdirSync(join(v, '.obsidian'), { recursive: true });
+    writeFileSync(join(first, 'Today.md'), 'work notes');
+    writeFileSync(join(second, 'Today.md'), 'personal notes');
+    writeFileSync(join(nested, 'Today.md'), 'separate vault');
+    let linked = [
+      { id: 'work-id', path: first },
+      { id: 'home-id', path: second },
+    ];
+    const tools = appTools(
+      service,
+      () => linked,
+      () => ({}),
+    );
+    const read = (name: string, args: Record<string, unknown> = {}) => tools.find((t) => t.name === name)!.run!(args, ctx);
+    const inventory = async () => JSON.parse((await read('obsidian_list_vaults')).text.split('\n')[2]);
+    expect(await inventory()).toEqual({ vaults: linked.map((v) => ({ ...v, available: true })) });
+    for (const input of [undefined, 'Notes', first, 'wrong', null]) {
+      await expect(read('obsidian_read', { vault: input, path: 'Today.md' })).rejects.toThrow(/obsidian_list_vaults/);
+      await expect(read('obsidian_list', { vault: input })).rejects.toThrow(/obsidian_list_vaults/);
+    }
+    expect((await read('obsidian_read', { vault: 'work-id', path: 'Today.md' })).text).toContain('work notes');
+    expect((await read('obsidian_read', { vault: 'home-id', path: 'Today.md' })).text).toContain('personal notes');
+    expect((await read('obsidian_list', { vault: 'work-id' })).text).not.toContain('Nested');
+    await expect(read('obsidian_list', { vault: 'work-id', folder: 'Nested' })).rejects.toThrow();
+    await expect(read('obsidian_read', { vault: 'work-id', path: 'Nested/Today.md' })).rejects.toThrow();
+    rmSync(join(first, '.obsidian'), { recursive: true });
+    expect((await inventory()).vaults).toEqual([
+      { ...linked[0], available: false },
+      { ...linked[1], available: true },
+    ]);
+    await expect(read('obsidian_read', { vault: 'work-id', path: 'Today.md' })).rejects.toThrow();
+    expect((await read('obsidian_read', { vault: 'home-id', path: 'Today.md' })).text).toContain('personal notes');
+    linked = [linked[1]];
+    await expect(read('obsidian_read', { vault: 'work-id', path: 'Today.md' })).rejects.toThrow();
+    expect((await read('obsidian_read', { path: 'Today.md' })).text).toContain('personal notes');
+    linked = [];
+    expect(await inventory()).toEqual({ vaults: [] });
+  });
+
   it('reads pull requests for the requested GitHub repository with the signed-in CLI', async () => {
     const calls: string[][] = [];
     const tools = appTools(
       service,
-      () => undefined,
+      () => [],
       () => ({}),
       async (args) => {
         calls.push(args);
@@ -1073,7 +1117,7 @@ describe('chat tools for common apps', () => {
     };
     const tools = appTools(
       service,
-      () => undefined,
+      () => [],
       () => ({}),
       undefined,
       graph,

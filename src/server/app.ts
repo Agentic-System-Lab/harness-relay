@@ -16,7 +16,7 @@ import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { APP_SERVERS } from '../shared/apps';
 import { TeamsGraph } from './connectors/teams';
-import { githubStatus } from './connectors/apps';
+import { githubSignOut, githubStatus } from './connectors/apps';
 import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -841,6 +841,18 @@ export function createApp({
     const vault = path ? checkedVault(path, agentFolderOptions(settings)) : '';
     return c.json(settings.tools.setObsidianVault(vault));
   });
+
+  app.post('/api/apps/obsidian', async (c) => {
+    const { paths: requested } = await body<{ paths?: unknown }>(c);
+    if (!Array.isArray(requested) || !requested.length) throw new HttpError(400, t().appsVault);
+    const options = agentFolderOptions(settings);
+    const paths = [...new Set(requested)].map((path) => {
+      if (typeof path !== 'string' || !path) throw new HttpError(400, t().appsVault);
+      return checkedVault(path, options);
+    });
+    return c.json(settings.tools.addObsidianVaults(paths));
+  });
+  app.delete('/api/apps/obsidian/:id', (c) => c.json(settings.tools.removeObsidianVault(c.req.param('id'))));
 
   // Adds a server, or (with `previousName`) replaces or renames one.
   app.put('/api/tools/mcp/:name', async (c) => {
@@ -1880,6 +1892,10 @@ export function createApp({
   // whose code and link the dialog shows (as Settings does for the CLIs' sign-ins), on this computer.
   app.post('/api/gh/login', (c) => c.json(ghLogin.start()));
   app.get('/api/apps/github', async (c) => c.json(await githubStatus()));
+  app.post('/api/apps/github/signout', async (c) => {
+    await githubSignOut((await body<{ login?: unknown }>(c)).login);
+    return c.json({ ok: true });
+  });
   app.get('/api/gh/login', (c) => c.json(ghLogin.view()));
   app.delete('/api/gh/login', (c) => {
     ghLogin.cancel();

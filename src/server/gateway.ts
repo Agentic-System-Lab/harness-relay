@@ -88,7 +88,7 @@ export interface GatewayTool {
   /** `read` and `act`: what the call does now. */
   run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
-  send?(args: Record<string, unknown>, item: OutboxItem): Promise<string>;
+  send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
    * `send`: the arguments kept with the outbox item, with what the card showed pinned (the account
    * it is sent from), so that Send does what the card said even if the settings change meanwhile.
@@ -777,6 +777,10 @@ export class ToolGateway {
       }
       if (ctx.signal.aborted || gone?.()) return { text: 'The turn ended before the item could be queued.', isError: true };
       const item = ctx.toOutbox({ tool: tool.name, ...proposal });
+      if (item.preview.document)
+        return {
+          text: `No Google document has been written. Proposal ${item.id} is ready for the user to review and confirm in the chat. Do not perform the change another way.`,
+        };
       if (item.preview.note) {
         return {
           text: `No note has been written. "${item.title}" is waiting for the user to review and save in the chat (item ${item.id}). Tell the user the preview is ready. Do not write the note another way.`,
@@ -907,7 +911,7 @@ export function outboxTool(list: (convId: string) => OutboxItem[]): GatewayTool 
     name: 'outbox_status',
     tier: 'read',
     description:
-      "List what is in this conversation's outbox: messages and invitations to send, and Obsidian note changes to save. Shows which are waiting, completed, failed or discarded.",
+      "List what is in this conversation's outbox: messages and invitations to send, and Google Docs or Obsidian changes to save. Shows which are waiting, completed, failed or discarded.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     describe: () => ({ title: 'List the outbox' }),
     run: async (_args, ctx) => {
@@ -917,7 +921,7 @@ export function outboxTool(list: (convId: string) => OutboxItem[]): GatewayTool 
         text: items
           .map(
             (i) =>
-              `- ${i.id}: ${i.title} — ${i.preview.note && i.status === 'sent' ? 'saved' : i.status}${i.result ? ` (${i.result})` : ''}, asked by @${i.agentName}`,
+              `- ${i.id}: ${i.title} — ${(i.preview.note || i.preview.document) && i.status === 'sent' ? 'saved' : i.status}${i.result ? ` (${i.result})` : ''}, asked by @${i.agentName}`,
           )
           .join('\n'),
       };

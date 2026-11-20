@@ -12,7 +12,7 @@ export function HostedAppLinks({ app }: { app: keyof typeof connectors }) {
   const [name, claude, codex] = connectors[app];
   return (
     <>
-      <p className="muted small">{a.hostedConsent}</p>
+      <p className="muted small">{app === 'drive' ? a.hostedDriveRead : a.hostedConsent}</p>
       {app === 'teams' && <p className="muted small">{a.hostedTeamsNote}</p>}
       {app === 'slack' && <p className="muted small">{a.hostedSlackNote}</p>}
       <div className="form-actions hosted-actions">

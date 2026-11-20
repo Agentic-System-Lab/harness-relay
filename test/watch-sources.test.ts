@@ -17,7 +17,8 @@ import type { CalendarOAuth } from '../src/server/connectors/calendar';
 import { listEvents, startMoment } from '../src/server/connectors/caldav';
 import { openDatabase } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
-import { githubStatus } from '../src/server/connectors/apps';
+import { ghEnv } from '../src/server/share';
+import { githubSignOut, githubStatus } from '../src/server/connectors/apps';
 import { CommandNotFoundError, type SpawnResult } from '../src/server/process';
 import { validateCalendarAccount, validateSchedule } from '../src/server/validate';
 import {
@@ -351,11 +352,54 @@ describe('a pull request opened, or a CI run that failed (GitHub, through gh)', 
   /** A stand-in for gh: what it was asked, and what it answers. */
   it('shows the signed-in GitHub account, distinguishes a missing CLI from a signed-out account and reports a failed check', async () => {
     const runner = gh(() => ({ stdout: 'octocat\n' }));
-    expect(await githubStatus(runner)).toEqual({ status: 'connected', login: 'octocat' });
+    expect(await githubStatus(runner, {})).toEqual({ status: 'connected', login: 'octocat' });
     expect(runner.calls).toEqual([['api', '--hostname', 'github.com', 'user', '--jq', '.login']]);
     expect(await githubStatus(gh(() => new CommandNotFoundError('gh')))).toEqual({ status: 'missing' });
     expect(await githubStatus(gh(() => ({ code: 4 })))).toEqual({ status: 'signed-out' });
     await expect(githubStatus(gh(() => ({ code: 1, stderr: 'network offline' })))).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('signs out exactly the confirmed GitHub CLI account, leaving any other saved account available', async () => {
+    let active = 'octocat';
+    const runner = gh((args) => {
+      if (args[0] === 'api') return { stdout: active };
+      active = 'relay-work';
+      return {};
+    });
+    await githubSignOut('octocat', runner, { CODESPACES: 'true', GITHUB_TOKEN: 'automatic' });
+    expect(runner.calls[1]).toEqual(['auth', 'logout', '--hostname', 'github.com', '--user', 'octocat']);
+    expect(await githubStatus(runner, {})).toMatchObject({ status: 'connected', login: 'relay-work' });
+    await expect(githubSignOut('octocat', runner, {})).rejects.toMatchObject({ status: 409 });
+    expect(runner.calls.filter(([cmd]) => cmd === 'auth')).toHaveLength(1);
+  });
+
+  it('reports only the effective token variable, and never logs out an environment-managed or unconfirmed account', async () => {
+    const runner = gh(() => ({ stdout: 'octocat' }));
+    const env = { GH_TOKEN: 'private-gh-value', GITHUB_TOKEN: 'private-github-value' };
+    expect(await githubStatus(runner, env)).toEqual({ status: 'connected', login: 'octocat', tokenSource: 'GH_TOKEN' });
+    for (const scope of [env, { GITHUB_TOKEN: env.GITHUB_TOKEN }]) {
+      await expect(githubSignOut('octocat', runner, scope)).rejects.toMatchObject({ status: 409 });
+    }
+    const expired = gh(() => ({ code: 1, stderr: 'HTTP 401' }));
+    expect(await githubStatus(expired, { GITHUB_TOKEN: 'expired' })).toEqual({ status: 'signed-out', tokenSource: 'GITHUB_TOKEN' });
+    for (const name of [undefined, '', '--hostname', ['octocat']]) {
+      await expect(githubSignOut(name, runner, {})).rejects.toMatchObject({ status: 400 });
+    }
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it('mirrors case-insensitive GitHub environment names only on Windows', () => {
+    const env = { Gh_Token: 'user', Github_Token: 'automatic', Codespaces: 'true' };
+    expect(ghEnv(env, 'win32')).toEqual({ GH_TOKEN: 'user', CODESPACES: 'true' });
+    expect(ghEnv(env, 'linux')).toEqual(env);
+  });
+
+  it('reports a failed GitHub CLI logout without exposing its output', async () => {
+    const runner = gh((args) => (args[0] === 'api' ? { stdout: 'octocat' } : { code: 1, stderr: 'private CLI details' }));
+    await expect(githubSignOut('octocat', runner, {})).rejects.toMatchObject({
+      status: 502,
+      message: expect.not.stringContaining('private'),
+    });
   });
 
   function gh(answer: (args: string[]) => Partial<SpawnResult> | Error): GhRunner & { calls: string[][] } {

@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  OAUTH_PROVIDERS,
   type ConnectorsView,
   type OAuthAccountView,
   type OAuthCalendar,
@@ -54,16 +53,24 @@ export function OAuthAccounts({
   kind,
   view,
   setView,
+  reloadOAuth,
   connectors,
   onConnectors,
   refresh = 0,
+  servicePicker,
+  passwordOption,
+  provider,
 }: {
   kind: AccountUse;
   view: OAuthView | null;
   setView: (v: OAuthView) => void;
+  reloadOAuth: () => Promise<void>;
   connectors: ConnectorsView;
   onConnectors: (v: ConnectorsView) => void;
   refresh?: number;
+  servicePicker: ReactNode;
+  passwordOption: ReactNode;
+  provider?: OAuthProviderId;
 }) {
   const t = useT();
   const o = t.connectors.oauth;
@@ -149,19 +156,18 @@ export function OAuthAccounts({
     }
   };
 
-  if (!view) return error ? <p className="error-line">{error}</p> : null;
+  const accounts = view?.accounts ?? [];
   const label = (p: OAuthProviderId) => o.providers[p];
   // Incremental consent names the existing account so the server preserves its current grants.
-  const otherAccounts = view.accounts.filter((a) => !a.uses.includes(kind));
+  const otherAccounts = accounts.filter((a) => !a.uses.includes(kind));
   return (
     <div className="oauth-accounts">
-      <h5>{o.title}</h5>
-      <p className="muted small">{o.hint[kind]}</p>
+      {accounts.some((a) => a.uses.includes(kind)) && <h5>{o.title}</h5>}
       {error && <p className="error-line">{error}</p>}
-      {info && (!info.account || view.accounts.some((a) => a.id === info.account)) && <p className="small ok-text">{info.text}</p>}
+      {info && (!info.account || accounts.some((a) => a.id === info.account)) && <p className="small ok-text">{info.text}</p>}
 
       <ul className="lib-list">
-        {view.accounts
+        {accounts
           .filter((a) => a.uses.includes(kind))
           .map((a) => {
             const can = accountActions(
@@ -205,12 +211,12 @@ export function OAuthAccounts({
                   )}
                   <button
                     type="button"
-                    className="icon-button danger"
+                    className="ghost small-button danger"
                     aria-label={`${o.remove} ${a.email}`}
                     disabled={busy}
                     onClick={() => remove(a)}
                   >
-                    ×
+                    {t.common.remove}
                   </button>
                 </div>
                 {calendarsOf === a.id && <AccountCalendars account={a} onConnectors={onConnectors} onFailed={reread} />}
@@ -244,60 +250,61 @@ export function OAuthAccounts({
           {o.finishIn[shared.owner]}
         </p>
       )}
+      {servicePicker}
       <div className="oauth-providers">
-        {OAUTH_PROVIDERS.map((p) => {
-          const client = view.clients.find((c) => c.provider === p)!;
-          return (
-            <div key={p} className="oauth-provider">
-              {client.clientId ? (
-                <div className="form-actions">
-                  <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind])}>
-                    {o.signIn(label(p))}
-                  </button>
-                  {client.device && (
-                    <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind], true)}>
-                      {o.onAnotherDevice}
+        {view?.clients
+          .filter((client) => client.provider === provider)
+          .map((client) => {
+            const p = client.provider;
+            return (
+              <div key={p} className="oauth-provider">
+                {client.clientId ? (
+                  <div className="form-actions">
+                    <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind])}>
+                      {o.signIn(label(p))}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="link-button"
+                    {client.device && (
+                      <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind], true)}>
+                        {o.onAnotherDevice}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={busy}
+                      onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
+                    >
+                      {o.app}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="small muted">
+                    {t.apps.accountSetup(label(p))}{' '}
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={busy}
+                      onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
+                    >
+                      {o.setUp}
+                    </button>
+                  </p>
+                )}
+                {settingUp === p && (
+                  <ClientForm
+                    client={client}
+                    label={label(p)}
+                    kind={kind}
                     disabled={busy}
-                    onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
-                  >
-                    {o.app}
-                  </button>
-                </div>
-              ) : (
-                <p className="small muted">
-                  {label(p)}{' '}
-                  <button
-                    type="button"
-                    className="link-button"
-                    disabled={busy}
-                    onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
-                  >
-                    {o.setUp}
-                  </button>
-                </p>
-              )}
-              {settingUp === p && (
-                <ClientForm
-                  client={client}
-                  label={label(p)}
-                  kind={kind}
-                  disabled={busy}
-                  onSaved={(v) => {
-                    setView(v);
-                    setSettingUp(undefined);
-                  }}
-                  onCancel={() => setSettingUp(undefined)}
-                />
-              )}
-            </div>
-          );
-        })}
+                    onSaved={reloadOAuth}
+                    onCancel={() => setSettingUp(undefined)}
+                  />
+                )}
+              </div>
+            );
+          })}
       </div>
+      {passwordOption}
     </div>
   );
 }
@@ -449,11 +456,19 @@ export function ClientForm({
   label: string;
   kind?: AccountUse;
   disabled?: boolean;
-  onSaved: (v: OAuthView) => void | Promise<void>;
+  onSaved: () => Promise<void>;
   onCancel: () => void;
 }) {
   const t = useT();
   const o = t.connectors.oauth;
+  const mounted = useRef(false);
+  const submitting = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const initial = useRef(client).current;
   const replaced = initial.clientId !== client.clientId || initial.tenant !== client.tenant || initial.secret !== client.secret;
   const [clientId, setClientId] = useState(client.builtIn ? '' : client.clientId);
@@ -468,18 +483,21 @@ export function ClientForm({
   );
   const redirects = redirectAddresses(client.provider, location.origin);
   const save = async () => {
-    if (replaced || disabled) return;
+    if (replaced || disabled || submitting.current) return;
+    submitting.current = true;
     setError('');
     try {
-      await onSaved(
-        await api.saveOAuthClient(client.provider, {
-          clientId: clientId.trim(),
-          ...(client.provider === 'microsoft' && tenant.trim() ? { tenant: tenant.trim() } : {}),
-          ...(secret ? { secret } : {}),
-        }),
-      );
+      await api.saveOAuthClient(client.provider, {
+        clientId: clientId.trim(),
+        ...(client.provider === 'microsoft' && tenant.trim() ? { tenant: tenant.trim() } : {}),
+        ...(secret ? { secret } : {}),
+      });
+      await onSaved();
+      if (mounted.current) onCancel();
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) setError((e as Error).message);
+    } finally {
+      submitting.current = false;
     }
   };
   return (

@@ -1,10 +1,11 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { isSlackMcp } from '../../shared/apps';
 import type { McpServerView, OAuthSignInView, ToolLibraryView } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { useI18n, useT } from '../i18n';
 import { settingsHref } from '../route';
 import { confirmLines, mcpSignInLine, waiting } from '../oauth';
+import { AppRowCopy } from './AppRow';
 import { openPendingTab, showSignInPage, SignInWaiting, useFollowSignIn } from './OAuthAccounts';
 
 /**
@@ -47,6 +48,7 @@ export function AppSignIn({
   onSignOut,
   button,
   buttonLabel,
+  rowDescription,
 }: {
   name: string;
   oauth?: McpServerView['oauth'];
@@ -55,8 +57,10 @@ export function AppSignIn({
   onSignOut?: () => Promise<boolean>;
   button?: ReactNode;
   buttonLabel?: string;
+  rowDescription?: string;
 }) {
   const { t, lang } = useI18n();
+  const descriptionId = useId();
   const m = t.tools.signIn;
   const [signIn, setSignIn] = useState<OAuthSignInView>();
   const [error, setError] = useState('');
@@ -121,11 +125,13 @@ export function AppSignIn({
           {startRequest && (
             <button
               type="button"
-              className="ghost small-button"
+              className={rowDescription ? 'app-quick-action' : 'ghost small-button'}
               aria-label={buttonLabel}
+              aria-describedby={rowDescription ? descriptionId : undefined}
               disabled={busy || under}
               onClick={() => void withPage(startRequest)}
             >
+              {rowDescription && <AppRowCopy name={name} description={rowDescription} descriptionId={descriptionId} />}
               {button ?? (oauth ? m.signInAgain : m.signIn)}
             </button>
           )}

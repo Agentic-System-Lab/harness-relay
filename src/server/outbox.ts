@@ -56,6 +56,11 @@ function toItem(r: OutboxRow): OutboxItem {
 
 /** The completed action in the conversation, including local saves and external sends. */
 export function outboxAnswerText({ preview, status, title, result = '' }: OutboxItem): string {
+  if (preview.document) {
+    if (status === 'sent') return result;
+    if (status === 'discarded') return t().docsDiscarded(preview.document.title);
+    return t().docsFailed(preview.document.title, result);
+  }
   const note = preview.note;
   if (status === 'sent') return note ? t().obsidianSaved(note.path) : t().outboxSentNote(title, result);
   if (status === 'discarded') return note ? t().obsidianDiscarded(note.path) : t().outboxDiscardedNote(title);
@@ -76,7 +81,17 @@ export class Outbox {
     const cut = this.db.prepare("SELECT * FROM outbox WHERE status = 'sending'").all() as unknown as OutboxRow[];
     this.interrupted = cut
       .map(toItem)
-      .map((item) => this.finish(item.id, 'failed', item.preview.note ? t().obsidianInterrupted : t().outboxInterrupted));
+      .map((item) =>
+        this.finish(
+          item.id,
+          'failed',
+          item.preview.document
+            ? item.result || t().docsUnknown(item.preview.document.title)
+            : item.preview.note
+              ? t().obsidianInterrupted
+              : t().outboxInterrupted,
+        ),
+      );
     for (const r of this.db
       .prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id")
       .all() as {
@@ -172,7 +187,10 @@ export class Outbox {
       return this.finish(id, 'failed', t().outboxNoTool(row.tool));
     }
     try {
-      return this.finish(id, 'sent', await sender(args, { ...toItem(row), status: 'sending' }));
+      const progress = (result: string) => {
+        this.db.prepare("UPDATE outbox SET result = ? WHERE id = ? AND status = 'sending'").run(result, id);
+      };
+      return this.finish(id, 'sent', await sender(args, { ...toItem(row), status: 'sending' }, progress));
     } catch (err) {
       return this.finish(id, 'failed', (err as Error).message);
     }
@@ -192,7 +210,15 @@ export class Outbox {
     const ids = new Set(messageIds);
     for (const item of this.list(convId)) {
       if (item.status !== 'pending' || !ids.has(item.messageId)) continue;
-      this.finish(item.id, 'discarded', item.preview.note ? t().obsidianDiscarded(item.preview.note.path) : t().outboxTakenBack);
+      this.finish(
+        item.id,
+        'discarded',
+        item.preview.document
+          ? t().docsDiscarded(item.preview.document.title)
+          : item.preview.note
+            ? t().obsidianDiscarded(item.preview.note.path)
+            : t().outboxTakenBack,
+      );
       this.pending.set(convId, Math.max(0, this.waiting(convId) - 1));
     }
   }

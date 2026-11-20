@@ -1,14 +1,13 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   type ConnectorsView,
-  type GithubConnection,
   type OAuthView,
+  type ObsidianVault,
   type RelayToolGroup,
   type TeamsConnection,
   type SlackPostingConnection,
   type ToolLibraryView,
 } from '../../shared/types';
-import { APP_SERVERS } from '../../shared/apps';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { AppSignIn } from './McpSignIn';
@@ -17,12 +16,13 @@ import { ChevronIcon } from './icons';
 import { AppRow } from './AppRow';
 import { GoogleProjectConnection } from './GoogleProjectConnection';
 import { SlackPostingSettings } from './SlackPostingSettings';
+import { APP_SERVERS } from '../../shared/apps';
 import { TeamsSignIn } from './TeamsSignIn';
-import { GhSignIn } from './GhHelp';
+import { GithubConnectionRow } from './GithubConnectionRow';
 
 const accounts = { drive: 'Google Drive', teams: 'Microsoft Teams' } as const;
 const remote = { notion: 'Notion', heptabase: 'Heptabase' } as const;
-type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
+type Change = (call: () => Promise<ToolLibraryView>, report?: (error: string) => void) => Promise<boolean>;
 
 export function CommonApps({
   lib,
@@ -49,24 +49,14 @@ export function CommonApps({
   const [notice, setNotice] = useState('');
   const [teams, setTeams] = useState<TeamsConnection>();
   const [slack, setSlack] = useState<SlackPostingConnection>();
-  const [gh, setGh] = useState<GithubConnection>();
-  const [ghError, setGhError] = useState('');
-  const refreshGh = async () => {
-    setGhError('');
-    try {
-      setGh(await api.githubStatus());
-    } catch (e) {
-      setGhError((e as Error).message);
-    }
-  };
-  useEffect(() => {
-    void refreshGh();
-  }, []);
   const slackServers = lib.mcpServers.filter((s) => s.app === 'slack' || (s.transport === 'http' && s.url === APP_SERVERS.slack));
   const savedSlack = slackServers.filter((s) => s.oauth);
   const connectedAccountRow = (use: keyof typeof accounts) => {
     const provider = use === 'teams' ? 'microsoft' : 'google';
-    const linked = oauth?.accounts.filter((x) => x.provider === provider && x.uses.includes(use)) ?? [];
+    const linked =
+      oauth?.accounts.filter(
+        (x) => x.provider === provider && (x.uses.includes(use) || (use === 'drive' && x.uses.includes('documents'))),
+      ) ?? [];
     const nativeTeams = use === 'teams' ? teams : undefined;
     const pending =
       nativeTeams?.status === 'signing-in' ||
@@ -78,7 +68,11 @@ export function CommonApps({
       : pending
         ? a.inProgress
         : account
-          ? a.directConnection + ' · ' + account + ' · ' + t.connectors.oauth.connected
+          ? (use === 'drive' && !linked[0]?.uses.includes('documents') ? a.driveReadOnly : a.directConnection) +
+            ' · ' +
+            account +
+            ' · ' +
+            t.connectors.oauth.connected
           : undefined;
     return (
       <AppRow
@@ -93,13 +87,13 @@ export function CommonApps({
         {linked.map((x) => (
           <div key={x.id}>
             <span>
-              {use === 'drive' && t.apps.directConnection + ' · '}
+              {use === 'drive' && (x.uses.includes('documents') ? a.docsEnabled : a.driveReadOnly) + ' · '}
               {x.email} · {x.status === 'reauth' ? t.connectors.oauth.reauth : t.connectors.oauth.connected}
             </span>
             {x.status === 'reauth' && (
               <AppSignIn
                 name={accounts[use]}
-                startRequest={() => api.startOAuthSignIn(provider, [use], false, x.id)}
+                startRequest={() => api.startOAuthSignIn(provider, x.uses, false, x.id)}
                 onDone={refreshAccounts}
                 button={t.connectors.oauth.signInAgain}
               />
@@ -128,7 +122,11 @@ export function CommonApps({
         {use === 'teams' ? (
           <TeamsSignIn view={teams} setView={setTeams} />
         ) : (
-          <GoogleProjectConnection client={oauth?.clients.find((c) => c.provider === 'google')} onDone={refreshAccounts} />
+          <GoogleProjectConnection
+            accounts={oauth?.accounts.filter((x) => x.provider === 'google') ?? []}
+            client={oauth?.clients.find((c) => c.provider === 'google')}
+            onDone={refreshAccounts}
+          />
         )}
         {relayAccess(use)}
       </AppRow>
@@ -222,6 +220,7 @@ export function CommonApps({
                   )
                 }
                 buttonLabel={server?.oauth ? undefined : a.connectApp(remote[key])}
+                rowDescription={server?.oauth ? undefined : a.details[key]}
                 startRequest={() => api.startAppSignIn(key)}
                 onDone={() => change(() => api.tools())}
                 onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
@@ -241,32 +240,10 @@ export function CommonApps({
               </AppRow>
             );
           })}
-          <VaultConnection path={lib.obsidianVault} change={change} access={relayAccess('obsidian')} />
+          <VaultConnection vaults={lib.obsidianVaults ?? []} change={change} access={relayAccess('obsidian')} />
         </AppGroup>
         <AppGroup name={a.categories.dev}>
-          <AppRow
-            name="GitHub"
-            description={a.details.github}
-            label={gh?.status === 'connected' ? a.manage : a.options}
-            status={gh?.status === 'connected' ? gh.login + ' · ' + t.connectors.oauth.connected : undefined}
-          >
-            {gh?.status === 'missing' ? (
-              <a href="https://cli.github.com/" target="_blank" rel="noreferrer">
-                {a.installGh}
-              </a>
-            ) : gh?.status === 'signed-out' ? (
-              <GhSignIn onSignedIn={() => void refreshGh()} />
-            ) : (
-              !gh && !ghError && t.common.loading
-            )}
-            {ghError && <p role="alert">{ghError}</p>}
-            {(gh?.status === 'missing' || ghError) && (
-              <button className="ghost small-button" onClick={() => void refreshGh()}>
-                {a.checkAgain}
-              </button>
-            )}
-            {relayAccess('github')}
-          </AppRow>
+          <GithubConnectionRow access={relayAccess('github')} />
           <AppRow name={t.tools.relay.groups.browser} description={a.details.browser} label={a.manage}>
             {relayAccess('browser')}
             {browserSettings}
@@ -287,7 +264,7 @@ function AppGroup({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
-function VaultConnection({ path, change, access }: { path?: string; change: Change; access: React.ReactNode }) {
+function VaultConnection({ vaults, change, access }: { vaults: ObsidianVault[]; change: Change; access: React.ReactNode }) {
   const t = useT();
   const a = t.apps;
   const [pick, setPick] = useState<boolean>();
@@ -321,14 +298,14 @@ function VaultConnection({ path, change, access }: { path?: string; change: Chan
     restoreChooserFocus.current = document.activeElement === chooseButton.current;
     setBusy(true);
     try {
-      const folders = pick ? (await api.pickCwd(path ?? '', ctl.signal)).paths : [typed.trim()];
+      const folders = pick
+        ? (await api.pickCwd(vaults.at(-1)?.path ?? '', ctl.signal)).paths
+        : typed
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
       if (ctl.signal.aborted) return;
-      if (folders.length > 1) {
-        setError(a.oneVault);
-        return;
-      }
-      const folder = folders[0];
-      if (folder && (await change(() => api.setObsidianVault(folder)))) setTyped('');
+      if (folders.length && (await change(() => api.addObsidianVaults(folders), setError))) setTyped('');
     } catch (e) {
       if (!ctl.signal.aborted) setError((e as Error).message);
     } finally {
@@ -336,6 +313,16 @@ function VaultConnection({ path, change, access }: { path?: string; change: Chan
       if (!ctl.signal.aborted) setBusy(false);
     }
   };
+  const disconnect = async (id: string, button: HTMLButtonElement) => {
+    restoreChooserFocus.current = document.activeElement === button;
+    setBusy(true);
+    try {
+      await change(() => api.removeObsidianVault(id), setError);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const name = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
   const choose = (
     <button
       type="button"
@@ -344,29 +331,51 @@ function VaultConnection({ path, change, access }: { path?: string; change: Chan
       disabled={busy || pick === undefined || (!pick && !typed.trim())}
       onClick={() => void connect()}
     >
-      {a.vault}
+      {vaults.length ? a.addVaults : a.vault}
     </button>
   );
   return (
     <AppRow
       name="Obsidian"
       description={a.details.obsidian}
-      status={path ? (path.split(/[\\/]/).filter(Boolean).at(-1) ?? path) + ' · ' + t.connectors.oauth.connected : undefined}
-      label={path ? a.manage : a.options}
+      status={
+        vaults.length === 1
+          ? name(vaults[0]!.path) + ' · ' + t.connectors.oauth.connected
+          : vaults.length
+            ? a.connectedVaults(vaults.length)
+            : undefined
+      }
+      label={vaults.length ? a.manage : a.options}
     >
-      {path && <span className="small muted">{path}</span>}
+      {vaults.length > 0 && (
+        <ul className="lib-list vault-list" aria-label={a.vaultList}>
+          {vaults.map((vault) => (
+            <li key={vault.id}>
+              <div>
+                <strong>{name(vault.path)}</strong>
+                <span className="small muted">{vault.path}</span>
+              </div>
+              <button
+                type="button"
+                className="ghost small-button"
+                disabled={busy}
+                aria-label={a.disconnectVault(vault.path)}
+                onClick={(e) => void disconnect(vault.id, e.currentTarget)}
+              >
+                {a.disconnect}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="small muted">{a.vaultHint}</p>
       {pick === false && (
         <label className="field">
           <span>{a.path}</span>
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} />
+          <textarea rows={2} value={typed} onChange={(e) => setTyped(e.target.value)} />
         </label>
       )}
       {choose}
-      {path && (
-        <button type="button" className="link-button" disabled={busy} onClick={() => void change(() => api.setObsidianVault(''))}>
-          {a.disconnect}
-        </button>
-      )}
       {access}
       {error && (
         <p role="alert" className="error-line">

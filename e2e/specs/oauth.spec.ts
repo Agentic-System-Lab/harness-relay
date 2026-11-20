@@ -238,6 +238,9 @@ base('ten common apps offer provider-owned connections and separate Mail and Cal
     );
   }
   const drive = apps.getByRole('listitem', { name: 'Google Drive', exact: true });
+  await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
+  await expect(drive.getByText(/before Relay writes/)).toBeVisible();
+  await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
   const plugin = drive.getByRole('link', { name: 'Connect Google Drive in Codex' });
   const url = (await plugin.getAttribute('href'))!;
   await page.context().route(url, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Install plugin</title>' }));
@@ -249,6 +252,7 @@ base('ten common apps offer provider-owned connections and separate Mail and Cal
   const driveRow = drive.locator('.app-options > summary');
   if (!(await drive.locator('.app-options').evaluate((el) => (el as HTMLDetailsElement).open))) await driveRow.click();
   const mail = await openApp(page, 'Mail');
+  await mail.getByRole('button', { name: 'Gmail', exact: true }).click();
   const google = mail.locator('.oauth-provider').filter({ hasText: 'Google' });
   await google.getByRole('button', { name: 'Set up the app' }).click();
   const mailForm = google.getByRole('form');
@@ -270,6 +274,35 @@ base('ten common apps offer provider-owned connections and separate Mail and Cal
   await expect(mailForm.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await mailForm.getByRole('button', { name: 'Cancel' }).click();
   await expect(google.getByRole('button', { name: /Sign in with Google/ })).toBeEnabled();
+  // A saved Google registration can finish after Outlook. Its late response must not replace the newer settings.
+  const calendar = await openApp(page, 'Calendar');
+  await calendar.getByRole('button', { name: 'Google Calendar', exact: true }).click();
+  await calendar.getByRole('button', { name: 'The app to sign in with', exact: true }).click();
+  const googleCalendarForm = calendar.getByRole('form');
+  let resumeGoogle!: () => void;
+  const resume = new Promise<void>((resolve) => {
+    resumeGoogle = resolve;
+  });
+  let googleSaved = false;
+  await page.route('**/api/oauth/clients/google', async (route) => {
+    const response = await route.fetch();
+    googleSaved = response.ok();
+    await resume;
+    await route.fulfill({ response });
+  });
+  await googleCalendarForm.locator('input[type=password]').fill('GOCSPX-sample-updated');
+  await googleCalendarForm.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => googleSaved).toBe(true);
+  await calendar.getByRole('button', { name: 'Outlook', exact: true }).click();
+  await calendar.getByRole('button', { name: 'Set up the app' }).click();
+  await calendar.getByRole('textbox', { name: 'Client ID', exact: true }).fill('example-outlook');
+  await calendar.getByRole('button', { name: 'Save', exact: true }).click();
+  const outlook = calendar.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' });
+  await expect(outlook).toBeVisible();
+  const reread = page.waitForResponse((r) => r.url().endsWith('/api/oauth') && r.ok());
+  resumeGoogle();
+  await reread;
+  await expect(outlook).toBeVisible();
 });
 
 base('manual mail and calendar settings stay usable if OAuth settings cannot load', async ({ page, relay }) => {
@@ -277,7 +310,7 @@ base('manual mail and calendar settings stay usable if OAuth settings cannot loa
   await page.goto(relay.base + '/#/settings/apps');
   await expect(page.locator('#settings-apps').getByText('OAuth unavailable')).toBeVisible();
   const mail = await openApp(page, 'Mail');
-  await mail.getByRole('button', { name: 'Add a mail account' }).click();
+  await mail.getByRole('button', { name: 'Other mailbox' }).click();
   const mailbox = mail.getByRole('form');
   await mailbox.getByLabel('Provider').selectOption('gmail');
   await mailbox.getByLabel('Name', { exact: true }).fill('Work mail');
@@ -287,7 +320,7 @@ base('manual mail and calendar settings stay usable if OAuth settings cannot loa
   await expect(mail.getByRole('list', { name: 'Mail accounts' })).toContainText('Work mail');
 
   const calendar = await openApp(page, 'Calendar');
-  await calendar.getByRole('button', { name: 'Add a calendar' }).click();
+  await calendar.getByRole('button', { name: 'Other (CalDAV)' }).click();
   const caldav = calendar.getByRole('form');
   await caldav.getByLabel('Name', { exact: true }).fill('Work calendar');
   await caldav.getByLabel("The calendar's address, or its server's").fill('https://example.com/calendar');
@@ -306,12 +339,17 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   const vault = join(relay.workDir, 'My notes');
   mkdirSync(join(vault, '.obsidian'), { recursive: true });
   writeFileSync(join(vault, 'Meeting.md'), 'Meeting notes');
+  const otherVault = join(relay.workDir, 'Team', 'My notes');
+  mkdirSync(join(otherVault, '.obsidian'), { recursive: true });
+  const ordinary = join(relay.workDir, 'Markdown only');
+  mkdirSync(ordinary);
+  let picked = [vault, ordinary];
   // The OS folder dialog cannot be driven in Chromium. The selected path goes through the real vault endpoint.
   await page.route('**/api/cwds', async (route) => {
     const response = await route.fetch();
     await route.fulfill({ response, json: { ...(await response.json()), pick: true } });
   });
-  await page.route('**/api/cwds/pick', (route) => route.fulfill({ json: { paths: [vault] } }));
+  await page.route('**/api/cwds/pick', (route) => route.fulfill({ json: { paths: picked } }));
   // Microsoft runs the device challenge outside the app. Keep the transition pending until the
   // test finishes the approval; reloading the card must recover the same pending challenge.
   let graph: TeamsConnection = { status: 'missing-powershell' };
@@ -336,12 +374,21 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   await expect(obsidian.locator('.app-chat-access > summary')).toBeHidden();
   await obsidian.locator('.app-options > summary').press('Enter');
   const chooser = obsidian.getByRole('button', { name: 'Choose vault' });
+  await expect(chooser).toBeEnabled();
   await chooser.press('Enter');
-  await expect(obsidian).toContainText('My notes · Connected');
-  await expect(chooser).toBeFocused();
+  await expect(obsidian.getByRole('alert')).toContainText('.obsidian');
+  await expect(obsidian.getByRole('list', { name: 'Connected vaults' })).toHaveCount(0);
+  picked = [vault, otherVault];
+  await chooser.click();
+  const addVaults = obsidian.getByRole('button', { name: 'Add vaults' });
+  await expect(obsidian.locator('.app-options > summary')).toContainText('2 vaults connected');
+  await expect(addVaults).toBeFocused();
+  const vaultList = obsidian.getByRole('list', { name: 'Connected vaults' });
+  await expect(vaultList.getByRole('listitem')).toHaveCount(2);
+  await expect(vaultList).toContainText(otherVault);
   const teams = apps.getByRole('listitem', { name: 'Microsoft Teams', exact: true });
   await teams.locator('.app-options > summary').click();
-  await teams.getByText('Connect with Microsoft Graph', { exact: true }).click();
+  await teams.getByText('Read and send Teams messages in Relay', { exact: true }).click();
   await expect(teams.getByRole('link', { name: 'Get PowerShell' })).toBeVisible();
   graph = { status: 'missing-module' };
   await teams.getByRole('button', { name: 'Check again' }).click();
@@ -385,15 +432,19 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   await page.reload();
   await expect(teams.locator('.app-options > summary')).toContainText('ming@contoso.com');
   await teams.locator('.app-options > summary').click();
-  await teams.getByText('Connect with Microsoft Graph', { exact: true }).click();
+  await teams.getByText('Read and send Teams messages in Relay', { exact: true }).click();
   await access.locator('summary').click();
   await expect(access.getByRole('button', { pressed: true })).toHaveText('Codex');
   await access.getByRole('button', { name: 'Codex', exact: true }).click();
   await expect(access.locator('summary')).toHaveText('Choose assistants to enable this tool');
-  await expect(obsidian).toContainText('My notes · Connected');
+  await expect(obsidian).toContainText('2 vaults connected');
   await obsidian.locator('.app-options > summary').click();
-  await obsidian.getByRole('button', { name: 'Disconnect' }).click();
-  await expect(obsidian).not.toContainText('My notes');
+  const removals = vaultList.getByRole('button', { name: /^Disconnect / });
+  await removals.nth(1).click();
+  await expect(obsidian.locator('.app-options > summary')).toContainText('My notes · Connected');
+  await expect(vaultList).not.toContainText(otherVault);
+  await removals.first().click();
+  await expect(vaultList).toHaveCount(0);
   expect(readFileSync(join(vault, 'Meeting.md'), 'utf8')).toBe('Meeting notes');
   await teams.getByRole('button', { name: 'Disconnect', exact: true }).click();
   await expect(teams.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
@@ -408,7 +459,9 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   await page.goto(`${relay.base}/#/settings/apps`);
   const app = await openApp(page, 'Calendar');
   const accounts = app.locator('.oauth-accounts');
-  await expect(accounts.getByRole('heading', { name: 'Accounts you sign in to' })).toBeVisible();
+  await expect(accounts.getByRole('heading', { name: 'Choose your calendar service' })).toBeVisible();
+  await expect(accounts.getByRole('button', { name: 'Set up the app' })).toHaveCount(0);
+  await accounts.getByRole('button', { name: 'Outlook', exact: true }).click();
   // No app of Harness Relay's own yet: the user's, with the addresses its registration must allow.
   await expect(accounts.getByRole('form')).toHaveCount(0);
   await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
@@ -494,6 +547,7 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
 }) => {
   await page.goto(`${relay.base}/#/settings/apps`);
   const app = await openApp(page, 'Mail');
+  await app.getByRole('button', { name: 'Outlook', exact: true }).click();
   const accounts = app.locator('.oauth-accounts');
   await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
   const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });

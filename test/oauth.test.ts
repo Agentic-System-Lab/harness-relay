@@ -701,6 +701,7 @@ describe('the token broker', () => {
     expect(microsoftProvider({ clientId: 'x', tenant: 'contoso.onmicrosoft.com' }).endpoints.authorize).toContain(
       '/contoso.onmicrosoft.com/',
     );
+    expect(googleProvider({ clientId: 'x' }).useHosts?.documents).toEqual(['docs.googleapis.com']);
     expect(googleProvider({ clientId: 'x' }).useHosts?.drive).toEqual(['www.googleapis.com']);
     expect(googleProvider({ clientId: 'x' }).hosts).toEqual(['apidata.googleusercontent.com', 'openidconnect.googleapis.com']);
   });
@@ -853,6 +854,52 @@ describe('calendars through a sign-in', () => {
     expect(() => graphNewEvent({ summary: 's', start: '2026-01-05', end: '2026-01-05T10:00', timeZone: 'UTC' })).toThrow(
       'must both be dates',
     );
+  });
+});
+
+describe('Google Docs write consent', () => {
+  const scope = 'https://www.googleapis.com/auth/documents';
+  const readScope = 'https://www.googleapis.com/auth/drive.readonly';
+  async function start(use: 'drive' | 'documents', account?: string) {
+    return service.startSignIn({ provider: 'google', uses: [use], account, port: 8787, session: 's1' });
+  }
+  beforeEach(() => service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret }));
+
+  it('adds explicit Docs consent to the same account and keeps its read grant if consent is refused', async () => {
+    const read = await start('drive');
+    expect(new URL(read.authorizeUrl!).searchParams.get('scope')!.split(' ')).not.toContain(scope);
+    const id = (await service.signIns.callback(callbackParams(fake.allow(read.authorizeUrl!)))).account!.id;
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    await expect(service.startSignIn({ provider: 'microsoft', uses: ['documents'], port: 8787 })).rejects.toMatchObject({ status: 400 });
+    fake.grantScope = () => 'openid email profile ' + readScope;
+    const partial = await start('documents', id);
+    expect(new URL(partial.authorizeUrl!).searchParams.get('scope')!.split(' ')).toEqual(expect.arrayContaining([scope, readScope]));
+    expect((await service.signIns.callback(callbackParams(fake.allow(partial.authorizeUrl!)))).status).toBe('failed');
+    expect(service.view().accounts).toMatchObject([{ id, status: 'connected', uses: ['drive'] }]);
+    await expect(service.broker.accessToken(id, 'drive')).resolves.toBeTruthy();
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    fake.grantScope = undefined;
+    const full = await start('documents', id);
+    expect((await service.signIns.callback(callbackParams(fake.allow(full.authorizeUrl!)))).account).toMatchObject({
+      id,
+      status: 'connected',
+      uses: expect.arrayContaining(['drive', 'documents']),
+    });
+  });
+
+  it('sends a non-replayable Docs request once when Google refuses its token', async () => {
+    const auth = await start('documents');
+    expect(new URL(auth.authorizeUrl!).searchParams.get('scope')!.split(' ')).toEqual(['openid', 'email', 'profile', scope]);
+    const id = (await service.signIns.callback(callbackParams(fake.allow(auth.authorizeUrl!)))).account!.id;
+    fake.accessTokens.set(await service.broker.accessToken(id, 'documents'), false);
+    const fetch = service.broker.fetch(id, 'documents', { retryUnauthorized: false });
+    const before = fake.requests.length;
+    await expect(fetch('https://www.googleapis.com/drive/v3/files', { method: 'POST' })).rejects.toThrow();
+    // The protected stand-in resource always refuses an expired token.
+    expect((await fetch(fake.google.urls.userinfo, { method: 'POST' })).status).toBe(401);
+    expect(fake.requests.slice(before).map((r) => [r.method, r.path])).toEqual([['POST', '/google/userinfo']]);
+    expect((await fetch(fake.google.urls.userinfo, { method: 'POST' })).status).toBe(200);
+    expect(fake.requests.slice(before + 1).map((r) => r.path)).toEqual(['/google/token', '/google/userinfo']);
   });
 });
 

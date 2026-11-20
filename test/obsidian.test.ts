@@ -15,7 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkedVault, noteWriteTools } from '../src/server/connectors/obsidian';
+import { noteWriteTools, selectedVault, vaultInventory } from '../src/server/connectors/obsidian';
 import { openDatabase, withholdFile } from '../src/server/db';
 import { ToolGateway, type GatewayContext } from '../src/server/gateway';
 import { withLang } from '../src/server/i18n';
@@ -68,7 +68,7 @@ describe('Obsidian note proposals', () => {
     gateway = new ToolGateway(root, join(root, 'tmp'), () => process.execPath);
     gateway.register(
       noteWriteTools(
-        () => checkedVault(selected, {}),
+        (id) => selectedVault(selected ? [{ id: 'one', path: selected }] : [], id, {}),
         () => (selected ? undefined : 'No vault'),
       ),
     );
@@ -174,32 +174,146 @@ describe('Obsidian note proposals', () => {
   it('keeps the vault and its preview across server restarts and invalidates the preview after reconnection', async () => {
     let library = new ToolLibrary(db);
     library.setObsidianVault(vault);
-    const selection = library.obsidianVaultId();
+    const selection = library.obsidianVaults()[0].id;
     expect(selection).toBeTruthy();
     gateway.register(
       noteWriteTools(
-        () => checkedVault(library.obsidianVault()!, {}),
-        () => (library.obsidianVault() ? undefined : 'No vault'),
-        () => library.obsidianVaultId(),
+        (id) => selectedVault(library.obsidianVaults(), id, {}),
+        () => (library.obsidianVaults().length ? undefined : 'No vault'),
       ),
     );
     const path = 'Reconnect.md';
     await propose('create', path, 'initial');
     library = new ToolLibrary(db);
-    expect(library.obsidianVault()).toBe(vault);
-    expect(library.obsidianVaultId()).toBe(selection);
+    expect(library.obsidianVaults()[0].path).toBe(vault);
+    expect(library.obsidianVaults()[0].id).toBe(selection);
     library.setObsidianVault(vault);
     expect((await answer(outbox.list(convId)[0].id)).status).toBe('sent');
 
     await propose('edit', path, 'old proposal');
     library.setObsidianVault('');
     library = new ToolLibrary(db);
-    expect(library.obsidianVault()).toBeUndefined();
+    expect(library.obsidianVaults()).toEqual([]);
     library.setObsidianVault(vault);
-    expect(library.obsidianVaultId()).not.toBe(selection);
+    expect(library.obsidianVaults()[0].id).not.toBe(selection);
     expect((await answer(outbox.list(convId).at(-1)!.id)).status).toBe('failed');
     expect(readFileSync(join(vault, path), 'utf8')).toBe('initial');
     expect(library.forAgent({ provider: 'codex' }).relayGroups).not.toContain('obsidian');
+  });
+
+  it('paginates large vault inventories with the canonical path and ID intact', () => {
+    const entries = Array.from({ length: 35 }, (_, i) => {
+      const path = join(root, 'library', String(i), 'My Vault');
+      mkdirSync(join(path, '.obsidian'), { recursive: true });
+      return { id: String(i), path };
+    });
+    const first = JSON.parse(vaultInventory(entries, undefined, {}));
+    const last = JSON.parse(vaultInventory(entries, first.nextOffset, {}));
+    expect(first.nextOffset).toBeGreaterThan(0);
+    expect(last.nextOffset).toBeUndefined();
+    expect([...first.vaults, ...last.vaults]).toEqual(entries.map((v) => ({ ...v, available: true })));
+    expect(() => vaultInventory(entries, '2', {})).toThrow();
+    expect(() => vaultInventory(entries, -1, {})).toThrow();
+  });
+
+  it.each(['previous-vault-id', ''])(
+    'keeps the original single-vault selection and its pending write across migration (%j)',
+    async (oldId) => {
+      db.prepare('INSERT INTO app_settings(key,value) VALUES (?,?)').run(
+        'tool_library',
+        JSON.stringify({
+          obsidianVault: vault,
+          ...(oldId ? { obsidianVaultId: oldId } : {}),
+        }),
+      );
+      let library = new ToolLibrary(db);
+      expect(library.obsidianVaults()).toEqual([{ id: oldId || 'legacy', path: vault }]);
+      gateway.register(
+        noteWriteTools(
+          (id) => selectedVault(library.obsidianVaults(), id, {}),
+          () => undefined,
+        ),
+      );
+      const path = 'Before migration.md';
+      await propose('create', path, 'approved text');
+      await propose('create', 'Stale.md', 'old write');
+      const [item, stale] = outbox.list(convId);
+      // The old prepare() stored an empty vaultId when the original single selection had no ID.
+      for (const pending of [item, stale]) {
+        const row = db.prepare('SELECT args FROM outbox WHERE id=?').get(pending.id) as { args: string };
+        db.prepare('UPDATE outbox SET args=? WHERE id=?').run(JSON.stringify({ ...JSON.parse(row.args), vaultId: oldId }), pending.id);
+      }
+      const second = join(root, 'second');
+      mkdirSync(join(second, '.obsidian'), { recursive: true });
+      library.addObsidianVaults([second]);
+      library = new ToolLibrary(db);
+      expect(library.obsidianVaults()[0].id).toBe(oldId || 'legacy');
+      expect((await answer(item.id)).status).toBe('sent');
+      expect(readFileSync(join(vault, path), 'utf8')).toBe('approved text');
+      expect(existsSync(join(second, path))).toBe(false);
+      library.removeObsidianVault(oldId || 'legacy');
+      library.addObsidianVaults([vault]);
+      expect((await answer(stale.id)).status).toBe('failed');
+      expect(existsSync(join(vault, 'Stale.md'))).toBe(false);
+    },
+  );
+
+  it('pins each write to its vault and keeps other pending proposals valid when one vault is removed and added back', async () => {
+    let library = new ToolLibrary(db);
+    const second = join(root, 'another', 'vault');
+    mkdirSync(join(second, '.obsidian'), { recursive: true });
+    library.addObsidianVaults([vault, second]);
+    const [one, two] = library.obsidianVaults();
+    gateway.register(
+      noteWriteTools(
+        (id) => selectedVault(library.obsidianVaults(), id, {}),
+        () => undefined,
+      ),
+    );
+    const path = 'Same name.md';
+    for (const root of [vault, second]) writeFileSync(join(root, path), 'original');
+    for (const op of ['create', 'edit'] as const) {
+      const tool = gateway.tool('obsidian_' + op)!;
+      for (const invalid of [undefined, 'wrong', 'vault', vault, null]) {
+        const result = await gateway.call(tool, { vault: invalid, path, content: 'original' }, context('full'));
+        expect(result.isError).toBe(true);
+      }
+      for (const selection of [one, two]) {
+        const target = op === 'edit' ? path : 'New.md';
+        const result = await gateway.call(tool, { vault: selection.id, path: target, content: 'approved' }, context('full'));
+        expect(result.isError).toBeFalsy();
+      }
+    }
+    const items = outbox.list(convId);
+    expect(items).toHaveLength(4);
+    expect(items.map((item) => item.preview.note!.vault)).toEqual([vault, second, vault, second]);
+    library.removeObsidianVault(one.id);
+    library.addObsidianVaults([vault]);
+    library = new ToolLibrary(db);
+    for (const item of items) {
+      const stillConnected = item.preview.note!.vault === second;
+      const result = await answer(item.id);
+      expect(result.status).toBe(stillConnected ? 'sent' : 'failed');
+      if (!stillConnected) expect(result.result).toContain('fresh preview');
+    }
+    expect(readFileSync(join(vault, path), 'utf8')).toBe('original');
+    expect(existsSync(join(vault, 'New.md'))).toBe(false);
+    expect(readFileSync(join(second, path), 'utf8')).toBe('approved');
+    expect(readFileSync(join(second, 'New.md'), 'utf8')).toBe('approved');
+    expect(library.obsidianVaults().find((v) => v.path === second)?.id).toBe(two.id);
+  });
+
+  it('refuses new or pending writes into a nested vault', async () => {
+    const nested = join(vault, 'Notes');
+    writeFileSync(join(nested, 'Edit.md'), 'original');
+    await propose('edit', 'Notes/Edit.md', 'preview');
+    await propose('create', 'Notes/New.md', 'preview');
+    mkdirSync(join(nested, '.obsidian'));
+    for (const item of outbox.list(convId)) expect((await answer(item.id)).status).toBe('failed');
+    expect((await propose('edit', 'Notes/Edit.md', 'new')).isError).toBe(true);
+    expect((await propose('create', 'Notes/New.md', 'new')).isError).toBe(true);
+    expect(readFileSync(join(nested, 'Edit.md'), 'utf8')).toBe('original');
+    expect(existsSync(join(nested, 'New.md'))).toBe(false);
   });
 
   it('rejects hidden, non-Markdown, ambiguous and missing parent paths, withheld files, binary or oversized contents', async () => {

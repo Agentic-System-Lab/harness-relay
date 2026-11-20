@@ -435,8 +435,13 @@ export const api = {
   deleteConnector: (kind: 'mail' | 'calendar', id: string) => request<ConnectorsView>('DELETE', `/api/connectors/${kind}/${id}`),
   testConnector: (kind: 'mail' | 'calendar', id: string) =>
     request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
-  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
-    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
+  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }, signal?: AbortSignal) =>
+    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>(
+      'POST',
+      '/api/connectors/calendar/discover',
+      b,
+      signal,
+    ),
   /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
   oauth: () => request<OAuthView>('GET', '/api/oauth'),
   saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
@@ -528,7 +533,8 @@ export const api = {
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
   startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
     request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
-  setObsidianVault: (path: string) => request<ToolLibraryView>('PUT', '/api/apps/obsidian', { path }),
+  addObsidianVaults: (paths: string[]) => request<ToolLibraryView>('POST', '/api/apps/obsidian', { paths }),
+  removeObsidianVault: (id: string) => request<ToolLibraryView>('DELETE', '/api/apps/obsidian/' + encodeURIComponent(id)),
   slackPosting: () => request<import('../shared/types').SlackPostingConnection>('GET', '/api/apps/slack/posting'),
   connectSlackPosting: (token: string) =>
     request<import('../shared/types').SlackPostingConnection>('PUT', '/api/apps/slack/posting', { token }),
@@ -539,6 +545,7 @@ export const api = {
   teamsInstall: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/install'),
   teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),
   teamsDisconnect: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/signin'),
+  githubSignOut: (login: string) => request<{ ok: true }>('POST', '/api/apps/github/signout', { login }),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),

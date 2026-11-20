@@ -227,7 +227,7 @@ export type OAuthProviderId = (typeof OAUTH_PROVIDERS)[number];
  * calendar tools; the mail tools and the mail trigger, over IMAP and SMTP with XOAUTH2).
  */
 export const MAIL_CALENDAR_USES = ['calendar', 'mail'] as const;
-export const OAUTH_USES = [...MAIL_CALENDAR_USES, 'drive', 'teams'] as const;
+export const OAUTH_USES = [...MAIL_CALENDAR_USES, 'drive', 'teams', 'documents'] as const;
 export type OAuthUse = (typeof OAUTH_USES)[number];
 
 /**
@@ -337,6 +337,8 @@ export interface OutboxPreview {
   body?: string;
   /** A local Markdown change. null is a new note; an empty string is an existing empty note. */
   note?: { vault: string; path: string; before: string | null; after: string };
+  /** A direct Google Docs creation or literal text edit. A new document has no ID until confirmed. */
+  document?: { account: string; title: string; id?: string; tab?: string; tabId?: string; before: string | null; after: string };
 }
 
 export interface OutboxItem {
@@ -461,10 +463,24 @@ export type TeamsConnection =
 
 export type SlackPostingConnection = { status: 'signed-out' } | { status: 'connected'; workspace: string; sender: string };
 
-export type GithubConnection = { status: 'connected'; login: string } | { status: 'missing' | 'signed-out' };
+export type GithubTokenVariable = 'GH_TOKEN' | 'GITHUB_TOKEN';
+export type GithubConnection =
+  | { status: 'connected'; login: string; tokenSource?: GithubTokenVariable }
+  | { status: 'signed-out'; tokenSource?: GithubTokenVariable }
+  | { status: 'missing' };
+
+export interface ObsidianVault {
+  /** Stable for the lifetime of this connection, including across restarts. */
+  id: string;
+  /** Canonical absolute path on the server. */
+  path: string;
+}
 
 export interface ToolLibraryView {
+  /** Present for compatibility when exactly one vault is connected. */
   obsidianVault?: string;
+  /** Older servers only returned obsidianVault. */
+  obsidianVaults?: ObsidianVault[];
   mcpServers: McpServerView[];
   skills: SkillView[];
   /** Harness Relay's own tool groups and the CLIs whose agents get each (none at first). */

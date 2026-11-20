@@ -440,15 +440,27 @@ export class TokenBroker {
 
   /**
    * A fetch with the account's token for a use, only to its provider's hosts, following no redirect. A
-   * token the provider refuses (401) is refreshed once and the request sent again.
+   * token the provider refuses (401) is normally refreshed once. Mutations that cannot be replayed opt out.
    */
-  fetch(accountId: string, use: OAuthUse): AuthorizedFetch {
+  fetch(accountId: string, use: OAuthUse, { retryUnauthorized = true } = {}): AuthorizedFetch {
     return async (url, init) => {
       const provider = this.providerOf(accountId);
       let fresh = false;
-      const send = hostOnlyFetch(provider.useHosts?.[use] ?? provider.hosts, () => this.accessToken(accountId, use, fresh));
+      let presented = '';
+      const generation = this.generation(accountId);
+      const send = hostOnlyFetch(provider.useHosts?.[use] ?? provider.hosts, async () => {
+        presented = await this.accessToken(accountId, use, fresh);
+        return presented;
+      });
       const res = await send(url, init);
       if (res.status !== 401) return res;
+      if (!retryUnauthorized) {
+        // A later, independently approved request can refresh. Keep a newer concurrent token intact.
+        const slot = this.slot(accountId, use);
+        const slots = this.tokens.get(accountId);
+        if (generation === this.generation(accountId) && slots?.get(slot)?.token === presented) slots.delete(slot);
+        return res;
+      }
       await res.body?.cancel().catch(() => undefined);
       fresh = true;
       return send(url, init);

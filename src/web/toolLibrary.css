@@ -88,6 +88,12 @@
   gap: 10px;
   min-width: 0;
 }
+.library-connectors {
+  gap: 8px;
+}
+.library-connectors .oauth-accounts > .lib-list:empty {
+  display: none;
+}
 .app-access-controls {
   margin: 0;
   padding: 0;
@@ -97,6 +103,14 @@
 .app-row-body > .library-connectors {
   width: 100%;
 }
+/* Keep supporting text and its next action apart in all common app panels. */
+.common-apps .app-row-body {
+  gap: 12px;
+}
+.common-apps .app-secondary > .app-row-body {
+  padding-inline: 0;
+}
+
 .common-apps .app-secondary > summary,
 .common-apps .sub > summary {
   font: inherit;
@@ -119,5 +133,109 @@
 @media (max-width: 600px) {
   .library-category > summary h4 {
     flex-direction: column;
+  }
+}
+
+.service-setup {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.library-connectors > .oauth-accounts {
+  width: 100%;
+}
+.service-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.service-choices h5 {
+  flex-basis: 100%;
+}
+.common-apps .service-choices .service-choice {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.service-choice[aria-pressed='true'] {
+  color: var(--text);
+  border-color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+.library-connectors .oauth-providers:empty {
+  display: none;
+}
+
+/* Service choices, hosted sign-in links and local account actions share the settings button size. */
+.common-apps {
+  --app-button-height: 36px;
+}
+.common-apps :is(.ghost, .primary, button.link-button, .provider-picks button) {
+  min-height: var(--app-button-height);
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.common-apps button.link-button {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: transparent;
+  text-decoration: none;
+  text-align: center;
+}
+.common-apps :is(.ghost, button.link-button):hover:not(:disabled) {
+  background: var(--surface);
+}
+.common-apps :is(.ghost, .primary, button.link-button, .provider-picks button):focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.common-apps .hosted-actions a {
+  justify-content: center;
+  text-align: center;
+}
+.vault-list,
+.library-connectors > .lib-list {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.library-connectors .lib-detail {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.vault-list > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+.vault-list > li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.vault-list > li + li {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+  .common-apps {
+    --app-button-height: 44px;
+  }
+  .library-connectors .lib-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-connectors .lib-row-actions {
+    flex-wrap: wrap;
   }
 }

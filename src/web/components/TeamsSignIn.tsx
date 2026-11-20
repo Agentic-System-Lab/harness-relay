@@ -77,6 +77,7 @@ export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView
     <details ref={details} className="app-secondary">
       <summary>{a.teamsDirect}</summary>
       <div className="app-row-body">
+        <p className="small muted">{a.teamsDirectHint}</p>
         {view?.status === 'missing-powershell' && (
           <p className="muted small">
             {a.teamsPowerShell}{' '}

@@ -108,6 +108,8 @@ export interface AccountProvider extends OAuthProvider {
   whoami(fetch: AuthorizedFetch): Promise<OAuthIdentity>;
   /** Base for its read-only file or team tools. */
   appApi: string;
+  /** Google Docs API, used only by accounts authorized to edit Google documents. */
+  docsApi?: string;
   /** Its calendars, by name, at the addresses the calendar tools use. */
   calendars(fetch: AuthorizedFetch, email: string): Promise<{ name: string; url: string }[]>;
   /** The calendar a new sign-in for the calendar tools adds by itself. */
@@ -249,6 +251,7 @@ export interface GoogleUrls {
   /** CalDAV's base: a calendar is `<caldav>/<its id>/events/`, an account's principal `<caldav>/<address>/user`. */
   caldav: string;
   drive?: string;
+  docs?: string;
 }
 
 /** Gmail's servers. */
@@ -270,6 +273,7 @@ const GOOGLE: GoogleUrls = {
  * (`urls` and `mail`: a stand-in's, in tests). One access token covers every scope granted.
  */
 export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, mail: MailServers = GOOGLE_MAIL): AccountProvider {
+  const docsApi = urls.docs ?? 'https://docs.googleapis.com/v1';
   const defaultCalendar = (email: string) => ({ name: email, url: `${urls.caldav}/${encodeURIComponent(email)}/events/` });
   return {
     id: 'google',
@@ -285,10 +289,12 @@ export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, m
       'profile',
       ...(uses.includes('calendar') ? ['https://www.googleapis.com/auth/calendar'] : []),
       ...(uses.includes('mail') ? ['https://mail.google.com/'] : []),
+      ...(uses.includes('documents') ? ['https://www.googleapis.com/auth/documents'] : []),
       ...(uses.includes('drive') ? ['https://www.googleapis.com/auth/drive.readonly'] : []),
     ],
     hosts: [...new Set([tokenHost(urls.caldav), tokenHost(urls.userinfo)])],
-    useHosts: { drive: [tokenHost(urls.drive ?? 'https://www.googleapis.com')] },
+    useHosts: { drive: [tokenHost(urls.drive ?? 'https://www.googleapis.com')], documents: [tokenHost(docsApi)] },
+    docsApi,
     appApi: urls.drive ?? 'https://www.googleapis.com/drive/v3',
     mail,
     // A refresh token every time, also for an account that signed in before; and what was granted

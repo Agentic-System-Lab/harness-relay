@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { removeTree } from '../../src/server/fsRemove';
@@ -158,17 +158,26 @@ const test = base.extend<{ auth: FakeAuth }>({
   },
 });
 
-base('Notion announces sign-in and sign-out and keeps keyboard focus on the app', async ({ page, relay }) => {
+base('Notion and Heptabase connect from the full row and keep sign-in controls and keyboard focus accessible', async ({ page, relay }) => {
   const library = await relay.api<ToolLibraryView>('/api/tools');
   const authorizeUrl = 'https://notion.example.test/consent';
   const challenge = { id: '', provider: 'mcp', expiresAt: Date.now() + 120000, authorizeUrl };
   let connected = false;
   await page.context().route(authorizeUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Notion consent</title>' }));
-  await page.route('**/api/apps/notion/signin', (route) => {
+  const started: string[] = [];
+  let cancelled = 0;
+  await page.route(/\/api\/apps\/(notion|heptabase)\/signin$/, (route) => {
+    started.push(new URL(route.request().url()).pathname.split('/')[3]);
     challenge.id = randomUUID();
     return route.fulfill({ json: { ...challenge, status: 'waiting' } });
   });
-  await page.route('**/api/oauth/signins/*', (route) => route.fulfill({ json: { ...challenge, status: connected ? 'done' : 'waiting' } }));
+  await page.route('**/api/oauth/signins/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      cancelled++;
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { ...challenge, status: connected ? 'done' : 'waiting' } });
+  });
   await page.route('**/api/tools', (route) => {
     const view: ToolLibraryView = connected
       ? {
@@ -202,8 +211,53 @@ base('Notion announces sign-in and sign-out and keeps keyboard focus on the app'
   const row = page.getByRole('listitem', { name: 'Notion', exact: true });
   const connect = row.getByRole('button', { name: 'Connect Notion', exact: true });
   const other = page.getByRole('button', { name: 'Connect Heptabase', exact: true });
+  await connect.focus();
+  await page.keyboard.press('Tab');
+  await expect(other).toBeFocused();
+  await expect(other).toHaveCSS('outline-style', 'solid');
+
+  const quickApps = [
+    { name: 'Notion', colorScheme: 'light', button: connect },
+    { name: 'Heptabase', colorScheme: 'dark', button: other },
+  ] as const;
+  const backgrounds: string[] = [];
+  for (const { name, colorScheme, button } of quickApps) {
+    await page.emulateMedia({ colorScheme });
+    const app = page.getByRole('listitem', { name, exact: true });
+    const title = button.getByText(name, { exact: true });
+    await expect(button).toHaveAccessibleDescription(await button.locator('.app-row-copy .small').innerText());
+    await expect(app.getByRole('button')).toHaveCount(1);
+    await app.scrollIntoViewIfNeeded();
+    const box = (await app.boundingBox())!;
+    // The padding above the copy and Connect label is part of the same button as the title.
+    const padding = { x: Math.round(box.width / 2), y: 3 };
+    await app.hover({ position: padding });
+    expect(await button.evaluate((el) => el.matches(':hover'))).toBe(true);
+    const background = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(background).not.toBe('rgba(0, 0, 0, 0)');
+    backgrounds.push(background);
+
+    const [tab] = await Promise.all([page.waitForEvent('popup'), name === 'Notion' ? title.click() : app.click({ position: padding })]);
+    await expect(tab).toHaveURL(authorizeUrl);
+    await tab.close();
+    await expect(button).toBeDisabled();
+    const waiting = app.getByRole('status');
+    const address = waiting.getByRole('textbox');
+    await address.click();
+    await address.fill('A pasted address');
+    await expect(address).toBeFocused();
+    const [reopened] = await Promise.all([page.context().waitForEvent('page'), waiting.getByRole('link').click()]);
+    await expect(reopened).toHaveURL(authorizeUrl);
+    await reopened.close();
+    await waiting.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(button).toBeEnabled();
+    await expect(waiting).toHaveCount(0);
+  }
+  expect(new Set(backgrounds).size).toBe(2);
+  expect(started).toEqual(['notion', 'heptabase']);
+  expect(cancelled).toBe(2);
   for (const stayInRow of [true, false]) {
-    const [tab] = await Promise.all([page.waitForEvent('popup'), connect.press('Enter')]);
+    const [tab] = await Promise.all([page.waitForEvent('popup'), connect.press(stayInRow ? 'Enter' : 'Space')]);
     await expect(tab).toHaveURL(authorizeUrl);
     await tab.close();
     const cancel = row.getByRole('button', { name: 'Cancel', exact: true });

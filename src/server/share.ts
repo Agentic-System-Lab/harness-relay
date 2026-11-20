@@ -140,9 +140,19 @@ export function ghBin(
  * `gh auth login` keeps, and GitHub refuses it a gist ("Resource not accessible by integration": it
  * covers the codespace's repository alone). A `GH_TOKEN`, the user's own, stays.
  */
-export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function ghEnv(env: NodeJS.ProcessEnv = process.env, platform = process.platform): NodeJS.ProcessEnv {
   const out = { ...env };
-  if (env.CODESPACES === 'true') delete out.GITHUB_TOKEN;
+  if (platform === 'win32') {
+    // Windows passes these names case-insensitively. Normalize them before the plain object is inspected or passed to gh.
+    for (const key of Object.keys(out).sort()) {
+      const upper = key.toUpperCase();
+      if (upper !== key && ['GH_TOKEN', 'GITHUB_TOKEN', 'CODESPACES'].includes(upper)) {
+        out[upper] ??= out[key];
+        delete out[key];
+      }
+    }
+  }
+  if (out.CODESPACES === 'true') delete out.GITHUB_TOKEN;
   return out;
 }
 
@@ -155,7 +165,10 @@ export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
 export const GH_LOGIN_ARGS = ['auth', 'login', '--web', '--hostname', 'github.com'];
 
 /** The variables gh takes a token from before any sign-in it keeps, in its order. */
-const GH_TOKEN_VARS = ['GH_TOKEN', 'GITHUB_TOKEN'];
+export function ghTokenVariable(env: NodeJS.ProcessEnv) {
+  const own = ghEnv(env);
+  return (['GH_TOKEN', 'GITHUB_TOKEN'] as const).find((key) => own[key]);
+}
 
 /**
  * Signs gh in for sharing from the share dialog, with gh's own device sign-in (`CliLogin`): the code
@@ -170,7 +183,7 @@ export class GhLogin {
 
   start(env: NodeJS.ProcessEnv = process.env): CliLoginView {
     const own = ghEnv(env);
-    const token = GH_TOKEN_VARS.find((k) => own[k]);
+    const token = ghTokenVariable(env);
     if (token) throw new HttpError(409, t().ghLoginTokenSet(token));
     this.session?.cancel();
     this.session = new CliLogin(ghBin(own), GH_LOGIN_ARGS, own, undefined, () => {});

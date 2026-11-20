@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import {
   MEMORY_SCOPES,
   PROVIDERS,
@@ -15,6 +15,7 @@ import {
   type McpServerView,
   type McpTransport,
   type MemoryScope,
+  type ObsidianVault,
   type Provider,
   type RelayToolGroup,
   type SkillCandidate,
@@ -122,9 +123,7 @@ interface Secrets {
 }
 
 interface Stored {
-  obsidianVault?: string;
-  /** Invalidates waiting previews if the user unlinks and later reconnects the same vault. */
-  obsidianVaultId?: string;
+  obsidianVaults?: ObsidianVault[];
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
@@ -162,6 +161,12 @@ export interface AgentTools {
   oauthServers?: { name: string; id: string }[];
   /** The servers left out of this turn, their sign-in needing a new one or not renewed now, with the user's note. */
   leftOut?: { name: string; reason: 'reauth' | 'failed'; note: string }[];
+}
+
+/** Both paths are canonical. A disconnected or offline selection still reserves its own subtree. */
+function containsVault(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 const SETTINGS_KEY = 'tool_library';
@@ -311,7 +316,7 @@ export class ToolLibrary {
     const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(SETTINGS_KEY) as { value: string } | undefined;
     if (row) {
       try {
-        const v = JSON.parse(row.value) as Partial<Stored> & { memory?: unknown };
+        const v = JSON.parse(row.value) as Partial<Stored> & { memory?: unknown; obsidianVault?: unknown; obsidianVaultId?: unknown };
         const memory = emptyMemory();
         if (typeof v.memory === 'string') memory.all = v.memory;
         else if (v.memory && typeof v.memory === 'object') {
@@ -328,8 +333,13 @@ export class ToolLibrary {
           })),
           skills: (Array.isArray(v.skills) ? v.skills : []).map((s) => ({ path: s.path, providers: storedProviders(s) })),
           memory,
-          ...(typeof v.obsidianVault === 'string' && v.obsidianVault ? { obsidianVault: v.obsidianVault } : {}),
-          ...(typeof v.obsidianVaultId === 'string' ? { obsidianVaultId: v.obsidianVaultId } : {}),
+          obsidianVaults: Array.isArray(v.obsidianVaults)
+            ? v.obsidianVaults.filter(
+                (entry) => entry && typeof entry.id === 'string' && entry.id && typeof entry.path === 'string' && entry.path,
+              )
+            : typeof v.obsidianVault === 'string' && v.obsidianVault
+              ? [{ id: typeof v.obsidianVaultId === 'string' && v.obsidianVaultId ? v.obsidianVaultId : 'legacy', path: v.obsidianVault }]
+              : [],
           relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
           ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
@@ -382,7 +392,7 @@ export class ToolLibrary {
       skills: this.data.skills,
       memory: this.data.memory,
       relayTools: this.data.relayTools ?? {},
-      ...(this.data.obsidianVault ? { obsidianVault: this.data.obsidianVault, obsidianVaultId: this.data.obsidianVaultId } : {}),
+      obsidianVaults: this.obsidianVaults(),
       ...(this.data.browser ? { browser: this.data.browser } : {}),
     };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
@@ -423,8 +433,10 @@ export class ToolLibrary {
   view(): ToolLibraryView {
     const masked = (names: string[], values: Record<string, string>): MaskedVar[] =>
       names.map((name) => ({ name, masked: mask(values[name] ?? '') }));
+    const obsidianVaults = this.obsidianVaults();
     return {
-      ...(this.data.obsidianVault ? { obsidianVault: this.data.obsidianVault } : {}),
+      obsidianVaults,
+      ...(obsidianVaults.length === 1 ? { obsidianVault: obsidianVaults[0].path } : {}),
       mcpServers: this.data.mcpServers.map<McpServerView>((s) => {
         const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
@@ -469,24 +481,47 @@ export class ToolLibrary {
     return this.data.browser;
   }
 
-  obsidianVault(): string | undefined {
-    return this.data.obsidianVault;
+  obsidianVaults(): ObsidianVault[] {
+    return (this.data.obsidianVaults ?? []).map(({ id, path }) => ({ id, path }));
   }
 
-  obsidianVaultId(): string {
-    return this.data.obsidianVaultId ?? '';
-  }
-
-  setObsidianVault(path: string): ToolLibraryView {
-    if (path) {
-      if (path !== this.data.obsidianVault) this.data.obsidianVaultId = randomUUID();
-      this.data.obsidianVault = path;
-    } else {
-      delete this.data.obsidianVault;
-      delete this.data.obsidianVaultId;
+  private saveObsidianVaults(vaults: ObsidianVault[]): ToolLibraryView {
+    const previous = this.data.obsidianVaults;
+    this.data.obsidianVaults = vaults;
+    try {
+      this.save();
+    } catch (error) {
+      this.data.obsidianVaults = previous;
+      throw error;
     }
-    this.save();
     return this.view();
+  }
+
+  /** The legacy single-vault operation cannot replace or disconnect a collection. */
+  setObsidianVault(path: string): ToolLibraryView {
+    const current = this.obsidianVaults();
+    if (current.length > 1) throw new HttpError(409, t().obsidianMultiple);
+    if (path === (current[0]?.path ?? '')) return this.view();
+    return this.saveObsidianVaults(path ? [{ id: randomUUID(), path }] : []);
+  }
+
+  /** The route canonicalizes the entire batch before making this one change. */
+  addObsidianVaults(paths: string[]): ToolLibraryView {
+    const current = this.obsidianVaults();
+    const next = [...current];
+    for (const path of paths) {
+      if (next.some((v) => relative(v.path, path) === '')) continue;
+      if (next.some((v) => containsVault(v.path, path) || containsVault(path, v.path))) throw new HttpError(400, t().obsidianOverlap);
+      next.push({ id: randomUUID(), path });
+    }
+    return next.length === current.length ? this.view() : this.saveObsidianVaults(next);
+  }
+
+  removeObsidianVault(id: string): ToolLibraryView {
+    const current = this.obsidianVaults();
+    const next = current.filter((entry) => entry.id !== id);
+    if (next.length === current.length) throw new HttpError(404, t().obsidianVaultMissing);
+    return this.saveObsidianVaults(next);
   }
 
   /** Repeated clicks reuse this app, including after a rename. Never overwrite a server the user added. */

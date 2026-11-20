@@ -239,7 +239,7 @@
         <ol>
           <li><a href="#common-apps">Connect your apps</a></li>
           <li><a href="#browser-mail-calendar">Browser, mail and calendar</a></li>
-          <li><a href="#outbox">Review outgoing messages and note changes</a></li>
+          <li><a href="#outbox">Review outgoing messages, documents and notes</a></li>
           <li><a href="#accounts">Your mail and calendar accounts</a></li>
           <li><a href="#library">Your MCP servers, skills, memory and hooks</a></li>
           <li><a href="#per-member">Tools for one member</a></li>
@@ -253,15 +253,22 @@
           <p>All four groups appear on the <b>Common apps</b> tab. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub and Browser.</p>
           <p>On the <b>Common apps</b> tab, choose <b>Connect</b> beside Drive, Teams or Slack, then select Claude or Codex. For Claude Code, authorize the service with the same Claude subscription account you use in Relay. For Codex, install the plugin in your ChatGPT workspace, authorize the service and open a new Relay chat. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
           <ul>
-            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, open <b>Connect with Microsoft Graph</b>, install Microsoft Graph PowerShell and enter the sign-in code on Microsoft’s page.</li>
-            <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval.</li>
-            <li><b>Google Drive</b> can open in Claude or Codex. To give other supported assistants direct access, open <b>Advanced · Connect with your own Google Cloud project</b> and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
-            <li>For <b>Notion</b> or <b>Heptabase</b>, choose <b>Connect</b> on the service’s row. Review the requested access and authorize the workspace you want your assistants to use.</li>
-            <li>Open the <b>Obsidian</b> row, choose <b>Choose vault</b> and select the notes folder on the computer running Harness Relay. Under <b>Choose assistants to enable this tool</b>, choose an assistant. Ask it to read a Markdown note, create one or edit one. Each proposed write appears for review in the chat. Disconnecting keeps the notes on disk. <a href="../../assets/media/docs/tools-obsidian-settings-en.webp">See the vault settings</a></li>
-            <li>For <b>GitHub</b>, sign in with GitHub CLI from the GitHub row. The same sign-in also lets you share chats and run GitHub automations.</li>
+            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, open <b>Read and send Teams messages in Relay</b>, install Microsoft Graph PowerShell and enter the sign-in code on Microsoft’s page.</li>
+            <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval. Select the Claude or Codex account you want to use. Relay can check each connection independently without reading Slack messages.</li>
+            <li id="google-drive"><b>Google Drive.</b> Connect Claude or Codex to find files. Relay’s direct connection can also search by filename and read Google Docs as text. To write a Google Doc through Relay, configure your own Google Cloud desktop OAuth client and enable the Google Docs API. Enable the Drive API if you also want to search for or read files through Relay. Open <b>Create or edit Google Docs in Relay</b>, select <b>Enable document editing</b> and grant the separate Google Docs permission. Under <b>Choose assistants to enable this tool</b>, select the assistant that can propose changes. Hosted tools in Claude and Codex manage their own permissions. To review every write in Relay, leave editing disabled in those tools. <a href="#outbox">Review a proposed document</a> · <a href="https://developers.google.com/workspace/docs/api/auth">Google Docs API permissions</a> · <a href="../../assets/media/docs/tools-drive-editing-en.webp">See the document editing settings</a></li>
+            <li>For <b>Notion</b> or <b>Heptabase</b>, select the service’s row to start sign-in. Review the requested access and authorize the workspace you want your assistants to use.</li>
+            <li>In <b>Obsidian</b>, use <b>Choose vault</b> to connect the first vault or <b>Add vaults</b> to connect more. Each folder on the Relay computer must contain a real <code>.obsidian</code> directory. In a remote browser, enter one full path per line. Relay checks all your selections before adding them. Every assistant selected under <b>Choose assistants to enable this tool</b> can use all connected vaults. Specify the vault when asking it to read, create or edit a note. To disconnect one vault, use the control beside its full path. Your notes stay on disk. <a href="../../assets/media/docs/tools-obsidian-settings-en.webp">See the vault settings</a></li>
+            <li id="github"><b>GitHub</b> uses the GitHub CLI account on the computer running Relay. Under <b>Development and browsing</b>, open the GitHub row to sign in. To sign out, select <b>Sign out of GitHub</b> and confirm the account shown. Chat sharing and GitHub automations share this CLI. Other accounts may remain signed in. If the row names a token environment variable, remove it from the environment that starts Relay, then restart Relay.</li>
           </ul>
-          <p>For Gmail or Outlook, open <b>Mail</b> at the top of the list. For Google Calendar, Outlook Calendar or CalDAV, open <b>Calendar</b> just below it. Each row has its own accounts and assistant selections.</p>
-          <p>For Apple Calendar, choose <b>Calendar → Add a calendar</b>, select iCloud, and use your Apple Account email and an app-specific password. Choose <b>Find calendars</b> to see the calendars stored in iCloud. Calendars under <b>On My Mac</b> stay on that Mac.</p>
+          <p>Under <b>Mail and calendar</b>, open <b>Mail</b> or <b>Calendar</b>. The row shows settings for the service you select. Previously added accounts appear separately under <b>Connected mailboxes</b> or <b>Connected calendars</b>.</p>
+          <ul>
+            <li><b>Choose your mail service</b> offers <b>Gmail</b>, <b>Outlook</b>, <b>iCloud Mail</b> and <b>Other mailbox</b>. <a href="../../assets/media/docs/tools-mail-services-en.webp">See the four mail services</a></li>
+            <li><b>Choose your calendar service</b> offers <b>iCloud Calendar</b>, <b>Google Calendar</b>, <b>Outlook</b> and <b>Other (CalDAV)</b>. <a href="../../assets/media/docs/tools-calendar-services-en.webp">See the four calendar services</a></li>
+          </ul>
+          <p>For <b>Apple Calendar (iCloud)</b>, enter your Apple Account email and an app-specific password. To generate the password, enable two-factor authentication on your Apple Account, then follow the form’s Apple Account link to <b>Sign-In and Security → App-Specific Passwords</b>. Relay supplies the iCloud server address. Choose <b>Find calendars</b>, select an iCloud calendar and press <b>Save</b>. Calendars under <b>On My Mac</b> are local to that Mac. To use one in Relay, move it to iCloud in Apple Calendar first.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-icloud-setup-en.webp"><img src="../../assets/media/docs/tools-icloud-setup-en.webp" width="842" height="463" alt="iCloud Calendar selected in the Calendar service chooser, with fields for Apple Account email and app-specific password and a Find calendars button." loading="lazy" /></a>
+          </figure>
           <p>To post from Relay, open the <b>Slack</b> row and choose <b>Send from Relay</b>. Install a Slack app in your workspace, give it <code>chat:write</code> plus the read scope for your destination (<code>channels:read</code>, <code>groups:read</code>, <code>im:read</code> or <code>mpim:read</code>), and enter the bot or user OAuth token. Invite a bot to the channel first. For <b>Microsoft Teams</b>, sign in to Microsoft Graph, select <b>Enable sending</b> and complete the second device sign-in with the same work or school account. In the service’s <b>Choose assistants to enable this tool</b>, select your assistant.</p>
           <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a> · <a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mailbox and assistant selection on desktop</a></p>
         </section>
@@ -269,7 +276,7 @@
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">Browser, mail and calendar</h2>
           <p>
-            On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Choose assistants to enable this tool</b>. Select the assistants that can use that tool. After you select one or more, open <b>Assistants using this tool · N</b> to change them. Direct Drive, Teams, Slack, GitHub and Obsidian access works the same way. For tools with multiple accounts, your selection applies to every account connected to that tool.
+            On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Choose assistants to enable this tool</b>. Select the assistants that can use that tool. After you select one or more, open <b>Assistants using this tool · N</b> to change them. Direct Drive, Teams, GitHub and Obsidian access works the same way. Slack’s assistant selection is inside its posting settings. For tools with multiple accounts, your selection applies to every account connected to that tool.
           </p>
           <ul>
             <li>
@@ -302,7 +309,7 @@
                 </td>
               </tr>
               <tr>
-                <th scope="row">Creates or edits an Obsidian note</th>
+                <th scope="row">Creates or edits a Google Doc or Obsidian note through Relay</th>
                 <td>Every write waits for your review in the outbox, including in Full access.</td>
               </tr>
               <tr>
@@ -341,9 +348,13 @@
         </section>
 
         <section id="outbox" aria-labelledby="outbox-title">
-          <h2 id="outbox-title">Review outgoing messages and note changes</h2>
+          <h2 id="outbox-title">Review outgoing messages, documents and notes</h2>
           <p>Paste a Slack conversation ID or link, or a Teams channel, chat or message link into the chat. Ask the assistant to draft the post. Check the sending account, the destination and the full plain text on the card, then choose <b>Send</b> or <b>Discard</b>. This applies in Full access and unattended automations too. A Teams channel message is a new channel post. <a href="../../assets/media/docs/tools-slack-preview-en.webp">See a Slack post awaiting Send</a></p>
-          <p>When an assistant proposes an Obsidian note, review its path and Markdown. For an edit, compare the current and proposed text. Select <b>Create note</b> or <b>Save changes</b> to write it to the vault. <b>Discard</b> drops the proposal. If the note changed after the preview, ask the assistant to prepare a new edit. <a href="../../assets/media/docs/tools-obsidian-preview-en.webp">See an Obsidian edit preview</a></p>
+          <p>For a Google Doc, check the Google account and title. A new document shows its full proposed text. An edit shows the document, target tab and exact text to replace in one body paragraph. The replacement is plain text and inherits the surrounding style. To apply different formatting within it, edit in Google Docs. Choose <b>Create document</b> or <b>Save changes</b> to approve it, or <b>Discard</b>. If the document changed after the preview, ask for a fresh proposal.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-docs-preview-en.webp"><img src="../../assets/media/docs/tools-docs-preview-en.webp" width="746" height="341" alt="A Google Docs edit awaiting confirmation in Relay, with the Google account, document, tab and exact original and replacement text." loading="lazy" /></a>
+          </figure>
+          <p>When an assistant proposes an Obsidian note, review the full vault path, the note’s path within that vault, and the Markdown. For an edit, compare the current and proposed text. Select <b>Create note</b> or <b>Save changes</b> to write it to the vault. <b>Discard</b> drops the proposal. If the note changed after the preview, ask the assistant to prepare a new edit. <a href="../../assets/media/docs/tools-obsidian-preview-en.webp">See an Obsidian edit preview</a></p>
           <p>
             When an agent wants to send a mail or an invitation, its reply shows a card instead: the message as it will go
             out, field by field. Nothing has gone out yet.
@@ -376,15 +387,9 @@
           <h2 id="accounts-title">Your mail and calendar accounts</h2>
           <p>In <b>Common apps</b>, open <b>Mail</b> to add a mailbox or <b>Calendar</b> to add a calendar.</p>
           <ul>
-            <li>
-              <b>A mail account</b>: pick Gmail, iCloud Mail, Fastmail or Yahoo Mail to fill in its servers, or type them.
-              It takes an <b>app password</b>, which your provider makes in its security settings (Gmail's needs 2-Step
-              Verification).
-            </li>
-            <li>
-              <b>A calendar</b>: pick iCloud or Fastmail, or type your calendar server's address, then <b>Find calendars</b>
-              and pick one.
-            </li>
+            <li>Under <b>Gmail</b>, sign in with Google or choose <b>Use a Gmail app password</b>. Google requires 2-Step Verification to create an app password. <b>Outlook</b> supports Microsoft 365 and Outlook.com sign-in.</li>
+            <li>For <b>iCloud Mail</b>, enter your iCloud Mail address and an Apple app-specific password. Relay fills in the mail servers. Under <b>Other mailbox</b>, pick the Fastmail or Yahoo Mail preset, or enter your provider’s IMAP and SMTP settings.</li>
+            <li>For other calendars, choose <b>Other (CalDAV)</b>, pick Fastmail or enter the CalDAV server address, then choose <b>Find calendars</b>.</li>
           </ul>
           <p>
             <b>Test</b> signs in without sending anything. Passwords go to your system's credential store and are never shown
@@ -392,7 +397,7 @@
           </p>
           <h3>Microsoft 365, Outlook.com and Google</h3>
           <p>
-            Under <b>Accounts you sign in to</b>, a new sign-in from <b>Mail</b> asks for mail access. Starting from <b>Calendar</b> asks for calendar access. To also use an existing account for the other service, open its row and choose <b>Use an existing sign-in</b>. Harness Relay has no app registered with Microsoft or Google of its own yet, so you register one
+            Signing in from <b>Mail → Gmail</b> or <b>Mail → Outlook</b> asks for mail access. Select <b>Google Calendar</b> or <b>Outlook</b> in the <b>Calendar</b> row for calendar access. To also use an existing account for the other service, open its row and choose <b>Use an existing sign-in</b>. Harness Relay has no app registered with Microsoft or Google of its own yet, so you register one
             with the provider first and give its <b>Client ID</b> under <b>Set up the app</b>. Then select <b>Sign in with …</b>. The
             <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">user guide</a>
             has the steps for each provider. The tokens stay in your credential store and go only to that account's own

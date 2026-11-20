@@ -1,6 +1,7 @@
 import { lstatSync } from 'node:fs';
+import { join } from 'node:path';
 import { validRepo } from '../../shared/schedule';
-import type { GithubConnection } from '../../shared/types';
+import type { GithubConnection, ObsidianVault } from '../../shared/types';
 import { HttpError } from '../errors';
 import { listFolder, readPreview } from '../files';
 import { dataBody, type GatewayTool } from '../gateway';
@@ -8,22 +9,35 @@ import { t } from '../i18n';
 import type { OAuthService } from '../oauth/service';
 import { CommandNotFoundError } from '../process';
 import type { AgentFolderOptions } from '../protect';
-import { signedOut } from '../share';
+import { ghTokenVariable, signedOut } from '../share';
 import { runGh, type GhRunner } from '../watch';
 import { answerText } from './caldav';
-import { checkedVault, noteWriteTools, vaultPath } from './obsidian';
+import { driveDocumentTools } from './driveDocuments';
+import { nestedVault, noteWriteTools, selectedVault, vaultInventory, vaultParameter, vaultPath } from './obsidian';
 import type { TeamsGraph } from './teams';
 
-export async function githubStatus(gh: GhRunner = runGh): Promise<GithubConnection> {
+export async function githubStatus(gh: GhRunner = runGh, env: NodeJS.ProcessEnv = process.env): Promise<GithubConnection> {
+  const tokenSource = ghTokenVariable(env);
   try {
     const r = await gh(['api', '--hostname', 'github.com', 'user', '--jq', '.login']);
-    if (r.code === 0 && r.stdout.trim()) return { status: 'connected', login: r.stdout.trim() };
-    if (r.code === 4 || signedOut(r.stderr)) return { status: 'signed-out' };
+    if (r.code === 0 && r.stdout.trim()) return { status: 'connected', login: r.stdout.trim(), tokenSource };
+    if (r.code === 4 || signedOut(r.stderr)) return { status: 'signed-out', tokenSource };
     throw new HttpError(502, t().appsGithubFailed);
   } catch (err) {
     if (err instanceof CommandNotFoundError) return { status: 'missing' };
     throw err;
   }
+}
+
+/** Remove only the CLI account named in the user's confirmation, even if another becomes active. */
+export async function githubSignOut(login: unknown, gh: GhRunner = runGh, env: NodeJS.ProcessEnv = process.env) {
+  if (typeof login !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,100}$/i.test(login)) throw new HttpError(400, t().appsGithubChanged);
+  const token = ghTokenVariable(env);
+  if (token) throw new HttpError(409, t().appsGithubToken(token));
+  const current = await githubStatus(gh, env);
+  if (current.status !== 'connected' || current.login !== login) throw new HttpError(409, t().appsGithubChanged);
+  const result = await gh(['auth', 'logout', '--hostname', 'github.com', '--user', current.login]);
+  if (result.code !== 0) throw new HttpError(502, t().appsGithubSignOutFailed);
 }
 
 const string = { type: 'string' };
@@ -56,17 +70,12 @@ function readTool(
 
 export function appTools(
   oauth: OAuthService,
-  vault: () => string | undefined,
+  vaults: () => ObsidianVault[],
   options: () => AgentFolderOptions,
   gh: GhRunner = runGh,
   teams?: Pick<TeamsGraph, 'connected' | 'status' | 'list' | 'messages'>,
-  vaultId?: () => string,
 ): GatewayTool[] {
-  const root = () => {
-    const path = vault();
-    if (!path || checkedVault(path, options()) !== path) throw new Error(t().appsVault);
-    return path;
-  };
+  const select = (id: unknown) => selectedVault(vaults(), id, options());
   const accounts = (use: 'teams' | 'drive') => oauth.store.accounts().filter((a) => a.uses.includes(use));
   const accountSchema = { type: 'string', description: 'Account email. Required when multiple accounts are connected.' };
   const api = (use: 'teams' | 'drive', which: unknown) => {
@@ -112,21 +121,32 @@ export function appTools(
     throw new Error(`Choose an account: ${[...active.map((a) => a.email), `powershell (${session.account})`].join(', ')}`);
   };
   const noTeams = () => (teams?.connected() ? undefined : none('teams')());
-  const noVault = () => (vault() ? undefined : t().appsVault);
+  const noVault = () => (vaults().length ? undefined : t().appsVault);
   return [
+    readTool(
+      'obsidian',
+      'obsidian_list_vaults',
+      'List the connected Obsidian vault IDs, full paths and availability. Pass nextOffset as offset for the next page, and the vault ID as vault to read or propose a change.',
+      { offset: { type: 'integer', minimum: 0 } },
+      [],
+      async (a) => vaultInventory(vaults(), a.offset, options()),
+    ),
     readTool(
       'obsidian',
       'obsidian_list',
       'List folders and Markdown notes in the connected Obsidian vault.',
-      { folder: string },
+      { vault: vaultParameter, folder: string },
       [],
       async (a) => {
-        const dir = root();
+        const dir = select(a.vault).path;
         const { rel } = vaultPath(dir, a.folder);
         const list = listFolder(dir, rel);
         return {
           entries: list.entries
-            .filter((x) => !x.link && !x.name.startsWith('.') && (x.kind === 'dir' || /\.md$/i.test(x.name)))
+            .filter(
+              (x) =>
+                !x.link && !x.name.startsWith('.') && (x.kind === 'dir' ? !nestedVault(join(dir, rel, x.name)) : /\.md$/i.test(x.name)),
+            )
             .map((x) => ({ name: x.name, kind: x.kind })),
           truncated: list.truncated,
         };
@@ -137,14 +157,15 @@ export function appTools(
       'obsidian',
       'obsidian_read',
       'Read a Markdown note by its vault-relative path.',
-      { path: string },
+      { vault: vaultParameter, path: string },
       ['path'],
       async (a) => {
-        const { real, rel } = vaultPath(root(), a.path);
+        const vault = select(a.vault);
+        const { real, rel } = vaultPath(vault.path, a.path);
         if (!/\.md$/i.test(rel)) throw new Error(t().fileNotFound);
         const preview = readPreview(real, rel, t().fileNotFound, () => {
           const st = lstatSync(real);
-          if (!st.isFile() || st.nlink !== 1 || vaultPath(root(), rel).real !== real) throw new Error(t().fileNotFound);
+          if (!st.isFile() || st.nlink !== 1 || vaultPath(select(vault.id).path, rel).real !== real) throw new Error(t().fileNotFound);
           return st;
         });
         if (preview.kind !== 'text') throw new Error(t().fileNotFound);
@@ -152,7 +173,8 @@ export function appTools(
       },
       noVault,
     ),
-    ...noteWriteTools(root, noVault, vaultId),
+    ...noteWriteTools(select, noVault),
+    ...driveDocumentTools(oauth),
     readTool(
       'drive',
       'drive_search',

@@ -38,9 +38,11 @@ export const MAIL_PRESETS: MailPreset[] = [
   },
 ];
 
+export const ICLOUD_CALENDAR_URL = 'https://caldav.icloud.com/';
+
 /** Calendar servers that find an account's calendars from their own address. */
 export const CALENDAR_PRESETS = [
-  { id: 'icloud', label: 'iCloud', url: 'https://caldav.icloud.com/' },
+  { id: 'icloud', label: 'iCloud', url: ICLOUD_CALENDAR_URL },
   { id: 'fastmail', label: 'Fastmail', url: 'https://caldav.fastmail.com/dav/' },
 ];
 

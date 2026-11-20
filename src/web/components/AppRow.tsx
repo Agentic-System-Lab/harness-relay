@@ -1,6 +1,17 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { ChevronIcon } from './icons';
 
+export function AppRowCopy({ name, description, descriptionId }: { name: string; description: string; descriptionId?: string }) {
+  return (
+    <span className="app-row-copy">
+      <strong>{name}</strong>
+      <span className="muted small" id={descriptionId}>
+        {description}
+      </span>
+    </span>
+  );
+}
+
 /** Keep sign-in feedback and unfinished forms mounted when a service changes from Connect to Manage. */
 export function AppRow({
   name,
@@ -28,12 +39,6 @@ export function AppRow({
       row.querySelector<HTMLElement>(label ? 'summary' : 'button:not(:disabled), input:not(:disabled)')?.focus();
     }
   }, [label, reveal]);
-  const title = (
-    <span className="app-row-copy">
-      <strong>{name}</strong>
-      <span className="muted small">{status || description}</span>
-    </span>
-  );
   return (
     <li aria-label={name} className="app-row">
       <details
@@ -47,16 +52,13 @@ export function AppRow({
         }}
       >
         <summary hidden={!label}>
-          {title}
+          <AppRowCopy name={name} description={status || description} />
           <span className="app-row-action">
             {label}
             <ChevronIcon size={14} />
           </span>
         </summary>
-        <div className={label ? 'app-row-body' : 'app-quick'}>
-          {!label && title}
-          {children}
-        </div>
+        <div className={label ? 'app-row-body' : 'app-quick'}>{children}</div>
       </details>
     </li>
   );

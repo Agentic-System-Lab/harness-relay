@@ -50,11 +50,17 @@ export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView
   const [connectors, setConnectors] = useState<ConnectorsView | null>(null);
   const [oauthError, setOauthError] = useState('');
   const [connectorError, setConnectorError] = useState('');
+  const oauthRead = useRef(0);
+  const reloadOAuth = async () => {
+    const id = ++oauthRead.current;
+    const current = await api.oauth();
+    if (id === oauthRead.current) setOauth(current);
+  };
   const refreshAccounts = async () => {
     setOauthError('');
     setConnectorError('');
     await Promise.all([
-      api.oauth().then(setOauth, (e: Error) => setOauthError(e.message)),
+      reloadOAuth().catch((e: Error) => setOauthError(e.message)),
       api.connectors().then(setConnectors, (e: Error) => setConnectorError(e.message)),
     ]);
   };
@@ -67,7 +73,7 @@ export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView
   // The endpoint returns a whole-library snapshot. Apply concurrent edits in the order requested.
   const pendingChange = useRef(Promise.resolve());
   /** Runs a change and shows the library it returns, or the error. */
-  const change = async (call: () => Promise<ToolLibraryView>, report = setError): Promise<boolean> => {
+  const change = async (call: () => Promise<ToolLibraryView>, report: (error: string) => void = setError): Promise<boolean> => {
     report('');
     try {
       const result = pendingChange.current.then(call);
@@ -129,11 +135,18 @@ export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView
               oauth={oauth}
               connectors={connectors}
               accountSettings={(kind) => (
-                <ConnectorsSettings kind={kind} view={connectors} setView={setConnectors} oauth={oauth} setOauth={setOauth} />
+                <ConnectorsSettings
+                  kind={kind}
+                  view={connectors}
+                  setView={setConnectors}
+                  oauth={oauth}
+                  setOauth={setOauth}
+                  reloadOAuth={reloadOAuth}
+                />
               )}
               relayAccess={(group) => <RelayAccess group={group} lib={lib} change={(call) => change(call, setAppError)} />}
               browserSettings={<BrowserPath lib={lib} change={(call) => change(call, setAppError)} />}
-              change={(call) => change(call, setAppError)}
+              change={(call, report = setAppError) => change(call, report)}
               refreshAccounts={refreshAccounts}
             />
           </AccountSignInProvider>

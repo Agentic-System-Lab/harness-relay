@@ -2685,6 +2685,46 @@ describe('tool library', () => {
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
   });
 
+  it('links complete Obsidian batches, deduplicates canonical paths and disconnects exactly one vault', async () => {
+    const first = join(project, 'work', 'Notes'),
+      second = join(project, 'home', 'Notes'),
+      inner = join(first, 'Nested');
+    for (const path of [first, second, inner]) mkdirSync(join(path, '.obsidian'), { recursive: true });
+    writeFileSync(join(first, 'Keep.md'), 'original');
+    const route = '/api/apps/obsidian';
+    const add = (paths: unknown) => app.request(route, json('POST', { paths }));
+    const view = async () => (await get('/api/tools')).json();
+    expect((await view()).obsidianVaults).toEqual([]);
+    for (const invalid of [[], null, first, [first, ''], [first, 23], [first, join(project, 'missing')], [inner, second, first]]) {
+      expect((await add(invalid)).status).toBe(400);
+      expect((await view()).obsidianVaults).toEqual([]);
+    }
+    const alias = join(project, 'vault-alias');
+    symlinkSync(first, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const firstResult = await (await add([first, first, alias])).json();
+    const old = firstResult.obsidianVaults[0];
+    expect(firstResult.obsidianVaults).toEqual([{ id: expect.any(String), path: realpathSync.native(first) }]);
+    expect(firstResult.obsidianVault).toBe(old.path);
+    expect((await add([second, inner])).status).toBe(400);
+    expect((await view()).obsidianVaults).toEqual([old]);
+    const both = await (await add([second, first])).json();
+    const latest = both.obsidianVaults[1];
+    expect(both.obsidianVaults).toEqual([old, { id: expect.any(String), path: realpathSync.native(second) }]);
+    expect(latest.id).not.toBe(old.id);
+    expect(both.obsidianVault).toBeUndefined();
+    for (const path of ['', first]) expect((await app.request(route, json('PUT', { path }))).status).toBe(409);
+    expect((await app.request(route + '/unknown', json('DELETE', {}))).status).toBe(404);
+    expect((await view()).obsidianVaults).toEqual(both.obsidianVaults);
+    const remaining = await (await app.request(route + '/' + old.id, json('DELETE', {}))).json();
+    expect(remaining.obsidianVaults).toEqual([latest]);
+    expect(remaining.obsidianVault).toBe(latest.path);
+    expect(readFileSync(join(first, 'Keep.md'), 'utf8')).toBe('original');
+    const readded = (await (await add([first])).json()).obsidianVaults;
+    expect(readded[0]).toEqual(latest);
+    expect(readded[1].path).toBe(old.path);
+    expect(readded[1].id).not.toBe(old.id);
+  });
+
   it('links only an existing Obsidian vault and forgets it without deleting notes', async () => {
     const path = join(project, 'notes');
     mkdirSync(path, { recursive: true });

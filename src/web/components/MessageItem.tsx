@@ -41,6 +41,7 @@ import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
+import { DocumentPreview, DocumentResult } from './DocumentPreview';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -199,17 +200,27 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
   };
   const waiting = part.status === 'pending';
   const note = part.preview.note;
+  const doc = part.preview.document;
+  const saving = note || doc;
+  const approve =
+    doc && doc.before === null ? t.outbox.document.create : note && note.before === null ? t.outbox.note.create : t.outbox.note.save;
   const posting = part.tool === 'slack_send_message' || part.tool === 'teams_send_message';
-  const status = note
-    ? t.outbox.note.status[part.status]
-    : posting && part.status === 'failed'
-      ? t.outbox.deliveryFailed
-      : t.outbox.status[part.status];
+  const status =
+    doc && part.status === 'failed'
+      ? t.outbox.document.check
+      : saving
+        ? t.outbox.note.status[part.status]
+        : posting && part.status === 'failed'
+          ? t.outbox.deliveryFailed
+          : t.outbox.status[part.status];
   return (
-    <section className={`outbox-card outbox-${part.status}`} aria-label={note ? t.outbox.note.label(agentName) : t.outbox.label(agentName)}>
+    <section
+      className={`outbox-card outbox-${part.status}`}
+      aria-label={doc ? t.outbox.document.label(agentName) : note ? t.outbox.note.label(agentName) : t.outbox.label(agentName)}
+    >
       <header className="approval-head">
         <span className="approval-icon" aria-hidden>
-          {note ? <PencilIcon /> : '✉'}
+          {saving ? <PencilIcon /> : '✉'}
         </span>
         <strong>{part.title}</strong>
         <span className="approval-waiting">{status}</span>
@@ -224,16 +235,17 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
           ))}
         </dl>
       )}
+      {doc && <DocumentPreview document={doc} />}
       {note && <NotePreview note={note} />}
       {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
-      {part.result && <p className="approval-reason">{part.result}</p>}
+      {part.result && <p className="approval-reason">{doc ? <DocumentResult text={part.result} /> : part.result}</p>}
       {error && <p className="error-line">{error}</p>}
       {waiting && (
         <>
-          <p className="muted small">{note ? t.outbox.note.hint : t.outbox.hint}</p>
+          <p className="muted small">{doc ? t.outbox.document.hint : note ? t.outbox.note.hint : t.outbox.hint}</p>
           <div className="approval-actions">
             <button type="button" className="primary small-button" disabled={busy} onClick={() => answer('send')}>
-              {note ? (note.before === null ? t.outbox.note.create : t.outbox.note.save) : t.outbox.send}
+              {saving ? approve : t.outbox.send}
             </button>
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('discard')}>
               {t.outbox.discard}
