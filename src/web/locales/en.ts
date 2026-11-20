@@ -849,7 +849,7 @@ export const en: Messages = {
       microsoftApp:
         'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access of Microsoft Graph; for mail, IMAP.AccessAsUser.All and SMTP.Send of Office 365 Exchange Online too (and SMTP AUTH on for the mailbox).',
       googleApp:
-        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen; for mail, the https://mail.google.com/ scope too. While the app is in Testing, add your own Google account to the consent screen’s Test users, or Google refuses the sign-in; its sign-ins also stop working every 7 days then.',
+        'Create a Desktop app OAuth client in your own Google Cloud project. For Drive, enable the Drive API and request …/auth/drive.readonly. For Calendar, enable the Google Calendar and CalDAV APIs and request …/auth/calendar. Gmail uses https://mail.google.com/. In Testing, add your Google account as a test user. Testing grants for these services expire after seven days.',
       waiting: (provider) => `Waiting for ${provider}'s sign-in page…`,
       openAgain: 'Open the sign-in page again',
       pasteHint:
@@ -1510,7 +1510,7 @@ export const en: Messages = {
 
   apps: {
     title: 'Common apps',
-    hint: 'Connecting Notion, Heptabase or Slack makes it available to supported assistants. For other apps, enable chat access after connecting. This gives access to all connected accounts for that tool. Choose individual assistants in the tool library.',
+    hint: 'Drive, Calendar and Slack connect through your Claude account. Claude receives the content you ask it to read. Connecting Notion or Heptabase makes it available to supported assistants. For apps with an option to enable chat access, that option grants access to all connected accounts for the tool. Choose individual assistants in the tool library.',
     connect: 'Connect',
     disconnect: 'Disconnect',
     addAccount: 'Connect another account',
@@ -1520,6 +1520,19 @@ export const en: Messages = {
     unavailable: 'Sign-in for this service has not been set up in this installation. Contact the person who provided Harness Relay.',
     needsSelection: 'Choose a mailbox or calendar',
     accounts: 'Manage accounts',
+    connectInClaude: (app) => `Connect ${app} in Claude`,
+    claudeAccount: 'Use the same Claude subscription account you use for Claude Code in Harness Relay.',
+    claudeCheck: 'Check which tools Claude Code can use',
+    claudeInspect: 'In Claude Code settings, choose your account and expand the tools it loads. Select Ask, then MCP tools.',
+    claudeSettings: 'Open Claude Code settings',
+    slackInApps: 'Set up Slack in Common apps',
+    slackExisting: (name) => `Existing tool library connection · ${name}`,
+    googleAdvanced: 'Advanced · Connect with your own Google Cloud project',
+    ownGoogleProject:
+      'Direct connections use your Google Cloud project and its quotas. Use this option for other assistants or calendar automations. Changing the Google client requires existing direct Google accounts, including Gmail, to sign in again.',
+    configureGoogle: 'Set up Google Cloud project',
+    connectDirect: 'Connect directly with Google',
+    directConnection: 'Direct Relay connection',
     teamsPowerShell: 'Install PowerShell 7 on the computer running Harness Relay, then check again.',
     installPowerShell: 'Get PowerShell',
     installGraph: 'Install Microsoft Graph for Teams',
@@ -1540,7 +1553,8 @@ export const en: Messages = {
         'List your teams and channels and read recent channel messages with a work or school account. Your organization may require admin approval.',
       notion: 'Use Notion’s tools in the workspace you authorize.',
       heptabase: 'Read and write in your knowledge base with Heptabase’s tools.',
-      slack: 'Search public channels and read their messages.',
+      slack:
+        'Claude Code can search conversations and send messages within your Slack permissions. Your organization may need to approve the connector.',
       github: 'Read repository pull requests. This sign-in also supports sharing chats and GitHub automations.',
       obsidian: 'Choose a vault on this computer to browse folders and read Markdown notes.',
     },
@@ -2481,7 +2495,7 @@ export const en: Messages = {
       },
       {
         title: 'Connect apps to your chats',
-        body: 'Open Settings → Common apps. Choose Connect beside the service you want, then approve access on its page. For Obsidian, choose the folder that holds your notes.',
+        body: 'Open Settings → Common apps. For Drive, Calendar or Slack, connect in Claude and use the same Claude Code account in chat. For Teams, follow the Microsoft sign-in code. For Obsidian, choose your notes folder.',
         points: [
           'Under Settings → Tool library you can choose individual assistants, add your own MCP servers or enable the built-in browser',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',

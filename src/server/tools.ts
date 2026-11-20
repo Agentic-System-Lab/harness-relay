@@ -23,7 +23,6 @@ import {
   type ToolLibraryView,
 } from '../shared/types';
 import { APP_SERVERS } from '../shared/apps';
-import { appClients } from './oauth/appClients';
 import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
@@ -422,7 +421,6 @@ export class ToolLibrary {
       names.map((name) => ({ name, masked: mask(values[name] ?? '') }));
     return {
       ...(this.data.obsidianVault ? { obsidianVault: this.data.obsidianVault } : {}),
-      ...(appClients.slackId ? { slackConfigured: true } : {}),
       mcpServers: this.data.mcpServers.map<McpServerView>((s) => {
         const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
@@ -481,6 +479,8 @@ export class ToolLibrary {
   /** Repeated clicks reuse this app, including after a rename. Never overwrite a server the user added. */
   ensureApp(app: keyof typeof APP_SERVERS): string {
     const found = this.data.mcpServers.find((s) => s.app === app && s.transport === 'http' && s.url === APP_SERVERS[app]);
+    // An older browser can still call the Slack catalog route. Only renew an existing grant.
+    if (app === 'slack' && !found?.oauth) throw new HttpError(409, t().appsSlackInClaude);
     if (found) return found.name;
     let name: string = app;
     for (let n = 2; this.data.mcpServers.some((s) => s.name.toLowerCase() === name); n++) name = `${app}-${n}`;

@@ -15,7 +15,6 @@ import { SandboxSetup } from './sandboxSetup';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { APP_SERVERS } from '../shared/apps';
-import { appClients } from './oauth/appClients';
 import { TeamsGraph } from './connectors/teams';
 import { checkedVault, githubStatus } from './connectors/apps';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
@@ -814,7 +813,6 @@ export function createApp({
   app.post('/api/apps/:app/signin', async (c) => {
     const app = c.req.param('app');
     if (!Object.hasOwn(APP_SERVERS, app)) throw new HttpError(404, t().invalidField('app'));
-    if (app === 'slack' && !appClients.slackId) throw new HttpError(409, t().appsUnavailable);
     const b = await body<{ origin?: unknown }>(c);
     const name = settings.tools.ensureApp(app as keyof typeof APP_SERVERS);
     return c.json(

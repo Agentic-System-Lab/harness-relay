@@ -205,6 +205,39 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
     }),
 });
 
+base.describe('Google in Common apps', () => {
+  base.use({ serverEnv: { RELAY_GOOGLE_CLIENT_ID: '123-publisher.apps.googleusercontent.com', RELAY_GOOGLE_DESKTOP_SECRET: 'sample' } });
+  base('connects in Claude by default and offers direct access only with the user’s Cloud project', async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/apps');
+    const apps = page.locator('.common-apps');
+    const drive = apps.getByRole('listitem', { name: 'Google Drive', exact: true });
+    const calendar = apps.getByRole('listitem', { name: 'Google Calendar', exact: true });
+    for (const [card, name, id] of [
+      [drive, 'Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce'],
+      [calendar, 'Google Calendar', '2a838eaa-f7b4-4bc2-bd47-c326f3c813c5'],
+    ] as const) {
+      await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Claude' })).toHaveAttribute(
+        'href',
+        'https://claude.ai/directory/' + id,
+      );
+      await expect(card.getByRole('button', { name: 'Connect directly with Google' })).toHaveCount(0);
+    }
+    await drive.getByText('Advanced · Connect with your own Google Cloud project').click();
+    await drive.getByRole('button', { name: 'Set up Google Cloud project' }).click();
+    const form = drive.getByRole('form');
+    await form.getByLabel('Client ID', { exact: true }).fill('456-user.apps.googleusercontent.com');
+    await form.locator('input[type=password]').fill('GOCSPX-sample');
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toBeVisible();
+    await page.reload();
+    await calendar.getByText('Advanced · Connect with your own Google Cloud project').click();
+    await expect(calendar.getByRole('button', { name: 'Connect directly with Google' })).toBeVisible();
+    await expect(
+      apps.getByRole('listitem', { name: 'Gmail', exact: true }).getByRole('button', { name: 'Connect', exact: true }),
+    ).toBeVisible();
+  });
+});
+
 base('common apps connects Teams and a local Obsidian vault, keeps them after reload and disconnects them', async ({ page, relay }) => {
   const vault = join(relay.workDir, 'My notes');
   mkdirSync(join(vault, '.obsidian'), { recursive: true });

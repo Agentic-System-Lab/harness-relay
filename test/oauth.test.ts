@@ -32,7 +32,7 @@ const { Hub } = await import('../src/server/hub');
 const { withLang } = await import('../src/server/i18n');
 const { validateOAuthCalendar } = await import('../src/server/validate');
 const { hostOnlyFetch } = await import('../src/server/oauth/broker');
-const { microsoftProvider, googleProvider } = await import('../src/server/oauth/providers');
+const { microsoftProvider, googleProvider, BUILT_IN_CLIENTS } = await import('../src/server/oauth/providers');
 const { OAuthService } = await import('../src/server/oauth/service');
 const { callbackParams, loopbackOrigin } = await import('../src/server/oauth/signin');
 const { OAuthStore } = await import('../src/server/oauth/store');
@@ -853,6 +853,72 @@ describe('calendars through a sign-in', () => {
     expect(() => graphNewEvent({ summary: 's', start: '2026-01-05', end: '2026-01-05T10:00', timeZone: 'UTC' })).toThrow(
       'must both be dates',
     );
+  });
+});
+
+describe('Google Cloud projects for direct Drive and Calendar access', () => {
+  it('attributes pre-upgrade Google grants, including expiry, without assuming the identity of a replaced client', () => {
+    service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret });
+    const legacy = (subject: string) =>
+      service.store.signedIn('google', { subject, email: subject + '@example.com' }, ['drive'], [], 'refresh', now);
+    const ready = legacy('ready');
+    const expired = legacy('expired');
+    const switched = legacy('switched');
+    service.store.needsSignIn(expired.id, 'invalid_grant');
+    service.store.needsSignIn(switched.id, 'the app it signed in with was changed in Settings');
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'oauth'").get() as { value: string };
+    const previous = JSON.parse(row.value);
+    for (const account of previous.accounts) delete account.googleClientId;
+    db.prepare("UPDATE app_settings SET value = ? WHERE key = 'oauth'").run(JSON.stringify(previous));
+    const migrated = new OAuthStore(db, keyring);
+    expect(migrated.account(ready.id)?.googleClientId).toBe(fake.google.clientId);
+    expect(migrated.account(expired.id)?.googleClientId).toBe(fake.google.clientId);
+    expect(migrated.account(switched.id)?.googleClientId).toBe('');
+    expect(migrated.accounts()[0]).not.toHaveProperty('googleClientId');
+  });
+  it('preserves old grants, requires a different Cloud project for new grants, and still permits Gmail', async () => {
+    const original = BUILT_IN_CLIENTS.google;
+    const clientId = '123-publisher.apps.googleusercontent.com';
+    BUILT_IN_CLIENTS.google = { clientId, secret: 'desktop' };
+    const start = (uses: ('drive' | 'calendar' | 'mail')[], account?: string) =>
+      service.startSignIn({ provider: 'google', uses, account, port: 8787 });
+    try {
+      expect(service.view().clients.find((c) => c.provider === 'google')).toMatchObject({ publisherProject: true });
+      await expect(start(['mail'])).resolves.toHaveProperty('authorizeUrl');
+      await expect(start(['drive'])).rejects.toMatchObject({ status: 409 });
+      await expect(start(['mail', 'calendar'])).rejects.toMatchObject({ status: 409 });
+      const old = service.store.signedIn('google', { subject: '1', email: 'ming@example.com' }, ['drive'], [], 'old-token', now);
+      await expect(start(['drive'], old.id)).resolves.toHaveProperty('authorizeUrl');
+      await expect(start(['drive', 'calendar'], old.id)).rejects.toMatchObject({ status: 409 });
+      service.saveClient('google', { clientId: '123-second.apps.googleusercontent.com', secret: 'desktop' });
+      await expect(start(['calendar'])).rejects.toMatchObject({ status: 409 });
+      const own = '456-user.apps.googleusercontent.com';
+      service.saveClient('google', { clientId: own, secret: 'desktop' });
+      expect(service.view().clients.find((c) => c.provider === 'google')?.publisherProject).toBeUndefined();
+      expect(new URL((await start(['drive', 'calendar'])).authorizeUrl!).searchParams.get('client_id')).toBe(own);
+      const personal = service.store.signedIn(
+        'google',
+        { subject: fake.google.me.sub, email: fake.google.me.email },
+        ['drive'],
+        [],
+        'user-token',
+        now,
+      );
+      service.saveClient('google', { clientId: '' });
+      await expect(start(['drive'], personal.id)).rejects.toMatchObject({ status: 409 });
+      await expect(start(['mail'], personal.id)).rejects.toMatchObject({ status: 409 });
+      expect(service.store.usesPublisherGoogleProject('123.apps.googleusercontent.com')).toBe(true);
+      fake.google.clientId = clientId;
+      fake.google.secret = 'desktop';
+      const unboundMail = await start(['mail']);
+      const finish = await service.signIns.callback(callbackParams(fake.allow(unboundMail.authorizeUrl!)));
+      expect(finish.status).toBe('failed');
+      expect(service.store.refreshToken(personal.id)).toBe('user-token');
+      expect(service.store.account(personal.id)?.googleClientId).toBe(own);
+    } finally {
+      if (original) BUILT_IN_CLIENTS.google = original;
+      else delete BUILT_IN_CLIENTS.google;
+    }
   });
 });
 

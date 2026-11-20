@@ -855,7 +855,7 @@ export const zhTW = {
       microsoftApp:
         '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Microsoft Graph 的 Calendars.ReadWrite 與 offline_access；用於郵件時，再加上 Office 365 Exchange Online 的 IMAP.AccessAsUser.All 與 SMTP.Send（信箱的 SMTP AUTH 也要開啟）。',
       googleApp:
-        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍；用於郵件時，再加入 https://mail.google.com/ 範圍。app 還在「測試」階段時，要在同意畫面的「測試使用者」加入你自己的 Google 帳號，否則 Google 會拒絕登入；而且登入每 7 天會失效一次。',
+        '請在自己的 Google Cloud 專案建立「電腦版應用程式」OAuth 用戶端。Drive 需啟用 Drive API，並加入 …/auth/drive.readonly 權限。Calendar 需啟用 Google Calendar 和 CalDAV API，並加入 …/auth/calendar 權限。Gmail 使用 https://mail.google.com/。測試模式請加入自己的 Google 帳號為測試使用者，這些服務的測試授權會在七天後到期。',
       waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
       openAgain: '再開一次登入頁面',
       pasteHint: '沒有回到這裡？如果瀏覽器說網頁打不開（例如 Harness Relay 在另一台電腦上），把那個網頁的完整網址貼在這裡：',
@@ -1513,7 +1513,7 @@ export const zhTW = {
 
   apps: {
     title: '常用 App',
-    hint: '連結 Notion、Heptabase 或 Slack 後，支援的助理即可使用。其他 App 可以在連結後開啟聊天存取。啟用後，同一工具的所有已連結帳號都可使用。你可以在工具庫選擇哪些助理能使用。',
+    hint: 'Drive、Calendar 和 Slack 透過你的 Claude 帳號連結，Claude 會收到你請它讀取的內容。連結 Notion 或 Heptabase 後，支援的助理即可使用。若 App 提供開啟聊天存取的選項，啟用後助理即可使用該工具的所有已連結帳號。你可以在工具庫選擇哪些助理能使用。',
     connect: '連結',
     disconnect: '解除連結',
     addAccount: '連結其他帳號',
@@ -1523,6 +1523,19 @@ export const zhTW = {
     unavailable: '這個版本尚未設定此服務的登入。請聯絡提供 Harness Relay 的人。',
     needsSelection: '請選取要使用的信箱或行事曆',
     accounts: '管理帳號',
+    connectInClaude: (app: string) => `在 Claude 連結 ${app}`,
+    claudeAccount: '請使用你在 Harness Relay 的 Claude Code 所登入的同一個 Claude 訂閱帳號。',
+    claudeCheck: '查看 Claude Code 可用的工具',
+    claudeInspect: '在 Claude Code 設定選擇帳號，展開 CLI 自行載入的工具清單，按「查詢」，再選「MCP 工具」。',
+    claudeSettings: '開啟 Claude Code 設定',
+    slackInApps: '到常用 App 設定 Slack',
+    slackExisting: (name: string) => `工具庫中原有的連線 · ${name}`,
+    googleAdvanced: '進階 · 使用自己的 Google Cloud 專案',
+    ownGoogleProject:
+      '直接連線會使用你自己的 Google Cloud 專案與配額，適合其他助理或行事曆自動化。更換 Google 用戶端後，既有的直接連線帳號（含 Gmail）都需重新登入。',
+    configureGoogle: '設定 Google Cloud 專案',
+    connectDirect: '直接連結 Google',
+    directConnection: 'Relay 直接連線',
     teamsPowerShell: '先在執行 Harness Relay 的電腦安裝 PowerShell 7，再按「再次檢查」。',
     installPowerShell: '下載 PowerShell',
     installGraph: '安裝 Teams 需要的 Microsoft Graph 工具',
@@ -1542,7 +1555,7 @@ export const zhTW = {
       teams: '用工作或學校帳號列出團隊、頻道及近期頻道訊息。組織可能需要管理員同意。',
       notion: '透過 Notion 官方工具，在聊天中使用你授權的工作區。',
       heptabase: '透過 Heptabase 官方工具，在聊天中讀寫你的知識庫。',
-      slack: '搜尋公開頻道，讀取頻道訊息。',
+      slack: 'Claude Code 可以依你的 Slack 權限搜尋對話、傳送訊息。你的組織可能需要先核准此連接器。',
       github: '查看儲存庫的拉取請求。登入也可用於分享對話與 GitHub 自動任務。',
       obsidian: '選擇這台電腦上的筆記庫，讓助理列出資料夾並讀取 Markdown 筆記。',
     },
@@ -2466,7 +2479,7 @@ export const zhTW = {
       },
       {
         title: '在聊天中使用常用 App',
-        body: '打開「設定 → 常用 App」，按服務旁的「連結」，在服務商的頁面同意授權。使用 Obsidian 時，選擇存放筆記的資料夾即可。',
+        body: '打開「設定 → 常用 App」。Drive、Calendar 和 Slack 可在 Claude 連結，再用同一個 Claude Code 帳號聊天。Teams 依指示輸入 Microsoft 登入代碼。Obsidian 則選擇筆記資料夾。',
         points: [
           '「設定 → 工具庫」可以選擇個別助理、加入自己的 MCP 伺服器，或開啟內建瀏覽器',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',

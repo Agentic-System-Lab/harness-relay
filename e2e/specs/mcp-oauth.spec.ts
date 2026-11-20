@@ -1,3 +1,10 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { removeTree } from '../../src/server/fsRemove';
+import { openDatabase } from '../../src/server/db';
+import { ToolLibrary } from '../../src/server/tools';
+import { saveLegacySlackGrant } from '../support/legacy-slack-grant';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { expect, test as base } from '../fixtures';
@@ -149,6 +156,73 @@ const test = base.extend<{ auth: FakeAuth }>({
   },
 });
 
+base("Slack opens Claude's official connector and leaves Relay's shared tools and members alone", async ({ page, relay }) => {
+  const directory = 'https://claude.ai/directory/597f662f-36de-437e-836e-5a81013cbfbe';
+  const library = () => relay.api<{ mcpServers: unknown[] }>('/api/tools');
+  const before = await library();
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    const { pathname } = new URL(request.url());
+    if (request.method() !== 'GET' && /^\/api\/(?:apps\/slack|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname))
+      writes.push(pathname);
+  });
+  // Exercise the external link offline; opening a page alone cannot attest to a Slack grant.
+  await page
+    .context()
+    .route(directory, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Claude connector</title>' }));
+  await page.goto(`${relay.base}/#/settings/apps`);
+  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  const connect = slack.getByRole('link', { name: 'Connect Slack in Claude' });
+  await expect(connect).toHaveAttribute('href', directory);
+  const [tab] = await Promise.all([page.context().waitForEvent('page'), connect.click()]);
+  await expect(tab).toHaveURL(directory);
+  await tab.close();
+  await expect(slack).not.toContainText(/connected|signed in to Slack/i);
+  await expect(slack.getByRole('button')).toHaveCount(0);
+  await slack.getByText('Check which tools Claude Code can use', { exact: true }).click();
+  await slack.getByRole('link', { name: 'Open Claude Code settings' }).click();
+  await expect(page).toHaveURL(/#\/settings\/claude$/);
+  const native = page.locator('#settings-claude details.native-setup').first();
+  await native.locator('summary').click();
+  await expect(native.getByRole('button', { name: 'Ask', exact: true })).toBeVisible();
+  expect((await library()).mcpServers).toEqual(before.mcpServers);
+  expect(writes).toEqual([]);
+});
+
+const legacySlack = base.extend({
+  serverEnv: async ({}, use) => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-slack-'));
+    try {
+      const db = openDatabase(join(dir, 'relay.db'));
+      try {
+        saveLegacySlackGrant(new ToolLibrary(db));
+      } finally {
+        db.close();
+      }
+      await use({ RELAY_DATA_DIR: dir });
+    } finally {
+      removeTree(dir, { restore: true });
+    }
+  },
+});
+
+legacySlack('a saved Slack grant can reauthorize and sign out without enabling a new shared Slack sign-in', async ({ page, relay }) => {
+  await page.goto(`${relay.base}/#/settings/apps`);
+  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  await expect(slack).toContainText('Existing tool library connection · slack-work');
+  await slack.getByRole('button', { name: 'Sign in again' }).click();
+  await expect(slack.getByRole('alert')).toContainText('slack.com');
+  await slack.getByRole('button', { name: 'Cancel', exact: true }).click();
+  page.once('dialog', (d) => void d.accept());
+  await slack.getByRole('button', { name: 'Sign out' }).click();
+  await expect(slack).toContainText('Signed out of Slack.');
+  await expect(slack.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
+  await page.goto(`${relay.base}/#/settings/tools`);
+  const row = page.locator('#settings-tools .lib-row', { hasText: 'slack-work' });
+  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+});
+
 test("a library MCP server signs in in a new tab, comes back to the web app's callback page, and a member's turn gets its token in the server's headers", async ({
   page,
   relay,
@@ -195,44 +269,20 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   );
   expect(relay.fakeLog().filter((e) => e.cli === 'claude' && e.mcpEnv?.linear)).toHaveLength(before);
 
-  // Settings says it needs a new sign-in; Sign in again mends it (the kept client: no new registration).
-  auth.refuseRefresh = false;
+  // Reauthorize the custom MCP server against its existing client and revoke both replaced tokens.
   await page.goto(`${relay.base}/#/settings/tools`);
   await expect(row.locator('.badge')).toHaveText('Needs a new sign-in');
   await expect(row).toContainText('Its sign-in no longer works (invalid_grant)');
+  auth.refuseRefresh = false;
   const [again] = await Promise.all([page.waitForEvent('popup'), row.getByRole('button', { name: 'Sign in again' }).click()]);
   await again.getByRole('link', { name: 'Allow' }).click();
   await expect(again.getByRole('status')).toHaveText('Signed in to the MCP server linear.');
   await again.close();
   await expect(row.locator('.badge')).toHaveText('Signed in');
   expect(auth.clients).toHaveLength(1);
-  // The refresh token it replaced is revoked.
   await expect.poll(() => auth.revoked.length).toBe(1);
-
-  // The catalog can lose its distributor registration while the user's grant still exists.
-  // Show the signed-in stand-in as the saved Slack entry; revocation still goes to the real relay route.
-  await page.route('**/api/tools', async (route) => {
-    const response = await route.fetch();
-    const library = await response.json();
-    await route.fulfill({
-      response,
-      json: {
-        ...library,
-        slackConfigured: false,
-        mcpServers: library.mcpServers.map((s: { name: string }) => (s.name === 'linear' ? { ...s, app: 'slack' } : s)),
-      },
-    });
-  });
-  await page.goto(`${relay.base}/#/settings/apps`);
-  await page.reload();
-  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
-  await expect(slack.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
-  await expect(slack.getByRole('button', { name: 'Sign out' })).toBeVisible();
-  // Sign out: its tokens deleted and revoked; the library offers Sign in again.
   page.once('dialog', (d) => void d.accept());
-  await slack.getByRole('button', { name: 'Sign out' }).click();
-  await expect(slack).toContainText('Signed out of Slack.');
-  await page.goto(`${relay.base}/#/settings/tools`);
+  await row.getByRole('button', { name: 'Sign out' }).click();
   await expect(row.locator('.badge')).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   expect(auth.revoked).toHaveLength(2);

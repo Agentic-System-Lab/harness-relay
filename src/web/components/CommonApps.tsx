@@ -13,11 +13,20 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { settingsHref } from '../route';
 import { AppSignIn } from './McpSignIn';
+import { ClaudeConnectorLink } from './ClaudeConnectorLink';
+import { GoogleProjectConnection } from './GoogleProjectConnection';
 import { TeamsSignIn } from './TeamsSignIn';
 import { GhSignIn } from './GhHelp';
 
 const accounts = { mail: 'Gmail', drive: 'Google Drive', calendar: 'Google Calendar', teams: 'Microsoft Teams' } as const;
-const remote = { notion: 'Notion', heptabase: 'Heptabase', slack: 'Slack' } as const;
+// Official “Add to Claude” destinations for Google's Drive and Calendar connectors.
+const googleInClaude = {
+  drive: 'https://claude.ai/directory/b89f7865-a755-4f86-8062-c3bd651740ce',
+  calendar: 'https://claude.ai/directory/2a838eaa-f7b4-4bc2-bd47-c326f3c813c5',
+} as const;
+const remote = { notion: 'Notion', heptabase: 'Heptabase' } as const;
+// “Add to Claude” on Claude's official Slack connector listing.
+const SLACK_IN_CLAUDE = 'https://claude.ai/directory/597f662f-36de-437e-836e-5a81013cbfbe';
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 
 export function CommonApps({
@@ -90,11 +99,13 @@ export function CommonApps({
             <li className="lib-row" key={use} aria-label={accounts[use]}>
               <strong>{accounts[use]}</strong>
               <p className="muted small">{a.details[use]}</p>
+              {(use === 'drive' || use === 'calendar') && <ClaudeConnectorLink app={accounts[use]} href={googleInClaude[use]} />}
               {linked.map((x) => {
                 const missing = (use === 'mail' || use === 'calendar') && !connectors?.[use].some((c) => c.oauth === x.id);
                 return (
                   <div key={x.id}>
                     <span>
+                      {(use === 'drive' || use === 'calendar') && t.apps.directConnection + ' · '}
                       {x.email} ·{' '}
                       {x.status === 'reauth' ? t.connectors.oauth.reauth : missing ? a.needsSelection : t.connectors.oauth.connected}
                     </span>
@@ -135,6 +146,13 @@ export function CommonApps({
               })}
               {use === 'teams' ? (
                 <TeamsSignIn>{!linked.some((x) => x.status !== 'reauth') && enable('teams')}</TeamsSignIn>
+              ) : use === 'drive' || use === 'calendar' ? (
+                <GoogleProjectConnection
+                  use={use}
+                  name={accounts[use]}
+                  client={oauth?.clients.find((c) => c.provider === 'google')}
+                  onDone={refreshAccounts}
+                />
               ) : !oauth ? (
                 t.common.loading
               ) : configured ? (
@@ -150,24 +168,42 @@ export function CommonApps({
             </li>
           );
         })}
-        {(Object.keys(APP_SERVERS) as (keyof typeof APP_SERVERS)[]).map((key) => {
+        {(Object.keys(remote) as (keyof typeof remote)[]).map((key) => {
           const server = lib.mcpServers.find((s) => s.app === key);
           return (
             <li className="lib-row" key={key} aria-label={remote[key]}>
               <strong>{remote[key]}</strong>
               <p className="muted small">{a.details[key]}</p>
-              {key === 'slack' && !lib.slackConfigured && <p className="muted small">{a.unavailable}</p>}
               <AppSignIn
                 name={remote[key]}
                 oauth={server?.oauth}
                 button={server?.oauth ? undefined : a.connect}
-                startRequest={key === 'slack' && !lib.slackConfigured ? undefined : () => api.startAppSignIn(key)}
+                startRequest={() => api.startAppSignIn(key)}
                 onDone={() => change(() => api.tools())}
                 onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
               />
             </li>
           );
         })}
+        <li className="lib-row" aria-label="Slack">
+          <strong>Slack</strong>
+          <p className="muted small">{a.details.slack}</p>
+          <ClaudeConnectorLink app="Slack" href={SLACK_IN_CLAUDE} />
+          {lib.mcpServers
+            .filter((s) => s.app === 'slack' || (s.transport === 'http' && s.url === APP_SERVERS.slack))
+            .map((server) => (
+              <div key={server.id}>
+                {server.oauth && <p className="small">{a.slackExisting(server.name)}</p>}
+                <AppSignIn
+                  name="Slack"
+                  oauth={server.oauth}
+                  startRequest={server.oauth ? () => api.startMcpSignIn(server.name) : undefined}
+                  onDone={() => change(() => api.tools())}
+                  onSignOut={() => change(() => api.signOutMcp(server.name))}
+                />
+              </div>
+            ))}
+        </li>
         <li className="lib-row" aria-label="GitHub">
           <strong>GitHub</strong>
           <p className="muted small">{a.details.github}</p>

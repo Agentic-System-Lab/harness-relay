@@ -52,8 +52,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 3 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
-| [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 2 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
+| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 4 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
+| [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 4 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
@@ -336,6 +336,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 [`oauth.spec.ts`](specs/oauth.spec.ts)：**設定 → 工具庫 → 登入的帳號**（Accounts you sign in to），對這台電腦上 Microsoft 登入頁面與 Graph 的替身，以及只接受替身給的 Exchange Online 權杖、以 XOAUTH2 登入的 Exchange Online IMAP 與 SMTP 替身測試，測試的伺服器指向它們（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`、`RELAY_MICROSOFT_IMAP`、`RELAY_MICROSOFT_SMTP`）。
 
+Google Drive 與 Calendar 預設開啟 Claude 的服務頁。設定個人 Cloud 專案之後，進階模式才提供直接登入。
+
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
@@ -345,6 +347,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 ## 需要登入的 MCP 伺服器
 
 [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts)：**設定 → 工具庫 → MCP 伺服器**，HTTP 伺服器自己的登入（MCP 的授權），對這台電腦上的替身測試：一台回 401 並指出它受保護資源中繼資料的 MCP 伺服器，以及它的授權伺服器，發行者帶有路徑（RFC 8414 的中繼資料、註冊、有「Allow」連結的授權頁面（測試要求時放在它自己的另一個位址）、檢查 PKCE、重新導向網址與 `resource` 的權杖端點、只能用一秒的存取權杖、撤銷）。
+
+Slack 卡片開啟 Claude 的官方連接器，並能進入 Relay 的 Claude Code 設定。既有共用連線可以重新授權及解除連結。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |

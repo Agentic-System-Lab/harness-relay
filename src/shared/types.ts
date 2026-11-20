@@ -239,6 +239,8 @@ export interface OAuthClientView {
   provider: OAuthProviderId;
   clientId: string;
   builtIn: boolean;
+  /** Google OAuth client belongs to the distributor’s Cloud project. */
+  publisherProject?: boolean;
   /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */
@@ -459,7 +461,6 @@ export type GithubConnection = { status: 'connected'; login: string } | { status
 
 export interface ToolLibraryView {
   obsidianVault?: string;
-  slackConfigured?: boolean;
   mcpServers: McpServerView[];
   skills: SkillView[];
   /** Harness Relay's own tool groups and the CLIs whose agents get each (none at first). */

@@ -98,7 +98,6 @@ await build({
       microsoftId: process.env.RELAY_MICROSOFT_CLIENT_ID?.trim(),
       googleId: process.env.RELAY_GOOGLE_CLIENT_ID?.trim(),
       googleDesktopSecret: process.env.RELAY_GOOGLE_DESKTOP_SECRET?.trim(),
-      slackId: process.env.RELAY_SLACK_CLIENT_ID?.trim(),
     }),
   },
   banner: { js: "import { createRequire as __relayRequire } from 'node:module'; const require = __relayRequire(import.meta.url);" },

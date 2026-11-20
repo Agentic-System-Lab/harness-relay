@@ -24,6 +24,8 @@ import { createServer as createNetServer, type Server as NetServer } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { saveLegacySlackGrant } from '../e2e/support/legacy-slack-grant';
+import { APP_SERVERS } from '../src/shared/apps';
 import { AUTH_KEY_HEADER } from '../src/shared/auth';
 import { OAUTH_LIMITS, type AgentConfig, type OAuthSignInView, type ToolLibraryView } from '../src/shared/types';
 import { fakeMcpAuth, type FakeMcpAuth } from './fake-mcp-auth-server';
@@ -46,7 +48,6 @@ const { withLang } = await import('../src/server/i18n');
 const { McpOAuth, TURN_EARLY, canonicalResource, discoverMcpAuth, parseWwwAuthenticate, authServerMetadataUrls, signInConfirmation } =
   await import('../src/server/oauth/mcp');
 const { checkedAddresses, nearbyAddress, pinnedLookup, pinnedSend } = await import('../src/server/oauth/net');
-const { appClients } = await import('../src/server/oauth/appClients');
 const { MAX_TOKEN } = await import('../src/server/oauth/broker');
 const { SignIns, callbackParams } = await import('../src/server/oauth/signin');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -95,47 +96,44 @@ afterEach(async () => {
   await fake.close();
 });
 
-it('uses the registered Slack desktop client, PKCE, and the public-channel grant for its official MCP server', async () => {
-  const previous = appClients.slackId;
-  appClients.slackId = 'registered-test-client';
-  try {
-    const remote = new McpOAuth(tools, signIns, () => now, {
-      lookup: async () => ['93.184.216.34'],
-      send: async (url, r) => {
-        expect(url.href).toBe('https://slack.com/api/oauth.v2.user.access');
-        const form = new URLSearchParams(r.body);
-        expect(form.get('client_id')).toBe('registered-test-client');
-        if (form.get('grant_type') === 'refresh_token') return Response.json({ ok: false, error: 'invalid_refresh_token' });
-        expect(form.get('code_verifier')).toBeTruthy();
-        expect(form.has('client_secret')).toBe(false);
-        return Response.json({
-          ok: true,
-          token_type: 'user',
-          access_token: 'stand-in',
-          refresh_token: 'stand-in-refresh',
-          expires_in: 3600,
-        });
-      },
-    });
-    const name = tools.ensureApp('slack');
-    const login = await remote.startSignIn({ name, port: 8787, origin: 'http://127.0.0.1:8787', session: 'slack-test' });
-    expect(login.confirm?.host).toBe('slack.com');
-    const url = new URL(signIns.confirm(login.id, 'slack-test').authorizeUrl!);
-    expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8787/oauth/callback');
-    expect(url.searchParams.get('scope')).toContain('search:read.public');
-    expect(url.searchParams.get('scope')).not.toContain('write');
-    expect((await signIns.callback({ code: 'test', state: url.searchParams.get('state')! })).status).toBe('done');
-    expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.find((s) => s.name === name)?.headers.Authorization).toBe(
-      'Bearer stand-in',
-    );
-    now += 3600_000;
-    expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.some((s) => s.name === name)).toBe(false);
-    expect(tools.view().mcpServers.find((s) => s.name === name)?.oauth?.status).toBe('reauth');
-    await remote.signOut(name);
-    expect(tools.forAgent(agent).mcpServers.some((s) => s.name === name)).toBe(false);
-  } finally {
-    appClients.slackId = previous;
-  }
+it('renews only a persisted Slack grant using its own previous client, PKCE and public-channel scopes', async () => {
+  const name = saveLegacySlackGrant(tools);
+  tools = new ToolLibrary(db, keyring);
+  const remote = new McpOAuth(tools, signIns, () => now, {
+    lookup: async () => ['93.184.216.34'],
+    send: async (url, r) => {
+      expect(url.href).toBe('https://slack.com/api/oauth.v2.user.access');
+      const form = new URLSearchParams(r.body);
+      expect(form.get('client_id')).toBe('registered-test-client');
+      if (form.get('grant_type') === 'refresh_token') return Response.json({ ok: false, error: 'invalid_refresh_token' });
+      expect(form.get('code_verifier')).toBeTruthy();
+      expect(form.has('client_secret')).toBe(false);
+      return Response.json({
+        ok: true,
+        token_type: 'user',
+        access_token: 'stand-in',
+        refresh_token: 'stand-in-refresh',
+        expires_in: 3600,
+      });
+    },
+  });
+  expect(tools.ensureApp('slack')).toBe(name);
+  const login = await remote.startSignIn({ name, port: 8787, origin: 'http://127.0.0.1:8787', session: 'slack-test' });
+  expect(login.confirm?.host).toBe('slack.com');
+  const url = new URL(signIns.confirm(login.id, 'slack-test').authorizeUrl!);
+  expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8787/oauth/callback');
+  expect(url.searchParams.get('scope')).toContain('search:read.public');
+  expect(url.searchParams.get('scope')).not.toContain('write');
+  expect((await signIns.callback({ code: 'test', state: url.searchParams.get('state')! })).status).toBe('done');
+  expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.find((s) => s.name === name)?.headers.Authorization).toBe(
+    'Bearer stand-in',
+  );
+  now += 3600_000;
+  expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.some((s) => s.name === name)).toBe(false);
+  expect(tools.view().mcpServers.find((s) => s.name === name)?.oauth?.status).toBe('reauth');
+  await remote.signOut(name);
+  expect(tools.forAgent(agent).mcpServers.some((s) => s.name === name)).toBe(false);
+  await expect(remote.startSignIn({ name, port: 8787 })).rejects.toMatchObject({ status: 409 });
 });
 
 const serverId = (name = 'linear') => tools.view().mcpServers.find((s) => s.name === name)!.id;
@@ -1156,6 +1154,28 @@ describe('/api/tools/mcp/:name/signin', () => {
       });
     return { call, HOST, settings };
   }
+
+  it('directs fresh Slack sign-ins from either HTTP route to Claude, without creating a grant or a catalog row', async () => {
+    const { call, settings } = await signedInApp();
+    const before = settings.tools.view().mcpServers;
+    const catalog = await call('POST', '/api/apps/slack/signin', {});
+    expect(catalog.status).toBe(409);
+    expect(await catalog.text()).toContain('Connect Slack in Claude');
+    expect(settings.tools.view().mcpServers).toEqual(before);
+    for (const [index, url] of [
+      APP_SERVERS.slack,
+      APP_SERVERS.slack + '/',
+      APP_SERVERS.slack + '?test=1',
+      'https://mcp.slack.com./mcp',
+    ].entries()) {
+      const name = 'saved-slack-' + index;
+      expect((await call('PUT', '/api/tools/mcp/' + name, { transport: 'http', url })).status).toBe(200);
+      const denied = await call('POST', '/api/tools/mcp/' + name + '/signin', {});
+      expect(denied.status).toBe(409);
+      expect(await denied.text()).toContain('Connect Slack in Claude');
+      expect(settings.tools.mcpServer(name)?.oauth).toBeUndefined();
+    }
+  });
 
   it('starts, follows and finishes a sign-in for a signed-in browser, says the state in the library, and signs out', async () => {
     const { call, HOST, settings } = await signedInApp();

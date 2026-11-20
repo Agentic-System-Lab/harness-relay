@@ -155,17 +155,19 @@ export function OAuthAccounts({
                   </button>
                 )}
                 {/* A use not granted yet: a sign-in for it with those it has (incremental consent), which updates this account. */}
-                {can.signInFor.map(({ use, uses }) => (
-                  <button
-                    key={use}
-                    type="button"
-                    className="ghost small-button"
-                    disabled={waiting(signIn)}
-                    onClick={() => start(a.provider, uses, false, a.id)}
-                  >
-                    {o.useFor[use]}
-                  </button>
-                ))}
+                {can.signInFor
+                  .filter(({ use }) => use !== 'calendar' || !view.clients.some((c) => c.provider === a.provider && c.publisherProject))
+                  .map(({ use, uses }) => (
+                    <button
+                      key={use}
+                      type="button"
+                      className="ghost small-button"
+                      disabled={waiting(signIn)}
+                      onClick={() => start(a.provider, uses, false, a.id)}
+                    >
+                      {o.useFor[use]}
+                    </button>
+                  ))}
                 {can.addMail && (
                   <button type="button" className="ghost small-button" onClick={() => addMail(a)}>
                     {o.useFor.mail}
@@ -198,7 +200,8 @@ export function OAuthAccounts({
       <div className="oauth-providers">
         {OAUTH_PROVIDERS.map((p) => {
           const client = view.clients.find((c) => c.provider === p)!;
-          const none = waiting(signIn) || !forUses.length;
+          const needsOwnProject = client.publisherProject && forUses.includes('calendar');
+          const none = waiting(signIn) || !forUses.length || needsOwnProject;
           return (
             <div key={p} className="oauth-provider">
               {client.clientId ? (
@@ -223,6 +226,7 @@ export function OAuthAccounts({
                   </button>
                 </p>
               )}
+              {needsOwnProject && <p className="muted small">{t.apps.ownGoogleProject}</p>}
               {settingUp === p && (
                 <ClientForm
                   client={client}
@@ -377,7 +381,7 @@ export function SignInWaiting({
 }
 
 /** A provider's app: the user's own client id (Microsoft's tenant, Google's secret), and the redirect addresses it must allow. */
-function ClientForm({
+export function ClientForm({
   client,
   label,
   onSaved,
@@ -385,7 +389,7 @@ function ClientForm({
 }: {
   client: OAuthClientView;
   label: string;
-  onSaved: (v: OAuthView) => void;
+  onSaved: (v: OAuthView) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const t = useT();
@@ -398,7 +402,7 @@ function ClientForm({
   const save = async () => {
     setError('');
     try {
-      onSaved(
+      await onSaved(
         await api.saveOAuthClient(client.provider, {
           clientId: clientId.trim(),
           ...(client.provider === 'microsoft' && tenant.trim() ? { tenant: tenant.trim() } : {}),

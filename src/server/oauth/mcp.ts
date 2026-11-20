@@ -1,5 +1,4 @@
-import { APP_SERVERS } from '../../shared/apps';
-import { appClients } from './appClients';
+import { APP_SERVERS, isSlackMcp } from '../../shared/apps';
 import type { OAuthSignInView } from '../../shared/types';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -434,7 +433,7 @@ export class McpOAuth {
     const reach: Reach = { local: onThisComputer(tokenHost(url)), net: this.net };
     const cannot = (err: unknown) => new HttpError(502, t().mcpSignInCannotStart(o.name, (err as Error).message));
     // Slack registers one public desktop client in advance. Its desktop PKCE redirect is on localhost.
-    const slack = url === APP_SERVERS.slack;
+    const slack = isSlackMcp(url);
     const callback = new URL(redirectAddress(o.origin, o.port));
     const origin = slack ? `http://localhost:${callback.port}` : o.origin;
     const redirect = redirectAddress(origin, o.port);
@@ -443,17 +442,30 @@ export class McpOAuth {
     const release = this.signIns.reserve();
     try {
       if (slack) {
-        if (!appClients.slackId) throw new HttpError(409, t().appsUnavailable);
-        // Slack's published user-token endpoints. Only public-channel search and history are requested.
+        // The old desktop client survives in a completed grant. Adding an MCP library row alone
+        // cannot start Slack OAuth. Renew only the same client, endpoints and read permissions.
+        const saved = server.oauth;
+        if (
+          !sameServer(url, APP_SERVERS.slack) ||
+          !saved?.clientId ||
+          saved.registration !== '' ||
+          saved.issuer !== 'https://mcp.slack.com' ||
+          saved.resource !== 'https://mcp.slack.com' ||
+          saved.authorize !== 'https://slack.com/oauth/v2_user/authorize' ||
+          saved.token !== 'https://slack.com/api/oauth.v2.user.access'
+        )
+          throw new HttpError(409, t().appsSlackInClaude);
+        const scopes = saved.scopes.filter((scope) => ['search:read.public', 'channels:history', 'channels:read'].includes(scope));
+        if (!scopes.length) throw new HttpError(409, t().appsSlackInClaude);
         found = {
-          resource: 'https://mcp.slack.com',
-          issuer: 'https://mcp.slack.com',
-          authorize: 'https://slack.com/oauth/v2_user/authorize',
-          token: 'https://slack.com/api/oauth.v2.user.access',
+          resource: saved.resource,
+          issuer: saved.issuer,
+          authorize: saved.authorize,
+          token: saved.token,
           registration: '',
-          scopes: ['search:read.public', 'channels:history', 'channels:read'],
+          scopes,
         };
-        client = { clientId: appClients.slackId, redirectUris: [redirect] };
+        client = { clientId: saved.clientId, redirectUris: [redirect] };
       } else {
         try {
           found = await discoverMcpAuth(url, this.net);
@@ -522,6 +534,7 @@ export class McpOAuth {
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
     const server = this.tools.mcpServerById(id);
     if (!server || server.transport !== 'http' || !sameServer(server.url, url)) throw new Error(t().mcpServerChanged(server?.name ?? id));
+    if (isSlackMcp(url) && server.oauth?.clientId !== oauth.clientId) throw new Error(t().oauthSignInCancelled);
     const refresh = s.refreshToken;
     // Its one token: an MCP server's sign-in has no uses.
     const token = s.access[0]!.token;
