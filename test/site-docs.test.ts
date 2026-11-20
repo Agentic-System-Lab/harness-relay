@@ -173,8 +173,8 @@ describe('the docs', () => {
 
   it("have the site's header and footer, which lead to the docs from every page of the site", () => {
     const words = {
-      en: ['Demo', 'Use cases', 'Modes', 'Teams', 'Safety', 'Quick start', 'Docs'],
-      'zh-TW': ['示範', '使用情境', '對話模式', '團隊', '安全', '快速開始', '文件'],
+      en: ['Use cases', 'Modes', 'Teams', 'Safety', 'Quick start', 'Docs'],
+      'zh-TW': ['使用情境', '對話模式', '團隊', '安全', '快速開始', '文件'],
     };
     for (const page of SITE_PAGES) {
       const html = read(page.file);
@@ -186,7 +186,6 @@ describe('the docs', () => {
       ).toEqual(words[page.lang]);
       // The home page links its own use cases' section; the other pages, the use-cases page.
       expect(sections.map((l) => (l.href.startsWith(home) ? l.href.slice(home.length) : l.href))).toEqual([
-        '#demo',
         page.path === '' ? '#use-cases' : 'use-cases/',
         '#modes',
         '#teams',
@@ -215,13 +214,11 @@ describe('the docs', () => {
       expect(
         destinations.map((link) => link.href),
         page.file,
-      ).toEqual([sections[0].href, sections[1].href, sections[5].href, sections[6].href]);
+      ).toEqual([sections[0].href, sections[4].href, sections[5].href]);
       expect(
         destinations.map((link) => link.words),
         page.file,
-      ).toEqual(
-        page.lang === 'en' ? ['Watch the demo', 'Use cases', 'Installation guide', 'Docs'] : ['看示範', '使用情境', '安裝指南', '文件'],
-      );
+      ).toEqual(page.lang === 'en' ? ['Use cases', 'Installation guide', 'Docs'] : ['使用情境', '安裝指南', '文件']);
       // The footer: the mark to the home page, then the docs.
       const footer = links(slice(html, '<footer class="site-footer">', '</footer>'), page.url);
       expect(footer[0].href, page.file).toBe(home);
@@ -409,7 +406,9 @@ describe('the docs', () => {
             // A page in the other language only through the language switch.
             if (target!.lang !== page.lang) expect(page.body.slice(0, m.index).lastIndexOf('<nav class="lang"'), where).toBeGreaterThan(-1);
           } else {
-            expect(exists(`site/${path}`), where).toBe(true);
+            // Pages copies the walkthrough MP4s from docs/media into the published media folder.
+            const file = /^media\/demo-(en|zh-TW)\.mp4$/.test(path) ? `docs/${path}` : `site/${path}`;
+            expect(exists(file), where).toBe(true);
           }
           if (kind === 'src' && path.endsWith('.webp'))
             expect(exists(`site/${path}.json`), `${where}: its origin, in a .webp.json beside it`).toBe(true);

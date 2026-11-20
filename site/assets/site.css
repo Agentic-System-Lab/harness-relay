@@ -53,7 +53,7 @@
   --openhands: #0891b2;
   --pi: #64748b;
 
-  /* The screening band around the demo. */
+  /* The dark panels around the use-case recordings. */
   --band: #111113;
   --band-2: #1c1c1f;
   --band-text: #f4f4f5;
@@ -983,13 +983,7 @@ html:not(.js) .theme-toggle {
   display: inline-block;
 }
 
-/* ---------- The screening: demo video + chapter rail ---------- */
-
-.screening {
-  background: var(--band);
-  color: var(--band-text);
-  padding-block: clamp(72px, 9vw, 132px);
-}
+/* ---------- Use-case recordings and their chapter rails ---------- */
 
 .screening-grid {
   display: grid;
@@ -1050,12 +1044,6 @@ html:not(.js) .theme-toggle {
   .chapters.more-above.more-below {
     mask-image: linear-gradient(to bottom, transparent, #000 32px, #000 calc(100% - 32px), transparent);
   }
-}
-
-.rail h2 {
-  font-size: 1.45rem;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
 }
 
 .rail-note {

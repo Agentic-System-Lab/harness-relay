@@ -1,5 +1,5 @@
 /**
- * The landing page's chapter rail, written from a recording's timeline: each chapter starts at one
+ * Chapters for the demo review and the use-case pages, written from each recording's timeline: each chapter starts at one
  * of the recorder's marks, so re-recording re-times it. Teams, the lead agent, the agent asking for
  * an approval, the group and the search term come from the marks too; the sentences are below.
  * When the agents do something new in a recording, change the sentences here (review.md, written
@@ -27,8 +27,6 @@ export interface ChapterSpec {
 }
 
 export interface RailSpec {
-  /** The page whose rail it is, from the repository root. */
-  page: string;
   you: string;
   lead: string;
   chapters: ChapterSpec[];
@@ -36,7 +34,6 @@ export interface RailSpec {
 
 export const RAILS: Record<DemoLang, RailSpec> = {
   en: {
-    page: 'site/index.html',
     you: 'You',
     lead: 'Lead agent',
     chapters: [
@@ -72,7 +69,6 @@ export const RAILS: Record<DemoLang, RailSpec> = {
     ],
   },
   'zh-TW': {
-    page: 'site/zh-TW/index.html',
     you: '你',
     lead: '首席 agent',
     chapters: [

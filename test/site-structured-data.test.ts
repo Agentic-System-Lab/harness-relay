@@ -36,7 +36,6 @@ function page(file: string) {
   expect(scripts, file).toHaveLength(1);
   const data = JSON.parse(scripts[0][1]) as { '@context': string; '@graph': Node[] };
   const canonical = head.match(/<link rel="canonical" href="([^"]+)" \/>/)![1];
-  const video = html.match(/<video[\s\S]*?<\/video>/)![0];
   return {
     html,
     data,
@@ -47,12 +46,6 @@ function page(file: string) {
     ogImage: meta('property', 'og:image'),
     /** The page's own language, as its hreflang alternates name it. */
     hreflang: [...head.matchAll(/<link rel="alternate" hreflang="([^"]+)" href="([^"]+)" \/>/g)].find((m) => m[2] === canonical)![1],
-    /** Addresses in the page, made absolute against its canonical address. */
-    url: (relative: string) => new URL(relative, canonical).href,
-    poster: video.match(/poster="([^"]+)"/)![1],
-    source: video.match(/<source src="([^"]+)"/)![1],
-    videoLabel: video.match(/aria-label="([^"]+)"/)![1],
-    demoTitle: html.match(/<h2 id="demo-title">([^<]+)<\/h2>/)![1],
   };
 }
 
@@ -95,24 +88,13 @@ const word = (s: string) => new RegExp(`(?<![\\w-])${s.replace(/[.*+?^${}()|[\]\
 /** Columns a line takes in a search result, a CJK or fullwidth character as two. */
 const columns = (s: string) => [...s].reduce((n, c) => n + (/[\u2E80-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/.test(c) ? 2 : 1), 0);
 
-/** A video file's length in seconds, from its MP4 movie header. */
-function mp4Seconds(path: string): number {
-  const b = readFileSync(new URL(`../${path}`, import.meta.url));
-  const at = b.indexOf('mvhd');
-  expect(at, path).toBeGreaterThan(0);
-  const v1 = b[at + 4] === 1;
-  const scale = b.readUInt32BE(at + (v1 ? 24 : 16));
-  const length = v1 ? Number(b.readBigUInt64BE(at + 28)) : b.readUInt32BE(at + 20);
-  return length / scale;
-}
-
 describe("the landing page's structured data", () => {
-  it('is one JSON-LD graph per page, of the page, the site, its publisher, the app, its source code and the demo', () => {
+  it('is one JSON-LD graph per page, of the page, the site, its publisher, the app and its source code', () => {
     for (const { file } of PAGES) {
       const { data } = page(file);
       expect(data['@context'], file).toBe('https://schema.org');
       const types = data['@graph'].map((n) => n['@type']).sort();
-      expect(types, file).toEqual(['Organization', 'SoftwareApplication', 'SoftwareSourceCode', 'VideoObject', 'WebPage', 'WebSite']);
+      expect(types, file).toEqual(['Organization', 'SoftwareApplication', 'SoftwareSourceCode', 'WebPage', 'WebSite']);
       // Every reference ({ "@id": … } alone) is to a node of the same graph.
       const ids = new Set(data['@graph'].map((n) => n['@id']));
       for (const [key, value] of entries(data['@graph'])) {
@@ -120,13 +102,12 @@ describe("the landing page's structured data", () => {
           expect(ids.has((value as { '@id': string })['@id']), `${file} ${key}`).toBe(true);
         }
       }
-      // And the nodes are tied together: the page is part of the site, about the app, with the demo; the site
+      // And the nodes are tied together: the page is part of the site, about the app; the site
       // and the app are the organisation's; the source code is the app's.
       const ref = (type: string) => ({ '@id': node(data, type)['@id'] });
       const web = node(data, 'WebPage');
       expect(web.isPartOf, file).toEqual(ref('WebSite'));
       expect(web.about, file).toEqual(ref('SoftwareApplication'));
-      expect(web.video, file).toEqual(ref('VideoObject'));
       expect(node(data, 'WebSite').publisher, file).toEqual(ref('Organization'));
       expect(node(data, 'SoftwareApplication').publisher, file).toEqual(ref('Organization'));
       expect(node(data, 'SoftwareSourceCode').targetProduct, file).toEqual(ref('SoftwareApplication'));
@@ -135,7 +116,7 @@ describe("the landing page's structured data", () => {
 
   it('has only the properties checked here: a new one is a new fact to check against the page', () => {
     const properties: Record<string, string[]> = {
-      WebPage: ['@id', '@type', 'about', 'description', 'inLanguage', 'isPartOf', 'name', 'primaryImageOfPage', 'url', 'video'],
+      WebPage: ['@id', '@type', 'about', 'description', 'inLanguage', 'isPartOf', 'name', 'primaryImageOfPage', 'url'],
       WebSite: ['@id', '@type', 'inLanguage', 'name', 'publisher', 'url'],
       Organization: ['@id', '@type', 'name', 'sameAs', 'url'],
       SoftwareApplication: [
@@ -155,7 +136,6 @@ describe("the landing page's structured data", () => {
         'url',
       ],
       SoftwareSourceCode: ['@id', '@type', 'codeRepository', 'license', 'name', 'targetProduct'],
-      VideoObject: ['@id', '@type', 'contentUrl', 'description', 'duration', 'inLanguage', 'name', 'thumbnailUrl', 'uploadDate'],
     };
     for (const { file } of PAGES) {
       for (const n of page(file).data['@graph'])
@@ -194,30 +174,7 @@ describe("the landing page's structured data", () => {
       const app = node(p.data, 'SoftwareApplication');
       expect(app.description, file).toBe(p.ogDescription);
       expect(app.image, file).toBe(p.ogImage);
-      expect(app.screenshot, file).toBe(p.url(p.poster));
-    }
-  });
-
-  it('describes the demo as the page plays it: the same file, poster, words and language', () => {
-    for (const { file, lang } of PAGES) {
-      const p = page(file);
-      const video = node(p.data, 'VideoObject');
-      expect(video['@id'], file).toBe(`${p.canonical}#demo`);
-      expect(video.contentUrl, file).toBe(p.url(p.source));
-      expect(video.thumbnailUrl, file).toBe(p.url(p.poster));
-      expect(video.description, file).toBe(p.videoLabel);
-      expect(String(video.name).toLowerCase(), file).toContain(p.demoTitle.toLowerCase());
-      expect(video.inLanguage, file).toBe(lang);
-      // Written by npm run demo (scripts/demo/publish.ts, retimeVideoData()) when the video is replaced: a real
-      // time in UTC to the second, as toISOString() writes it, and not one still to come.
-      const uploaded = String(video.uploadDate);
-      expect(uploaded, file).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-      expect(new Date(uploaded).toISOString(), file).toBe(uploaded.replace('Z', '.000Z'));
-      expect(Date.parse(uploaded), file).toBeLessThanOrEqual(Date.now());
-      const duration = String(video.duration).match(/^PT(?:(\d+)H)?(?:(\d+)M)?(\d+)S$/);
-      expect(duration, file).not.toBeNull();
-      const seconds = Number(duration![1] ?? 0) * 3600 + Number(duration![2] ?? 0) * 60 + Number(duration![3]);
-      expect(Math.abs(seconds - mp4Seconds(published(String(video.contentUrl)))), file).toBeLessThanOrEqual(1);
+      expect(app.screenshot, file).toBe(new URL(`assets/media/poster-${lang}.webp`, SITE).href);
     }
   });
 

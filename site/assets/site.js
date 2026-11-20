@@ -129,8 +129,7 @@ if (starSlots.length && 'fetch' in window) {
 }
 
 // ---------- Each video and its chapter rail ----------
-// The demo on the home page, and each use case's recording on the use-cases page: a screen
-// (.screening-grid) holds one video and the rail of its chapters.
+// Each use-case screen holds one recording and its chapter rail.
 
 for (const screen of document.querySelectorAll('.screening-grid')) {
   const video = screen.querySelector('video');

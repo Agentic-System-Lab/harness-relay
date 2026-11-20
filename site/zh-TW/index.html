@@ -47,9 +47,9 @@
     <script src="../assets/site.js" defer></script>
     <script type="module" src="../assets/downloads.js"></script>
     <script type="module" src="../assets/theme.js"></script>
-    <!-- What search and answer engines read about the page, the app and the demo: what the page says, and what
+    <!-- What search and answer engines read about the page and the app: what the page says, and what
          its links lead to (test/site-structured-data.test.ts keeps it in step with the page and the English page).
-         No version, price, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+         No version, price, star count or rating. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -63,8 +63,7 @@
             "inLanguage": "zh-TW",
             "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
             "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
-            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
-            "video": { "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo" }
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png"
           },
           {
             "@type": "WebSite",
@@ -104,17 +103,6 @@
             "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
             "license": { "@type": "CreativeWork", "name": "Sustainable Use License", "url": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE" },
             "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
-          },
-          {
-            "@type": "VideoObject",
-            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo",
-            "name": "Harness Relay 示範：看一次完整流程",
-            "description": "示範錄影：新增群組，在 Harness Relay 的 repository 上問兩個問題，每個問題都由首席 agent 組隊，瀏覽對話的檔案，最後搜尋對話",
-            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
-            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/media/demo-zh-TW.mp4",
-            "uploadDate": "2026-11-19T19:40:25Z",
-            "duration": "PT2M6S",
-            "inLanguage": "zh-TW"
           }
         ]
       }
@@ -213,7 +201,6 @@
           <span>Harness Relay</span>
         </a>
         <nav class="site-nav" aria-label="頁面段落">
-          <a href="#demo">示範</a>
           <a href="#use-cases">使用情境</a>
           <a href="#modes">對話模式</a>
           <a href="#teams">團隊</a>
@@ -225,7 +212,6 @@
           <details class="explore">
             <summary>探索</summary>
             <nav aria-label="探索">
-              <a href="#demo">看示範</a>
               <a href="#use-cases">使用情境</a>
               <a href="#start">安裝指南</a>
               <a href="docs/">文件</a>
@@ -277,141 +263,6 @@
                 <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
               </a>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="screening" id="demo" aria-labelledby="demo-title">
-        <div class="wrap screening-grid">
-          <div class="player">
-            <video
-              id="demo-video"
-              controls
-              muted
-              loop
-              playsinline
-              preload="none"
-              poster="../assets/media/poster-zh-TW.webp"
-              aria-label="示範錄影：新增群組，在 Harness Relay 的 repository 上問兩個問題，每個問題都由首席 agent 組隊，瀏覽對話的檔案，最後搜尋對話"
-            >
-              <source src="../media/demo-zh-TW.mp4" type="video/mp4" />
-              <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/docs/media/demo-zh-TW.mp4">下載示範影片（MP4）</a>
-            </video>
-          </div>
-          <div class="rail">
-            <h2 id="demo-title">看一次完整流程</h2>
-            <p class="rail-note">先新增群組，再在這個 repository 上問兩個問題，每個問題都由首席 agent 組隊，從提問、得到答案、查看討論到的程式碼到搜尋。agent 工作的片段已加速。</p>
-            <ol class="chapters">
-              <li>
-                <button class="chapter" type="button" data-t="0">
-                  <time>0:00</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">新增群組「設計評審」，再打開一個範本：團隊就是在範本裡設計的。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="16">
-                  <time>0:16</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">在「新對話」頁面輸入「接力模式的設計好嗎？」，送出第一個問題。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="25">
-                  <time>0:25</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">依你的第一則訊息把對話歸進「設計評審」，以「三方辯論」範本為這個問題調整出團隊，並說明原因。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="32">
-                  <time>0:32</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">L</span><span class="av t-codex">I</span><span class="av t-grok">S</span></span
-                    ><span class="who">三位成員</span></span
-                  >
-                  <span class="say">確認後兩輪圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="34">
-                  <time>0:34</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">L</span><span class="who">@Lead_Reviewer</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">想執行一串 grep 指令，在程式碼裡找 @mention 解析和交棒的部分，唯讀模式會先問你：它在對話裡等你決定，你選擇拒絕。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="63">
-                  <time>1:03</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">L</span><span class="av t-codex">I</span><span class="av t-grok">S</span></span
-                    ><span class="who">三位成員</span></span
-                  >
-                  <span class="say">結論：排好優先順序的修改建議，從最先該改的開始。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="74">
-                  <time>1:14</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">問新的問題：寫一段放在 README 的接力模式說明。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="80">
-                  <time>1:20</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">為它挑新團隊：Lead_Reviewer 與 Implementation_Reviewer，一輪。確認之前，對話仍是原本的審查團隊。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="86">
-                  <time>1:26</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">L</span><span class="av t-codex">I</span></span
-                    ><span class="who">Lead_Reviewer 與 Implementation_Reviewer</span></span
-                  >
-                  <span class="say">Claude 起草中英文 README 的接力模式說明，Codex 核對交棒規則並修正文案。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="102">
-                  <time>1:42</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">打開「檔案」，直接在對話的工作目錄裡看 orchestrator.ts 中接力模式交棒的程式碼。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="117">
-                  <time>1:57</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                  <span class="say">搜尋「maxHops」，依對話內容找回這段對話。</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-            </ol>
           </div>
         </div>
       </section>
