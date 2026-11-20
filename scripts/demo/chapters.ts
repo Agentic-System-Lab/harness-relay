@@ -58,7 +58,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
         at: 'q2-confirmed',
         kind: 'team',
         team: 'q2',
-        say: 'Claude uses the code review to draft the relay-mode note for the English and Traditional Chinese READMEs.',
+        say: 'Claude drafts the README note. Codex checks the guide link and explains who starts the relay and when it stops.',
       },
       {
         at: 'files',
@@ -79,12 +79,12 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       {
         at: 'approval',
         kind: 'agent',
-        say: '想執行一串 grep 指令，在程式碼裡找 @mention 解析和交棒的部分，唯讀模式會先問你：它在對話裡等你決定，你選擇拒絕。',
+        say: '想用 grep 查交棒上限的提示文字和相關測試。唯讀模式先請你核准，你選擇拒絕。',
       },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '結論：排好優先順序的修改建議，從最先該改的開始。' },
       { at: 'q1-read', kind: 'you', say: '問新的問題：寫一段放在 README 的接力模式說明。' },
       { at: 'q2-plan', kind: 'lead', team: 'q2', say: '為它挑新團隊：{names}，{rounds}。確認之前，對話仍是原本的審查團隊。' },
-      { at: 'q2-confirmed', kind: 'team', team: 'q2', say: 'Claude 起草中英文 README 的接力模式說明，Codex 核對交棒規則並修正文案。' },
+      { at: 'q2-confirmed', kind: 'team', team: 'q2', say: 'Claude 起草中英文 README 的接力模式說明，Grok 對照程式碼核對交棒規則。' },
       { at: 'files', kind: 'you', say: '打開「檔案」，直接在對話的工作目錄裡看 orchestrator.ts 中接力模式交棒的程式碼。' },
       { at: 'search', kind: 'you', say: '搜尋「{term}」，依對話內容找回這段對話。' },
     ],

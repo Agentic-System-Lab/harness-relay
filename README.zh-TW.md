@@ -34,7 +34,7 @@
 
 這十二個範例只是起點。帶著好奇心，把自己想解決的問題交給團隊，探索更多可能性。每個範例都有實際執行的錄影，可到[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)依章節觀看。
 
-- **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Cursor 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
+- **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
 - **[把客戶訪談變成產品規格](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#product-spec)**：附上五份客戶訪談；在接力模式下，一位整理痛點，下一位寫 PRD，最後一位挑戰它；動筆之前，他們會先問你要先為哪一群客戶做。
 - **[讀完競品，再寫上市文案](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#launch-copy)**：在唯讀模式下，agent 用 Harness Relay 自己的瀏覽器讀三家競品的價格頁，輪流寫出標語和上市貼文；再分支對話試另一種語氣。
 - **[月結對帳：三份各自對，再比對](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#reconcile-accounts)**：附上銀行對帳單和現金帳；在平行模式下，三位 agent 各自唯讀對帳，首席 agent 審閱比對每位的結果，標出該由你親自確認的事。
