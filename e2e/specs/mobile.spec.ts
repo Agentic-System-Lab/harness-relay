@@ -243,7 +243,7 @@ test.describe('on a phone', () => {
     await page.route('**' + messages, (route) => route.fulfill({ status: 409, json: { error: 'Draft refused' } }), { times: 1 });
     await composer(page).fill('A different draft');
     await page.locator('.composer-row .send').tap();
-    await expect(page.getByText('Draft refused', { exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('Draft refused');
     await composer(page).fill(text);
     await page.locator('.composer-row .send').tap();
     await expect(composer(page)).toHaveValue('');
