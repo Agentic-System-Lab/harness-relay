@@ -114,12 +114,22 @@ test.describe('the home page', () => {
       await page.getByRole('button', { name, exact: true }).first().click();
       const pane = page.locator('.new-chat-body');
       const footer = page.locator('.creation-footer');
+      const expectCenteredButtons = async () => {
+        const row = (await footer.boundingBox())!;
+        for (const button of await footer.getByRole('button').all()) {
+          const box = (await button.boundingBox())!;
+          const above = box.y - row.y - 1; // Measure from the inside edge of the divider.
+          const below = row.y + row.height - box.y - box.height;
+          expect(Math.abs(above - below)).toBeLessThanOrEqual(1);
+        }
+      };
       const hint = page.getByRole('button', { name: 'Scroll down to see more' });
       const submit = footer.getByRole('button', { name: automation ? 'Create automation' : 'Send question' });
       await expect(submit).toBeInViewport();
       await expect(pane.getByRole('radio', { name: 'Wait for my confirmation' })).toHaveCount(1);
       await expect(pane.getByRole('checkbox', { name: /review the team.s replies/i })).toHaveCount(1);
       await expect(hint).toHaveCount(0);
+      await expectCenteredButtons();
       const card = page.locator('.first-task');
       const short = (await card.boundingBox())!;
       expect(short.y + short.height).toBeLessThan(1400); // A short card ends before the viewport's bottom.
@@ -143,6 +153,7 @@ test.describe('the home page', () => {
       await expect(hint.locator('svg')).toHaveCSS('animation-name', 'creation-scroll-down');
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await expect(hint.locator('svg')).toHaveCSS('animation-name', 'none');
+      await expectCenteredButtons();
       const pinned = await footer.boundingBox();
       const frame = (await card.boundingBox())!;
       expect(pinned!.y + pinned!.height).toBeCloseTo(frame.y + frame.height - 1, 0);
@@ -151,6 +162,9 @@ test.describe('the home page', () => {
       const heading = await page.locator('#creation-title').boundingBox();
       await hint.click();
       await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      // Only the blank padding below the last field remains to scroll.
+      await pane.evaluate((el) => el.scrollTo(0, el.scrollHeight - el.clientHeight - 3));
+      await expect(hint).toHaveCount(0);
       await pane.evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await expect(hint).toHaveCount(0);
       await expect(pane.getByRole('checkbox', { name: /review the team.s replies/i })).toBeInViewport();

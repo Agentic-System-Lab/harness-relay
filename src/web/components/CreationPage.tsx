@@ -34,11 +34,16 @@ export function CreationPage({
 
   useLayoutEffect(() => {
     const pane = scroll.current!;
-    const measure = () => setMore(pane.scrollHeight - pane.clientHeight - pane.scrollTop > 1);
+    const fields = content.current!;
+    const measure = () => {
+      // Once the last field fits, only the card's bottom padding can remain out of view.
+      const last = fields.lastElementChild;
+      setMore(Boolean(last && last.getBoundingClientRect().bottom > pane.getBoundingClientRect().bottom + 1));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(pane);
-    observer.observe(content.current!);
+    observer.observe(fields);
     pane.addEventListener('scroll', measure, { passive: true });
     return () => {
       observer.disconnect();

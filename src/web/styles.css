@@ -2534,7 +2534,6 @@ details.sub .model-picker {
   flex: none;
   justify-content: flex-end;
   margin-inline: var(--task-pad);
-  padding: 10px 0 var(--task-pad);
 }
 .creation-scroll-hint {
   margin-inline-end: auto;
@@ -2568,10 +2567,6 @@ details.sub .model-picker {
 }
 .creation-team-options .lead-review {
   margin: 0;
-}
-.first-task-actions > .primary {
-  margin-inline-start: auto;
-  align-self: flex-end;
 }
 .team-confirmation {
   border: 0;
