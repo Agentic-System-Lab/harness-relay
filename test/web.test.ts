@@ -34,6 +34,7 @@ describe('the built web app', () => {
       const res = await app.request(path);
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control')).toBe('no-cache');
+      expect(res.headers.get('content-security-policy')).toMatch(/frame-src .*http:\/\/\*\.localhost:\d+/);
       expect(await res.text()).toContain('<title>Relay</title>');
     }
   });

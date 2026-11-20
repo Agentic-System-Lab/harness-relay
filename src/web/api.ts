@@ -1,3 +1,4 @@
+import type { AppPreviewRequest, AppPreviewSession } from '../shared/types';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
@@ -148,6 +149,7 @@ interface Sending {
   resent?: boolean;
   signIn?: boolean;
   task?: boolean;
+  keepalive?: boolean;
 }
 
 /**
@@ -173,6 +175,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     headers: requestHeaders,
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
+    ...(o.keepalive ? { keepalive: true } : {}),
   });
   const data = await res.json().catch((err: unknown) => {
     if (o.task && res.ok) throw err;
@@ -534,6 +537,19 @@ export const api = {
   signOutMcp: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}/signin`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
+
+  appPreviewTarget: (id: string, target: AppPreviewRequest, signal?: AbortSignal) =>
+    request<{ folder: string }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/target`, target, signal),
+  startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
+    request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
+  stopAppPreview: (id: string, session: string) =>
+    request<{ ok: true }>(
+      'DELETE',
+      `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}`,
+      undefined,
+      undefined,
+      { keepalive: true },
+    ),
 
   // Files of a conversation's working directory (root: 'cwd' or an agent id)
   listFiles: (id: string, root: string, path: string) =>

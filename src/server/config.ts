@@ -11,6 +11,7 @@ import { DEFAULT_LIMITS, type MailServer, type ServerLimits } from '../shared/ty
  */
 export interface ServerConfig extends ServerLimits {
   turnTimeoutMs: number;
+  previewDomain?: string;
   /** The folder the voice models are in (`<base>/<file>`); undefined = Hugging Face, pinned to one commit. */
   voiceModelBaseUrl?: string;
   /** The folder the voice engine's archives are in (`<base>/<asset>`); undefined = whisper.cpp's release on GitHub. */
@@ -135,7 +136,17 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
   };
 
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
+  const previewDomain = env.RELAY_PREVIEW_DOMAIN?.trim().toLowerCase();
+  if (
+    previewDomain &&
+    (previewDomain.length > 240 ||
+      !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(previewDomain) ||
+      previewDomain.endsWith('.localhost'))
+  )
+    problems.push('RELAY_PREVIEW_DOMAIN must be a DNS domain for the dedicated HTTPS preview hosts.');
+
   const config: ServerConfig = {
+    ...(previewDomain ? { previewDomain } : {}),
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
     maxTeamAgents: whole('RELAY_MAX_TEAM_AGENTS', DEFAULT_LIMITS.maxTeamAgents),
     turnTimeoutMinutes,

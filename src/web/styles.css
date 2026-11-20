@@ -9719,3 +9719,138 @@ a.share-action {
     margin-bottom: 4px;
   }
 }
+
+/* App previews open alongside the conversation on wide screens. */
+.reply-preview-button {
+  margin-inline: 0.4em;
+  font-size: 0.85em;
+}
+
+.folder-preview-button {
+  align-self: flex-start;
+}
+
+.chat.previewing {
+  margin-inline-end: min(43%, 760px);
+}
+
+.app-preview {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(43%, 760px);
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg);
+  border-inline-start: 1px solid var(--border);
+}
+
+.app-preview[hidden] {
+  display: none;
+}
+
+.app-preview-return {
+  align-self: center;
+  margin-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.app-preview .drawer-head {
+  flex: none;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview .drawer-head h2 {
+  margin: 0;
+}
+
+.app-preview-settings,
+.app-preview-problems {
+  display: grid;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.app-preview-source {
+  display: grid;
+  gap: 4px;
+}
+
+.app-preview-mode,
+.app-preview-run,
+.app-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-preview-mode {
+  font-size: 13px;
+}
+
+.app-preview-mode select {
+  width: auto;
+}
+
+.app-preview-settings p {
+  margin: 0;
+}
+
+.app-preview code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.app-preview-status,
+.app-preview-error {
+  margin: 6px 18px 12px;
+}
+
+.app-preview-error,
+.app-preview-problems li {
+  display: block;
+  max-height: 9em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.app-preview iframe {
+  flex: 1 0 180px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: white;
+}
+
+.app-preview-problems {
+  border-top: 1px solid var(--border);
+  justify-items: start;
+  font-size: 13px;
+}
+
+.app-preview-problems ul {
+  max-height: 6em;
+  overflow: auto;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 1100px) {
+  .chat.previewing {
+    margin-inline-end: 0;
+  }
+  .app-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100%;
+    border: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}

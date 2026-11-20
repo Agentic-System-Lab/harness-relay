@@ -1,4 +1,8 @@
-import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { AppPreviews } from './appPreviews';
+import { cleanupPreviewRuntimes, startPreviewRuntime } from './previewRuntime';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { AlertWatcher } from './alerts';
@@ -221,7 +225,35 @@ const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() })
 const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
+// An installation that only previews static sites never needs to contact Docker. The marker
+// survives a crash. Serialize its first sweep with new starts so it only removes older containers.
+const previewOwner = createHash('sha256').update(realpathSync(DATA_DIR)).digest('hex');
+const previewMarker = join(DATA_DIR, 'preview-runtime-used');
+let previewRecovered = !existsSync(previewMarker);
+let recoveringPreviews: Promise<void> | undefined;
+function recoverPreviews(): Promise<void> {
+  if (previewRecovered) return Promise.resolve();
+  return (recoveringPreviews ??= cleanupPreviewRuntimes(previewOwner)
+    .then(() => {
+      previewRecovered = true;
+    })
+    .finally(() => {
+      recoveringPreviews = undefined;
+    }));
+}
+if (!previewRecovered) void recoverPreviews().catch((err: unknown) => console.error('[preview] startup cleanup:', err));
+const previews = new AppPreviews(previewOwner, (options) =>
+  startPreviewRuntime({
+    ...options,
+    beforeDocker: async () => {
+      await recoverPreviews();
+      options.signal.throwIfAborted();
+      mkdirSync(previewMarker, { recursive: true, mode: 0o700 });
+    },
+  }),
+);
 const app = createApp({
+  previews,
   auth,
   store,
   settings,
@@ -359,7 +391,7 @@ async function shutdown(code = 0): Promise<void> {
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
-  const installsStopped = Promise.all([clis.shutdown(), sandboxSetup.shutdown(), gitInstall.shutdown()]);
+  const installsStopped = Promise.all([previews.close(), clis.shutdown(), sandboxSetup.shutdown(), gitInstall.shutdown()]);
   // Let stopped runs write their final state while the database is still open.
   await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);
   // And give AgentsView the last turns (each request times out on its own).

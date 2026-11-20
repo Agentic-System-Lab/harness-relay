@@ -102,6 +102,7 @@ src/
     sandboxProcs.ts        macOS 上依沙箱找出 Harness Relay 沙箱的執行留下的行程（sandbox_check）
     fsRemove.ts            不跟隨連結移除執行留下的東西；只有在清掃確定沒有殘留的啟動時，才恢復擁有者的權限
     tools.ts               工具庫：MCP 伺服器（機密值放在 keyring；HTTP 伺服器自己的登入跟著它保存）、skill（SKILL.md 的 front matter）、記憶；每位成員拿到哪些
+    previewFiles.ts        應用程式預覽的檔案快照、公開資源篩選與 HTTP 回應
     files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽、路徑檢查、資料夾 zip 的內容
     zip.ts                 邊送邊寫的 ZIP 檔（deflate、data descriptor、UTF-8 檔名）
     folderPicker.ts        工作目錄輸入框用的系統選擇資料夾視窗（AppleScript、zenity／kdialog、Windows Forms）：用哪一個、它的指令、它的回答
@@ -304,6 +305,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | --- | --- | --- |
 | `PORT` | `8787`（`npm run dev` 為 `8789`） | API port（Vite 代理也會使用）。`npm run dev` 有自己的 port，所以能和使用 8787 的桌面 app，或另一個 checkout 的 `npm start` 同時執行（`src/server/ports.ts`）；和同一個 checkout 的 `npm start` 一起時會拒絕啟動，因為兩者會共用它的資料夾 |
 | `HOST` | `127.0.0.1` | 綁定位址 |
+| `RELAY_PREVIEW_DOMAIN` | 空白 | 遠端瀏覽器的預覽專用網域（例如 `preview.example.net`）；萬用字元 DNS、TLS 與保留 Host 的反向代理由管理者設定。詳見[遠端連線](remote-access.zh-TW.md#應用程式預覽)。 |
 | `RELAY_DATA_DIR` | `./data` | `relay.db` 的位置。執行中的伺服器會鎖住它（`server.lock`）：用同一個資料夾的第二個伺服器會拒絕啟動。Harness Relay 的沙箱把它的 socket 放在這裡（`srt/`），所以開源 agent 要在完全存取以外執行，它的路徑在 macOS 上最多 70 個位元組，Linux 上最多 61 個（UTF-8：中文字每個佔 3 個） |
 | `RELAY_DEFAULT_CWD` | 程序的 cwd | 初始預設工作目錄（在設定頁修改前） |
 | `RELAY_ALLOWED_HOSTS` | — | Host/Origin 檢查額外允許的主機名稱，以逗號分隔，例如這台電腦在 Tailscale 上的名稱（見[用手機連線](remote-access.zh-TW.md)）；在 GitHub codespace 裡由 `.devcontainer/start.sh` 加上它轉發的名稱（見[在 GitHub Codespaces 試用](codespaces.zh-TW.md)） |
@@ -473,7 +475,10 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/gh/login` | `{}` → `CliLoginView`：開始 gh 自己的登入，供分享使用（`gh auth login --web --hostname github.com`，在分享用的 gh 環境裡執行，`ghEnv()`），並停止已經在跑的那一個；GitHub 的一次性代碼與裝置頁面，依 gh 印出的內容放在 `codes` 與 `urls`。設了 `GH_TOKEN`（或在 codespace 以外設了 `GITHUB_TOKEN`）時回 409，因為 gh 會改用它登入 |
 | `GET /api/gh/login` | → `CliLoginView` 或 `null`：執行中的那個登入（`running`，之後是 `success`、`failed` 或 `cancelled`） |
 | `DELETE /api/gh/login` | → `{ ok }`：停止它 |
-| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
+| `POST /api/conversations/:id/preview/target` | `AppPreviewRequest` → `{ folder }`；核對來源，回傳完整路徑供執行前確認。輸入為 `{ mode, folder, entry?, root?, messageId? }`。從「檔案」用 `root`，從回覆用該成員的 `messageId`。 |
+| `POST /api/conversations/:id/preview` | 同樣的輸入 → `{ id, url, origin }`。將畫面上確認的完整路徑放在 `expectedFolder`。若工作目錄已變更則回傳 409。建立預覽後回傳只可使用一次的啟動網址。模式為 `static`、`build` 或 `server`。 |
+| `DELETE /api/conversations/:id/preview/:previewId` | → `{ ok: true }`；停止指定預覽並撤銷其憑證。 |
+| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），所選根目錄的完整實際路徑 `canonicalRoot`，以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
 | `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`：檔案的文字（前 512 KB），或標示它是圖片、影片或二進位檔 |
 | `GET /api/conversations/:id/files/raw?root=&path=` | → 資料夾裡的圖片或影片，提供方式和媒體端點相同（其他檔案一律 404） |
 | `GET /api/conversations/:id/files/download?root=&path=` | → 以下載提供資料夾裡的任何檔案，方式和訊息的下載端點相同（資料夾、資料夾外或 `.git` 裡的都是 404） |
@@ -543,6 +548,16 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 建立對話與傳送訊息可附上 `requestId`（隨機 32 位小寫十六進位字元）。同一路徑用相同 ID 與內容重試，回傳原對話或原本的 `queued` 結果。不同內容使用同一 ID 會收到 409。
 
 型別定義在 `src/shared/types.ts`。
+
+### 應用程式預覽執行環境
+
+`appPreviews.ts` 管理預覽的權限與生命週期。`previewTarget.ts` 先從對話及回覆成員決定檔案根目錄。`previewFiles.ts` 讀取快照。靜態預覽直接使用它的 HTTP 回應；`previewRuntime.ts` 負責兩種 Docker 模式。
+
+引擎需要本機 Docker CLI 和可在 Linux x64 或 arm64 執行的容器，透過 Unix socket 或 Windows 具名管道連線。Relay 必要時會下載以 digest 固定的 Node 22 映像。它在交付專案程式前，檢查 cgroup v2 的 CPU（1 顆）、記憶體（768 MiB，禁用 swap）及程序數（96）上限，以及非 root、seccomp、禁止提升權限等條件。容器根檔案系統唯讀，工作區（384 MiB）和 `/tmp`（32 MiB）使用 tmpfs。
+
+`previewDockerPackages.ts` 只從 npm 公開 registry 取用 lockfile v2/v3 的標準套件封存檔，核對 SHA-512，單檔上限 24 MiB、總共 96 MiB。支援有獨立 lockfile 的單一套件。workspace、Git、file 相依套件、npm alias 和自訂 registry 會被拒絕。容器在離線環境執行 `npm ci --offline`。固定版本的 Node 映像中的工具需要足以安裝該專案，原生套件通常需要相容的預編譯檔。
+
+建置模式執行 `npm run build`，取出 `dist/index.html` 與公開資源後回收容器。後端模式執行 `npm start`，等候 `127.0.0.1:4173` 最多 30 秒。`previewDockerWire.ts` 透過固定的 Docker exec 程式將 HTTP 請求轉送到該 port。驗證真實 Docker 引擎時，執行 `npx tsx scripts/preview-runtime-check.ts`，測試 React/Vite 及 SQLite 新增、讀取、修改、刪除和重新啟動。Linux CI 也會執行這支檢查。要透過登入後的面板驗證前端建置、SQLite 寫入、重新整理及重建，請設定 `E2E_PREVIEW_DOCKER=1`，並執行 `npx playwright test e2e/specs/app-preview-docker.spec.ts`。Linux 的端對端 CI 會啟用這個情境。日常單元測試可離線執行。
 
 ## 新增一個 agent CLI
 
@@ -847,6 +862,10 @@ npx vitest test/store.test.ts
 - `test/voice.test.ts`：用假的下載、程序與引擎測試語音輸入：固定版本的下載清單、背景安裝（引擎、模型、檢查），涵蓋 Linux 與 macOS 的 Homebrew、SHA-256 不符、取消、硬碟空間、自訂引擎路徑、引擎無法啟動、引擎只聽 127.0.0.1 並藏在隨機路徑後、語音轉文字與辨識語言、切換與刪除模型、設定，以及 HTTP 路由。也測試從 `RELAY_VOICE_MODEL_BASE_URL` 與 `RELAY_VOICE_ENGINE_BASE_URL` 指定的資料夾下載（鏡像給的內容不同時會被 SHA-256 擋下），以及 `RELAY_VOICE_DIR` 指定的資料夾：引擎提供的是 Harness Relay 自己的空資料夾（絕不是使用者自己的 `public`），在那裡移除語音輸入只刪 Harness Relay 的檔案，資料夾變空才一起刪掉。
 - `test/voice-web.test.ts`：瀏覽器端的語音輸入：WAV 編碼、靜音判斷、把辨識結果插入游標處，以及麥克風與設定頁顯示的狀態。
 - `test/tools.test.ts`：工具庫：front matter、找出 skill（往下兩層、本身就是 skill 的資料夾、列出名稱並標示是否已加入）、用假的金鑰儲存區測試 MCP 機密值（遮蔽、沒送出時保留、改名時仍以伺服器 id 保存，包括在名稱不分大小寫的儲存區只改大小寫、從資料庫移出、儲存區失敗），依 CLI 的預設與成員的例外設定、被標示的 skill，以及還沒有 CLI 範圍時存下的舊資料。另外：伺服器或 skill 改名後成員的例外設定仍有效；沒能搬走的值留在資料庫；讀不到的值不會被覆蓋，金鑰儲存區打開後會再讀一次。 Harness Relay 自己的工具組別：一開始都沒有、給選定的 CLI 並可為單一 agent 調整、會保存，以及 gateway 能不能提供。也測試在設定中指定的瀏覽器：會保存，和 `RELAY_BROWSER` 的及使用中的一起顯示，其他修改不影響它，留空就忘掉。
+- `test/appPreviews.test.ts`：預覽憑證、origin、HTTP 請求及預覽生命週期。
+- `test/previewRuntime.test.ts`、`test/previewRuntimePackages.test.ts`：Docker 傳輸格式、固定的目標、安裝與建置流程，以及 lockfile 套件的來源與完整性。
+- `test/webPreview.test.ts`：從回覆或資料夾取得預覽目標、frame 的來源與錯誤文字。
+- `test/previewFiles.test.ts`：從實際資料夾建立預覽快照，檢查連結、保護檔案、大小上限、取消、重建及靜態回應的路徑和 MIME 類型。
 - `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git`（不分大小寫）的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔、下載可以給資料夾以外的任何檔案，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。也測試資料夾 ZIP 檔的內容（`zipPlan`）：以資料夾命名、不含 `.git` 也不含指向外面的連結、每個資料夾只放一次（繞回去的連結會略過）、保留空資料夾、超過上限就放棄（資料夾也算在內，所以一堆空資料夾也會停下）、保留權限、最上層用指定的名稱、略過 `.git.`，以及要求時只包沒被 git 忽略的檔案（追蹤中與未追蹤的檔案，不含已刪除或被忽略的，也不含指向外面或 `.git` 的追蹤中連結；包括裡面其他 repository 沒忽略的檔案；不在 repository 裡時就是全部）。每個工作目錄，以及每位 agent 在每一個的 worktree（資料夾在另一個 repository 裡面時，取最內層的）。用不同大小寫指定資料夾時，內容也一樣（macOS、Windows）。
 - `test/media.test.ts`：回覆中哪些網址是這台電腦上的檔案（相對與絕對路徑、`file:` 網址、`檔案:行號`；其他 scheme、其他網站、錨點與資料夾都不是）、媒體類型、只在允許的資料夾裡解析媒體與下載的檔案（不跟隨指向外面的連結，也不包含任何大小寫的 `.git`；不會查詢資料夾外的路徑；接受經由連結寫出的資料夾絕對路徑）、回覆的檔案從哪些資料夾、依什麼順序取得、檔案為什麼不能下載（不存在或是資料夾，或在資料夾外、在 `.git` 裡，經由連結也一樣）、下載檔名標頭（RFC 5987 加上 ASCII 備用名稱）、位元組範圍；複製到分支的平行模式回覆，從它分支出來的對話找到 worktree（分支的分支再往上找，或經由 `earlier` 的段落找，絕不用分支自己的）。有多個工作目錄時，在每一個中尋找，也在它所在 repository 的每個 worktree 中尋找。
 - `test/zip.test.ts`：ZIP 寫入器，用解壓縮工具讀檔的方式讀回來（`test/zipReader.ts`）：UTF-8 檔名的資料夾與檔案、以 data descriptor 和 Unix 權限 deflate 壓縮、空檔案、空的壓縮檔、打不開的檔案會略過、讀取錯誤會讓壓縮檔以錯誤結束、下載中止時關閉開著的檔案（剛送出標頭時也是）；檔名處理成安全的形式（`\`、`..`、`:`、開頭的 `/`、控制字元）並保留權限；MS-DOS 時間。

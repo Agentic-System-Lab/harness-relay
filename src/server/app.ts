@@ -1,14 +1,18 @@
+import type { HttpBindings } from '@hono/node-server';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
+import { AppPreviews } from './appPreviews';
+import { previewAddress, previewParent, previewTarget } from './previewTarget';
+import type { AppPreviewRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -146,6 +150,7 @@ export interface AppDeps {
    * Null takes no sign-in, for tests only: then any program on this computer could drive the agents.
    */
   auth: AuthStore | null;
+  previews?: AppPreviews;
   store: Store;
   settings: SettingsStore;
   hub: Hub;
@@ -319,6 +324,7 @@ export function createApp({
   scheduler,
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
+  previews = new AppPreviews('test'),
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -344,6 +350,20 @@ export function createApp({
   // block DNS-rebinding (Host) and cross-site requests (Origin / non-JSON simple POSTs).
   const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
   const hostAllowed = (h: string) => LOCAL_HOST.test(h) || extraHosts.includes(h.replace(/:\d+$/, ''));
+
+  // Preview hostnames serve only the selected app, even when its paths start with /api.
+  app.use('*', async (c, next) => {
+    const host = (c.req.header('host') ?? '').toLowerCase();
+    const name = host.split(':')[0]?.replace(/\.$/, '') ?? '';
+    if ((name.startsWith('p-') && name.endsWith('.localhost')) || (CONFIG.previewDomain && name.endsWith('.' + CONFIG.previewDomain))) {
+      const peer = (c.env as Partial<HttpBindings> | undefined)?.incoming?.socket.remoteAddress;
+      const local =
+        (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') &&
+        !['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto'].some((header) => c.req.header(header) !== undefined);
+      return previews.fetch(c.req.raw, host, local);
+    }
+    await next();
+  });
 
   app.use('/api/*', async (c, next) => {
     const host = c.req.header('host') ?? '';
@@ -1728,7 +1748,9 @@ export function createApp({
 
   app.delete('/api/conversations/:id', async (c) => {
     // Stops a run first and waits for it to wind down, so nothing writes to the deleted conversation.
-    await orchestrator.deleteConversation(c.req.param('id'));
+    const id = c.req.param('id');
+    await orchestrator.deleteConversation(id);
+    await previews.stop(id);
     return c.json({ ok: true });
   });
 
@@ -1940,6 +1962,37 @@ export function createApp({
     return sendFile(c, file, true);
   });
 
+  // App previews use the same working directories and reply worktrees as Files and media.
+  app.post('/api/conversations/:id/preview/target', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const target = previewTarget(getConv(c.req.param('id')), await body<Partial<AppPreviewRequest>>(c), (id) => store.get(id), settings);
+    return c.json({ folder: resolve(target.root, target.folder) });
+  });
+  app.post('/api/conversations/:id/preview', async (c) => {
+    const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const address = previewAddress(parent, servingPort(), CONFIG.previewDomain);
+    const input = await body<Partial<AppPreviewRequest>>(c);
+    const conv = getConv(c.req.param('id'));
+    const target = previewTarget(conv, input, (id) => store.get(id), settings);
+    if (
+      input.expectedFolder !== undefined &&
+      (typeof input.expectedFolder !== 'string' ||
+        !isAbsolute(input.expectedFolder) ||
+        relative(input.expectedFolder, resolve(target.root, target.folder)))
+    ) {
+      throw new HttpError(409, t().previewFolderChanged);
+    }
+    const browser = sessions.get(c.req.raw);
+    const live = browser && auth ? () => auth.hasSession(browser) : undefined;
+    c.header('cache-control', 'no-store');
+    return c.json(await previews.start(conv.id, target, address, parent.origin, c.req.raw.signal, live, () => Boolean(store.get(conv.id))));
+  });
+  app.delete('/api/conversations/:id/preview/:previewId', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    await previews.stop(getConv(c.req.param('id')).id, c.req.param('previewId'));
+    return c.json({ ok: true });
+  });
+
   // --- Browsing the working directory (and agents' worktrees) -------------------
 
   /** The folder a files request names (`root`: a `FileRoot.id`, `cwd` when absent) and the path inside it. */
@@ -1953,7 +2006,13 @@ export function createApp({
 
   app.get('/api/conversations/:id/files', (c) => {
     const { roots, root, path } = fileTarget(c);
-    return c.json({ roots, root, ...listFolder(rootPath(roots, root), path) });
+    let canonicalRoot: string;
+    try {
+      canonicalRoot = realpathSync.native(rootPath(roots, root));
+    } catch {
+      throw new HttpError(404, t().fileRootNotFound);
+    }
+    return c.json({ roots, root, canonicalRoot, ...listFolder(canonicalRoot, path) });
   });
 
   app.get('/api/conversations/:id/files/preview', (c) => {

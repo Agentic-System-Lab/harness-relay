@@ -64,6 +64,8 @@ electron-builder.yml the installers; entitlements.mac.plist and macos/ (the micr
 
 The server's side of the app is `src/server/parent.ts` (the messages over Electron's `parentPort`: listening, sign-in links, busy, shut down, updates) and `src/server/updates.ts` (updates in the chat).
 
+The app preview lives in a separate frame inside the chat window. In `src/lifecycle.ts`, `guardContents()` permits a subframe redirect within its current origin. It blocks cross-origin subframe redirects and keeps them from opening the system browser. Main-frame navigation follows the window’s existing rules. The packaged smoke test starts a static preview through the server, checks the assigned origin and stops it. [Preview architecture](../docs/architecture.md#app-previews)
+
 ## Tests and checks
 
 - **Unit tests.** Everything here but `main.ts` runs without Electron and is tested from the root `test/` with the rest (`npm test`): `desktop-app.test.ts`, `desktop-env.test.ts`, `desktop-supervisor.test.ts`, `desktop-tailscale.test.ts`, `desktop-traymenu.test.ts`, `desktop-update.test.ts`, and `parent.test.ts` for the server's side. Keep `electron` imports in `main.ts` only, so they can be.

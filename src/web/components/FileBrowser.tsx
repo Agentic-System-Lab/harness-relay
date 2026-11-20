@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
+import { filePreviewTarget, type PreviewSelection } from '../appPreview';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
@@ -17,7 +18,15 @@ const HIGHLIGHT_MAX_CHARS = 200_000;
 const lastPlace = new Map<string, { root: string; dir: string; file?: string }>();
 
 /** A dialog to browse the conversation's working directory (or an agent's worktree) and preview files. */
-export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: () => void }) {
+export function FileBrowser({
+  conv,
+  onClose,
+  onPreview,
+}: {
+  conv: Conversation;
+  onClose: () => void;
+  onPreview: (target: PreviewSelection) => void;
+}) {
   const t = useT();
   const dialog = useRef<HTMLDivElement>(null);
   useDialog(dialog, onClose);
@@ -106,6 +115,16 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
   const roots = listing?.roots ?? [{ id: 'cwd', path: conv.settings.cwd }];
   const rootPath = roots.find((r) => r.id === root)?.path ?? conv.settings.cwd;
   const entries = useMemo(() => filterEntries(listing?.path === dir ? listing.entries : [], query), [listing, dir, query]);
+  const previewApp = (target: NonNullable<ReturnType<typeof filePreviewTarget>>) => {
+    if (!listing || listing.root !== root) return;
+    const base = listing.canonicalRoot;
+    const separator = base.includes('\\') ? '\\' : '/';
+    onPreview({
+      request: { ...target, root },
+      label: rootName(root),
+      folder: target.folder ? base.replace(/[\\/]+$/, '') + separator + target.folder.split('/').join(separator) : base,
+    });
+  };
   const loading = !listing || listing.path !== dir || listing.root !== root;
 
   return (
@@ -197,6 +216,23 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
                 <DownloadIcon size={15} />
               </button>
             </div>
+            {!loading && !listError && (
+              <button
+                className="ghost small-button folder-preview-button"
+                onClick={() =>
+                  previewApp({
+                    folder: dir,
+                    mode:
+                      listing.entries.some((e) => e.name === 'package.json' && !e.link) &&
+                      !listing.entries.some((e) => e.name === 'index.html')
+                        ? 'build'
+                        : 'static',
+                  })
+                }
+              >
+                {t.appPreview.openFolder}
+              </button>
+            )}
             {zipping ? (
               <p className="muted small" role="status">
                 {t.files.zipPreparing(zipping)}
@@ -252,7 +288,15 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
 
           <section className="preview-pane">
             {file ? (
-              <Preview key={`${root}:${file}`} conv={conv} root={root} rootPath={rootPath} path={file} onBack={() => setFile(undefined)} />
+              <Preview
+                key={`${root}:${file}`}
+                conv={conv}
+                root={root}
+                rootPath={rootPath}
+                path={file}
+                onPreview={previewApp}
+                onBack={() => setFile(undefined)}
+              />
             ) : (
               <p className="muted preview-empty">{t.files.pick}</p>
             )}
@@ -287,12 +331,14 @@ function Preview({
   rootPath,
   path,
   onBack,
+  onPreview,
 }: {
   conv: Conversation;
   root: string;
   rootPath: string;
   path: string;
   onBack: () => void;
+  onPreview: (target: NonNullable<ReturnType<typeof filePreviewTarget>>) => void;
 }) {
   const t = useT();
   const [preview, setPreview] = useState<FilePreview | null>(null);
@@ -307,6 +353,7 @@ function Preview({
   useEffect(load, [load]);
 
   const raw = api.rawFileUrl(conv.id, root, path);
+  const app = filePreviewTarget(path);
   const fullPath = `${rootPath.replace(/[\\/]+$/, '')}/${path}`;
 
   return (
@@ -326,6 +373,11 @@ function Preview({
           )}
         </div>
         <div className="preview-actions">
+          {app && preview && (
+            <button className="ghost small-button" onClick={() => onPreview(app)}>
+              {t.appPreview.open}
+            </button>
+          )}
           {preview?.kind === 'text' && isMarkdown(name) && (
             <div className="segmented" role="radiogroup">
               <button role="radio" aria-checked={!source} className={!source ? 'on' : ''} onClick={() => setSource(false)}>

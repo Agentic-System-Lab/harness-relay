@@ -144,6 +144,7 @@ jobs:
         env:
           # Built in the steps above.
           E2E_BUILD: never
+          E2E_PREVIEW_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
           # A test that needs Harness Relay's own sandbox fails, not skips, when it cannot run here.
           E2E_REQUIRE_RELAY_SANDBOX: ${{ runner.os != 'Windows' && '1' || '' }}
           # Each CLI's own tests on the systems its facts name (testedOn in e2e/support/clis/<cli>.ts):

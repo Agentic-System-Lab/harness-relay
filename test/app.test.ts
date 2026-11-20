@@ -252,6 +252,52 @@ describe("Harness Relay's own folder as a working directory", () => {
   });
 });
 
+describe('app preview control and content', () => {
+  it('refuses to run a different project when the Files root changes after the user picked a folder', async () => {
+    const conv = await createConversation();
+    const route = '/api/conversations/' + conv.id;
+    const shown = await (await get(route + '/files')).json();
+    const other = join(project, 'other');
+    mkdirSync(other);
+    writeFileSync(join(other, 'index.html'), 'other project');
+    expect((await app.request(route, json('PATCH', { settings: { cwd: other } }))).status).toBe(200);
+    const result = await app.request(
+      route + '/preview',
+      json('POST', { mode: 'static', root: 'cwd', folder: '', expectedFolder: shown.canonicalRoot }),
+    );
+    expect(result.status).toBe(409);
+  });
+  it('serves only the selected snapshot at its preview origin and revokes it when the conversation is deleted', async () => {
+    const conv = await createConversation();
+    writeFileSync(join(project, 'index.html'), '<h1>my preview</h1>');
+    const route = '/api/conversations/' + conv.id + '/preview';
+    const input = { mode: 'static', folder: '', entry: 'index.html' };
+    const start = (extra = {}) => app.request(route, json('POST', input, extra));
+    expect((await start({ origin: 'http://localhost:5555' })).status).toBe(403);
+    expect(await (await app.request(route + '/target', json('POST', input))).json()).toEqual({ folder: project });
+    expect((await app.request(route, json('POST', { ...input, root: 'unrelated' }))).status).toBe(404);
+    expect((await app.request(route, json('POST', { ...input, folder: '../' }))).status).toBe(400);
+    const res = await start();
+    expect(res.status).toBe(200);
+    const preview = (await res.json()) as { url: string; origin: string; id: string };
+    const ticket = new URL(preview.url);
+    expect(ticket.hostname).toMatch(/^p-[a-f0-9]+\.localhost$/);
+    const fetchAt = (path: string, headers = {}) => app.request(ticket.origin + path, { headers: { host: ticket.host, ...headers } });
+    expect((await fetchAt('/')).status).toBe(403);
+    const signed = await fetchAt(ticket.pathname + ticket.search);
+    const cookie = signed.headers.get('set-cookie')!.split(';')[0];
+    expect(signed.headers.get('set-cookie')).toContain('HttpOnly');
+    expect((await fetchAt(ticket.pathname + ticket.search)).status).toBe(403);
+    writeFileSync(join(project, 'index.html'), 'changed');
+    const page = await fetchAt('/', { cookie });
+    expect(page.headers.get('content-security-policy')).toContain("connect-src 'self'");
+    expect(await page.text()).toContain('my preview');
+    expect((await fetchAt('/api/settings', { cookie })).status).toBe(404);
+    expect((await app.request('/api/conversations/' + conv.id, json('DELETE', {}))).status).toBe(200);
+    expect((await fetchAt('/', { cookie })).status).toBe(404);
+  });
+});
+
 describe('request checks', () => {
   it('only lets the local UI in', async () => {
     expect((await app.request('/api/settings', { headers: { host: 'evil.example' } })).status).toBe(403);

@@ -86,7 +86,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 5');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 6');
     await expect(update.locator('.tour-art')).toHaveCount(0);
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Start a new chat');
@@ -95,13 +95,16 @@ test.describe('the guided tour', () => {
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 5');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 6');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Start a new chat');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Notifications and sound');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Team checks');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Browse the working directory');
+    await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
     await update.getByRole('button', { name: 'Done', exact: true }).click();
