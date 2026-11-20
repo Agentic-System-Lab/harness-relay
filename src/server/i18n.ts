@@ -595,7 +595,6 @@ const zhTW = {
   oauthNoRefresh: (provider: string) => `${provider} 沒有給更新用的權杖，所以這個登入一小時後就會失效：請重新登入，並允許離線存取`,
   oauthCalendarFixed: '這個行事曆是透過登入的帳號使用的，不能改成用密碼：請移除它，再重新加入',
   oauthCallbackTooOften: '登入的回呼太多次失敗了：請稍後再試',
-  oauthOwnGoogleProject: '請使用 Claude 連結 Google Drive 或 Google Calendar。若要用 Relay 直接連線，請先設定自己的 Google Cloud 專案。',
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
   oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
@@ -606,8 +605,7 @@ const zhTW = {
   appsTooLarge: '內容太大，請縮小讀取範圍。',
   appsConnectFirst: '請先在「設定 → 常用 App」連結帳號。',
   appsVault: '請選擇 Obsidian 筆記庫的資料夾（裡面有 .obsidian）。',
-  appsSlackInClaude: '請到「設定 → 常用 App → Slack」，在 Claude 連結 Slack。',
-  appsUnavailable: '這個版本尚未設定此服務的登入。請聯絡提供 Harness Relay 的人。',
+  appsSlackInAssistant: '請到「設定 → 常用 App → Slack」，在 Claude 或 Codex 連結 Slack。',
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
   oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
@@ -1554,8 +1552,6 @@ const en: ServerMessages = {
     `${provider} gave no refresh token, so the sign-in would stop working within the hour: sign in again, and allow offline access`,
   oauthCalendarFixed: 'This calendar is reached through an account that signed in, not a password: remove it and add it again',
   oauthCallbackTooOften: 'Too many sign-in callbacks failed: try again in a while',
-  oauthOwnGoogleProject:
-    'Connect Google Drive or Google Calendar in Claude. To connect directly in Relay, set up your own Google Cloud project first.',
   oauthAppChanged: 'the app it signed in with was changed in Settings',
   oauthNoCalendarAccess: (provider) =>
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
@@ -1568,8 +1564,7 @@ const en: ServerMessages = {
   appsTooLarge: 'This response is too large. Request less content.',
   appsConnectFirst: 'Connect an account in Settings → Common apps first.',
   appsVault: 'Choose the folder of an Obsidian vault (it contains .obsidian).',
-  appsSlackInClaude: 'Connect Slack in Claude from Settings → Common apps → Slack.',
-  appsUnavailable: 'Sign-in for this service has not been set up in this installation. Contact the person who provided Harness Relay.',
+  appsSlackInAssistant: 'Connect Slack in Claude or Codex from Settings → Common apps → Slack.',
   oauthNoMailAccess: (provider) =>
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
   oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,

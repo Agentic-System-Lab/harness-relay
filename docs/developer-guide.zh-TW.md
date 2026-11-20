@@ -694,13 +694,9 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 
 ## 常用 App 的服務註冊
 
-常用 App 在 `#/settings/apps`。Drive、Calendar 和 Slack 卡片預設開啟 Claude 的官方連接器，這些流程不需要發行者的 Google 或 Slack 用戶端。Gmail 與既有 Google 直接連線仍可使用發行版本提供的註冊。從原始碼執行時在啟動伺服器的環境中提供這些值。桌面版在建置時取得這些值，Release 工作流程從同名 repository variables 取得已設定的用戶端 ID，從同名 repository secret 取得 Google 桌面用戶端密碼。這個密碼會隨桌面程式散布，請只使用 Google 的「電腦版應用程式」用戶端。自行在「工具庫」儲存的 Google 與 Microsoft 設定優先。
+「常用 App」（`#/settings/apps`）的七張卡片都不需要發行者註冊。Drive、Teams 和 Slack 提供 Claude 與 Codex 官方入口，在所選服務完成授權，適用使用者的助理帳號與工作區規則。[OpenAI 外掛](https://openai.com/business/plugins/) · [Claude 連接器](https://claude.com/marketplace/connectors-plugins)
 
-| 服務 | 發行者設定 |
-| --- | --- |
-| Google | `RELAY_GOOGLE_CLIENT_ID`、`RELAY_GOOGLE_DESKTOP_SECRET`。若要新增 Drive 或 Calendar 直接連線，請在設定填入使用者自己專案的桌面用戶端，並在該專案啟用 Drive 或 CalDAV API。發行者專案不接受這兩種服務的新授權，即使是為現有 Gmail 帳號加上用途。既有用途仍可在原專案重新授權。連結時依用途要求 `https://mail.google.com/`、`https://www.googleapis.com/auth/calendar` 或 `https://www.googleapis.com/auth/drive.readonly`。公開發行前完成 Google 對這些範圍要求的驗證。[Google 範圍說明](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) |
-| Microsoft | Teams 新連線透過 Microsoft Graph PowerShell SDK 在 Microsoft 全球雲端的官方 App 登入，發行者無須註冊 Teams 用戶端。`RELAY_MICROSOFT_CLIENT_ID` 仍可為 Microsoft 郵件、行事曆及原有 Teams 帳號提供 Entra 桌面用戶端，回呼位址見工具庫。[Microsoft Graph PowerShell 登入說明](https://learn.microsoft.com/powershell/microsoftgraph/authentication-commands) |
-| Slack | 新連線使用自己的 Claude 訂閱帳號，透過 [Claude 的 Slack 連接器](https://claude.com/marketplace/connectors/slack) 授權。既有的 Relay 共用連線使用最初儲存的 Slack 用戶端重新授權，也可以解除連結。 |
+Drive 可選用使用者自己 Google Cloud 專案的桌面 OAuth 用戶端，需啟用 Drive API，使用 `drive.readonly` 範圍。Teams 也支援 Microsoft Graph PowerShell 官方的裝置登入，讓工作或學校帳號唯讀查詢。原有的 Slack 共用連線可用最初的用戶端重新授權。工具庫繼續以原有的註冊與帳號流程管理 Gmail 和 Google Calendar。
 
 Notion 和 Heptabase 的官方 MCP 位址固定在 `src/shared/apps.ts`，沿用伺服器探索、動態註冊、PKCE 與憑證儲存。目錄中的伺服器成功登入後才提供給支援的助理；重試與改名會保留同一筆。Teams 的 Graph PowerShell 權杖保存在登入程序內。Windows 上，SDK 會共用 PowerShell 設定檔的帳號提示，可能保留帳號名稱及租用戶 ID，登入時會保護原有的提示檔。GitHub 沿用 gh 裝置登入，Obsidian 在工具庫儲存選定筆記庫的路徑。Drive、Teams、GitHub 與 Obsidian 的內建工具都是 gateway 的唯讀工具。驗證涵蓋 `test/teams-graph.test.ts`、`test/oauth-mail.test.ts`、`test/mcp-oauth.test.ts`、`test/tools.test.ts`、`test/app.test.ts`，以及 `e2e/specs/oauth.spec.ts` 的設定頁流程。
 

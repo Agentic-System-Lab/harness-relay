@@ -1,44 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  PROVIDERS,
-  type ConnectorsView,
-  type GithubConnection,
-  type OAuthUse,
-  type OAuthView,
-  type RelayToolGroup,
-  type ToolLibraryView,
-} from '../../shared/types';
+import { PROVIDERS, type GithubConnection, type OAuthView, type RelayToolGroup, type ToolLibraryView } from '../../shared/types';
 import { APP_SERVERS } from '../../shared/apps';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { settingsHref } from '../route';
 import { AppSignIn } from './McpSignIn';
-import { ClaudeConnectorLink } from './ClaudeConnectorLink';
+import { HostedAppLinks } from './HostedAppLinks';
 import { GoogleProjectConnection } from './GoogleProjectConnection';
 import { TeamsSignIn } from './TeamsSignIn';
 import { GhSignIn } from './GhHelp';
 
-const accounts = { mail: 'Gmail', drive: 'Google Drive', calendar: 'Google Calendar', teams: 'Microsoft Teams' } as const;
-// Official “Add to Claude” destinations for Google's Drive and Calendar connectors.
-const googleInClaude = {
-  drive: 'https://claude.ai/directory/b89f7865-a755-4f86-8062-c3bd651740ce',
-  calendar: 'https://claude.ai/directory/2a838eaa-f7b4-4bc2-bd47-c326f3c813c5',
-} as const;
+const accounts = { drive: 'Google Drive', teams: 'Microsoft Teams' } as const;
 const remote = { notion: 'Notion', heptabase: 'Heptabase' } as const;
-// “Add to Claude” on Claude's official Slack connector listing.
-const SLACK_IN_CLAUDE = 'https://claude.ai/directory/597f662f-36de-437e-836e-5a81013cbfbe';
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 
 export function CommonApps({
   lib,
   oauth,
-  connectors,
   change,
   refreshAccounts,
 }: {
   lib: ToolLibraryView;
   oauth: OAuthView | null;
-  connectors: ConnectorsView | null;
   change: Change;
   refreshAccounts: () => Promise<void>;
 }) {
@@ -91,79 +73,59 @@ export function CommonApps({
         </p>
       )}
       <ul className="lib-list common-apps">
-        {(Object.keys(accounts) as OAuthUse[]).map((use) => {
+        {(Object.keys(accounts) as (keyof typeof accounts)[]).map((use) => {
           const provider = use === 'teams' ? 'microsoft' : 'google';
           const linked = oauth?.accounts.filter((x) => x.provider === provider && x.uses.includes(use)) ?? [];
-          const configured = oauth?.clients.some((x) => x.provider === provider && x.clientId && (provider !== 'google' || x.secret));
           return (
             <li className="lib-row" key={use} aria-label={accounts[use]}>
               <strong>{accounts[use]}</strong>
               <p className="muted small">{a.details[use]}</p>
-              {(use === 'drive' || use === 'calendar') && <ClaudeConnectorLink app={accounts[use]} href={googleInClaude[use]} />}
-              {linked.map((x) => {
-                const missing = (use === 'mail' || use === 'calendar') && !connectors?.[use].some((c) => c.oauth === x.id);
-                return (
-                  <div key={x.id}>
-                    <span>
-                      {(use === 'drive' || use === 'calendar') && t.apps.directConnection + ' · '}
-                      {x.email} ·{' '}
-                      {x.status === 'reauth' ? t.connectors.oauth.reauth : missing ? a.needsSelection : t.connectors.oauth.connected}
-                    </span>
-                    {x.status === 'reauth' ? (
-                      <AppSignIn
-                        name={accounts[use]}
-                        startRequest={() => api.startOAuthSignIn(provider, [use], false, x.id)}
-                        onDone={refreshAccounts}
-                        button={t.connectors.oauth.signInAgain}
-                      />
-                    ) : missing ? (
-                      <a href={settingsHref('tools')}>{a.accounts}</a>
-                    ) : (
-                      enable(use)
-                    )}
-                    <button
-                      className="link-button"
-                      onClick={async () => {
-                        if (!confirm(a.confirmAccount(x.email, x.uses.map((u) => t.connectors.oauth.uses[u]).join(t.common.listSeparator))))
-                          return;
-                        try {
-                          const removed = await api.removeOAuthAccount(x.id);
-                          setNotice(
-                            removed.permissionsPages?.length
-                              ? t.connectors.oauth.removedMicrosoft(removed.permissionsPages.join(t.common.listSeparator))
-                              : '',
-                          );
-                          await refreshAccounts();
-                        } catch (e) {
-                          setError((e as Error).message);
-                        }
-                      }}
-                    >
-                      {a.disconnect}
-                    </button>
-                  </div>
-                );
-              })}
+              <HostedAppLinks app={use} />
+              {linked.map((x) => (
+                <div key={x.id}>
+                  <span>
+                    {use === 'drive' && t.apps.directConnection + ' · '}
+                    {x.email} · {x.status === 'reauth' ? t.connectors.oauth.reauth : t.connectors.oauth.connected}
+                  </span>
+                  {x.status === 'reauth' ? (
+                    <AppSignIn
+                      name={accounts[use]}
+                      startRequest={() => api.startOAuthSignIn(provider, [use], false, x.id)}
+                      onDone={refreshAccounts}
+                      button={t.connectors.oauth.signInAgain}
+                    />
+                  ) : (
+                    enable(use)
+                  )}
+                  <button
+                    className="link-button"
+                    onClick={async () => {
+                      if (!confirm(a.confirmAccount(x.email, x.uses.map((u) => t.connectors.oauth.uses[u]).join(t.common.listSeparator))))
+                        return;
+                      try {
+                        const removed = await api.removeOAuthAccount(x.id);
+                        setNotice(
+                          removed.permissionsPages?.length
+                            ? t.connectors.oauth.removedMicrosoft(removed.permissionsPages.join(t.common.listSeparator))
+                            : '',
+                        );
+                        await refreshAccounts();
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                    }}
+                  >
+                    {a.disconnect}
+                  </button>
+                </div>
+              ))}
               {use === 'teams' ? (
-                <TeamsSignIn>{!linked.some((x) => x.status !== 'reauth') && enable('teams')}</TeamsSignIn>
-              ) : use === 'drive' || use === 'calendar' ? (
-                <GoogleProjectConnection
-                  use={use}
-                  name={accounts[use]}
-                  client={oauth?.clients.find((c) => c.provider === 'google')}
-                  onDone={refreshAccounts}
-                />
-              ) : !oauth ? (
-                t.common.loading
-              ) : configured ? (
-                <AppSignIn
-                  name={accounts[use]}
-                  startRequest={() => api.startOAuthSignIn(provider, [use])}
-                  onDone={refreshAccounts}
-                  button={linked.length ? a.addAccount : a.connect}
-                />
+                <>
+                  <strong className="small">{a.teamsDirect}</strong>
+                  <TeamsSignIn>{!linked.some((x) => x.status !== 'reauth') && enable('teams')}</TeamsSignIn>
+                </>
               ) : (
-                <p className="muted small">{a.unavailable}</p>
+                <GoogleProjectConnection client={oauth?.clients.find((c) => c.provider === 'google')} onDone={refreshAccounts} />
               )}
             </li>
           );
@@ -188,7 +150,7 @@ export function CommonApps({
         <li className="lib-row" aria-label="Slack">
           <strong>Slack</strong>
           <p className="muted small">{a.details.slack}</p>
-          <ClaudeConnectorLink app="Slack" href={SLACK_IN_CLAUDE} />
+          <HostedAppLinks app="slack" />
           {lib.mcpServers
             .filter((s) => s.app === 'slack' || (s.transport === 'http' && s.url === APP_SERVERS.slack))
             .map((server) => (

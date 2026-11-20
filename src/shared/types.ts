@@ -239,8 +239,6 @@ export interface OAuthClientView {
   provider: OAuthProviderId;
   clientId: string;
   builtIn: boolean;
-  /** Google OAuth client belongs to the distributor’s Cloud project. */
-  publisherProject?: boolean;
   /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */

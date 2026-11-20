@@ -5,17 +5,7 @@ import { useT } from '../i18n';
 import { AppSignIn } from './McpSignIn';
 import { ClientForm } from './OAuthAccounts';
 
-export function GoogleProjectConnection({
-  use,
-  name,
-  client,
-  onDone,
-}: {
-  use: 'drive' | 'calendar';
-  name: string;
-  client?: OAuthClientView;
-  onDone: () => Promise<void>;
-}) {
+export function GoogleProjectConnection({ client, onDone }: { client?: OAuthClientView; onDone: () => Promise<void> }) {
   const t = useT();
   const [editing, setEditing] = useState(false);
   return (
@@ -24,10 +14,10 @@ export function GoogleProjectConnection({
       <p className="muted small">{t.apps.ownGoogleProject}</p>
       {client ? (
         <>
-          {client.clientId && client.secret && !client.publisherProject && !editing && (
+          {client.clientId && client.secret && !client.builtIn && !editing && (
             <AppSignIn
-              name={name}
-              startRequest={() => api.startOAuthSignIn('google', [use])}
+              name="Google Drive"
+              startRequest={() => api.startOAuthSignIn('google', ['drive'])}
               onDone={onDone}
               button={t.apps.connectDirect}
             />

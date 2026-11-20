@@ -12,9 +12,8 @@ import {
 } from '../../shared/types';
 import type { Database } from '../db';
 import { HttpError } from '../errors';
-import { t, withLang } from '../i18n';
+import { t } from '../i18n';
 import type { SecretStore } from '../secrets';
-import { appClients } from './appClients';
 import { BUILT_IN_CLIENTS, type OAuthClient, type OAuthIdentity } from './providers';
 
 /*
@@ -30,8 +29,6 @@ interface StoredAccount extends Omit<OAuthAccountView, 'error'> {
   subject: string;
   /** The scopes it was granted. */
   scopes: string[];
-  /** The desktop client that obtained the saved Google grant. Empty when an older grant cannot be attributed. */
-  googleClientId?: string;
   error?: string;
 }
 
@@ -64,18 +61,6 @@ export class OAuthStore {
       } catch {
         /* none */
       }
-    }
-    // Older installations kept one Google client for all accounts. A connected grant used that
-    // registration. If its client had already changed, its prior identity can no longer be inferred.
-    const unbound = this.data.accounts.filter((a) => a.provider === 'google' && a.googleClientId === undefined);
-    if (unbound.length) {
-      const currentId = this.client('google')?.clientId ?? '';
-      const changedClient = (['en', 'zh-TW'] as const).map((lang) => withLang(lang, () => t().oauthAppChanged));
-      for (const a of unbound) {
-        const sameClient = a.status === 'connected' || (a.error && !changedClient.includes(a.error));
-        a.googleClientId = sameClient ? currentId : '';
-      }
-      this.save();
     }
   }
 
@@ -118,11 +103,11 @@ export class OAuthStore {
   /** The app a provider is signed in to with: the user's own, else Harness Relay's (none when neither). */
   client(provider: OAuthProviderId): (OAuthClient & { builtIn: boolean }) | undefined {
     const own = this.data.clients[provider];
-    const builtIn = BUILT_IN_CLIENTS[provider];
-    const secret = this.secret(`oauth-client-${provider}`) || (builtIn?.clientId === own?.clientId ? builtIn?.secret : undefined);
+    const secret = this.secret(`oauth-client-${provider}`);
     if (own?.clientId)
       return { clientId: own.clientId, ...(own.tenant ? { tenant: own.tenant } : {}), ...(secret ? { secret } : {}), builtIn: false };
-    return builtIn ? { ...builtIn, builtIn: true } : undefined;
+    const builtIn = BUILT_IN_CLIENTS[provider];
+    return builtIn ? { clientId: builtIn, builtIn: true } : undefined;
   }
 
   /**
@@ -144,15 +129,6 @@ export class OAuthStore {
     return before?.clientId !== after?.clientId || tenant(before) !== tenant(after);
   }
 
-  /** Google charges quota to the OAuth client's Cloud project, including other client IDs from that project. */
-  usesPublisherGoogleProject(clientId: string | undefined): boolean {
-    const publisher = appClients.googleId || BUILT_IN_CLIENTS.google?.clientId;
-    if (!publisher || !clientId) return false;
-    const project = /^(\d+)(?:-[^.]+)?\.apps\.googleusercontent\.com$/i;
-    const number = project.exec(publisher)?.[1];
-    return clientId === publisher || (number !== undefined && number === project.exec(clientId)?.[1]);
-  }
-
   clientsView(device: (provider: OAuthProviderId) => boolean): OAuthClientView[] {
     return OAUTH_PROVIDERS.map((provider) => {
       const c = this.client(provider);
@@ -160,7 +136,6 @@ export class OAuthStore {
         provider,
         clientId: c?.clientId ?? '',
         builtIn: Boolean(c?.builtIn),
-        ...(provider === 'google' && this.usesPublisherGoogleProject(c?.clientId) ? { publisherProject: true } : {}),
         ...(c?.tenant ? { tenant: c.tenant } : {}),
         secret: c?.secret ? '••••' : '',
         device: device(provider),
@@ -169,7 +144,7 @@ export class OAuthStore {
   }
 
   accounts(): OAuthAccountView[] {
-    return this.data.accounts.map(({ subject: _s, scopes: _sc, googleClientId: _client, ...view }) => view);
+    return this.data.accounts.map(({ subject: _s, scopes: _sc, ...view }) => view);
   }
 
   account(id: string): StoredAccount | undefined {
@@ -213,7 +188,6 @@ export class OAuthStore {
       account = { id, provider, subject: who.subject, email: who.email, uses: [], status: 'connected', connectedAt: now, scopes: [] };
       this.data.accounts.push(account);
     } else this.setRefreshToken(account.id, refreshToken);
-    if (provider === 'google') account.googleClientId = this.client('google')?.clientId ?? '';
     account.email = who.email;
     if (who.name) account.name = who.name;
     else delete account.name;
@@ -225,7 +199,7 @@ export class OAuthStore {
     account.connectedAt = now;
     delete account.error;
     this.save();
-    const { subject: _s, scopes: _sc, googleClientId: _client, ...view } = account;
+    const { subject: _s, scopes: _sc, ...view } = account;
     return view;
   }
 

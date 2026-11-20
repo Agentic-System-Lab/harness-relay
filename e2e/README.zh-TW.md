@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 39 個 spec 檔、520 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 39 個 spec 檔、524 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -52,7 +52,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 4 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
+| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 5 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 4 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
@@ -342,13 +342,13 @@ Google Drive 與 Calendar 預設開啟 Claude 的服務頁。設定個人 Cloud 
 | --- | --- | --- |
 | 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
 | 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在 **新的登入用於：**（A new sign-in is for:）取消勾選 **行事曆**、勾選 **郵件** 後，**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。帳號顯示 **用於：郵件**（Used for: Mail）與 **用於行事曆**（Use for calendars），沒有 **行事曆**；它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **用於郵件**（Use for mail）不必重新登入就再加入它，之後這個按鈕就不見了；帳號的 **移除** 也會移除它的郵件帳號。 |
-| 從常用 App 連結 Teams 與本機 Obsidian 筆記庫 | — | 頁面列出九個 App。Teams 卡片可在沒有發行者 Microsoft 用戶端 ID 時，提示安裝工具、顯示登入代碼、取消、重新載入及解除連結。測試以替身模擬 Graph PowerShell。可切換聊天存取，解除筆記庫連結後筆記仍在。 |
+| 從常用 App 連結 Teams 與本機 Obsidian 筆記庫 | — | 頁面列出七個 App。Teams 卡片可在沒有發行者 Microsoft 用戶端 ID 時，提示安裝工具、顯示登入代碼、取消、重新載入及解除連結。測試以替身模擬 Graph PowerShell。可切換聊天存取，解除筆記庫連結後筆記仍在。 |
 
 ## 需要登入的 MCP 伺服器
 
 [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts)：**設定 → 工具庫 → MCP 伺服器**，HTTP 伺服器自己的登入（MCP 的授權），對這台電腦上的替身測試：一台回 401 並指出它受保護資源中繼資料的 MCP 伺服器，以及它的授權伺服器，發行者帶有路徑（RFC 8414 的中繼資料、註冊、有「Allow」連結的授權頁面（測試要求時放在它自己的另一個位址）、檢查 PKCE、重新導向網址與 `resource` 的權杖端點、只能用一秒的存取權杖、撤銷）。
 
-Slack 卡片開啟 Claude 的官方連接器，並能進入 Relay 的 Claude Code 設定。既有共用連線可以重新授權及解除連結。
+Slack 卡片可開啟 Claude 與 Codex 的官方連結，並可前往 Relay 裡的助理設定。原有的共用連線仍可重新授權與解除連結。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -731,7 +731,7 @@ Slack 卡片開啟 Claude 的官方連接器，並能進入 Relay 的 Claude Cod
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
 - **真正的 GitHub 與網站上的分享頁。**測試從儲存庫的 `site/` 與測試自己的 gist 打開分享頁，都用真正的網址但由測試攔截：GitHub 原始檔主機與 API 本身（它們的快取與限制、改了名稱的帳號）和發布出去的網站沒有測，WebKit 中的下載也沒有；分享頁曾用使用情境的分享在 Chromium、Firefox 與 WebKit 中對真正的 GitHub 手動試過。gistpreview.github.io 上的連結（分享頁出現之前的分享）沒有打開。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
-- **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 常用 App 透過服務替身測試授權與權杖交換。單元測試也涵蓋 Drive 與 Teams 的讀取工具，以及 Slack 的桌面版登入。瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試；透過 XOAUTH2 的郵件工具、郵件觸發與 IDLE、被拒的權杖的更新、為郵件登入的權限範圍、Google 的漸進式同意與 Gmail，在 `test/oauth-mail.test.ts` 中測試。在瀏覽器裡，透過登入的郵件只有登入與測試（沒有 agent 讀信或寄信），而且是以純 TCP 連到替身。這些測試不登入真的帳號：真的 Google 帳號（它的行事曆，以及 Gmail 接受它的權杖）是手動試過的，見架構文件的已知限制；Microsoft 的還沒有。
+- **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 常用 App 透過服務替身測試授權與權杖交換。單元測試也涵蓋 Drive 與 Teams 的讀取工具，以及 既有 Slack 授權的更新。瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試；透過 XOAUTH2 的郵件工具、郵件觸發與 IDLE、被拒的權杖的更新、為郵件登入的權限範圍、Google 的漸進式同意與 Gmail，在 `test/oauth-mail.test.ts` 中測試。在瀏覽器裡，透過登入的郵件只有登入與測試（沒有 agent 讀信或寄信），而且是以純 TCP 連到替身。這些測試不登入真的帳號：真的 Google 帳號（它的行事曆，以及 Gmail 接受它的權杖）是手動試過的，見架構文件的已知限制；Microsoft 的還沒有。
 - **真正需要登入的 MCP 伺服器，以及它們登入的其他方式。** [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器)只對替身登入，而且只把權杖交給 Claude Code 的假 CLI（每個 CLI 怎麼拿 HTTP 伺服器的標頭，是[除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西)測的）。探索的其他形式（well-known 網址、OpenID 的中繼資料、challenge 的權限範圍）與它失敗的情形、各種拒絕（沒有 S256 的 PKCE、沒有註冊、別的資源或伺服器路徑上層的中繼資料、別的發行者、連到別台電腦的純 http、不要求登入的伺服器）、不在這台電腦上的伺服器（只連網際網路上的位址，用替身查詢位址，並固定連到查過的位址）、RFC 9207 的 `iss`、對兩個替身的混淆攻擊（冒充伺服器的中繼資料指向另一台授權伺服器的頁面：先經過確認，它的授權碼也絕不會送到冒充的權杖端點）、為另一個重新導向網址或在更新拒絕用戶端後重新註冊、用戶端密碼（登入、更新與撤銷時用 Basic 或放在表單）、貼上網址、沒有更新權杖的登入、其他原因的更新失敗、十分鐘以內的權杖、沒有拿到伺服器或用 Antigravity 的成員、主機規則、太大的回應或太長的權杖、撤銷失敗、登入取代舊登入時撤銷舊的更新權杖、移除伺服器或改網址、探索進行中時的等待上限，以及重新啟動，都在單元測試中測試（`test/mcp-oauth.test.ts`、`test/orchestrator-mcp-oauth.test.ts`）。
 - **觸發的檢查頻率、行事曆來源、CI 執行，以及團隊自己寫的檔案。** [自動任務](#自動任務)用**立即檢查**來檢查，GitHub 只透過假的 `gh`（它的 pull request；從不連到真的 gh 與 GitHub）；每 2 分鐘一次、失敗後放慢、重新啟動後保留的狀態、團隊在資料夾裡寫的檔案（不會再啟動一次執行），以及兩個檔案樣式以外的多件要等的事（不同來源一起、各自的錯誤與放慢、同一次檢查送出兩則訊息、IMAP IDLE 只要求其中一件），在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`，即將開始的行程（對 CalDAV 行事曆替身，也包括會展開重複行程的，以及透過 OAuth 的）、失敗的 CI 執行（對 gh 的替身），以及還在寫的檔案在 `test/watch-sources.test.ts`，IMAP IDLE（在資料夾中等待的連線、重新開始與重新連線）在 `test/idle.test.ts`，沒有端對端測試。
 - **真的郵件與行事曆伺服器、TLS，以及其他 gateway 工具。** 郵件與行事曆工具是在單元測試中，對這台電腦上不加密的 IMAP、SMTP 與 CalDAV 替身伺服器測的（`test/connectors.test.ts`：後面還跟著其他內容的 STARTTLS 回應會在 TLS 開始前被拒絕），瀏覽器工具則在找得到 Chromium 時用真的 Chromium 測（`test/browser.test.ts`：包括檢查請求、彈出視窗與同時的呼叫）；端對端測試呼叫兩個 gateway 工具：`mail_send` 透過 Claude Code（經由 stdio 程式）、Codex 與 OpenCode（經由本機 HTTP）的假 CLI，`calendar_create` 透過 Claude Code 的；其他 CLI 的假 CLI 一個都不呼叫。沒有用任何真的服務（Gmail、iCloud、Fastmail）測過。

@@ -155,19 +155,17 @@ export function OAuthAccounts({
                   </button>
                 )}
                 {/* A use not granted yet: a sign-in for it with those it has (incremental consent), which updates this account. */}
-                {can.signInFor
-                  .filter(({ use }) => use !== 'calendar' || !view.clients.some((c) => c.provider === a.provider && c.publisherProject))
-                  .map(({ use, uses }) => (
-                    <button
-                      key={use}
-                      type="button"
-                      className="ghost small-button"
-                      disabled={waiting(signIn)}
-                      onClick={() => start(a.provider, uses, false, a.id)}
-                    >
-                      {o.useFor[use]}
-                    </button>
-                  ))}
+                {can.signInFor.map(({ use, uses }) => (
+                  <button
+                    key={use}
+                    type="button"
+                    className="ghost small-button"
+                    disabled={waiting(signIn)}
+                    onClick={() => start(a.provider, uses, false, a.id)}
+                  >
+                    {o.useFor[use]}
+                  </button>
+                ))}
                 {can.addMail && (
                   <button type="button" className="ghost small-button" onClick={() => addMail(a)}>
                     {o.useFor.mail}
@@ -200,8 +198,7 @@ export function OAuthAccounts({
       <div className="oauth-providers">
         {OAUTH_PROVIDERS.map((p) => {
           const client = view.clients.find((c) => c.provider === p)!;
-          const needsOwnProject = client.publisherProject && forUses.includes('calendar');
-          const none = waiting(signIn) || !forUses.length || needsOwnProject;
+          const none = waiting(signIn) || !forUses.length;
           return (
             <div key={p} className="oauth-provider">
               {client.clientId ? (
@@ -226,7 +223,6 @@ export function OAuthAccounts({
                   </button>
                 </p>
               )}
-              {needsOwnProject && <p className="muted small">{t.apps.ownGoogleProject}</p>}
               {settingUp === p && (
                 <ClientForm
                   client={client}

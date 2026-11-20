@@ -38,14 +38,19 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
   const [appError, setAppError] = useState('');
   const [oauth, setOauth] = useState<OAuthView | null>(null);
   const [connectors, setConnectors] = useState<ConnectorsView | null>(null);
+  const [oauthError, setOauthError] = useState('');
+  const [connectorError, setConnectorError] = useState('');
   const refreshAccounts = async () => {
-    const [o, c] = await Promise.all([api.oauth(), api.connectors()]);
-    setOauth(o);
-    setConnectors(c);
+    setOauthError('');
+    setConnectorError('');
+    await Promise.all([
+      api.oauth().then(setOauth, (e: Error) => setOauthError(e.message)),
+      api.connectors().then(setConnectors, (e: Error) => setConnectorError(e.message)),
+    ]);
   };
 
   useEffect(() => {
-    void refreshAccounts().catch((e: Error) => setAppError(e.message));
+    void refreshAccounts();
     api.tools().then(setLib, (e: Error) => setError(e.message));
   }, []);
 
@@ -65,16 +70,16 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
     <>
       <section className="card tools-card" id={sectionId('apps')}>
         <SectionTitle section="apps">{t.apps.title}</SectionTitle>
-        {appError && (
+        {(appError || oauthError) && (
           <p className="error-line" role="alert">
-            {appError}
+            {appError || oauthError}
           </p>
         )}
         {lib ? (
           <CommonApps
             lib={lib}
             oauth={oauth}
-            connectors={connectors}
+
             change={(call) => change(call, setAppError)}
             refreshAccounts={refreshAccounts}
           />
@@ -92,6 +97,16 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
         ) : (
           <>
             <RelaySection lib={lib} change={change} />
+            {connectorError && (
+              <p className="error-line" role="alert">
+                {connectorError}
+              </p>
+            )}
+            {oauthError && (
+              <p className="error-line" role="alert">
+                {oauthError}
+              </p>
+            )}
             <ConnectorsSettings view={connectors} setView={setConnectors} oauth={oauth} setOauth={setOauth} />
             <McpSection lib={lib} change={change} />
             <SkillsSection lib={lib} change={change} />

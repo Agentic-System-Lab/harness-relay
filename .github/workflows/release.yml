@@ -316,9 +316,6 @@ jobs:
       # update-source check; after, the release job's two update checks).
       - name: Build the desktop app
         env:
-          RELAY_MICROSOFT_CLIENT_ID: ${{ vars.RELAY_MICROSOFT_CLIENT_ID }}
-          RELAY_GOOGLE_CLIENT_ID: ${{ vars.RELAY_GOOGLE_CLIENT_ID }}
-          RELAY_GOOGLE_DESKTOP_SECRET: ${{ secrets.RELAY_GOOGLE_DESKTOP_SECRET }}
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
           RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
         run: npm --prefix desktop run build

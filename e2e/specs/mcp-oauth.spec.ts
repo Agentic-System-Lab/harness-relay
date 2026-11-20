@@ -179,7 +179,7 @@ base("Slack opens Claude's official connector and leaves Relay's shared tools an
   await tab.close();
   await expect(slack).not.toContainText(/connected|signed in to Slack/i);
   await expect(slack.getByRole('button')).toHaveCount(0);
-  await slack.getByText('Check which tools Claude Code can use', { exact: true }).click();
+  await slack.getByText('Set up and check your assistant', { exact: true }).click();
   await slack.getByRole('link', { name: 'Open Claude Code settings' }).click();
   await expect(page).toHaveURL(/#\/settings\/claude$/);
   const native = page.locator('#settings-claude details.native-setup').first();

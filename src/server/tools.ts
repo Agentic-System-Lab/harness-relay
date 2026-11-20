@@ -480,7 +480,7 @@ export class ToolLibrary {
   ensureApp(app: keyof typeof APP_SERVERS): string {
     const found = this.data.mcpServers.find((s) => s.app === app && s.transport === 'http' && s.url === APP_SERVERS[app]);
     // An older browser can still call the Slack catalog route. Only renew an existing grant.
-    if (app === 'slack' && !found?.oauth) throw new HttpError(409, t().appsSlackInClaude);
+    if (app === 'slack' && !found?.oauth) throw new HttpError(409, t().appsSlackInAssistant);
     if (found) return found.name;
     let name: string = app;
     for (let n = 2; this.data.mcpServers.some((s) => s.name.toLowerCase() === name); n++) name = `${app}-${n}`;

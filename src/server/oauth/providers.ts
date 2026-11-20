@@ -1,5 +1,4 @@
 import type { MailServer, OAuthProviderId, OAuthUse } from '../../shared/types';
-import { appClients } from './appClients';
 import { CONFIG } from '../config';
 import type { ProviderRequest } from './broker';
 import { discoverCalendars } from '../connectors/caldav';
@@ -125,14 +124,11 @@ export interface OAuthClient {
 }
 
 /**
- * The distributor’s registered public desktop apps. A registration saved in Settings takes precedence.
+ * Harness Relay's own apps, registered once and shipped in the code, by provider; none is registered
+ * yet, so each user gives their own (Settings → Tool library). A Microsoft Entra app for work, school
+ * and personal accounts, a public client (no secret), is what would go here.
  */
-export const BUILT_IN_CLIENTS: Partial<Record<OAuthProviderId, OAuthClient>> = {
-  ...(appClients.googleId && appClients.googleDesktopSecret
-    ? { google: { clientId: appClients.googleId, secret: appClients.googleDesktopSecret } }
-    : {}),
-  ...(appClients.microsoftId ? { microsoft: { clientId: appClients.microsoftId } } : {}),
-};
+export const BUILT_IN_CLIENTS: Partial<Record<OAuthProviderId, string>> = {};
 
 /** The host a URL's token may go to: its host, with its port when that is not the usual one. */
 export function tokenHost(url: string): string {

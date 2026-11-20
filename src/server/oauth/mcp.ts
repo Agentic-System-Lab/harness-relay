@@ -454,9 +454,9 @@ export class McpOAuth {
           saved.authorize !== 'https://slack.com/oauth/v2_user/authorize' ||
           saved.token !== 'https://slack.com/api/oauth.v2.user.access'
         )
-          throw new HttpError(409, t().appsSlackInClaude);
+          throw new HttpError(409, t().appsSlackInAssistant);
         const scopes = saved.scopes.filter((scope) => ['search:read.public', 'channels:history', 'channels:read'].includes(scope));
-        if (!scopes.length) throw new HttpError(409, t().appsSlackInClaude);
+        if (!scopes.length) throw new HttpError(409, t().appsSlackInAssistant);
         found = {
           resource: saved.resource,
           issuer: saved.issuer,

@@ -1,0 +1,35 @@
+import { useT } from '../i18n';
+import { settingsHref } from '../route';
+
+// The Install plugin and Add to Claude destinations published in each provider's directory.
+const connectors = {
+  drive: ['Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce', 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7'],
+  teams: ['Microsoft Teams', 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582', 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644'],
+  slack: ['Slack', '597f662f-36de-437e-836e-5a81013cbfbe', 'plugin_asdk_app_69a1d78e929881919bba0dbda1f6436d'],
+} as const;
+
+export function HostedAppLinks({ app }: { app: keyof typeof connectors }) {
+  const a = useT().apps;
+  const [name, claude, codex] = connectors[app];
+  return (
+    <>
+      <div className="form-actions">
+        <a href={'https://claude.ai/directory/' + claude} target="_blank" rel="noreferrer">
+          {a.connectInClaude(name)}
+        </a>
+        <a href={'https://chatgpt.com/plugins/' + codex} target="_blank" rel="noreferrer">
+          {a.connectInCodex(name)}
+        </a>
+      </div>
+      <details className="sub">
+        <summary>{a.hostedHelp}</summary>
+        <p className="muted small">
+          {a.claudeAccount} {a.claudeInspect}
+        </p>
+        <a href={settingsHref('claude')}>{a.claudeSettings}</a>
+        <p className="muted small">{a.codexInspect}</p>
+        <a href={settingsHref('codex')}>{a.codexSettings}</a>
+      </details>
+    </>
+  );
+}

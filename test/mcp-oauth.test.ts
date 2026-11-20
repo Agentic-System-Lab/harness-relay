@@ -1160,7 +1160,7 @@ describe('/api/tools/mcp/:name/signin', () => {
     const before = settings.tools.view().mcpServers;
     const catalog = await call('POST', '/api/apps/slack/signin', {});
     expect(catalog.status).toBe(409);
-    expect(await catalog.text()).toContain('Connect Slack in Claude');
+    expect(await catalog.text()).toContain('Connect Slack in Claude or Codex');
     expect(settings.tools.view().mcpServers).toEqual(before);
     for (const [index, url] of [
       APP_SERVERS.slack,
@@ -1172,7 +1172,7 @@ describe('/api/tools/mcp/:name/signin', () => {
       expect((await call('PUT', '/api/tools/mcp/' + name, { transport: 'http', url })).status).toBe(200);
       const denied = await call('POST', '/api/tools/mcp/' + name + '/signin', {});
       expect(denied.status).toBe(409);
-      expect(await denied.text()).toContain('Connect Slack in Claude');
+      expect(await denied.text()).toContain('Connect Slack in Claude or Codex');
       expect(settings.tools.mcpServer(name)?.oauth).toBeUndefined();
     }
   });

@@ -251,16 +251,15 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">Connect your apps</h2>
-          <p>Open <b>Settings → Common apps</b>. Choose <b>Connect</b> beside a service, select your account on its page and review the permissions. If the card says sign-in has not been set up, contact the person who provided your copy. A work or school account may require administrator approval.</p>
+          <p>Open <b>Settings → Common apps</b>. Choose your assistant and authorize the service with the same account you use in Relay. For Codex, install the plugin in your ChatGPT workspace and open a new Relay chat. For Claude Code, use your Claude subscription account. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
           <ul>
-            <li><b>Google Drive and Google Calendar</b> open in Claude. Authorize your Google account and use the same Claude Code account in Relay to ask for meeting times or documents. Claude receives the content it reads. For another assistant or calendar automation, open Advanced and use your own Google Cloud project.</li>
-            <li><b>Gmail</b> connects directly to Relay. You can search your mailbox and approve drafts for sending.</li>
-            <li><b>Microsoft Teams</b> uses Microsoft Graph PowerShell. Install the tools from the card, choose Connect and enter the code on Microsoft’s page with your work or school account. You can then read teams, channels and recent messages. <b>GitHub</b> uses GitHub CLI to sign in and list pull requests.</li>
+            <li><b>Google Drive</b> can open in Claude or Codex. To share Drive with other assistants, open Advanced and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
+            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, install Microsoft Graph PowerShell from the card and follow the sign-in code. <b>GitHub</b> uses GitHub CLI to sign in.</li>
             <li><b>Notion and Heptabase</b> connect through their official services. Supported assistants can use the workspace once you approve.</li>
-            <li><b>Slack</b> opens the connector in Claude. Sign in to your own Slack workspace, review the requested permissions, then use Claude Code in Relay with the same Claude subscription account.</li>
+            <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval.</li>
             <li>For <b>Obsidian</b>, choose <b>Choose vault</b> and select the notes folder on the computer running Harness Relay. Ask for a Markdown note by name. Disconnecting keeps the notes on disk.</li>
           </ul>
-          <p>For the built-in tools, choose <b>Enable in chats for supported assistants</b> after connecting. This opens all connected accounts for that tool. To choose individual assistants, open <b>Settings → Tool library</b>.</p>
+          <p>Gmail and Google Calendar are in <b>Settings → Tool library → Mail and calendar accounts</b>. For built-in tools, choose <b>Enable in chats for supported assistants</b> after connecting. You can choose individual assistants in the tool library.</p>
           <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Desktop screenshot</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Phone screenshot</a></p>
         </section>
 
@@ -384,7 +383,10 @@
           </p>
           <h3>Microsoft 365, Outlook.com and Google</h3>
           <p>
-            Under <b>Accounts you sign in to</b>, choose mail, calendars or both and select <b>Sign in with …</b>. A distributor can supply the app registration. Administrators can enter their own client ID under <b>Set up the app</b>. The
+            These sign in in the browser instead of with a password, under <b>Accounts you sign in to</b>, for calendars,
+            mail or both. Harness Relay has no app registered with Microsoft or Google of its own yet, so you register one
+            with the provider first and give its <b>Client ID</b> under <b>Set up the app</b>; then tick what the sign-in is
+            for and click <b>Sign in with …</b>. The
             <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">user guide</a>
             has the steps for each provider. The tokens stay in your credential store and go only to that account's own
             service.

@@ -98,15 +98,6 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     return this.view();
   }
 
-  private checkGoogleGrant(uses: readonly OAuthUse[], account?: { uses: OAuthUse[]; googleClientId?: string }): void {
-    const id = this.store.client('google')?.clientId;
-    if (
-      this.store.usesPublisherGoogleProject(id) &&
-      uses.some((u) => (u === 'calendar' || u === 'drive') && (!account || account.googleClientId !== id || !account.uses.includes(u)))
-    )
-      throw new HttpError(409, t().oauthOwnGoogleProject);
-  }
-
   /**
    * A sign-in for these uses. Another use than the account has asks for its scopes at a sign-in of its
    * own (incremental consent), which updates the same account, found by its id at the provider.
@@ -127,11 +118,10 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
       throw new HttpError(400, t().invalidField('uses'));
     const provider = this.provider(o.provider);
     const { account: accountId, ...rest } = o;
-    const a = accountId ? this.account(accountId) : undefined;
-    if (a && a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
-    const uses = a ? OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u)) : o.uses;
-    if (o.provider === 'google') this.checkGoogleGrant(uses, a);
-    if (!a) return this.signIns.start({ ...rest, provider, keep: (s) => this.keep(provider, uses, s) });
+    if (!accountId) return this.signIns.start({ ...rest, provider, keep: (s) => this.keep(provider, o.uses, s) });
+    const a = this.account(accountId);
+    if (a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
+    const uses = OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u));
     const forAccount = { id: a.id, subject: a.subject };
     return this.signIns.start({ ...rest, provider, uses, loginHint: a.email, keep: (s) => this.keep(provider, uses, s, forAccount) });
   }
@@ -165,8 +155,6 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     // (Google, with include_granted_scopes), that token must still have theirs. Else nothing is kept:
     // the account stays as it was.
     const before = this.store.bySubject(provider.id, who.subject);
-    // An unhinted Gmail sign-in can resolve to an existing account and merge its uses.
-    if (before && provider.id === 'google') this.checkGoogleGrant([...before.uses, ...uses], before);
     if (before && provider.tokenScopes) {
       for (const use of before.uses) if (!uses.includes(use)) await s.tokenFor(use);
       if (!s.live()) throw new Error(t().oauthSignInCancelled);

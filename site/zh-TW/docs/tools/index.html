@@ -247,16 +247,15 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">連結常用 App</h2>
-          <p>打開<b>設定 → 常用 App</b>，選取服務並按<b>連結</b>。在服務商的頁面檢查要授予哪些權限，選擇帳號並同意。若卡片顯示尚未設定登入，請聯絡提供此版本的人。工作或學校帳號可能需要管理員核准。</p>
+          <p>開啟<b>設定 → 常用 App</b>，選擇助理，使用與 Relay 相同的助理帳號授權。Codex 請先在自己的 ChatGPT 工作區安裝外掛，再到 Relay 開啟新對話。Claude Code 請使用自己的 Claude 訂閱帳號。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
           <ul>
-            <li><b>Google Drive 和 Google Calendar</b> 會開啟 Claude 的連接器。用 Google 帳號授權，再用同一個 Claude Code 帳號在 Relay 查行程或文件。Claude 會收到讀取的內容。其他助理或行事曆自動化可在「進階」設定自己的 Google Cloud 專案。</li>
-            <li><b>Gmail</b> 可直接連結 Relay，讓助理搜尋郵件、準備草稿交給你核准寄出。</li>
-            <li><b>Microsoft Teams</b> 透過 Microsoft Graph PowerShell 登入。依卡片指示安裝工具後按「連結」，用工作或學校帳號在 Microsoft 頁面輸入代碼，就能列出團隊、頻道與近期訊息。<b>GitHub</b> 透過 GitHub CLI 登入並查看 Pull Request。</li>
+            <li><b>Google Drive</b> 可以在 Claude 或 Codex 連結。若要提供給其他助理，請展開「進階」，在自己的 Google Cloud 專案啟用 Drive API 並設定桌面 OAuth 用戶端。</li>
+            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要在 Relay 唯讀查閱頻道，可依卡片指示安裝 Microsoft Graph PowerShell，再輸入登入代碼。<b>GitHub</b> 使用 GitHub CLI 登入。</li>
             <li><b>Notion 和 Heptabase</b> 透過官方服務連結。確認授權後，支援的助理即可使用工作區。</li>
-            <li><b>Slack</b> 會開啟 Claude 的連接器。用自己的 Slack 帳號登入工作區、確認授權範圍，再回到 Relay，使用以同一個 Claude 訂閱帳號登入的 Claude Code 助理。</li>
+            <li><b>Slack</b> 可在 Claude 或 Codex 授權工作區。請檢查要求的權限，包括是否可傳送訊息。你的工作區可能需要管理員核准。</li>
             <li><b>Obsidian</b> 請按<b>選擇筆記庫</b>，選擇執行 Harness Relay 的電腦上的筆記資料夾。你可以請助理讀取指定的 Markdown 筆記，解除連結後筆記仍保留在原處。</li>
           </ul>
-          <p>其他內建工具連結後，按<b>讓支援的助理在聊天中使用</b>。同類工具的所有已連結帳號都會開放給這些助理。要指定個別助理，可到<b>設定 → 工具庫</b>調整。</p>
+          <p>Gmail 和 Google Calendar 在<b>設定 → 工具庫 → 郵件與行事曆帳號</b>。直接在 Relay 連結的工具可按<b>讓支援的助理在聊天中使用</b>，也可到工具庫個別選擇助理。</p>
           <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">手機版畫面</a></p>
         </section>
 
@@ -359,8 +358,8 @@
           <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
           <h3>Microsoft 365、Outlook.com 與 Google</h3>
           <p>
-            在<b>登入的帳號</b>中選擇郵件、行事曆或兩者，再按<b>登入</b>。若發行版已提供註冊資料，就可直接前往服務商的頁面。管理者也能在<b>設定 app</b>指定自己的用戶端 ID。各服務的步驟請見
-            <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
+            這些帳號不用密碼，而是在<b>登入的帳號</b>裡用瀏覽器登入，用於行事曆、郵件或兩者。Harness Relay 目前還沒有在 Microsoft 或 Google
+            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>；再勾選這次登入用於什麼，按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
           </p>
         </section>
 
