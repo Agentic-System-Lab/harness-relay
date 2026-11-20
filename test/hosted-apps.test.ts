@@ -332,6 +332,8 @@ describe('hosted connector checks', () => {
     expect(await checks.check('drive', 'codex', 'A', true)).toBe('connected');
     expect(probe).toHaveBeenCalledTimes(3);
     const thread = calls.find((m) => m.method === 'thread/start')!.params;
+    expect(probe.mock.calls.at(-1)![0].args.some((arg) => arg.startsWith('sqlite_home='))).toBe(false);
+    expect(thread.config).not.toHaveProperty('sqlite_home');
     expect(thread).toMatchObject({
       ephemeral: true,
       approvalPolicy: 'never',

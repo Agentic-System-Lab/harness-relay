@@ -47,11 +47,12 @@ test('Apps and tools is one section with bookmarkable tabs that preserve drafts'
   for (const [name, apps] of categories) {
     await expect(card.getByRole('region', { name, exact: true }).locator('.app-row-copy > strong:visible')).toHaveText([...apps]);
   }
-  // Each native tool owns exactly one access editor in its service row, even before connecting.
-  for (const name of ['Mail', 'Calendar', 'Google Drive', 'Microsoft Teams', 'Slack', 'GitHub', 'Obsidian', 'Browser']) {
+  // Device and account tools can be selected for a chat from their service row.
+  for (const name of ['Mail', 'Calendar', 'GitHub', 'Obsidian', 'Browser']) {
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(1);
   }
-  for (const name of ['Notion', 'Heptabase']) {
+  // Hosted apps offer account management. Direct actions need a grant before showing their own assistant selector.
+  for (const name of ['Google Drive', 'Microsoft Teams', 'Slack', 'Notion', 'Heptabase']) {
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(0);
   }
   await expect(page.locator('#settings-tools .app-chat-access')).toHaveCount(0);

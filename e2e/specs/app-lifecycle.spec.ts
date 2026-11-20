@@ -2,6 +2,7 @@ import { chromium, type Page, type Locator } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { findBrowser } from '../../src/server/browser/find';
 import { fakeImap, fakeCalDav } from '../../test/fake-mail-servers';
 import { fakeMcpAuth, type FakeMcpAuth } from '../../test/fake-mcp-auth-server';
 import { test, expect } from '../fixtures';
@@ -88,9 +89,19 @@ test('Browser starts the selected Chromium, reads a local page, then withholds t
     const row = await openCommonApp(page, relay, 'Browser');
     const pathEditor = row.locator('.browser-path');
     if (!(await pathEditor.evaluate((element) => (element as HTMLDetailsElement).open))) await pathEditor.locator('summary').click();
-    await row.getByRole('textbox', { name: 'Browser to start' }).fill(chromium.executablePath());
+    let executable = findBrowser({ configured: process.env.RELAY_BROWSER });
+    if (!executable) {
+      // CI may install only Playwright's headless shell. executablePath() names the full download.
+      const shell = await chromium.launchServer();
+      try {
+        executable = shell.process().spawnfile;
+      } finally {
+        await shell.close();
+      }
+    }
+    await row.getByRole('textbox', { name: 'Browser to start' }).fill(executable);
     await row.locator('.browser-path').getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(row.locator('.browser-path summary')).toContainText(chromium.executablePath());
+    await expect(row.locator('.browser-path summary')).toContainText(executable);
     await useNative(
       page,
       relay,

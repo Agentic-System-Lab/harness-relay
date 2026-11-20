@@ -95,8 +95,9 @@ async function checkCodex(
           allow_login_shell: false,
           'history.persistence': 'none',
           'analytics.enabled': false,
+          // Verification uses private logs and an ephemeral thread. Giving every check a fresh
+          // sqlite_home makes Codex initialize its state database again before the first RPC.
           log_dir: folder,
-          sqlite_home: folder,
         }
       : {};
     const { timedOut } = await converse({
