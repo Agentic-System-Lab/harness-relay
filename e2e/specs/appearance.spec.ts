@@ -94,7 +94,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(update).toHaveCount(0);
-    await page.goto('#/settings/tour');
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
     await expect(update).toHaveAccessibleName('Welcome to Harness Relay');
     expect(await tourSteps(page)).toBe(en.tour.steps.length);
