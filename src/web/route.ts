@@ -39,6 +39,7 @@ export const SETTINGS_SECTIONS = [
   'sessions',
   'shares',
   'browsers',
+  'home-screen',
   'tour',
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

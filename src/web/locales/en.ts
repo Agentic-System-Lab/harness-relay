@@ -372,6 +372,7 @@ export const en: Messages = {
   },
 
   chat: {
+    deliveryUnknown: 'The computer hasn’t confirmed delivery. Reconnect and send the same draft again to check whether it arrived.',
     rename: 'Rename',
     renamePrompt: 'Conversation title',
     hops: (n) => `${n} hand-offs`,
@@ -1267,7 +1268,58 @@ export const en: Messages = {
     testTitle: 'Harness Relay',
     testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
   },
+  homeScreen: {
+    title: 'How to add Harness Relay to your Home Screen',
+    platform: 'Choose a phone platform',
+    ios: {
+      menu: 'Tap Share in Safari',
+      menuHint:
+        'Open your paired Harness Relay site in Safari. Tap the square with an upward arrow. If you only see a menu beside the address bar, open it and choose Share.',
+      action: 'Add to Home Screen',
+      install: 'Add the Home Screen icon',
+      installHint:
+        'Scroll down the share sheet and select Add to Home Screen. If Open as Web App appears, turn it on. Tap Add at the top right.',
+      confirm: 'Add',
+      launch: 'Open from the Home Screen',
+      launchHint:
+        'Tap the Harness Relay icon with three colored dots on your Home Screen. If it asks you to sign in, get a fresh code from your computer.',
+      notify:
+        'On iOS 16.4 or later, open Harness Relay from its Home Screen icon for Lock Screen notifications. In Settings → Notifications and sound, turn on Show notifications, tap Allow, then Send a test notification.',
+    },
+    android: {
+      menu: 'Open the Chrome menu',
+      menuHint: 'Open your paired Harness Relay site in Chrome. Tap the three vertical dots to the right of the address bar.',
+      action: 'Install and create shortcut',
+      install: 'Install on your phone',
+      installHint:
+        'Choose Install and create shortcut, then Install. Some Chrome versions call the menu item Add to Home screen or Install app.',
+      confirm: 'Install',
+      launch: 'Open from the icon',
+      launchHint: 'Tap the Harness Relay icon with three colored dots on the Home screen or in the app drawer.',
+      notify:
+        'On the phone, open Settings → Notifications and sound in Harness Relay. Turn on Show notifications, allow Chrome or the web app to send them, then tap Send a test notification.',
+    },
+    notifications: 'Phone notifications',
+    openNotifications: 'Open notification settings on this phone',
+  },
   browsers: {
+    phoneTitle: { unpaired: 'Connect your phone', paired: 'Phone paired', online: 'Phone connected', unknown: 'Phone connection' },
+    phoneDetail: {
+      unpaired: 'Scan a code to use this computer from your phone.',
+      paired: 'Open Harness Relay on your phone to reconnect.',
+      online: 'Harness Relay is open on your phone.',
+      unknown: 'Open phone pairing settings.',
+    },
+    localLink: 'Link for this computer',
+    expired: 'The sign-in code expired. Click “Sign in another device” for a new one.',
+    install: 'Need Tailscale on your phone?',
+    setup:
+      'Scan the download code with the phone camera, or open the download page on this computer. Install Tailscale on both devices, sign in to the same Tailscale account and allow the VPN connection on the phone.',
+    download: 'Open the official Tailscale download page',
+    ready: 'Once the phone is connected to Tailscale, use the button below to create a one-time sign-in code.',
+    scan: 'Scan to sign in to Harness Relay',
+    local:
+      'For a phone sign-in QR code, choose Share with your phone in the desktop app, or, with npm start, enable Tailscale Serve and add the shared hostname to RELAY_ALLOWED_HOSTS. You can also enter the code below on the phone’s sign-in page.',
     title: 'Signed-in browsers',
     hint: 'The browsers that can drive Harness Relay, the latest used first. Sign out the ones you no longer use.',
     current: 'this browser',
@@ -1276,8 +1328,7 @@ export const en: Messages = {
     confirmCurrent: 'Sign this browser out? It will need a new code to sign in again.',
     confirm: (label) => `Sign out "${label}"?`,
     add: 'Sign in another device',
-    codeHint: (until) =>
-      `Type this code on the sign-in page of the other device (a phone through Tailscale, say), or open the link below. It works once, until ${until}.`,
+    codeHint: (until) => `Scan the sign-in code or type it on your phone. It works once, until ${until}.`,
     link: 'Link:',
   },
 
@@ -1881,6 +1932,7 @@ export const en: Messages = {
       sessions: 'Agent sessions',
       shares: 'Shares',
       browsers: 'Browsers',
+      'home-screen': 'Home Screen',
       tour: 'Tour',
       agents: 'Agents',
       agentsAt: (name) => `Agents: ${name}`,
@@ -2210,6 +2262,8 @@ export const en: Messages = {
     skip: 'Skip tour',
     done: 'Get started',
     label: 'Guided tour',
+    updated: 'What’s new in Harness Relay',
+    finishUpdate: 'Done',
     steps: [
       {
         title: 'Welcome to Harness Relay',
@@ -2218,6 +2272,15 @@ export const en: Messages = {
       {
         title: 'Check that each agent is ready',
         body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI, sign in, or connect a model backend. One ready assistant is enough to start. To use Harness Relay on your phone, get a code under Signed-in browsers.',
+      },
+      {
+        title: 'Connect your phone',
+        body: 'Use your phone to send tasks, approve requests and download results. Your computer runs the agents.',
+        points: [
+          'On your computer, choose Connect your phone above Settings in the sidebar. With the sidebar collapsed, look at the top right of Home.',
+          'New to Tailscale? Scan its download code and sign in on both devices. Then scan the separate, single-use Harness Relay code.',
+          'Phone connected means a phone has the page open. A locked phone stays paired. If a send loses its response, retry the same draft in the same tab.',
+        ],
       },
       {
         title: 'Open-source agents and model backends',
@@ -2288,7 +2351,7 @@ export const en: Messages = {
         points: [
           'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
           'Play a sound: two notes when a reply is done, three when you are needed',
-          'On a phone, open the https:// address (through Tailscale) and turn them on there (on an iPhone or iPad, from the home screen): push notifications reach it even with the app closed or the phone locked, while Harness Relay runs on the computer',
+          'On your phone, open Settings → Home Screen for the iPhone or Android illustrated guide. On iPhone, launch the Home Screen icon before enabling Lock Screen notifications',
           'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
         ],
       },

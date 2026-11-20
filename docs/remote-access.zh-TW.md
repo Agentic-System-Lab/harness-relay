@@ -22,9 +22,17 @@ flowchart LR
 - **那台電腦和手機都裝好 Tailscale**，並登入同一個 tailnet（iOS 與 Android 用 Tailscale App）。Mac 上如果沒有 `tailscale` 指令，到 Tailscale App 的設定裡安裝（CLI integration）。
 - **MagicDNS 與 HTTPS 憑證**：在 Tailscale 管理後台的 **DNS** 頁開啟。HTTPS 還沒開的話，第一次執行 `tailscale serve` 時會印出開啟用的連結。
 
+在電腦的側欄底部點 **連接手機**（收合側欄時，入口在首頁右上角），會直接捲到配對設定。**手機已連線** 代表已有登入的手機正在前景開啟 Harness Relay；鎖屏或斷線後會顯示 **手機已配對**，下次開啟即可繼續使用。
+
+<img src="media/mobile-sidebar-zh-TW.png" alt="電腦側欄的「連接手機」與「設定與登入」入口" width="267">
+
 ## 用桌面 app
 
-用[桌面 app](user-guide.zh-TW.md#桌面-app) 的話，它的選單會幫你完成第 1、2 步。選 **分享到手機（Tailscale）…**：它會執行 `tailscale serve --bg 8787`，讓伺服器接受你電腦的 tailnet 名稱，並顯示手機要打開的網址。之後在選單選 **複製手機網址** 就能複製它。接著從[第 3 步](#3-用手機打開)繼續。
+在桌面 App 選單選 **分享到手機（Tailscale）…**。電腦尚未安裝時，可以直接開啟官方下載頁。安裝並登入後，回到對話框按 **檢查連線**。App 設好私有 HTTPS 分享後，會在電腦的瀏覽器打開 **已登入的瀏覽器**。
+
+1. 如果手機還沒安裝，展開 **手機還沒安裝 Tailscale？**，用手機相機掃描下載碼。安裝後用跟電腦相同的帳號登入，允許 VPN 連線。這個下載碼隨時可掃。
+2. 手機連上 Tailscale 後，在電腦按 **讓另一個裝置登入**，再用手機相機掃描新的登入 QR code。它包含這台電腦的實際分享網址與一次性代碼，十分鐘內有效，在電腦上產生。手機已有 Tailscale 時可直接從這一步開始。過期時再按一次按鈕。
+3. 想收到鎖屏通知，請依[加入主畫面](#4-加到主畫面)的步驟開啟通知並傳送測試。
 
 - **第一次**分享時，如果你的 tailnet 還沒開啟 Serve 或 HTTPS，app 會在瀏覽器打開 Tailscale 的對應頁面。在那裡允許之後，再選一次 **分享到手機**。
 - **在 Linux 上**，如果 Tailscale 不允許你的帳號修改設定，app 會顯示要執行一次的指令：`sudo tailscale set --operator=$USER`。
@@ -85,9 +93,15 @@ npm start
 - **對話會繼續跑**：手機鎖定或關掉頁面時，對話仍在電腦上進行。回來後頁面會重新連線並補上進度。
 - **語音輸入**：瀏覽器詢問時，允許使用麥克風。錄音會送到那台電腦轉成文字，不會傳到其他地方。
 
+用 `npm start` 時，完成步驟 1、2 後，也可以直接在電腦的本機設定產生手機 QR code。伺服器會找出 Tailscale 正在分享的網址與連接埠。若傳送任務後斷線，請在同一個分頁以相同內容再次送出。電腦會辨認這次重試。從通知或鎖屏回到對話後，核准按鈕會等電腦傳來最新狀態才開放。
+
 ## 4. 加到主畫面
 
 把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就能打開聊天室。手機的 Tailscale 必須開著、而且連得到那台電腦，圖示才能用。
+
+在 Harness Relay 開啟 **設定 → 主畫面圖解**，切換 iPhone 或 Android 即可看到該點的位置。[Apple 的 iPhone 使用手冊](https://support.apple.com/zh-tw/guide/iphone/iphea86e5236/ios) · [Google 的 Android 操作說明](https://support.google.com/chrome/answer/9658361?hl=zh-Hant&co=GENIE.Platform%3DAndroid)。
+
+<img src="media/mobile-home-screen-zh-TW.png" alt="手機上的 iPhone 主畫面圖解與鎖屏通知說明" width="320">
 
 ### iPhone 與 iPad（Safari）
 
@@ -108,6 +122,10 @@ npm start
 ### 手機上的通知
 
 想把手機放在口袋裡也知道 agent 回覆完或需要你，就在手機上打開 **設定與登入 → 通知與提示音**（iPhone 與 iPad 要在主畫面的圖示裡打開：Safari 自己的分頁收不到通知），開啟 **顯示系統通知**。之後只要電腦在執行 Harness Relay、而且連得上網路，手機就會收到推播通知，即使 Harness Relay 沒開著、手機鎖定了也會。收通知不需要手機開著 Tailscale，打開對話才需要。詳見[通知與提示音](user-guide.zh-TW.md#通知與提示音)。
+
+### 在手機上驗收一次
+
+在 iPhone（主畫面 App）和 Android（Chrome）各試一次。送一個會請求核准並產生檔案的任務，鎖定手機，等「需要你」通知。點通知開啟對話，確認請求、核准，下載並打開產出的檔案。再試一次，在電腦端先處理核准後才點手機通知，應看到已處理的結果。傳送時從 Wi-Fi 切換到行動網路，若介面提示尚未確認送達，以相同內容重試，對話只應有一則任務。電腦睡眠時手機會等待重新連線，喚醒電腦後再確認最新進度。
 
 ## 5. 也瀏覽 AgentsView（選用）
 

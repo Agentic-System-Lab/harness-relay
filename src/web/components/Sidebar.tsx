@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -16,7 +16,7 @@ import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
 import { InboxButton } from './InboxButton';
-import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, StarIcon, ZapIcon } from './icons';
+import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, SettingsIcon, StarIcon, ZapIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
@@ -26,6 +26,7 @@ const ReportDialog = lazyPart(() => import('./ReportDialog').then((m) => m.Repor
 const StarDialog = lazyPart(() => import('./StarDialog').then((m) => m.StarDialog));
 
 interface Props {
+  phoneLink: ReactNode;
   route: Route;
   conversations: ConversationSummary[];
   groups: ConversationGroup[];
@@ -52,6 +53,7 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
 }
 
 export function Sidebar({
+  phoneLink,
   route,
   conversations,
   groups,
@@ -210,10 +212,12 @@ export function Sidebar({
             </div>
           );
         })()}
+        {phoneLink}
         {/* Star on GitHub and Report a problem: icons only, at the row's end, so Settings keeps the row. */}
         <div className="sidebar-bottom-row">
           <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
-            ⚙ {t.sidebar.settings}
+            <SettingsIcon size={18} />
+            <span>{t.sidebar.settings}</span>
           </a>
           <button
             type="button"

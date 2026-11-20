@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'node:fs';
 import { posix } from 'node:path';
-import { capture, type SpawnResult } from '../../src/server/process';
+import { capture, type SpawnResult } from './process';
 
 /** The tailscale command: on PATH, or where the Tailscale apps put it. */
 export function findTailscale(
@@ -55,7 +55,7 @@ function proxiesTo(target: string, port: number): boolean {
 }
 
 interface ServeConfig {
-  TCP?: Record<string, { HTTPS?: boolean; TCPForward?: string }>;
+  TCP?: Record<string, { HTTPS?: boolean; HTTP?: boolean; TCPForward?: string }>;
   Web?: Record<string, { Handlers?: Record<string, { Proxy?: string; Path?: string; Text?: string }> }>;
   /** `<name>:<port>` published to the internet (Funnel). */
   AllowFunnel?: Record<string, boolean>;
@@ -75,7 +75,11 @@ function serveConfig(json: string): ServeConfig | undefined {
  * the port is not shared. The configuration lists each `<name>:<https port>` with its handlers.
  */
 export function servedUrl(json: string, port: number): string | undefined {
-  for (const [hostPort, web] of Object.entries(serveConfig(json)?.Web ?? {})) {
+  const config = serveConfig(json);
+  for (const [hostPort, web] of Object.entries(config?.Web ?? {})) {
+    const listener = config?.TCP?.[hostPort.split(':').at(-1)!];
+    if (listener?.HTTP || listener?.TCPForward || config?.AllowFunnel?.[hostPort]) continue;
+    if (Object.keys(web?.Handlers ?? {}).some((path) => path !== '/')) continue;
     const root = web?.Handlers?.['/'];
     if (!root?.Proxy || !proxiesTo(root.Proxy, port)) continue;
     const host = hostPort.replace(/:443$/, '').toLowerCase();
@@ -88,19 +92,18 @@ export function servedUrl(json: string, port: number): string | undefined {
 export const HTTPS_PORTS = [443, 8443, 10000] as const;
 
 /**
- * Where to share `port` without taking over what the computer already shares: the first HTTPS port
- * whose `/` nothing else uses, and that is not published to the internet (Funnel: sharing it again
- * for the tailnet only would turn Funnel off for it). Undefined when they are all taken (the user
- * then shares by hand).
+ * Pick a private HTTPS port where Relay can be the only handler. Leave existing HTTP listeners,
+ * TCP forwards, other web handlers and Funnel ports alone. Return undefined if every port is taken.
  */
 export function freeHttpsPort(json: string, port: number): number | undefined {
   const config = serveConfig(json) ?? {};
   return HTTPS_PORTS.find((https) => {
     const tcp = config.TCP?.[String(https)];
-    if (tcp?.TCPForward) return false; // the whole port goes elsewhere
+    if (tcp?.HTTP || tcp?.TCPForward) return false; // the whole port goes elsewhere
     if (Object.entries(config.AllowFunnel ?? {}).some(([hostPort, on]) => on && hostPort.endsWith(`:${https}`))) return false;
     for (const [hostPort, web] of Object.entries(config.Web ?? {})) {
       if (!hostPort.endsWith(`:${https}`)) continue;
+      if (Object.keys(web?.Handlers ?? {}).some((path) => path !== '/')) return false;
       const root = web?.Handlers?.['/'];
       if (root && !(root.Proxy && proxiesTo(root.Proxy, port))) return false;
     }

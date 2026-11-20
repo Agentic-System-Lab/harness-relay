@@ -66,7 +66,9 @@ import { SandboxSetupCard } from './SandboxSetup';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { UsagePanel } from './UsagePanel';
 import { SectionTitle } from './SectionTitle';
+import type { BrowserSessions } from '../browserSessions';
 import { BrowsersCard } from './BrowsersSettings';
+import { HomeScreenGuide } from './HomeScreenGuide';
 import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
 import { ToolsCard } from './ToolsSettings';
@@ -76,6 +78,7 @@ import { CheckIcon, ChevronIcon } from './icons';
 import { LogoSpinner } from './Logo';
 
 interface Props {
+  browsers: BrowserSessions;
   /** The card to scroll to (#/settings/<section>). */
   section?: SettingsSection;
   settingsReturn?: SettingsReturn;
@@ -117,6 +120,7 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = {
 };
 
 export function SettingsPage({
+  browsers,
   section,
   settingsReturn,
   providers,
@@ -147,13 +151,32 @@ export function SettingsPage({
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error?: boolean }>({ text: '' });
 
-  // A link such as #/settings/tools: scroll to that card once the cards above it have their content
-  // (not again when a save brings new settings).
+  // Account and CLI cards above a deep link fill in asynchronously. Keep the target in place
+  // as its offset changes, until the reader takes over scrolling or follows a different link.
   const loaded = settings !== null;
   useEffect(() => {
     if (!section || !loaded) return;
-    const id = window.setTimeout(() => scrollToSection(section), 150);
-    return () => window.clearTimeout(id);
+    const card = document.getElementById(sectionId(section));
+    const layout = card?.closest('.page-inner');
+    if (!card || !layout) return;
+    let previous: number | undefined;
+    const align = () => {
+      const offset = Math.round(card.getBoundingClientRect().top - layout.getBoundingClientRect().top);
+      if (offset === previous) return;
+      previous = offset;
+      card.scrollIntoView({ block: 'start', behavior: 'instant' });
+    };
+    align();
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(align);
+    const gestures = ['pointerdown', 'touchstart', 'wheel', 'keydown'] as const;
+    const stop = () => {
+      watch.disconnect();
+      for (const event of gestures) window.removeEventListener(event, stop, true);
+    };
+    watch.observe(layout);
+    for (const event of gestures) window.addEventListener(event, stop, { capture: true, passive: true });
+    return stop;
   }, [section, loaded]);
 
   useEffect(() => {
@@ -343,7 +366,8 @@ export function SettingsPage({
 
         <SharesCard />
 
-        <BrowsersCard />
+        <BrowsersCard browsers={browsers} />
+        <HomeScreenGuide />
 
         <section className="card" id={sectionId('tour')}>
           <SectionTitle section="tour">{t.settings.tour}</SectionTitle>

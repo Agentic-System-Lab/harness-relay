@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
-import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
+import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
@@ -95,7 +95,7 @@ import {
 } from './share';
 import { parseScreenshots, uploadScreenshots } from './screenshots';
 import { Updates } from './updates';
-import type { Store } from './store';
+import type { Store, TaskRequest } from './store';
 import {
   ensureFolder,
   expandPath,
@@ -169,6 +169,8 @@ export interface AppDeps {
    * pointed at the app's menu (which opens a new sign-in link) instead of the link printed at start.
    */
   desktopApp?: boolean;
+  /** Current private HTTPS endpoint for the listening port, from Tailscale Serve. */
+  phoneAddress?: () => string | undefined | Promise<string | undefined>;
   /** This Harness Relay's version, for a problem report (`about.ts`; a fake in tests). */
   version?: () => Promise<string>;
   /** Opens this computer's own folder dialog for the working directory box (a fake in tests). */
@@ -300,6 +302,7 @@ export function createApp({
   agentsView,
   extraHosts = [],
   desktopApp = false,
+  phoneAddress,
   version = relayVersion,
   folderPicker = systemFolderPicker(),
   gists = {
@@ -403,13 +406,15 @@ export function createApp({
 
   // --- Signing in ---------------------------------------------------------------------
 
-  app.get('/api/auth', (c) =>
-    c.json({
-      signedIn: !auth || Boolean(auth.check(getCookie(c, SESSION_COOKIE), c.req.header(AUTH_KEY_HEADER))),
-      // The sign-in page then says where a desktop app's user gets a link.
-      ...(desktopApp ? { desktop: true } : {}),
-    }),
-  );
+  const deviceLabel = (c: Context) => browserLabel(c.req.header('user-agent'), c.req.header('X-Relay-iPad') === '1');
+  app.get('/api/auth', (c) => {
+    const session = auth?.check(getCookie(c, SESSION_COOKIE), c.req.header(AUTH_KEY_HEADER));
+    if (session && c.req.header('X-Relay-iPad') === '1') {
+      const label = deviceLabel(c);
+      if (mobileBrowserLabel(label)) auth?.noteIpad(session, label);
+    }
+    return c.json({ signedIn: !auth || Boolean(session), ...(desktopApp ? { desktop: true } : {}) });
+  });
 
   app.post('/api/auth/login', async (c) => {
     if (!auth) throw new HttpError(404, 'Signing in is off');
@@ -419,7 +424,7 @@ export function createApp({
     if (auth.tooManyFailures()) throw new HttpError(429, t().signInTooMany);
     // A browser signed in already (a sign-in link opened in it again): its new session replaces that one.
     const previous = auth.check(getCookie(c, SESSION_COOKIE), null);
-    const signedIn = typeof code === 'string' ? auth.redeem(code, browserLabel(c.req.header('user-agent'))) : undefined;
+    const signedIn = typeof code === 'string' ? auth.redeem(code, deviceLabel(c)) : undefined;
     if (!signedIn) throw new HttpError(400, t().signInWrongCode);
     if (previous) auth.revoke(previous);
     // HttpOnly: no page script reads it. Strict: no other site's request carries it.
@@ -428,12 +433,21 @@ export function createApp({
   });
 
   /** A code for another device (a phone), from a browser that is signed in. */
-  app.post('/api/auth/codes', (c) => {
+  app.post('/api/auth/codes', async (c) => {
     if (!auth) throw new HttpError(404, 'Signing in is off');
-    return c.json(auth.createCode(CODE_TTL_MS.device));
+    const url = await phoneAddress?.();
+    const origin =
+      url && /^https:\/\/[a-z0-9.-]+\.ts\.net(?::\d{1,5})?$/i.test(url) && hostAllowed(url.slice('https://'.length)) ? url : undefined;
+    return c.json({ ...auth.createCode(CODE_TTL_MS.device), ...(origin ? { phoneUrl: origin } : {}) });
   });
 
-  app.get('/api/auth/sessions', (c) => c.json(auth ? auth.sessions(sessions.get(c.req.raw)) : []));
+  app.get('/api/auth/sessions', (c) => {
+    const browsers = auth?.sessions(sessions.get(c.req.raw)) ?? [];
+    for (const browser of browsers) {
+      if (mobileBrowserLabel(browser.label)) browser.phone = alerts?.inFront(browser.id) ? 'online' : 'paired';
+    }
+    return c.json(browsers);
+  });
 
   /** Signs a browser out (this one too: its cookie goes as well). */
   app.delete('/api/auth/sessions/:id', (c) => {
@@ -1322,43 +1336,87 @@ export function createApp({
     }
   });
 
+  // Concurrent deliveries of one request wait for its first response. After a restart the
+  // receipt lives with the message (or queue entry), including its original queued result.
+  const submitting = new Map<string, { digest: string; done: Promise<unknown> }>();
+  async function submitTask<T>(
+    scope: string,
+    id: unknown,
+    payload: unknown,
+    perform: (request?: TaskRequest, receipt?: ReturnType<Store['taskReceipt']>) => Promise<T>,
+  ): Promise<T> {
+    if (id === undefined) return perform();
+    if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new HttpError(400, t().invalidField('requestId'));
+    const digest = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+    const request = { scope, id, digest };
+    const key = scope + '/' + id;
+    const waiting = submitting.get(key);
+    if (waiting) {
+      if (waiting.digest !== digest) throw new HttpError(409, t().invalidField('requestId'));
+      // The route is part of the key, so these two responses have the same type.
+      return (await waiting.done) as T;
+    }
+    const receipt = store.taskReceipt(request);
+    if (receipt && receipt.digest !== digest) {
+      throw new HttpError(409, t().invalidField('requestId'));
+    }
+    const done = perform(request, receipt);
+    submitting.set(key, { digest, done });
+    try {
+      return await done;
+    } finally {
+      submitting.delete(key);
+    }
+  }
+
   /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
-  async function newConversation(conv: Conversation, firstMessage?: string): Promise<void> {
-    store.create(conv);
+  async function newConversation(conv: Conversation, firstMessage?: string, request?: TaskRequest, resume = false): Promise<void> {
+    if (!resume) store.create(conv, request);
     // Agents that may write need a git repository; set it up now so problems surface immediately.
     try {
       // Sending the first question prepares the same workspace as opening an empty chat.
-      if (firstMessage) await orchestrator.send(conv.id, firstMessage);
-      else await orchestrator.prepareWorkspace(conv);
+      if (firstMessage) await orchestrator.send(conv.id, firstMessage, undefined, false, request);
+      else {
+        await orchestrator.prepareWorkspace(conv);
+        if (request) store.recordTask(request, conv.id, false);
+      }
     } catch (err) {
-      store.delete(conv.id);
+      if (!resume && (!request || store.taskReceipt(request)?.queued == null)) store.delete(conv.id);
       throw err;
     }
   }
 
   app.post('/api/conversations', async (c) => {
-    const b = await body<Partial<Conversation> & { createCwd?: unknown; firstMessage?: unknown }>(c);
+    const { requestId, ...b } = await body<Partial<Conversation> & { requestId?: unknown; createCwd?: unknown; firstMessage?: unknown }>(c);
     if (b.firstMessage !== undefined && typeof b.firstMessage !== 'string') throw new HttpError(400, t().invalidField('firstMessage'));
     const firstMessage = b.firstMessage?.trim();
-    const now = Date.now();
-    // Auto team: the lead agent designs the team for each question, starting with the first.
-    // The agents first: creating a missing working directory is a side effect.
-    const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents, limits.maxTeamAgents);
-    refuseRelayFolderFirst(b.settings, defaultCwds());
-    const s = validateSettings(b.settings, defaultCwds(), b.createCwd === true);
-    const conv: Conversation = {
-      id: randomUUID(),
-      title: String(b.title ?? '').trim() || t().defaultTitle,
-      createdAt: now,
-      updatedAt: now,
-      agents,
-      settings: s,
-      messages: [],
-      agentState: {},
-      worktrees: {},
-    };
-    await newConversation(conv, firstMessage);
-    return c.json(forClient(conv));
+    const created = await submitTask('new', requestId, { ...b, createCwd: undefined }, async (request, receipt) => {
+      if (receipt) {
+        const previous = getConv(receipt.conversationId);
+        if (receipt.queued === null) await newConversation(previous, firstMessage, request, true);
+        return previous;
+      }
+      const now = Date.now();
+      // Auto team: the lead agent designs the team for each question, starting with the first.
+      // The agents first: creating a missing working directory is a side effect.
+      const agents = b.settings?.autoTeam === true ? [] : validateAgents(b.agents, limits.maxTeamAgents);
+      refuseRelayFolderFirst(b.settings, defaultCwds());
+      const s = validateSettings(b.settings, defaultCwds(), b.createCwd === true);
+      const conv: Conversation = {
+        id: randomUUID(),
+        title: String(b.title ?? '').trim() || t().defaultTitle,
+        createdAt: now,
+        updatedAt: now,
+        agents,
+        settings: s,
+        messages: [],
+        agentState: {},
+        worktrees: {},
+      };
+      await newConversation(conv, firstMessage, request);
+      return conv;
+    });
+    return c.json(forClient(created));
   });
 
   // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
@@ -1791,8 +1849,14 @@ export function createApp({
   // Send a message. While the team replies it waits in the queue for the next turn ({ queued: true });
   // `interrupt` stops the team first and sends it now.
   app.post('/api/conversations/:id/messages', async (c) => {
-    const b = await body<{ text?: string; attachments?: AttachmentUpload[]; interrupt?: boolean }>(c);
-    const { queued } = await orchestrator.send(c.req.param('id'), String(b.text ?? ''), b.attachments, b.interrupt === true);
+    const { requestId, ...b } = await body<{ text?: string; attachments?: AttachmentUpload[]; interrupt?: boolean; requestId?: unknown }>(
+      c,
+    );
+    const id = c.req.param('id');
+    const { queued } = await submitTask('send/' + id, requestId, b, async (request, receipt) => {
+      if (receipt) return { queued: Boolean(receipt.queued) };
+      return orchestrator.send(id, String(b.text ?? ''), b.attachments, b.interrupt === true, request);
+    });
     return c.json({ ok: true, queued }, 202);
   });
 

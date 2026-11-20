@@ -136,12 +136,65 @@ describe('creating a chat with its first question', () => {
     const send = vi.spyOn(orchestrator, 'send').mockRejectedValueOnce(new HttpError(409, 'busy'));
     try {
       expect((await create('  My first task  ')).status).toBe(409);
-      expect(send).toHaveBeenCalledWith(expect.any(String), 'My first task');
+      expect(send).toHaveBeenCalledWith(expect.any(String), 'My first task', undefined, false, undefined);
       expect(await (await get('/api/conversations')).json()).toEqual([]);
       expect((await create('  ')).status).toBe(200);
       expect(send).toHaveBeenCalledTimes(1);
     } finally {
       send.mockRestore();
+    }
+  });
+});
+
+describe('retrying a task after losing the HTTP response', () => {
+  it('retries a refused send and replays the original result once it starts', async () => {
+    const conv = await createConversation();
+    const path = '/api/conversations/' + conv.id + '/messages';
+    const post = (requestId: string) => app.request(path, json('POST', { requestId, text: 'Run the task' }));
+    expect((await post('invalid')).status).toBe(400);
+    const requestId = 'b'.repeat(32);
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockRejectedValueOnce(new HttpError(409, 'busy'));
+    try {
+      expect((await post(requestId)).status).toBe(409);
+      const [one, two] = await Promise.all([post(requestId), post(requestId)]);
+      for (const response of [one, two, await post(requestId)]) expect(await response.json()).toEqual({ ok: true, queued: false });
+      expect(store.get(conv.id)?.messages.filter((m) => m.author.kind === 'user')).toHaveLength(1);
+      expect(store.get(conv.id)?.queue ?? []).toEqual([]);
+    } finally {
+      prepare.mockRestore();
+      orchestrator.stop(conv.id);
+    }
+  });
+
+  it('creates one chat with its first task and queues one copy of a retried follow-up', async () => {
+    const requestId = 'a'.repeat(32);
+    const body = {
+      requestId,
+      firstMessage: 'First task',
+      agents: [{ name: 'Alice', provider: 'claude' }],
+      settings: { cwd: project, permission: 'read-only' },
+    };
+    const create = () => app.request('/api/conversations', json('POST', body));
+    const [one, two] = await Promise.all([create(), create()]);
+    expect([one.status, two.status]).toEqual([200, 200]);
+    const first = (await one.json()) as Conversation;
+    expect(((await two.json()) as Conversation).id).toBe(first.id);
+    const path = '/api/conversations/' + first.id + '/messages';
+    const send = (text: string) => app.request(path, json('POST', { requestId, text }));
+    try {
+      const replies = await Promise.all([send('Again'), send('Again')]);
+      for (const r of replies) expect(await r.json()).toEqual({ ok: true, queued: true });
+      expect(store.get(first.id)?.queue).toHaveLength(1);
+      expect(store.get(first.id)?.messages.filter((m) => m.author.kind === 'user')).toHaveLength(1);
+      expect((await send('Different')).status).toBe(409);
+      const queued = store.get(first.id)!.queue![0]!;
+      orchestrator.withdraw(first.id, queued.id);
+      expect(await (await send('Again')).json()).toEqual({ ok: true, queued: true });
+      expect(store.get(first.id)?.queue).toHaveLength(0);
+      expect((await create()).status).toBe(200);
+      expect(await (await get('/api/conversations')).json()).toHaveLength(1);
+    } finally {
+      orchestrator.stop(first.id);
     }
   });
 });

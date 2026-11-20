@@ -80,6 +80,26 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toHaveCount(0);
   });
 
+  test('a returning browser sees only the changed steps, and can still replay the full tour', async ({ page }) => {
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    await page.evaluate(() => localStorage.setItem('relay:onboarded', '21'));
+    await page.reload();
+    const update = page.getByRole('dialog');
+    await expect(update).toHaveAccessibleName('Connect your phone');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 2');
+    await expect(update.locator('.tour-art')).toHaveCount(0);
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Notifications and sound');
+    await update.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.reload();
+    await appShown(page);
+    await expect(update).toHaveCount(0);
+    await page.goto('#/settings/tour');
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await expect(update).toHaveAccessibleName('Welcome to Harness Relay');
+    expect(await tourSteps(page)).toBe(en.tour.steps.length);
+  });
+
   test('can be skipped, and Settings starts it again', async ({ page }) => {
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
     await tour(page).getByRole('button', { name: 'Skip tour' }).click();

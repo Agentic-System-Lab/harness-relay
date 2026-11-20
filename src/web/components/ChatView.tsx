@@ -13,7 +13,7 @@ import {
   type ProviderStatus,
   type ServerEvent,
 } from '../../shared/types';
-import { api, orCreateCwd, type AttachmentUpload } from '../api';
+import { api, ApiError, orCreateCwd, type AttachmentUpload } from '../api';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
 import {
@@ -113,7 +113,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [] });
   const [error, setError] = useState('');
-  const [connected, setConnected] = useState(true);
+  const [connected, setConnected] = useState(false);
   /** The conversation is gone (deleted): stop reconnecting. */
   const [gone, setGone] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
@@ -219,19 +219,26 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     let timer: number | undefined;
     let closed = false;
     const connect = () => {
+      if (closed) return;
+      es?.close();
+      window.clearTimeout(timer);
+      timer = undefined;
+      setConnected(false);
       const source = new EventSource(api.eventsUrl(id));
       es = source;
       source.onmessage = (ev) => {
+        if (closed || source !== es) return;
         const e = JSON.parse(ev.data) as ServerEvent;
+        if (e.type === 'snapshot') setConnected(true);
         dispatch(e);
         if (e.type === 'status' || e.type === 'conversation') onChangedRef.current();
       };
       source.onopen = () => {
-        setConnected(true);
         // Connected again after a restart, the server may have other limits (Restart server…).
         refreshLimits();
       };
       source.onerror = () => {
+        if (closed || source !== es) return;
         setConnected(false);
         // Only a 404 means the conversation is gone; anything else (e.g. the server restarting) is retried.
         const decide = (err: unknown) => {
@@ -239,6 +246,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           const next = afterStreamError(err, source.readyState === EventSource.CLOSED);
           if (next === 'stop') {
             source.close();
+            closed = true;
             setGone(true);
             setError((err as Error).message);
           } else if (next === 'reconnect' && timer === undefined) {
@@ -251,8 +259,31 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         api.getConversation(id).then(() => decide(undefined), decide);
       };
     };
+    const visibility = () => {
+      if (document.visibilityState === 'visible') connect();
+      else setConnected(false);
+    };
+    const offline = () => {
+      es.close();
+      window.clearTimeout(timer);
+      timer = undefined;
+      setConnected(false);
+    };
+    const restored = (event: PageTransitionEvent) => {
+      if (event.persisted) connect();
+    };
     connect();
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('online', connect);
+    window.addEventListener('offline', offline);
+    window.addEventListener('pageshow', restored);
+    window.addEventListener('relay:refresh-chat', connect);
     return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('online', connect);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('pageshow', restored);
+      window.removeEventListener('relay:refresh-chat', connect);
       closed = true;
       window.clearTimeout(timer);
       es.close();
@@ -458,6 +489,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     try {
       await api.answerApproval(c.id, approvalId, answer);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        window.dispatchEvent(new Event('relay:refresh-chat'));
+        return;
+      }
       setError((e as Error).message);
     }
   }, []);
@@ -754,7 +789,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 scheduleText={m.plan ? conv.schedule?.text : undefined}
                 onSavePlan={onSavePlan}
                 onAdjustTeam={onAdjustTeam}
-                onApproval={onApproval}
+                onApproval={connected ? onApproval : undefined}
                 onRetry={onRetry}
                 waitingAnswer={askIds.has(m.id)}
                 onSkipQuestion={onSkipQuestion}

@@ -152,7 +152,9 @@ export class AuthStore {
 
   /** The signed-in browsers, the latest used first; `current` marks the one asking. */
   sessions(current?: string): AuthSessionView[] {
-    const rows = this.db.prepare('SELECT * FROM auth_sessions ORDER BY last_used_at DESC').all() as unknown as SessionRow[];
+    const rows = this.db
+      .prepare('SELECT * FROM auth_sessions WHERE created_at > ? ORDER BY last_used_at DESC')
+      .all(this.now() - SESSION_MAX_AGE_S * 1000) as unknown as SessionRow[];
     return rows.map((r) => ({
       id: r.id,
       label: r.label ?? '',
@@ -160,6 +162,11 @@ export class AuthStore {
       lastUsedAt: r.last_used_at,
       current: r.id === current,
     }));
+  }
+
+  /** Correct an existing iPadOS session whose desktop browser originally identified itself as a Mac. */
+  noteIpad(id: string, label: string): void {
+    this.db.prepare("UPDATE auth_sessions SET label = ? WHERE id = ? AND (label = 'macOS' OR label LIKE '% · macOS')").run(label, id);
   }
 
   /** Signs a browser out. False when there was no such session. */

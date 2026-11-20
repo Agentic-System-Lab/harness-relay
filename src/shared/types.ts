@@ -846,6 +846,8 @@ export interface ShareLink {
 /** A browser signed in to Harness Relay (Settings → Signed-in browsers). */
 export interface AuthSessionView {
   id: string;
+  /** A mobile browser that is still signed in, and whether it has a page in front. */
+  phone?: 'paired' | 'online';
   /** Its browser and system, from its User-Agent when it signed in ("Chrome · macOS"). */
   label: string;
   createdAt: number;

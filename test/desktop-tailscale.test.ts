@@ -11,7 +11,7 @@ import {
   sharePlan,
   Tailscale,
   tailscaleLink,
-} from '../desktop/src/tailscale';
+} from '../src/server/tailscale';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-tailscale-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -63,6 +63,23 @@ describe('the shared address', () => {
 
   it('is the HTTPS name when the port is shared on 443', () => {
     expect(servedUrl(config('my-mac.tail1234.ts.net:443', 'http://127.0.0.1:8787'), 8787)).toBe('https://my-mac.tail1234.ts.net');
+  });
+
+  it('does not use a public Funnel as the private pairing address', () => {
+    const host = 'computer.tail1234.ts.net:443';
+    const status = { ...JSON.parse(config(host, 'http://127.0.0.1:8787')), AllowFunnel: { [host]: true } };
+    expect(servedUrl(JSON.stringify(status), 8787)).toBeUndefined();
+    expect(sharePlan(JSON.stringify(status), 8787)).toEqual({ kind: 'share', https: 8443 });
+  });
+
+  it('skips an HTTP listener for pairing and leaves its port alone', () => {
+    const status = JSON.parse(config('pc.example.ts.net:443', 'http://127.0.0.1:8787'));
+    status.TCP['443'] = { HTTP: true };
+    expect(servedUrl(JSON.stringify(status), 8787)).toBeUndefined();
+    expect(sharePlan(JSON.stringify(status), 8787)).toEqual({ kind: 'share', https: 8443 });
+    status.TCP['8443'] = { HTTPS: true };
+    status.Web['pc.example.ts.net:8443'] = status.Web['pc.example.ts.net:443'];
+    expect(servedUrl(JSON.stringify(status), 8787)).toBe('https://pc.example.ts.net:8443');
   });
 
   it('keeps another HTTPS port, and accepts localhost as the target', () => {
@@ -170,7 +187,11 @@ describe('where to share without taking over what is shared', () => {
 
   it('leaves a port alone when only another path is shared there', () => {
     const other = JSON.stringify({ Web: { 'my-mac.ts.net:443': { Handlers: { '/grafana': { Proxy: 'http://127.0.0.1:3000' } } } } });
-    expect(freeHttpsPort(other, 8787)).toBe(443);
+    expect(freeHttpsPort(other, 8787)).toBe(8443);
+    const conflict = JSON.parse(other);
+    conflict.Web['my-mac.ts.net:443'].Handlers = { '/': { Proxy: 'http://127.0.0.1:8787' }, '/api': { Proxy: 'http://127.0.0.1:3000' } };
+    expect(servedUrl(JSON.stringify(conflict), 8787)).toBeUndefined();
+    expect(sharePlan(JSON.stringify(conflict), 8787)).toEqual({ kind: 'share', https: 8443 });
   });
 
   it('is undefined when every usual port is taken', () => {

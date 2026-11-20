@@ -299,6 +299,13 @@ export const PUSH_RESYNC_MS = 10 * 60_000;
 /** Whether this browser gets push notifications now. */
 export const pushActive = () => push.active;
 
+export function fromHomeScreen(): boolean {
+  return (
+    (globalThis.navigator as (Navigator & { standalone?: boolean }) | undefined)?.standalone === true ||
+    (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches)
+  );
+}
+
 /** What this browser can do (the real one). */
 export function browserSupport(): { support: NotifySupport; push: boolean } {
   const nav = globalThis.navigator as (Navigator & { standalone?: boolean }) | undefined;
@@ -309,7 +316,7 @@ export function browserSupport(): { support: NotifySupport; push: boolean } {
     hasNotification: typeof globalThis.Notification === 'function',
     hasServiceWorker: Boolean(nav && 'serviceWorker' in nav),
     hasPushManager: typeof (globalThis as { PushManager?: unknown }).PushManager === 'function',
-    standalone: nav?.standalone === true || (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches),
+    standalone: fromHomeScreen(),
   });
 }
 
@@ -419,7 +426,10 @@ export async function showNotification(title: string, body: string, tag: string,
 export function openUrl(url: string): void {
   try {
     const u = new URL(url, location.href);
-    if (u.origin === location.origin) location.hash = u.hash;
+    if (u.origin === location.origin) {
+      if (u.hash === location.hash) window.dispatchEvent(new Event('relay:refresh-chat'));
+      else location.hash = u.hash;
+    }
   } catch {
     /* not a link */
   }

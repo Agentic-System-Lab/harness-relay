@@ -1,36 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useT, type Messages } from '../i18n';
-import { markDone } from '../tour';
+import { markDone, TOUR_STEPS, tourIndices } from '../tour';
 import { TourArt } from './TourArt';
-
-export { TOUR_VERSION, onboardingDone, tourSeen } from '../tour';
-
-/**
- * Element each step points at (`data-tour`), by the index of the step in `t.tour.steps`; none = a centred card.
- * Keep it as long as the steps (`test/tour.test.ts` checks).
- */
-export const TOUR_TARGETS: (string | undefined)[] = [
-  undefined, // welcome
-  'settings', // sign in
-  'settings', // open-source agents and model backends
-  'new-chat', // new chat
-  undefined, // auto team
-  undefined, // modes
-  undefined, // writing a message
-  undefined, // while the team replies
-  undefined, // when the team needs you
-  'settings', // notifications and sound
-  'inbox', // the notification inbox (the bell beside the sidebar's collapse button)
-  undefined, // file permission
-  undefined, // team checks (in Team settings, a chat's header)
-  undefined, // browsing files (the button is in a chat's header)
-  undefined, // sharing a conversation (in a chat's header, and under each reply)
-  'new-schedule', // automations (New automation, beside New chat)
-  'organize', // groups, pins and search
-  'settings', // tool library
-  'settings', // agent sessions and AgentsView
-  'settings', // settings
-];
 
 interface Box {
   top: number;
@@ -111,9 +82,11 @@ function StepText({
 }
 
 /** A step-by-step guide to the main features, shown on the first visit and from Settings. */
-export function Onboarding({ onClose }: { onClose: () => void }) {
+export function Onboarding({ since, onClose }: { since: number; onClose: () => void }) {
   const t = useT();
-  const steps = t.tour.steps;
+  const indices = tourIndices(since);
+  const steps = indices.map((index) => t.tour.steps[index]!);
+  const label = since === 0 ? t.tour.label : t.tour.updated;
   const [i, setI] = useState(0);
   const [box, setBox] = useState<Box | null>(null);
   const [cardHeight, setCardHeight] = useState(240);
@@ -129,6 +102,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [tallest, setTallest] = useState<number>();
   const primary = useRef<HTMLButtonElement>(null);
   const step = steps[i]!;
+  const stepIndex = indices[i]!;
   const last = i === steps.length - 1;
 
   const finish = useCallback(() => {
@@ -138,11 +112,11 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
   // Track the target (layout can change: resizing, the sidebar opening).
   useLayoutEffect(() => {
-    const update = () => setBox(targetBox(TOUR_TARGETS[i]));
+    const update = () => setBox(targetBox(TOUR_STEPS[stepIndex]?.target));
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, [i]);
+  }, [stepIndex]);
 
   useLayoutEffect(() => {
     if (card.current) setCardHeight(card.current.offsetHeight);
@@ -207,7 +181,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       <div ref={measure} className="tour-card tour-measure" aria-hidden inert>
         {steps.map((s, n) => (
           <div key={n} className="tour-body">
-            <StepText step={s} label={t.tour.label} count={'\u00a0'} />
+            <StepText step={s} label={label} count={'\u00a0'} />
           </div>
         ))}
       </div>
@@ -229,9 +203,9 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           // A stop for the keyboard only while the text scrolls.
           {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-title' } : {})}
         >
-          <StepText step={step} label={t.tour.label} count={t.tour.step(i + 1, steps.length)} titleId="tour-title" />
+          <StepText step={step} label={label} count={t.tour.step(i + 1, steps.length)} titleId="tour-title" />
           {/* The welcome step's picture, in the room its short text leaves (not measured: the card keeps its height). */}
-          {i === 0 && <TourArt />}
+          {stepIndex === 0 && <TourArt />}
         </div>
         <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
           <div className="tour-dots" aria-hidden>
@@ -251,7 +225,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
               </button>
             )}
             <button ref={primary} type="button" className="primary small-button" onClick={() => (last ? finish() : setI(i + 1))}>
-              {last ? t.tour.done : t.tour.next}
+              {last ? (since ? t.tour.finishUpdate : t.tour.done) : t.tour.next}
             </button>
           </div>
         </div>

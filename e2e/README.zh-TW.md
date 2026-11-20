@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 39 個 spec 檔、509 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 39 個 spec 檔、513 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -69,11 +69,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
-| [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 9 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
+| [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 10 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](../docs/user-guide.zh-TW.md#通知收件匣)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 13 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 16 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -557,6 +557,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
+| 回訪的瀏覽器 | 更新後只看到有調整的步驟，設定裡仍可重播完整導覽。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -611,6 +612,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 從電腦首頁連接手機 | — | 側欄和收合後的首頁入口可直達配對。手機能切換 Android／iPhone 圖解並開啟通知設定，關閉網頁、登出後電腦端狀態會更新。 |
+| 安裝 Tailscale 後配對 | — | 下載碼與登入碼分開；用帶有 8443 port 的模擬分享位址產生連結，獨立瀏覽器用真實代碼登入一次。 |
+| 遺失送出回應、核准與下載 | Claude Code | 任務送達後切斷回應，重新送出只執行一次。手機斷線時另一個用戶端核准，模擬通知開啟後取得最新結果並下載報告。 |
 | 從選單開啟側邊欄，以觸控使用對話 | Grok | 選單按鈕的三條線（圖示）在按鈕正中央，誤差在十分之一個像素內；按**開啟側邊欄**（Open sidebar）前側邊欄不在畫面上，前往別處時又會收起；送出按鈕會送出（觸控螢幕上 Enter 是換行）；標題列的動作收在**更多**（More）之下。 |
 | 向右滑打開側邊欄、向左滑收起；捲動、在訊息框中或在寬螢幕上滑動不會，寬螢幕會收起它 | Grok | 觸控事件從頁面送到手指底下的元素（Playwright 的觸控螢幕只能點；WebKit 沒有 `Touch` 建構式，所以在那裡和 Playwright 一樣用 `document.createTouch` 建立）：在對話中橫向 60px、往上 150px 的移動，側邊欄維持收起；從對話中間（不是螢幕邊緣）向右滑會打開它；側邊欄完全滑出後在它上面向左滑，以及在它右邊變暗的頁面上向左滑，都會收起它；從訊息框開始向右滑不會打開它；在手機寬度下打開後，螢幕變成 1000px 寬會收起它，在那裡滑動沒有作用，回到手機寬度時它是收起的。 |
 | 快速輕滑會打開側邊欄；慢慢的短距離拖動、被取消的觸控、長按、第二隻手指、對話框或選取的文字不會 | Grok | 向右 40px（不到滑動的 50px）一次送出就是輕滑，會打開側邊欄（向左輕滑會收起），同樣的 40px 被取消（`touchcancel`）則沒有作用，慢慢移動、放開前停 150ms 也沒有；手指停 450ms 才移動（長按），以及滑動中加入第二隻手指，側邊欄都維持收起；選取了訊息的文字時滑動沒有作用，但在訊息框中選取的文字，不論它有沒有焦點（這時 Chromium 仍把它當成選取），都不會擋住滑動；**檔案**開著時在它上面，或在它旁邊變暗的背景上滑動，都沒有作用，關上之後滑動會打開側邊欄。 |

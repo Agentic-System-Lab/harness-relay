@@ -14,7 +14,7 @@ import {
   usePushInfo,
 } from '../alerts';
 import { useT } from '../i18n';
-import { sectionId } from '../route';
+import { sectionId, settingsHref } from '../route';
 import { isAppWindow } from '../update';
 import { SectionTitle } from './SectionTitle';
 
@@ -95,6 +95,11 @@ export function NotificationsCard() {
           <span>{n.notify}</span>
         </label>
         <p className={notifyNote.warn ? 'warn-line small' : 'muted small'}>{notifyNote.text}</p>
+        {support === 'install' && (
+          <a className="small" href={settingsHref('home-screen')}>
+            {t.homeScreen.title}
+          </a>
+        )}
       </div>
 
       <div className="alert-option">

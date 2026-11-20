@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { devices, type Locator, type Page } from '@playwright/test';
 import { SCHEDULE_KINDS } from '../../src/shared/types';
@@ -133,10 +133,144 @@ async function tapSend(page: Page, text: string): Promise<void> {
 const CLIP =
   'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggHQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECPQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYhcf7hST/khzpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBQLqBJJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYhcf7hST/khzmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDEuMDAwMDAwMDAwAB9DtnWs54EAo6eBAACAsAIAnQEqQAAkAABHCIWFiJmEiAICAAaOT8zHm/FYAP7D4AAcU7trkbuPs4EAt4r3gQHxggGf8IED';
 
+test('the desktop home links to pairing and follows a phone opening, closing, and signing out', async ({
+  page,
+  browser,
+  relay,
+  browserName,
+}) => {
+  test.skip(browserName === 'firefox', 'no mobile emulation in Firefox');
+  const home = page.locator('.sidebar-bottom .phone-link');
+  await expect(home).toContainText('Connect your phone');
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await page.locator('.home-phone-corner .phone-link').click();
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+  const card = page.locator('#settings-browsers');
+  await expect(card.getByRole('heading', { name: 'Connect your phone' })).toBeInViewport();
+  const phone = await browser.newContext({ ...devices['Pixel 7'] });
+  try {
+    const tab = await phone.newPage();
+    await tab.addInitScript(() => {
+      localStorage.setItem('relay:onboarded', '999');
+      localStorage.setItem('relay:lang', 'en');
+    });
+    await tab.goto(relay.base + '/#code=' + (await relay.newSignInCode()));
+    await expect(tab.locator('.app main.main')).toBeVisible();
+    await expect(tab.locator('.phone-link')).toHaveCount(0);
+    const guideLink = tab.locator('.home-hero a[href="#/settings/home-screen"]');
+    await guideLink.click();
+    const guide = tab.locator('#settings-home-screen');
+    await expect(guide.getByRole('button', { name: 'Android · Chrome' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(guide.locator('.guide-steps li')).toHaveCount(3);
+    await guide.getByRole('button', { name: 'iPhone · Safari' }).click();
+    await expect(guide.locator('li').first()).toContainText(/Safari/);
+    await expect(guide.locator('li').nth(1)).toContainText(/Open as Web App/i);
+    await guide.locator('a[href="#/settings/notifications"]').click();
+    await expect(tab.locator('#settings-notifications .section-title')).toBeInViewport();
+    await expect(card.getByRole('heading', { name: 'Phone connected' })).toBeVisible();
+    await page.goto(relay.base + '/#/');
+    await expect(home).toContainText('Phone connected');
+    await tab.close();
+    await expect(home).toContainText('Phone paired', { timeout: 20_000 });
+    await home.click();
+    page.once('dialog', (d) => d.accept());
+    await card
+      .locator('.share-row')
+      .filter({ hasText: /Android/ })
+      .getByRole('button', { name: 'Sign out' })
+      .click();
+    await expect(card.getByRole('heading', { name: 'Connect your phone' })).toBeVisible();
+  } finally {
+    await phone.close();
+  }
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
   // Firefox has no mobile emulation.
   test.skip(({ browserName }) => browserName === 'firefox', 'no mobile emulation in Firefox');
+
+  test('pairs a phone after installing Tailscale, using a single-use sign-in link', async ({ page, browser, relay }) => {
+    await page.goto(relay.base + '/?pair=1#code=' + (await relay.newSignInCode()));
+    const card = page.locator('#settings-browsers');
+    await card.locator('.phone-setup summary').click();
+    await expect(card.getByRole('img', { name: 'Need Tailscale on your phone?' })).toBeVisible();
+    await expect(card.getByRole('link', { name: /official Tailscale/ })).toHaveAttribute('href', 'https://tailscale.com/download');
+    await expect(card.locator('.browsers-code')).toHaveCount(0);
+    // Stand in for the desktop's Serve address, retaining the actual code from the server.
+    const origin = 'https://computer.example.ts.net:8443';
+    await page.route('**/api/auth/codes', async (route) => {
+      const reply = await route.fetch();
+      await route.fulfill({ response: reply, json: { ...(await reply.json()), phoneUrl: origin } });
+    });
+    await card.getByRole('button', { name: 'Sign in another device' }).tap();
+    await expect(card.getByRole('img', { name: 'Scan to sign in to Harness Relay' })).toBeVisible();
+    const link = new URL((await card.locator('.browsers-code-link').innerText()).trim());
+    expect(link.origin).toBe(origin);
+    expect(link.hash).toMatch(/^#code=[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    const phone = await browser.newContext();
+    try {
+      const paired = await phone.newPage();
+      // The offline fixture serves the same host at its loopback address.
+      await paired.goto(relay.base + '/' + link.hash);
+      await expect(paired.locator('.app main.main')).toBeVisible();
+      await expect(paired).not.toHaveURL(/#code=/);
+      const used = await phone.request.post(relay.base + '/api/auth/login', { data: { code: link.hash.slice(6) } });
+      expect(used.status()).toBe(400);
+    } finally {
+      await phone.close();
+    }
+  });
+
+  test('recovers a lost send response and a stale approval, then downloads the result', async ({ page, relay, context }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    const messages = '/api/conversations/' + id + '/messages';
+    const text = 'Make the report e2e:approve e2e:write=report.md';
+    await page.route(
+      '**' + messages,
+      async (route) => {
+        const accepted = await route.fetch();
+        expect(accepted.status()).toBe(202);
+        await route.abort('connectionreset');
+      },
+      { times: 1 },
+    );
+    await composer(page).fill(text);
+    await page.locator('.composer-row .send').tap();
+    await expect(composer(page)).toHaveValue(text);
+    await expect(page.locator('.approval-card')).toBeVisible();
+    // An unrelated, refused draft must not replace the uncertain first delivery.
+    await page.route('**' + messages, (route) => route.fulfill({ status: 409, json: { error: 'Draft refused' } }), { times: 1 });
+    await composer(page).fill('A different draft');
+    await page.locator('.composer-row .send').tap();
+    await expect(page.getByText('Draft refused', { exact: true })).toBeVisible();
+    await composer(page).fill(text);
+    await page.locator('.composer-row .send').tap();
+    await expect(composer(page)).toHaveValue('');
+    await expect(page.locator('.msg-user')).toHaveCount(1);
+    await expect(page.locator('.approval-card')).toHaveCount(1);
+    const approval = (await page.locator('.approval-card').getAttribute('id'))!.slice('approval-'.length);
+    await context.setOffline(true);
+    // Another signed-in client answers while the phone cannot receive the result.
+    await page.evaluate(() =>
+      navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { type: 'relay:open', url: location.href } })),
+    );
+    await expect(page.locator('.approval-card button').first()).toBeDisabled();
+    await relay.api('/api/conversations/' + id + '/approvals/' + approval, { body: { allow: true } });
+    await context.setOffline(false);
+    await expect(page.locator('.approval-done')).toContainText('Allowed');
+    await expect(await finishedReply(page, 'Claude')).toContainText('I wrote report.md.');
+    await expect(page.locator('.msg-user')).toHaveCount(1);
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).tap();
+    const panel = page.getByRole('dialog', { name: 'Files' });
+    await panel.getByTitle('report.md', { exact: true }).click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      panel.getByRole('link', { name: 'Download', exact: true }).click(),
+    ]);
+    expect(readFileSync(await download.path(), 'utf8')).toBe('Written by Claude (Claude Code).\n');
+  });
 
   test('the sidebar opens from the menu, and a chat works by touch', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'On the go');
@@ -502,7 +636,7 @@ test.describe('on a phone', () => {
         const circle = getComputedStyle(el, '::before');
         return parseFloat(circle.width) + parseFloat(circle.borderLeftWidth) + parseFloat(circle.borderRightWidth);
       }),
-    ).toBe(36);
+    ).toBeCloseTo(36, 1); // WebKit reports fractional CSS pixels at a phone’s device scale.
     expect(
       await toEnd.evaluate((el) => {
         const r = el.getBoundingClientRect();

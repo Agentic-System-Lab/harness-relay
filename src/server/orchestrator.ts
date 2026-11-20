@@ -142,7 +142,7 @@ import {
 import { privateRoots } from './agents/open';
 import { protectedReads } from './protect';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
-import type { Store } from './store';
+import type { Store, TaskRequest } from './store';
 import {
   applyPatch,
   addCheckTree,
@@ -310,6 +310,7 @@ interface Run {
 }
 
 interface StartOptions {
+  request?: TaskRequest;
   /** Runs once the workspace is ready and locked, just before the message is posted. */
   beforePost?: () => void;
   /** Run just these agents, for one round (retrying replies). */
@@ -977,7 +978,13 @@ export class Orchestrator {
    * always does: the review stops, so it never holds the user up, and the next review reads those
    * replies too.
    */
-  async send(convId: string, rawText: string, uploads?: AttachmentUpload[], interrupt = false): Promise<{ queued: boolean }> {
+  async send(
+    convId: string,
+    rawText: string,
+    uploads?: AttachmentUpload[],
+    interrupt = false,
+    request?: TaskRequest,
+  ): Promise<{ queued: boolean }> {
     const text = rawText.trim();
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
@@ -992,7 +999,7 @@ export class Orchestrator {
     try {
       if ((interrupt || stopsReview) && (content || found.queue?.length)) await this.interrupt(convId);
       if (content && this.queues(found)) {
-        this.enqueue(found, text, uploads);
+        this.enqueue(found, text, uploads, { request });
         return { queued: true };
       }
       const conv = this.getIdle(convId);
@@ -1002,7 +1009,7 @@ export class Orchestrator {
       }
       const files = saveAttachments(conv.id, uploads);
       try {
-        await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
+        await this.start(conv, text, { files, queue: true, request, ...(content ? { question: 'new' as const } : {}) });
       } catch (err) {
         removeAttachments(conv.id, files);
         throw err;
@@ -1120,7 +1127,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
-        this.enqueue(conv, s.text, undefined, true, event, tracking);
+        this.enqueue(conv, s.text, undefined, { scheduled: true, event, tracked: tracking });
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
@@ -1379,10 +1386,8 @@ export class Orchestrator {
   private enqueue(
     conv: Conversation,
     text: string,
-    uploads?: AttachmentUpload[],
-    scheduled = false,
-    event: ScheduledEvent = {},
-    tracked?: TrackedRun,
+    uploads: AttachmentUpload[] | undefined,
+    { scheduled, event, tracked, request }: { scheduled?: boolean; event?: ScheduledEvent; tracked?: TrackedRun; request?: TaskRequest },
   ): void {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
@@ -1403,7 +1408,7 @@ export class Orchestrator {
       ...(scheduled && tracked ? { tracked } : {}),
     });
     try {
-      this.saveQueue(conv);
+      this.saveQueue(conv, request);
     } catch (err) {
       queue.pop();
       removeAttachments(conv.id, files);
@@ -1411,8 +1416,8 @@ export class Orchestrator {
     }
   }
 
-  private saveQueue(conv: Conversation): void {
-    this.store.saveQueue(conv);
+  private saveQueue(conv: Conversation, request?: TaskRequest): void {
+    this.store.saveQueue(conv, request);
     this.hub.emit(conv.id, { type: 'queue', queue: conv.queue ?? [] });
   }
 
@@ -1762,11 +1767,19 @@ export class Orchestrator {
       if (lockRoots) this.lockDirs(lockRoots, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
-      const own = this.postUserMessage(conv, text, files, opts.scheduled, {
-        ...(opts.event !== undefined ? { event: opts.event } : {}),
-        ...(opts.event !== undefined && opts.eventSource ? { eventSource: opts.eventSource } : {}),
-      });
+      const own = this.postUserMessage(
+        conv,
+        text,
+        files,
+        opts.scheduled,
+        {
+          ...(opts.event !== undefined ? { event: opts.event } : {}),
+          ...(opts.event !== undefined && opts.eventSource ? { eventSource: opts.eventSource } : {}),
+        },
+        opts.request,
+      );
       if (own) posted.push(own);
+      else if (opts.request) this.store.recordTask(opts.request, convId, false);
       const pausedTracked = conv.pause?.tracked;
       const resumed = this.takePause(conv, posted, only, planning);
       resume = resumed?.schedule;
@@ -1873,6 +1886,7 @@ export class Orchestrator {
     files: AttachmentPart[],
     scheduled = false,
     event: ScheduledEvent = {},
+    request?: TaskRequest,
   ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
@@ -1886,7 +1900,12 @@ export class Orchestrator {
         ...(scheduled ? event : {}),
       };
       conv.messages.push(msg);
-      this.store.saveMessage(conv.id, msg, true);
+      try {
+        this.store.saveMessage(conv.id, msg, true, request);
+      } catch (err) {
+        conv.messages.pop();
+        throw err;
+      }
       this.hub.emit(conv.id, { type: 'message', message: msg });
       this.nameAfter(conv, msg);
       // The first message says what the conversation is about: sort it into one of the user's groups.

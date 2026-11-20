@@ -346,6 +346,13 @@ test.describe('the sidebar', () => {
 
     // The dots alone: one line, nothing cut off; the first dot under Settings' ⚙, the chevron's tip
     // at the right edge of the report icon under it.
+    const layout = (selector: string) =>
+      page.locator(selector).evaluate((el) => ({
+        icon: el.querySelector('svg')!.getBoundingClientRect().left,
+        text: el.querySelector('span')!.getBoundingClientRect().left,
+        height: el.getBoundingClientRect().height,
+      }));
+    expect(await layout('.sidebar-bottom .phone-link')).toEqual(await layout('.sidebar-bottom .settings-link'));
     const dots = await measure();
     expect(dots.overflow).toBe(0);
     expect(Math.abs(dots.firstDot - dots.settingsText)).toBeLessThan(0.5);
