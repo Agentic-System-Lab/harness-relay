@@ -26,6 +26,7 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   await expect(element).toHaveAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
   await expect(element).toHaveAttribute('referrerpolicy', 'no-referrer');
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('dialog', { name: 'App preview' })).toBeFocused();
   await panel.getByRole('button', { name: 'Stop preview' }).focus();
   await page.keyboard.press('Tab');
   await expect(frame.getByRole('textbox', { name: 'Try typing' })).toBeFocused();
