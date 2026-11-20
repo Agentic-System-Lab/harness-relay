@@ -81,7 +81,6 @@ export function replaceLinks(html: string, slug: string, links: (indent: number)
 /** A use case's rail, as `buildChapters` takes it. */
 export function useCaseRail(uc: UseCase, lang: DemoLang): RailSpec {
   return {
-    page: USE_CASE_PAGES[lang],
     you: lang === 'en' ? 'You' : '你',
     lead: lang === 'en' ? 'Lead agent' : '首席 agent',
     chapters: uc.rail[lang],
@@ -106,7 +105,7 @@ export function publishUseCase(dir: string, uc: UseCase, lang: DemoLang, log: (.
   const at = posterTime(uc, timeline);
   const spec = useCaseRail(uc, lang);
   const { chapters, missing } = buildChapters(lang, spec, timeline);
-  const page = join(ROOT, spec.page);
+  const page = join(ROOT, USE_CASE_PAGES[lang]);
   const media = useCaseMedia(uc.slug, lang);
   const video = join(ROOT, media.video);
   // A new video is published now; the same video again keeps the date it was first published on.
@@ -159,7 +158,7 @@ export function publishUseCase(dir: string, uc: UseCase, lang: DemoLang, log: (.
     }
   }
   log(
-    `${spec.page} #${uc.slug}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}; video ${isoDuration(timeline.length)}, ${uploadDate ? `published ${uploadDate}` : 'publication date kept'}`,
+    `${USE_CASE_PAGES[lang]} #${uc.slug}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}; video ${isoDuration(timeline.length)}, ${uploadDate ? `published ${uploadDate}` : 'publication date kept'}`,
   );
 
   const notes = existsSync(join(dir, 'notes.json')) ? (JSON.parse(readFileSync(join(dir, 'notes.json'), 'utf8')) as string[]) : [];

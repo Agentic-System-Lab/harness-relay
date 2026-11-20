@@ -50,9 +50,9 @@
     <script src="assets/site.js" defer></script>
     <script type="module" src="assets/downloads.js"></script>
     <script type="module" src="assets/theme.js"></script>
-    <!-- What search and answer engines read about the page, the app and the demo: what the page says, and what
+    <!-- What search and answer engines read about the page and the app: what the page says, and what
          its links lead to (test/site-structured-data.test.ts keeps it in step with the page and the Chinese page).
-         No version, price, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+         No version, price, star count or rating. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -66,8 +66,7 @@
             "inLanguage": "en",
             "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
             "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
-            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png",
-            "video": { "@id": "https://agentic-system-lab.github.io/harness-relay/#demo" }
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png"
           },
           {
             "@type": "WebSite",
@@ -107,17 +106,6 @@
             "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
             "license": { "@type": "CreativeWork", "name": "Sustainable Use License", "url": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE" },
             "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
-          },
-          {
-            "@type": "VideoObject",
-            "@id": "https://agentic-system-lab.github.io/harness-relay/#demo",
-            "name": "Harness Relay demo: watch one run",
-            "description": "Demo recording: a new group, two questions on the Harness Relay repository, each with a team the lead agent chose for it, the conversation's files, and a search",
-            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-en.webp",
-            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/media/demo-en.mp4",
-            "uploadDate": "2026-11-19T19:17:17Z",
-            "duration": "PT2M0S",
-            "inLanguage": "en"
           }
         ]
       }
@@ -216,7 +204,6 @@
           <span>Harness Relay</span>
         </a>
         <nav class="site-nav" aria-label="Sections">
-          <a href="#demo">Demo</a>
           <a href="#use-cases">Use cases</a>
           <a href="#modes">Modes</a>
           <a href="#teams">Teams</a>
@@ -228,7 +215,6 @@
           <details class="explore">
             <summary>Explore</summary>
             <nav aria-label="Explore">
-              <a href="#demo">Watch the demo</a>
               <a href="#use-cases">Use cases</a>
               <a href="#start">Installation guide</a>
               <a href="docs/">Docs</a>
@@ -280,141 +266,6 @@
                 <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
               </a>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="screening" id="demo" aria-labelledby="demo-title">
-        <div class="wrap screening-grid">
-          <div class="player">
-            <video
-              id="demo-video"
-              controls
-              muted
-              loop
-              playsinline
-              preload="none"
-              poster="assets/media/poster-en.webp"
-              aria-label="Demo recording: a new group, two questions on the Harness Relay repository, each with a team the lead agent chose for it, the conversation's files, and a search"
-            >
-              <source src="media/demo-en.mp4" type="video/mp4" />
-              <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/docs/media/demo-en.mp4">Download the demo (MP4)</a>
-            </video>
-          </div>
-          <div class="rail">
-            <h2 id="demo-title">Watch one run</h2>
-            <p class="rail-note">A new group, then two questions on this repository, each with the team the lead agent chose for it, from the question to the answers, the code they discussed and a search. Sped up while the agents work.</p>
-            <ol class="chapters">
-              <li>
-                <button class="chapter" type="button" data-t="0">
-                  <time>0:00</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Create a group, “Design reviews”, and open a template: teams are designed in templates.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="17">
-                  <time>0:17</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Type “Is relay mode a good design?” on the New chat page and send the first question.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="29">
-                  <time>0:29</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">Sorts the conversation into Design reviews, adapts the Parallel comparison template for the question, and says why.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="36">
-                  <time>0:36</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
-                    ><span class="who">All three</span></span
-                  >
-                  <span class="say">Once you confirm, two rounds: each reads the code on its own, then they check each other’s findings.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="53">
-                  <time>0:53</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">@Claude</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">Wants to run a shell command over the relay code, which read-only asks about first: it waits in the conversation, and you decline.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="62">
-                  <time>1:02</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
-                    ><span class="who">All three</span></span
-                  >
-                  <span class="say">The answers, down to a ranked list of what to change first.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="73">
-                  <time>1:13</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Ask a new question: a short README note on relay mode.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-claude" type="button" data-t="80">
-                  <time>1:20</time>
-                  <span class="actor"
-                    ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
-                    ><span class="via">Claude Code</span></span
-                  >
-                  <span class="say">Picks a team for it: Claude, one round. The review team stays until you confirm.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter t-team" type="button" data-t="87">
-                  <time>1:27</time>
-                  <span class="actor"
-                    ><span class="stack" aria-hidden="true"
-                      ><span class="av t-claude">C</span></span
-                    ><span class="who">Claude</span></span
-                  >
-                  <span class="say">Claude uses the code review to draft the relay-mode note for the English and Traditional Chinese READMEs.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="96">
-                  <time>1:36</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Open Files and read relay mode’s hand-off in orchestrator.ts, right in the conversation’s working directory.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-              <li>
-                <button class="chapter" type="button" data-t="112">
-                  <time>1:52</time>
-                  <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
-                  <span class="say">Search for “maxHops” and find the conversation by what the agents wrote.</span>
-                  <span class="bar" aria-hidden="true"></span>
-                </button>
-              </li>
-            </ol>
           </div>
         </div>
       </section>

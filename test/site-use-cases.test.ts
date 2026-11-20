@@ -138,7 +138,7 @@ describe('the use-cases pages', () => {
         expect(exists(media.video), media.video).toBe(true);
         expect(exists(media.poster), media.poster).toBe(true);
         expect(exists(`${media.poster}.json`), `${media.poster}.json`).toBe(true);
-        // Muted and not loaded until it plays, as the demo is.
+        // Muted and not loaded until it plays.
         for (const attr of ['controls', 'muted', 'loop', 'playsinline', 'preload="none"'])
           expect(video, `${uc.slug} ${attr}`).toContain(attr);
       }

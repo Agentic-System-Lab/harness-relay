@@ -1,6 +1,6 @@
 name: Pages
 
-# Publishes the landing page in site/ to GitHub Pages whenever it, or the demo videos it plays,
+# Publishes the landing page in site/ to GitHub Pages whenever it, or the demo videos it links to,
 # change on main.
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # The page plays the demo videos from docs/media, so they are copied in rather than stored twice.
+      # The first-chat guides link to the demo videos from docs/media, so they are copied in rather than stored twice.
       # Markdown (the design guidelines), image provenance sidecars and type declarations (for the
       # tests) stay in the repository only.
       - name: Assemble the site

@@ -1,5 +1,5 @@
 /**
- * Records the README and landing-page demo again (`npm run demo`). See "Recording the demo" in
+ * Records the demo linked from the READMEs and first-chat guides again (`npm run demo`). See "Recording the demo" in
  * docs/developer-guide.md.
  *
  *   npm run demo                         record both languages, cut them, publish them
@@ -12,9 +12,8 @@
  *   cut      frames → video.mp4 (1600×1000, 24 fps, the agents' work sped up), animation.webp
  *            (880×550, 8 fps) and timeline.json (each mark's time in the video)
  *   publish  copy the videos into docs/media/, re-cut the posters, screenshots and social cards from
- *            the poster mark, re-time the site's chapter rails, write the video's publication date
- *            and length into the site's structured data, re-time the design guidelines' frame
- *            times, and write review.md: what the agents did, to check the chapter texts against
+ *            the poster mark, update the frame times in the design guidelines and write review.md
+ *            with the timed chapters and what the agents did
  *
  * Options: --lang en|zh-TW (repeatable; default both), --out <dir> (default data/demo), --port <n>
  * (default 8791; the second language gets the next), --length <seconds> (default 120), --wait

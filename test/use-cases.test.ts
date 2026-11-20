@@ -298,6 +298,8 @@ describe('publishing a use case', () => {
     expect(out.replace('2026-11-18T01:02:03Z', '2026-01-02T00:00:00Z').replace('PT1M15S', 'PT2M0S')).toBe(page);
     // The same video again keeps its date.
     expect(retimeVideoData(page, { seconds: 120 }, 'a-video')).toContain('"uploadDate": "2026-01-01T00:00:00Z", "duration": "PT2M0S"');
+    expect(retimeVideoData(page, { uploadDate: '$&$1', seconds: 1 }, 'a-video')).toContain('"uploadDate": "$&$1"');
+    expect(() => retimeVideoData(page.replace('"duration"', '"length"'), { seconds: 1 }, 'a-video')).toThrow(/duration/);
     expect(() => retimeVideoData(page, { seconds: 60 }, 'c-video')).toThrow(/one VideoObject #c-video, not 0/);
   });
 
