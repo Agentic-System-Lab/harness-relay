@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   type CheckList,
+  type OAuthView,
+  type ConnectorsView,
   MEMORY_SCOPES,
   PROVIDERS,
   PROVIDER_LABEL,
@@ -20,6 +22,7 @@ import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
 import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
+import { CommonApps } from './CommonApps';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
@@ -32,45 +35,77 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
   const [error, setError] = useState('');
 
+  const [appError, setAppError] = useState('');
+  const [oauth, setOauth] = useState<OAuthView | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorsView | null>(null);
+  const refreshAccounts = async () => {
+    const [o, c] = await Promise.all([api.oauth(), api.connectors()]);
+    setOauth(o);
+    setConnectors(c);
+  };
+
   useEffect(() => {
+    void refreshAccounts().catch((e: Error) => setAppError(e.message));
     api.tools().then(setLib, (e: Error) => setError(e.message));
   }, []);
 
   /** Runs a change and shows the library it returns, or the error. */
-  const change = async (call: () => Promise<ToolLibraryView>): Promise<boolean> => {
-    setError('');
+  const change = async (call: () => Promise<ToolLibraryView>, report = setError): Promise<boolean> => {
+    report('');
     try {
       setLib(await call());
       return true;
     } catch (e) {
-      setError((e as Error).message);
+      report((e as Error).message);
       return false;
     }
   };
 
   return (
-    <section className="card tools-card" id={sectionId('tools')}>
-      <SectionTitle section="tools">{t.tools.title}</SectionTitle>
-      {draftLink}
-      <p className="muted small">{t.tools.hint}</p>
-      {error && <p className="error-line">{error}</p>}
-      {!lib ? (
-        !error && <p className="muted small">{t.common.loading}</p>
-      ) : (
-        <>
-          <RelaySection lib={lib} change={change} />
-          <McpSection lib={lib} change={change} />
-          <SkillsSection lib={lib} change={change} />
-          <MemorySection lib={lib} change={change} />
-          {settings && (
-            <>
-              <ChecksDefaultSection part="hooks" defaults={settings.checksDefault} env={env} />
-              <ChecksDefaultSection part="checks" defaults={settings.checksDefault} env={env} />
-            </>
-          )}
-        </>
-      )}
-    </section>
+    <>
+      <section className="card tools-card" id={sectionId('apps')}>
+        <SectionTitle section="apps">{t.apps.title}</SectionTitle>
+        {appError && (
+          <p className="error-line" role="alert">
+            {appError}
+          </p>
+        )}
+        {lib ? (
+          <CommonApps
+            lib={lib}
+            oauth={oauth}
+            connectors={connectors}
+            change={(call) => change(call, setAppError)}
+            refreshAccounts={refreshAccounts}
+          />
+        ) : (
+          <p>{error || t.common.loading}</p>
+        )}
+      </section>
+      <section className="card tools-card" id={sectionId('tools')}>
+        <SectionTitle section="tools">{t.tools.title}</SectionTitle>
+        {draftLink}
+        <p className="muted small">{t.tools.hint}</p>
+        {error && <p className="error-line">{error}</p>}
+        {!lib ? (
+          !error && <p className="muted small">{t.common.loading}</p>
+        ) : (
+          <>
+            <RelaySection lib={lib} change={change} />
+            <ConnectorsSettings view={connectors} setView={setConnectors} oauth={oauth} setOauth={setOauth} />
+            <McpSection lib={lib} change={change} />
+            <SkillsSection lib={lib} change={change} />
+            <MemorySection lib={lib} change={change} />
+            {settings && (
+              <>
+                <ChecksDefaultSection part="hooks" defaults={settings.checksDefault} env={env} />
+                <ChecksDefaultSection part="checks" defaults={settings.checksDefault} env={env} />
+              </>
+            )}
+          </>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -143,7 +178,6 @@ function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change })
           </li>
         ))}
       </ul>
-      <ConnectorsSettings />
     </section>
   );
 }

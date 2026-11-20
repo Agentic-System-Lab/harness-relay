@@ -92,7 +92,15 @@ await build({
   target: TARGET,
   external: ['@napi-rs/keyring'],
   // The version a problem report names (src/server/about.ts).
-  define: { __RELAY_VERSION__: JSON.stringify(version.shown) },
+  define: {
+    __RELAY_VERSION__: JSON.stringify(version.shown),
+    __RELAY_APP_CLIENTS__: JSON.stringify({
+      microsoftId: process.env.RELAY_MICROSOFT_CLIENT_ID?.trim(),
+      googleId: process.env.RELAY_GOOGLE_CLIENT_ID?.trim(),
+      googleDesktopSecret: process.env.RELAY_GOOGLE_DESKTOP_SECRET?.trim(),
+      slackId: process.env.RELAY_SLACK_CLIENT_ID?.trim(),
+    }),
+  },
   banner: { js: "import { createRequire as __relayRequire } from 'node:module'; const require = __relayRequire(import.meta.url);" },
   legalComments: 'none',
   logLevel: 'warning',

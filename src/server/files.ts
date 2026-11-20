@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
@@ -187,6 +187,7 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   const buf = Buffer.alloc(length);
   const fd = openSync(file.real, 'r');
   try {
+    if (fileKey(fstatSync(fd)) !== fileKey(st)) throw new HttpError(404, notFound);
     readSync(fd, buf, 0, length, 0);
   } finally {
     closeSync(fd);

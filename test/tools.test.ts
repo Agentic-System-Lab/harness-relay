@@ -328,6 +328,7 @@ describe('ToolLibrary', () => {
       { group: 'browser', providers: [] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
+      ...['drive', 'obsidian', 'github', 'teams'].map((group) => ({ group, providers: [] })),
     ]);
     expect(lib.view().gateway).toEqual({ available: false, reason: 'not-started' });
     expect(lib.forAgent(agent('claude')).relayGroups).toEqual([]);
@@ -339,9 +340,25 @@ describe('ToolLibrary', () => {
     expect(lib.forAgent(agent('codex', { 'relay:calendar': true, 'relay:browser': false })).relayGroups).toEqual(['calendar']);
     // Changing one group leaves the others.
     lib.update({ relayTools: { mail: [] } });
-    expect(new ToolLibrary(db).view().relayTools.map((g) => g.providers)).toEqual([['claude', 'codex'], [], []]);
+    expect(new ToolLibrary(db).view().relayTools.map((g) => g.providers)).toEqual([['claude', 'codex'], [], [], [], [], [], []]);
     lib.gatewayStatus = () => ({ available: true });
     expect(lib.view().gateway).toEqual({ available: true });
+  });
+
+  it('keeps one entry per app across retries and renames without replacing a custom server or granting a signed-out app', () => {
+    const lib = new ToolLibrary(db);
+    lib.saveServer('notion', { transport: 'http', url: 'https://example.org/own' });
+    const name = lib.ensureApp('notion');
+    expect(name).toBe('notion-2');
+    expect(lib.ensureApp('notion')).toBe(name);
+    expect(lib.mcpServer('notion')?.url).toBe('https://example.org/own');
+    const { id, url } = lib.mcpServer(name)!;
+    expect(lib.forAgent(agent('codex', { [`mcp:${id}`]: true })).mcpServers.map((s) => s.name)).not.toContain(name);
+    lib.saveServer('workspace', { previousName: name, transport: 'http', url });
+    expect(new ToolLibrary(db).ensureApp('notion')).toBe('workspace');
+    lib.saveServer('workspace', { previousName: 'workspace', transport: 'http', url: 'https://example.org/new' });
+    expect(lib.mcpServer('workspace')?.app).toBeUndefined();
+    expect(lib.ensureApp('notion')).toBe(name);
   });
 
   it('keeps the browser set in Settings, shows it beside RELAY_BROWSER and the one in use, and forgets it when emptied', () => {

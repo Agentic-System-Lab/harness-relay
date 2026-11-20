@@ -22,6 +22,32 @@ export function McpSignIn({
   server: McpServerView;
   change: (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 }) {
+  return (
+    <AppSignIn
+      name={server.name}
+      oauth={server.oauth}
+      startRequest={() => api.startMcpSignIn(server.name)}
+      onDone={() => change(() => api.tools())}
+      onSignOut={() => change(() => api.signOutMcp(server.name))}
+    />
+  );
+}
+
+export function AppSignIn({
+  name,
+  oauth,
+  startRequest,
+  onDone,
+  onSignOut,
+  button,
+}: {
+  name: string;
+  oauth?: McpServerView['oauth'];
+  startRequest: () => Promise<OAuthSignInView>;
+  onDone: () => Promise<unknown>;
+  onSignOut?: () => Promise<boolean>;
+  button?: string;
+}) {
   const { t, lang } = useI18n();
   const m = t.tools.signIn;
   const [signIn, setSignIn] = useState<OAuthSignInView>();
@@ -36,11 +62,11 @@ export function McpSignIn({
     if (!ended || shown.current === ended.id) return;
     shown.current = ended.id;
     if (ended.status === 'done') {
-      setInfo(m.done(server.name));
-      void change(() => api.tools());
+      setInfo(m.done(ended.account?.email ?? name));
+      void onDone().catch((e: Error) => setError(e.message));
     } else setError(ended.error ?? '');
     setSignIn(undefined);
-  }, [ended, m, server.name, change]);
+  }, [ended, m, name, onDone]);
 
   /** Opens a tab on the click, runs `call`, and shows the page it answers in that tab (closed when there is none to show). */
   const withPage = async (call: () => Promise<OAuthSignInView>) => {
@@ -63,7 +89,7 @@ export function McpSignIn({
       setBusy(false);
     }
   };
-  const start = () => withPage(() => api.startMcpSignIn(server.name));
+  const start = () => withPage(startRequest);
   // Its page is on another host than its authorization server's: Continue opens it, once the server records it.
   const proceed = (id: string) => withPage(() => api.confirmOAuthSignIn(id));
   const cancel = async (id: string) => {
@@ -72,12 +98,12 @@ export function McpSignIn({
   };
 
   const signOut = async () => {
-    if (!confirm(m.confirmSignOut(server.name))) return;
+    if (!confirm(m.confirmSignOut(name))) return;
     setError('');
-    if (await change(() => api.signOutMcp(server.name))) setInfo(m.signedOut(server.name));
+    if (await onSignOut?.()) setInfo(m.signedOut(name));
   };
 
-  const line = mcpSignInLine(server.oauth, t, lang);
+  const line = mcpSignInLine(oauth, t, lang);
   const under = Boolean(signIn && waiting(signIn));
   const asking = under && signIn?.confirm ? signIn : undefined;
   return (
@@ -86,9 +112,9 @@ export function McpSignIn({
         {line && <span className={`small ${line.warn ? 'warn-text' : 'muted'}`}>{line.text}</span>}
         <div className="lib-row-actions">
           <button type="button" className="ghost small-button" disabled={busy || under} onClick={() => void start()}>
-            {server.oauth ? m.signInAgain : m.signIn}
+            {button ?? (oauth ? m.signInAgain : m.signIn)}
           </button>
-          {server.oauth && (
+          {oauth && onSignOut && (
             <button type="button" className="ghost small-button" disabled={under} onClick={() => void signOut()}>
               {m.signOut}
             </button>
@@ -113,7 +139,7 @@ export function McpSignIn({
           </div>
         </div>
       )}
-      {signIn && under && !asking && <SignInWaiting signIn={signIn} label={server.name} onChange={setSignIn} onError={setError} />}
+      {signIn && under && !asking && <SignInWaiting signIn={signIn} label={name} onChange={setSignIn} onError={setError} />}
       {error && <p className="error-line">{error}</p>}
       {info && <p className="small ok-text">{info}</p>}
     </div>

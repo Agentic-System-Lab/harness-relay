@@ -22,6 +22,8 @@ import {
   type ToolLibraryUpdate,
   type ToolLibraryView,
 } from '../shared/types';
+import { APP_SERVERS } from '../shared/apps';
+import { appClients } from './oauth/appClients';
 import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
@@ -59,6 +61,8 @@ interface StoredServer {
   command: string;
   args: string[];
   url: string;
+  /** A catalog entry is only handed to agents after sign-in. */
+  app?: keyof typeof APP_SERVERS;
   /** Names only; the values are secrets. */
   env: string[];
   headers: string[];
@@ -119,6 +123,7 @@ interface Secrets {
 }
 
 interface Stored {
+  obsidianVault?: string;
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
@@ -322,6 +327,7 @@ export class ToolLibrary {
           })),
           skills: (Array.isArray(v.skills) ? v.skills : []).map((s) => ({ path: s.path, providers: storedProviders(s) })),
           memory,
+          ...(typeof v.obsidianVault === 'string' && v.obsidianVault ? { obsidianVault: v.obsidianVault } : {}),
           relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
           ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
@@ -415,10 +421,13 @@ export class ToolLibrary {
     const masked = (names: string[], values: Record<string, string>): MaskedVar[] =>
       names.map((name) => ({ name, masked: mask(values[name] ?? '') }));
     return {
+      ...(this.data.obsidianVault ? { obsidianVault: this.data.obsidianVault } : {}),
+      ...(appClients.slackId ? { slackConfigured: true } : {}),
       mcpServers: this.data.mcpServers.map<McpServerView>((s) => {
         const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
           id: s.id,
+          ...(s.app ? { app: s.app } : {}),
           name: s.name,
           transport: s.transport,
           command: s.command,
@@ -458,8 +467,29 @@ export class ToolLibrary {
     return this.data.browser;
   }
 
+  obsidianVault(): string | undefined {
+    return this.data.obsidianVault;
+  }
+
+  setObsidianVault(path: string): ToolLibraryView {
+    if (path) this.data.obsidianVault = path;
+    else delete this.data.obsidianVault;
+    this.save();
+    return this.view();
+  }
+
+  /** Repeated clicks reuse this app, including after a rename. Never overwrite a server the user added. */
+  ensureApp(app: keyof typeof APP_SERVERS): string {
+    const found = this.data.mcpServers.find((s) => s.app === app && s.transport === 'http' && s.url === APP_SERVERS[app]);
+    if (found) return found.name;
+    let name: string = app;
+    for (let n = 2; this.data.mcpServers.some((s) => s.name.toLowerCase() === name); n++) name = `${app}-${n}`;
+    this.saveServer(name, { transport: 'http', url: APP_SERVERS[app] }, app);
+    return name;
+  }
+
   /** Adds an MCP server (no `previousName`) or replaces one (renaming it when the names differ). */
-  saveServer(name: string, u: McpServerUpdate): ToolLibraryView {
+  saveServer(name: string, u: McpServerUpdate, app?: keyof typeof APP_SERVERS): ToolLibraryView {
     const servers = this.data.mcpServers;
     const prev = u.previousName;
     const index = prev === undefined ? -1 : servers.findIndex((s) => s.name === prev);
@@ -494,6 +524,8 @@ export class ToolLibrary {
     // or no longer HTTP, is another server: its tokens go.
     const before = index >= 0 ? servers[index]! : undefined;
     const sameServer = Boolean(before && http && before.transport === 'http' && sameMcpUrl(before.url, server.url));
+    if (app) server.app = app;
+    else if (before?.app && http && server.url === APP_SERVERS[before.app]) server.app = before.app;
     if (sameServer && before?.oauth) server.oauth = before.oauth;
 
     // First: when the credential store fails, nothing changes. A rename keeps the same entry.
@@ -704,7 +736,9 @@ export class ToolLibrary {
   forAgent(agent: Pick<AgentConfig, 'tools' | 'provider'>): AgentTools {
     this.readAgain();
     const on = (key: string, providers: Provider[]) => agentHasTool(agent, key, providers.includes(agent.provider));
-    const given = this.data.mcpServers.filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers));
+    const given = this.data.mcpServers.filter(
+      (s) => (!s.app || s.oauth) && !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers),
+    );
     // Not for a CLI that takes no HTTP MCP server (they are left out of its runs): no token, no refresh, no note.
     const oauthServers = NO_HTTP_MCP.includes(agent.provider)
       ? []

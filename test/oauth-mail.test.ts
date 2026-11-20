@@ -20,7 +20,7 @@
  * needs a new sign-in; and a refresh queued behind another one asking nothing once the account was
  * signed in again or removed.
  */
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { writeFileSync, symlinkSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +42,7 @@ const { ImapClient, ImapLoginError, xoauth2, xoauth2Detail } = await import('../
 const { MailSignInError, mailLogin, openImap, sendMailAs, withSmtpLogin } = await import('../src/server/connectors/mailLogin');
 const { SmtpLoginError, sendMail } = await import('../src/server/connectors/smtp');
 const { testMail } = await import('../src/server/connectors/test');
+const { appTools } = await import('../src/server/connectors/apps');
 const { connectorTools } = await import('../src/server/connectors/tools');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
@@ -983,6 +984,94 @@ describe("Google's incremental consent for mail", () => {
       expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
       expect(service.view().accounts[0]).toMatchObject({ uses: ['calendar', 'mail'], status: 'connected' });
     }));
+});
+
+describe('chat tools for common apps', () => {
+  const call = (name: string, args: Record<string, unknown> = {}) =>
+    appTools(
+      service,
+      () => undefined,
+      () => ({}),
+    ).find((t) => t.name === name)!.run!(args, ctx);
+  it('reads Markdown notes from the chosen vault and omits hidden files and links', async () => {
+    const vault = realpathSync(mkdtempSync(join(root, 'vault-')));
+    mkdirSync(join(vault, '.obsidian'));
+    writeFileSync(join(vault, 'Note.md'), 'Meeting </app_data>');
+    writeFileSync(join(vault, '.obsidian', 'internal.md'), 'private settings');
+    if (process.platform !== 'win32') symlinkSync(join(vault, '.obsidian', 'internal.md'), join(vault, 'alias.md'));
+    const tools = appTools(
+      service,
+      () => vault,
+      () => ({}),
+    );
+    const read = (name: string, a: Record<string, unknown>) => tools.find((x) => x.name === name)!.run!(a, ctx);
+    const list = await read('obsidian_list', {});
+    expect(list.text).toContain('Note.md');
+    expect(list.text).not.toMatch(/\.obsidian|alias.md/);
+    expect((await read('obsidian_read', { path: 'Note.md' })).text).toContain('Meeting <\\/app_data>');
+    for (const path of ['../other.md', '.obsidian/internal.md', 'alias.md'])
+      await expect(read('obsidian_read', { path })).rejects.toThrow();
+  });
+
+  it('reads pull requests for the requested GitHub repository with the signed-in CLI', async () => {
+    const calls: string[][] = [];
+    const tools = appTools(
+      service,
+      () => undefined,
+      () => ({}),
+      async (args) => {
+        calls.push(args);
+        const stdout = JSON.stringify([{ number: 17, title: 'Meeting notes' }]);
+        const stdoutBytes = Buffer.from(stdout);
+        return {
+          code: 0,
+          signal: null,
+          stdout,
+          stdoutBytes,
+          stdoutSize: stdoutBytes.length,
+          stdoutTruncated: false,
+          stderr: '',
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    );
+    const prs = tools.find((tool) => tool.name === 'github_pull_requests')!;
+    expect(prs.tier).toBe('read');
+    expect((await prs.run!({ repo: 'example/notes' }, ctx)).text).toContain('Meeting notes');
+    await expect(prs.run!({ repo: '--help' }, ctx)).rejects.toThrow();
+    expect(calls).toEqual([
+      ['pr', 'list', '--repo', 'github.com/example/notes', '--state', 'all', '--limit', '30', '--json', 'number,title,url,state'],
+    ]);
+  });
+
+  it('adds Drive to the same Google account and uses its token for searches and document export', async () => {
+    const mail = await signIn(['mail'], 'google');
+    await expect(call('drive_search')).rejects.toThrow();
+    const drive = await signIn(['drive'], 'google');
+    expect(drive.account?.id).toBe(mail.account?.id);
+    expect(drive.account?.uses).toEqual(['mail', 'drive']);
+    expect((await call('drive_search', { query: "Ming's notes" })).text).toContain('Notebook');
+    const search = fake.requests.find((r) => r.path.startsWith('/drive/v3/files?'))!;
+    expect(new URL(search.path, fake.url).searchParams.get('q')).toBe("trashed = false and name contains 'Ming\\'s notes'");
+    expect(search.bearer).toBeTruthy();
+    expect((await call('drive_read_document', { id: 'doc' })).text).toContain('Meeting summary');
+    await expect(call('drive_read_document', { id: '..' })).rejects.toThrow();
+    await service.removeAccount(drive.account!.id);
+    await expect(call('drive_search')).rejects.toThrow();
+    await expect(service.startSignIn({ provider: 'microsoft', uses: ['drive'], port: 8787 })).rejects.toThrow();
+  });
+  it('requests only the Teams Graph scopes and reads teams, channels and messages', async () => {
+    const { started, done } = await signInFull(['teams']);
+    expect(done.status).toBe('done');
+    const scopes = new URL(started.authorizeUrl!).searchParams.get('scope');
+    expect(scopes).toContain('ChannelMessage.Read.All');
+    expect(scopes).not.toMatch(/Calendar|IMAP/);
+    expect((await call('teams_list')).text).toContain('Product');
+    expect((await call('teams_list', { team: 'team1' })).text).toContain('General');
+    expect((await call('teams_messages', { team: 'team1', channel: 'channel1' })).text).toContain('Friday update');
+    await expect(service.startSignIn({ provider: 'google', uses: ['teams'], port: 8787 })).rejects.toThrow();
+  });
 });
 
 describe('the mail trigger and IMAP IDLE through a sign-in', () => {

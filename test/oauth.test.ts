@@ -701,6 +701,7 @@ describe('the token broker', () => {
     expect(microsoftProvider({ clientId: 'x', tenant: 'contoso.onmicrosoft.com' }).endpoints.authorize).toContain(
       '/contoso.onmicrosoft.com/',
     );
+    expect(googleProvider({ clientId: 'x' }).useHosts?.drive).toEqual(['www.googleapis.com']);
     expect(googleProvider({ clientId: 'x' }).hosts).toEqual(['apidata.googleusercontent.com', 'openidconnect.googleapis.com']);
   });
 });

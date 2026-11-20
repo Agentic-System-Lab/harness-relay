@@ -473,6 +473,9 @@ Every request but `GET /api/auth`, `POST /api/auth/login`, `POST /api/oauth/call
 | `GET /api/shares` | → `SharedPage[]`, the newest first; `conversationGone` once its conversation was deleted, `files` and `filesGist` when files went along, `unfinished` for a files gist left without its page (not while its share is still being made) |
 | `DELETE /api/shares/:id` | → `{ ok }`: deletes the share's gists, the files gist first, then the page's (`gh gist delete --yes`; one GitHub cannot find either, by `gh api gists/:id`, counts as deleted, while one of another account is refused), then the record, only once both are gone. 404 for an unknown share, 409 for the files gist of a share still being made, 502 with the reason (and the same codes) when `gh` fails for either (the record stays, to be removed again) |
 | `POST /api/gh/login` | `{}` → `CliLoginView`: starts gh's own sign-in for sharing (`gh auth login --web --hostname github.com`, in gh's environment for sharing, `ghEnv()`), stopping one already running; GitHub's one-time code and device page come in `codes` and `urls` as gh prints them. 409 while `GH_TOKEN` (or `GITHUB_TOKEN` outside a codespace) is set, which gh would sign in with instead |
+| `POST /api/apps/:app/signin` | Starts an official Notion, Heptabase or Slack sign-in (lowercase IDs) and returns the existing sign-in view. |
+| `PUT /api/apps/obsidian` | Sets the vault with `{path}`. An empty string disconnects it. Returns the tool library. |
+| `GET /api/apps/github` | Returns the GitHub login, signed-out or missing status. |
 | `GET /api/gh/login` | → `CliLoginView` or `null`: that sign-in as it runs (`running`, then `success`, `failed` or `cancelled`) |
 | `DELETE /api/gh/login` | → `{ ok }`: stops it |
 | `GET /api/conversations/:id/files?root=&path=` | → `FileListing`: the folders that can be browsed (`roots`: `cwd`, `cwd:1`… for the other working directories, plus each agent's worktree of each in parallel mode, `<agent>`, `<agent>:1`…), and the entries of `path` in `root` (folders first; `.git` and links leading outside left out; at most 2,000). 404 for anything outside the folder |
@@ -687,6 +690,18 @@ The UI and the server's user-facing text come in Traditional Chinese (`zh-TW`) a
 `test/i18n.test.ts` checks that both UI dictionaries have the same shape (including list lengths, which types don't check).
 
 The guided tour’s translated steps in `tour.steps` follow `TOUR_STEPS` in `src/web/tour.ts`. Each entry has a last-changed revision and an optional `data-tour` target. First visits and manual replay show every step. Returning browsers see entries newer than their saved `relay:onboarded` revision. Finish or Skip advances that browser’s marker. For a user-visible change, bump `TOUR_VERSION` and assign that revision to each new or revised step. Keep the order in both locales, update the fingerprint in `test/tour.test.ts` and test the update from the previous version.
+
+## Common app registrations
+
+The catalog lives at `#/settings/apps`. The distributor registers the public desktop clients once. Users choose a service and approve its consent screen. Source installations read the following values when the server starts. Desktop builds take them at build time. The Release workflow reads the three IDs from repository variables and the Google desktop secret from the identically named repository secret. Use Google's **Desktop app** client type because that value ships in the desktop application. Google and Microsoft registrations saved in the tool library take precedence.
+
+| Service | Distributor setup |
+| --- | --- |
+| Google | Set `RELAY_GOOGLE_CLIENT_ID` and `RELAY_GOOGLE_DESKTOP_SECRET`. Enable the CalDAV and Drive APIs. Each service requests its own scope, `https://mail.google.com/`, `https://www.googleapis.com/auth/calendar` or `https://www.googleapis.com/auth/drive.readonly`. Complete the verification Google requires for public distribution. [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) |
+| Microsoft | Set `RELAY_MICROSOFT_CLIENT_ID` for an Entra public desktop client. Register the loopback callbacks shown in the tool library. Teams uses a work or school account and the delegated permissions `Team.ReadBasic.All`, `Channel.ReadBasic.All` and `ChannelMessage.Read.All`, along with the existing sign-in scopes. Arrange tenant consent for channel messages. [Microsoft Graph permissions](https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-1.0) |
+| Slack | Set `RELAY_SLACK_CLIENT_ID` for an internal or directory-published Slack MCP app. Enable PKCE and token rotation. Add user scopes `search:read.public`, `channels:read` and `channels:history`. Register `http://localhost:8787/oauth/callback` and, for development, `http://localhost:5173/oauth/callback`. Register any custom port you distribute. The app uses Slack's published user-token endpoints. [Slack MCP](https://docs.slack.dev/ai/slack-mcp-server/) · [Slack PKCE](https://docs.slack.dev/authentication/using-pkce/) |
+
+Notion and Heptabase use the fixed official servers in `src/shared/apps.ts` with the existing discovery, dynamic registration, PKCE and credential store. A catalog server is given to supported assistants after a successful sign-in and keeps its identity across retries and renames. GitHub uses the existing gh device sign-in. The tool library stores the selected Obsidian vault's path. The built-in tools for Drive, Teams, GitHub and Obsidian run through the read tier of the gateway. Coverage lives in `test/oauth-mail.test.ts`, `test/mcp-oauth.test.ts`, `test/tools.test.ts`, `test/app.test.ts` and the Settings flow in `e2e/specs/oauth.spec.ts`.
 
 ## Testing
 

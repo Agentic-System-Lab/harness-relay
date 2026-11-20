@@ -1223,6 +1223,8 @@ describe('the release workflow', () => {
       'secrets.UPDATES_READ_TOKEN',
       // The update source checked, with the repository's own code, before anything is installed.
       'secrets.UPDATES_READ_TOKEN',
+      // The public desktop OAuth registration is supplied only to the desktop build.
+      'secrets.RELAY_GOOGLE_DESKTOP_SECRET',
       // The app's build, and the checks of the packaged app, which find it there.
       'secrets.UPDATES_READ_TOKEN',
       'secrets.UPDATES_READ_TOKEN',

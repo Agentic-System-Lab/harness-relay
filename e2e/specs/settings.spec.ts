@@ -210,6 +210,7 @@ test.describe('settings', () => {
       'Sandboxes',
       'Model backends',
       'Lead agent',
+      'Common apps',
       'Tools',
       'Voice',
       'Default folder',

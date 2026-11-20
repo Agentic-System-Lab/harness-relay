@@ -2678,10 +2678,24 @@ describe('tool library', () => {
       { group: 'browser', providers: ['claude', 'codex'] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
+      ...['drive', 'obsidian', 'github', 'teams'].map((group) => ({ group, providers: [] })),
     ]);
     expect(relay.gateway).toEqual({ available: false, reason: 'not-started' });
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
+  });
+
+  it('links only an existing Obsidian vault and forgets it without deleting notes', async () => {
+    const path = join(project, 'notes');
+    mkdirSync(path, { recursive: true });
+    expect((await app.request('/api/apps/obsidian', json('PUT', { path }))).status).toBe(400);
+    mkdirSync(join(path, '.obsidian'));
+    writeFileSync(join(path, 'Note.md'), 'A note');
+    expect((await (await app.request('/api/apps/obsidian', json('PUT', { path }))).json()).obsidianVault).toBe(realpathSync.native(path));
+    expect((await (await get('/api/tools')).json()).obsidianVault).toBe(realpathSync.native(path));
+    expect((await (await app.request('/api/apps/obsidian', json('PUT', { path: '' }))).json()).obsidianVault).toBeUndefined();
+    expect(readFileSync(join(path, 'Note.md'), 'utf8')).toBe('A note');
+    expect((await app.request('/api/apps/other/signin', json('POST', {}))).status).toBe(404);
   });
 
   it('lists the skills under a folder without adding them', async () => {

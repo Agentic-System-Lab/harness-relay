@@ -1,3 +1,5 @@
+import { APP_SERVERS } from '../../shared/apps';
+import { appClients } from './appClients';
 import type { OAuthSignInView } from '../../shared/types';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -64,7 +66,7 @@ export interface McpAuthDiscovery {
   authorize: string;
   token: string;
   revoke?: string;
-  registration: string;
+  registration: string; // empty for a distributor-registered public client
   /** Its metadata says its redirects bring back `iss` (`authorization_response_iss_parameter_supported`, RFC 9207). */
   issParameter?: boolean;
 }
@@ -350,7 +352,7 @@ function mcpProvider(name: string, o: Omit<StoredMcpOAuth, 'status' | 'signedInA
     flows: ['loopback'],
     scopes: () => [...o.scopes],
     hosts: [o.host],
-    extraParams: { resource: o.resource },
+    extraParams: { resource: o.resource, ...(o.resource === APP_SERVERS.heptabase ? { prompt: 'consent' } : {}) },
     tokenParams: { resource: o.resource },
     refreshOptional: true,
     issuer: o.issuer,
@@ -428,32 +430,51 @@ export class McpOAuth {
     const url = server.url;
     const reach: Reach = { local: onThisComputer(tokenHost(url)), net: this.net };
     const cannot = (err: unknown) => new HttpError(502, t().mcpSignInCannotStart(o.name, (err as Error).message));
-    const redirect = redirectAddress(o.origin, o.port);
+    // Slack registers one public desktop client in advance. Its desktop PKCE redirect is on localhost.
+    const slack = url === APP_SERVERS.slack;
+    const callback = new URL(redirectAddress(o.origin, o.port));
+    const origin = slack ? `http://localhost:${callback.port}` : o.origin;
+    const redirect = redirectAddress(origin, o.port);
     let found: McpAuthDiscovery | undefined;
     let client: McpClient;
     const release = this.signIns.reserve();
     try {
-      try {
-        found = await discoverMcpAuth(url, this.net);
-      } catch (err) {
-        throw cannot(err);
-      }
-      if (!found) throw new HttpError(409, t().mcpNoSignIn(o.name), MCP_NO_SIGN_IN);
-      // The client kept, when it is this authorization server's and was not refused.
-      const had = server.oauth;
-      const kept = had?.issuer === found.issuer && had.registration === found.registration && !had.clientRefused ? had : undefined;
-      if (kept?.redirectUris.includes(redirect)) {
-        const secret = this.tools.mcpOAuthSecrets(server.id).clientSecret;
-        client = {
-          clientId: kept.clientId,
-          redirectUris: kept.redirectUris,
-          ...(secret ? { clientSecret: secret, ...(kept.secretBasic ? { secretBasic: true } : {}) } : {}),
+      if (slack) {
+        if (!appClients.slackId) throw new HttpError(409, t().appsUnavailable);
+        // Slack's published user-token endpoints. Only public-channel search and history are requested.
+        found = {
+          resource: 'https://mcp.slack.com',
+          issuer: 'https://mcp.slack.com',
+          authorize: 'https://slack.com/oauth/v2_user/authorize',
+          token: 'https://slack.com/api/oauth.v2.user.access',
+          registration: '',
+          scopes: ['search:read.public', 'channels:history', 'channels:read'],
         };
+        client = { clientId: appClients.slackId, redirectUris: [redirect] };
       } else {
         try {
-          client = await registerClient(found, [redirect, ...(kept?.redirectUris ?? [])].slice(0, MAX_REDIRECTS), reach);
+          found = await discoverMcpAuth(url, this.net);
         } catch (err) {
           throw cannot(err);
+        }
+        if (!found) throw new HttpError(409, t().mcpNoSignIn(o.name), MCP_NO_SIGN_IN);
+        if (url === APP_SERVERS.heptabase && !found.scopes.includes('offline_access')) found.scopes.push('offline_access');
+        // The client kept, when it is this authorization server's and was not refused.
+        const had = server.oauth;
+        const kept = had?.issuer === found.issuer && had.registration === found.registration && !had.clientRefused ? had : undefined;
+        if (kept?.redirectUris.includes(redirect)) {
+          const secret = this.tools.mcpOAuthSecrets(server.id).clientSecret;
+          client = {
+            clientId: kept.clientId,
+            redirectUris: kept.redirectUris,
+            ...(secret ? { clientSecret: secret, ...(kept.secretBasic ? { secretBasic: true } : {}) } : {}),
+          };
+        } else {
+          try {
+            client = await registerClient(found, [redirect, ...(kept?.redirectUris ?? [])].slice(0, MAX_REDIRECTS), reach);
+          } catch (err) {
+            throw cannot(err);
+          }
         }
       }
     } finally {
@@ -475,7 +496,7 @@ export class McpOAuth {
       uses: [],
       server: { id: server.id, name: now.name },
       ...(o.session ? { session: o.session } : {}),
-      ...(o.origin ? { origin: o.origin } : {}),
+      ...(origin ? { origin } : {}),
       port: o.port,
       ...(confirm ? { confirm } : {}),
       keep: (s) => this.keep(server.id, url, oauth, client.clientSecret, s),

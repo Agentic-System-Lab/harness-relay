@@ -24,12 +24,13 @@ import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
+import { agentFolderOptions, clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
@@ -146,7 +147,16 @@ const browser = new BrowserService({
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
 });
-gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors, settings.oauth)]);
+gateway.register([
+  outboxTool((id) => outbox.list(id)),
+  ...browserTools(browser),
+  ...connectorTools(settings.connectors, settings.oauth),
+  ...appTools(
+    settings.oauth,
+    () => settings.tools.obsidianVault(),
+    () => agentFolderOptions(settings),
+  ),
+]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;

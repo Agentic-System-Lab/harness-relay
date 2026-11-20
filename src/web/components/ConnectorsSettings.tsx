@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { CalendarAccountView, ConnectorsView, MailAccountView, MailSecurity } from '../../shared/types';
+import { useState } from 'react';
+import type { CalendarAccountView, OAuthView, ConnectorsView, MailAccountView, MailSecurity } from '../../shared/types';
 import { api } from '../api';
 import {
   CALENDAR_PRESETS,
@@ -22,19 +22,25 @@ import { OAuthAccounts } from './OAuthAccounts';
  * anything. A mail account or calendar reached through an account you sign in to (`oauth`) has no
  * password nor servers to edit: it is removed, and added again from its account.
  */
-export function ConnectorsSettings() {
+export function ConnectorsSettings({
+  view,
+  setView,
+  oauth,
+  setOauth,
+}: {
+  view: ConnectorsView | null;
+  setView: (v: ConnectorsView) => void;
+  oauth: OAuthView | null;
+  setOauth: (v: OAuthView) => void;
+}) {
   const t = useT();
-  const [view, setView] = useState<ConnectorsView | null>(null);
+
   const [error, setError] = useState('');
   /** The form open: a kind, and the account edited ('' for a new one). */
   const [editing, setEditing] = useState<{ kind: 'mail' | 'calendar'; id: string } | null>(null);
   const [tested, setTested] = useState<Record<string, string>>({});
   /** One more after each test of a mail account or calendar reached through a sign-in, which may find that it needs a new one: the accounts are read again. */
   const [oauthTested, setOauthTested] = useState(0);
-
-  useEffect(() => {
-    api.connectors().then(setView, (e: Error) => setError(e.message));
-  }, []);
 
   const change = async (call: () => Promise<ConnectorsView>): Promise<boolean> => {
     setError('');
@@ -133,7 +139,7 @@ export function ConnectorsSettings() {
         </button>
       )}
 
-      <OAuthAccounts connectors={view} onConnectors={setView} refresh={oauthTested} />
+      <OAuthAccounts view={oauth} setView={setOauth} connectors={view} onConnectors={setView} refresh={oauthTested} />
     </div>
   );
 }

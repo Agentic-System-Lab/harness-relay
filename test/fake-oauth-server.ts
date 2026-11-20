@@ -54,7 +54,7 @@ export interface FakeGoogle {
   clientId: string;
   secret: string;
   /** Where its sign-in, userinfo and CalDAV are: what `googleProvider()` takes. */
-  urls: { authorize: string; token: string; revoke: string; userinfo: string; caldav: string };
+  urls: { authorize: string; token: string; revoke: string; userinfo: string; drive?: string; caldav: string };
   /** The account that signs in. */
   me: { sub: string; email: string; name: string };
   /** What CalDAV discovery finds: the account's calendars, none, or a server error. */
@@ -375,6 +375,8 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       return json(200, {});
     }
     if (url.pathname === '/google/userinfo') return goodToken ? json(200, google.me) : json(401, { error: 'invalid_token' });
+    if (url.pathname === '/drive/v3/files' && goodToken) return json(200, { files: [{ name: 'Notebook', id: 'doc' }] });
+    if (url.pathname === '/drive/v3/files/doc/export' && goodToken) return res.end('Meeting summary');
     if (url.pathname.startsWith('/caldav/v2/')) {
       if (!goodToken) {
         res.writeHead(401, { 'www-authenticate': 'Bearer realm="https://accounts.google.com/"' });
@@ -425,6 +427,10 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     if (url.pathname.startsWith('/v1.0/')) {
       if (!graphToken)
         return json(401, { error: { code: 'InvalidAuthenticationToken', message: 'Access token has expired or is not yet valid.' } });
+      if (url.pathname === '/v1.0/me/joinedTeams') return json(200, { value: [{ id: 'team1', displayName: 'Product' }] });
+      if (url.pathname === '/v1.0/teams/team1/channels') return json(200, { value: [{ id: 'channel1', displayName: 'General' }] });
+      if (url.pathname === '/v1.0/teams/team1/channels/channel1/messages')
+        return json(200, { value: [{ body: { content: 'Friday update' } }] });
       if (url.pathname === '/v1.0/me') return json(200, self.me);
       if (url.pathname === '/v1.0/me/calendars')
         return json(200, {
@@ -464,6 +470,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     revoke: `${self.url}/google/revoke`,
     userinfo: `${self.url}/google/userinfo`,
     caldav: `${self.url}/caldav/v2`,
+    drive: `${self.url}/drive/v3`,
   };
   return self;
 }

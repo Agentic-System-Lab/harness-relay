@@ -17,6 +17,7 @@ import type { CalendarOAuth } from '../src/server/connectors/calendar';
 import { listEvents, startMoment } from '../src/server/connectors/caldav';
 import { openDatabase } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
+import { githubStatus } from '../src/server/connectors/apps';
 import { CommandNotFoundError, type SpawnResult } from '../src/server/process';
 import { validateCalendarAccount, validateSchedule } from '../src/server/validate';
 import {
@@ -348,6 +349,15 @@ describe('an event about to begin, in a calendar signed in with OAuth', () => {
 
 describe('a pull request opened, or a CI run that failed (GitHub, through gh)', () => {
   /** A stand-in for gh: what it was asked, and what it answers. */
+  it('shows the signed-in GitHub account, distinguishes a missing CLI from a signed-out account and reports a failed check', async () => {
+    const runner = gh(() => ({ stdout: 'octocat\n' }));
+    expect(await githubStatus(runner)).toEqual({ status: 'connected', login: 'octocat' });
+    expect(runner.calls).toEqual([['api', '--hostname', 'github.com', 'user', '--jq', '.login']]);
+    expect(await githubStatus(gh(() => new CommandNotFoundError('gh')))).toEqual({ status: 'missing' });
+    expect(await githubStatus(gh(() => ({ code: 4 })))).toEqual({ status: 'signed-out' });
+    await expect(githubStatus(gh(() => ({ code: 1, stderr: 'network offline' })))).rejects.toMatchObject({ status: 502 });
+  });
+
   function gh(answer: (args: string[]) => Partial<SpawnResult> | Error): GhRunner & { calls: string[][] } {
     const calls: string[][] = [];
     const run = async (args: string[]) => {

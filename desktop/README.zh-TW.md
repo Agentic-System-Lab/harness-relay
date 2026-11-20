@@ -72,6 +72,8 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 
 只能由手動執行的發佈 workflow 發佈：它為 macOS（Apple Silicon）、Windows 與 Linux（x64 與 Arm64）建置安裝檔、檢查後發佈，並把每個安裝檔再複製一份給 app 更新用，發佈在專用的 repository。見[發佈](../docs/developer-guide.zh-TW.md#發佈)。app 會自己更新到最新的版本（[使用者說明](../docs/user-guide.zh-TW.md#版本)），從 `Agentic-System-Lab/harness-relay-updates`、或建置時 `RELAY_UPDATES_REPO` 指定的 repository 下載它的副本，private 的再用 `RELAY_UPDATES_TOKEN` 給的 token（它會放進 app 裡，任何人都讀得到），拿不到副本時則下載安裝檔本身；建置時帶有網站的下載鏡像（`MIRROR`）時先從那裡下載，照舊在 GitHub 上對副本計數，鏡像給不出來時就從 GitHub 下載；見[桌面 app](../docs/developer-guide.zh-TW.md#桌面-app)，workflow 的 `UPDATES_REPO` 變數與 `UPDATES_READ_TOKEN` secret 見[發佈](../docs/developer-guide.zh-TW.md#發佈)。安裝檔的名稱必須和 `site/assets/downloads.js`（`INSTALLERS`、`UPDATE_INSTALLERS`）一致。
 
+桌面版在建置伺服器時嵌入發行者為 Google、Microsoft、Slack 註冊的公開用戶端資訊。設定一次，同一份安裝檔的使用者就能從常用 App 登入。[服務註冊方式](../docs/developer-guide.zh-TW.md#常用-app-的服務註冊)
+
 ## 相關文件
 
 - [使用者說明 → 桌面 app](../docs/user-guide.zh-TW.md#桌面-app)：安裝、視窗、系統匣選單、更新與疑難排解。

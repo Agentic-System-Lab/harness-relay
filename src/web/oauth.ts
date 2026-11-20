@@ -5,6 +5,7 @@
 
 import {
   OAUTH_USES,
+  MAIL_CALENDAR_USES,
   type McpOAuthState,
   type OAuthAccountView,
   type OAuthProviderId,
@@ -116,7 +117,7 @@ export function accountActions(
     return { calendars: has('calendar'), signInAgain: OAUTH_USES.filter(has), signInFor: [], addMail: false };
   return {
     calendars: has('calendar'),
-    signInFor: OAUTH_USES.filter((u) => !has(u)).map((use) => ({ use, uses: OAUTH_USES.filter((u) => u === use || has(u)) })),
+    signInFor: MAIL_CALENDAR_USES.filter((u) => !has(u)).map((use) => ({ use, uses: OAUTH_USES.filter((u) => u === use || has(u)) })),
     addMail: has('mail') && !hasMailAccount,
   };
 }

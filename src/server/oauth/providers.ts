@@ -1,4 +1,5 @@
 import type { MailServer, OAuthProviderId, OAuthUse } from '../../shared/types';
+import { appClients } from './appClients';
 import { CONFIG } from '../config';
 import type { ProviderRequest } from './broker';
 import { discoverCalendars } from '../connectors/caldav';
@@ -75,6 +76,8 @@ export interface OAuthProvider {
   signInToken?(uses: readonly OAuthUse[]): { scopes: string[]; uses: OAuthUse[] };
   /** The only hosts (with their port when not the usual one) the access token is sent to. */
   hosts: string[];
+  /** A use on a different API may reach only the hosts listed for that use. */
+  useHosts?: Partial<Record<OAuthUse, string[]>>;
   /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`), an MCP server's `resource`. */
   extraParams?: Record<string, string>;
   /** What every token request sends besides the usual: an MCP server's `resource` (RFC 8707). */
@@ -102,6 +105,8 @@ export interface AccountProvider extends OAuthProvider {
   /** Its own IMAP and SMTP servers: the only ones a token for mail goes to. */
   mail: MailServers;
   whoami(fetch: AuthorizedFetch): Promise<OAuthIdentity>;
+  /** Base for its read-only file or team tools. */
+  appApi: string;
   /** Its calendars, by name, at the addresses the calendar tools use. */
   calendars(fetch: AuthorizedFetch, email: string): Promise<{ name: string; url: string }[]>;
   /** The calendar a new sign-in for the calendar tools adds by itself. */
@@ -118,11 +123,14 @@ export interface OAuthClient {
 }
 
 /**
- * Harness Relay's own apps, registered once and shipped in the code, by provider; none is registered
- * yet, so each user gives their own (Settings → Tool library). A Microsoft Entra app for work, school
- * and personal accounts, a public client (no secret), is what would go here.
+ * The distributor’s registered public desktop apps. A registration saved in Settings takes precedence.
  */
-export const BUILT_IN_CLIENTS: Partial<Record<OAuthProviderId, string>> = {};
+export const BUILT_IN_CLIENTS: Partial<Record<OAuthProviderId, OAuthClient>> = {
+  ...(appClients.googleId && appClients.googleDesktopSecret
+    ? { google: { clientId: appClients.googleId, secret: appClients.googleDesktopSecret } }
+    : {}),
+  ...(appClients.microsoftId ? { microsoft: { clientId: appClients.microsoftId } } : {}),
+};
 
 /** The host a URL's token may go to: its host, with its port when that is not the usual one. */
 export function tokenHost(url: string): string {
@@ -198,6 +206,7 @@ export function microsoftProvider(
   const signIn = ['openid', 'email', 'profile', 'offline_access'];
   const onGraph = (uses: readonly OAuthUse[]) => [
     graphScope('User.Read'),
+    ...(uses.includes('teams') ? ['Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Read.All'].map(graphScope) : []),
     ...(uses.includes('calendar') ? [graphScope('Calendars.ReadWrite')] : []),
   ];
   const mail = [`${OUTLOOK}/IMAP.AccessAsUser.All`, `${OUTLOOK}/SMTP.Send`];
@@ -216,6 +225,7 @@ export function microsoftProvider(
     tokenScopes: (use) => [...signIn, ...(use === 'mail' ? mail : onGraph([use]))],
     signInToken: (uses) => ({ scopes: [...signIn, ...onGraph(uses)], uses: uses.filter((u) => u !== 'mail') }),
     hosts: [tokenHost(graph)],
+    appApi: `${graph}/v1.0`,
     mail: urls.mail ?? MICROSOFT_MAIL,
     extraParams: { prompt: 'select_account' },
     whoami: async (fetch) => {
@@ -240,6 +250,7 @@ export interface GoogleUrls {
   userinfo: string;
   /** CalDAV's base: a calendar is `<caldav>/<its id>/events/`, an account's principal `<caldav>/<address>/user`. */
   caldav: string;
+  drive?: string;
 }
 
 /** Gmail's servers. */
@@ -276,8 +287,11 @@ export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, m
       'profile',
       ...(uses.includes('calendar') ? ['https://www.googleapis.com/auth/calendar'] : []),
       ...(uses.includes('mail') ? ['https://mail.google.com/'] : []),
+      ...(uses.includes('drive') ? ['https://www.googleapis.com/auth/drive.readonly'] : []),
     ],
     hosts: [...new Set([tokenHost(urls.caldav), tokenHost(urls.userinfo)])],
+    useHosts: { drive: [tokenHost(urls.drive ?? 'https://www.googleapis.com')] },
+    appApi: urls.drive ?? 'https://www.googleapis.com/drive/v3',
     mail,
     // A refresh token every time, also for an account that signed in before; and what was granted
     // before kept (incremental consent): a sign-in for mail keeps the calendar's, and the other way round.

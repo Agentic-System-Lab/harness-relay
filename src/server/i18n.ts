@@ -597,10 +597,21 @@ const zhTW = {
   oauthCallbackTooOften: '登入的回呼太多次失敗了：請稍後再試',
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
+  oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
+  oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
+  appsGithubFailed: '無法讀取 GitHub。請確認網路連線和帳號權限，再試一次。',
+  appsTooLarge: '內容太大，請縮小讀取範圍。',
+  appsConnectFirst: '請先在「設定 → 常用 App」連結帳號。',
+  appsVault: '請選擇 Obsidian 筆記庫的資料夾（裡面有 .obsidian）。',
+  appsUnavailable: '這個版本尚未設定此服務的登入。請聯絡提供 Harness Relay 的人。',
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
   oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
-    `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+    use === 'teams'
+      ? `請為 ${email} 連結 Teams`
+      : use === 'drive'
+        ? `請為 ${email} 連結 Google Drive`
+        : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
@@ -1542,11 +1553,22 @@ const en: ServerMessages = {
   oauthAppChanged: 'the app it signed in with was changed in Settings',
   oauthNoCalendarAccess: (provider) =>
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
+  oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
+  oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
+  appsGithubFailed: 'Could not read GitHub. Check the connection and account access, then try again.',
+  appsTooLarge: 'This response is too large. Request less content.',
+  appsConnectFirst: 'Connect an account in Settings → Common apps first.',
+  appsVault: 'Choose the folder of an Obsidian vault (it contains .obsidian).',
+  appsUnavailable: 'Sign-in for this service has not been set up in this installation. Contact the person who provided Harness Relay.',
   oauthNoMailAccess: (provider) =>
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
   oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,
   oauthNotFor: (email, use) =>
-    `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
+    use === 'teams'
+      ? `Connect Teams for ${email}`
+      : use === 'drive'
+        ? `Connect Google Drive for ${email}`
+        : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',

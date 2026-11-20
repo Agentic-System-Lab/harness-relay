@@ -443,10 +443,10 @@ export class TokenBroker {
    * token the provider refuses (401) is refreshed once and the request sent again.
    */
   fetch(accountId: string, use: OAuthUse): AuthorizedFetch {
-    const hosts = () => this.providerOf(accountId).hosts;
     return async (url, init) => {
+      const provider = this.providerOf(accountId);
       let fresh = false;
-      const send = hostOnlyFetch(hosts(), () => this.accessToken(accountId, use, fresh));
+      const send = hostOnlyFetch(provider.useHosts?.[use] ?? provider.hosts, () => this.accessToken(accountId, use, fresh));
       const res = await send(url, init);
       if (res.status !== 401) return res;
       await res.body?.cancel().catch(() => undefined);

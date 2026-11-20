@@ -33,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   ...PROVIDERS.filter((p) => !isOpenProvider(p)),
   ...OPEN_PROVIDERS,
   'lead',
+  'apps',
   'tools',
   'voice',
   'cwd',

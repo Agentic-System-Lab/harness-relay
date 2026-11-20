@@ -471,6 +471,9 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `GET /api/shares` | → `SharedPage[]`，最新的在前；對話刪除後帶 `conversationGone`，有附上檔案時帶 `files` 與 `filesGist`，只留下放附檔的 gist、沒有頁面的帶 `unfinished`（分享還在建立中時不列出） |
 | `DELETE /api/shares/:id` | → `{ ok }`：刪除分享的 gist，先刪放附檔的、再刪頁面的（`gh gist delete --yes`；用 `gh api gists/:id` 也找不到的視為已刪除，屬於另一個帳號的則拒絕），兩個都刪掉之後才刪除紀錄。不存在的分享回 404，還在建立中的分享的放附檔 gist 回 409，任一個 `gh` 失敗時回 502 並說明原因（與同樣的 code；保留紀錄，可以再移除一次） |
 | `POST /api/gh/login` | `{}` → `CliLoginView`：開始 gh 自己的登入，供分享使用（`gh auth login --web --hostname github.com`，在分享用的 gh 環境裡執行，`ghEnv()`），並停止已經在跑的那一個；GitHub 的一次性代碼與裝置頁面，依 gh 印出的內容放在 `codes` 與 `urls`。設了 `GH_TOKEN`（或在 codespace 以外設了 `GITHUB_TOKEN`）時回 409，因為 gh 會改用它登入 |
+| `POST /api/apps/:app/signin` | Notion、Heptabase 或 Slack（小寫 ID）。使用官方伺服器啟動授權，回傳既有的登入進度。 |
+| `PUT /api/apps/obsidian` | 傳入 `{path}` 設定筆記庫，空字串解除連結。回傳工具庫。 |
+| `GET /api/apps/github` | 回傳 GitHub 的登入名稱、未登入或未安裝狀態。 |
 | `GET /api/gh/login` | → `CliLoginView` 或 `null`：執行中的那個登入（`running`，之後是 `success`、`failed` 或 `cancelled`） |
 | `DELETE /api/gh/login` | → `{ ok }`：停止它 |
 | `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
@@ -685,6 +688,18 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 `test/i18n.test.ts` 會檢查兩份介面字典的結構相同（包括型別檢查不到的清單長度）。
 
 使用導覽的雙語 `tour.steps` 依照 `src/web/tour.ts` 中的 `TOUR_STEPS` 排列，每個步驟有最後修改的版本與選用的 `data-tour` 目標。首次使用與手動重播會看完整導覽，回訪者只看到比這個瀏覽器 `relay:onboarded` 更新的步驟。看完或跳過會記住當前版本。有值得再看的變更時，增加 `TOUR_VERSION`，並把新增或修改步驟的版本改成該值，同步更新兩份語系、`test/tour.test.ts` 的 fingerprint 與舊版升級測試。
+
+## 常用 App 的服務註冊
+
+常用 App 在 `#/settings/apps`。發行者準備好以下公開桌面用戶端後，使用者只需選擇服務、在服務商的頁面同意。從原始碼執行時在啟動伺服器的環境中提供這些值。桌面版在建置時取得這些值，Release 工作流程從同名 repository variables 取得三個 ID，從同名 repository secret 取得 Google 桌面用戶端密碼。這個密碼會隨桌面程式散布，請只使用 Google 的「電腦版應用程式」用戶端。自行在「工具庫」儲存的 Google 與 Microsoft 設定優先。
+
+| 服務 | 發行者設定 |
+| --- | --- |
+| Google | `RELAY_GOOGLE_CLIENT_ID`、`RELAY_GOOGLE_DESKTOP_SECRET`。啟用 CalDAV API 和 Drive API。連結時依用途要求 `https://mail.google.com/`、`https://www.googleapis.com/auth/calendar` 或 `https://www.googleapis.com/auth/drive.readonly`。公開發行前完成 Google 對這些範圍要求的驗證。[Google 範圍說明](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) |
+| Microsoft | `RELAY_MICROSOFT_CLIENT_ID`。註冊 Entra 公開桌面用戶端，在工具庫的設定表單查看 loopback callback 位址。Teams 使用工作或學校帳號，要求委派的 `Team.ReadBasic.All`、`Channel.ReadBasic.All`、`ChannelMessage.Read.All`，以及原有登入所需範圍。請組織管理員授權讀取頻道訊息。[Microsoft Graph 權限](https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-1.0) |
+| Slack | `RELAY_SLACK_CLIENT_ID`。使用可存取 Slack MCP 的內部或已上架 App，開啟 PKCE、token rotation，以及公開頻道的 `search:read.public`、`channels:read`、`channels:history`。登記 `http://localhost:8787/oauth/callback`，開發版另登記 `http://localhost:5173/oauth/callback`；自訂連接埠也需登記。授權與權杖交換使用 Slack 官方的 user-token 端點。[Slack MCP](https://docs.slack.dev/ai/slack-mcp-server/) · [Slack PKCE](https://docs.slack.dev/authentication/using-pkce/) |
+
+Notion 和 Heptabase 的官方 MCP 位址固定在 `src/shared/apps.ts`，沿用伺服器探索、動態註冊、PKCE 與憑證儲存。目錄中的伺服器成功登入後才提供給支援的助理；重試與改名會保留同一筆。GitHub 沿用 gh 裝置登入，Obsidian 在工具庫儲存選定筆記庫的路徑。Drive、Teams、GitHub 與 Obsidian 的內建工具都是 gateway 的唯讀工具。驗證涵蓋 `test/oauth-mail.test.ts`、`test/mcp-oauth.test.ts`、`test/tools.test.ts`、`test/app.test.ts`，以及 `e2e/specs/oauth.spec.ts` 的設定頁流程。
 
 ## 測試
 

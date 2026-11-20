@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
 import { expect, test as base } from '../fixtures';
@@ -201,6 +203,53 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
       RELAY_MICROSOFT_SMTP: `127.0.0.1:${mail.smtpPort}`,
     }),
 });
+
+const registeredApp = test.extend({
+  serverEnv: async ({ serverEnv }, use) => use({ ...serverEnv, RELAY_MICROSOFT_CLIENT_ID: 'e2e-client' }),
+});
+
+registeredApp(
+  'common apps connects Teams and a local Obsidian vault, keeps them after reload and disconnects them',
+  async ({ page, relay }) => {
+    const vault = join(relay.workDir, 'My notes');
+    mkdirSync(join(vault, '.obsidian'), { recursive: true });
+    writeFileSync(join(vault, 'Meeting.md'), 'Meeting notes');
+    // The OS folder dialog cannot be driven in Chromium. The selected path goes through the real vault endpoint.
+    await page.route('**/api/cwds', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...(await response.json()), pick: true } });
+    });
+    await page.route('**/api/cwds/pick', (route) => route.fulfill({ json: { paths: [vault] } }));
+    await page.goto(`${relay.base}/#/settings/apps`);
+    const apps = page.locator('.common-apps');
+    await expect(apps.getByRole('listitem')).toHaveCount(9);
+    const obsidian = apps.getByRole('listitem', { name: 'Obsidian' });
+    await obsidian.getByRole('button', { name: 'Choose vault' }).click();
+    await expect(obsidian).toContainText('My notes · Connected');
+    const teams = apps.getByRole('listitem', { name: 'Microsoft Teams', exact: true });
+    const [tab] = await Promise.all([page.waitForEvent('popup'), teams.getByRole('button', { name: 'Connect', exact: true }).click()]);
+    const allow = tab.getByRole('link', { name: 'Allow' });
+    await expect(allow).toBeVisible();
+    expect(new URL(tab.url()).searchParams.get('scope')).toContain('ChannelMessage.Read.All');
+    await allow.click();
+    await expect(tab.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+    await tab.close();
+    await expect(teams).toContainText('ming@contoso.com · Connected');
+    await teams.getByRole('button', { name: 'Enable in chats for supported assistants' }).click();
+    await page.reload();
+    await expect(teams).toContainText('Enabled for selected assistants');
+    await teams.getByRole('button', { name: 'Turn off default chat access' }).click();
+    await expect(teams.getByRole('button', { name: 'Enable in chats for supported assistants' })).toBeVisible();
+    await expect(obsidian).toContainText('My notes · Connected');
+    await obsidian.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(obsidian).not.toContainText('My notes');
+    expect(readFileSync(join(vault, 'Meeting.md'), 'utf8')).toBe('Meeting notes');
+    page.once('dialog', (dialog) => dialog.accept());
+    await teams.getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await expect(teams.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await expect(teams).not.toContainText('ming@contoso.com');
+  },
+);
 
 test("an account signs in with Microsoft in a new tab, comes back to the web app's own callback page, and its calendars join the calendar tools", async ({
   page,

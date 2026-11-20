@@ -14,6 +14,9 @@ import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
+import { APP_SERVERS } from '../shared/apps';
+import { appClients } from './oauth/appClients';
+import { checkedVault, githubStatus } from './connectors/apps';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
@@ -796,6 +799,29 @@ export function createApp({
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
+
+  app.post('/api/apps/:app/signin', async (c) => {
+    const app = c.req.param('app');
+    if (!Object.hasOwn(APP_SERVERS, app)) throw new HttpError(404, t().invalidField('app'));
+    if (app === 'slack' && !appClients.slackId) throw new HttpError(409, t().appsUnavailable);
+    const b = await body<{ origin?: unknown }>(c);
+    const name = settings.tools.ensureApp(app as keyof typeof APP_SERVERS);
+    return c.json(
+      await mcpOAuth.startSignIn({
+        name,
+        session: sessions.get(c.req.raw),
+        port: servingPort(),
+        origin: typeof b.origin === 'string' ? b.origin : undefined,
+      }),
+    );
+  });
+
+  app.put('/api/apps/obsidian', async (c) => {
+    const { path } = await body<{ path?: unknown }>(c);
+    if (typeof path !== 'string') throw new HttpError(400, t().appsVault);
+    const vault = path ? checkedVault(path, agentFolderOptions(settings)) : '';
+    return c.json(settings.tools.setObsidianVault(vault));
+  });
 
   // Adds a server, or (with `previousName`) replaces or renames one.
   app.put('/api/tools/mcp/:name', async (c) => {
@@ -1834,6 +1860,7 @@ export function createApp({
   // Signing gh in for sharing, from the share dialog when gh is not signed in: gh's own device sign-in,
   // whose code and link the dialog shows (as Settings does for the CLIs' sign-ins), on this computer.
   app.post('/api/gh/login', (c) => c.json(ghLogin.start()));
+  app.get('/api/apps/github', async (c) => c.json(await githubStatus()));
   app.get('/api/gh/login', (c) => c.json(ghLogin.view()));
   app.delete('/api/gh/login', (c) => {
     ghLogin.cancel();

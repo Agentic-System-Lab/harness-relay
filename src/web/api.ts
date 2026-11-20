@@ -526,6 +526,10 @@ export const api = {
   // Tool library
   tools: () => request<ToolLibraryView>('GET', '/api/tools'),
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
+  startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
+    request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
+  setObsidianVault: (path: string) => request<ToolLibraryView>('PUT', '/api/apps/obsidian', { path }),
+  githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
   /** An HTTP server's own sign-in, followed as an account's is (`oauthSignIn`, `pasteOAuthAddress`, `cancelOAuthSignIn`). */

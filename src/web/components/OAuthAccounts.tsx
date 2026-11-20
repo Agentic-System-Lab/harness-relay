@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   OAUTH_PROVIDERS,
-  OAUTH_USES,
+  MAIL_CALENDAR_USES,
   type ConnectorsView,
   type OAuthAccountView,
   type OAuthCalendar,
@@ -27,17 +27,21 @@ import { isAppWindow } from '../update';
  * longer works).
  */
 export function OAuthAccounts({
+  view,
+  setView,
   connectors,
   onConnectors,
   refresh = 0,
 }: {
+  view: OAuthView | null;
+  setView: (v: OAuthView) => void;
   connectors: ConnectorsView;
   onConnectors: (v: ConnectorsView) => void;
   refresh?: number;
 }) {
   const t = useT();
   const o = t.connectors.oauth;
-  const [view, setView] = useState<OAuthView | null>(null);
+
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [signIn, setSignIn] = useState<OAuthSignInView>();
@@ -47,8 +51,8 @@ export function OAuthAccounts({
   const [forUses, setForUses] = useState<OAuthUse[]>(['calendar']);
 
   useEffect(() => {
-    api.oauth().then(setView, (e: Error) => setError(e.message));
-  }, [refresh]);
+    if (refresh) api.oauth().then(setView, (e: Error) => setError(e.message));
+  }, [refresh, setView]);
 
   // Follow a sign-in while it waits; once done, the account (and its calendar) are shown.
   useFollowSignIn(signIn, setSignIn, setError);
@@ -184,7 +188,7 @@ export function OAuthAccounts({
       {/* What a new sign-in is for: the calendar tools, the mail tools, or both. */}
       <fieldset className="oauth-uses">
         <legend className="small">{o.signInFor}</legend>
-        {OAUTH_USES.map((u) => (
+        {MAIL_CALENDAR_USES.map((u) => (
           <label key={u} className="check-row">
             <input type="checkbox" checked={forUses.includes(u)} onChange={(e) => setForUses((x) => toggleUse(x, u, e.target.checked))} />
             {o.uses[u]}

@@ -7304,6 +7304,26 @@ summary + .checks-editor-body {
   border-radius: 10px;
 }
 
+.common-apps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+}
+.common-apps > li {
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.common-apps p {
+  margin: 0;
+}
+.common-apps .mcp-signin {
+  width: 100%;
+}
+.common-apps .link-button {
+  margin-inline: 6px;
+}
+
 .lib-row-main {
   flex: 1;
   min-width: 0;

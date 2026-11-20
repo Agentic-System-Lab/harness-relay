@@ -909,6 +909,7 @@ export class SettingsStore {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (process.platform === 'win32') addWindowsGitToPath(env);
     for (const k of NESTED_AGENT_VARS) delete env[k];
+    delete env.RELAY_GOOGLE_DESKTOP_SECRET;
     if (isOpenProvider(p)) {
       // Only the backends set up in Settings: not a key or an address the server inherited.
       for (const k of INHERITED_BACKEND_VARS) delete env[k];

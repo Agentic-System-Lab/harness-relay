@@ -74,6 +74,7 @@ async function main() {
       4,
     );
   }
+  if (args.join(' ') === 'api --hostname github.com user --jq .login') return process.stdout.write('relay-test');
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);
@@ -137,7 +138,7 @@ function list(github, cmd, rest) {
     const i = rest.indexOf(name);
     return i >= 0 ? rest[i + 1] : undefined;
   };
-  const repo = flag('--repo') || '';
+  const repo = (flag('--repo') || '').replace(/^github\.com\//, '');
   const limit = Number(flag('--limit') || 30);
   if (!flag('--json')) fail(`fake gh: not faked: gh ${cmd} list without --json`);
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !fs.existsSync(path.join(github, 'repos', ...repo.split('/')))) {

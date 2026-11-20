@@ -103,11 +103,11 @@ export class OAuthStore {
   /** The app a provider is signed in to with: the user's own, else Harness Relay's (none when neither). */
   client(provider: OAuthProviderId): (OAuthClient & { builtIn: boolean }) | undefined {
     const own = this.data.clients[provider];
-    const secret = this.secret(`oauth-client-${provider}`);
+    const builtIn = BUILT_IN_CLIENTS[provider];
+    const secret = this.secret(`oauth-client-${provider}`) || (builtIn?.clientId === own?.clientId ? builtIn?.secret : undefined);
     if (own?.clientId)
       return { clientId: own.clientId, ...(own.tenant ? { tenant: own.tenant } : {}), ...(secret ? { secret } : {}), builtIn: false };
-    const builtIn = BUILT_IN_CLIENTS[provider];
-    return builtIn ? { clientId: builtIn, builtIn: true } : undefined;
+    return builtIn ? { ...builtIn, builtIn: true } : undefined;
   }
 
   /**
