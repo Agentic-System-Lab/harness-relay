@@ -3,11 +3,12 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
-import type { TeamsConnection } from '../../src/shared/types';
+import type { Page } from '@playwright/test';
+import type { OAuthView, TeamsConnection } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
 
 /*
- * Accounts that sign in with OAuth (Settings → Tool library → Accounts you sign in to), against a
+ * Accounts that sign in with OAuth (Common apps → Mail or Calendar), against a
  * stand-in for Microsoft's sign-in page and Graph on this computer, which the server is pointed at
  * (`RELAY_MICROSOFT_LOGIN_URL`, `RELAY_MICROSOFT_GRAPH_URL`): the app set up, the sign-in page opened
  * in a new tab, its Allow sending the browser back to the web app's /oauth/callback, the account and
@@ -19,6 +20,13 @@ import { expect, test as base } from '../fixtures';
  * signs in to both over XOAUTH2 with Exchange Online's token; removed alone and added again from its
  * account, then removed with it.
  */
+
+async function openApp(page: Page, name: 'Mail' | 'Calendar') {
+  const row = page.locator('.common-apps').getByRole('listitem', { name, exact: true });
+  const details = row.locator(':scope > details');
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await details.locator(':scope > summary').click();
+  return row;
+}
 
 interface FakeMicrosoft {
   url: string;
@@ -205,60 +213,96 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
     }),
 });
 
-base(
-  'seven common apps offer provider-owned connections while Gmail and Google Calendar stay in the tool library',
-  async ({ page, relay }) => {
-    await page.goto(relay.base + '/#/settings/apps');
-    const apps = page.locator('.common-apps');
-    await expect(apps.getByRole('listitem')).toHaveCount(7);
-    for (const name of ['Gmail', 'Google Calendar']) await expect(apps.getByRole('listitem', { name, exact: true })).toHaveCount(0);
-    for (const [name, claude, codex] of [
-      ['Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce', 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7'],
-      ['Microsoft Teams', 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582', 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644'],
-      ['Slack', '597f662f-36de-437e-836e-5a81013cbfbe', 'plugin_asdk_app_69a1d78e929881919bba0dbda1f6436d'],
-    ]) {
-      const card = apps.getByRole('listitem', { name, exact: true });
-      await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Claude' })).toHaveAttribute(
-        'href',
-        'https://claude.ai/directory/' + claude,
-      );
-      await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Codex' })).toHaveAttribute(
-        'href',
-        'https://chatgpt.com/plugins/' + codex,
-      );
-    }
-    const drive = apps.getByRole('listitem', { name: 'Google Drive', exact: true });
-    const plugin = drive.getByRole('link', { name: 'Connect Google Drive in Codex' });
-    const url = (await plugin.getAttribute('href'))!;
-    await page.context().route(url, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Install plugin</title>' }));
-    const [tab] = await Promise.all([page.waitForEvent('popup'), plugin.click()]);
-    await expect(tab).toHaveURL(url);
-    await tab.close();
-    await expect(drive).not.toContainText(/· Connected/);
-    await drive.getByText('Set up and check your assistant').click();
-    await drive.getByRole('link', { name: 'Open Codex settings' }).click();
-    await expect(page).toHaveURL(/#\/settings\/codex$/);
-    await page.goto(relay.base + '/#/settings/apps');
-    await drive.getByText('Advanced · Connect with your own Google Cloud project').click();
-    await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toHaveCount(0);
-    await drive.getByRole('button', { name: 'Set up Google Cloud project' }).click();
-    const form = drive.getByRole('form');
-    await form.getByLabel('Client ID', { exact: true }).fill('456-user.apps.googleusercontent.com');
-    await form.locator('input[type=password]').fill('GOCSPX-sample');
-    await form.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toBeVisible();
-    await page.goto(relay.base + '/#/settings/tools');
-    const google = page.locator('.oauth-provider').filter({ hasText: 'Google' });
-    await expect(google.getByRole('button', { name: /Sign in with Google/ })).toBeEnabled();
-  },
-);
+base('ten common apps offer provider-owned connections and separate Mail and Calendar account settings', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings/apps');
+  const apps = page.locator('.common-apps');
+  await expect(apps.locator(':scope > li')).toHaveCount(10);
+  for (const name of ['Gmail', 'Google Calendar']) await expect(apps.getByRole('listitem', { name, exact: true })).toHaveCount(0);
+  for (const [name, claude, codex] of [
+    ['Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce', 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7'],
+    ['Microsoft Teams', 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582', 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644'],
+    ['Slack', '597f662f-36de-437e-836e-5a81013cbfbe', 'plugin_asdk_app_69a1d78e929881919bba0dbda1f6436d'],
+  ]) {
+    const card = apps.getByRole('listitem', { name, exact: true });
+    const row = card.locator('.app-options > summary');
+    await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Claude' })).toBeHidden();
+    await row.focus();
+    await row.press('Enter');
+    await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Claude' })).toHaveAttribute(
+      'href',
+      'https://claude.ai/directory/' + claude,
+    );
+    await expect(card.getByRole('link', { name: 'Connect ' + name + ' in Codex' })).toHaveAttribute(
+      'href',
+      'https://chatgpt.com/plugins/' + codex,
+    );
+  }
+  const drive = apps.getByRole('listitem', { name: 'Google Drive', exact: true });
+  const plugin = drive.getByRole('link', { name: 'Connect Google Drive in Codex' });
+  const url = (await plugin.getAttribute('href'))!;
+  await page.context().route(url, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Install plugin</title>' }));
+  const [tab] = await Promise.all([page.waitForEvent('popup'), plugin.click()]);
+  await expect(tab).toHaveURL(url);
+  await tab.close();
+  await expect(drive).not.toContainText(/· Connected/);
+  await page.getByText('Set up and check your assistant', { exact: true }).click();
+  await page.locator('#settings-apps').getByRole('link', { name: 'Open Codex settings' }).click();
+  await expect(page).toHaveURL(/#\/settings\/codex$/);
+  await page.goto(relay.base + '/#/settings/apps');
+  const driveRow = drive.locator('.app-options > summary');
+  if (!(await drive.locator('.app-options').evaluate((el) => (el as HTMLDetailsElement).open))) await driveRow.click();
+  const mail = await openApp(page, 'Mail');
+  const google = mail.locator('.oauth-provider').filter({ hasText: 'Google' });
+  await google.getByRole('button', { name: 'Set up the app' }).click();
+  const mailForm = google.getByRole('form');
+  await mailForm.getByLabel('Client ID', { exact: true }).fill('unfinished-account');
+  await drive.getByText('Advanced · Connect with your own Google Cloud project').click();
+  await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toHaveCount(0);
+  await drive.getByRole('button', { name: 'Set up Google Cloud project' }).click();
+  const form = drive.getByRole('form');
+  await form.getByLabel('Client ID', { exact: true }).fill('456-user.apps.googleusercontent.com');
+  await driveRow.click();
+  await expect(form).toBeHidden();
+  await driveRow.click();
+  await expect(form.getByLabel('Client ID', { exact: true })).toHaveValue('456-user.apps.googleusercontent.com');
+  await form.locator('input[type=password]').fill('GOCSPX-sample');
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toBeVisible();
+  await expect(mailForm.getByRole('alert')).toContainText('This shared registration was updated elsewhere');
+  await expect(mailForm.getByLabel('Client ID', { exact: true })).toHaveValue('unfinished-account');
+  await expect(mailForm.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await mailForm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(google.getByRole('button', { name: /Sign in with Google/ })).toBeEnabled();
+});
 
 base('manual mail and calendar settings stay usable if OAuth settings cannot load', async ({ page, relay }) => {
   await page.route('**/api/oauth', (route) => route.fulfill({ status: 500, json: { error: 'OAuth unavailable' } }));
-  await page.goto(relay.base + '/#/settings/tools');
-  const tools = page.locator('#settings-tools');
-  await expect(tools.getByText('OAuth unavailable')).toBeVisible();
-  await expect(tools.getByRole('button', { name: 'Add a mail account' })).toBeVisible();
+  await page.goto(relay.base + '/#/settings/apps');
+  await expect(page.locator('#settings-apps').getByText('OAuth unavailable')).toBeVisible();
+  const mail = await openApp(page, 'Mail');
+  await mail.getByRole('button', { name: 'Add a mail account' }).click();
+  const mailbox = mail.getByRole('form');
+  await mailbox.getByLabel('Provider').selectOption('gmail');
+  await mailbox.getByLabel('Name', { exact: true }).fill('Work mail');
+  await mailbox.getByLabel('Your address (mail is sent from it)').fill('work@example.com');
+  await mailbox.getByLabel('Password', { exact: true }).fill('sample-password');
+  await mailbox.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(mail.getByRole('list', { name: 'Mail accounts' })).toContainText('Work mail');
+
+  const calendar = await openApp(page, 'Calendar');
+  await calendar.getByRole('button', { name: 'Add a calendar' }).click();
+  const caldav = calendar.getByRole('form');
+  await caldav.getByLabel('Name', { exact: true }).fill('Work calendar');
+  await caldav.getByLabel("The calendar's address, or its server's").fill('https://example.com/calendar');
+  await caldav.getByLabel('User name').fill('work');
+  await caldav.getByLabel('Password', { exact: true }).fill('sample-password');
+  await caldav.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(calendar.getByRole('list', { name: 'Calendars', exact: true })).toContainText('Work calendar');
+  await page.reload();
+  await openApp(page, 'Mail');
+  await openApp(page, 'Calendar');
+  await expect(mail.getByRole('list', { name: 'Mail accounts' })).toContainText('Work mail');
+  await expect(calendar.getByRole('list', { name: 'Calendars', exact: true })).toContainText('Work calendar');
 });
 
 base('common apps connects Teams and a local Obsidian vault, keeps them after reload and disconnects them', async ({ page, relay }) => {
@@ -289,11 +333,13 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   });
   await page.goto(`${relay.base}/#/settings/apps`);
   const apps = page.locator('.common-apps');
-  await expect(apps.getByRole('listitem')).toHaveCount(7);
+  await expect(apps.locator(':scope > li')).toHaveCount(10);
   const obsidian = apps.getByRole('listitem', { name: 'Obsidian' });
   await obsidian.getByRole('button', { name: 'Choose vault' }).click();
   await expect(obsidian).toContainText('My notes · Connected');
   const teams = apps.getByRole('listitem', { name: 'Microsoft Teams', exact: true });
+  await teams.locator('.app-options > summary').click();
+  await teams.getByText('Read channels with Microsoft Graph', { exact: true }).click();
   await expect(teams.getByRole('link', { name: 'Get PowerShell' })).toBeVisible();
   graph = { status: 'missing-module' };
   await teams.getByRole('button', { name: 'Check again' }).click();
@@ -309,12 +355,20 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   await expect(teams).toContainText('TEAMS1234');
   graph = { status: 'connected', account: 'ming@contoso.com' };
   await expect(teams).toContainText('ming@contoso.com · Connected');
-  await teams.getByRole('button', { name: 'Enable in chats for supported assistants' }).click();
+  const access = teams.locator('.app-chat-access');
+  await access.locator('summary').click();
+  await access.getByRole('button', { name: 'Codex', exact: true }).click();
+  await expect(access.locator('summary')).toContainText('1 assistant');
   await page.reload();
-  await expect(teams).toContainText('Enabled for selected assistants');
-  await teams.getByRole('button', { name: 'Turn off default chat access' }).click();
-  await expect(teams.getByRole('button', { name: 'Enable in chats for supported assistants' })).toBeVisible();
+  await expect(teams.locator('.app-options > summary')).toContainText('ming@contoso.com');
+  await teams.locator('.app-options > summary').click();
+  await teams.getByText('Read channels with Microsoft Graph', { exact: true }).click();
+  await access.locator('summary').click();
+  await expect(access.getByRole('button', { pressed: true })).toHaveText('Codex');
+  await access.getByRole('button', { name: 'Codex', exact: true }).click();
+  await expect(access.locator('summary')).toContainText('Off');
   await expect(obsidian).toContainText('My notes · Connected');
+  await obsidian.locator('.app-options > summary').click();
   await obsidian.getByRole('button', { name: 'Disconnect' }).click();
   await expect(obsidian).not.toContainText('My notes');
   expect(readFileSync(join(vault, 'Meeting.md'), 'utf8')).toBe('Meeting notes');
@@ -328,13 +382,12 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   relay,
   microsoft,
 }) => {
-  await page.goto(`${relay.base}/#/settings/tools`);
-  const accounts = page.locator('.oauth-accounts');
+  await page.goto(`${relay.base}/#/settings/apps`);
+  const app = await openApp(page, 'Calendar');
+  const accounts = app.locator('.oauth-accounts');
   await expect(accounts.getByRole('heading', { name: 'Accounts you sign in to' })).toBeVisible();
   // No app of Harness Relay's own yet: the user's, with the addresses its registration must allow.
-  await expect(accounts).toContainText(
-    'Signing in with Microsoft 365 / Outlook.com needs an app registered with Microsoft 365 / Outlook.com first',
-  );
+  await expect(accounts.getByRole('form')).toHaveCount(0);
   await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
   const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });
   await expect(form).toContainText('http://127.0.0.1/oauth/callback');
@@ -347,18 +400,22 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
     accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' }).click(),
   ]);
   await expect(accounts.getByRole('status')).toContainText("Waiting for Microsoft 365 / Outlook.com's sign-in page");
+  await expect(tab.getByRole('link', { name: 'Allow' })).toBeVisible();
+  expect(new URL(tab.url()).searchParams.get('scope')).not.toContain('IMAP');
   await tab.getByRole('link', { name: 'Allow' }).click();
   await expect(tab.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+  await expect(tab.getByRole('link', { name: "Back to Harness Relay's Settings" })).toHaveAttribute('href', '/#/settings/apps');
   // The code and state are spent: off the tab's address.
   expect(new URL(tab.url()).search).toBe('');
   await tab.close();
   expect(microsoft.exchanges).toBe(1);
+  expect((await relay.api<OAuthView>('/api/oauth')).accounts[0]?.uses).toEqual(['calendar']);
 
   // Back in Settings: the account, and its own calendar among the calendar tools' (no password to edit).
   await expect(accounts).toContainText('Signed in as ming@contoso.com.');
   const row = accounts.locator('.lib-row', { hasText: 'ming@contoso.com' });
   await expect(row).toContainText('Connected');
-  const calendars = page.locator('.connectors > .lib-list').nth(1);
+  const calendars = app.getByRole('list', { name: 'Calendars', exact: true });
   await expect(calendars).toContainText('Outlook · ming@contoso.com');
   await expect(calendars.locator('.lib-row', { hasText: 'Outlook · ming@contoso.com' }).getByRole('button', { name: 'Edit' })).toHaveCount(
     0,
@@ -403,7 +460,7 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   await row.getByRole('button', { name: 'Remove ming@contoso.com' }).click();
   await expect(accounts).toContainText('Microsoft cannot revoke one token');
   await expect(accounts.locator('.lib-row')).toHaveCount(0);
-  await expect(calendars).not.toContainText('ming@contoso.com');
+  await expect(calendars).toHaveCount(0);
 });
 
 test('an account signed in with Microsoft for mail adds its mail account, whose Test signs in over XOAUTH2 to its IMAP and SMTP servers', async ({
@@ -412,23 +469,24 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   microsoft,
   mail,
 }) => {
-  await page.goto(`${relay.base}/#/settings/tools`);
-  const accounts = page.locator('.oauth-accounts');
+  await page.goto(`${relay.base}/#/settings/apps`);
+  const app = await openApp(page, 'Mail');
+  const accounts = app.locator('.oauth-accounts');
   await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
   const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });
   await form.getByRole('textbox', { name: 'Client ID' }).fill('e2e-client');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
 
   // A new sign-in for mail alone.
-  const uses = accounts.getByRole('group', { name: 'A new sign-in is for:' });
-  await uses.getByRole('checkbox', { name: 'Calendars' }).uncheck();
-  await uses.getByRole('checkbox', { name: 'Mail' }).check();
   const [tab] = await Promise.all([
     page.waitForEvent('popup'),
     accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' }).click(),
   ]);
+  await expect(tab.getByRole('link', { name: 'Allow' })).toBeVisible();
+  expect(new URL(tab.url()).searchParams.get('scope')).not.toContain('Calendars.ReadWrite');
   await tab.getByRole('link', { name: 'Allow' }).click();
   await expect(tab.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+  await expect(tab.getByRole('link', { name: "Back to Harness Relay's Settings" })).toHaveAttribute('href', '/#/settings/apps');
   await tab.close();
   expect(microsoft.exchanges).toBe(1);
 
@@ -436,13 +494,13 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   // tools', at Microsoft's servers (here the stand-ins), with no password nor servers to edit.
   const row = accounts.locator('.lib-row', { hasText: 'ming@contoso.com' });
   await expect(row).toContainText('Used for: Mail');
-  await expect(row.getByRole('button', { name: 'Use for calendars' })).toBeEnabled();
+  await expect(row.getByRole('button', { name: 'Use for calendars' })).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Calendars', exact: true })).toHaveCount(0);
-  const mailList = page.locator('.connectors > .lib-list').first();
+  const mailList = app.getByRole('list', { name: 'Mail accounts' });
   const own = mailList.locator('.lib-row', { hasText: 'Outlook · ming@contoso.com' });
   await expect(own).toContainText('ming@contoso.com · 127.0.0.1');
   await expect(own.getByRole('button', { name: 'Edit' })).toHaveCount(0);
-  await expect(page.locator('.connectors > .lib-list').nth(1)).not.toContainText('ming@contoso.com');
+  expect((await relay.api<OAuthView>('/api/oauth')).accounts[0]?.uses).toEqual(['mail']);
 
   // Test: IMAP, then SMTP, each over XOAUTH2 with Exchange Online's token.
   await own.getByRole('button', { name: 'Test' }).click();
@@ -463,9 +521,62 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   await expect(row.getByRole('button', { name: 'Use for mail' })).toHaveCount(0);
   expect(microsoft.exchanges).toBe(1);
 
-  // Removed with its account.
+  // Adding calendar access explicitly preserves the Mail grant on the same account.
+  const calendar = await openApp(page, 'Calendar');
+  const calendarAccounts = calendar.locator('.oauth-accounts');
+  await calendarAccounts.getByText('Use an existing sign-in', { exact: true }).click();
+  const [consent] = await Promise.all([page.waitForEvent('popup'), calendar.getByRole('button', { name: 'Use for calendars' }).click()]);
+  await expect(accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' })).toBeDisabled();
+  await expect(accounts.getByRole('status')).toContainText('Finish or cancel the sign-in in Calendar first.');
+  await expect(consent.getByRole('link', { name: 'Allow' })).toBeVisible();
+  const scopes = new URL(consent.url()).searchParams.get('scope');
+  expect(scopes).toContain('Calendars.ReadWrite');
+  expect(scopes).toContain('IMAP.AccessAsUser.All');
+  expect(scopes).not.toContain('Channel.Read');
+  await consent.getByRole('link', { name: 'Allow' }).click();
+  await expect(consent.getByRole('link', { name: "Back to Harness Relay's Settings" })).toHaveAttribute('href', '/#/settings/apps');
+  await consent.close();
+  await expect(row).toContainText('Used for: Calendars, Mail');
+  const shared = (await relay.api<OAuthView>('/api/oauth')).accounts;
+  expect(shared).toHaveLength(1);
+  expect(shared[0]?.uses).toEqual(['calendar', 'mail']);
+  const calendars = calendar.getByRole('list', { name: 'Calendars', exact: true });
+  await expect(calendars).toContainText('Outlook · ming@contoso.com');
+
+  // The sign-in can expire even after its mailbox was removed. Warn on the collapsed row,
+  // then reauthorize all existing uses without silently adding the mailbox back.
   page.once('dialog', (d) => void d.accept());
-  await row.getByRole('button', { name: 'Remove ming@contoso.com' }).click();
+  await own.getByRole('button', { name: 'Remove' }).click();
+  await expect(mailList).toHaveCount(0);
+  await app.locator('.app-options > summary').click();
+  microsoft.revoked = true;
+  await calendars.getByRole('button', { name: 'Test' }).click();
+  await expect(app.locator('.app-options > summary')).toContainText('Needs a new sign-in');
+  await openApp(page, 'Mail');
+  microsoft.revoked = false;
+  const [again] = await Promise.all([page.waitForEvent('popup'), row.getByRole('button', { name: 'Sign in again' }).click()]);
+  await expect(again.getByRole('link', { name: 'Allow' })).toBeVisible();
+  const previousScopes = new URL(again.url()).searchParams.get('scope');
+  expect(previousScopes).toContain('Calendars.ReadWrite');
+  expect(previousScopes).toContain('IMAP.AccessAsUser.All');
+  expect(previousScopes).not.toContain('Channel.Read');
+  await again.getByRole('link', { name: 'Allow' }).click();
+  await expect(again.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+  await again.close();
+  await expect(row).toContainText('Connected');
+  await expect(app.locator('.app-options > summary')).not.toContainText('Needs a new sign-in');
+  await expect(mailList).toHaveCount(0);
+  await row.getByRole('button', { name: 'Use for mail' }).click();
+  await expect(own).toBeVisible();
+
+  // Removing this shared sign-in identifies both services before either is disconnected.
+  const removing = page.waitForEvent('dialog');
+  const clickRemove = row.getByRole('button', { name: 'Remove ming@contoso.com' }).click();
+  const dialog = await removing;
+  expect(dialog.message()).toContain('This disconnects Calendars, Mail');
+  await dialog.accept();
+  await clickRemove;
   await expect(accounts.locator('.lib-row')).toHaveCount(0);
-  await expect(mailList).not.toContainText('ming@contoso.com');
+  await expect(mailList).toHaveCount(0);
+  await expect(calendars).toHaveCount(0);
 });

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import '../toolLibrary.css';
 import {
   type CheckList,
   type OAuthView,
@@ -12,6 +13,7 @@ import {
   type MemoryScope,
   type Provider,
   type SettingsView,
+  type RelayToolGroup,
   type SkillCandidate,
   type ToolLibraryView,
 } from '../../shared/types';
@@ -20,21 +22,29 @@ import { checkProblems, hooksFromRows, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
-import { sectionId } from '../route';
+import { sectionId, settingsHref } from '../route';
 import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
 import { CommonApps } from './CommonApps';
+import { AccountSignInProvider } from './OAuthAccounts';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
 /** Settings → Tool library: MCP servers, skills and the shared memory every agent can be given. */
-export function ToolsCard({ settings, draftLink }: { settings: SettingsView | null; draftLink?: React.ReactNode }) {
+export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView | null; tab: 'apps' | 'tools'; draftLink?: ReactNode }) {
   const env = useChecksEnvironment();
   const t = useT();
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
   const [error, setError] = useState('');
 
+  const tabs = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    // Back and Forward can switch tabs while focus is still on the previous tab.
+    if (tabs.current?.contains(document.activeElement)) {
+      tabs.current.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({ preventScroll: true });
+    }
+  }, [tab]);
   const [appError, setAppError] = useState('');
   const [oauth, setOauth] = useState<OAuthView | null>(null);
   const [connectors, setConnectors] = useState<ConnectorsView | null>(null);
@@ -54,11 +64,18 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
     api.tools().then(setLib, (e: Error) => setError(e.message));
   }, []);
 
+  // The endpoint returns a whole-library snapshot. Apply concurrent edits in the order requested.
+  const pendingChange = useRef(Promise.resolve());
   /** Runs a change and shows the library it returns, or the error. */
   const change = async (call: () => Promise<ToolLibraryView>, report = setError): Promise<boolean> => {
     report('');
     try {
-      setLib(await call());
+      const result = pendingChange.current.then(call);
+      pendingChange.current = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      setLib(await result);
       return true;
     } catch (e) {
       report((e as Error).message);
@@ -67,47 +84,70 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
   };
 
   return (
-    <>
-      <section className="card tools-card" id={sectionId('apps')}>
-        <SectionTitle section="apps">{t.apps.title}</SectionTitle>
-        {(appError || oauthError) && (
+    <section className="card tools-card" id={sectionId('apps')} aria-label={t.settings.nav.apps}>
+      <SectionTitle section={tab}>{t.settings.nav.apps}</SectionTitle>
+      {draftLink}
+      <div ref={tabs} className="segmented apps-tools-tabs" role="tablist" aria-label={t.settings.nav.apps}>
+        {(['apps', 'tools'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={'tab-' + key}
+            aria-selected={tab === key}
+            aria-controls={key === 'apps' ? 'common-apps-panel' : 'settings-tools'}
+            tabIndex={tab === key ? 0 : -1}
+            className={tab === key ? 'on' : undefined}
+            onClick={() => {
+              location.hash = settingsHref(key);
+            }}
+            onKeyDown={(e) => {
+              let next: 'apps' | 'tools';
+              if (e.key === 'Home') next = 'apps';
+              else if (e.key === 'End') next = 'tools';
+              else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') next = key === 'apps' ? 'tools' : 'apps';
+              else return;
+              e.preventDefault();
+              document.getElementById('tab-' + next)?.focus();
+              location.hash = settingsHref(next);
+            }}
+          >
+            {key === 'apps' ? t.apps.title : t.tools.title}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id="common-apps-panel" aria-labelledby="tab-apps" className="apps-tools-panel" hidden={tab !== 'apps'}>
+        {(appError || oauthError || connectorError) && (
           <p className="error-line" role="alert">
-            {appError || oauthError}
+            {[appError, oauthError, connectorError].filter(Boolean).join(' ')}
           </p>
         )}
         {lib ? (
-          <CommonApps
-            lib={lib}
-            oauth={oauth}
-
-            change={(call) => change(call, setAppError)}
-            refreshAccounts={refreshAccounts}
-          />
+          <AccountSignInProvider>
+            <CommonApps
+              lib={lib}
+              oauth={oauth}
+              connectors={connectors}
+              accountSettings={(kind) => (
+                <ConnectorsSettings kind={kind} view={connectors} setView={setConnectors} oauth={oauth} setOauth={setOauth} />
+              )}
+              relayAccess={(group) => <RelayAccess group={group} lib={lib} change={(call) => change(call, setAppError)} />}
+              browserSettings={<BrowserPath lib={lib} change={(call) => change(call, setAppError)} />}
+              change={(call) => change(call, setAppError)}
+              refreshAccounts={refreshAccounts}
+            />
+          </AccountSignInProvider>
         ) : (
           <p>{error || t.common.loading}</p>
         )}
-      </section>
-      <section className="card tools-card" id={sectionId('tools')}>
-        <SectionTitle section="tools">{t.tools.title}</SectionTitle>
-        {draftLink}
+      </div>
+      <div role="tabpanel" id="settings-tools" aria-labelledby="tab-tools" className="apps-tools-panel" hidden={tab !== 'tools'}>
         <p className="muted small">{t.tools.hint}</p>
         {error && <p className="error-line">{error}</p>}
         {!lib ? (
           !error && <p className="muted small">{t.common.loading}</p>
         ) : (
-          <>
-            <RelaySection lib={lib} change={change} />
-            {connectorError && (
-              <p className="error-line" role="alert">
-                {connectorError}
-              </p>
-            )}
-            {oauthError && (
-              <p className="error-line" role="alert">
-                {oauthError}
-              </p>
-            )}
-            <ConnectorsSettings view={connectors} setView={setConnectors} oauth={oauth} setOauth={setOauth} />
+          <div className="library-categories">
             <McpSection lib={lib} change={change} />
             <SkillsSection lib={lib} change={change} />
             <MemorySection lib={lib} change={change} />
@@ -117,14 +157,32 @@ export function ToolsCard({ settings, draftLink }: { settings: SettingsView | nu
                 <ChecksDefaultSection part="checks" defaults={settings.checksDefault} env={env} />
               </>
             )}
-          </>
+          </div>
         )}
-      </section>
-    </>
+      </div>
+    </section>
   );
 }
 
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
+
+/** A native disclosure keeps its editors and any unsaved changes mounted when folded. */
+function LibraryCategory({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  const hintId = useId();
+  return (
+    <details className="library-category" aria-label={title}>
+      <summary aria-label={title} aria-describedby={hintId}>
+        <h4 aria-label={title}>
+          {title}
+          <span className="library-category-hint" id={hintId}>
+            {hint}
+          </span>
+        </h4>
+      </summary>
+      <div className="tools-section library-category-body">{children}</div>
+    </details>
+  );
+}
 
 /** Who gets an item by default, in a few words (`all`: the CLIs that can get it). */
 function givenTo(providers: Provider[], t: Messages, all: readonly Provider[] = PROVIDERS): string {
@@ -167,33 +225,32 @@ function ProviderPicks({
 }
 
 /** Harness Relay's own tool groups (through the gateway), and which CLIs' members get each. */
-function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
+function RelayAccess({ group, lib, change }: { group: RelayToolGroup; lib: ToolLibraryView; change: Change }) {
   const t = useT();
+  const providers = lib.relayTools.find((g) => g.group === group)?.providers ?? [];
+  const [saving, setSaving] = useState(false);
+  const setAccess = async (next: Provider[]) => {
+    setSaving(true);
+    try {
+      await change(() => api.updateTools({ relayTools: { [group]: next } }));
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
-    <section className="tools-section" aria-label={t.tools.relay.title}>
-      <h4>{t.tools.relay.title}</h4>
-      <p className="muted small">{t.tools.relay.hint}</p>
-      {(!lib.gateway.available || lib.gateway.reason) && (
-        <p className="warn-line small">{t.tools.relay.unavailable[lib.gateway.reason ?? 'not-started']}</p>
-      )}
-      <ul className="lib-list">
-        {lib.relayTools.map((g) => (
-          <li key={g.group} className="lib-row relay-group">
-            <div className="lib-row-main">
-              <span className="lib-name">{t.tools.relay.groups[g.group]}</span>
-              <span className={`tool-scope ${g.providers.length ? '' : 'off'}`}>{givenTo(g.providers, t)}</span>
-            </div>
-            <p className="muted small">{t.tools.relay.groupHints[g.group]}</p>
-            <ProviderPicks
-              value={g.providers}
-              label={`${t.tools.relay.groups[g.group]} · ${t.tools.givenTo}`}
-              onChange={(providers) => change(() => api.updateTools({ relayTools: { [g.group]: providers } }))}
-            />
-            {g.group === 'browser' && <BrowserPath lib={lib} change={change} />}
-          </li>
-        ))}
-      </ul>
-    </section>
+    <details className="sub app-chat-access">
+      <summary>{t.apps.chatAccess(providers.length)}</summary>
+      <fieldset className="sub-body app-access-controls" disabled={saving} aria-label={t.tools.givenTo}>
+        <p className="small muted">{group === 'browser' || group === 'obsidian' ? t.apps.deviceGrant : t.apps.grantHint}</p>
+        {(!lib.gateway.available || lib.gateway.reason) && (
+          <p className="warn-line small">{t.tools.relay.unavailable[lib.gateway.reason ?? 'not-started']}</p>
+        )}
+        <ProviderPicks value={providers} label={`${t.tools.relay.groups[group]} · ${t.tools.givenTo}`} onChange={setAccess} />
+        <button type="button" className="link-button" onClick={() => void setAccess(providers.length ? [] : [...PROVIDERS])}>
+          {providers.length ? t.apps.disable : t.apps.enable}
+        </button>
+      </fieldset>
+    </details>
   );
 }
 
@@ -248,8 +305,7 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
-    <div className="tools-section">
-      <h4>{t.tools.mcp}</h4>
+    <LibraryCategory title={t.tools.mcp} hint={t.tools.categories.mcp}>
       <p className="muted small">
         {t.tools.mcpHint} {t.tools.secretsIn(t.settings.keyStorageName[lib.secretStorage])}
       </p>
@@ -301,7 +357,7 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
           </div>
         )
       )}
-    </div>
+    </LibraryCategory>
   );
 }
 
@@ -450,11 +506,15 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
           </div>
         )}
       </div>
-      <div className="field">
-        <span>{t.tools.givenTo}</span>
-        <ProviderPicks value={providers} onChange={setProviders} label={t.tools.givenTo} />
-        <span className="muted small">{givenTo(providers, t)}</span>
-      </div>
+      <details className="sub library-access">
+        <summary>
+          {t.tools.givenTo} · {t.tools.defaultAccess(providers.length, PROVIDERS.length)}
+        </summary>
+        <div className="field">
+          <ProviderPicks value={providers} onChange={setProviders} label={t.tools.givenTo} />
+          <span className="muted small">{givenTo(providers, t)}</span>
+        </div>
+      </details>
       <div className="button-row">
         <button className="ghost" onClick={onDone}>
           {t.common.cancel}
@@ -502,8 +562,7 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
   };
 
   return (
-    <div className="tools-section">
-      <h4>{t.tools.skills}</h4>
+    <LibraryCategory title={t.tools.skills} hint={t.tools.categories.skills}>
       <p className="muted small">{t.tools.skillsHint}</p>
       {lib.skills.length === 0 && <p className="muted small">{t.tools.noSkills}</p>}
       <ul className="lib-list">
@@ -516,8 +575,10 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
                 {s.path}
               </code>
               {s.problem && <span className="warn-line">{s.problem}</span>}
-              <div className="tool-scope-row">
-                <span className="muted small">{t.tools.givenTo}</span>
+              <details className="sub library-access">
+                <summary>
+                  {t.tools.givenTo} · {t.tools.defaultAccess(s.providers.length, PROVIDERS.length)}
+                </summary>
                 <ProviderPicks
                   value={s.providers}
                   label={`${s.name}: ${t.tools.givenTo}`}
@@ -525,7 +586,7 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
                     change(() => api.updateTools({ skills: list.map((x, j) => (j === i ? { ...x, providers } : x)) }))
                   }
                 />
-              </div>
+              </details>
             </div>
             <div className="lib-row-actions">
               <button
@@ -565,7 +626,7 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
           }}
         />
       )}
-    </div>
+    </LibraryCategory>
   );
 }
 
@@ -686,8 +747,7 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
   const changed = MEMORY_SCOPES.filter((s) => memory[s] !== lib.memory[s]);
 
   return (
-    <div className="tools-section">
-      <h4>{t.tools.memory}</h4>
+    <LibraryCategory title={t.tools.memory} hint={t.tools.categories.memory}>
       <p className="muted small">{t.tools.memoryHint}</p>
       <div className="segmented cli-picker memory-scopes" role="tablist" aria-label={t.tools.memory}>
         {MEMORY_SCOPES.map((s) => (
@@ -728,7 +788,7 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
           {t.common.save}
         </button>
       </div>
-    </div>
+    </LibraryCategory>
   );
 }
 
@@ -782,8 +842,7 @@ function ChecksDefaultSection({
 
   const title = hooksOnly ? t.checks.hooks : t.tools.checksDefault;
   return (
-    <section className={`tools-section ${part}-default`} aria-label={title}>
-      <h4>{title}</h4>
+    <LibraryCategory title={title} hint={t.tools.categories[part]}>
       <p className="muted small">{hooksOnly ? t.tools.hooksDefaultHint : t.tools.checksDefaultHint}</p>
       <fieldset className="team-fieldset" disabled={busy} aria-label={title}>
         {hooksOnly ? (
@@ -801,6 +860,6 @@ function ChecksDefaultSection({
           {t.common.save}
         </button>
       </div>
-    </section>
+    </LibraryCategory>
   );
 }

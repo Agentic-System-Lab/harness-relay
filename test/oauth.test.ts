@@ -392,7 +392,7 @@ describe('signing in', () => {
       service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'contoso.onmicrosoft.com' });
       expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: 'the app it signed in with was changed in Settings' });
       expect(service.problem(id)).toBe(
-        'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (the app it signed in with was changed in Settings)',
+        'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (the app it signed in with was changed in Settings)',
       );
       // No token of the app before is used: the kept one was forgotten.
       await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow('no longer works');
@@ -570,7 +570,7 @@ describe('the token broker', () => {
         now += 61 * MIN;
         fake.refreshAnswer = { status: 400, body: { error, error_description: 'AADSTS65001: The user has not consented.\r\nTrace ID: 1' } };
         await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
-          `no longer works: sign in again in Settings → Tool library (${error}`,
+          `no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (${error}`,
         );
         expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: `${error}: AADSTS65001: The user has not consented.` });
         fake.refreshAnswer = undefined;
@@ -1139,7 +1139,7 @@ describe('/api/oauth', () => {
     const refused = await call('GET', `/api/oauth/accounts/${id}/calendars`);
     expect(refused.status).toBe(409);
     expect(await error(refused)).toBe(
-      'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (invalid_grant: AADSTS50173: The grant was revoked)',
+      'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (invalid_grant: AADSTS50173: The grant was revoked)',
     );
     expect(((await (await call('GET', '/api/oauth')).json()) as OAuthView).accounts[0]).toMatchObject({ id, status: 'reauth' });
 

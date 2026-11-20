@@ -288,7 +288,8 @@ export const zhTW = {
         `${cli} 在 Harness Relay 裡用的是 Harness Relay 自己的設定資料夾，而不是你家目錄裡它自己的那個，所以你在那裡的設定（例如 MCP 伺服器）不會被讀取；它還會自己載入的（例如專案的 AGENTS.md）列在「設定 → ${cli}」，以預設工作目錄為準。`,
     },
     /** `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
-    toolsHint: (setup: string) => `勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理），它們加在 CLI 自己的設定之外。${setup}`,
+    toolsHint: (setup: string) =>
+      `勾選這位成員可以用的工具庫項目（在「設定 → App 與工具 → 工具庫」管理），它們加在 CLI 自己的設定之外。${setup}`,
     toolMemory: '共享記憶',
     toolProviderMemory: (p: string) => `${p} 專屬記憶`,
     toolOffByDefault: '預設不給這個 CLI',
@@ -300,7 +301,7 @@ export const zhTW = {
     /** The library holds only other CLIs' memory notes. `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
     toolsNoneForCli: (setup: string) =>
       `工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
-    goToolLibrary: '前往設定 → 工具庫',
+    goToolLibrary: '前往設定 → App 與工具 → 工具庫',
     toolProblem: '目前無法使用',
     problems: {
       needAgent: '至少需要一個 agent',
@@ -645,7 +646,7 @@ export const zhTW = {
       } as Record<ScheduleTrigger['source'], string>,
       account: '郵件帳號',
       noAccounts:
-        '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼，或在瀏覽器裡登入 Microsoft 365、Outlook.com 或 Gmail）。',
+        '還沒有郵件帳號：請先到「設定 → App 與工具 → 常用 App → 郵件」新增一個（用應用程式專用密碼，或在瀏覽器裡登入 Microsoft 365、Outlook.com 或 Gmail）。',
       openSettings: '前往設定',
       folder: '資料夾',
       from: '寄件者包含（選填）',
@@ -671,7 +672,7 @@ export const zhTW = {
         file: '出現或變動的檔案',
       } as Record<ScheduleTrigger['source'], string>,
       calendarAccount: '行事曆',
-      noCalendars: '還沒有行事曆：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個。',
+      noCalendars: '還沒有行事曆：請先到「設定 → App 與工具 → 常用 App → 行事曆」新增一個。',
       minutes: '開始前幾分鐘',
       title: '標題包含（選填）',
       titlePlaceholder: '例如：站會',
@@ -786,7 +787,12 @@ export const zhTW = {
   },
   connectors: {
     title: '郵件與行事曆帳號',
-    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Microsoft 365 與 Outlook.com 的郵件，以及 Microsoft 與 Google 的行事曆，不接受應用程式專用密碼：請用下方的「登入的帳號」（Gmail 兩種都可以）。',
+    mailAccounts: '郵件帳號',
+    manualHint: {
+      mail: '若服務支援應用程式專用密碼，可輸入 IMAP 和 SMTP 設定。',
+      calendar: '若使用 CalDAV，可輸入伺服器網址和帳號。',
+    },
+    removeLinked: (name: string) => `從這個工具移除「${name}」？仍可用同一個登入帳號重新加入。`,
     // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
     passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
     mail: '郵件',
@@ -821,11 +827,29 @@ export const zhTW = {
     /** Accounts that sign in with OAuth (Microsoft, Google), instead of an app password. */
     oauth: {
       title: '登入的帳號',
-      hint: (where: string) =>
-        `Microsoft 365、Outlook.com 與 Google（Gmail、Google 日曆）在瀏覽器裡登入，而不是用密碼，用於行事曆、郵件或兩者。登入由 Harness Relay 自己進行，權杖存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，只送到該帳號的服務與它自己的郵件伺服器，agent 永遠拿不到。`,
+      hint: { mail: '登入 Google 或 Microsoft 帳號以使用郵件。', calendar: '登入 Google 或 Microsoft 帳號以使用行事曆。' },
+      existing: '使用已登入的帳號',
+      finishIn: { mail: '請先在「郵件」完成或取消登入。', calendar: '請先在「行事曆」完成或取消登入。' },
+      sharedClient: {
+        google: '郵件、行事曆與直接連結的 Google Drive 帳號共用這項 Google 應用程式註冊。',
+        microsoft: '郵件、行事曆與先前透過這項註冊連結的 Microsoft Teams 帳號共用這項 Microsoft 應用程式註冊。',
+      },
+      clientUpdated: '其他設定已更新這項共用註冊。請取消並重新開啟表單，查看最新設定。',
+      clientChanged: (provider: string) => `儲存這項變更後，先前透過 ${provider} 登入的所有帳號都必須重新登入，才能繼續使用已連結的服務。`,
+      clientHelp: {
+        microsoft: {
+          mail: '在 Microsoft Entra 註冊行動與桌面應用程式，允許公用用戶端流程。加入 offline_access、User.Read 與 Exchange Online 的 IMAP.AccessAsUser.All、SMTP.Send，並為信箱開啟 SMTP AUTH。',
+          calendar:
+            '在 Microsoft Entra 註冊行動與桌面應用程式，允許公用用戶端流程。加入 offline_access 與 Microsoft Graph 的 User.Read、Calendars.ReadWrite。',
+        },
+        google: {
+          mail: '在 Google Cloud 專案建立電腦版應用程式 OAuth 用戶端，並要求 https://mail.google.com/。測試期間請將自己的帳號加入測試使用者。',
+          calendar:
+            '在 Google Cloud 專案啟用 Google Calendar 和 CalDAV API，建立電腦版應用程式 OAuth 用戶端，並要求 …/auth/calendar。測試期間請將自己的帳號加入測試使用者。',
+        },
+      },
       providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' } as Record<OAuthProviderId, string>,
       uses: { drive: 'Google Drive', teams: 'Microsoft Teams', calendar: '行事曆', mail: '郵件' } as Record<OAuthUse, string>,
-      signInFor: '新的登入用於：',
       usedFor: (uses: string) => `用於：${uses}`,
       useFor: { drive: 'Google Drive', teams: 'Microsoft Teams', calendar: '用於行事曆', mail: '用於郵件' } as Record<OAuthUse, string>,
       mailAdded: (email: string) => `已把 ${email} 的郵件加入郵件工具。`,
@@ -839,7 +863,8 @@ export const zhTW = {
       added: '已加入',
       loadingCalendars: '讀取行事曆中…',
       remove: '移除',
-      confirmRemove: (email: string) => `移除 ${email}？它的權杖，以及透過它使用的行事曆與郵件帳號，都會一起移除。`,
+      confirmRemove: (email: string, uses: string) =>
+        `移除 ${email} 的登入？這會中斷此帳號用於「${uses}」的連線，並從 Harness Relay 移除透過它使用的郵件帳號與行事曆。`,
       removedMicrosoft: (pages: string) =>
         `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
       app: '要用的 app',
@@ -1513,11 +1538,22 @@ export const zhTW = {
 
   apps: {
     title: '常用 App',
-    hint: '要使用 Drive、Teams 或 Slack，請選擇你使用的助理，並用自己的帳號登入。該服務會收到你請它讀取的內容。連結 Notion 或 Heptabase 後，支援的助理即可使用。若 App 提供開啟聊天存取的選項，啟用後助理即可使用該工具的所有已連結帳號。你可以在工具庫選擇哪些助理能使用。',
+    options: '連結',
+    manage: '管理',
+    inProgress: '正在登入或設定',
+    savedSlack: '已在工具庫連線',
+    grantHint: '選取的助理預設可使用在 Relay 直接連結到這項工具的所有帳號。',
+    deviceGrant: '選取的助理可以在聊天中使用這台電腦上的工具，並遵循對話的權限。',
+    chatAccess: (n: number) => (n ? `聊天存取 · ${n} 種助理` : '聊天存取 · 關閉'),
+    added: { mail: (n: number) => `已加入 ${n} 個信箱`, calendar: (n: number) => `已加入 ${n} 個行事曆` },
+    signedInFor: { mail: '已登入 · 新增信箱', calendar: '已登入 · 選擇行事曆' },
+    hostedConsent: '選擇你在 Relay 使用的助理。該服務會收到你請它讀取的內容。',
+    hostedTeamsNote: '請使用工作或學校帳號。Claude 的 Microsoft 365 連接器需要組織管理員同意。',
+    hostedSlackNote: '請確認工作區的授權範圍，包括助理能否傳送訊息。工作區可能需要管理員核准。',
+    connectApp: (name: string) => `連結 ${name}`,
     connect: '連結',
     disconnect: '解除連結',
     enable: '讓支援的助理在聊天中使用',
-    enabled: '已為選定的助理啟用',
     disable: '關閉預設聊天存取',
     connectInClaude: (app: string) => `在 Claude 連結 ${app}`,
     claudeAccount: '請使用你在 Harness Relay 的 Claude Code 所登入的同一個 Claude 訂閱帳號。',
@@ -1550,14 +1586,16 @@ export const zhTW = {
     path: '伺服器上筆記庫的完整路徑',
     oneVault: '請一次選擇一個筆記庫。',
     details: {
-      drive: '依檔名搜尋檔案，讀取 Google 文件。',
-      teams:
-        '請使用工作或學校帳號。Claude 透過 Microsoft 365 連線，需由組織管理員同意。也可使用下方的 Microsoft Graph 在 Relay 列出團隊並讀取頻道。',
-      notion: '透過 Notion 官方工具，在聊天中使用你授權的工作區。',
-      heptabase: '透過 Heptabase 官方工具，在聊天中讀寫你的知識庫。',
-      slack: '連結你使用的 Slack 工作區，並確認讀取或傳送訊息所需的權限。工作區可能需要管理員核准。',
-      github: '查看儲存庫的拉取請求。登入也可用於分享對話與 GitHub 自動任務。',
-      obsidian: '選擇這台電腦上的筆記庫，讓助理列出資料夾並讀取 Markdown 筆記。',
+      mail: '連結 Gmail、Outlook 或其他信箱。',
+      calendar: '連結 Google Calendar、Outlook 或 CalDAV 行事曆。',
+      browser: '在聊天中開啟網頁、閱讀內容或擷取畫面。',
+      drive: '搜尋檔案、讀取 Google 文件。',
+      teams: '查看團隊與頻道對話。',
+      slack: '搜尋工作區訊息。',
+      notion: '讓支援的助理使用你授權的工作區。',
+      heptabase: '讓支援的助理讀寫你的知識庫。',
+      github: '查詢拉取請求、分享對話。',
+      obsidian: '讀取本機筆記庫的 Markdown 筆記。',
     },
     confirmAccount: (email: string, apps: string) => `解除 ${email} 的連結？這會一併移除這個帳號的 ${apps} 存取權。`,
   },
@@ -1574,16 +1612,6 @@ export const zhTW = {
         github: 'GitHub',
         teams: 'Microsoft Teams',
       } as Record<RelayToolGroup, string>,
-      groupHints: {
-        drive: '依檔名搜尋檔案，讀取 Google 文件。',
-        teams: '用工作或學校帳號列出團隊、頻道及近期頻道訊息。組織可能需要管理員同意。',
-        github: '查看儲存庫的拉取請求。登入也可用於分享對話與 GitHub 自動任務。',
-        obsidian: '選擇這台電腦上的筆記庫，讓助理列出資料夾並讀取 Markdown 筆記。',
-        browser:
-          '它自己的瀏覽器（Chromium、Chrome 或 Edge，無頭模式，每個對話有自己的設定檔）：開啟網頁、讀取內容、點擊與輸入，截圖會顯示在對話中。',
-        mail: '搜尋與閱讀郵件、存草稿，透過待送出匣寄信：需要在下方設定郵件帳號。',
-        calendar: '列出與新增活動（有邀請對象時透過待送出匣）：需要在下方設定行事曆。',
-      } as Record<RelayToolGroup, string>,
       browserPath: '要啟動的瀏覽器',
       browserPathHint: (env: string) =>
         `Chromium、Chrome 或 Edge 執行檔的完整路徑。留空時${env ? `用 RELAY_BROWSER（${env}）` : ''}${env ? '，否則' : ''}用這台電腦上找到的第一個：Chrome、Chromium 或 Edge，再來是 Playwright 的 Chromium。之後開始的對話才會用新的設定。`,
@@ -1598,7 +1626,16 @@ export const zhTW = {
       } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
     },
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '設定成員共用的工具與指示。要調整單一成員的工具，請到團隊設定。',
+    categories: {
+      mcp: '用網址或本機指令連接其他工具',
+      skills: '從資料夾加入可重複使用的操作指引',
+      memory: '為所有成員或特定類型的助理留下偏好與專案慣例',
+      hooks: '在工具呼叫前後執行指令',
+      checks: '設定受保護路徑、提交格式與檢查指令',
+    },
+    defaultAccess: (n: number, total: number) => (!n ? '未啟用' : n === total ? '所有 CLI' : `${n} 個 CLI`),
+    howRelayWorks: '工具權限與待送出匣的運作方式',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
@@ -1974,8 +2011,7 @@ export const zhTW = {
       sandboxes: '沙箱',
       backends: '模型來源',
       lead: '首席助理',
-      apps: '常用 App',
-      tools: '工具庫',
+      apps: 'App 與工具',
       voice: '語音輸入',
       cwd: '預設工作目錄',
       sessions: 'Agent 的 session',
@@ -2434,7 +2470,7 @@ export const zhTW = {
           '指令：例如 npm test，要成功才算通過',
           `Hook 會在 macOS 和 Linux 上、${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join('、')} 支援的工具呼叫前後執行。「執行前」的 hook 沒成功就拒絕那次呼叫。`,
           '團隊回答後，Harness Relay 自己檢查，回覆後面的卡片寫出每條的結果；沒通過時，成員下一次發言會被要求修正，你也可以重新檢查、請成員修正或略過',
-          '平行模式會在套用成員的結果前執行檢查指令。在「設定 → 工具庫」的「Hooks」與「團隊檢查預設」可設定新對話和新自動任務一開始帶著的規則。',
+          '平行模式會在套用成員的結果前執行檢查指令。在「設定 → App 與工具 → 工具庫」的「Hooks」與「團隊檢查預設」可設定新對話和新自動任務一開始帶著的規則。',
         ],
       },
       {
@@ -2479,13 +2515,11 @@ export const zhTW = {
       },
       {
         title: '在聊天中使用常用 App',
-        body: '打開「設定 → 常用 App」，選擇在 Claude 或 Codex 連結 Drive、Teams 或 Slack，使用與 Relay 相同的助理帳號。Obsidian 可選擇筆記資料夾。Gmail 和 Google Calendar 位於「工具庫 → 郵件與行事曆帳號」。',
+        body: '打開「設定 → App 與工具 → 常用 App」，找到想用的服務。使用 Drive、Teams 或 Slack 時，點「連結」，再選你在 Relay 使用的助理。',
         points: [
-          '「設定 → 工具庫」可以選擇個別助理、加入自己的 MCP 伺服器，或開啟內建瀏覽器',
-          'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
-          '記憶：所有成員共用，加上各 CLI 專屬的一份',
-          '使用 Relay 直接連線後，可在卡片開啟聊天存取，再請助理列出近期拉取請求或找一篇 Markdown 筆記。',
-          '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
+          'Gmail 請開啟「郵件」，Google Calendar 請開啟「行事曆」。使用 Obsidian 時，選擇筆記資料夾。',
+          '要選擇哪些助理能使用已連結的帳號，展開該項內建工具的「聊天存取」。',
+          '要加入自訂工具、Skill 或共用指示，切換到「工具庫」分頁。',
         ],
       },
       {

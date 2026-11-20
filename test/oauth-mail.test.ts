@@ -540,7 +540,7 @@ describe('a Microsoft sign-in for mail', () => {
       const id = (await signIn(['mail'])).account!.id;
       const refreshes = grants('refresh_token').length;
       await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
-        'ming@contoso.com was not signed in for calendars: click Use for calendars for it in Settings → Tool library first',
+        'ming@contoso.com was not signed in for calendars: click Use for calendars for it in Settings → Apps and tools → Common apps → Calendar first',
       );
       // Nor one for no use (an MCP server's way): not the sign-in's own token (Graph's User.Read, which serves none of its uses), nor a refresh.
       await expect(service.broker.accessToken(id, undefined)).rejects.toThrow(
@@ -945,7 +945,7 @@ describe("Google's incremental consent for mail", () => {
       const id = (await signIn(['calendar'], 'google')).account!.id;
       const requests = fake.requests.length;
       await expect(service.mailToken(id)).rejects.toThrow(
-        'ming@gmail.com was not signed in for mail: click Use for mail for it in Settings → Tool library first',
+        'ming@gmail.com was not signed in for mail: click Use for mail for it in Settings → Apps and tools → Common apps → Mail first',
       );
       expect(fake.requests).toHaveLength(requests);
       expect(await service.broker.accessToken(id, 'calendar')).toMatch(/^access-/);

@@ -39,6 +39,9 @@ describe('client routes', () => {
       expect(hashFor(routeFromHash(hash))).toBe(hash);
     }
     expect(settingsHref('lead')).toBe('#/settings/lead');
+    expect(sectionId('tools')).toBe(sectionId('apps'));
+    expect(navEntryOf('tools')).toBe('apps');
+    expect(hashFor(routeFromHash('#/settings/tools'))).toBe('#/settings/tools');
     expect(sectionId('voice')).toBe('settings-voice');
   });
 
@@ -67,7 +70,6 @@ describe('client routes', () => {
       'pi',
       'lead',
       'apps',
-      'tools',
       'voice',
       'cwd',
       'sessions',
@@ -96,7 +98,6 @@ describe("the settings links row's agents' menu", () => {
       'agents',
       'lead',
       'apps',
-      'tools',
       'voice',
       'cwd',
       'sessions',

@@ -257,7 +257,9 @@ describe('buildBriefing', () => {
       },
     );
     expect(briefing).toContain('# Tool library: left out of this turn');
-    expect(briefing).toContain('- linear: its sign-in no longer works; the user can sign in to it again in Settings → Tool library\n');
+    expect(briefing).toContain(
+      '- linear: its sign-in no longer works; the user can sign in to it again in Settings → Apps and tools → Tool library → MCP servers\n',
+    );
     expect(briefing).toContain('- notion: its sign-in could not be renewed just now');
     // The user's note, in their language, is the reply's; the briefing stays in English.
     expect(briefing).not.toContain('這一輪');

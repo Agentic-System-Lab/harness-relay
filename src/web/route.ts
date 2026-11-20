@@ -34,7 +34,6 @@ export const SETTINGS_SECTIONS = [
   ...OPEN_PROVIDERS,
   'lead',
   'apps',
-  'tools',
   'voice',
   'cwd',
   'sessions',
@@ -43,7 +42,9 @@ export const SETTINGS_SECTIONS = [
   'home-screen',
   'tour',
 ] as const;
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+/** The tool library has its own bookmark inside the Apps and tools card. */
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number] | 'tools';
+export const settingsCard = (section: SettingsSection) => (section === 'tools' ? 'apps' : section);
 
 /** Whether a settings card is an agent's (one per CLI). */
 export const isAgentSection = (section: SettingsSection): section is Provider => (PROVIDERS as readonly string[]).includes(section);
@@ -52,10 +53,13 @@ export const isAgentSection = (section: SettingsSection): section is Provider =>
 export const AGENT_SECTIONS: Provider[] = SETTINGS_SECTIONS.filter(isAgentSection);
 
 /** An entry of the settings page's links row: a card's own link, or the agents' menu. */
-export type SettingsNavEntry = Exclude<SettingsSection, Provider> | 'agents';
+export type SettingsNavEntry = Exclude<SettingsSection, Provider | 'tools'> | 'agents';
 
 /** The entry of the links row that leads to a card: the agents' menu for an agent's card. */
-export const navEntryOf = (section: SettingsSection): SettingsNavEntry => (isAgentSection(section) ? 'agents' : section);
+export function navEntryOf(section: SettingsSection): SettingsNavEntry {
+  const card = settingsCard(section);
+  return isAgentSection(card) ? 'agents' : card;
+}
 
 /** The links row, in page order: every card's link, the agents' gathered into one menu where the first of them is. */
 export const SETTINGS_NAV: SettingsNavEntry[] = SETTINGS_SECTIONS.map(navEntryOf).filter((e, i, all) => all.indexOf(e) === i);
@@ -82,7 +86,7 @@ export function routeFromHash(hash: string): Route {
   if (h === 'settings') return { page: 'settings' };
   if (h.startsWith('settings/')) {
     const section = h.slice('settings/'.length) as SettingsSection;
-    return SETTINGS_SECTIONS.includes(section) ? { page: 'settings', section } : { page: 'settings' };
+    return section === 'tools' || SETTINGS_SECTIONS.includes(section) ? { page: 'settings', section } : { page: 'settings' };
   }
   return { page: 'home' };
 }
@@ -99,7 +103,7 @@ export function hashFor(r: Route): string {
 export const settingsHref = (section: SettingsSection | Provider) => hashFor({ page: 'settings', section });
 
 /** The element id of a settings card. */
-export const sectionId = (section: SettingsSection) => `settings-${section}`;
+export const sectionId = (section: SettingsSection) => `settings-${settingsCard(section)}`;
 
 /**
  * Scrolls to a settings card. Links call it too, because following a link to the hash already in

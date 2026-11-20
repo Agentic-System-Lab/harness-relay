@@ -45,6 +45,7 @@ import {
   revealLink,
   scrollToSection,
   sectionId,
+  settingsCard,
   hashFor,
   settingsHref,
   type SettingsSection,
@@ -235,7 +236,7 @@ export function SettingsPage({
           </div>
         </header>
 
-        {section !== 'lead' && section !== 'tools' && draftLink}
+        {section !== 'lead' && section !== 'apps' && section !== 'tools' && draftLink}
         <SettingsNav section={section} />
 
         <AssistantOverview providers={providers} installs={installs.views} />
@@ -338,7 +339,11 @@ export function SettingsPage({
           />
         )}
 
-        <ToolsCard settings={settings} draftLink={section === 'tools' ? draftLink : undefined} />
+        <ToolsCard
+          settings={settings}
+          tab={section === 'tools' ? 'tools' : 'apps'}
+          draftLink={section === 'tools' || section === 'apps' ? draftLink : undefined}
+        />
 
         <VoiceCard />
 
@@ -1395,7 +1400,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     setActive(s);
   };
   useEffect(() => {
-    if (section) pick(section);
+    if (section) pick(settingsCard(section));
   }, [section]);
   useEffect(() => {
     const scroller = marker.current?.closest<HTMLElement>('.scroll');

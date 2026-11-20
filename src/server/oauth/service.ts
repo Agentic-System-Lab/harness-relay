@@ -200,7 +200,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
    */
   async calendars(accountId: string): Promise<OAuthCalendar[]> {
     const a = this.account(accountId);
-    const problem = this.problem(accountId);
+    const problem = this.problem(accountId, 'calendar');
     if (problem) throw new HttpError(409, problem);
     if (!a.uses.includes('calendar')) throw new HttpError(409, t().oauthNotFor(a.email, 'calendar'));
     const added = this.connectors.oauthCalendars(accountId);
@@ -208,7 +208,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     try {
       found = await this.provider(a.provider).calendars(this.broker.fetch(accountId, 'calendar'), a.email);
     } catch (err) {
-      const refused = this.problem(accountId);
+      const refused = this.problem(accountId, 'calendar');
       if (refused) throw new HttpError(409, refused);
       throw err;
     }
@@ -327,10 +327,10 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     return a ? `${a.status} ${a.connectedAt}` : 'gone';
   }
 
-  problem(oauthAccount: string): string | undefined {
+  problem(oauthAccount: string, use?: OAuthUse): string | undefined {
     const a = this.store.account(oauthAccount);
     if (!a) return t().oauthAccountGone;
-    if (a.status === 'reauth') return t().oauthSignInAgain(a.email, a.error ?? '');
+    if (a.status === 'reauth') return t().oauthSignInAgain(a.email, a.error ?? '', use ?? a.uses[0]);
     return undefined;
   }
 

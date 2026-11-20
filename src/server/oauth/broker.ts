@@ -371,12 +371,12 @@ export class TokenBroker {
   private async refresh(accountId: string, use: OAuthUse | undefined, slot: string): Promise<string> {
     const account = this.store.grant(accountId);
     if (!account) throw new OAuthSignInError(t().oauthAccountGone);
-    if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.label, account.error ?? ''));
+    if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.label, account.error ?? '', use));
     // A sign-in that brought no refresh token, its access token run out (or lost when the server restarted).
     if (account.noRefresh) {
       this.tokens.delete(accountId);
       this.store.needsSignIn(accountId, t().oauthTokenRanOut);
-      throw new OAuthSignInError(t().oauthSignInAgain(account.label, t().oauthTokenRanOut));
+      throw new OAuthSignInError(t().oauthSignInAgain(account.label, t().oauthTokenRanOut, use));
     }
     const provider = this.providerOf(accountId);
     const generation = this.generation(accountId);
@@ -392,10 +392,10 @@ export class TokenBroker {
         // Another refresh before it found the sign-in refused, or a new sign-in came: not asked.
         if (this.generation(accountId) !== generation) return undefined;
         const now = this.store.grant(accountId);
-        if (now?.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(now.label, now.error ?? ''));
+        if (now?.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(now.label, now.error ?? '', use));
         // The refresh token as it is now: one another use's refresh rotated is the one sent.
         const refreshToken = this.store.refreshToken(accountId);
-        if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.label));
+        if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.label, use));
         const a = await tokenRequest(provider, {
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
@@ -424,13 +424,13 @@ export class TokenBroker {
       if (body.error && (REFUSED_FOR_GOOD.includes(body.error) || provider.revokedRefreshErrors?.includes(body.error))) {
         this.tokens.delete(accountId);
         this.store.needsSignIn(accountId, why);
-        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
+        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why, use));
       }
       // Its client refused: a new sign-in, with a client registered again (an MCP server's).
       if (body.error && CLIENT_REFUSED.includes(body.error) && this.store.clientRefused) {
         this.tokens.delete(accountId);
         this.store.clientRefused(accountId, why);
-        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
+        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why, use));
       }
       throw new OAuthSignInError(t().oauthRefreshFailed(account.label, why));
     }

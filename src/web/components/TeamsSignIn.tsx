@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TeamsConnection } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 
-export function TeamsSignIn({ children }: { children: ReactNode }) {
+export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView: (value: TeamsConnection) => void }) {
   const t = useT();
   const a = t.apps;
-  const [view, setView] = useState<TeamsConnection>();
+  const details = useRef<HTMLDetailsElement>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const revision = useRef(0);
@@ -33,6 +33,9 @@ export function TeamsSignIn({ children }: { children: ReactNode }) {
   }, []);
 
   const pending = view?.status === 'installing' || view?.status === 'signing-in';
+  useEffect(() => {
+    if (pending && details.current) details.current.open = true;
+  }, [pending]);
   useEffect(() => {
     if (!pending || busy) return;
     let stopped = false;
@@ -64,62 +67,64 @@ export function TeamsSignIn({ children }: { children: ReactNode }) {
     </button>
   );
   return (
-    <>
-      {view?.status === 'missing-powershell' && (
-        <p className="muted small">
-          {a.teamsPowerShell}{' '}
-          <a href="https://learn.microsoft.com/powershell/scripting/install/installing-powershell" target="_blank" rel="noreferrer">
-            {a.installPowerShell}
-          </a>
-        </p>
-      )}
-      {view?.status === 'missing-module' && button(a.installGraph, api.teamsInstall)}
-      {view?.status === 'signed-out' && button(a.connect, api.teamsConnect)}
-      {view?.status === 'installing' && <p role="status">{a.installingGraph}</p>}
-      {view?.status === 'signing-in' && (
-        <div role="status">
-          {view.code ? (
-            <>
-              <p>
-                {a.teamsCode} <strong>{view.code}</strong>
-              </p>
-              <a
-                href={view.url === 'https://login.microsoft.com/device' ? view.url : 'https://microsoft.com/devicelogin'}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {a.openMicrosoft}
-              </a>
-            </>
-          ) : (
-            <p>{a.teamsWaiting}</p>
-          )}
-        </div>
-      )}
-      {pending && button(t.common.cancel, api.teamsDisconnect)}
-      {view?.status === 'connected' && (
-        <div>
-          <span>
-            {view.account} · {t.connectors.oauth.connected}
-          </span>
-          {children}
-          {button(a.disconnect, api.teamsDisconnect)}
-        </div>
-      )}
-      {view?.status === 'error' && (
-        <p role="alert" className="error-line">
-          {view.message}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="error-line">
-          {error}
-        </p>
-      )}
-      {view?.status === 'error'
-        ? button(a.checkAgain, api.teamsDisconnect)
-        : (view?.status === 'missing-powershell' || (!view && error)) && button(a.checkAgain, api.teamsStatus)}
-      {!view && !error && t.common.loading}
-    </>
+    <details ref={details} className="app-secondary">
+      <summary>{a.teamsDirect}</summary>
+      <div className="app-row-body">
+        {view?.status === 'missing-powershell' && (
+          <p className="muted small">
+            {a.teamsPowerShell}{' '}
+            <a href="https://learn.microsoft.com/powershell/scripting/install/installing-powershell" target="_blank" rel="noreferrer">
+              {a.installPowerShell}
+            </a>
+          </p>
+        )}
+        {view?.status === 'missing-module' && button(a.installGraph, api.teamsInstall)}
+        {view?.status === 'signed-out' && button(a.connect, api.teamsConnect)}
+        {view?.status === 'installing' && <p role="status">{a.installingGraph}</p>}
+        {view?.status === 'signing-in' && (
+          <div role="status">
+            {view.code ? (
+              <>
+                <p>
+                  {a.teamsCode} <strong>{view.code}</strong>
+                </p>
+                <a
+                  href={view.url === 'https://login.microsoft.com/device' ? view.url : 'https://microsoft.com/devicelogin'}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {a.openMicrosoft}
+                </a>
+              </>
+            ) : (
+              <p>{a.teamsWaiting}</p>
+            )}
+          </div>
+        )}
+        {pending && button(t.common.cancel, api.teamsDisconnect)}
+        {view?.status === 'connected' && (
+          <div>
+            <span>
+              {view.account} · {t.connectors.oauth.connected}
+            </span>
+            {button(a.disconnect, api.teamsDisconnect)}
+          </div>
+        )}
+        {view?.status === 'error' && (
+          <p role="alert" className="error-line">
+            {view.message}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="error-line">
+            {error}
+          </p>
+        )}
+        {view?.status === 'error'
+          ? button(a.checkAgain, api.teamsDisconnect)
+          : (view?.status === 'missing-powershell' || (!view && error)) && button(a.checkAgain, api.teamsStatus)}
+        {!view && !error && t.common.loading}
+      </div>
+    </details>
   );
 }

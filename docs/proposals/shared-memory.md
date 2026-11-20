@@ -63,7 +63,7 @@ A new memory part per project, keyed by the **project root**: the git repository
 - The briefing's `# Memory` section gives the parts in this order: for everyone, for this project, for this CLI.
 - An agent can turn it off like the other parts: the exception key `memory:project` in `AgentConfig.tools`.
 - Stored in a new table `project_memory` (`root` primary key, `text`, `updated_at`), not in the `tool_library` JSON, because the number of projects grows.
-- Settings → Tools → Memory gets a project list: the projects that have memory, plus the default working directory. A conversation's header links to its project's memory.
+- Settings → Apps and tools → Tool library → Memory gets a project list: the projects that have memory, plus the default working directory. A conversation's header links to its project's memory.
 
 ### 3. Size
 

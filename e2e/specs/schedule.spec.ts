@@ -325,6 +325,7 @@ test.describe('schedules', () => {
     await task.fill('Review changed files');
     await page.getByRole('combobox', { name: en.schedule.repeat }).selectOption('event');
     await page.getByRole('link', { name: en.schedule.watch.openSettings }).click();
+    await expect(page.getByRole('tabpanel', { name: 'Common apps' }).getByRole('listitem', { name: 'Mail', exact: true })).toBeVisible();
     await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
     await expect(task).toHaveValue('Review changed files');
     await expect(page.getByRole('combobox', { name: en.schedule.repeat })).toHaveValue('event');

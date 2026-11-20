@@ -470,7 +470,7 @@ function TriggerFields({
           {mailAccounts && !mailAccounts.length ? (
             <p className="small warn-text">
               {w.noAccounts}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
                 {w.openSettings}
               </a>
             </p>
@@ -525,7 +525,7 @@ function TriggerFields({
           {calendars && !calendars.length ? (
             <p className="small warn-text">
               {w.noCalendars}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
                 {w.openSettings}
               </a>
             </p>

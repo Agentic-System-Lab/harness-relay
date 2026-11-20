@@ -270,7 +270,7 @@ describe('an event about to begin', () => {
     );
     values.clear();
     await expect(withLang('en', () => checkCalendar({ ...trigger, account: 'home' }, undefined, store, undefined, NOW))).rejects.toThrow(
-      'The password of the calendar "Home" cannot be read: type it again in Settings → Tool library',
+      'The password of the calendar "Home" cannot be read: type it again in Settings → Apps and tools → Common apps → Calendar',
     );
     await expect(withLang('zh-TW', () => checkCalendar({ ...trigger, account: 'home' }, undefined, store, undefined, NOW))).rejects.toThrow(
       '讀不到行事曆「Home」的密碼',

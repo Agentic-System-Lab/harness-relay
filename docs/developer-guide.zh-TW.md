@@ -167,7 +167,7 @@ src/
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、UsagePanel（設定頁中帳號的方案用量）、CopyButton、Logo、Onboarding（使用導覽）、TourArt（使用導覽歡迎那一步的圖）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
-                           VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → 工具庫）、
+                           VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → App 與工具，含常用 App 與工具庫兩個分頁）、
                            CliInstall（設定頁 CLI 卡片上的安裝與移除）、
                            SandboxSetup（設定 → 沙箱）、SandboxSetupDialog（新對話的對話框）、
                            BackendsSettings（設定 → 模型來源）、
@@ -182,7 +182,7 @@ src/
                            GrokTrust（Grok 對資料夾的信任）、SectionTitle、
                            CwdInput（工作目錄輸入框：每個資料夾一個標籤、輸入內容後的 Enter 鍵、資料夾按鈕，以及使用中工作目錄的清單）、
                            ScheduleDrawer（對話的排程、立即檢查）、ScheduleForm（共用的排程表單；當某件事發生時，要等的每件事：TriggerFields）、
-                           OAuthAccounts（設定 → 工具庫 → 登入的帳號）、McpSignIn（HTTP MCP 伺服器自己的登入，在它那一列）、OAuthCallback（服務的登入回到的頁面，/oauth/callback）、
+                           OAuthAccounts（設定 → App 與工具 → 常用 App → 郵件或行事曆 → 登入的帳號）、McpSignIn（HTTP MCP 伺服器自己的登入，在它那一列）、OAuthCallback（服務的登入回到的頁面，/oauth/callback）、
                            NewSchedule（「新自動任務」頁面）、
                            ReportDialog（側邊欄的「回報問題」）、StarDialog（它旁邊的星星：到 GitHub 給 repo 一顆星星）、
                            VersionSettings（設定 → 版本）、UpdateDialog（新版本，只提示一次）、
@@ -321,7 +321,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `RELAY_VOICE_MODEL_BASE_URL` | Hugging Face，固定在一個 commit | 語音輸入下載模型的 http(s) 資料夾（`<url>/ggml-<model>.bin`），例如鏡像站。每個檔案仍會比對固定的大小與 SHA-256 |
 | `RELAY_VOICE_ENGINE_BASE_URL` | GitHub 上 whisper.cpp 的 release | 語音輸入在 Linux 與 Windows 上下載引擎的 http(s) 資料夾（`<url>/<壓縮檔>`，檔名見 `ENGINE_BUILDS`），同樣會檢查 |
 | `RELAY_VOICE_DIR` | `<資料資料夾>/voice` | 語音輸入存放模型與引擎的地方：絕對路徑，或以 `~/` 開頭的路徑。不能在暫存資料夾裡（伺服器會拒絕啟動）；工作目錄包含它或在它裡面時，可編輯模式會被拒絕，因為那裡的引擎在沙箱外執行（預設的資料夾也一樣）。引擎提供靜態檔案的空資料夾仍放在資料資料夾裡（`voice-public`）。在這裡移除語音輸入時，會依檔名刪掉 Harness Relay 下載的檔案（模型、這個版本的引擎），以及它建立、已經變空的資料夾；其他的都不會動 |
-| `RELAY_BROWSER` | 找到的第一個 | 瀏覽器工具啟動的 Chromium、Chrome 或 Edge（絕對路徑，或以 `~/` 開頭的路徑），但在設定 → 工具庫設定的那一個優先；兩者都沒有時，依序用系統的 Chrome、Chromium 或 Edge、Playwright 最新的 Chromium（`src/server/browser/find.ts`） |
+| `RELAY_BROWSER` | 找到的第一個 | 瀏覽器工具啟動的 Chromium、Chrome 或 Edge（絕對路徑，或以 `~/` 開頭的路徑），但在設定 → App 與工具 → 常用 App → 瀏覽器中設定的那一個優先；兩者都沒有時，依序用系統的 Chrome、Chromium 或 Edge、Playwright 最新的 Chromium（`src/server/browser/find.ts`） |
 | `RELAY_MICROSOFT_LOGIN_URL` | `https://login.microsoftonline.com` | 用 Microsoft 登入的帳號在哪裡登入（它底下的 Microsoft Entra 端點）：另一個雲端的，例如國家雲端（`https://login.microsoftonline.us`），用於它的行事曆（它的郵件還不支援），或端對端測試中這台電腦上的替身。https，或只到這台電腦的一般 http |
 | `RELAY_MICROSOFT_GRAPH_URL` | `https://graph.microsoft.com` | 這些帳號的行事曆在哪裡（Microsoft Graph），也是它們的權杖唯一會送去的主機；這時 Graph 的範圍以這個網址命名。https，或只到這台電腦的一般 http |
 | `RELAY_MICROSOFT_IMAP` | `outlook.office365.com:993` | 在哪裡讀這些帳號的郵件（`host:port`），也是它們的郵件權杖唯一會送去的 IMAP 伺服器：端對端測試中這台電腦上的替身。不是給國家雲用的：它的郵件還不支援（郵件權杖是全球雲 Exchange Online 的）。TLS（143 埠用 STARTTLS）；純 TCP 只限這台電腦 |
@@ -694,11 +694,11 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 
 ## 常用 App 的服務註冊
 
-「常用 App」（`#/settings/apps`）的七張卡片都不需要發行者註冊。Drive、Teams 和 Slack 提供 Claude 與 Codex 官方入口，在所選服務完成授權，適用使用者的助理帳號與工作區規則。[OpenAI 外掛](https://openai.com/business/plugins/) · [Claude 連接器](https://claude.com/marketplace/connectors-plugins)
+**設定 → App 與工具**共用一個導覽連結，卡片內有兩個分頁。既有的 `#/settings/apps` 會開啟**常用 App**，`#/settings/tools` 則會開啟**工具庫**。**常用 App** 有十列。**郵件**和**行事曆**排在最前面，分別管理各自的帳號。**瀏覽器**可指定要啟動的執行檔。七個內建工具組別各自在對應的服務列提供**聊天存取**。**工具庫**則包含 MCP 伺服器、Skills、記憶、Hooks 與團隊檢查預設。Drive、Teams、Slack、Notion、Heptabase、GitHub 與 Obsidian 都可免發行者註冊使用。Drive、Teams 和 Slack 提供 Claude 與 Codex 官方入口，在所選服務完成授權，適用使用者的助理帳號與工作區規則。[OpenAI 外掛](https://openai.com/business/plugins/) · [Claude 連接器](https://claude.com/marketplace/connectors-plugins)
 
-Drive 可選用使用者自己 Google Cloud 專案的桌面 OAuth 用戶端，需啟用 Drive API，使用 `drive.readonly` 範圍。Teams 也支援 Microsoft Graph PowerShell 官方的裝置登入，讓工作或學校帳號唯讀查詢。原有的 Slack 共用連線可用最初的用戶端重新授權。工具庫繼續以原有的註冊與帳號流程管理 Gmail 和 Google Calendar。
+Drive 可選用使用者自己 Google Cloud 專案的桌面 OAuth 用戶端，需啟用 Drive API，使用 `drive.readonly` 範圍。Teams 也支援 Microsoft Graph PowerShell 官方的裝置登入，讓工作或學校帳號唯讀查詢。原有的 Slack 共用連線可用最初的用戶端重新授權。Gmail 在郵件那一列設定，Google Calendar 在行事曆那一列設定，兩者沿用原有的帳號流程。
 
-Notion 和 Heptabase 的官方 MCP 位址固定在 `src/shared/apps.ts`，沿用伺服器探索、動態註冊、PKCE 與憑證儲存。目錄中的伺服器成功登入後才提供給支援的助理；重試與改名會保留同一筆。Teams 的 Graph PowerShell 權杖保存在登入程序內。Windows 上，SDK 會共用 PowerShell 設定檔的帳號提示，可能保留帳號名稱及租用戶 ID，登入時會保護原有的提示檔。GitHub 沿用 gh 裝置登入，Obsidian 在工具庫儲存選定筆記庫的路徑。Drive、Teams、GitHub 與 Obsidian 的內建工具都是 gateway 的唯讀工具。驗證涵蓋 `test/teams-graph.test.ts`、`test/oauth-mail.test.ts`、`test/mcp-oauth.test.ts`、`test/tools.test.ts`、`test/app.test.ts`，以及 `e2e/specs/oauth.spec.ts` 的設定頁流程。
+Notion 和 Heptabase 的官方 MCP 位址固定在 `src/shared/apps.ts`，沿用伺服器探索、動態註冊、PKCE 與憑證儲存。目錄中的伺服器成功登入後才提供給支援的助理；重試與改名會保留同一筆。Teams 的 Graph PowerShell 權杖保存在登入程序內。Windows 上，SDK 會共用 PowerShell 設定檔的帳號提示，可能保留帳號名稱及租用戶 ID，登入時會保護原有的提示檔。GitHub 沿用 gh 裝置登入，Obsidian 在工具庫儲存選定筆記庫的路徑。Drive、Teams、GitHub 與 Obsidian 的內建工具都是 gateway 的唯讀工具。驗證涵蓋 `test/teams-graph.test.ts`、`test/oauth-mail.test.ts`、`test/mcp-oauth.test.ts`、`test/tools.test.ts`、`test/app.test.ts`，以及 `e2e/specs/oauth.spec.ts` 和 `e2e/specs/mcp-oauth.spec.ts` 的設定頁流程。
 
 ## 測試
 

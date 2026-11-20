@@ -274,7 +274,7 @@ export const en: Messages = {
         `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own instead of its own one in your home folder, so what you set up there (MCP servers, say) is not read; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}, for the default working directory.`,
     },
     toolsHint: (setup) =>
-      `Choose what this member gets from the tool library (managed in Settings → Tool library), in addition to the CLI's own setup. ${setup}`,
+      `Choose what this member gets from the tool library (managed in Settings → Apps and tools → Tool library), in addition to the CLI's own setup. ${setup}`,
     toolMemory: 'Shared memory',
     toolProviderMemory: (p) => `Memory for ${p}`,
     toolOffByDefault: 'not given to this CLI by default',
@@ -285,7 +285,7 @@ export const en: Messages = {
       `The tool library is empty. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
     toolsNoneForCli: (setup) =>
       `The tool library has nothing for this CLI yet, only memory for other CLIs. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
-    goToolLibrary: 'Go to Settings → Tool library',
+    goToolLibrary: 'Go to Settings → Apps and tools → Tool library',
     toolProblem: 'unavailable right now',
     problems: {
       needAgent: 'At least one agent is needed',
@@ -638,7 +638,7 @@ export const en: Messages = {
       },
       account: 'Mail account',
       noAccounts:
-        'There is no mail account yet: add one in Settings → Tool library → Mail and calendar first (with an app password, or signed in in the browser with Microsoft 365, Outlook.com or Gmail).',
+        'There is no mail account yet: add one in Settings → Apps and tools → Common apps → Mail first (with an app password, or signed in in the browser with Microsoft 365, Outlook.com or Gmail).',
       openSettings: 'Open Settings',
       folder: 'Folder',
       from: 'The sender contains (optional)',
@@ -664,7 +664,7 @@ export const en: Messages = {
         file: 'The files that appeared or changed',
       },
       calendarAccount: 'Calendar',
-      noCalendars: 'There is no calendar yet: add one in Settings → Tool library → Mail and calendar first.',
+      noCalendars: 'There is no calendar yet: add one in Settings → Apps and tools → Common apps → Calendar first.',
       minutes: 'Minutes before it begins',
       title: 'The title contains (optional)',
       titlePlaceholder: 'For example: standup',
@@ -779,7 +779,12 @@ export const en: Messages = {
   },
   connectors: {
     title: 'Mail and calendar accounts',
-    hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Microsoft 365 and Outlook.com mail, and Microsoft's and Google's calendars, take no app password: use Accounts you sign in to below (Gmail takes either).",
+    mailAccounts: 'Mail accounts',
+    manualHint: {
+      mail: 'For a provider that supports app passwords, enter its IMAP and SMTP settings.',
+      calendar: 'For CalDAV, enter your calendar server and account details.',
+    },
+    removeLinked: (name) => `Remove "${name}" from this tool? You can add it again with the same sign-in.`,
     // Follows the hint directly: its own space first.
     passwordsIn: (where) => ` Passwords are kept in ${where}, and never shown, not even in part.`,
     mail: 'Mail',
@@ -815,11 +820,31 @@ export const en: Messages = {
     confirmRemove: (name) => `Remove the account "${name}"? Its password is deleted too.`,
     oauth: {
       title: 'Accounts you sign in to',
-      hint: (where) =>
-        `Microsoft 365, Outlook.com and Google (Gmail, Google Calendar) sign in in the browser instead of with a password, for calendars, mail or both. Harness Relay runs the sign-in itself; the tokens are kept in ${where}, go only to the account's own service and its own mail servers, and agents never get them.`,
+      hint: { mail: 'Sign in to Google or Microsoft to use your mail.', calendar: 'Sign in to Google or Microsoft to use your calendars.' },
+      existing: 'Use an existing sign-in',
+      finishIn: { mail: 'Finish or cancel the sign-in in Mail first.', calendar: 'Finish or cancel the sign-in in Calendar first.' },
+      sharedClient: {
+        google: 'Mail, Calendar and directly connected Google Drive accounts share this Google app registration.',
+        microsoft:
+          'Mail, Calendar and any Microsoft Teams accounts previously connected through this registration share this Microsoft app registration.',
+      },
+      clientUpdated: 'This shared registration was updated elsewhere. Cancel and reopen this form to see the new settings.',
+      clientChanged: (provider) =>
+        `Saving this change requires every account signed in with ${provider} to sign in again before using its connected services.`,
+      clientHelp: {
+        microsoft: {
+          mail: 'Register a mobile and desktop app in Microsoft Entra and allow public client flows. Add offline_access, User.Read and the Exchange Online permissions IMAP.AccessAsUser.All and SMTP.Send. Enable SMTP AUTH for the mailbox.',
+          calendar:
+            'Register a mobile and desktop app in Microsoft Entra and allow public client flows. Add offline_access and the Microsoft Graph permissions User.Read and Calendars.ReadWrite.',
+        },
+        google: {
+          mail: 'Create a Desktop app OAuth client in Google Cloud and request https://mail.google.com/. While testing, add your account as a test user.',
+          calendar:
+            'Enable the Google Calendar and CalDAV APIs in Google Cloud. Create a Desktop app OAuth client and request …/auth/calendar. While testing, add your account as a test user.',
+        },
+      },
       providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' },
       uses: { drive: 'Google Drive', teams: 'Microsoft Teams', calendar: 'Calendars', mail: 'Mail' },
-      signInFor: 'A new sign-in is for:',
       usedFor: (uses) => `Used for: ${uses}`,
       useFor: { drive: 'Google Drive', teams: 'Microsoft Teams', calendar: 'Use for calendars', mail: 'Use for mail' },
       mailAdded: (email) => `The mail of ${email} was added to the mail tools.`,
@@ -833,7 +858,8 @@ export const en: Messages = {
       added: 'Added',
       loadingCalendars: 'Reading the calendars…',
       remove: 'Remove',
-      confirmRemove: (email) => `Remove ${email}? Its tokens, and the calendars and mail accounts reached through it, are removed too.`,
+      confirmRemove: (email, uses) =>
+        `Remove the sign-in for ${email}? This disconnects ${uses} for this account and removes its linked mail accounts and calendars from Harness Relay.`,
       removedMicrosoft: (pages) =>
         `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
       app: 'The app to sign in with',
@@ -1510,11 +1536,26 @@ export const en: Messages = {
 
   apps: {
     title: 'Common apps',
-    hint: 'For Drive, Teams or Slack, connect in the assistant you use. Sign in with your own account. Its service receives the content you ask it to read. Connecting Notion or Heptabase makes it available to supported assistants. For apps with an option to enable chat access, that option grants access to all connected accounts for the tool. Choose individual assistants in the tool library.',
+    options: 'Connect',
+    manage: 'Manage',
+    inProgress: 'Sign-in or setup in progress',
+    savedSlack: 'Tool library connection',
+    grantHint: 'Selected assistants get default access to every account connected directly to this Relay tool.',
+    deviceGrant: 'Selected assistants can use this local tool in chats, subject to the conversation’s permissions.',
+    chatAccess: (n: number) => (n ? `Chat access · ${n} ${n === 1 ? 'assistant' : 'assistants'}` : 'Chat access · Off'),
+    added: {
+      mail: (n: number) => `${n} ${n === 1 ? 'mailbox' : 'mailboxes'} added`,
+      calendar: (n: number) => `${n} ${n === 1 ? 'calendar' : 'calendars'} added`,
+    },
+    signedInFor: { mail: 'Signed in · Add a mailbox', calendar: 'Signed in · Choose calendars' },
+    hostedConsent: 'Choose the assistant you use in Relay. Its service receives the content you ask it to read.',
+    hostedTeamsNote: 'Use a work or school account. Claude’s Microsoft 365 connector needs your organization’s approval.',
+    hostedSlackNote:
+      'Review the workspace permissions, including whether the assistant may send messages. Your organization may need to approve access.',
+    connectApp: (name) => `Connect ${name}`,
     connect: 'Connect',
     disconnect: 'Disconnect',
     enable: 'Enable in chats for supported assistants',
-    enabled: 'Enabled for selected assistants',
     disable: 'Turn off default chat access',
     connectInClaude: (app) => `Connect ${app} in Claude`,
     claudeAccount: 'Use the same Claude subscription account you use for Claude Code in Harness Relay.',
@@ -1547,15 +1588,16 @@ export const en: Messages = {
     path: 'Full vault path on the server',
     oneVault: 'Choose one vault at a time.',
     details: {
-      drive: 'Find files by name and read Google Docs.',
-      teams:
-        'Use a work or school account. Claude connects through Microsoft 365 and needs your organization’s approval. To list teams and read channels with Relay, use Microsoft Graph below.',
-      notion: 'Use Notion’s tools in the workspace you authorize.',
-      heptabase: 'Read and write in your knowledge base with Heptabase’s tools.',
-      slack:
-        'Connect the Slack workspace you use. Check the requested permissions for reading or sending messages. Your workspace may require admin approval.',
-      github: 'Read repository pull requests. This sign-in also supports sharing chats and GitHub automations.',
-      obsidian: 'Choose a vault on this computer to browse folders and read Markdown notes.',
+      mail: 'Connect Gmail, Outlook or another mailbox.',
+      calendar: 'Connect Google Calendar, Outlook or a CalDAV calendar.',
+      browser: 'Open pages, read them and take screenshots in a chat.',
+      drive: 'Find files and read Google Docs.',
+      teams: 'Read team and channel conversations.',
+      slack: 'Find messages in your workspace.',
+      notion: 'Use your workspace with supported assistants.',
+      heptabase: 'Let supported assistants read and write your knowledge base.',
+      github: 'Find pull requests and share chats.',
+      obsidian: 'Read Markdown notes from a local vault.',
     },
     confirmAccount: (email: string, apps: string) => `Disconnect ${email}? This removes access to ${apps} for this account.`,
   },
@@ -1572,17 +1614,6 @@ export const en: Messages = {
         github: 'GitHub',
         teams: 'Microsoft Teams',
       },
-      groupHints: {
-        drive: 'Find files by name and read Google Docs.',
-        teams:
-          'List your teams and channels and read recent channel messages with a work or school account. Your organization may require admin approval.',
-        github: 'Read repository pull requests. This sign-in also supports sharing chats and GitHub automations.',
-        obsidian: 'Choose a vault on this computer to browse folders and read Markdown notes.',
-        browser:
-          'A browser of its own (Chromium, Chrome or Edge, headless, with a profile of its own per chat): open pages, read them, click and type, and screenshots shown in the chat.',
-        mail: 'Search and read mail, save drafts, and send through the outbox: needs a mail account below.',
-        calendar: 'List events and add them (with attendees, through the outbox): needs a calendar below.',
-      },
       browserPath: 'Browser to start',
       browserPathHint: (env) =>
         `The full path of a Chromium, Chrome or Edge executable. Left empty, ${env ? `RELAY_BROWSER's (${env}), else ` : ''}the first found on this computer: Chrome, Chromium or Edge, then Playwright's Chromium. Chats that start after a change use it.`,
@@ -1597,7 +1628,16 @@ export const en: Messages = {
       },
     },
     title: 'Tool library',
-    hint: "MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and the open-source agents), in addition to each CLI's own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member's card under New chat, or Team settings in a chat's header. Changes take effect from a member's next turn.",
+    hint: 'Set up tools and instructions for your team. To change one member’s tools, open Team settings.',
+    categories: {
+      mcp: 'Connect more tools by URL or local command',
+      skills: 'Add reusable instructions from a folder',
+      memory: 'Save preferences for everyone or for one type of assistant',
+      hooks: 'Run commands before or after tool calls',
+      checks: 'Set protected paths, commit formats and check commands',
+    },
+    defaultAccess: (n, total) => (!n ? 'Off' : n === total ? 'All CLIs' : n === 1 ? '1 CLI' : `${n} CLIs`),
+    howRelayWorks: 'How tool permissions and the outbox work',
     mcp: 'MCP servers',
     mcpHint:
       "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
@@ -1988,8 +2028,7 @@ export const en: Messages = {
       sandboxes: 'Sandboxes',
       backends: 'Model backends',
       lead: 'Lead agent',
-      apps: 'Common apps',
-      tools: 'Tools',
+      apps: 'Apps and tools',
       voice: 'Voice',
       cwd: 'Default folder',
       sessions: 'Agent sessions',
@@ -2449,7 +2488,7 @@ export const en: Messages = {
           'Commands: such as npm test, which must succeed',
           `Hooks run around supported tool calls on macOS and Linux for ${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join(', ')}. A Before hook that fails refuses the call.`,
           "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
-          'In Parallel mode, commands check a member’s result before you apply it. In Settings → Tool library, set the starting rules for new chats and automations under Hooks and Default team checks.',
+          'In Parallel mode, commands check a member’s result before you apply it. In Settings → Apps and tools → Tool library, set the starting rules for new chats and automations under Hooks and Default team checks.',
         ],
       },
       {
@@ -2494,13 +2533,11 @@ export const en: Messages = {
       },
       {
         title: 'Connect apps to your chats',
-        body: 'Open Settings → Common apps. Connect Drive, Teams or Slack in Claude or Codex with the account you use in Relay. For Obsidian, choose your notes folder. Gmail and Google Calendar are in Tool library → Mail and calendar accounts.',
+        body: 'Open Settings → Apps and tools → Common apps and choose a service. For Drive, Teams or Slack, select Connect and choose the assistant you use in Relay.',
         points: [
-          'Under Settings → Tool library you can choose individual assistants, add your own MCP servers or enable the built-in browser',
-          'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
-          'Memory: one part for everyone, plus one for each CLI',
-          'For a direct Relay connection, enable chat access on the card. Try asking for the latest pull requests or a Markdown note.',
-          'Give each item only to some CLIs; the team settings can change it for a single member',
+          'Open Mail for Gmail or Calendar for Google Calendar. For Obsidian, choose your notes folder.',
+          'Each built-in tool has its own Chat access setting. Choose the assistants that can use your connected accounts there.',
+          'To add a custom tool, skill or shared instruction, switch to the Tool library tab.',
         ],
       },
       {

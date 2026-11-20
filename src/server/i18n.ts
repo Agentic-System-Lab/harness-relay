@@ -28,6 +28,18 @@ export function parseLang(explicit?: string, acceptLanguage?: string): Lang {
   return 'zh-TW';
 }
 
+/** A provider account is managed in its app row. A library MCP server signs in on its own row. */
+function signInSettings(lang: Lang, use?: OAuthUse): string {
+  if (!use) return lang === 'en' ? 'Settings → Apps and tools → Tool library → MCP servers' : '設定 → App 與工具 → 工具庫 → MCP 伺服器';
+  const name = {
+    mail: lang === 'en' ? 'Mail' : '郵件',
+    calendar: lang === 'en' ? 'Calendar' : '行事曆',
+    drive: 'Google Drive',
+    teams: 'Microsoft Teams',
+  }[use];
+  return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
+}
+
 const zhTW = {
   // Runs and adapters
   stopped: '已停止',
@@ -576,12 +588,13 @@ const zhTW = {
   trackingRunFailed: '這次執行的回覆全都失敗了',
   hookNotFound: '找不到這個 webhook',
   oauthNoClient: (provider: string) =>
-    `還沒有登入 ${provider} 用的 app：請到「設定 → 工具庫 → 郵件與行事曆」填入你在 ${provider} 註冊的 app 的用戶端 ID`,
+    `還沒有登入 ${provider} 用的 app：請到「設定 → App 與工具 → 常用 App」的「郵件」或「行事曆」填入你在 ${provider} 註冊的 app 的用戶端 ID`,
   oauthTokenNotSaved: (why: string) => `無法把登入的權杖存進憑證儲存區：${why}`,
   oauthHostRefused: (host: string) => `登入的權杖不會送到「${host}」：它只送到這個帳號的服務`,
   oauthAccountGone: '找不到這個登入的帳號：它可能已經被移除了',
-  oauthSignInAgain: (email: string, why: string) => `${email} 的登入已經失效，請到「設定 → 工具庫」重新登入${why ? `（${why}）` : ''}`,
-  oauthNoToken: (email: string) => `讀不到 ${email} 的登入權杖：請到「設定 → 工具庫」重新登入`,
+  oauthSignInAgain: (email: string, why: string, use?: OAuthUse) =>
+    `${email} 的登入已經失效，請到「${signInSettings('zh-TW', use)}」重新登入${why ? `（${why}）` : ''}`,
+  oauthNoToken: (email: string, use?: OAuthUse) => `讀不到 ${email} 的登入權杖：請到「${signInSettings('zh-TW', use)}」重新登入`,
   oauthRefreshFailed: (email: string, why: string) => `無法更新 ${email} 的登入：${why}`,
   oauthBadAddress: '這不是一個網址：請貼上登入頁面最後帶你去的完整網址',
   oauthWrongAddress: '這個網址不是這次登入的：請貼上這次登入最後帶你去的網址',
@@ -603,9 +616,9 @@ const zhTW = {
   teamsReadFailed: '無法讀取 Teams。請確認網路連線和帳號權限，再試一次。',
   appsGithubFailed: '無法讀取 GitHub。請確認網路連線和帳號權限，再試一次。',
   appsTooLarge: '內容太大，請縮小讀取範圍。',
-  appsConnectFirst: '請先在「設定 → 常用 App」連結帳號。',
+  appsConnectFirst: '請先在「設定 → App 與工具 → 常用 App」連結帳號。',
   appsVault: '請選擇 Obsidian 筆記庫的資料夾（裡面有 .obsidian）。',
-  appsSlackInAssistant: '請到「設定 → 常用 App → Slack」，在 Claude 或 Codex 連結 Slack。',
+  appsSlackInAssistant: '請到「設定 → App 與工具 → 常用 App → Slack」，在 Claude 或 Codex 連結 Slack。',
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
   oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
@@ -613,7 +626,7 @@ const zhTW = {
       ? `請為 ${email} 連結 Teams`
       : use === 'drive'
         ? `請為 ${email} 連結 Google Drive`
-        : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+        : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
@@ -651,17 +664,17 @@ const zhTW = {
   mcpNoSignIn: (name: string) => `MCP 伺服器「${name}」沒有要求登入：不登入就能用它`,
   mcpServerChanged: (name: string) => `登入的時候，MCP 伺服器「${name}」被移除了，或是它的網址改了：請重新登入`,
   mcpLeftOutSignIn: (name: string, why: string) =>
-    `這一輪沒有給 MCP 伺服器「${name}」：它的登入已經失效${why ? `（${why}）` : ''}。請到「設定 → 工具庫」重新登入。`,
+    `這一輪沒有給 MCP 伺服器「${name}」：它的登入已經失效${why ? `（${why}）` : ''}。請到「設定 → App 與工具 → 工具庫 → MCP 伺服器」重新登入。`,
   mcpLeftOut: (name: string, why: string) => `這一輪沒有給 MCP 伺服器「${name}」：${why}`,
-  watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
-  watchNoPassword: (name: string) => `讀不到郵件帳號「${name}」的密碼：請到「設定 → 工具庫」重新輸入`,
+  watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → App 與工具 → 常用 App → 郵件」新增，或重新選一個',
+  watchNoPassword: (name: string) => `讀不到郵件帳號「${name}」的密碼：請到「設定 → App 與工具 → 常用 App → 郵件」重新輸入`,
   watchNoFolder: (folder: string, why: string) => `打不開資料夾「${folder}」：${why}`,
   watchBadTrigger: '要等待的事情設定得不完整：請選一個來源，以及它的帳號或行事曆',
   watchNotEvent: '這個自動任務不是「當某件事發生時」，沒有東西可以檢查',
   watchNoScheduler: '這個伺服器沒有在檢查自動任務等待的事情：請重新啟動 Harness Relay',
   watchFailedNote: (why: string) => `自動任務等待的事情發生了，但它的訊息無法送出：${why}`,
-  watchNoCalendar: '找不到這個自動任務要檢查的行事曆：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
-  watchNoCalendarPassword: (name: string) => `讀不到行事曆「${name}」的密碼：請到「設定 → 工具庫」重新輸入`,
+  watchNoCalendar: '找不到這個自動任務要檢查的行事曆：請到「設定 → App 與工具 → 常用 App → 行事曆」新增，或重新選一個',
+  watchNoCalendarPassword: (name: string) => `讀不到行事曆「${name}」的密碼：請到「設定 → App 與工具 → 常用 App → 行事曆」重新輸入`,
   watchBadMinutes: (max: number) => `行程開始前的分鐘數要是 1 到 ${max} 的整數`,
   watchBadRepo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」，例如 octocat/hello-world',
   watchBadPattern: '請填工作目錄中的檔案樣式，例如 reports/*.csv（不能是絕對路徑，也不能有 ..）',
@@ -1531,13 +1544,13 @@ const en: ServerMessages = {
   trackingRunFailed: 'every reply of the run failed',
   hookNotFound: 'No such webhook',
   oauthNoClient: (provider) =>
-    `There is no app to sign in to ${provider} with yet: give the client ID of the app you registered with ${provider} in Settings → Tool library → Mail and calendar`,
+    `There is no app to sign in to ${provider} with yet: give the client ID of the app you registered with ${provider} under Mail or Calendar in Settings → Apps and tools → Common apps`,
   oauthTokenNotSaved: (why) => `The sign-in's token could not be saved in the credential store: ${why}`,
   oauthHostRefused: (host) => `The sign-in's token is not sent to "${host}": it goes only to the account's own service`,
   oauthAccountGone: 'The account that signed in is not there any more: it may have been removed',
-  oauthSignInAgain: (email, why) =>
-    `The sign-in of ${email} no longer works: sign in again in Settings → Tool library${why ? ` (${why})` : ''}`,
-  oauthNoToken: (email) => `The sign-in token of ${email} cannot be read: sign in again in Settings → Tool library`,
+  oauthSignInAgain: (email, why, use) =>
+    `The sign-in of ${email} no longer works: sign in again in ${signInSettings('en', use)}${why ? ` (${why})` : ''}`,
+  oauthNoToken: (email, use) => `The sign-in token of ${email} cannot be read: sign in again in ${signInSettings('en', use)}`,
   oauthRefreshFailed: (email, why) => `The sign-in of ${email} could not be renewed: ${why}`,
   oauthBadAddress: 'That is not an address: paste the whole address the sign-in page took you to last',
   oauthWrongAddress: 'That address is not from this sign-in: paste the one this sign-in took you to last',
@@ -1562,9 +1575,9 @@ const en: ServerMessages = {
   teamsReadFailed: 'Could not read Teams. Check your connection and account access, then try again.',
   appsGithubFailed: 'Could not read GitHub. Check the connection and account access, then try again.',
   appsTooLarge: 'This response is too large. Request less content.',
-  appsConnectFirst: 'Connect an account in Settings → Common apps first.',
+  appsConnectFirst: 'Connect an account in Settings → Apps and tools → Common apps first.',
   appsVault: 'Choose the folder of an Obsidian vault (it contains .obsidian).',
-  appsSlackInAssistant: 'Connect Slack in Claude or Codex from Settings → Common apps → Slack.',
+  appsSlackInAssistant: 'Connect Slack in Claude or Codex from Settings → Apps and tools → Common apps → Slack.',
   oauthNoMailAccess: (provider) =>
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
   oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,
@@ -1573,7 +1586,7 @@ const en: ServerMessages = {
       ? `Connect Teams for ${email}`
       : use === 'drive'
         ? `Connect Google Drive for ${email}`
-        : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
+        : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in ${signInSettings('en', use)} first`,
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
@@ -1614,18 +1627,21 @@ const en: ServerMessages = {
   mcpNoSignIn: (name) => `The MCP server "${name}" asks for no sign-in: it works without one`,
   mcpServerChanged: (name) => `The MCP server "${name}" was removed, or its URL changed, while it signed in: sign in again`,
   mcpLeftOutSignIn: (name, why) =>
-    `The MCP server "${name}" was left out of this turn: its sign-in no longer works${why ? ` (${why})` : ''}. Sign in to it again in Settings → Tool library.`,
+    `The MCP server "${name}" was left out of this turn: its sign-in no longer works${why ? ` (${why})` : ''}. Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.`,
   mcpLeftOut: (name, why) => `The MCP server "${name}" was left out of this turn: ${why}`,
   watchNoAccount:
-    'The mail account this automation checks is gone: add one in Settings → Tool library → Mail and calendar, or pick another',
-  watchNoPassword: (name) => `The password of the mail account "${name}" cannot be read: type it again in Settings → Tool library`,
+    'The mail account this automation checks is gone: add one in Settings → Apps and tools → Common apps → Mail, or pick another',
+  watchNoPassword: (name) =>
+    `The password of the mail account "${name}" cannot be read: type it again in Settings → Apps and tools → Common apps → Mail`,
   watchNoFolder: (folder, why) => `The folder "${folder}" cannot be opened: ${why}`,
   watchBadTrigger: 'What to wait for is not complete: pick a source, and its account or calendar',
   watchNotEvent: 'This automation does not start when something happens: there is nothing to check',
   watchNoScheduler: 'This server does not check what automations wait for: restart Harness Relay',
   watchFailedNote: (why) => `What the automation waits for happened, but its message could not be sent: ${why}`,
-  watchNoCalendar: 'The calendar this automation checks is gone: add one in Settings → Tool library → Mail and calendar, or pick another',
-  watchNoCalendarPassword: (name) => `The password of the calendar "${name}" cannot be read: type it again in Settings → Tool library`,
+  watchNoCalendar:
+    'The calendar this automation checks is gone: add one in Settings → Apps and tools → Common apps → Calendar, or pick another',
+  watchNoCalendarPassword: (name) =>
+    `The password of the calendar "${name}" cannot be read: type it again in Settings → Apps and tools → Common apps → Calendar`,
   watchBadMinutes: (max) => `The minutes before an event begins are a whole number from 1 to ${max}`,
   watchBadRepo: 'Give the GitHub repository as owner/name, such as octocat/hello-world',
   watchBadPattern: 'Give a pattern for files in the working directory, such as reports/*.csv (not a full path, and without ..)',

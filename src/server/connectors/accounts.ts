@@ -15,7 +15,7 @@ import type { SecretStore } from '../secrets';
 import { sameProvider } from './caldav';
 
 /*
- * The mail accounts and calendars the mail and calendar tools use (Settings → Tool library), kept
+ * The mail accounts and calendars the mail and calendar tools use (Settings → Apps and tools → Common apps), kept
  * under `connectors` in `app_settings` without their passwords, which go to the OS credential store
  * (or the database encrypted, `secrets.ts`), one entry each: `mail-<id>`, `calendar-<id>`. The UI only
  * sees them masked, and no CLI ever gets them: the tools run in the server. A mail account or calendar

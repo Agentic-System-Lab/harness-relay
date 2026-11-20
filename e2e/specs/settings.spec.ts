@@ -1,10 +1,50 @@
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, replies, send, startChat, confirmTeam } from '../support/app';
+import { finishedReply, openTeamChat, openToolCategory, replies, send, startChat, confirmTeam } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test('Apps and tools is one section with bookmarkable tabs that preserve drafts', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings');
+  const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+  const entry = nav.getByRole('link', { name: 'Apps and tools', exact: true });
+  await entry.click();
+  const card = page.getByRole('region', { name: 'Apps and tools' });
+  const common = card.getByRole('tab', { name: 'Common apps', exact: true });
+  const tools = card.getByRole('tab', { name: 'Tool library', exact: true });
+  await expect(common).toHaveAttribute('aria-selected', 'true');
+  await expect(card.getByRole('tabpanel')).toHaveCount(1);
+  await common.press('End');
+  await expect(page).toHaveURL(/#\/settings\/tools$/);
+  await expect(tools).toBeFocused();
+  await expect(entry).toHaveAttribute('aria-current', 'location');
+  const memory = await openToolCategory(page, 'Memory');
+  const field = memory.getByRole('textbox', { name: 'Memory: All members' });
+  await field.fill('Unfinished draft');
+  await common.click();
+  await expect(field).toBeHidden();
+  await page.goBack();
+  await expect(tools).toBeFocused();
+  await expect(tools).toHaveAttribute('aria-selected', 'true');
+  await expect(field).toHaveValue('Unfinished draft');
+  await page.reload();
+  await expect(card.getByRole('tabpanel', { name: 'Tool library' })).toBeInViewport();
+  await expect(entry).toHaveAttribute('aria-current', 'location');
+  await tools.press('ArrowLeft');
+  await expect(common).toBeFocused();
+  const rows = card.getByRole('tabpanel', { name: 'Common apps' }).locator('.common-apps > li');
+  await expect(rows).toHaveCount(10);
+  // Each native tool owns exactly one access editor in its service row, even before connecting.
+  for (const name of ['Mail', 'Calendar', 'Google Drive', 'Microsoft Teams', 'GitHub', 'Obsidian', 'Browser']) {
+    await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(1);
+  }
+  for (const name of ['Slack', 'Notion', 'Heptabase']) {
+    await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(0);
+  }
+  await expect(page.locator('#settings-tools .app-chat-access')).toHaveCount(0);
+});
 
 test.describe('assistant setup on a fresh installation', () => {
   test.use({ missingClis: PROVIDERS, lang: 'zh-TW', signIn: false });
@@ -210,8 +250,7 @@ test.describe('settings', () => {
       'Sandboxes',
       'Model backends',
       'Lead agent',
-      'Common apps',
-      'Tools',
+      'Apps and tools',
       'Voice',
       'Default folder',
       'Agent sessions',

@@ -466,7 +466,7 @@ describe('the token a turn gets', () => {
       {
         name: 'linear',
         reason: 'reauth',
-        note: 'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant: revoked). Sign in to it again in Settings → Tool library.',
+        note: 'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant: revoked). Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.',
       },
     ]);
     expect(tools.view().mcpServers[0]!.oauth).toMatchObject({ status: 'reauth', error: 'invalid_grant: revoked' });
@@ -1053,7 +1053,7 @@ describe('a turn and the sign-in it replaces', () => {
         {
           name: 'linear',
           reason: 'reauth',
-          note: `The MCP server "linear" was left out of this turn: its sign-in no longer works (${error}). Sign in to it again in Settings → Tool library.`,
+          note: `The MCP server "linear" was left out of this turn: its sign-in no longer works (${error}). Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.`,
         },
       ]);
       expect(tools.view().mcpServers[0]!.oauth).toMatchObject({ status: 'reauth', error });

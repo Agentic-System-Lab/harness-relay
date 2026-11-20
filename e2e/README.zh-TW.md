@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 39 個 spec 檔、524 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 39 個 spec 檔、526 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -53,12 +53,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 5 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
-| [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 4 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
+| [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 19 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -185,7 +185,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 團隊寫入受保護檔案時檢查未通過，擋住使用者這段時間寫的訊息，略過後才送出 | Claude Code | 在保護 `secret.txt`（透過 API 設定）的編輯對話裡，一則很慢的回覆寫入它，同時使用者再送出一則訊息。回覆後，**Team checks** 卡片顯示 **Failed**、**Protected paths**、「secret.txt added · in @Claude's turn」，以及不會撤銷任何修改；佇列說等待的訊息還沒送出，並提供 **Send anyway**。按 **Skip**（確認）後卡片標為已略過，佇列消失、訊息送出；卡片仍顯示 **Failed**，也不再有 **Skip**。 |
 | 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在**團隊設定**底部展開**進階設定**，每條規則的名稱都在輸入框上方，`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
 | 團隊設定重新載入後保留新版規則 | — | 另一個工作階段更新受保護路徑。抽屜重新載入後，修改 commit 格式並儲存會保留新版路徑。 |
-| 記憶下方的 Hooks 與團隊檢查預設分別驗證、儲存 | — | 在**設定 → 工具庫**中，**Hooks** 緊接在**記憶**下方，團隊檢查預設的欄位直接顯示。兩區各自驗證資料夾與時限，儲存一區會保留另一區的草稿。重新載入可看到已儲存的值。在桌面與 320 px 寬的畫面上，移除按鈕都在 hook 卡片右上角。移除最後一個 hook 也會保留已儲存的指令。 |
+| 記憶下方的 Hooks 與團隊檢查預設分別驗證、儲存 | — | 在**設定 → App 與工具 → 工具庫**中，展開**記憶**下方的 **Hooks** 與**團隊檢查預設**才會顯示各自的編輯欄位。兩區各自驗證資料夾與時限。收合團隊檢查並儲存 hook 後，再展開團隊檢查時，草稿指令及無效的資料夾仍在。儲存團隊檢查也會保留 hook 的草稿。重新載入可看到已儲存的值。在桌面與 320 px 寬的畫面上，移除按鈕都在 hook 卡片右上角。移除最後一個 hook 也會保留已儲存的指令。 |
 | 團隊設定要求有效的 hook 資料夾和時限 | — | 資料夾或時限無效時不可儲存。修正後，儲存按鈕重新啟用。 |
 | 在團隊設定設的 hook 在成員的呼叫前後執行：「執行前」的 hook 拒絕指令，「執行後」的 hook 沒通過時交回給它 | Claude Code | 在完整權限的對話裡，**Team settings** 加上兩個 hook：**Before**、**Commands**，印出指令後失敗；**After**、**File changes**，印出檔名後失敗（對話設定裡兩個都有）。執行 `echo e2e-approval` 的回覆說團隊的 hook 拒絕了它，附上 hook 的話，回覆裡的註記說 hook 拒絕了 `` `echo e2e-approval` ``；寫入 `notes.txt` 的回覆說出「執行後」hook 的話（`lint: notes.txt has 1 problem`），註記說它沒有通過，檔案也寫入了（「執行後」的 hook 不會撤銷任何事）。Windows 上略過（那裡還不能執行 hook）。 |
 | 唯讀對話不檢查 | Claude Code | 唯讀對話設了同樣的清單，想寫入的回覆不會有卡片。 |
@@ -193,7 +193,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 低於完整權限時，指令在 Harness Relay 自己的沙箱裡執行，不能寫到工作目錄以外 | Claude Code | 在編輯對話裡，寫入工作目錄的指令通過，並說明它自己改了 `inside.txt`；寫到家目錄的指令無法執行（被沙箱擋下），整份結果也是無法執行，絕不是 **Failed**。Harness Relay 自己的沙箱不能用的地方略過。 |
 | 平行模式下，沒通過檢查的結果不會套用，直到使用者仍要套用 | Claude Code | 在保護 `secret.txt` 的平行編輯對話裡，回覆在它的 worktree 裡寫入它，回覆後的卡片在那裡找到它。按 **Apply to working directory** 會貼出套用前檢查的卡片（目前的工作目錄加上 @Claude 的結果），顯示 **Failed** 和沒有套用（不說是事後檢查），工作目錄裡也沒有這個檔案；按 **Apply anyway**（確認）會套用它，按鈕也隨之消失。 |
 | 平行模式下，結果的指令在 Harness Relay 自己的沙箱裡、在加上結果的工作目錄上執行 | Claude Code | 在平行編輯對話裡，指令需要 `result.txt`；套用回覆的結果時，會在真正的沙箱裡、在檢查樹上檢查它：卡片顯示 **Passed** 和已套用，檔案進了工作目錄，指令寫出的檔案則沒有。Harness Relay 自己的沙箱不能用的地方略過。 |
-| 設定裡的預設讓每個新對話和新自動任務一開始就帶著，可以修改或拿掉 | — | 在 **Settings → Tool library → Default team checks** 存下 `.env` 和 `*.pem`（伺服器的設定裡有它們）。**新對話**和**新自動任務**的**工作目錄與對話設定 → 進階設定**一開始就帶著這些路徑，開出來的對話也有，並標記為預設。在自動任務中清除路徑後，它的對話是空清單。之後再存另一份預設（`*.key`），兩個之前建立的對話都不受影響。 |
+| 設定裡的預設讓每個新對話和新自動任務一開始就帶著，可以修改或拿掉 | — | 在 **設定 → App 與工具 → 工具庫 → 團隊檢查預設** 存下 `.env` 和 `*.pem`（伺服器的設定裡有它們）。**新對話**和**新自動任務**的**工作目錄與對話設定 → 進階設定**一開始就帶著這些路徑，開出來的對話也有，並標記為預設。在自動任務中清除路徑後，它的對話是空清單。之後再存另一份預設（`*.key`），兩個之前建立的對話都不受影響。 |
 
 ## 成員的模型與推理強度
 
@@ -312,7 +312,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 工具庫
 
-[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → 工具庫**。工具庫是空的時候成員的「工具」怎麼說，只檢查一次；其他每個測試都跑兩次：一次在有登入的七個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
+[`tools.spec.ts`](specs/tools.spec.ts)：**設定 → App 與工具 → 工具庫**。工具庫是空的時候成員的「工具」怎麼說，只檢查一次；其他每個測試都跑兩次：一次在有登入的七個 CLI 各一位成員的對話中，一次在五個開源 agent 各一位成員的對話中（`open agents: …`）。對某個 CLI 關掉項目、或對某位成員打開或關掉項目的測試，用的是團隊的第二與第三位成員（Codex 與 Grok；Goose 與 Cline）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -325,7 +325,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在頁面上給 MCP 伺服器新的值，下一回合就拿到它；移除後不再給出去 | 兩個團隊 | 修改後頁面顯示新的遮蔽值，每個 CLI 的下一回合只拿到新的值，而且不在任何參數裡；移除後下一回合既沒有它的名稱也沒有它的值。另一個伺服器全程保留，所以「什麼都沒給」不會因為某個回合完全沒拿到工具庫而通過。 |
 | 在頁面上移除的 skill 與記憶筆記不再給出去 | 兩個團隊 | 移除兩個 skill 之一與共享記憶後，下一份簡報與回答都沒有它們，另一個 skill 與每個 CLI 自己的筆記仍然送到。 |
 | 成員透過 MCP gateway 使用 Harness Relay 自己的工具，它寄出的郵件會在待送出匣等到使用者按送出 | Claude Code | 用 API 設定一個郵件帳號（SMTP 是這台電腦上的替身，因為是本機伺服器所以可以不加密），並把 **郵件** 給 Claude Code；假 CLI 啟動它拿到的 `relay` MCP server（伺服器寫出的真程式），呼叫 `mail_send`（`e2e:mcp`）：回覆說郵件還沒寄出，正在待送出匣等待；回覆中的卡片顯示收件人與內文、**等你決定**（Waiting for you），對話標為 **等你核准**（Needs you）；SMTP 伺服器沒有收到任何東西。按 **送出**（Send）只寄一次（卡片顯示 **已送出**（Sent），對話中有說明，替身收到寄給收件人、帶著主旨的郵件）。第二封郵件按 **捨棄**（Discard）：卡片顯示 **已捨棄**（Discarded），不再有送出按鈕，對話中有說明，伺服器沒有再收到任何東西。 |
-| 在設定中指定要啟動的瀏覽器：沒有檔案的路徑會被拒絕並說明原因，是檔案的會保存並使用，清空後重新自己找 | — | 在 **設定 → 工具庫** 的 **要啟動的瀏覽器**（Browser to start）：沒有檔案的路徑會被拒絕（卡片上說那裡沒有檔案）；測試自己的 Node.js（是檔案）會保存、顯示使用中，重新整理後還在；清空後，標題就不再顯示它。 |
+| 在設定中指定要啟動的瀏覽器：沒有檔案的路徑會被拒絕並說明原因，是檔案的會保存並使用，清空後重新自己找 | — | 工具庫的五列一開始都收合，MCP 伺服器那一列有螢幕閱讀器可讀的說明。在**常用 App** 用 Enter 展開**瀏覽器**。**聊天存取**正在儲存選擇時，會暫停其他助理的按鈕。只開放給 Codex 的設定在重新整理後保留。**要啟動的瀏覽器**會拒絕不存在的路徑，允許使用測試自己的 Node.js 執行檔，重新整理仍顯示儲存的路徑。清空後，標題就不再顯示路徑。 |
 | 完全存取時，開源 agent（OpenCode）也能使用 Harness Relay 自己的工具，它的郵件在待送出匣等待 | OpenCode | 完全存取時，透過 API 設定一個郵件帳號（這裡不會真的連線），並把**郵件**給 OpenCode：假 OpenCode 照它 session 拿到的 MCP server（ACP 的 `mcpServers`）連到 gateway 的本機 HTTP 端點，header 中帶著這一回合的權杖，並呼叫 `mail_send`，回覆說郵件在待送出匣等待，卡片寫出收件人並等使用者處理。完全存取以下 Goose、Cline、OpenHands 與 Pi 拿不到這些工具（單元測試 `test/orchestrator-gateway.test.ts`）。 |
 | 完全存取以下，在 Harness Relay 自己的沙箱中，OpenCode 連到 gateway 的本機連接埠（只對它開放），它對工具的詢問由 Harness Relay 代為回答，它的郵件在待送出匣等待 | OpenCode | 在唯讀模式下做同樣的事，經過 Harness Relay 自己的沙箱，沙箱只對 OpenCode 開放 gateway 的連接埠（`connectPorts`）；OpenCode 會用它的名稱（`relay_mail_send`）詢問這次 MCP 呼叫，由 Harness Relay 代為回答：沒有卡片。只在 OpenCode 能在完全存取以下執行的地方：macOS。 |
 | 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
@@ -334,26 +334,27 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 用 OAuth 登入的帳號
 
-[`oauth.spec.ts`](specs/oauth.spec.ts)：**設定 → 工具庫 → 登入的帳號**（Accounts you sign in to），對這台電腦上 Microsoft 登入頁面與 Graph 的替身，以及只接受替身給的 Exchange Online 權杖、以 XOAUTH2 登入的 Exchange Online IMAP 與 SMTP 替身測試，測試的伺服器指向它們（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`、`RELAY_MICROSOFT_IMAP`、`RELAY_MICROSOFT_SMTP`）。
-
-Google Drive 與 Calendar 預設開啟 Claude 的服務頁。設定個人 Cloud 專案之後，進階模式才提供直接登入。
+[`oauth.spec.ts`](specs/oauth.spec.ts)：**設定 → App 與工具 → 常用 App → 郵件或行事曆 → 登入的帳號**（Accounts you sign in to），對這台電腦上 Microsoft 登入頁面與 Graph 的替身，以及只接受替身給的 Exchange Online 權杖、以 XOAUTH2 登入的 Exchange Online IMAP 與 SMTP 替身測試，測試的伺服器指向它們（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`、`RELAY_MICROSOFT_IMAP`、`RELAY_MICROSOFT_SMTP`）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
-| 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在 **新的登入用於：**（A new sign-in is for:）取消勾選 **行事曆**、勾選 **郵件** 後，**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。帳號顯示 **用於：郵件**（Used for: Mail）與 **用於行事曆**（Use for calendars），沒有 **行事曆**；它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **用於郵件**（Use for mail）不必重新登入就再加入它，之後這個按鈕就不見了；帳號的 **移除** 也會移除它的郵件帳號。 |
-| 從常用 App 連結 Teams 與本機 Obsidian 筆記庫 | — | 頁面列出七個 App。Teams 卡片可在沒有發行者 Microsoft 用戶端 ID 時，提示安裝工具、顯示登入代碼、取消、重新載入及解除連結。測試以替身模擬 Graph PowerShell。可切換聊天存取，解除筆記庫連結後筆記仍在。 |
+| 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在**郵件**那一列按**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。**郵件**會列出這個帳號，**行事曆**的**使用已登入的帳號**也會提供該帳號供選擇。它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **用於郵件**（Use for mail）不必重新登入就再加入它，之後這個按鈕就不見了。在行事曆選擇**使用已登入的帳號 → 用於行事曆**，會要求既有的郵件權限與新增的行事曆權限，Teams 權限維持關閉。等候授權時無法從郵件再開始登入。回呼頁面連回常用 App，同一帳號具有兩種用途。移除信箱後，如果共用的登入失效，收合的郵件列會顯示**需要重新登入**。從郵件重新登入可恢復兩項授權，再按**用於郵件**即可加回信箱。移除登入前會列出兩種用途，確認後才移除信箱與行事曆。 |
+| 找到常用 App 的連線方式 | — | 清單列出十個服務，最前面兩列是**郵件**與**行事曆**。用 Enter 展開 Drive、Teams 或 Slack 可看到 Claude 和 Codex 的官方連結。Drive 外掛在新分頁開啟，助理設定說明可以連到 Codex 設定。收合再展開 Drive 仍會保留草稿中的 Google 用戶端 ID。儲存 Google Cloud 用戶端後，即可直接登入 Drive。郵件與行事曆各自在**常用 App** 中提供帳號設定。 |
+| OAuth 設定無法載入時仍可手動設定帳號 | — | OAuth 設定請求失敗時，仍可從郵件的**新增郵件帳號**以應用程式專用密碼儲存 Gmail 信箱，也可從行事曆的**新增行事曆**儲存使用密碼的 CalDAV 網址。重新整理後，兩者仍在各自的服務列。 |
+| 從常用 App 連結 Teams 與本機 Obsidian 筆記庫 | — | 展開 Microsoft Graph 選項可查看如何安裝缺少的工具並用裝置代碼登入。以 Graph PowerShell 替身測試取消、重新載入與解除連結，過程不需要 Microsoft 用戶端 ID。重新整理後，收合的 Teams 列會顯示已連結的帳號。在 Teams 列的**聊天存取**中只授權 Codex 使用 Teams 工具。解除筆記庫連結後筆記仍在。 |
 
 ## 需要登入的 MCP 伺服器
 
-[`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts)：**設定 → 工具庫 → MCP 伺服器**，HTTP 伺服器自己的登入（MCP 的授權），對這台電腦上的替身測試：一台回 401 並指出它受保護資源中繼資料的 MCP 伺服器，以及它的授權伺服器，發行者帶有路徑（RFC 8414 的中繼資料、註冊、有「Allow」連結的授權頁面（測試要求時放在它自己的另一個位址）、檢查 PKCE、重新導向網址與 `resource` 的權杖端點、只能用一秒的存取權杖、撤銷）。
-
-Slack 卡片可開啟 Claude 與 Codex 的官方連結，並可前往 Relay 裡的助理設定。原有的共用連線仍可重新授權與解除連結。
+[`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts)：**設定 → App 與工具 → 工具庫 → MCP 伺服器**，HTTP 伺服器自己的登入（MCP 的授權），對這台電腦上的替身測試：一台回 401 並指出它受保護資源中繼資料的 MCP 伺服器，以及它的授權伺服器，發行者帶有路徑（RFC 8414 的中繼資料、註冊、有「Allow」連結的授權頁面（測試要求時放在它自己的另一個位址）、檢查 PKCE、重新導向網址與 `resource` 的權杖端點、只能用一秒的存取權杖、撤銷）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 用鍵盤連結與登出 Notion | — | 登入和登出後會讀出結果，並將焦點留在可操作的位置。若使用者在等待期間移至其他 App，焦點會留在該處。 |
 | 工具庫的 MCP 伺服器在新分頁登入，回到 web app 的回呼頁面，成員這一回合在伺服器的標頭拿到它的權杖 | Claude Code | 伺服器透過 API 加入。它那一列的 **登入**（Sign in）在按下時就開一個新分頁，在授權伺服器註冊一個用戶端，用頁面自己的重新導向網址（`<origin>/oauth/callback`），再把分頁送到授權頁面，那一列則顯示在等它；按 **Allow** 把分頁送到 /oauth/callback，頁面說已登入這台 MCP 伺服器，並把授權碼與 state 從網址拿掉。那一列接著顯示 **已登入**（Signed in）與時間；交換授權碼時以伺服器的網址為資源。Claude Code 成員的一回合：假的 Claude Code 拿到的伺服器帶著 `Authorization: Bearer <最新的存取權杖>`（每個權杖請求都指名資源）。在授權伺服器撤銷登入後（更新被拒，`invalid_grant`），過一秒、它的權杖剩不到一半時：下一則回覆有這一回合沒給這台伺服器的說明（它的登入已經失效），假的 CLI 也沒拿到它。設定頁那一列顯示 **需要重新登入**（Needs a new sign-in）與原因；**重新登入**（Sign in again）用保留的用戶端再登入一次（不再註冊），被它取代的更新權杖也被撤銷。**登出**（Sign out，確認後）：那一列說已登出、標籤消失、**登入** 又出現，授權伺服器也收到這次撤銷。即使發行版缺少註冊設定，已連結的服務仍可從卡片登出。 |
 | 登入頁面在另一台主機的工具庫 MCP 伺服器，會先說明在哪裡，按 **繼續** 才打開 | — | 授權伺服器的中繼資料把登入頁面放在和發行者不同的位址（另一個埠）。**登入** 不打開頁面（按下時開的分頁又關掉）：那一列顯示「你會在 <那台主機> 登入，它不是 <發行者的主機>。」以及 **取消** 和 **繼續**，還不等任何頁面。**取消** 讓它消失，什麼都沒登入。再按 **登入**，然後 **繼續**：頁面在那台主機的新分頁打開，按 **Allow** 讓伺服器登入（那一列顯示 **已登入**）；每次登入都註冊自己的用戶端，取消的那個不會保留。 |
+| 在 Claude 連結 Slack | — | 展開 Slack 後點選 Claude 官方連結會開啟新分頁。助理設定說明可連到 Claude Code 設定。Relay 的共用工具與團隊成員的工具設定維持原值。 |
+| 管理既有的 Slack 共用連線 | — | 按 Slack 這一列的**管理**，可重新登入或登出既有連線。登出後，MCP 伺服器仍有返回常用 App 的連結。 |
 
 ## 修改對話的歷史
 
@@ -436,7 +437,8 @@ Slack 卡片可開啟 Claude 與 Codex 的官方連結，並可前往 Relay 裡�
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
 | 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型來源**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
-| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（包括**工具庫**前的**常用 App**），模型來源與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
+| 常用 App 與工具庫共用一張設定卡片 | — | 設定導覽列只有一個 **App 與工具**連結。開啟 `#/settings/apps` 會選到**常用 App**，`#/settings/tools` 則會選到**工具庫**。只會顯示選定分頁的內容。End 與向左鍵可在分頁間移動焦點。重新載入後同一個導覽連結仍會標亮；用瀏覽器的上一頁回到工具庫時，尚未儲存的記憶草稿會保留。常用 App 的十列中，七個內建工具各有一組聊天存取選項，連線前即可設定。 |
+| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（兩個分頁共用一個 **App 與工具**連結），模型來源與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
 | 在矮的視窗裡，agent 選單留在視窗內，按鍵會顯示移到的項目 | — | 在 1280×480 下，從設定頁頂端（連結列比固定後低）打開時，選單底部在視窗內；End 讓 **Pi** 取得焦點並捲進選單的可見範圍，Home 回到第一個。 |
 | 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**助理設定：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
 | 連結列在收合的側邊欄按鈕旁固定時，agent 選單跟著按鈕移動 | — | 在 900×900 下收合側邊欄，在設定頁頂端打開選單；用滾輪捲動頁面後連結列固定並往右移，選單跟著按鈕移動。 |
@@ -566,7 +568,7 @@ Slack 卡片可開啟 Claude 與 Codex 的官方連結，並可前往 Relay 裡�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。最新修訂包含常用 App。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |

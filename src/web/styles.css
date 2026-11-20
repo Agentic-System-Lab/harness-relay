@@ -7305,23 +7305,109 @@ summary + .checks-editor-body {
 }
 
 .common-apps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+  gap: 0;
 }
 .common-apps > li {
-  flex-direction: column;
-  gap: 6px;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+.app-options > summary,
+.app-quick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 14px;
+  align-items: center;
+  padding: 10px 4px;
+  min-height: 54px;
+}
+.app-options > summary {
+  list-style: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.app-options > summary[hidden] {
+  display: none;
+}
+.app-options > summary::-webkit-details-marker {
+  display: none;
+}
+.app-options > summary:hover,
+.app-options > summary:focus-visible {
+  background: var(--surface);
+}
+.app-row-copy {
+  display: grid;
+  gap: 2px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.app-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.app-options[open] > summary .app-row-action svg {
+  transform: rotate(90deg);
+}
+.app-row-body {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 4px 14px;
+  overflow-wrap: anywhere;
+}
+.app-row-body > div,
+.app-row-body > details {
+  max-width: 100%;
 }
 .common-apps p {
   margin: 0;
 }
-.common-apps .mcp-signin {
-  width: 100%;
+.app-row-body .app-row-body {
+  padding: 8px 0 0;
 }
-.common-apps .link-button {
-  margin-inline: 6px;
+.app-row .small-button,
+.app-resources > a,
+.app-resources summary {
+  min-height: 30px;
+}
+.app-quick > .mcp-signin {
+  display: contents;
+}
+.app-quick > .mcp-signin > :not(.mcp-signin-row),
+.app-quick > [role='alert'] {
+  grid-column: 1 / -1;
+}
+.hosted-actions a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.app-resources {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 13px;
+}
+.app-resources .sub[open] {
+  flex-basis: 100%;
+}
+.app-resources .sub p {
+  margin: 6px 0;
+}
+@media (max-width: 600px) {
+  .app-row .small-button,
+  .app-resources > a,
+  .app-resources summary {
+    min-height: 44px;
+  }
+  .app-resources > a,
+  .app-resources summary {
+    align-content: center;
+  }
 }
 
 .lib-row-main {

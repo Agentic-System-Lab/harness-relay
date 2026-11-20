@@ -227,7 +227,7 @@
           </div>
         </div>
         <p class="lead">
-          在<b>設定 → 常用 App</b>連結平常使用的服務。<b>設定 → 工具庫</b>可以選擇開放給哪些助理，也可以加入瀏覽器、自己的 MCP 伺服器、skill、筆記與 hook。
+          開啟<b>設定 → App 與工具</b>。在<b>常用 App</b> 分頁連結服務，並選擇哪些助理可以使用各項內建工具。<b>工具庫</b>分頁可加入自己的 MCP 伺服器、skill、記憶、hook 與團隊檢查預設。
         </p>
       </header>
 
@@ -247,22 +247,23 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">連結常用 App</h2>
-          <p>開啟<b>設定 → 常用 App</b>，選擇助理，使用與 Relay 相同的助理帳號授權。Codex 請先在自己的 ChatGPT 工作區安裝外掛，再到 Relay 開啟新對話。Claude Code 請使用自己的 Claude 訂閱帳號。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
+          <p>在<b>常用 App</b> 分頁按 Drive、Teams 或 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
           <ul>
-            <li><b>Google Drive</b> 可以在 Claude 或 Codex 連結。若要提供給其他助理，請展開「進階」，在自己的 Google Cloud 專案啟用 Drive API 並設定桌面 OAuth 用戶端。</li>
-            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要在 Relay 唯讀查閱頻道，可依卡片指示安裝 Microsoft Graph PowerShell，再輸入登入代碼。<b>GitHub</b> 使用 GitHub CLI 登入。</li>
-            <li><b>Notion 和 Heptabase</b> 透過官方服務連結。確認授權後，支援的助理即可使用工作區。</li>
+            <li><b>Google Drive</b> 可以在 Claude 或 Codex 連結。若要直接連線供其他支援的助理使用，請展開<b>進階 · 使用自己的 Google Cloud 專案</b>，在自己的專案啟用 Drive API 並設定桌面 OAuth 用戶端。</li>
+            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要透過 Relay 唯讀查閱頻道，請展開<b>用 Microsoft Graph 讀取頻道</b>、安裝 Microsoft Graph PowerShell，再到 Microsoft 頁面輸入登入代碼。</li>
+            <li>使用 <b>Notion</b> 或 <b>Heptabase</b> 時，直接按該服務的<b>連結</b>，在服務的授權頁面確認存取範圍，再授權要開放給助理的工作區。</li>
             <li><b>Slack</b> 可在 Claude 或 Codex 授權工作區。請檢查要求的權限，包括是否可傳送訊息。你的工作區可能需要管理員核准。</li>
+            <li>使用 <b>GitHub</b> 時，從 GitHub 這一列以 GitHub CLI 登入。同一個登入也可用來分享對話與執行 GitHub 自動任務。</li>
             <li><b>Obsidian</b> 請按<b>選擇筆記庫</b>，選擇執行 Harness Relay 的電腦上的筆記資料夾。你可以請助理讀取指定的 Markdown 筆記，解除連結後筆記仍保留在原處。</li>
           </ul>
-          <p>Gmail 和 Google Calendar 在<b>設定 → 工具庫 → 郵件與行事曆帳號</b>。直接在 Relay 連結的工具可按<b>讓支援的助理在聊天中使用</b>，也可到工具庫個別選擇助理。</p>
-          <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">手機版畫面</a></p>
+          <p>Gmail 或 Outlook 信箱在清單最上方的<b>郵件</b>設定。Google Calendar、Outlook 行事曆或 CalDAV 在下一列的<b>行事曆</b>設定。每一列分別管理自己的帳號與助理存取權。</p>
+          <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a> · <a href="../../../assets/media/docs/tools-mail-access-desktop-zh-TW.webp">郵件帳號與聊天存取的桌面版畫面</a></p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">瀏覽器、郵件與行事曆</h2>
           <p>
-            <b>設定 → 工具庫</b>最上面的 <b>Harness Relay 的工具</b>，包含瀏覽器、郵件與行事曆。你可以為每種工具選擇要開放給哪些助理。
+            在<b>常用 App</b> 展開<b>瀏覽器</b>、<b>郵件</b>或<b>行事曆</b>，再展開<b>聊天存取</b>，勾選能使用該工具的助理。直接透過 Relay 使用 Drive、Teams、GitHub 或 Obsidian 時，做法也一樣。工具連結了多個帳號時，選擇適用於該工具的所有帳號。
           </p>
           <ul>
             <li>
@@ -347,7 +348,7 @@
 
         <section id="accounts" aria-labelledby="accounts-title">
           <h2 id="accounts-title">你的郵件與行事曆帳號</h2>
-          <p>郵件與行事曆工具用的是<b>郵件與行事曆帳號</b>裡的帳號：</p>
+          <p>在<b>常用 App</b> 展開<b>郵件</b>可新增信箱，展開<b>行事曆</b>可加入行事曆。</p>
           <ul>
             <li>
               <b>郵件帳號</b>：選 Gmail、iCloud Mail、Fastmail 或 Yahoo Mail 會自動填入伺服器，或自己輸入。它需要一組<b>應用程式專用密碼</b>，在你的郵件服務的安全性設定中產生（Gmail
@@ -358,16 +359,17 @@
           <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
           <h3>Microsoft 365、Outlook.com 與 Google</h3>
           <p>
-            這些帳號不用密碼，而是在<b>登入的帳號</b>裡用瀏覽器登入，用於行事曆、郵件或兩者。Harness Relay 目前還沒有在 Microsoft 或 Google
-            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>；再勾選這次登入用於什麼，按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
+            從<b>郵件</b>的<b>登入的帳號</b>開始登入，會要求郵件存取權；從<b>行事曆</b>開始，則會要求行事曆存取權。要讓同一帳號也能使用另一項服務，請展開該服務，再選<b>使用已登入的帳號</b>。Harness Relay 目前還沒有在 Microsoft 或 Google
+            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>，再按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
           </p>
         </section>
 
         <section id="library" aria-labelledby="library-title">
           <h2 id="library-title">你的 MCP 伺服器、skill、記憶與 hook</h2>
           <p>
-            <b>工具庫</b>其餘的部分放你自己加的東西。不管 agent 跑在哪個程式上都能用，而且是加在 agent 自己的設定之外。變更從 agent 的下一回合開始生效。
+            <b>工具庫</b>分頁有五列，預設都是收合的。展開 <b>MCP 伺服器</b>、<b>Skills</b> 或<b>記憶</b>，可在 agent 自己的設定之外加入項目。<b>Hooks</b> 與<b>團隊檢查預設</b>可設定新對話和自動任務一開始帶著的規則。變更從 agent 的下一回合開始生效。
           </p>
+          <p><a href="../../../assets/media/docs/tools-library-desktop-zh-TW.webp">工具庫桌面版畫面</a> · <a href="../../../assets/media/docs/tools-library-phone-zh-TW.webp">工具庫手機版畫面</a></p>
           <dl class="doc-terms">
             <dt>MCP 伺服器</dt>
             <dd>
@@ -385,10 +387,10 @@
             <dd>每個 agent 在每個對話裡都會拿到的筆記，例如你的偏好與專案慣例：可以給<b>所有成員</b>，或寫在各 agent 自己的分頁裡，只給那種 agent。</dd>
             <dt>Hook</dt>
             <dd>
-              在<b>記憶</b>正下方的 <b>Hooks</b>：整個團隊一開始共用的指令。新對話和新自動任務會帶著它們，每個團隊可以再改。在 macOS 和 Linux 上，會在 Claude Code、Codex、Copilot、Muse Code 和 Pi 支援的工具呼叫前後執行。見<a href="../teams/#checks">團隊檢查</a>。
+              展開 <b>Hooks</b> 可設定新對話與新自動任務一開始共用的指令，每個團隊可以再改。在 macOS 和 Linux 上，會在 Claude Code、Codex、Copilot、Muse Code 和 Pi 支援的工具呼叫前後執行。展開<b>團隊檢查預設</b>可設定受保護路徑、commit 格式與檢查指令。見<a href="../teams/#checks">團隊檢查</a>。
             </dd>
             <dt>預設提供給</dt>
-            <dd>每個 MCP 伺服器與 skill 都會給你選的 agent：全部（預設）、其中幾種，或都不給，這時只給你在團隊設定裡勾選的成員。</dd>
+            <dd>在 MCP 伺服器的編輯表單或已加入的 skill 那一列展開這個選項。你可以選全部 agent（預設）、其中幾種，或全部取消勾選，這時只有在團隊設定裡勾選的成員會拿到該項目。</dd>
           </dl>
         </section>
 

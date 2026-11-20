@@ -7,12 +7,12 @@ import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '
 import { en } from '../../src/web/locales/en';
 import { emptyLibraryText, noneForCliText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { acceptNextDialog, finishedReply, openTeamChat, openToolCategory, replies, send, settled } from '../support/app';
 import { belowFull, chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
- * Settings → Tool library, as a person sets it up, and what each CLI then gets: the fakes say which
+ * Settings → Apps and tools → Tool library, as a person sets it up, and what each CLI then gets: the fakes say which
  * MCP servers they were given, the memory in their briefing, and the first line of each skill's
  * SKILL.md they could read (Claude Code only where its Read rules let it, as the real one).
  *
@@ -26,11 +26,9 @@ const SECRET = 's3cr3t-e2e-token';
 const HAS_MCP = "My tool library's MCP servers: e2e-tools.";
 
 /** The Tool library card of the settings page. */
-async function toolLibrary(page: Page, relay: RelayServer): Promise<Locator> {
+async function toolLibrary(page: Page, relay: RelayServer, category: string): Promise<Locator> {
   await page.goto(`${relay.base}/#/settings/tools`);
-  const card = page.locator('#settings-tools');
-  await expect(card.getByRole('heading', { name: 'MCP servers' })).toBeVisible();
-  return card;
+  return openToolCategory(page, category);
 }
 
 /** A skill folder with its SKILL.md, outside the working directory (as in ~/.claude/skills). */
@@ -101,7 +99,7 @@ test("with an empty tool library, or one with nothing for its CLI, each member's
   ] as const) {
     const tools = memberCard(page, index).locator('.agent-tools');
     await expect(tools).toContainText(emptyLibraryText(en, provider));
-    await expect(tools.getByRole('link', { name: 'Go to Settings → Tool library' })).toBeVisible();
+    await expect(tools.getByRole('link', { name: 'Go to Settings → Apps and tools → Tool library' })).toBeVisible();
   }
   await expect(memberCard(page, 0).locator('.agent-tools')).toContainText('Claude Code also loads its own setup');
   await expect(memberCard(page, 1).locator('.agent-tools')).toContainText("Goose runs with a config folder of Harness Relay's own");
@@ -127,7 +125,7 @@ eachHalf((half) =>
       half.title('an MCP server added on the page reaches every CLI, with its secret masked and kept off the command line'),
       async ({ page, relay }) => {
         const TEAM = teamOf(half.clis);
-        const card = await toolLibrary(page, relay);
+        const card = await toolLibrary(page, relay, 'MCP servers');
         await expect(card).toContainText('No MCP servers yet.');
         await card.getByRole('button', { name: /Add MCP server/ }).click();
         const form = card.locator('.mcp-form');
@@ -139,6 +137,7 @@ eachHalf((half) =>
         await row.getByRole('textbox', { name: 'Name' }).fill('E2E_TOKEN');
         await row.getByLabel('Value').fill(SECRET);
         // Given to every CLI's members by default.
+        await form.locator('summary', { hasText: 'Given by default to' }).click();
         await expect(form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { pressed: true })).toHaveCount(
           PROVIDERS.length,
         );
@@ -185,10 +184,11 @@ eachHalf((half) =>
         method: 'PUT',
         body: { transport: 'stdio', command: 'e2e-mcp-server', args: [], env: [{ name: 'E2E_TOKEN', value: SECRET }] },
       });
-      const card = await toolLibrary(page, relay);
+      const card = await toolLibrary(page, relay, 'MCP servers');
       const server = card.locator('.lib-row', { hasText: 'e2e-tools' });
       await server.getByRole('button', { name: 'Edit' }).click();
       const form = card.locator('.mcp-form');
+      await form.locator('summary', { hasText: 'Given by default to' }).click();
       await form.getByRole('group', { name: 'Given by default to' }).getByRole('button', { name: off.label, exact: true }).click();
       await expect(form).toContainText(allBut(off.provider));
       // Its value is kept: the row is left empty.
@@ -245,7 +245,7 @@ eachHalf((half) =>
         );
         writeSkill(join(skills, 'haiku'), 'haiku', 'Answer in a haiku', 'Count the syllables.');
 
-        const card = await toolLibrary(page, relay);
+        const card = await toolLibrary(page, relay, 'Skills');
         await expect(card).toContainText('No skills yet.');
         await card.getByRole('textbox', { name: 'Skill folder path' }).fill(skills);
         await card.getByRole('button', { name: 'Add', exact: true }).click();
@@ -287,10 +287,11 @@ eachHalf((half) =>
         'Write release notes',
         'Begin each note with the words Shipped today.',
       );
-      const card = await toolLibrary(page, relay);
+      const card = await toolLibrary(page, relay, 'Skills');
       // A folder that is a skill itself is added at once.
       await card.getByRole('textbox', { name: 'Skill folder path' }).fill(dir);
       await card.getByRole('button', { name: 'Add', exact: true }).click();
+      await card.locator('summary', { hasText: 'Given by default to' }).click();
       const picks = card.getByRole('group', { name: 'release-notes: Given by default to' });
       await expect(picks.getByRole('button', { pressed: true })).toHaveCount(PROVIDERS.length);
       await picks.getByRole('button', { name: off.label, exact: true }).click();
@@ -329,8 +330,7 @@ eachHalf((half) =>
       async ({ page, relay }) => {
         const TEAM = teamOf(half.clis, 3);
         const [first, own, other] = TEAM as [Cli, Cli, Cli];
-        const card = await toolLibrary(page, relay);
-        const memory = card.locator('.tools-section', { has: page.getByRole('heading', { name: 'Memory' }) });
+        const memory = await toolLibrary(page, relay, 'Memory');
         await memory.getByRole('textbox', { name: 'Memory: All members' }).fill('Lead with the conclusion.');
         // A click while the page still settles can land without switching tabs: click until it is selected.
         const ownTab = memory.getByRole('tab', { name: own.label, exact: true });
@@ -388,7 +388,7 @@ eachHalf((half) =>
         await settled(relay, id);
 
         // A new value, typed where the masked one was.
-        const card = await toolLibrary(page, relay);
+        const card = await toolLibrary(page, relay, 'MCP servers');
         await card.locator('.lib-row', { hasText: 'e2e-tools' }).getByRole('button', { name: 'Edit' }).click();
         const form = card.locator('.mcp-form');
         await form.locator('.var-row').getByLabel('Value').fill(NEW);
@@ -424,7 +424,7 @@ eachHalf((half) =>
           for (const start of turns.filter((e) => e.cli === m.provider && e.args)) expect(JSON.stringify(start.args)).not.toContain(NEW);
         }
 
-        await toolLibrary(page, relay);
+        await toolLibrary(page, relay, 'MCP servers');
         acceptNextDialog(page);
         await card.locator('.lib-row', { hasText: 'e2e-tools' }).getByRole('button', { name: 'Remove' }).click();
         await expect(card.locator('.lib-row', { hasText: 'e2e-tools' })).toHaveCount(0);
@@ -468,10 +468,10 @@ eachHalf((half) =>
       }
       await settled(relay, id);
 
-      const card = await toolLibrary(page, relay);
+      const card = await toolLibrary(page, relay, 'Skills');
       await card.locator('.lib-row', { hasText: 'haiku' }).getByRole('button', { name: 'Remove' }).click();
       await expect(card.locator('.lib-row', { hasText: 'haiku' })).toHaveCount(0);
-      const memory = card.locator('.tools-section', { has: page.getByRole('heading', { name: 'Memory' }) });
+      const memory = await openToolCategory(page, 'Memory');
       await memory.getByRole('textbox', { name: 'Memory: All members' }).fill('');
       await memory.getByRole('button', { name: 'Save' }).click();
       await expect(memory).toContainText('Saved');
@@ -605,6 +605,31 @@ test('the browser to start is set in Settings: a path with no file there is refu
   relay,
 }) => {
   await page.goto(`${relay.base}/#/settings/tools`);
+  const library = page.locator('#settings-tools');
+  await expect(library.getByRole('heading', { level: 4 })).toHaveCount(5);
+  await expect(library.locator('.library-category > summary').first()).toHaveAccessibleDescription(en.tools.categories.mcp);
+  await expect(library.locator('.library-category[open]')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Common apps' }).click();
+  const browser = page.getByRole('listitem', { name: 'Browser', exact: true });
+  await browser.locator('.app-options > summary').press('Enter');
+  const scope = browser.locator('.app-chat-access > summary');
+  await scope.click();
+  const access = browser.getByRole('group', { name: 'Browser · Given by default to' });
+  await expect(access.getByRole('button', { pressed: true })).toHaveCount(0);
+  // A pending whole-group replacement blocks a second pick until its saved selection arrives.
+  let resume!: () => void;
+  const gate = new Promise<void>((r) => (resume = r));
+  await page.route('**/api/tools', async (route) => {
+    if (route.request().method() === 'PUT') await gate;
+    await route.continue();
+  });
+  try {
+    await access.getByRole('button', { name: 'Codex' }).click();
+    await expect(access.getByRole('button', { name: 'Claude Code' })).toBeDisabled();
+  } finally {
+    resume();
+  }
+  await expect(scope).toContainText('1 assistant');
   const field = page.getByRole('textbox', { name: 'Browser to start' });
   const box = page.locator('.browser-path');
   // Open at first where no browser is found (a computer without one, whose Playwright Chromium the test's
@@ -622,6 +647,9 @@ test('the browser to start is set in Settings: a path with no file there is refu
   await expect(box).toContainText(`In use: ${process.execPath}`);
   await expect(box.locator('summary')).toContainText(process.execPath);
   await page.reload();
+  await browser.locator('.app-options > summary').click();
+  await scope.click();
+  await expect(access.getByRole('button', { pressed: true })).toHaveText('Codex');
   await expect(page.getByRole('textbox', { name: 'Browser to start' })).toHaveValue(process.execPath);
   await page.getByRole('textbox', { name: 'Browser to start' }).fill('');
   await page.locator('.browser-path').getByRole('button', { name: 'Save', exact: true }).click();

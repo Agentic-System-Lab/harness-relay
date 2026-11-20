@@ -4,17 +4,19 @@ import { join } from 'node:path';
 import { removeTree } from '../../src/server/fsRemove';
 import { openDatabase } from '../../src/server/db';
 import { ToolLibrary } from '../../src/server/tools';
+import { APP_SERVERS } from '../../src/shared/apps';
+import type { ToolLibraryView } from '../../src/shared/types';
 import { saveLegacySlackGrant } from '../support/legacy-slack-grant';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { expect, test as base } from '../fixtures';
-import { finishedReply, openTeamChat, send } from '../support/app';
+import { finishedReply, openTeamChat, openToolCategory, send } from '../support/app';
 import { logged } from '../support/clis';
 
 /*
  * A tool library MCP server's own sign-in (MCP's authorization), against a stand-in MCP server and its
  * authorization server on this computer: the server answers 401 and names its protected resource
- * metadata, which names the authorization server; Settings → Tool library's Sign in registers Harness
+ * metadata, which names the authorization server; Settings → Apps and tools → Tool library's Sign in registers Harness
  * Relay there and opens its page in a new tab (opened on the click, navigated once the server answers),
  * whose Allow sends the browser back to the web app's /oauth/callback; the server then says it is signed
  * in, and a fake Claude Code's turn gets its access token in the server's Authorization header. Revoked at
@@ -156,6 +158,68 @@ const test = base.extend<{ auth: FakeAuth }>({
   },
 });
 
+base('Notion announces sign-in and sign-out and keeps keyboard focus on the app', async ({ page, relay }) => {
+  const library = await relay.api<ToolLibraryView>('/api/tools');
+  const authorizeUrl = 'https://notion.example.test/consent';
+  const challenge = { id: '', provider: 'mcp', expiresAt: Date.now() + 120000, authorizeUrl };
+  let connected = false;
+  await page.context().route(authorizeUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Notion consent</title>' }));
+  await page.route('**/api/apps/notion/signin', (route) => {
+    challenge.id = randomUUID();
+    return route.fulfill({ json: { ...challenge, status: 'waiting' } });
+  });
+  await page.route('**/api/oauth/signins/*', (route) => route.fulfill({ json: { ...challenge, status: connected ? 'done' : 'waiting' } }));
+  await page.route('**/api/tools', (route) => {
+    const view: ToolLibraryView = connected
+      ? {
+          ...library,
+          mcpServers: [
+            ...library.mcpServers,
+            {
+              app: 'notion',
+              id: 'notion',
+              name: 'notion',
+              transport: 'http',
+              command: '',
+              args: [],
+              url: APP_SERVERS.notion,
+              env: [],
+              headers: [],
+              providers: [],
+              oauth: { status: 'signed-in', signedInAt: Date.now() },
+            },
+          ],
+        }
+      : library;
+    return route.fulfill({ json: view });
+  });
+  await page.route('**/api/tools/mcp/notion/signin', (route) => {
+    expect(route.request().method()).toBe('DELETE');
+    connected = false;
+    return route.fulfill({ json: library });
+  });
+  await page.goto(relay.base + '/#/settings/apps');
+  const row = page.getByRole('listitem', { name: 'Notion', exact: true });
+  const connect = row.getByRole('button', { name: 'Connect Notion', exact: true });
+  const other = page.getByRole('button', { name: 'Connect Heptabase', exact: true });
+  for (const stayInRow of [true, false]) {
+    const [tab] = await Promise.all([page.waitForEvent('popup'), connect.press('Enter')]);
+    await expect(tab).toHaveURL(authorizeUrl);
+    await tab.close();
+    const cancel = row.getByRole('button', { name: 'Cancel', exact: true });
+    await expect(cancel).toBeVisible();
+    await (stayInRow ? cancel : other).focus();
+    connected = true;
+    await expect(row.getByRole('status')).toHaveText('Signed in to Notion.');
+    await expect(row.locator('summary')).toBeVisible();
+    await expect(stayInRow ? row.locator('summary') : other).toBeFocused();
+    page.once('dialog', (dialog) => void dialog.accept());
+    await row.getByRole('button', { name: 'Sign out', exact: true }).press('Enter');
+    await expect(row.getByRole('status')).toHaveText('Signed out of Notion.');
+    await expect(connect).toBeFocused();
+  }
+});
+
 base("Slack opens Claude's official connector and leaves Relay's shared tools and members alone", async ({ page, relay }) => {
   const directory = 'https://claude.ai/directory/597f662f-36de-437e-836e-5a81013cbfbe';
   const library = () => relay.api<{ mcpServers: unknown[] }>('/api/tools');
@@ -172,15 +236,16 @@ base("Slack opens Claude's official connector and leaves Relay's shared tools an
     .route(directory, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Claude connector</title>' }));
   await page.goto(`${relay.base}/#/settings/apps`);
   const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  await slack.locator('.app-options > summary').click();
   const connect = slack.getByRole('link', { name: 'Connect Slack in Claude' });
   await expect(connect).toHaveAttribute('href', directory);
   const [tab] = await Promise.all([page.context().waitForEvent('page'), connect.click()]);
   await expect(tab).toHaveURL(directory);
   await tab.close();
   await expect(slack).not.toContainText(/connected|signed in to Slack/i);
-  await expect(slack.getByRole('button')).toHaveCount(0);
-  await slack.getByText('Set up and check your assistant', { exact: true }).click();
-  await slack.getByRole('link', { name: 'Open Claude Code settings' }).click();
+  await expect(slack.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+  await page.getByText('Set up and check your assistant', { exact: true }).click();
+  await page.locator('#settings-apps').getByRole('link', { name: 'Open Claude Code settings' }).click();
   await expect(page).toHaveURL(/#\/settings\/claude$/);
   const native = page.locator('#settings-claude details.native-setup').first();
   await native.locator('summary').click();
@@ -209,6 +274,7 @@ const legacySlack = base.extend({
 legacySlack('a saved Slack grant can reauthorize and sign out without enabling a new shared Slack sign-in', async ({ page, relay }) => {
   await page.goto(`${relay.base}/#/settings/apps`);
   const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  await slack.locator('.app-options > summary').click();
   await expect(slack).toContainText('Existing tool library connection · slack-work');
   await slack.getByRole('button', { name: 'Sign in again' }).click();
   await expect(slack.getByRole('alert')).toContainText('slack.com');
@@ -218,6 +284,7 @@ legacySlack('a saved Slack grant can reauthorize and sign out without enabling a
   await expect(slack).toContainText('Signed out of Slack.');
   await expect(slack.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'slack-work' });
   await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
@@ -233,6 +300,7 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
     body: { transport: 'http', url: `${auth.url}/mcp`, headers: [], providers: ['claude'] },
   });
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'linear' });
   await expect(row).toContainText(`${auth.url}/mcp`);
 
@@ -265,12 +333,13 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   await send(page, 'And now?');
   const reply = await finishedReply(page, 'Claude');
   await expect(reply.getByRole('note')).toHaveText(
-    'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Tool library.',
+    'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.',
   );
   expect(relay.fakeLog().filter((e) => e.cli === 'claude' && e.mcpEnv?.linear)).toHaveLength(before);
 
   // Reauthorize the custom MCP server against its existing client and revoke both replaced tokens.
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   await expect(row.locator('.badge')).toHaveText('Needs a new sign-in');
   await expect(row).toContainText('Its sign-in no longer works (invalid_grant)');
   auth.refuseRefresh = false;
@@ -299,6 +368,7 @@ test('a library MCP server whose sign-in page is on another host says where firs
     body: { transport: 'http', url: `${auth.url}/mcp`, headers: [], providers: ['claude'] },
   });
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'linear' });
   const pageHost = new URL(auth.pageUrl).host;
   const issuerHost = new URL(auth.url).host;

@@ -17,17 +17,19 @@ import { useT } from '../i18n';
 import { OAuthAccounts } from './OAuthAccounts';
 
 /**
- * Settings → Tool library → Mail and calendar: the accounts Harness Relay's mail and calendar tools
+ * Settings → Apps and tools → Common apps → Mail or Calendar: the accounts Harness Relay's mail and calendar tools
  * use. Passwords go to the credential store and only come back masked; Test signs in without sending
  * anything. A mail account or calendar reached through an account you sign in to (`oauth`) has no
  * password nor servers to edit: it is removed, and added again from its account.
  */
 export function ConnectorsSettings({
+  kind,
   view,
   setView,
   oauth,
   setOauth,
 }: {
+  kind: 'mail' | 'calendar';
   view: ConnectorsView | null;
   setView: (v: ConnectorsView) => void;
   oauth: OAuthView | null;
@@ -36,8 +38,8 @@ export function ConnectorsSettings({
   const t = useT();
 
   const [error, setError] = useState('');
-  /** The form open: a kind, and the account edited ('' for a new one). */
-  const [editing, setEditing] = useState<{ kind: 'mail' | 'calendar'; id: string } | null>(null);
+  /** The account being edited, or an empty ID for a new one. */
+  const [editing, setEditing] = useState<string | null>(null);
   const [tested, setTested] = useState<Record<string, string>>({});
   /** One more after each test of a mail account or calendar reached through a sign-in, which may find that it needs a new one: the accounts are read again. */
   const [oauthTested, setOauthTested] = useState(0);
@@ -53,28 +55,28 @@ export function ConnectorsSettings({
     }
   };
 
-  const test = async (kind: 'mail' | 'calendar', id: string) => {
-    setTested((x) => ({ ...x, [`${kind}:${id}`]: t.connectors.testing }));
+  const test = async (id: string) => {
+    setTested((x) => ({ ...x, [id]: t.connectors.testing }));
     const r = await api.testConnector(kind, id).catch((e: Error) => ({ ok: false, error: e.message }));
-    setTested((x) => ({ ...x, [`${kind}:${id}`]: r.ok ? ('message' in r && r.message) || t.connectors.testOk : `✗ ${r.error ?? ''}` }));
-    if ((kind === 'calendar' ? view?.calendar : view?.mail)?.some((a) => a.id === id && a.oauth)) setOauthTested((n) => n + 1);
+    setTested((x) => ({ ...x, [id]: r.ok ? ('message' in r && r.message) || t.connectors.testOk : `✗ ${r.error ?? ''}` }));
+    if (view?.[kind].some((a) => a.id === id && a.oauth)) setOauthTested((n) => n + 1);
   };
 
   if (!view) return error ? <p className="error-line">{error}</p> : null;
-  const row = (kind: 'mail' | 'calendar', a: MailAccountView | CalendarAccountView, detail: string) => (
+  const row = (a: MailAccountView | CalendarAccountView, detail: string) => (
     <li key={a.id} className="lib-row relay-group">
       <div className="lib-row-main">
         <span className="lib-name">{a.name}</span>
         <code className="lib-detail">{detail}</code>
       </div>
-      {tested[`${kind}:${a.id}`] && <p className="small muted">{tested[`${kind}:${a.id}`]}</p>}
+      {tested[a.id] && <p className="small muted">{tested[a.id]}</p>}
       <div className="lib-row-actions">
-        <button type="button" className="ghost small-button" onClick={() => test(kind, a.id)}>
+        <button type="button" className="ghost small-button" onClick={() => test(a.id)}>
           {t.connectors.test}
         </button>
         {/* One reached through a sign-in has no password nor servers to edit: removed and added again from its account. */}
         {!a.oauth && (
-          <button type="button" className="ghost small-button" onClick={() => setEditing({ kind, id: a.id })}>
+          <button type="button" className="ghost small-button" onClick={() => setEditing(a.id)}>
             {t.tools.edit}
           </button>
         )}
@@ -82,7 +84,10 @@ export function ConnectorsSettings({
           type="button"
           className="icon-button danger"
           aria-label={t.common.remove}
-          onClick={() => confirm(t.connectors.confirmRemove(a.name)) && change(() => api.deleteConnector(kind, a.id))}
+          onClick={() =>
+            confirm(a.oauth ? t.connectors.removeLinked(a.name) : t.connectors.confirmRemove(a.name)) &&
+            change(() => api.deleteConnector(kind, a.id))
+          }
         >
           ×
         </button>
@@ -90,56 +95,55 @@ export function ConnectorsSettings({
     </li>
   );
 
+  const mail = kind === 'mail';
+  const taken = view[kind].map((a) => a.id);
+  const close = () => setEditing(null);
   return (
-    <div className="tools-section connectors">
-      <h4>{t.connectors.title}</h4>
-      <p className="muted small">
-        {t.connectors.hint}
-        {t.connectors.passwordsIn(t.settings.keyStorageName[view.secretStorage])}
+    <div className="connectors library-connectors">
+      {error && (
+        <p className="error-line" role="alert">
+          {error}
+        </p>
+      )}
+      {taken.length > 0 && (
+        <ul className="lib-list" aria-label={mail ? t.connectors.mailAccounts : t.connectors.calendar}>
+          {mail
+            ? view.mail.map((a) =>
+                editing === a.id ? (
+                  <li key={a.id}>
+                    <MailEditor account={a} taken={taken} change={change} onDone={close} />
+                  </li>
+                ) : (
+                  row(a, `${a.address} · ${a.imap.host}`)
+                ),
+              )
+            : view.calendar.map((a) =>
+                editing === a.id ? (
+                  <li key={a.id}>
+                    <CalendarEditor account={a} taken={taken} change={change} onDone={close} />
+                  </li>
+                ) : (
+                  row(a, a.oauth ? a.address || a.username : a.url)
+                ),
+              )}
+        </ul>
+      )}
+      <OAuthAccounts kind={kind} view={oauth} setView={setOauth} connectors={view} onConnectors={setView} refresh={oauthTested} />
+      <p className="small muted">
+        {t.connectors.manualHint[kind]}
+        {editing !== null && t.connectors.passwordsIn(t.settings.keyStorageName[view.secretStorage])}
       </p>
-      {error && <p className="error-line">{error}</p>}
-
-      <h5>{t.connectors.mail}</h5>
-      <ul className="lib-list">
-        {view.mail.map((m) =>
-          editing?.kind === 'mail' && editing.id === m.id ? (
-            <li key={m.id}>
-              <MailEditor account={m} taken={view.mail.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
-            </li>
-          ) : (
-            row('mail', m, `${m.address} · ${m.imap.host}`)
-          ),
-        )}
-      </ul>
-      {editing?.kind === 'mail' && editing.id === '' ? (
-        <MailEditor taken={view.mail.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
+      {editing === '' ? (
+        mail ? (
+          <MailEditor taken={taken} change={change} onDone={close} />
+        ) : (
+          <CalendarEditor taken={taken} change={change} onDone={close} />
+        )
       ) : (
-        <button type="button" className="ghost small-button" onClick={() => setEditing({ kind: 'mail', id: '' })}>
-          {t.connectors.addMail}
+        <button type="button" className="ghost small-button" onClick={() => setEditing('')}>
+          {mail ? t.connectors.addMail : t.connectors.addCalendar}
         </button>
       )}
-
-      <h5>{t.connectors.calendar}</h5>
-      <ul className="lib-list">
-        {view.calendar.map((c) =>
-          editing?.kind === 'calendar' && editing.id === c.id ? (
-            <li key={c.id}>
-              <CalendarEditor account={c} taken={view.calendar.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
-            </li>
-          ) : (
-            row('calendar', c, c.oauth ? `${c.address ?? c.username} · ${c.oauth}` : c.url)
-          ),
-        )}
-      </ul>
-      {editing?.kind === 'calendar' && editing.id === '' ? (
-        <CalendarEditor taken={view.calendar.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
-      ) : (
-        <button type="button" className="ghost small-button" onClick={() => setEditing({ kind: 'calendar', id: '' })}>
-          {t.connectors.addCalendar}
-        </button>
-      )}
-
-      <OAuthAccounts view={oauth} setView={setOauth} connectors={view} onConnectors={setView} refresh={oauthTested} />
     </div>
   );
 }

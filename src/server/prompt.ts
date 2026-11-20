@@ -188,7 +188,7 @@ function toolSections(tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'>, 
     const list = tools.leftOut
       .map(
         (l) =>
-          `- ${l.name}: ${l.reason === 'reauth' ? 'its sign-in no longer works; the user can sign in to it again in Settings → Tool library' : 'its sign-in could not be renewed just now'}`,
+          `- ${l.name}: ${l.reason === 'reauth' ? 'its sign-in no longer works; the user can sign in to it again in Settings → Apps and tools → Tool library → MCP servers' : 'its sign-in could not be renewed just now'}`,
       )
       .join('\n');
     out.push(`# Tool library: left out of this turn

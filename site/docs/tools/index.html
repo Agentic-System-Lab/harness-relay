@@ -230,8 +230,7 @@
           </div>
         </div>
         <p class="lead">
-          Connect the apps you use under <b>Settings → Common apps</b>. Under <b>Settings → Tool library</b>, choose
-          which assistants can use them or add a browser, your own MCP servers, skills, notes and hooks.
+          Open <b>Settings → Apps and tools</b>. Use <b>Common apps</b> to connect your services and choose which assistants can use each built-in tool. Use <b>Tool library</b> to add MCP servers, skills, memory, hooks and default team checks.
         </p>
       </header>
 
@@ -251,22 +250,23 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">Connect your apps</h2>
-          <p>Open <b>Settings → Common apps</b>. Choose your assistant and authorize the service with the same account you use in Relay. For Codex, install the plugin in your ChatGPT workspace and open a new Relay chat. For Claude Code, use your Claude subscription account. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
+          <p>On the <b>Common apps</b> tab, choose <b>Connect</b> beside Drive, Teams or Slack, then select Claude or Codex. For Claude Code, authorize the service with the same Claude subscription account you use in Relay. For Codex, install the plugin in your ChatGPT workspace, authorize the service and open a new Relay chat. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
           <ul>
-            <li><b>Google Drive</b> can open in Claude or Codex. To share Drive with other assistants, open Advanced and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
-            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, install Microsoft Graph PowerShell from the card and follow the sign-in code. <b>GitHub</b> uses GitHub CLI to sign in.</li>
-            <li><b>Notion and Heptabase</b> connect through their official services. Supported assistants can use the workspace once you approve.</li>
+            <li><b>Google Drive</b> can open in Claude or Codex. To give other supported assistants direct access, open <b>Advanced · Connect with your own Google Cloud project</b> and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
+            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, open <b>Read channels with Microsoft Graph</b>, install Microsoft Graph PowerShell and enter the sign-in code on Microsoft’s page.</li>
+            <li>For <b>Notion</b> or <b>Heptabase</b>, choose <b>Connect</b> on the service’s row. Review the requested access and authorize the workspace you want your assistants to use.</li>
             <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval.</li>
+            <li>For <b>GitHub</b>, sign in with GitHub CLI from the GitHub row. The same sign-in also lets you share chats and run GitHub automations.</li>
             <li>For <b>Obsidian</b>, choose <b>Choose vault</b> and select the notes folder on the computer running Harness Relay. Ask for a Markdown note by name. Disconnecting keeps the notes on disk.</li>
           </ul>
-          <p>Gmail and Google Calendar are in <b>Settings → Tool library → Mail and calendar accounts</b>. For built-in tools, choose <b>Enable in chats for supported assistants</b> after connecting. You can choose individual assistants in the tool library.</p>
-          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Desktop screenshot</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Phone screenshot</a></p>
+          <p>For Gmail or Outlook, open <b>Mail</b> at the top of the list. For Google Calendar, Outlook Calendar or CalDAV, open <b>Calendar</b> just below it. Each row has its own accounts and assistant selections.</p>
+          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a> · <a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mail account and Chat access on desktop</a></p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">Browser, mail and calendar</h2>
           <p>
-            At the top of <b>Settings → Tool library</b>, <b>Harness Relay's tools</b> include the browser, mail and calendar. Choose which assistants can use each tool.
+            On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Chat access</b>. Select the assistants that can use that tool. Direct Drive, Teams, GitHub and Obsidian access works the same way. For tools with multiple accounts, your selection applies to every account connected to that tool.
           </p>
           <ul>
             <li>
@@ -365,7 +365,7 @@
 
         <section id="accounts" aria-labelledby="accounts-title">
           <h2 id="accounts-title">Your mail and calendar accounts</h2>
-          <p>The Mail and Calendar tools use the accounts under <b>Mail and calendar accounts</b>:</p>
+          <p>In <b>Common apps</b>, open <b>Mail</b> to add a mailbox or <b>Calendar</b> to add a calendar.</p>
           <ul>
             <li>
               <b>A mail account</b>: pick Gmail, iCloud Mail, Fastmail or Yahoo Mail to fill in its servers, or type them.
@@ -383,10 +383,8 @@
           </p>
           <h3>Microsoft 365, Outlook.com and Google</h3>
           <p>
-            These sign in in the browser instead of with a password, under <b>Accounts you sign in to</b>, for calendars,
-            mail or both. Harness Relay has no app registered with Microsoft or Google of its own yet, so you register one
-            with the provider first and give its <b>Client ID</b> under <b>Set up the app</b>; then tick what the sign-in is
-            for and click <b>Sign in with …</b>. The
+            Under <b>Accounts you sign in to</b>, a new sign-in from <b>Mail</b> asks for mail access. Starting from <b>Calendar</b> asks for calendar access. To also use an existing account for the other service, open its row and choose <b>Use an existing sign-in</b>. Harness Relay has no app registered with Microsoft or Google of its own yet, so you register one
+            with the provider first and give its <b>Client ID</b> under <b>Set up the app</b>. Then select <b>Sign in with …</b>. The
             <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">user guide</a>
             has the steps for each provider. The tokens stay in your credential store and go only to that account's own
             service.
@@ -396,9 +394,9 @@
         <section id="library" aria-labelledby="library-title">
           <h2 id="library-title">Your MCP servers, skills, memory and hooks</h2>
           <p>
-            The rest of the <b>Tool library</b> holds what you add yourself. Every agent can use it, whichever program it runs
-            on, on top of the agent's own setup. Changes reach an agent at its next turn.
+            The <b>Tool library</b> tab opens with five collapsed rows. Use <b>MCP servers</b>, <b>Skills</b> or <b>Memory</b> to add something to the agents’ own setup. Use <b>Hooks</b> and <b>Default team checks</b> for rules that new chats and automations start with. Changes reach an agent at its next turn.
           </p>
+          <p><a href="../../assets/media/docs/tools-library-desktop-en.webp">Tool library on desktop</a> · <a href="../../assets/media/docs/tools-library-phone-en.webp">Tool library on a phone</a></p>
           <dl class="doc-terms">
             <dt>MCP servers</dt>
             <dd>
@@ -425,15 +423,13 @@
             </dd>
             <dt>Hooks</dt>
             <dd>
-              Under <b>Hooks</b>, directly below <b>Memory</b>: commands the whole team starts with. New chats and automations
-              get them, and you can change them for each team. On macOS and Linux they run around supported tool calls for
-              Claude Code, Codex, Copilot, Muse Code and Pi. See
+              Open <b>Hooks</b> to set the commands that new chats and automations start with. You can change them for each team. On macOS and Linux they run around supported tool calls for
+              Claude Code, Codex, Copilot, Muse Code and Pi. Open <b>Default team checks</b> for protected paths, commit formats and check commands. See
               <a href="../teams/#checks">Team checks</a>.
             </dd>
             <dt>Given by default to</dt>
             <dd>
-              Each MCP server and skill goes to the agents you pick: all of them (the default), some, or none, and then only
-              to members you tick in the team settings.
+              Open this setting in the MCP server editor or on a skill’s row. Choose all agents (the default), specific agents, or none. With none selected, only members you tick in the team settings receive it.
             </dd>
           </dl>
         </section>

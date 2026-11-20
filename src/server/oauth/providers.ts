@@ -125,7 +125,7 @@ export interface OAuthClient {
 
 /**
  * Harness Relay's own apps, registered once and shipped in the code, by provider; none is registered
- * yet, so each user gives their own (Settings → Tool library). A Microsoft Entra app for work, school
+ * yet, so each user gives their own (Settings → Apps and tools → Common apps). A Microsoft Entra app for work, school
  * and personal accounts, a public client (no secret), is what would go here.
  */
 export const BUILT_IN_CLIENTS: Partial<Record<OAuthProviderId, string>> = {};

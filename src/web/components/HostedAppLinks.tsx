@@ -13,23 +13,32 @@ export function HostedAppLinks({ app }: { app: keyof typeof connectors }) {
   const [name, claude, codex] = connectors[app];
   return (
     <>
-      <div className="form-actions">
-        <a href={'https://claude.ai/directory/' + claude} target="_blank" rel="noreferrer">
+      <p className="muted small">{a.hostedConsent}</p>
+      {app === 'teams' && <p className="muted small">{a.hostedTeamsNote}</p>}
+      {app === 'slack' && <p className="muted small">{a.hostedSlackNote}</p>}
+      <div className="form-actions hosted-actions">
+        <a className="ghost small-button" href={'https://claude.ai/directory/' + claude} target="_blank" rel="noreferrer">
           {a.connectInClaude(name)}
         </a>
-        <a href={'https://chatgpt.com/plugins/' + codex} target="_blank" rel="noreferrer">
+        <a className="ghost small-button" href={'https://chatgpt.com/plugins/' + codex} target="_blank" rel="noreferrer">
           {a.connectInCodex(name)}
         </a>
       </div>
-      <details className="sub">
-        <summary>{a.hostedHelp}</summary>
-        <p className="muted small">
-          {a.claudeAccount} {a.claudeInspect}
-        </p>
-        <a href={settingsHref('claude')}>{a.claudeSettings}</a>
-        <p className="muted small">{a.codexInspect}</p>
-        <a href={settingsHref('codex')}>{a.codexSettings}</a>
-      </details>
     </>
+  );
+}
+
+export function AssistantConnectionHelp() {
+  const a = useT().apps;
+  return (
+    <details className="sub">
+      <summary>{a.hostedHelp}</summary>
+      <p className="muted small">
+        {a.claudeAccount} {a.claudeInspect}
+      </p>
+      <a href={settingsHref('claude')}>{a.claudeSettings}</a>
+      <p className="muted small">{a.codexInspect}</p>
+      <a href={settingsHref('codex')}>{a.codexSettings}</a>
+    </details>
   );
 }

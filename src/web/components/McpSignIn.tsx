@@ -46,6 +46,7 @@ export function AppSignIn({
   onDone,
   onSignOut,
   button,
+  buttonLabel,
 }: {
   name: string;
   oauth?: McpServerView['oauth'];
@@ -53,6 +54,7 @@ export function AppSignIn({
   onDone: () => Promise<unknown>;
   onSignOut?: () => Promise<boolean>;
   button?: string;
+  buttonLabel?: string;
 }) {
   const { t, lang } = useI18n();
   const m = t.tools.signIn;
@@ -117,7 +119,13 @@ export function AppSignIn({
         {line && <span className={`small ${line.warn ? 'warn-text' : 'muted'}`}>{line.text}</span>}
         <div className="lib-row-actions">
           {startRequest && (
-            <button type="button" className="ghost small-button" disabled={busy || under} onClick={() => void withPage(startRequest)}>
+            <button
+              type="button"
+              className="ghost small-button"
+              aria-label={buttonLabel}
+              disabled={busy || under}
+              onClick={() => void withPage(startRequest)}
+            >
               {button ?? (oauth ? m.signInAgain : m.signIn)}
             </button>
           )}
@@ -147,8 +155,16 @@ export function AppSignIn({
         </div>
       )}
       {signIn && under && !asking && <SignInWaiting signIn={signIn} label={name} onChange={setSignIn} onError={setError} />}
-      {error && <p className="error-line">{error}</p>}
-      {info && <p className="small ok-text">{info}</p>}
+      {error && (
+        <p className="error-line" role="alert">
+          {error}
+        </p>
+      )}
+      {info && (
+        <p className="small ok-text" role="status">
+          {info}
+        </p>
+      )}
     </div>
   );
 }

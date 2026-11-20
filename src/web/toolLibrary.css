@@ -1,0 +1,119 @@
+.apps-tools-tabs {
+  align-self: flex-start;
+}
+.apps-tools-tabs button {
+  min-width: 100px;
+}
+.apps-tools-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .apps-tools-tabs {
+    align-self: stretch;
+  }
+  .apps-tools-tabs button {
+    min-height: 44px;
+  }
+}
+
+.library-categories {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.library-category + .library-category {
+  border-top: 1px solid var(--border);
+}
+
+.library-category > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.library-category > summary::-webkit-details-marker {
+  display: none;
+}
+
+.library-category > summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin-inline: auto 3px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+}
+
+.library-category[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+.library-category > summary:hover {
+  background: var(--surface);
+}
+
+.library-category > summary h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.library-category-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.library-category > .library-category-body {
+  padding: 2px 14px 14px;
+  border: 0;
+}
+
+.library-connectors,
+.app-chat-access .sub-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.app-access-controls {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.app-chat-access,
+.app-row-body > .library-connectors {
+  width: 100%;
+}
+.app-quick > .app-chat-access {
+  grid-column: 1 / -1;
+}
+.app-chat-access > summary {
+  min-height: 36px;
+  align-content: center;
+}
+.library-access {
+  flex-basis: 100%;
+}
+
+.library-access[open] > summary {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 600px) {
+  .library-category > summary h4 {
+    flex-direction: column;
+  }
+}
