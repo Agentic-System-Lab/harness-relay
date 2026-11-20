@@ -1,17 +1,17 @@
-import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { lstatSync } from 'node:fs';
 import { validRepo } from '../../shared/schedule';
 import type { GithubConnection } from '../../shared/types';
 import { HttpError } from '../errors';
-import { listFolder, readPreview, resolveInRoot } from '../files';
+import { listFolder, readPreview } from '../files';
 import { dataBody, type GatewayTool } from '../gateway';
 import { t } from '../i18n';
 import type { OAuthService } from '../oauth/service';
 import { CommandNotFoundError } from '../process';
-import { overlaps, protectedReads, relayFolderRefusal, type AgentFolderOptions } from '../protect';
+import type { AgentFolderOptions } from '../protect';
 import { signedOut } from '../share';
 import { runGh, type GhRunner } from '../watch';
 import { answerText } from './caldav';
+import { checkedVault, noteWriteTools, vaultPath } from './obsidian';
 import type { TeamsGraph } from './teams';
 
 export async function githubStatus(gh: GhRunner = runGh): Promise<GithubConnection> {
@@ -24,38 +24,6 @@ export async function githubStatus(gh: GhRunner = runGh): Promise<GithubConnecti
     if (err instanceof CommandNotFoundError) return { status: 'missing' };
     throw err;
   }
-}
-
-/** Store the canonical folder, and check it is still that vault whenever a tool opens it. */
-export function checkedVault(path: string, options: AgentFolderOptions): string {
-  let root: string;
-  try {
-    if (!isAbsolute(path)) throw new Error();
-    root = realpathSync.native(path);
-    if (!lstatSync(join(root, '.obsidian')).isDirectory()) throw new Error();
-  } catch {
-    throw new HttpError(400, t().appsVault);
-  }
-  const refusal = relayFolderRefusal({ cwd: root, permission: 'edit' }, options);
-  if (refusal) throw new HttpError(400, refusal);
-  if (protectedReads().some((p) => overlaps(root, p))) throw new HttpError(400, t().appsVault);
-  return root;
-}
-
-function vaultPath(root: string, input: unknown) {
-  const path = input ?? '';
-  if (
-    typeof path !== 'string' ||
-    path.includes('\\') ||
-    path.includes(':') ||
-    isAbsolute(path) ||
-    path.split('/').some((part) => part.startsWith('.'))
-  )
-    throw new Error(t().fileNotFound);
-  const found = resolveInRoot(root, path);
-  // Resolve aliases as well, so hidden settings or a different file type cannot be read via a link.
-  if (found.rel !== path || realpathSync.native(found.real) !== join(root, ...path.split('/'))) throw new Error(t().fileNotFound);
-  return found;
 }
 
 const string = { type: 'string' };
@@ -92,6 +60,7 @@ export function appTools(
   options: () => AgentFolderOptions,
   gh: GhRunner = runGh,
   teams?: Pick<TeamsGraph, 'connected' | 'status' | 'list' | 'messages'>,
+  vaultId?: () => string,
 ): GatewayTool[] {
   const root = () => {
     const path = vault();
@@ -183,6 +152,7 @@ export function appTools(
       },
       noVault,
     ),
+    ...noteWriteTools(root, noVault, vaultId),
     readTool(
       'drive',
       'drive_search',

@@ -123,6 +123,8 @@ interface Secrets {
 
 interface Stored {
   obsidianVault?: string;
+  /** Invalidates waiting previews if the user unlinks and later reconnects the same vault. */
+  obsidianVaultId?: string;
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
@@ -327,6 +329,7 @@ export class ToolLibrary {
           skills: (Array.isArray(v.skills) ? v.skills : []).map((s) => ({ path: s.path, providers: storedProviders(s) })),
           memory,
           ...(typeof v.obsidianVault === 'string' && v.obsidianVault ? { obsidianVault: v.obsidianVault } : {}),
+          ...(typeof v.obsidianVaultId === 'string' ? { obsidianVaultId: v.obsidianVaultId } : {}),
           relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
           ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
@@ -379,6 +382,7 @@ export class ToolLibrary {
       skills: this.data.skills,
       memory: this.data.memory,
       relayTools: this.data.relayTools ?? {},
+      ...(this.data.obsidianVault ? { obsidianVault: this.data.obsidianVault, obsidianVaultId: this.data.obsidianVaultId } : {}),
       ...(this.data.browser ? { browser: this.data.browser } : {}),
     };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
@@ -469,9 +473,18 @@ export class ToolLibrary {
     return this.data.obsidianVault;
   }
 
+  obsidianVaultId(): string {
+    return this.data.obsidianVaultId ?? '';
+  }
+
   setObsidianVault(path: string): ToolLibraryView {
-    if (path) this.data.obsidianVault = path;
-    else delete this.data.obsidianVault;
+    if (path) {
+      if (path !== this.data.obsidianVault) this.data.obsidianVaultId = randomUUID();
+      this.data.obsidianVault = path;
+    } else {
+      delete this.data.obsidianVault;
+      delete this.data.obsidianVaultId;
+    }
     this.save();
     return this.view();
   }

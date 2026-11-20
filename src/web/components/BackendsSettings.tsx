@@ -279,7 +279,7 @@ function EndpointForm({
         />
       </label>
       {endpoint?.keyMasked && (
-        <label className="field inline">
+        <label className="check-row">
           <input type="checkbox" checked={d.removeKey} onChange={(e) => set({ removeKey: e.target.checked, apiKey: '' })} />
           <span>{b.removeKey}</span>
         </label>

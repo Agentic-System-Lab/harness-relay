@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { TeamsGraph } from '../src/server/connectors/teams';
-import { CONNECT_TEAMS, INSTALL_TEAMS, PROBE_TEAMS } from '../src/server/connectors/teamsPowerShell';
+import { CONNECT_TEAMS, INSTALL_TEAMS, POST_TEAMS, PROBE_TEAMS } from '../src/server/connectors/teamsPowerShell';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError } from '../src/server/process';
 
@@ -11,7 +11,7 @@ type Call = {
   script: string;
   options: Parameters<Runner>[1];
   complete: (code: number | null) => void;
-  requests: { id: number; uri: string }[];
+  requests: { id: number; uri: string; text?: string }[];
 };
 
 function helper() {
@@ -39,12 +39,22 @@ function emit(call: Call, payload: unknown) {
   call.options.onLine?.('RELAY ' + JSON.stringify(payload));
 }
 
+const tenantId = 'a1234567-1234-1234-1234-123456789abc';
+const senderId = 'b1234567-1234-1234-1234-123456789abc';
+const teamId = 'c1234567-1234-1234-1234-123456789abc';
+const channel = '19:work@thread.tacv2';
+const chat = '19:friends@thread.v2';
+const sender = 'person@school.example';
+const chatLink = 'https://teams.microsoft.com/l/chat/' + encodeURIComponent(chat) + '/conversations';
+const channelLink =
+  'https://teams.microsoft.com/l/message/' + encodeURIComponent(channel) + '/123?groupId=' + teamId + '&tenantId=' + tenantId;
+
 async function connected() {
   const { teams, calls } = helper();
   await teams.connect();
   const [session] = calls;
   session.options.onLine?.(prompt());
-  emit(session, { account: 'person@school.example' });
+  emit(session, { account: sender, tenantId });
   return { teams, calls, session };
 }
 
@@ -216,4 +226,144 @@ describe('the Teams Graph PowerShell connection', () => {
       vi.useRealTimers();
     }
   });
+  it('requests separate posting consent only on demand and binds it to the reading account and tenant', async () => {
+    const { teams, calls, session } = await connected();
+    expect(teams.canPost()).toBe(false);
+    await expect(teams.resolvePost(channelLink)).rejects.toThrow(t().teamsPostingConnect);
+    expect(calls).toHaveLength(1);
+    expect(CONNECT_TEAMS).not.toContain('ChannelMessage.Send');
+    expect(await teams.connectPosting()).toEqual({ status: 'connected', account: sender, posting: { status: 'signing-in' } });
+    await teams.connectPosting();
+    expect(calls).toHaveLength(2);
+    const posting = calls[1];
+    expect(posting.script).toBe(POST_TEAMS);
+    for (const scope of ['ChannelMessage.Send', 'ChatMessage.Send', 'Chat.ReadBasic', 'User.Read']) expect(POST_TEAMS).toContain(scope);
+    expect(POST_TEAMS).toContain('Set-MgRequestContext -MaxRetry 0');
+    expect(POST_TEAMS).toContain("contentType = 'text'");
+    posting.options.onLine?.(prompt());
+    emit(posting, { account: sender, tenantId: teamId });
+    expect(await teams.status()).toEqual({
+      status: 'connected',
+      account: sender,
+      posting: { status: 'error', message: t().teamsPostingChanged },
+    });
+    await teams.connectPosting();
+    calls[2].options.onLine?.(prompt());
+    emit(calls[2], { account: 'other@school.example', tenantId });
+    expect(teams.canPost()).toBe(false);
+    await teams.connectPosting();
+    calls[3].options.onLine?.(prompt());
+    emit(calls[3], { account: sender, tenantId });
+    expect(await teams.status()).toEqual({ status: 'connected', account: sender, canPost: true });
+    teams.disconnectPosting();
+    expect(calls[3].options.signal?.aborted).toBe(true);
+    expect(session.options.signal?.aborted).toBe(false);
+    expect(await teams.status()).toEqual({ status: 'connected', account: sender });
+    teams.disconnect();
+  });
+
+  it('keeps destination-specific denials local and invalidates a revoked posting session while preserving read access', async () => {
+    const { teams, calls, session } = await connected();
+    await teams.connectPosting();
+    const writer = calls[1];
+    writer.options.onLine?.(prompt());
+    emit(writer, { account: sender, tenantId });
+    const forbidden = expect(teams.resolvePost(channelLink)).rejects.toThrow('HTTP 403');
+    emit(writer, { id: writer.requests[0].id, error: 'graph', status: 403 });
+    await forbidden;
+    expect(teams.canPost()).toBe(true);
+    const revoked = expect(teams.resolvePost(channelLink)).rejects.toThrow(t().teamsPostingConnect);
+    emit(writer, { id: writer.requests[1].id, error: 'graph', status: 401 });
+    await revoked;
+    expect(teams.canPost()).toBe(false);
+    expect(writer.options.signal?.aborted).toBe(true);
+    expect(session.options.signal?.aborted).toBe(false);
+    expect(await teams.status()).toEqual({
+      status: 'connected',
+      account: sender,
+      posting: { status: 'error', message: t().teamsPostingConnect },
+    });
+    const read = teams.list();
+    emit(session, { id: session.requests[0].id, json: '{"value":[]}' });
+    await expect(read).resolves.toEqual({ value: [] });
+    expect(calls).toHaveLength(2);
+    teams.disconnect();
+  });
+
+  it.each(['channel', 'chat'] as const)(
+    'resolves a %s by Graph metadata and posts only once under the previewed identity',
+    async (kind) => {
+      const { teams, calls } = await connected();
+      await teams.connectPosting();
+      const writer = calls[1];
+      writer.options.onLine?.(prompt());
+      emit(writer, { account: sender, tenantId });
+      const me = 'me?$select=id';
+      const team = 'teams/' + teamId;
+      const channelRoute = team + '/channels/' + encodeURIComponent(channel);
+      const chatRoute = 'chats/' + encodeURIComponent(chat);
+      const full = (path: string) => 'https://graph.microsoft.com/v1.0/' + path;
+      let index = 0;
+      async function reply(path: string, value: unknown, body?: string) {
+        await vi.waitFor(() => expect(writer.requests.length).toBeGreaterThan(index));
+        const request = writer.requests[index++];
+        expect(request.uri).toBe(full(path));
+        expect(request.text).toBe(body);
+        emit(writer, { id: request.id, json: JSON.stringify(value) });
+      }
+      async function resolve(id = senderId, hostTenant = tenantId, teamTenant = tenantId) {
+        await reply(me, { id });
+        if (kind === 'channel') {
+          await reply(team + '?$select=id,displayName,tenantId', { id: teamId, tenantId: teamTenant, displayName: 'Real team' });
+          await reply(channelRoute + '?$select=id,displayName,tenantId', {
+            id: channel,
+            tenantId: hostTenant,
+            displayName: 'Real channel',
+          });
+        } else {
+          await reply(chatRoute + '?$expand=members', { id: chat, tenantId: hostTenant, members: [{ email: 'colleague@school.example' }] });
+        }
+      }
+      for (const bad of [
+        'Marketing',
+        chatLink.replace('teams.microsoft.com', 'teams.microsoft.com.example'),
+        chatLink + '?tenantId=' + teamId,
+        channelLink.replace('groupId=', 'unknown='),
+        chatLink.replace('friends', 'a%2Fb'),
+      ]) {
+        await expect(teams.resolvePost(bad)).rejects.toThrow(t().teamsPostingTarget);
+      }
+      expect(writer.requests).toHaveLength(0);
+      const pending = teams.resolvePost(kind === 'channel' ? channelLink + '&channelName=Forged' : chatLink);
+      await resolve();
+      const target = await pending;
+      expect(target).toMatchObject({
+        tenantId,
+        senderId,
+        sender,
+        kind,
+        destination: kind === 'channel' ? 'Real team / Real channel' : 'colleague@school.example',
+      });
+      expect(writer.requests.every((r) => r.text === undefined)).toBe(true);
+      const text = 'Hello 你好 <b>plain text</b>\nSecond line';
+      const send = teams.sendPost(target, text);
+      await resolve();
+      await reply((kind === 'channel' ? channelRoute : chatRoute) + '/messages', { id: 'posted' }, text);
+      await expect(send).resolves.toBeUndefined();
+      const changed = expect(teams.sendPost(target, text)).rejects.toThrow(t().teamsPostingChanged);
+      await resolve(teamId);
+      await changed;
+      // Links can omit tenantId. Use the tenant Graph returns for the team and actual destination.
+      const unscopedLink = kind === 'channel' ? channelLink.replace('&tenantId=' + tenantId, '') : chatLink;
+      const foreign = expect(teams.resolvePost(unscopedLink)).rejects.toThrow(t().teamsPostingTarget);
+      await resolve(senderId, teamId);
+      await foreign;
+      const moved = expect(teams.sendPost(target, text)).rejects.toThrow(t().teamsPostingTarget);
+      await resolve(senderId, kind === 'channel' ? tenantId : teamId, teamId);
+      await moved;
+      expect(writer.requests.filter((r) => r.text !== undefined)).toHaveLength(1);
+      teams.disconnect();
+      expect(writer.options.signal?.aborted).toBe(true);
+    },
+  );
 });

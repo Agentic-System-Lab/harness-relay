@@ -32,7 +32,9 @@ export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView
     };
   }, []);
 
-  const pending = view?.status === 'installing' || view?.status === 'signing-in';
+  const posting = view?.status === 'connected' ? view.posting : undefined;
+  const signIn = view?.status === 'signing-in' ? view : posting?.status === 'signing-in' ? posting : undefined;
+  const pending = view?.status === 'installing' || Boolean(signIn);
   useEffect(() => {
     if (pending && details.current) details.current.open = true;
   }, [pending]);
@@ -47,7 +49,12 @@ export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView
         if (stopped || id !== revision.current) return;
         setError('');
         setView(next);
-        if (next.status !== 'installing' && next.status !== 'signing-in') return;
+        if (
+          next.status !== 'installing' &&
+          next.status !== 'signing-in' &&
+          !(next.status === 'connected' && next.posting?.status === 'signing-in')
+        )
+          return;
       } catch (e) {
         if (stopped || id !== revision.current) return;
         setError((e as Error).message);
@@ -81,15 +88,15 @@ export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView
         {view?.status === 'missing-module' && button(a.installGraph, api.teamsInstall)}
         {view?.status === 'signed-out' && button(a.connect, api.teamsConnect)}
         {view?.status === 'installing' && <p role="status">{a.installingGraph}</p>}
-        {view?.status === 'signing-in' && (
+        {signIn && (
           <div role="status">
-            {view.code ? (
+            {signIn.code ? (
               <>
                 <p>
-                  {a.teamsCode} <strong>{view.code}</strong>
+                  {a.teamsCode} <strong>{signIn.code}</strong>
                 </p>
                 <a
-                  href={view.url === 'https://login.microsoft.com/device' ? view.url : 'https://microsoft.com/devicelogin'}
+                  href={signIn.url === 'https://login.microsoft.com/device' ? signIn.url : 'https://microsoft.com/devicelogin'}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -101,13 +108,26 @@ export function TeamsSignIn({ view, setView }: { view?: TeamsConnection; setView
             )}
           </div>
         )}
-        {pending && button(t.common.cancel, api.teamsDisconnect)}
+        {pending && button(t.common.cancel, posting ? api.disconnectTeamsPosting : api.teamsDisconnect)}
         {view?.status === 'connected' && (
           <div>
             <span>
               {view.account} · {t.connectors.oauth.connected}
             </span>
             {button(a.disconnect, api.teamsDisconnect)}
+            <p className="muted small">{a.postingHint}</p>
+            {view.canPost ? (
+              <>
+                <span>{a.postingEnabled}</span> {button(a.disablePosting, api.disconnectTeamsPosting)}
+              </>
+            ) : (
+              posting?.status !== 'signing-in' && button(a.enablePosting, api.teamsPosting)
+            )}
+            {posting?.status === 'error' && (
+              <p role="alert" className="error-line">
+                {posting.message}
+              </p>
+            )}
           </div>
         )}
         {view?.status === 'error' && (

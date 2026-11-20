@@ -3,11 +3,12 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, parse } from 'node:path';
 import type { Writable } from 'node:stream';
 import type { TeamsConnection } from '../../shared/types';
+import { HttpError } from '../errors';
 import { BREW_DIRS, findOnPath, isProgram } from '../executable';
 import { t } from '../i18n';
 import { LOGIN_TIMEOUT_MS } from '../login';
 import { CommandNotFoundError, runProcess, stripAnsi, type SpawnOptions } from '../process';
-import { CONNECT_TEAMS, INSTALL_TEAMS, PROBE_TEAMS } from './teamsPowerShell';
+import { CONNECT_TEAMS, INSTALL_TEAMS, POST_TEAMS, PROBE_TEAMS } from './teamsPowerShell';
 
 type Run = (
   script: string,
@@ -38,7 +39,10 @@ const runPowerShell: Run = async (script, options) => {
   const bin = findOnPath('pwsh', env, process.platform, systemDirs, isProgram);
   if (!bin) throw new CommandNotFoundError('pwsh');
   // The SDK uses the .NET home for its account hint even when the token cache is process-scoped.
-  const privateHome = script === CONNECT_TEAMS && process.platform !== 'win32' ? await mkdtemp(join(tmpdir(), 'relay-teams-')) : undefined;
+  const privateHome =
+    (script === CONNECT_TEAMS || script === POST_TEAMS) && process.platform !== 'win32'
+      ? await mkdtemp(join(tmpdir(), 'relay-teams-'))
+      : undefined;
   if (process.platform !== 'win32') {
     env.RELAY_TEAMS_USER_MODULES = join(
       env.XDG_DATA_HOME && isAbsolute(env.XDG_DATA_HOME) ? env.XDG_DATA_HOME : join(homedir(), '.local', 'share'),
@@ -80,7 +84,8 @@ interface Pending {
 }
 
 /** One explicit Teams device login and its process-scoped Graph session. No status or read starts a sign-in. */
-export class TeamsGraph {
+class TeamsSession {
+  tenantId?: string;
   private view?: TeamsConnection;
   private probe?: Promise<TeamsConnection>;
   private controller?: AbortController;
@@ -90,7 +95,15 @@ export class TeamsGraph {
   private sequence = 0;
   private pending = new Map<number, Pending>();
 
-  constructor(private run: Run = runPowerShell) {}
+  constructor(
+    private run: Run,
+    private postingFor?: { account: string; tenantId: string },
+    private onClose?: () => void,
+  ) {}
+
+  current(): TeamsConnection | undefined {
+    return this.view;
+  }
 
   connected(): boolean {
     return this.view?.status === 'connected';
@@ -125,7 +138,7 @@ export class TeamsGraph {
     this.controller = controller;
     this.view = { status: 'signing-in' };
     this.signInTimer = setTimeout(() => this.end(controller, { status: 'error', message: t().oauthExpired }), LOGIN_TIMEOUT_MS);
-    void this.run(CONNECT_TEAMS, {
+    void this.run(this.postingFor ? POST_TEAMS : CONNECT_TEAMS, {
       signal: controller.signal,
       keepStdinOpen: true,
       onSpawn: (child) => {
@@ -156,16 +169,18 @@ export class TeamsGraph {
     return err instanceof CommandNotFoundError ? { status: 'missing-powershell' } : { status: 'error', message: t().teamsSetupFailed };
   }
 
-  private end(controller: AbortController, view?: TeamsConnection): void {
+  private end(controller: AbortController, view?: TeamsConnection, cause?: Error): void {
     if (this.controller !== controller) return;
     this.controller = undefined;
+    this.tenantId = undefined;
+    this.onClose?.();
     this.stdin = undefined;
     clearTimeout(this.signInTimer);
     clearTimeout(this.readTimer);
     this.view = view?.status === 'error' ? view : undefined;
     controller.abort();
     for (const request of this.pending.values())
-      request.finish(undefined, new Error(view?.status === 'error' ? view.message : t().appsConnectFirst));
+      request.finish(undefined, cause ?? new Error(view?.status === 'error' ? view.message : t().appsConnectFirst));
   }
 
   private receive(controller: AbortController, line: string): void {
@@ -185,12 +200,27 @@ export class TeamsGraph {
       if (typeof event.authError === 'string' && /^AADSTS\d{4,9}$/.test(event.authError)) {
         this.end(controller, { status: 'error', message: t().oauthNoTeamsAccess + ' (' + event.authError + ')' });
       } else if (typeof event.account === 'string' && this.view?.status === 'signing-in' && this.view.code && event.account.length <= 320) {
+        this.tenantId = typeof event.tenantId === 'string' && GUID.test(event.tenantId) ? event.tenantId.toLowerCase() : undefined;
+        if (
+          this.postingFor &&
+          (this.tenantId !== this.postingFor.tenantId || event.account.toLowerCase() !== this.postingFor.account.toLowerCase())
+        ) {
+          this.end(controller, { status: 'error', message: t().teamsPostingChanged });
+          return;
+        }
         clearTimeout(this.signInTimer);
         this.view = { status: 'connected', account: event.account };
       } else if (this.connected() && this.pending.has(event.id)) {
+        if (event.error === 'graph' && event.status === 401) {
+          const message = this.postingFor ? t().teamsPostingConnect : t().oauthNoTeamsAccess;
+          this.end(controller, { status: 'error', message }, new HttpError(409, message));
+          return;
+        }
         const head = this.pending.keys().next().value === event.id;
         const pending = this.pending.get(event.id)!;
-        if (typeof event.json === 'string') pending.finish(event.json);
+        if (event.error === 'graph' && event.status === 403) {
+          pending.finish(undefined, new HttpError(403, t().teamsForbidden));
+        } else if (typeof event.json === 'string') pending.finish(event.json);
         else
           pending.finish(
             undefined,
@@ -218,7 +248,7 @@ export class TeamsGraph {
   }
 
   // The private pipe carries JSON data, never PowerShell expressions. The SDK runs one request at a time.
-  private async get<Row>(path: string): Promise<Row[]> {
+  async request<Result>(path: string, text?: string): Promise<Result> {
     const controller = this.controller;
     const stdin = this.stdin;
     if (!this.connected() || !controller || !stdin?.writable) throw new Error(t().appsConnectFirst);
@@ -233,13 +263,202 @@ export class TeamsGraph {
         },
       });
       if (this.pending.size === 1) this.watchNextRead(controller);
-      stdin.write(JSON.stringify({ id, uri: 'https://graph.microsoft.com/v1.0/' + path }) + '\n', (err) => {
+      stdin.write(JSON.stringify({ id, uri: 'https://graph.microsoft.com/v1.0/' + path, text }) + '\n', (err) => {
         if (err) this.end(controller, { status: 'error', message: t().teamsReadFailed });
       });
     });
-    const page = JSON.parse(json);
+    return JSON.parse(json);
+  }
+}
+
+const GUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+const THREAD = /^19:[A-Za-z0-9_.:-]+@[A-Za-z0-9.-]+$/;
+type Destination = { kind: 'channel'; teamId: string; destinationId: string } | { kind: 'chat'; teamId?: undefined; destinationId: string };
+
+export type TeamsPostTarget = Destination & { tenantId: string; senderId: string; sender: string; destination: string };
+
+function destinationFromLink(link: string, tenantId: string): Destination {
+  const invalid = () => new Error(t().teamsPostingTarget);
+  if (typeof link !== 'string' || link.length > 8192) throw invalid();
+  let url: URL;
+  let parts: string[];
+  try {
+    url = new URL(link);
+    parts = url.pathname.split('/').map(decodeURIComponent);
+  } catch {
+    throw invalid();
+  }
+  if (url.origin !== 'https://teams.microsoft.com' || url.username || url.password || parts.length !== 5 || parts[1] !== 'l')
+    throw invalid();
+  const [, , type, destinationId, item] = parts;
+  if (
+    !THREAD.test(destinationId) ||
+    destinationId.length > 300 ||
+    !item ||
+    url.searchParams.getAll('tenantId').length > 1 ||
+    url.searchParams.getAll('groupId').length > 1
+  )
+    throw invalid();
+  const tenant = url.searchParams.get('tenantId');
+  if (tenant !== null && tenant.toLowerCase() !== tenantId) throw invalid();
+  const teamId = url.searchParams.get('groupId');
+  if (type === 'message' && !/^\d+$/.test(item)) throw invalid();
+  if (type === 'channel' || (type === 'message' && teamId !== null)) {
+    if (!teamId || !GUID.test(teamId)) throw invalid();
+    return { kind: 'channel', teamId: teamId.toLowerCase(), destinationId };
+  }
+  if (
+    teamId !== null ||
+    /@thread\.tacv2$/i.test(destinationId) ||
+    !(type === 'message' || (type === 'chat' && ['conversations', '0'].includes(item)))
+  )
+    throw invalid();
+  return { kind: 'chat', destinationId };
+}
+
+function cleanLabel(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+        .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+        .trim()
+        .slice(0, 220)
+    : '';
+}
+
+/** Reading and posting have separate device codes and separate Graph processes. Cancelling either never starts another sign-in. */
+export class TeamsGraph {
+  private read: TeamsSession;
+  private writer?: TeamsSession;
+
+  constructor(private run: Run = runPowerShell) {
+    this.read = new TeamsSession(run, undefined, () => this.disconnectPosting());
+  }
+
+  connected(): boolean {
+    return this.read.connected();
+  }
+  canPost(): boolean {
+    return this.connected() && !!this.writer?.connected();
+  }
+  install(): Promise<TeamsConnection> {
+    return this.read.install();
+  }
+  async connect(): Promise<TeamsConnection> {
+    await this.read.connect();
+    return this.status();
+  }
+  disconnect(): void {
+    this.read.disconnect();
+    this.disconnectPosting();
+  }
+
+  async status(): Promise<TeamsConnection> {
+    const state = await this.read.status();
+    if (state.status !== 'connected' || !this.writer) return state;
+    const posting = this.writer.current();
+    if (posting?.status === 'connected') return { ...state, canPost: true };
+    if (posting?.status === 'signing-in' || posting?.status === 'error') return { ...state, posting };
+    return state;
+  }
+
+  async connectPosting(): Promise<TeamsConnection> {
+    const state = this.read.current();
+    if (state?.status !== 'connected' || !this.read.tenantId) throw new HttpError(409, t().appsConnectFirst);
+    this.writer ??= new TeamsSession(this.run, { account: state.account, tenantId: this.read.tenantId });
+    await this.writer.connect();
+    return this.status();
+  }
+
+  disconnectPosting(): void {
+    this.writer?.disconnect();
+    this.writer = undefined;
+  }
+
+  private async get<Row>(path: string): Promise<Row[]> {
+    const page = await this.read.request<{ value: Row[] }>(path);
     if (!Array.isArray(page?.value)) throw new Error(t().teamsReadFailed);
     return page.value;
+  }
+
+  private posting(): TeamsSession {
+    if (!this.writer?.connected() || !this.read.connected()) throw new Error(t().teamsPostingConnect);
+    return this.writer;
+  }
+
+  private async resolveTarget(session: TeamsSession, destination: Destination): Promise<TeamsPostTarget> {
+    const tenantId = session.tenantId;
+    const state = session.current();
+    if (!tenantId || state?.status !== 'connected') throw new Error(t().teamsPostingConnect);
+    const me = await session.request<{ id: string }>('me?$select=id');
+    if (typeof me?.id !== 'string' || !GUID.test(me.id)) throw new Error(t().teamsPostingChanged);
+    const identity = { tenantId, senderId: me.id.toLowerCase(), sender: state.account };
+    const id = segment(destination.destinationId);
+    if (destination.kind === 'channel') {
+      if (!GUID.test(destination.teamId)) throw new Error(t().teamsPostingTarget);
+      const teamRoute = 'teams/' + segment(destination.teamId);
+      const [team, channel] = await Promise.all([
+        session.request<{ id: string; displayName: string; tenantId: string }>(teamRoute + '?$select=id,displayName,tenantId'),
+        session.request<{ id: string; displayName: string; tenantId: string }>(
+          teamRoute + '/channels/' + id + '?$select=id,displayName,tenantId',
+        ),
+      ]);
+      if (
+        team?.id?.toLowerCase() !== destination.teamId ||
+        channel?.id !== destination.destinationId ||
+        team.tenantId?.toLowerCase() !== tenantId ||
+        channel.tenantId?.toLowerCase() !== tenantId ||
+        !cleanLabel(team.displayName) ||
+        !cleanLabel(channel.displayName)
+      )
+        throw new Error(t().teamsPostingTarget);
+      return { ...destination, ...identity, destination: cleanLabel(team.displayName) + ' / ' + cleanLabel(channel.displayName) };
+    }
+    const chat = await session.request<{
+      id: string;
+      tenantId: string;
+      topic?: string;
+      members?: { displayName?: string; email?: string }[];
+    }>('chats/' + id + '?$expand=members');
+    if (chat?.id !== destination.destinationId || chat.tenantId?.toLowerCase() !== tenantId) throw new Error(t().teamsPostingTarget);
+    const names =
+      chat.members
+        ?.slice(0, 5)
+        .map((m) => cleanLabel(m.email) || cleanLabel(m.displayName))
+        .filter(Boolean) ?? [];
+    const label = cleanLabel(chat.topic) || (names.length ? names.join(', ') + ((chat.members?.length ?? 0) > 5 ? ' …' : '') : '');
+    if (!label) throw new Error(t().teamsPostingTarget);
+    return { ...destination, ...identity, destination: label };
+  }
+
+  async resolvePost(link: string): Promise<TeamsPostTarget> {
+    const writer = this.posting();
+    return this.resolveTarget(writer, destinationFromLink(link, writer.tenantId!));
+  }
+
+  /** Only the outbox calls this, after the user confirms. Re-read the exact sender and destination before issuing a single POST. */
+  async sendPost(target: TeamsPostTarget, text: string): Promise<void> {
+    const writer = this.posting();
+    if (!target || target.tenantId !== writer.tenantId || !THREAD.test(target.destinationId) || !['channel', 'chat'].includes(target.kind))
+      throw new Error(t().teamsPostingChanged);
+    if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text, 'utf8') > 28 * 1024) throw new Error(t().invalidField('text'));
+    const now = await this.resolveTarget(writer, target);
+    if (
+      writer !== this.posting() ||
+      now.senderId !== target.senderId ||
+      now.sender !== target.sender ||
+      now.destination !== target.destination
+    )
+      throw new Error(t().teamsPostingChanged);
+    const id = segment(target.destinationId);
+    const path = target.kind === 'channel' ? 'teams/' + segment(target.teamId) + '/channels/' + id : 'chats/' + id;
+    try {
+      const posted = await writer.request<{ id: string }>(path + '/messages', text);
+      if (!posted?.id) throw new Error();
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      // A network error can occur after Graph accepted the message.
+      throw new Error(t().teamsPostFailed);
+    }
   }
 
   async list(team?: unknown): Promise<{ value: { id: string; displayName: string }[] }> {

@@ -313,7 +313,7 @@ export function ScheduleForm({
 
         {draft.kind === 'interval' && (
           <>
-            <label className="field inline">
+            <label className="field field-with-unit">
               <span>{t.schedule.every}</span>
               <input
                 type="number"

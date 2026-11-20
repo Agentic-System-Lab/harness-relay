@@ -242,14 +242,10 @@ base("Slack opens Claude's official connector and leaves Relay's shared tools an
   const [tab] = await Promise.all([page.context().waitForEvent('page'), connect.click()]);
   await expect(tab).toHaveURL(directory);
   await tab.close();
-  await expect(slack).not.toContainText(/connected|signed in to Slack/i);
+  await expect(slack.locator('.app-options > summary')).not.toContainText(/connected|signed in|sending enabled/i);
+  await expect(slack.getByRole('status')).toHaveCount(0);
   await expect(slack.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.getByText('Set up and check your assistant', { exact: true }).click();
-  await page.locator('#settings-apps').getByRole('link', { name: 'Open Claude Code settings' }).click();
-  await expect(page).toHaveURL(/#\/settings\/claude$/);
-  const native = page.locator('#settings-claude details.native-setup').first();
-  await native.locator('summary').click();
-  await expect(native.getByRole('button', { name: 'Ask', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/#\/settings\/apps$/);
   expect((await library()).mcpServers).toEqual(before.mcpServers);
   expect(writes).toEqual([]);
 });

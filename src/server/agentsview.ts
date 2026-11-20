@@ -212,7 +212,7 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     case 'outbox':
       return {
         type: 'text',
-        text: `[Put in the outbox for the user to send: ${p.title} — ${p.status}${p.result ? ` (${p.result})` : ''}]`,
+        text: `[Put in the outbox for the user to ${p.preview.note ? 'save' : 'send'}: ${p.title} — ${p.preview.note && p.status === 'sent' ? 'saved' : p.status}${p.result ? ` (${p.result})` : ''}]`,
       };
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };

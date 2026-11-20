@@ -24,6 +24,7 @@ import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { messagingTools } from './connectors/messaging';
 import { TeamsGraph } from './connectors/teams';
 import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
@@ -152,6 +153,7 @@ const browser = new BrowserService({
 gateway.register([
   outboxTool((id) => outbox.list(id)),
   ...browserTools(browser),
+  ...messagingTools(settings.slackPosting, teams),
   ...connectorTools(settings.connectors, settings.oauth),
   ...appTools(
     settings.oauth,
@@ -159,6 +161,7 @@ gateway.register([
     () => agentFolderOptions(settings),
     undefined,
     teams,
+    () => settings.tools.obsidianVaultId(),
   ),
 ]);
 orchestrator.onDelete = (id) => void browser.close(id, true);

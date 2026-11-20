@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { isSlackMcp } from '../../shared/apps';
 import type { McpServerView, OAuthSignInView, ToolLibraryView } from '../../shared/types';
 import { ApiError, api } from '../api';
@@ -53,7 +53,7 @@ export function AppSignIn({
   startRequest?: () => Promise<OAuthSignInView>;
   onDone: () => Promise<unknown>;
   onSignOut?: () => Promise<boolean>;
-  button?: string;
+  button?: ReactNode;
   buttonLabel?: string;
 }) {
   const { t, lang } = useI18n();

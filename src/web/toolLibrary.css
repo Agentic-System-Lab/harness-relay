@@ -97,10 +97,14 @@
 .app-row-body > .library-connectors {
   width: 100%;
 }
-.app-quick > .app-chat-access {
-  grid-column: 1 / -1;
-}
-.app-chat-access > summary {
+.common-apps .app-secondary > summary,
+.common-apps .sub > summary {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+
   min-height: 36px;
   align-content: center;
 }

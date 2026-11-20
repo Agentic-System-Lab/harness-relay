@@ -54,6 +54,14 @@ function toItem(r: OutboxRow): OutboxItem {
   };
 }
 
+/** The completed action in the conversation, including local saves and external sends. */
+export function outboxAnswerText({ preview, status, title, result = '' }: OutboxItem): string {
+  const note = preview.note;
+  if (status === 'sent') return note ? t().obsidianSaved(note.path) : t().outboxSentNote(title, result);
+  if (status === 'discarded') return note ? t().obsidianDiscarded(note.path) : t().outboxDiscardedNote(title);
+  return note ? t().obsidianFailed(note.path, result) : t().outboxFailedNote(title, result);
+}
+
 export class Outbox {
   /** Waiting items by conversation, for the sidebar's "needs you" without a query per conversation. */
   private readonly pending = new Map<string, number>();
@@ -64,12 +72,11 @@ export class Outbox {
     private db: Database,
     private now: () => number = Date.now,
   ) {
-    // Sent while the server stopped: whether it went out is not known, so it is not sent again.
-    const cut = (this.db.prepare("SELECT id FROM outbox WHERE status = 'sending'").all() as { id: string }[]).map((r) => r.id);
-    this.db
-      .prepare("UPDATE outbox SET status = 'failed', result = ?, decided_at = ? WHERE status = 'sending'")
-      .run(t().outboxInterrupted, this.now());
-    this.interrupted = cut.map((id) => this.get(id)!).filter(Boolean);
+    // The server stopped during these operations. Report the uncertainty without applying them again.
+    const cut = this.db.prepare("SELECT * FROM outbox WHERE status = 'sending'").all() as unknown as OutboxRow[];
+    this.interrupted = cut
+      .map(toItem)
+      .map((item) => this.finish(item.id, 'failed', item.preview.note ? t().obsidianInterrupted : t().outboxInterrupted));
     for (const r of this.db
       .prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id")
       .all() as {
@@ -185,7 +192,7 @@ export class Outbox {
     const ids = new Set(messageIds);
     for (const item of this.list(convId)) {
       if (item.status !== 'pending' || !ids.has(item.messageId)) continue;
-      this.finish(item.id, 'discarded', t().outboxTakenBack);
+      this.finish(item.id, 'discarded', item.preview.note ? t().obsidianDiscarded(item.preview.note.path) : t().outboxTakenBack);
       this.pending.set(convId, Math.max(0, this.waiting(convId) - 1));
     }
   }

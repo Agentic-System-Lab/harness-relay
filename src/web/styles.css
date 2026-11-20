@@ -2008,37 +2008,18 @@ p {
   color: var(--muted);
 }
 
-.field.inline {
-  flex-direction: row;
+.field-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 4.5rem) minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
 }
 
-.field.inline > span:first-child {
-  flex-shrink: 0;
+.field-with-unit > span:first-child {
+  grid-column: 1 / -1;
 }
-
-.field.inline input {
-  flex: 1;
-}
-
-/* The number box is sized outright, not only by flex, and the unit after it never wraps: on a phone,
-   "rounds / message" could wrap onto three lines. */
-.field.inline input[type='number'] {
-  flex: 0 0 72px;
-  width: 72px;
-}
-
-.field.inline .unit {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* Where even one line of label, box and unit is wider than the screen (English under about 300px),
-   the unit goes onto a line of its own, whole, rather than past the edge. */
-.field.inline:has(> .unit) {
-  flex-wrap: wrap;
-  row-gap: 4px;
+.field-with-unit input {
+  width: 100%;
 }
 
 .field textarea {
@@ -2056,34 +2037,14 @@ p {
   margin-top: 2px;
 }
 
-/* Agent cards are narrow: one row per select, label on the left. */
+/* In narrow member cards, each model field uses its own row. */
 .agent-card .model-picker {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
-.agent-card .model-picker .field {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
-}
-
-.agent-card .model-picker .field input {
-  grid-column: 2;
-  margin-top: 0;
-}
-
 details.sub .model-picker {
   max-width: 560px;
-}
-
-/* The account an agent runs as: in an agent card, a row like the model's and effort's. */
-.agent-card .account-picker {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
 }
 
 .card > .account-picker {
@@ -4490,6 +4451,46 @@ video.chat-media {
   white-space: pre-wrap;
 }
 
+.note-preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.note-preview summary {
+  cursor: pointer;
+}
+.note-preview dd,
+.outbox-fields dd,
+.outbox-body {
+  overflow-wrap: anywhere;
+}
+.note-diff {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.note-diff pre {
+  padding: 4px 10px;
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-diff strong {
+  font-size: 0.75rem;
+  padding: 4px 10px 0;
+  display: block;
+}
+.note-removed {
+  background: color-mix(in srgb, #cf5555 15%, transparent);
+  border-inline-start: 3px solid #cf5555;
+}
+.note-added {
+  background: color-mix(in srgb, #2b9d71 15%, transparent);
+  border-inline-start: 3px solid #2b9d71;
+}
+
 /* Mail and calendar accounts (Settings → Tool library). */
 .connectors h5 {
   margin: 14px 0 6px;
@@ -4497,24 +4498,28 @@ video.chat-media {
 }
 
 .connector-servers {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 5.5em auto;
-  gap: 6px 8px;
-  align-items: center;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
-
+.connector-servers legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-weight: 650;
+}
+.connector-servers .server-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
 .connector-servers input,
 .connector-servers select {
   min-width: 0;
 }
-
 @media (max-width: 520px) {
-  .connector-servers {
-    grid-template-columns: auto minmax(0, 1fr) 4.5em;
-  }
-
-  .connector-servers select {
-    grid-column: 2 / -1;
+  .connector-servers .server-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -5418,9 +5423,8 @@ details.sub summary {
 
 .voice-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .voice-label {
@@ -7305,9 +7309,23 @@ summary + .checks-editor-body {
 }
 
 .common-apps {
+  display: grid;
+  gap: 20px;
+}
+.app-group {
+  min-width: 0;
+}
+.common-apps .app-group > h4 {
+  margin: 0;
+  padding: 0 4px 5px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.app-group > .lib-list {
   gap: 0;
 }
-.common-apps > li {
+.app-group .app-row {
   min-width: 0;
   border-bottom: 1px solid var(--border);
 }
@@ -7368,10 +7386,18 @@ summary + .checks-editor-body {
 .app-row-body .app-row-body {
   padding: 8px 0 0;
 }
-.app-row .small-button,
-.app-resources > a,
-.app-resources summary {
+.app-row .small-button {
   min-height: 30px;
+}
+.app-quick .mcp-signin-row button {
+  padding-inline: 0;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+}
+.app-quick .mcp-signin-row button:focus-visible,
+.app-quick .mcp-signin-row button:hover {
+  background: var(--surface);
 }
 .app-quick > .mcp-signin {
   display: contents;
@@ -7385,28 +7411,9 @@ summary + .checks-editor-body {
   align-items: center;
   text-decoration: none;
 }
-.app-resources {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  font-size: 13px;
-}
-.app-resources .sub[open] {
-  flex-basis: 100%;
-}
-.app-resources .sub p {
-  margin: 6px 0;
-}
 @media (max-width: 600px) {
-  .app-row .small-button,
-  .app-resources > a,
-  .app-resources summary {
+  .app-row .small-button {
     min-height: 44px;
-  }
-  .app-resources > a,
-  .app-resources summary {
-    align-content: center;
   }
 }
 
@@ -7478,7 +7485,7 @@ summary + .checks-editor-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: end;
 }
 
 .var-row input {

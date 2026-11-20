@@ -160,7 +160,7 @@ export type ToolKind = 'mcp' | 'skill' | 'memory' | 'relay';
  * Harness Relay's own tools, which every agent reaches through one MCP server of Harness Relay's (the
  * gateway, `src/server/gateway.ts`), in groups the user gives to the CLIs they choose.
  */
-export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar', 'drive', 'obsidian', 'github', 'teams'] as const;
+export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar', 'drive', 'obsidian', 'github', 'teams', 'slack'] as const;
 export type RelayToolGroup = (typeof RELAY_TOOL_GROUPS)[number];
 
 /** The name agents see Harness Relay's gateway under (`mcp__relay__browser_open` in Claude Code). */
@@ -168,8 +168,8 @@ export const GATEWAY_SERVER_NAME = 'relay';
 
 /**
  * What a call of one of Harness Relay's tools may do without the user: `read` runs; `act` (it changes
- * something somewhere, as a click on a page does) is asked about below full access; `send` (it reaches
- * other people: a mail, an invitation) never runs in the turn but waits in the outbox for the user.
+ * something somewhere, as a click on a page does) is asked about below full access; `send` (a proposal in
+ * the outbox: mail, invitations and note changes) never runs in the turn but waits for the user.
  */
 export type GatewayTier = 'read' | 'act' | 'send';
 
@@ -335,6 +335,8 @@ export interface OutboxPreview {
   fields: { label: string; value: string }[];
   /** The text it sends (a mail's body, an event's description). */
   body?: string;
+  /** A local Markdown change. null is a new note; an empty string is an existing empty note. */
+  note?: { vault: string; path: string; before: string | null; after: string };
 }
 
 export interface OutboxItem {
@@ -449,11 +451,15 @@ export interface SkillCandidate {
   added: boolean;
 }
 
+export type TeamsPostingState = { status: 'signing-in'; code?: string; url?: string } | { status: 'error'; message: string };
+
 export type TeamsConnection =
   | { status: 'missing-powershell' | 'missing-module' | 'signed-out' | 'installing' }
   | { status: 'signing-in'; code?: string; url?: string }
-  | { status: 'connected'; account: string }
+  | { status: 'connected'; account: string; canPost?: true; posting?: TeamsPostingState }
   | { status: 'error'; message: string };
+
+export type SlackPostingConnection = { status: 'signed-out' } | { status: 'connected'; workspace: string; sender: string };
 
 export type GithubConnection = { status: 'connected'; login: string } | { status: 'missing' | 'signed-out' };
 

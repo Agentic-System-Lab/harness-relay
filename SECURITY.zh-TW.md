@@ -44,6 +44,7 @@ Harness Relay 會啟動可以修改你的檔案、執行指令的 coding agent�
 只有使用者登入過的瀏覽器可以使用伺服器。權限低於完全存取時，在平台有沙箱的情況下，Claude Code、Codex、Grok 與 Copilot 的指令都在它們的 CLI 沙箱裡執行，由 Harness Relay 設定；開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）在 Harness Relay 自己的沙箱裡執行（[各平台的作業系統沙箱 → Harness Relay 自己的沙箱](docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)）；沒有沙箱的 Cursor 則每個指令都先詢問。Harness Relay 也讓它們碰不到幾個地方（[各平台的作業系統沙箱 → agent 不能讀寫的地方](docs/sandboxing.zh-TW.md#agent-不能讀寫的地方)）。[架構 → 安全性](docs/architecture.zh-TW.md#安全性)列出了這些防護。能繞過它們就是漏洞，例如：
 
 - 某個網站，或同一台電腦上的某個程式（包括 agent 執行的程式碼），不需要已登入瀏覽器的 cookie 與金鑰，就能操作 API 或 agent，或透過兩個改用自己的證明的路由做到：沒有排程的權杖就使用它的 webhook（`POST /api/hooks/:id`），或沒有那次登入自己的 state，就讓 OAuth 登入的回呼（`POST /api/oauth/callback`）完成登入或保留帳號；
+- 內建的 Obsidian 工具寫到連結的筆記庫以外、寫入與核准預覽不同的內容，或未經使用者逐次確認就建立或編輯筆記，即使使用「完全存取」也算。
 - agent 的回覆讓瀏覽器載入其他網站的內容，或在 app 的頁面裡執行腳本；
 - 繞過媒體、下載與瀏覽檔案端點的路徑檢查（例如透過 agent 回覆裡的連結或 symlink），拿到工作目錄、agent 的 worktree 與附件以外的檔案，或 `.git` 裡的任何東西；
 - API key 或 MCP 伺服器的機密值出現在瀏覽器、記錄檔或命令列上，或未經加密就出現在資料庫裡，或在有金鑰儲存區的系統上出現在資料庫裡；

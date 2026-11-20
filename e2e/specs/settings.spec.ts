@@ -34,13 +34,24 @@ test('Apps and tools is one section with bookmarkable tabs that preserve drafts'
   await expect(entry).toHaveAttribute('aria-current', 'location');
   await tools.press('ArrowLeft');
   await expect(common).toBeFocused();
-  const rows = card.getByRole('tabpanel', { name: 'Common apps' }).locator('.common-apps > li');
+  const rows = card.getByRole('tabpanel', { name: 'Common apps' }).locator('.common-apps .app-row');
   await expect(rows).toHaveCount(10);
+  const groups = card.locator('.common-apps > section');
+  const categories = [
+    ['Mail and calendar', ['Mail', 'Calendar']],
+    ['Team messaging', ['Microsoft Teams', 'Slack']],
+    ['Documents and notes', ['Google Drive', 'Notion', 'Heptabase', 'Obsidian']],
+    ['Development and browsing', ['GitHub', 'Browser']],
+  ] as const;
+  await expect(groups.locator('h4')).toHaveText(categories.map(([name]) => name));
+  for (const [name, apps] of categories) {
+    await expect(card.getByRole('region', { name, exact: true }).locator('.app-row-copy > strong:visible')).toHaveText([...apps]);
+  }
   // Each native tool owns exactly one access editor in its service row, even before connecting.
-  for (const name of ['Mail', 'Calendar', 'Google Drive', 'Microsoft Teams', 'GitHub', 'Obsidian', 'Browser']) {
+  for (const name of ['Mail', 'Calendar', 'Google Drive', 'Microsoft Teams', 'Slack', 'GitHub', 'Obsidian', 'Browser']) {
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(1);
   }
-  for (const name of ['Slack', 'Notion', 'Heptabase']) {
+  for (const name of ['Notion', 'Heptabase']) {
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(0);
   }
   await expect(page.locator('#settings-tools .app-chat-access')).toHaveCount(0);

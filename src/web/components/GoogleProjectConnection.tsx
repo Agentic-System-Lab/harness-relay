@@ -9,7 +9,7 @@ export function GoogleProjectConnection({ client, onDone }: { client?: OAuthClie
   const t = useT();
   const [editing, setEditing] = useState(false);
   return (
-    <details>
+    <details className="app-secondary">
       <summary>{t.apps.googleAdvanced}</summary>
       <p className="muted small">{t.apps.ownGoogleProject}</p>
       {client ? (

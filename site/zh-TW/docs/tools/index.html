@@ -236,7 +236,7 @@
         <ol>
           <li><a href="#common-apps">連結常用 App</a></li>
           <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
-          <li><a href="#outbox">沒有你，什麼都不會送到別人那裡</a></li>
+          <li><a href="#outbox">檢閱待送訊息與筆記變更</a></li>
           <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
           <li><a href="#library">你的 MCP 伺服器、skill、記憶與 hook</a></li>
           <li><a href="#per-member">給單一成員的工具</a></li>
@@ -247,23 +247,26 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">連結常用 App</h2>
+          <p><b>常用 App</b> 在同一頁顯示四組服務。<b>郵件與行事曆</b>包含郵件和行事曆，<b>團隊通訊</b>包含 Microsoft Teams 和 Slack，<b>文件與筆記</b>包含 Google Drive、Notion、Heptabase 和 Obsidian，<b>開發與瀏覽</b>包含 GitHub 和瀏覽器。</p>
           <p>在<b>常用 App</b> 分頁按 Drive、Teams 或 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
           <ul>
-            <li><b>Google Drive</b> 可以在 Claude 或 Codex 連結。若要直接連線供其他支援的助理使用，請展開<b>進階 · 使用自己的 Google Cloud 專案</b>，在自己的專案啟用 Drive API 並設定桌面 OAuth 用戶端。</li>
-            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要透過 Relay 唯讀查閱頻道，請展開<b>用 Microsoft Graph 讀取頻道</b>、安裝 Microsoft Graph PowerShell，再到 Microsoft 頁面輸入登入代碼。</li>
-            <li>使用 <b>Notion</b> 或 <b>Heptabase</b> 時，直接按該服務的<b>連結</b>，在服務的授權頁面確認存取範圍，再授權要開放給助理的工作區。</li>
+            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要透過 Relay 唯讀查閱頻道，請展開<b>使用 Microsoft Graph 直接連線</b>、安裝 Microsoft Graph PowerShell，再到 Microsoft 頁面輸入登入代碼。</li>
             <li><b>Slack</b> 可在 Claude 或 Codex 授權工作區。請檢查要求的權限，包括是否可傳送訊息。你的工作區可能需要管理員核准。</li>
+            <li><b>Google Drive</b> 可以在 Claude 或 Codex 連結。若要直接連線供其他支援的助理使用，請展開<b>進階 · 使用自己的 Google Cloud 專案</b>，在自己的專案啟用 Drive API 並設定桌面 OAuth 用戶端。</li>
+            <li>使用 <b>Notion</b> 或 <b>Heptabase</b> 時，直接按該服務的<b>連結</b>，在服務的授權頁面確認存取範圍，再授權要開放給助理的工作區。</li>
+            <li>展開 <b>Obsidian</b> 後按<b>選擇筆記庫</b>，選擇執行 Harness Relay 的電腦上的筆記資料夾。在<b>選擇助理以啟用工具</b>選好助理後，就能請它讀取、新增或編輯 Markdown 筆記。助理寫入前，每次都會在聊天中顯示預覽供你確認。解除連結後筆記仍保留在原處。 <a href="../../../assets/media/docs/tools-obsidian-settings-zh-TW.webp">查看筆記庫設定畫面</a></li>
             <li>使用 <b>GitHub</b> 時，從 GitHub 這一列以 GitHub CLI 登入。同一個登入也可用來分享對話與執行 GitHub 自動任務。</li>
-            <li><b>Obsidian</b> 請按<b>選擇筆記庫</b>，選擇執行 Harness Relay 的電腦上的筆記資料夾。你可以請助理讀取指定的 Markdown 筆記，解除連結後筆記仍保留在原處。</li>
           </ul>
           <p>Gmail 或 Outlook 信箱在清單最上方的<b>郵件</b>設定。Google Calendar、Outlook 行事曆或 CalDAV 在下一列的<b>行事曆</b>設定。每一列分別管理自己的帳號與助理存取權。</p>
-          <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a> · <a href="../../../assets/media/docs/tools-mail-access-desktop-zh-TW.webp">郵件帳號與聊天存取的桌面版畫面</a></p>
+          <p>使用 Apple 行事曆時，在<b>行事曆 → 新增行事曆</b>選 iCloud，填入 Apple 帳號的電子郵件地址與 App 專用密碼，再按<b>尋找行事曆</b>列出 iCloud 中的行事曆。列在「我的 Mac」的行事曆只存在該台 Mac。</p>
+          <p>若要在 Relay 發送訊息，請在 <b>Slack</b> 列選<b>從 Relay 傳送訊息</b>。在工作區安裝 Slack App，授予 <code>chat:write</code> 及目的地所需的讀取權限（<code>channels:read</code>、<code>groups:read</code>、<code>im:read</code> 或 <code>mpim:read</code>），再填入機器人或使用者 OAuth 權杖。若使用機器人，請先邀請它加入頻道。若要在 <b>Microsoft Teams</b> 發文，請先登入 Microsoft Graph，再按<b>開啟發送權限</b>，並用同一個工作或學校帳號完成第二次裝置登入。最後在該服務的<b>選擇助理以啟用工具</b>勾選助理。</p>
+          <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a> · <a href="../../../assets/media/docs/tools-mail-access-desktop-zh-TW.webp">郵件帳號與助理選擇的桌面版畫面</a></p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">瀏覽器、郵件與行事曆</h2>
           <p>
-            在<b>常用 App</b> 展開<b>瀏覽器</b>、<b>郵件</b>或<b>行事曆</b>，再展開<b>聊天存取</b>，勾選能使用該工具的助理。直接透過 Relay 使用 Drive、Teams、GitHub 或 Obsidian 時，做法也一樣。工具連結了多個帳號時，選擇適用於該工具的所有帳號。
+            在<b>常用 App</b> 展開<b>瀏覽器</b>、<b>郵件</b>或<b>行事曆</b>，再展開<b>選擇助理以啟用工具</b>，勾選能使用該工具的助理。選好後，展開<b>可使用此工具的助理 · N 種</b>即可更改。直接透過 Relay 使用 Drive、Teams、Slack、GitHub 或 Obsidian 時，做法也一樣。工具連結了多個帳號時，選擇適用於該工具的所有帳號。
           </p>
           <ul>
             <li>
@@ -293,8 +296,12 @@
                 </td>
               </tr>
               <tr>
+                <th scope="row">新增或編輯 Obsidian 筆記</th>
+                <td>每次寫入都會先在待送出匣等你檢閱，即使使用「完全存取」也一樣。</td>
+              </tr>
+              <tr>
                 <th scope="row"><span class="keep">會送到別人那裡</span></th>
-                <td>寄信、有邀請對象的活動：絕不會在 agent 的那一回合送出。不論權限為何，都會在待送出匣等你。</td>
+                <td>直接傳送 Slack 或 Teams 訊息、寄信或寄出活動邀請：絕不會在 agent 的那一回合送出。不論權限為何，都會在待送出匣等你。</td>
               </tr>
             </tbody>
           </table>
@@ -323,7 +330,9 @@
         </section>
 
         <section id="outbox" aria-labelledby="outbox-title">
-          <h2 id="outbox-title">沒有你，什麼都不會送到別人那裡</h2>
+          <h2 id="outbox-title">檢閱待送訊息與筆記變更</h2>
+          <p>在聊天中貼上 Slack 對話 ID 或連結，或 Teams 的頻道、聊天或訊息連結，請助理擬稿。檢查卡片上的傳送帳號、目的地和完整純文字訊息，再按<b>送出</b>或<b>捨棄</b>。完全存取與無人值守的自動任務也一樣。若目的地是 Teams 頻道，訊息會成為頻道中的新貼文。 <a href="../../../assets/media/docs/tools-slack-preview-zh-TW.webp">查看等待送出的 Slack 訊息預覽</a></p>
+          <p>助理提議新增或修改 Obsidian 筆記時，先檢閱路徑與 Markdown 內容。編輯既有筆記時，可比對原文與提議的文字。按<b>建立筆記</b>或<b>儲存變更</b>才會寫入筆記庫，按<b>捨棄</b>會取消這項提議。如果筆記在預覽後已有變動，請助理重新提議修改。 <a href="../../../assets/media/docs/tools-obsidian-preview-zh-TW.webp">查看 Obsidian 筆記編輯預覽畫面</a></p>
           <p>agent 想寄信或寄邀請時，它的回覆會改成顯示一張卡片：照實際送出的樣子，一欄一欄列出內容。這時還沒有送出任何東西。</p>
           <ul>
             <li><b>送出</b>：照卡片上顯示的內容，用你的帳號送出。</li>

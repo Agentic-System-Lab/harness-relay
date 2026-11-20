@@ -216,7 +216,7 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
 base('ten common apps offer provider-owned connections and separate Mail and Calendar account settings', async ({ page, relay }) => {
   await page.goto(relay.base + '/#/settings/apps');
   const apps = page.locator('.common-apps');
-  await expect(apps.locator(':scope > li')).toHaveCount(10);
+  await expect(apps.locator('.app-row')).toHaveCount(10);
   for (const name of ['Gmail', 'Google Calendar']) await expect(apps.getByRole('listitem', { name, exact: true })).toHaveCount(0);
   for (const [name, claude, codex] of [
     ['Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce', 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7'],
@@ -245,10 +245,7 @@ base('ten common apps offer provider-owned connections and separate Mail and Cal
   await expect(tab).toHaveURL(url);
   await tab.close();
   await expect(drive).not.toContainText(/· Connected/);
-  await page.getByText('Set up and check your assistant', { exact: true }).click();
-  await page.locator('#settings-apps').getByRole('link', { name: 'Open Codex settings' }).click();
-  await expect(page).toHaveURL(/#\/settings\/codex$/);
-  await page.goto(relay.base + '/#/settings/apps');
+  await expect(page).toHaveURL(/#\/settings\/apps$/);
   const driveRow = drive.locator('.app-options > summary');
   if (!(await drive.locator('.app-options').evaluate((el) => (el as HTMLDetailsElement).open))) await driveRow.click();
   const mail = await openApp(page, 'Mail');
@@ -333,13 +330,18 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   });
   await page.goto(`${relay.base}/#/settings/apps`);
   const apps = page.locator('.common-apps');
-  await expect(apps.locator(':scope > li')).toHaveCount(10);
+  await expect(apps.locator('.app-row')).toHaveCount(10);
   const obsidian = apps.getByRole('listitem', { name: 'Obsidian' });
-  await obsidian.getByRole('button', { name: 'Choose vault' }).click();
+  await expect(obsidian.getByRole('button', { name: 'Choose vault' })).toBeHidden();
+  await expect(obsidian.locator('.app-chat-access > summary')).toBeHidden();
+  await obsidian.locator('.app-options > summary').press('Enter');
+  const chooser = obsidian.getByRole('button', { name: 'Choose vault' });
+  await chooser.press('Enter');
   await expect(obsidian).toContainText('My notes · Connected');
+  await expect(chooser).toBeFocused();
   const teams = apps.getByRole('listitem', { name: 'Microsoft Teams', exact: true });
   await teams.locator('.app-options > summary').click();
-  await teams.getByText('Read channels with Microsoft Graph', { exact: true }).click();
+  await teams.getByText('Connect with Microsoft Graph', { exact: true }).click();
   await expect(teams.getByRole('link', { name: 'Get PowerShell' })).toBeVisible();
   graph = { status: 'missing-module' };
   await teams.getByRole('button', { name: 'Check again' }).click();
@@ -355,18 +357,39 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   await expect(teams).toContainText('TEAMS1234');
   graph = { status: 'connected', account: 'ming@contoso.com' };
   await expect(teams).toContainText('ming@contoso.com · Connected');
+  await page.route('**/api/apps/teams/posting', (route) => {
+    graph =
+      route.request().method() === 'POST'
+        ? {
+            status: 'connected',
+            account: 'ming@contoso.com',
+            posting: { status: 'signing-in', code: 'POST1234', url: 'https://microsoft.com/devicelogin' },
+          }
+        : { status: 'connected', account: 'ming@contoso.com' };
+    return route.fulfill({ json: graph });
+  });
+  await teams.getByRole('button', { name: 'Enable sending' }).click();
+  await expect(teams).toContainText('POST1234');
+  await page.reload();
+  await expect(teams.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  await teams.getByRole('button', { name: 'Cancel' }).click();
+  await teams.getByRole('button', { name: 'Enable sending' }).click();
+  graph = { status: 'connected', account: 'ming@contoso.com', canPost: true };
+  await expect(teams.getByRole('button', { name: 'Turn off sending' })).toBeVisible();
+  await teams.getByRole('button', { name: 'Turn off sending' }).click();
+  await expect(teams.getByRole('button', { name: 'Enable sending' })).toBeVisible();
   const access = teams.locator('.app-chat-access');
   await access.locator('summary').click();
   await access.getByRole('button', { name: 'Codex', exact: true }).click();
-  await expect(access.locator('summary')).toContainText('1 assistant');
+  await expect(access.locator('summary')).toHaveText('Assistants using this tool · 1');
   await page.reload();
   await expect(teams.locator('.app-options > summary')).toContainText('ming@contoso.com');
   await teams.locator('.app-options > summary').click();
-  await teams.getByText('Read channels with Microsoft Graph', { exact: true }).click();
+  await teams.getByText('Connect with Microsoft Graph', { exact: true }).click();
   await access.locator('summary').click();
   await expect(access.getByRole('button', { pressed: true })).toHaveText('Codex');
   await access.getByRole('button', { name: 'Codex', exact: true }).click();
-  await expect(access.locator('summary')).toContainText('Off');
+  await expect(access.locator('summary')).toHaveText('Choose assistants to enable this tool');
   await expect(obsidian).toContainText('My notes · Connected');
   await obsidian.locator('.app-options > summary').click();
   await obsidian.getByRole('button', { name: 'Disconnect' }).click();

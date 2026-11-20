@@ -239,7 +239,7 @@
         <ol>
           <li><a href="#common-apps">Connect your apps</a></li>
           <li><a href="#browser-mail-calendar">Browser, mail and calendar</a></li>
-          <li><a href="#outbox">Nothing reaches other people without you</a></li>
+          <li><a href="#outbox">Review outgoing messages and note changes</a></li>
           <li><a href="#accounts">Your mail and calendar accounts</a></li>
           <li><a href="#library">Your MCP servers, skills, memory and hooks</a></li>
           <li><a href="#per-member">Tools for one member</a></li>
@@ -250,23 +250,26 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">Connect your apps</h2>
+          <p>All four groups appear on the <b>Common apps</b> tab. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub and Browser.</p>
           <p>On the <b>Common apps</b> tab, choose <b>Connect</b> beside Drive, Teams or Slack, then select Claude or Codex. For Claude Code, authorize the service with the same Claude subscription account you use in Relay. For Codex, install the plugin in your ChatGPT workspace, authorize the service and open a new Relay chat. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
           <ul>
-            <li><b>Google Drive</b> can open in Claude or Codex. To give other supported assistants direct access, open <b>Advanced · Connect with your own Google Cloud project</b> and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
-            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, open <b>Read channels with Microsoft Graph</b>, install Microsoft Graph PowerShell and enter the sign-in code on Microsoft’s page.</li>
-            <li>For <b>Notion</b> or <b>Heptabase</b>, choose <b>Connect</b> on the service’s row. Review the requested access and authorize the workspace you want your assistants to use.</li>
+            <li><b>Microsoft Teams</b> opens the Teams plugin in Codex or Microsoft 365 in Claude. Use a work or school account. Claude requires consent from your organization’s Microsoft Entra administrator. For read-only channel access through Relay, open <b>Connect with Microsoft Graph</b>, install Microsoft Graph PowerShell and enter the sign-in code on Microsoft’s page.</li>
             <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval.</li>
+            <li><b>Google Drive</b> can open in Claude or Codex. To give other supported assistants direct access, open <b>Advanced · Connect with your own Google Cloud project</b> and set up a desktop OAuth client from your Google Cloud project with the Drive API enabled.</li>
+            <li>For <b>Notion</b> or <b>Heptabase</b>, choose <b>Connect</b> on the service’s row. Review the requested access and authorize the workspace you want your assistants to use.</li>
+            <li>Open the <b>Obsidian</b> row, choose <b>Choose vault</b> and select the notes folder on the computer running Harness Relay. Under <b>Choose assistants to enable this tool</b>, choose an assistant. Ask it to read a Markdown note, create one or edit one. Each proposed write appears for review in the chat. Disconnecting keeps the notes on disk. <a href="../../assets/media/docs/tools-obsidian-settings-en.webp">See the vault settings</a></li>
             <li>For <b>GitHub</b>, sign in with GitHub CLI from the GitHub row. The same sign-in also lets you share chats and run GitHub automations.</li>
-            <li>For <b>Obsidian</b>, choose <b>Choose vault</b> and select the notes folder on the computer running Harness Relay. Ask for a Markdown note by name. Disconnecting keeps the notes on disk.</li>
           </ul>
           <p>For Gmail or Outlook, open <b>Mail</b> at the top of the list. For Google Calendar, Outlook Calendar or CalDAV, open <b>Calendar</b> just below it. Each row has its own accounts and assistant selections.</p>
-          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a> · <a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mail account and Chat access on desktop</a></p>
+          <p>For Apple Calendar, choose <b>Calendar → Add a calendar</b>, select iCloud, and use your Apple Account email and an app-specific password. Choose <b>Find calendars</b> to see the calendars stored in iCloud. Calendars under <b>On My Mac</b> stay on that Mac.</p>
+          <p>To post from Relay, open the <b>Slack</b> row and choose <b>Send from Relay</b>. Install a Slack app in your workspace, give it <code>chat:write</code> plus the read scope for your destination (<code>channels:read</code>, <code>groups:read</code>, <code>im:read</code> or <code>mpim:read</code>), and enter the bot or user OAuth token. Invite a bot to the channel first. For <b>Microsoft Teams</b>, sign in to Microsoft Graph, select <b>Enable sending</b> and complete the second device sign-in with the same work or school account. In the service’s <b>Choose assistants to enable this tool</b>, select your assistant.</p>
+          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a> · <a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mailbox and assistant selection on desktop</a></p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">Browser, mail and calendar</h2>
           <p>
-            On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Chat access</b>. Select the assistants that can use that tool. Direct Drive, Teams, GitHub and Obsidian access works the same way. For tools with multiple accounts, your selection applies to every account connected to that tool.
+            On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Choose assistants to enable this tool</b>. Select the assistants that can use that tool. After you select one or more, open <b>Assistants using this tool · N</b> to change them. Direct Drive, Teams, Slack, GitHub and Obsidian access works the same way. For tools with multiple accounts, your selection applies to every account connected to that tool.
           </p>
           <ul>
             <li>
@@ -299,8 +302,12 @@
                 </td>
               </tr>
               <tr>
+                <th scope="row">Creates or edits an Obsidian note</th>
+                <td>Every write waits for your review in the outbox, including in Full access.</td>
+              </tr>
+              <tr>
                 <th scope="row">Reaches other people</th>
-                <td>Sending a mail, an event with attendees: it never goes out during the agent's turn. It waits in the outbox for you, whatever the permission.</td>
+                <td>Posting a direct Slack or Teams message, sending mail or inviting attendees to an event: it never goes out during the agent's turn. It waits in the outbox for you, whatever the permission.</td>
               </tr>
             </tbody>
           </table>
@@ -334,7 +341,9 @@
         </section>
 
         <section id="outbox" aria-labelledby="outbox-title">
-          <h2 id="outbox-title">Nothing reaches other people without you</h2>
+          <h2 id="outbox-title">Review outgoing messages and note changes</h2>
+          <p>Paste a Slack conversation ID or link, or a Teams channel, chat or message link into the chat. Ask the assistant to draft the post. Check the sending account, the destination and the full plain text on the card, then choose <b>Send</b> or <b>Discard</b>. This applies in Full access and unattended automations too. A Teams channel message is a new channel post. <a href="../../assets/media/docs/tools-slack-preview-en.webp">See a Slack post awaiting Send</a></p>
+          <p>When an assistant proposes an Obsidian note, review its path and Markdown. For an edit, compare the current and proposed text. Select <b>Create note</b> or <b>Save changes</b> to write it to the vault. <b>Discard</b> drops the proposal. If the note changed after the preview, ask the assistant to prepare a new edit. <a href="../../assets/media/docs/tools-obsidian-preview-en.webp">See an Obsidian edit preview</a></p>
           <p>
             When an agent wants to send a mail or an invitation, its reply shows a card instead: the message as it will go
             out, field by field. Nothing has gone out yet.

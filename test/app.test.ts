@@ -2678,7 +2678,7 @@ describe('tool library', () => {
       { group: 'browser', providers: ['claude', 'codex'] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
-      ...['drive', 'obsidian', 'github', 'teams'].map((group) => ({ group, providers: [] })),
+      ...['drive', 'obsidian', 'github', 'teams', 'slack'].map((group) => ({ group, providers: [] })),
     ]);
     expect(relay.gateway).toEqual({ available: false, reason: 'not-started' });
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
@@ -3978,6 +3978,10 @@ describe('sharing conversations', () => {
       status: async () => state,
       install: async () => (state = { status: 'installing' }),
       connect: async () => (state = { status: 'signing-in', code: 'ABC123' }),
+      connectPosting: async () => (state = { status: 'connected', account: 'sender', posting: { status: 'signing-in' } }),
+      disconnectPosting: () => {
+        state = { status: 'connected', account: 'sender' };
+      },
       disconnect: () => {
         state = { status: 'signed-out' };
       },
@@ -3996,6 +4000,9 @@ describe('sharing conversations', () => {
     expect(await request('/install', 'POST')).toEqual({ status: 'installing' });
     expect(await request('/signin', 'POST')).toEqual({ status: 'signing-in', code: 'ABC123' });
     expect(await request()).toEqual({ status: 'signing-in', code: 'ABC123' });
+    state = { status: 'connected', account: 'sender' };
+    expect(await request('/posting', 'POST')).toEqual({ status: 'connected', account: 'sender', posting: { status: 'signing-in' } });
+    expect(await request('/posting', 'DELETE')).toEqual({ status: 'connected', account: 'sender' });
     expect(await request('/signin', 'DELETE')).toEqual({ status: 'signed-out' });
   });
   it("runs gh's own sign-in for sharing when the dialog asks, shows it, and stops it", async () => {

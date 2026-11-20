@@ -629,7 +629,7 @@ test('the browser to start is set in Settings: a path with no file there is refu
   } finally {
     resume();
   }
-  await expect(scope).toContainText('1 assistant');
+  await expect(scope).toHaveText('Assistants using this tool · 1');
   const field = page.getByRole('textbox', { name: 'Browser to start' });
   const box = page.locator('.browser-path');
   // Open at first where no browser is found (a computer without one, whose Playwright Chromium the test's

@@ -1,5 +1,4 @@
 import { useT } from '../i18n';
-import { settingsHref } from '../route';
 
 // The Install plugin and Add to Claude destinations published in each provider's directory.
 const connectors = {
@@ -25,20 +24,5 @@ export function HostedAppLinks({ app }: { app: keyof typeof connectors }) {
         </a>
       </div>
     </>
-  );
-}
-
-export function AssistantConnectionHelp() {
-  const a = useT().apps;
-  return (
-    <details className="sub">
-      <summary>{a.hostedHelp}</summary>
-      <p className="muted small">
-        {a.claudeAccount} {a.claudeInspect}
-      </p>
-      <a href={settingsHref('claude')}>{a.claudeSettings}</a>
-      <p className="muted small">{a.codexInspect}</p>
-      <a href={settingsHref('codex')}>{a.codexSettings}</a>
-    </details>
   );
 }

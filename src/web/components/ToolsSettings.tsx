@@ -478,21 +478,24 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
         <span className="muted small">{t.tools.tokenHint}</span>
         {rows.map((r, i) => (
           <div key={i} className="var-row">
-            <input
-              value={r.name}
-              aria-label={t.tools.varName}
-              placeholder={t.tools.varName}
-              spellCheck={false}
-              onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-            />
-            <input
-              value={r.value}
-              type="password"
-              autoComplete="off"
-              aria-label={t.tools.varValue}
-              placeholder={keeps(r) ? t.tools.keepValue(r.masked!) : t.tools.varValue}
-              onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
-            />
+            <label className="field">
+              <span>{t.tools.varName}</span>
+              <input
+                value={r.name}
+                spellCheck={false}
+                onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+              />
+            </label>
+            <label className="field">
+              <span>{t.tools.varValue}</span>
+              <input
+                value={r.value}
+                type="password"
+                autoComplete="off"
+                placeholder={keeps(r) ? t.tools.keepValue(r.masked!) : undefined}
+                onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+              />
+            </label>
             <button className="icon-button danger" aria-label={t.common.remove} onClick={() => setRows(rows.filter((_, j) => j !== i))}>
               ×
             </button>

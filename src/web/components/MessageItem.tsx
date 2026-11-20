@@ -41,6 +41,7 @@ import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
+import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
 import { shownEvent } from '../schedule';
@@ -197,14 +198,21 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
     }
   };
   const waiting = part.status === 'pending';
+  const note = part.preview.note;
+  const posting = part.tool === 'slack_send_message' || part.tool === 'teams_send_message';
+  const status = note
+    ? t.outbox.note.status[part.status]
+    : posting && part.status === 'failed'
+      ? t.outbox.deliveryFailed
+      : t.outbox.status[part.status];
   return (
-    <section className={`outbox-card outbox-${part.status}`} aria-label={t.outbox.label(agentName)}>
+    <section className={`outbox-card outbox-${part.status}`} aria-label={note ? t.outbox.note.label(agentName) : t.outbox.label(agentName)}>
       <header className="approval-head">
         <span className="approval-icon" aria-hidden>
-          ✉
+          {note ? <PencilIcon /> : '✉'}
         </span>
         <strong>{part.title}</strong>
-        <span className="approval-waiting">{t.outbox.status[part.status]}</span>
+        <span className="approval-waiting">{status}</span>
       </header>
       {part.preview.fields.length > 0 && (
         <dl className="outbox-fields">
@@ -216,15 +224,16 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
           ))}
         </dl>
       )}
+      {note && <NotePreview note={note} />}
       {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
       {part.result && <p className="approval-reason">{part.result}</p>}
       {error && <p className="error-line">{error}</p>}
       {waiting && (
         <>
-          <p className="muted small">{t.outbox.hint}</p>
+          <p className="muted small">{note ? t.outbox.note.hint : t.outbox.hint}</p>
           <div className="approval-actions">
             <button type="button" className="primary small-button" disabled={busy} onClick={() => answer('send')}>
-              {t.outbox.send}
+              {note ? (note.before === null ? t.outbox.note.create : t.outbox.note.save) : t.outbox.send}
             </button>
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('discard')}>
               {t.outbox.discard}

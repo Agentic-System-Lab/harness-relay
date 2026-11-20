@@ -529,6 +529,12 @@ export const api = {
   startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
     request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
   setObsidianVault: (path: string) => request<ToolLibraryView>('PUT', '/api/apps/obsidian', { path }),
+  slackPosting: () => request<import('../shared/types').SlackPostingConnection>('GET', '/api/apps/slack/posting'),
+  connectSlackPosting: (token: string) =>
+    request<import('../shared/types').SlackPostingConnection>('PUT', '/api/apps/slack/posting', { token }),
+  disconnectSlackPosting: () => request<import('../shared/types').SlackPostingConnection>('DELETE', '/api/apps/slack/posting'),
+  teamsPosting: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/posting'),
+  disconnectTeamsPosting: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/posting'),
   teamsStatus: () => request<import('../shared/types').TeamsConnection>('GET', '/api/apps/teams'),
   teamsInstall: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/install'),
   teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),

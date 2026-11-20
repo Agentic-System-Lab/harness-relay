@@ -16,7 +16,8 @@ import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { APP_SERVERS } from '../shared/apps';
 import { TeamsGraph } from './connectors/teams';
-import { checkedVault, githubStatus } from './connectors/apps';
+import { githubStatus } from './connectors/apps';
+import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
@@ -202,7 +203,7 @@ export interface AppDeps {
     remove(id: string): Promise<void>;
   };
   /** Signs gh in for sharing from the share dialog (`GhLogin`: gh's own device sign-in; fakes in tests). */
-  teams?: Pick<TeamsGraph, 'status' | 'install' | 'connect' | 'disconnect'>;
+  teams?: Pick<TeamsGraph, 'status' | 'install' | 'connect' | 'disconnect' | 'connectPosting' | 'disconnectPosting'>;
   ghLogin?: Pick<GhLogin, 'start' | 'view' | 'cancel'>;
   /** Browsers' push subscriptions and sending to them (`push.ts`); without it, no push notifications. */
   push?: PushService;
@@ -802,9 +803,18 @@ export function createApp({
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
 
+  app.get('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.view()));
+  app.put('/api/apps/slack/posting', async (c) => c.json(await settings.slackPosting.connect((await body<{ token?: unknown }>(c))?.token)));
+  app.delete('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.disconnect()));
+
   app.get('/api/apps/teams', async (c) => c.json(await teams.status()));
   app.post('/api/apps/teams/install', async (c) => c.json(await teams.install()));
   app.post('/api/apps/teams/signin', async (c) => c.json(await teams.connect()));
+  app.post('/api/apps/teams/posting', async (c) => c.json(await teams.connectPosting()));
+  app.delete('/api/apps/teams/posting', async (c) => {
+    teams.disconnectPosting();
+    return c.json(await teams.status());
+  });
   app.delete('/api/apps/teams/signin', async (c) => {
     teams.disconnect();
     return c.json(await teams.status());

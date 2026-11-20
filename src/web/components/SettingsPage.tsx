@@ -1240,7 +1240,7 @@ function OpenAgentCard({
               t.settings.cliDefault(catalog?.cliDefaultEffort ? t.effortLabel(catalog.cliDefaultEffort) : t.settings.unknown)
             }
           />
-          <label className="field inline">
+          <label className="field">
             <span>{t.settings.bin}</span>
             <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
           </label>

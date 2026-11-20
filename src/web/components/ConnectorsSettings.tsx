@@ -236,36 +236,45 @@ function MailEditor({
         'password',
         account?.password ? t.tools.keepValue(account.password) : t.connectors.appPassword,
       )}
-      <div className="connector-servers">
-        <span>IMAP</span>
-        <input
-          aria-label={`IMAP ${t.connectors.host}`}
-          value={f.imapHost}
-          placeholder="imap.example.com"
-          onChange={(e) => edit({ imapHost: e.target.value })}
-        />
-        <input
-          aria-label={`IMAP ${t.connectors.port}`}
-          value={f.imapPort}
-          inputMode="numeric"
-          onChange={(e) => edit({ imapPort: e.target.value })}
-        />
-        <SecuritySelect label={`IMAP ${t.connectors.securityLabel}`} value={f.imapSecurity} onChange={(v) => edit({ imapSecurity: v })} />
-        <span>SMTP</span>
-        <input
-          aria-label={`SMTP ${t.connectors.host}`}
-          value={f.smtpHost}
-          placeholder="smtp.example.com"
-          onChange={(e) => edit({ smtpHost: e.target.value })}
-        />
-        <input
-          aria-label={`SMTP ${t.connectors.port}`}
-          value={f.smtpPort}
-          inputMode="numeric"
-          onChange={(e) => edit({ smtpPort: e.target.value })}
-        />
-        <SecuritySelect label={`SMTP ${t.connectors.securityLabel}`} value={f.smtpSecurity} onChange={(v) => edit({ smtpSecurity: v })} />
-      </div>
+      {(['imap', 'smtp'] as const).map((protocol) => {
+        const host = `${protocol}Host` as const;
+        const port = `${protocol}Port` as const;
+        const security = `${protocol}Security` as const;
+        const name = protocol.toUpperCase();
+        return (
+          <fieldset key={protocol} className="connector-servers">
+            <legend>{name}</legend>
+            <div className="server-fields">
+              <label className="field">
+                <span>{t.connectors.host}</span>
+                <input
+                  aria-label={`${name} ${t.connectors.host}`}
+                  value={f[host]}
+                  placeholder={`${protocol}.example.com`}
+                  onChange={(e) => edit({ [host]: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>{t.connectors.port}</span>
+                <input
+                  aria-label={`${name} ${t.connectors.port}`}
+                  value={f[port]}
+                  inputMode="numeric"
+                  onChange={(e) => edit({ [port]: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>{t.connectors.securityLabel}</span>
+                <SecuritySelect
+                  label={`${name} ${t.connectors.securityLabel}`}
+                  value={f[security]}
+                  onChange={(v) => edit({ [security]: v })}
+                />
+              </label>
+            </div>
+          </fieldset>
+        );
+      })}
       <p className="muted small">{t.connectors.mailHint}</p>
       <div className="form-actions">
         <button type="button" className="ghost" onClick={onDone}>
@@ -353,11 +362,19 @@ function CalendarEditor({
             <option value="">{t.connectors.otherProvider}</option>
             {CALENDAR_PRESETS.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.label}
+                {p.id === 'icloud' ? t.apps.appleCalendar : p.label}
               </option>
             ))}
           </select>
         </label>
+      )}
+      {f.url === 'https://caldav.icloud.com/' && (
+        <p className="muted small">
+          {t.apps.appleHint}{' '}
+          <a href="https://support.apple.com/102654" target="_blank" rel="noreferrer">
+            {t.apps.appleHelp}
+          </a>
+        </p>
       )}
       {field('name', t.tools.name)}
       {field('url', t.connectors.calendarUrl, 'url', 'https://caldav.example.com/')}

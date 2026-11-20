@@ -2,6 +2,7 @@
 const CHECK_TEAMS = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if ($PSVersionTable.PSVersion.Major -lt 7) { exit 20 }
 # Resolve from PowerShell's own installation and the standard user/system directories.
@@ -40,16 +41,21 @@ if (!(Get-Module -ListAvailable -Name $name)) {
 Import-Module $name
 `;
 
-export const CONNECT_TEAMS =
-  PROBE_TEAMS +
-  String.raw`
+// The write-capable helper is started only by an explicit, separate device sign-in.
+function connectTeams(posting: boolean): string {
+  const authorization = posting
+    ? "$posting = $true\n$scopes = @('Team.ReadBasic.All', 'Channel.ReadBasic.All', 'Chat.ReadBasic', 'User.Read', 'ChannelMessage.Send', 'ChatMessage.Send')\n"
+    : "$posting = $false\n$scopes = @('Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Read.All')\n";
+  return (
+    PROBE_TEAMS +
+    authorization +
+    String.raw`
 function Reply($reply) {
   [Console]::WriteLine('RELAY ' + (ConvertTo-Json -Compress -Depth 4 -InputObject $reply))
 }
 try { Import-Module $name } catch { exit 22 }
 try {
   [Threading.Thread]::CurrentThread.CurrentUICulture = [Globalization.CultureInfo]::GetCultureInfo('en-US')
-  $scopes = @('Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Read.All')
   # Windows resolves the SDK's .mg directory through the OS user profile. The SDK can delete its
   # existing account hint if Connect fails. Let it read the hint, but preserve the original file.
   $existingHint = $null
@@ -75,12 +81,27 @@ try {
   $context = Get-MgContext
   if ($context.ContextScope -ne 'Process' -or $context.AuthType -ne 'Delegated' -or !$context.Account -or
       ($scopes | Where-Object { $context.Scopes -notcontains $_ })) { exit 23 }
-  Reply @{account = $context.Account}
+  if (!$context.TenantId) { exit 23 }
+  if ($posting) {
+    Set-MgRequestContext -MaxRetry 0 | Out-Null
+    if ((Get-MgRequestContext).MaxRetry -ne 0) { exit 23 }
+  }
+  Reply @{account = $context.Account; tenantId = $context.TenantId}
   while ($null -ne ($line = [Console]::ReadLine())) {
     $request = ConvertFrom-Json -AsHashtable -InputObject $line
     try {
-      # Each URI comes only from the three fixed GET routes in TeamsGraph.
-      Invoke-MgGraphRequest -Method GET -Uri $request.uri -OutputType Json | ForEach-Object {
+      # TeamsGraph builds the routes. Only the dedicated posting session can submit a message.
+      if ($request.ContainsKey('text')) {
+        $now = Get-MgContext
+        if (!$posting -or $now.ContextScope -ne 'Process' -or $now.AuthType -ne 'Delegated' -or
+            $now.TenantId -ne $context.TenantId -or $now.Account -ne $context.Account -or
+            ($scopes | Where-Object { $now.Scopes -notcontains $_ })) { exit 23 }
+        $body = @{body = @{contentType = 'text'; content = $request.text}} | ConvertTo-Json -Depth 4 -Compress
+        $response = Invoke-MgGraphRequest -Method POST -Uri $request.uri -Body $body -ContentType 'application/json; charset=utf-8' -OutputType Json
+      } else {
+        $response = Invoke-MgGraphRequest -Method GET -Uri $request.uri -OutputType Json
+      }
+      $response | ForEach-Object {
         if ($_ -isnot [string] -or !$_.TrimStart().StartsWith('{')) {
           # The SDK needs explicit user interaction again. Discard the challenge and end this session.
           exit 23
@@ -90,8 +111,8 @@ try {
       }
     } catch {
       $status = [int]$_.Exception.Response.StatusCode
-      if ($status -eq 401) { exit 23 }
       Reply @{id = $request.id; error = 'graph'; status = $status}
+      if ($status -eq 401) { exit 23 }
     }
   }
 } catch {
@@ -99,4 +120,9 @@ try {
   if ($_.Exception.Message -match 'AADSTS[0-9]{4,9}') { Reply @{authError = $Matches[0]} }
   exit 23
 }
-`;
+`
+  );
+}
+
+export const CONNECT_TEAMS = connectTeams(false);
+export const POST_TEAMS = connectTeams(true);
