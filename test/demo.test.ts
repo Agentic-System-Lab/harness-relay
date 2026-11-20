@@ -135,7 +135,7 @@ function timeline(withApproval = true): Timeline {
     { name: 'start', video: 0 },
     { name: 'group-made', video: 5.7, group: 'Design reviews' },
     { name: 'template-shown', video: 11.2, template: 'Parallel comparison' },
-    { name: 'chat-open', video: 15.91 },
+    { name: 'first-question', video: 15.91 },
     { name: 'q1-plan', video: 24.74 },
     { name: 'poster', video: 26.8 },
     {

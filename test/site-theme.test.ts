@@ -287,7 +287,7 @@ describe("the landing page's theme in its styles and pages", () => {
         ),
       ];
       const facts = [...html.matchAll(/<ul class="usecase-facts"[^>]*>(.*?)<\/ul>/g)].flatMap((m) => [
-        ...m[1].matchAll(/<li class="t-(claude|codex|grok|antigravity|copilot)"><span class="pill">/g),
+        ...m[1].matchAll(/<li class="t-(claude|codex|grok|cursor|antigravity|copilot)"><span class="pill">/g),
       ]);
       const home = SITE_PAGES.find((p) => p.file === page)?.path === '';
       if (home) expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
@@ -307,7 +307,7 @@ describe("the landing page's theme in its styles and pages", () => {
     const tint = pill.join('\n').match(/^background: color-mix\(in srgb, var\(--agent, var\(--muted\)\) (\d+)%, transparent\);$/m);
     expect(tint).not.toBeNull();
     const share = Number(tint![1]) / 100;
-    for (const agent of ['claude', 'codex', 'grok', 'antigravity', 'copilot']) {
+    for (const agent of ['claude', 'codex', 'grok', 'cursor', 'antigravity', 'copilot']) {
       // Which tokens the agent's helper class gives the pill.
       const helper = block(`.t-${agent} {`);
       const token = (name: string) => {

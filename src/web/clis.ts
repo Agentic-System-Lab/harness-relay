@@ -1,4 +1,11 @@
-import type { CliInstallBlock, CliInstallView, Provider, ProviderStatus } from '../shared/types';
+import {
+  isOpenProvider,
+  type AccountStatus,
+  type CliInstallBlock,
+  type CliInstallView,
+  type Provider,
+  type ProviderStatus,
+} from '../shared/types';
 
 /**
  * What a CLI's card in Settings shows about installing it from there (`components/CliInstall.tsx`):
@@ -32,6 +39,27 @@ export function cliInstallShown(status: ProviderStatus | undefined, view: CliIns
  */
 export function statusBeforeInstall(status: ProviderStatus | undefined, view: CliInstallView | undefined): boolean {
   return Boolean(status && view?.installed?.inUse && !status.installed && (status.checkedAt ?? 0) < view.installed.at);
+}
+
+type AssistantReadiness =
+  | { kind: 'ready'; account?: AccountStatus }
+  | { kind: 'checking' | 'signIn' | 'install' | 'backend' | 'requirements' | 'executable' | 'installing' | 'unknown' };
+
+/** The setup step for the Settings overview. Only a confirmed sign-in or key can be advertised as ready. */
+export function assistantReadiness(status: ProviderStatus | undefined, install: CliInstallView | undefined): AssistantReadiness {
+  if (install?.job?.state === 'running') return { kind: 'installing' };
+  if (!status || statusBeforeInstall(status, install)) return { kind: 'checking' };
+  if (!status.installed) {
+    if (install?.installed || status.auth.detail) return { kind: 'executable' };
+    return { kind: install?.blocked ? 'requirements' : 'install' };
+  }
+  if (isOpenProvider(status.provider)) {
+    if (status.auth.loggedIn === null) return { kind: 'unknown' };
+    return { kind: status.auth.loggedIn ? 'ready' : 'backend' };
+  }
+  const account = status.accounts.find((a) => a.auth.loggedIn || a.usingStoredApiKey);
+  if (account) return status.accounts.length > 1 ? { kind: 'ready', account } : { kind: 'ready' };
+  return { kind: status.accounts.some((a) => a.auth.loggedIn === null) ? 'unknown' : 'signIn' };
 }
 
 /** Whether some CLI's install is under way (the views are asked again every second until none is). */

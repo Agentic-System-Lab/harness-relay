@@ -63,6 +63,8 @@ interface Props {
   proposed?: boolean;
   /** Auto team: who designs the team, named in the note. */
   leadLabel?: string;
+  /** The creation pages display confirmation and lead review beside the submit button. */
+  teamOptionsInEditor?: boolean;
   /** The conversation's schedule: its runs may have nobody watching. */
   schedule?: ConversationSchedule;
   /** The conversation being edited (Team settings): its team checks' commands can be tried there. */
@@ -98,6 +100,22 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
   return out;
 }
 
+export function LeadReviewOption({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean) => void }) {
+  const t = useT();
+  const hint = useId();
+  return (
+    <div className="field auto-team lead-review">
+      <label className="check-row">
+        <input type="checkbox" aria-describedby={hint} checked={enabled} onChange={(e) => onChange(e.target.checked)} />
+        <span>{t.team.leadReview}</span>
+      </label>
+      <span className="small muted" id={hint}>
+        {enabled ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+      </span>
+    </div>
+  );
+}
+
 export function TeamEditor({
   value,
   onChange,
@@ -107,6 +125,7 @@ export function TeamEditor({
   template = false,
   proposed = false,
   leadLabel,
+  teamOptionsInEditor = true,
   schedule,
   convId,
   checksEditorVersion,
@@ -128,7 +147,6 @@ export function TeamEditor({
   }, []);
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
-  const reviewHint = useId();
   const cwdId = useId();
   const addMemberId = useId();
   const showMembers = members ?? !auto;
@@ -299,7 +317,7 @@ export function TeamEditor({
         <div className="section-head">
           <h3>{t.team.rules}</h3>
         </div>
-        {auto && (
+        {auto && teamOptionsInEditor && (
           <div className="field auto-team">
             {/* With members to edit, the note above them says how the lead agent chooses the team. */}
             {leadLabel && !showMembers && (
@@ -321,21 +339,8 @@ export function TeamEditor({
             </span>
           </div>
         )}
-        {!template && (
-          <div className="field auto-team lead-review">
-            <label className="check-row">
-              <input
-                type="checkbox"
-                aria-describedby={reviewHint}
-                checked={Boolean(settings.leadReview)}
-                onChange={(e) => setSettings({ leadReview: e.target.checked || undefined })}
-              />
-              <span>{t.team.leadReview}</span>
-            </label>
-            <span className="small muted" id={reviewHint}>
-              {settings.leadReview ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
-            </span>
-          </div>
+        {!template && teamOptionsInEditor && (
+          <LeadReviewOption enabled={Boolean(settings.leadReview)} onChange={(on) => setSettings({ leadReview: on || undefined })} />
         )}
         {template && checksEditor}
         {showMembers && (
@@ -383,8 +388,8 @@ export function TeamEditor({
             ))}
 
           {!template && (
-            // Beside its label, not inside it: a <label> may not hold the box's list and button.
-            <div className="field inline grow">
+            // Give long paths the full row under the field label.
+            <div className="field grow">
               <span>
                 <label htmlFor={cwdId}>{t.team.cwd}</label>
               </span>

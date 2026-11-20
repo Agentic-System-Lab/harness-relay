@@ -22,6 +22,21 @@ describe('commands people copy', () => {
     }
   });
 
+  it('starts with downloading, connecting an assistant and asking a question, with a manual choice of system', () => {
+    for (const [page, titles] of [
+      ['site/index.html', ['Download the desktop app', 'Connect one assistant', 'Ask your first question']],
+      ['site/zh-TW/index.html', ['下載桌面版', '連接一個助理', '提出第一個問題']],
+    ] as const) {
+      const steps = read(page).match(/<ol class="steps">([\s\S]*?)<\/ol>/)![1];
+      expect([...steps.matchAll(/<h3>([^<]+)<\/h3>/g)].map((title) => title[1])).toEqual(titles);
+      const details = [...steps.matchAll(/<details class="install-details">([\s\S]*?)<\/details>/g)].map((match) => match[1]);
+      expect(details).toHaveLength(2);
+      for (const os of ['mac', 'win', 'linux']) expect(details[0]).toContain(`data-open-on="${os}"`);
+      expect(details[1]).toContain('docs/agents/#open-agents');
+      expect(steps).toContain('docs/first-chat/');
+    }
+  });
+
   it('the landing page installs the desktop app, with no commands to start it', () => {
     for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
       const html = read(page);

@@ -151,6 +151,15 @@
           <a href="../" aria-current="true">Docs</a>
         </nav>
         <div class="header-tools">
+          <details class="explore">
+            <summary>Explore</summary>
+            <nav aria-label="Explore">
+              <a href="../../#demo">Watch the demo</a>
+              <a href="../../use-cases/">Use cases</a>
+              <a href="../../#start">Installation guide</a>
+              <a href="../" aria-current="true">Docs</a>
+            </nav>
+          </details>
           <nav class="lang" aria-label="Language">
             <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
             <a href="../../zh-TW/docs/first-chat/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
@@ -243,11 +252,7 @@
       <div class="doc-body">
         <section id="new-chat" aria-labelledby="new-chat-title">
           <h2 id="new-chat-title">Start a new chat</h2>
-          <p>
-            Click <b>New chat</b> at the top of the sidebar. The page that opens shows your templates, then the
-            <b>Conversation rules</b>, where you decide where the team works and what it may do. You don't choose a team
-            here: the lead agent designs one for each question.
-          </p>
+          <p>Choose <b>Start a new chat</b> on the home page or <b>New chat</b> in the sidebar. Type your first question. Open <b>Workspace and chat settings</b> to change folders, permissions or the title. If you visit lead settings, <b>Return to new chat draft</b> brings you back to the question and choices in this window.</p>
           <ul>
             <li>
               <b>Working directories</b>: the folder the agents work in. Type a path and press <kbd>Enter</kbd>, pick one
@@ -264,16 +269,15 @@
               <b>Refuse automatically</b> (the agent is told no, and tries another way).
             </li>
             <li>
-              <b>Use the lead agent's team without asking me</b>: leave it unticked to confirm each team before it
-              answers. The page remembers your choice.
+              Under <b>Once the team is ready</b>, choose <b>Wait for my confirmation</b> or <b>Start answering right away</b>. The next chat remembers your choice.
             </li>
             <li>
-              <b>Have the lead agent review the team's replies</b>: ticked in every new chat. Once the team has
+              <b>Have the lead agent review the team's replies</b> sits below the team confirmation options and starts checked. Once the team has
               answered, the lead agent reads the replies and points out what to check (see
               <a href="#lead-review">below</a>).
             </li>
           </ul>
-          <p>Then click <b>Start chat</b> and type your first question.</p>
+          <p>Choose <b>Send first question</b>. To attach files before asking, leave the question empty and choose <b>Start chat</b>.</p>
           <figure class="doc-figure">
             <img
               src="../../assets/media/docs/first-chat-new-chat-en.webp"
@@ -283,7 +287,7 @@
               loading="lazy"
             />
             <figcaption>
-              The New chat page's conversation rules, from the use case
+              An earlier version of the conversation rules, as recorded in the use case
               <a href="../../use-cases/#fix-a-bug">Fix a bug three ways, keep the best one</a>.
             </figcaption>
           </figure>

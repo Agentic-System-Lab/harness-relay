@@ -40,6 +40,8 @@ export const SHARE_DROP = [
   '.typing',
   '.live-tag',
   '.plan-confirm',
+  '.plan-next',
+  '.plan-diagnostic',
   '.plan-note',
   '.grok-trust',
   '.mermaid-bar',

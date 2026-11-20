@@ -4,7 +4,9 @@ import {
   type ChatMessage,
   type Conversation,
   type ChecksResult,
+  type Lang,
   type LeadReview,
+  type UsageSpan,
   type Provider,
   type TeamPlan,
 } from '../shared/types';
@@ -120,11 +122,74 @@ export function planHeadline(plan: TeamPlan, t: Messages): string {
     case 'kept':
       return t.plan.kept;
     case 'fallback':
-      // Without a template, the current team was kept.
+      if (plan.declinedAt) return t.plan.kept;
+      if (plan.adjustedAt) return t.plan.adjusted;
+      if (plan.presetId === 'builtin-general') return t.plan.defaultTeam(name);
       return plan.presetId ? t.plan.fallback(name) : t.plan.kept;
     default:
       return t.plan.template(name);
   }
+}
+
+const LIMIT_NAME = /(?:(?:weekly|daily|monthly|5-hour) )?(?:(?:usage|rate|plan|request) )?(?:limit|quota)/.source;
+const LIMIT_ERROR = new RegExp(
+  [
+    `\\b(?:hit|reached|exceeded|exhausted) (?:your |the |its |a )?${LIMIT_NAME}\\b`,
+    `\\b${LIMIT_NAME} (?:has been |is )?(?:reached|exceeded|exhausted)\\b`,
+    /\b(?:usage_limit_reached|insufficient_quota)\b/.source,
+  ].join('|'),
+  'i',
+);
+const LIMIT_SPANS: Record<string, UsageSpan> = { weekly: 'week', daily: 'day', monthly: 'month', '5-hour': 'fiveHour' };
+
+/** Use only an explicit reset or retry time. Older cards wrap the original error in punctuation;
+ * a timezone in parentheses belongs to the reported time. Keep incomplete dates as reported. */
+function reportedReset(afterLimit: string): string | undefined {
+  const marker = /\b(?:resets?(?: time)?|try again)\s*(?::\s*|\s+(?:(?:at|on|after)\s+)?)/i.exec(afterLimit);
+  if (!marker) return undefined;
+  const start = marker.index + marker[0].length;
+  const tail = afterLimit.slice(start, start + 128);
+  if (
+    !/^(?:\d|in \d|today\b|tomorrow\b|(?:mon|tue|wed|thu|fri|sat|sun)\w*\b|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\.? \d)/i.test(
+      tail,
+    )
+  )
+    return undefined;
+  const when = /^[^();!?。；，）\r\n]+(?:\([\w+:/ -]{1,40}\))?/.exec(tail)?.[0];
+  return when
+    ?.split(/\.\s|,?\s+(?:or|and|please|visit|upgrade|you)\b/i, 1)[0]
+    ?.trim()
+    .replace(/[.,]+$/, '');
+}
+
+/** A CLI can report a limit during its turn, after the planner checked the account. Older cards
+ * also have only its words. A failed usage probe on its own says nothing about exhaustion. */
+function reportedLimit(detail: string) {
+  const limit = LIMIT_ERROR.exec(detail);
+  if (!limit || /\b(?:not|never)\s+$/i.test(detail.slice(Math.max(0, limit.index - 12), limit.index))) return undefined;
+  const span = /\b(weekly|daily|monthly|5-hour)\b/i.exec(limit[0])?.[0];
+  return { span: span ? LIMIT_SPANS[span.toLowerCase()] : undefined, reset: reportedReset(detail.slice(limit.index + limit[0].length)) };
+}
+
+export function fallbackExplanation(plan: TeamPlan, t: Messages, lang: Lang) {
+  const diagnostic = plan.fallback ? plan.fallback.diagnostic : plan.reason;
+  const reported = diagnostic ? reportedLimit(diagnostic) : undefined;
+  const window = plan.fallback?.limit;
+  const lead = PROVIDER_LABEL[plan.lead.provider];
+  let explanation: string | undefined;
+  if (window || reported) {
+    const span = window?.span ?? reported?.span;
+    const reset = window?.resetsAt
+      ? new Date(window.resetsAt).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' })
+      : reported?.reset;
+    explanation = t.plan.limitReached(lead, span ? t.usage.span[span] : t.plan.usageLimit);
+    if (reset) explanation += t.plan.limitReset(reset);
+  } else if (plan.leadUnavailable) {
+    explanation = t.plan.leadUnavailable(lead);
+  } else if (plan.fallback?.diagnostic || /did not produce a usable team design|沒有給出可用的團隊設計/.test(diagnostic ?? '')) {
+    explanation = t.plan.noDesign(lead);
+  }
+  return { explanation, diagnostic };
 }
 
 /** The lead agent's review as Markdown: its summary, what it points out and the next steps. */

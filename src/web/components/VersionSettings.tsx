@@ -13,7 +13,7 @@ interface Props {
 }
 
 /**
- * Settings' first card: this version, and the desktop app's updates (a newer version to update to,
+ * The Version card in Settings: this version, and the desktop app's updates (a newer version to update to,
  * one under way, or when it last checked). "Check again" at the top of the page checks GitHub now.
  */
 export function VersionCard({ status, onUpdate }: Props) {

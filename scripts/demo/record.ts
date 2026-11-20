@@ -91,7 +91,7 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
     base,
     log,
     '#/new',
-    '.new-chat-page .preset-card',
+    '.new-chat-page .first-question',
     async (s) => {
       const { page, mark, moveTo, moveClick, typeSlow, ask, scrollMessages, conversation, agentReplies } = s;
       await moveTo(700, 420, 300);
@@ -106,6 +106,7 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       mark('group-made', { group: L.groupName });
 
       // Templates are where teams are designed: open one.
+      await moveClick('.template-library > summary');
       await moveClick(page.locator('.preset-card', { hasText: L.template }).locator('.preset-main'), { after: 600 });
       await page.waitForSelector('.modal.template-editor');
       await sleep(1800);
@@ -119,10 +120,16 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       await sleep(1500);
       mark('template-shown', { template: L.template });
       await moveClick(page.locator('.template-editor-foot .ghost'), { after: 700 });
+      await moveClick('.template-library > summary');
 
-      // Start the chat and ask straight away. Without lead review (the page ticks it in every new chat),
-      // which the chapters and stills do not show.
+      // Send the first question from New chat. The dry run opens an empty chat without starting a team.
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
+      if (!opts.dry) {
+        await moveClick('#first-question');
+        mark('first-question');
+        await typeSlow(L.question);
+        await sleep(600);
+      }
       await moveClick('.start-bar .primary', { after: 900 });
       await page.waitForURL(/#\/c\//);
       const id = decodeURIComponent(/#\/c\/([^/?]+)/.exec(page.url())?.[1] ?? '');
@@ -135,7 +142,6 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
         return;
       }
 
-      await ask(L.question);
       mark('asked', { question: L.question });
       const first = await s.designAndConfirm(id, 'q1', { poster: true }); // the first team, all three agents on the card
       await s.waitAnswered(id, 'q1', firstRound(first));

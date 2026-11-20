@@ -383,6 +383,8 @@ test.describe('team checks', () => {
 
     // A new chat starts with it, marked as the default (a template's own list replaces it).
     await openNewChat(page);
+    const options = page.locator('.chat-options > summary');
+    await options.click();
     const editor = lastTeamField(page);
     await expect(editor.locator('summary')).toContainText('Advanced settings');
     await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
@@ -393,11 +395,11 @@ test.describe('team checks', () => {
 
     // So does a new automation; removed there, it has none.
     await page.getByRole('button', { name: 'New automation' }).click();
+    await options.click();
     await expect(editor.locator('summary')).toContainText('Advanced settings');
     await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
     await editor.getByLabel('Protected paths').fill('');
-    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
-    await page.getByRole('radio', { name: 'No set times' }).click();
+    await page.getByRole('textbox', { name: 'What should the team do?' }).fill('Check the build');
     await page.getByRole('button', { name: 'Create automation' }).click();
     await page.waitForURL(/#\/c\//);
     const automation = await relay.api<Conversation>(`/api/conversations/${chatId(page)}`);

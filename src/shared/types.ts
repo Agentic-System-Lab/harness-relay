@@ -1330,7 +1330,11 @@ export interface TeamPlan {
   basedOn?: { id: string; name: string };
   name?: string;
   description?: string;
-  /** The lead's explanation for the user (or, for a fallback, why planning failed). */
+  /** A fallback's original diagnostic and any exhausted window reported by the lead's account.
+   * Older cards kept the whole explanation, including the CLI error, in `reason`. Model checks
+   * that only changed member assignments have no lead diagnostic. */
+  fallback?: { diagnostic?: string; limit?: Pick<UsageLimit, 'span' | 'resetsAt'> };
+  /** The lead's explanation, or a note about changes to member assignments. */
   reason?: string;
   settings?: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
   agents?: AgentConfig[];

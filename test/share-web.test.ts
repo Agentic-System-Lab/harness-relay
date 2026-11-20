@@ -106,6 +106,8 @@ describe('what a shared page holds', () => {
       '.chat-head-actions',
       '.file-missing',
       '.plan-ask-save',
+      '.plan-next',
+      '.plan-diagnostic',
       // Mode and rounds, the file permission and the schedule; the full-access warning beside the title.
       '.chat-head-badges',
       '.head-warning',

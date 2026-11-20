@@ -131,11 +131,12 @@ test.describe('auto team with exhausted CLI quotas', () => {
       const id = await startChat(page, { permission: 'read-only' });
       await send(page, 'Choose a team');
       const card = awaitingPlan(page);
-      const warning = card.getByRole('status').filter({ hasText: 'The lead agent (Claude Code) was unavailable for this design.' });
-      await expect(warning).toContainText('Settings & sign-in → Lead agent');
-      await expect(card).toContainText('Using the template "General-question panel" instead');
+      const warning = card.getByText(/The lead agent \(Claude Code\) reached its 5-hour limit/);
+      await expect(warning).toContainText('reported reset time');
+      await expect(card).toContainText('Default team for this task · General-question panel');
       await page.reload();
       await expect(warning).toBeVisible();
+      await expect(card.getByRole('link', { name: /choose another lead in Settings/i })).toHaveAttribute('href', '#/settings/lead');
 
       const conv = await settled(relay, id);
       expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ leadUnavailable: true, status: 'ready', source: 'fallback' });

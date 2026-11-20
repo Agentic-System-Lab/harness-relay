@@ -61,13 +61,23 @@ test.describe("changing a chat's team", () => {
 
   test("when the lead agent's answer cannot be read, a template stands in", async ({ page }) => {
     await startChat(page);
-    await send(page, 'Pick something e2e:badplan');
+    await send(page, 'Pick something e2e:badplan e2e:slow=2@claude');
     const card = awaitingPlan(page);
-    await expect(card).toContainText('Using the template "General-question panel" instead');
+    await expect(card).toContainText('Default team for this task · General-question panel');
     await expect(card.getByText(/was unavailable for this design/)).toHaveCount(0);
+    await expect(card.getByText('Once you confirm this team, it answers your question.')).toBeVisible();
+    const raw = card.locator('.plan-diagnostic pre');
+    await expect(raw).toBeHidden();
+    await card.getByText('Technical details', { exact: true }).click();
+    await expect(raw).toContainText('I would rather not choose a team for this one.');
     await card.getByRole('button', { name: 'Confirm team' }).click();
+    const usedCard = page.locator('.plan-card.fallback');
+    await expect(usedCard.getByRole('status')).toHaveText('The team is working on your request. Its replies appear below.');
     for (const name of ['Analyst', 'Critic', 'Synthesizer'])
       await expect(await finishedReply(page, name)).toContainText('You said: “Pick something”.');
+    await expect(usedCard.getByRole('status')).toHaveText('You can ask a follow-up question.');
+    await send(page, 'One more');
+    await expect(usedCard.locator('.plan-next')).toHaveCount(0);
   });
 
   test('a team proposed for a new question can be declined, and the current team answers', async ({ page }) => {

@@ -207,17 +207,21 @@ describe('the docs', () => {
         ['EN', inLang(page, 'en').url, page.lang === 'en'],
         ['中文', inLang(page, 'zh-TW').url, page.lang === 'zh-TW'],
       ]);
-      // Where the section links are gone (a phone's screen), the home and use-cases pages keep the docs' link beside
-      // the language switch, in the GitHub stars' place; the docs have their own menu there.
-      const tools = slice(html, '<div class="header-tools">', '<nav class="lang"');
-      const beside = links(tools, page.url);
-      if (page.path.startsWith('docs/')) expect(beside, page.file).toEqual([]);
-      else {
-        expect(
-          beside.map((l) => [l.tag.trim(), l.words, l.href]),
-          page.file,
-        ).toEqual([[`class="header-docs" href="${page.path === '' ? '' : '../'}docs/"`, words[page.lang].at(-1), overview(page.lang).url]]);
-      }
+      // Narrow screens keep the main destinations in a native disclosure even without JavaScript.
+      const menu = slice(html, '<details class="explore">', '</details>');
+      const menuName = page.lang === 'en' ? 'Explore' : '探索';
+      expect(menu, page.file).toContain(`<summary>${menuName}</summary>`);
+      const destinations = links(menu, page.url);
+      expect(
+        destinations.map((link) => link.href),
+        page.file,
+      ).toEqual([sections[0].href, sections[1].href, sections[5].href, sections[6].href]);
+      expect(
+        destinations.map((link) => link.words),
+        page.file,
+      ).toEqual(
+        page.lang === 'en' ? ['Watch the demo', 'Use cases', 'Installation guide', 'Docs'] : ['看示範', '使用情境', '安裝指南', '文件'],
+      );
       // The footer: the mark to the home page, then the docs.
       const footer = links(slice(html, '<footer class="site-footer">', '</footer>'), page.url);
       expect(footer[0].href, page.file).toBe(home);
@@ -225,14 +229,14 @@ describe('the docs', () => {
     }
   });
 
-  it("show the docs' link beside the language switch, in place of the star count, only where the section links are gone", () => {
+  it('show Explore beside the language switch when the section links no longer fit', () => {
     const css = read('site/assets/site.css');
     const block = (start: string) => css.slice(css.indexOf(start), css.indexOf('\n}\n', css.indexOf(start)));
-    expect(block('\n.header-docs {')).toContain('display: none;');
+    expect(block('\n.explore {')).toContain('display: none;');
     const narrow = block('@media (max-width: 980px) {');
     expect(narrow).toContain('.site-nav {\n    display: none;');
-    expect(narrow).toContain('.header-docs {\n    display: inline-block;');
-    expect(narrow).toContain('.site-header .header-tools:has(.header-docs) .stars {\n    display: none;');
+    expect(narrow).toContain('.explore {\n    display: block;');
+    expect(narrow).toContain('.site-header .header-tools .stars {\n    display: none;');
   });
 
   it('offer search and a button that copies the page, in the page’s language, and only once JavaScript runs', () => {

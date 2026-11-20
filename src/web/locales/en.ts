@@ -76,7 +76,11 @@ export const en: Messages = {
     expandSidebar: 'Expand sidebar',
   },
 
-  home: { tagline: 'From now on,\nlet your agent team work for you' },
+  home: {
+    tagline: 'From now on,\nlet your agent team work for you',
+    start: 'Start a new chat',
+    waiting: (title) => `Confirm the team for “${title}”`,
+  },
 
   sidebar: {
     newChat: 'New chat',
@@ -150,9 +154,20 @@ export const en: Messages = {
 
   newChat: {
     title: 'New chat',
-    intro: (lead) =>
-      `For each question, the lead agent (${lead}) chooses the team from the question and the conversation so far: it keeps the current team, uses a template as it is, adapts one, or designs a new team. By default the team answers once you confirm it.`,
-    templates: 'Templates',
+    intro: (lead, auto) =>
+      auto
+        ? `${lead} will choose a team for your question. The team will answer right away.`
+        : `${lead} will choose a team for your question and wait for your confirmation before it answers.`,
+    question: 'What would you like to accomplish?',
+    sendQuestion: 'Send first question',
+    options: 'Workspace and chat settings',
+    optionalTitle: 'Conversation title (optional)',
+    afterDesign: 'Once the team is ready',
+    startImmediately: 'Start answering right away',
+    waitForMe: 'Wait for my confirmation',
+    returnToDraft: 'Return to new chat draft',
+    openCreated: 'Open created chat',
+    templates: 'Manage team templates',
     templatesHint: 'The lead agent picks or adapts these. Open a template to view or change it, or add teams of your own.',
     builtin: 'Built-in',
     newTemplate: 'New template',
@@ -434,9 +449,17 @@ export const en: Messages = {
 
   newSchedule: {
     title: 'New automation',
-    intro: (lead) =>
-      `An automation sends the team a message when you run it, at set times, when something happens (a new mail, an event about to begin, something new on GitHub, a file that changes), or when a program calls its webhook. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the automation can run. Nothing runs when you create it.`,
-    schedule: 'Automation',
+    intro: (lead, automatic) =>
+      automatic
+        ? `${lead} designs the team when you create the automation. It is accepted automatically and runs when triggered.`
+        : `${lead} designs the team when you create the automation. Once you confirm the team, it runs when triggered.`,
+    task: 'What should the team do?',
+    example: 'For example, summarize yesterday’s merged pull requests and list anything that needs follow-up.',
+    goalHint: 'Each run reports progress. The automation turns off when an agent reports that the goal is met.',
+    runOptions: 'Webhooks and run settings',
+    returnToDraft: 'Return to automation draft',
+    openCreated: 'Open created automation',
+    useTeam: 'Accept the team automatically',
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
     create: 'Create automation',
     creating: 'Creating…',
@@ -885,6 +908,15 @@ export const en: Messages = {
     template: (name) => `Using the template "${name}"`,
     custom: (name) => `Custom team "${name}"`,
     adapted: (name, base) => `Team "${name}", adapted from the template "${base}"`,
+    defaultTeam: (name) => `Default team for this task · ${name}`,
+    noDesign: (lead) => `The lead agent (${lead}) could not provide a usable team design.`,
+    usageLimit: 'usage limit',
+    limitReached: (lead, limit) => `The lead agent (${lead}) reached its ${limit.toLowerCase()}.`,
+    limitReset: (when) => ` The reported reset time was ${when}.`,
+    technicalDetails: 'Technical details',
+    teamWorking: 'The team is working on your request. Its replies appear below.',
+    canContinue: 'You can ask a follow-up question.',
+    scheduleReady: 'This team receives the message when the automation runs.',
     fallback: (name) => `Using the template "${name}" instead`,
     kept: 'Keeping the current team',
     howTheyWork: (mode, detail) => `${mode} · ${detail}`,
@@ -1783,6 +1815,21 @@ export const en: Messages = {
     title: 'Settings & sign-in',
     checking: 'Checking…',
     recheck: 'Check again',
+    assistants: {
+      title: 'Available AI assistants',
+      empty: 'Choose an assistant below to finish setting it up.',
+      connect: 'Connect another assistant',
+      connectFirst: 'Connect an assistant',
+      ready: 'Ready',
+      readyAccount: (name) => `Ready · ${name}`,
+      signIn: 'Sign in',
+      install: 'Needs installation',
+      backend: 'Set up a model backend',
+      requirements: 'View install requirements',
+      executable: 'Check executable',
+      installing: 'Installing…',
+      unknown: 'Check connection status',
+    },
     version: {
       title: 'Version',
       current: 'This version',
@@ -1820,6 +1867,7 @@ export const en: Messages = {
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
     nav: {
+      overview: 'Overview',
       version: 'Version',
       language: 'Language',
       appearance: 'Appearance',
@@ -2169,7 +2217,7 @@ export const en: Messages = {
       },
       {
         title: 'Check that each agent is ready',
-        body: 'Harness Relay runs the CLIs on your computer. The lights at the bottom left show each agent\'s status; "Settings & sign-in" is where you sign in to Claude Code, Codex, Grok, Cursor, Antigravity and Copilot, and set API keys and default models. It takes only browsers you signed in: to use it from your phone, get a code in Settings → Signed-in browsers.',
+        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI, sign in, or connect a model backend. One ready assistant is enough to start. To use Harness Relay on your phone, get a code under Signed-in browsers.',
       },
       {
         title: 'Open-source agents and model backends',
@@ -2183,13 +2231,13 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: "A new chat only needs a working directory and a file permission. Team design lives in templates: on the new chat page you can look at the built-in ones, or add and change your own, choosing each member's position, model and reasoning effort.",
+        body: 'Choose Start a new chat on the home page and type your first question. Check the working directory and file permission below it, then send. To attach a file first, leave the question blank and open the chat. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',
-        body: 'For each new question, the lead agent chooses the team from the question and the conversation so far: it keeps the current team, uses a template, adapts one, or designs a new team. Once you confirm it, the team answers. A team it designed or adapted can be saved as a template in one click.',
+        body: 'For each new question, the lead agent chooses the team from the question and the conversation so far: it keeps the current team, uses a template, adapts one, or designs a new team. A team it designed or adapted can be saved as a template in one click.',
         points: [
-          'Tick "Use the lead agent\'s team without asking me" on the new chat page or in the team settings to skip confirming; to turn down a team it proposes, press "No, keep the current team"',
+          'Choose Wait for my confirmation to review the proposed team, or Start answering right away to use it immediately. New chats remember your last choice. You can also change it in the team settings.',
           'What you write before confirming goes to the team with the question; a message that @mentions a member goes straight to them, with no new team',
           '"Have the lead agent review the team\'s replies" (on in every new chat; turn it off in a chat that does not need it, also on the team design card): once the team has answered, the lead agent marks what needs a close look in the replies and suggests the next steps',
           'Change the lead agent in Settings; the file permission is always yours to choose, and the lead agent never changes it',

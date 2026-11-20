@@ -305,12 +305,18 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now, mirror, h
   const primary = doc.querySelector('[data-download-primary]');
   const primaryLabel = primary?.querySelector('[data-download-label]');
   const meta = [...doc.querySelectorAll('[data-release-meta]')];
-  // Mark the visitor's system in the quick start, and name it on the main button.
+  const current = doc.querySelector('[data-current-installer]');
+  // Show the visitor’s installer and its first-open instructions before the list of all systems.
   for (const card of doc.querySelectorAll('[data-download]')) {
-    if (card.dataset.download === system) card.classList.add('is-yours');
+    if (card.dataset.download !== system) continue;
+    card.classList.add('is-yours');
+    if (current) {
+      const note = doc.querySelector(`[data-open-on="${system.split('-')[0]}"]`);
+      if (note) current.replaceChildren(card.cloneNode(true), note.cloneNode(true));
+    }
   }
   if (primary && primaryLabel && system in INSTALLERS && words[wordKey(system)]) primaryLabel.textContent = words[wordKey(system)];
-  if (primary && !(system in INSTALLERS)) primary.setAttribute('href', '#start');
+  if (primary && !(system in INSTALLERS)) primary.setAttribute('href', root.dataset.quickStart ?? '#start');
 
   // The line under the main button shows only on a phone: Harness Relay runs on a computer.
   if (system === 'mobile') {

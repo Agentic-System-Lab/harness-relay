@@ -34,7 +34,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 
 These twelve examples are just a starting point. Bring your curiosity and a task of your own, and see what else your team can do. Each example has a recording of the real run, with chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/).
 
-- **[Fix a bug three ways, keep the best one](https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug)**: in parallel mode, Claude Code, Codex and Grok each fix a failing test in a git worktree of its own; you read the diffs and apply one to your working directory.
+- **[Fix a bug three ways, keep the best one](https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug)**: in parallel mode, Claude Code, Cursor and Grok each fix a failing test in a git worktree of its own; you read the diffs and apply one to your working directory.
 - **[Turn customer interviews into a spec](https://agentic-system-lab.github.io/harness-relay/use-cases/#product-spec)**: attach five customer interviews; in relay mode one agent pulls out the pain points, the next writes the PRD, the last challenges it, and before the PRD is written they ask you which customers come first.
 - **[Read the competition, then write the launch](https://agentic-system-lab.github.io/harness-relay/use-cases/#launch-copy)**: read-only, the agents read three competitors’ pricing pages in Harness Relay’s own browser and write taglines and a launch post in turn; a branch of the conversation tries another voice.
 - **[Close the month: three reconciliations, compared](https://agentic-system-lab.github.io/harness-relay/use-cases/#reconcile-accounts)**: attach a bank statement and a cash ledger; in parallel mode three agents reconcile them on their own, read-only, and lead review compares what each found and marks what to confirm yourself.
@@ -81,7 +81,7 @@ npm run build
 npm start
 ```
 
-Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`; Harness Relay takes only browsers that signed in, see [Safety](#safety)), check under **Settings & sign-in** that each agent is signed in (or set up a model backend for the open-source agents, below), then click **New chat**, choose the working directory and permission, and ask your first question: the lead agent proposes a team for it.
+Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`; Harness Relay takes only browsers that signed in, see [Safety](#safety)), then open **Settings & sign-in** to find a ready assistant or connect one. Choose **Start a new chat**, enter your question, check the working directory and permission, and send. You can review the proposed team before it answers or let it start right away.
 
 - After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 - To use it from your phone, share it with your tailnet: [Use it from your phone (Tailscale)](docs/remote-access.md#1-share-the-server-with-your-tailnet).

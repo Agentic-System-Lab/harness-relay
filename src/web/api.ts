@@ -293,8 +293,13 @@ export const api = {
       `/api/conversations${page ? `?page=${encodeURIComponent(page.id)}${page.inFront ? '&visible=1' : ''}` : ''}`,
     ),
   getConversation: (id: string) => request<Conversation>('GET', `/api/conversations/${id}`),
-  createConversation: (b: { title?: string; agents: AgentConfig[]; settings: ConversationSettings; createCwd?: boolean }) =>
-    request<Conversation>('POST', '/api/conversations', b),
+  createConversation: (b: {
+    title?: string;
+    firstMessage?: string;
+    agents: AgentConfig[];
+    settings: ConversationSettings;
+    createCwd?: boolean;
+  }) => request<Conversation>('POST', '/api/conversations', b),
   updateConversation: (id: string, b: Partial<Pick<Conversation, 'title' | 'agents' | 'settings'>> & { createCwd?: boolean }) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),

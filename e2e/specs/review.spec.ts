@@ -112,7 +112,7 @@ test.describe('lead review', () => {
     // Every new chat starts with it on, whatever the last one had.
     await startChat(page, { leadReview: false });
     await openNewChat(page);
-    await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(page.locator('.first-task-actions').getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
   });
 
   test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({
@@ -294,11 +294,12 @@ test.describe('lead review', () => {
   test("the New automation page's box is ticked at first, and the automation's chat has it as set there", async ({ page, relay }) => {
     const create = async (review: boolean) => {
       await page.getByRole('button', { name: 'New automation' }).click();
-      await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
-      const box = page.getByRole('checkbox', { name: LEAD_REVIEW });
+      await page.getByRole('textbox', { name: 'What should the team do?' }).fill('Check the build');
+      const box = page.locator('.first-task-actions').getByRole('checkbox', { name: LEAD_REVIEW });
       await expect(box).toBeChecked();
       await box.setChecked(review);
       // The new chats it opens each time copy its setting, as they copy its other settings.
+      await page.locator('.automation-options > summary').click();
       await page.getByRole('checkbox', { name: 'Start a new chat each time' }).check();
       await page.getByRole('button', { name: 'Create automation' }).click();
       await page.waitForURL(/#\/c\//);

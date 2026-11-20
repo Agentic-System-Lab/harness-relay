@@ -10,6 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Locator } from 'playwright-core';
 import type { ChatMessage, Conversation, ConversationSummary, Permission, Provider, TeamPlan } from '../../../src/shared/types';
+import { PROVIDER_LABEL } from '../../../src/shared/types';
 import { en } from '../../../src/web/locales/en';
 import { zhTW, type Messages } from '../../../src/web/locales/zh-TW';
 import type { ChapterSpec } from '../chapters';
@@ -92,7 +93,7 @@ export interface UseCase {
 }
 
 const M = (s: Session) => UI[s.lang];
-const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .preset-card' };
+const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .first-question' };
 const re = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A working directory made anew: the last recording's left nothing behind. */
@@ -119,6 +120,7 @@ async function startChat(s: Session, o: { permission: Permission; leadReview: bo
   await s.moveTo(700, 420, 300);
   await sleep(1200);
   if (o.permission !== 'read-only') {
+    await moveClick('.chat-options > summary');
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: M(s).permissions[o.permission].label, exact: true }), {
       after: 900,
     });
@@ -157,11 +159,11 @@ async function askTeam(
   s: Session,
   id: string,
   question: string,
-  o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string } = {},
+  o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string; adjust?: (plan: TeamPlan) => Promise<boolean> } = {},
 ): Promise<TeamPlan | undefined> {
   await s.ask(question);
   s.mark('asked', { question });
-  const plan = await s.designAndConfirm(id, 'q1', { poster: false });
+  const plan = await s.designAndConfirm(id, 'q1', { adjust: o.adjust });
   await s.waitAnswered(id, 'q1', (o.replies ?? firstRound)(plan), { answer: o.answer });
   await sleep(800);
   return plan;
@@ -265,6 +267,10 @@ async function newAutomation(
   await moveClick(page.locator('.schedule-form textarea').first(), { after: 250 });
   await typeSlow(o.message, 22);
   await sleep(700);
+  const runOptions = page.locator('.automation-options');
+  const openRunOptions = async () => {
+    if (!(await runOptions.evaluate((el) => el.hasAttribute('open')))) await moveClick(runOptions.locator('summary'), { after: 350 });
+  };
   if (o.goal) {
     await moveClick(page.locator('.schedule-form textarea').nth(1), { after: 250 });
     await typeSlow(o.goal, 26);
@@ -272,7 +278,7 @@ async function newAutomation(
     mark('goal');
   }
   if (o.weekdaysAt) {
-    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.weekly }), { after: 700 });
+    await page.getByRole('combobox', { name: T.schedule.repeat }).selectOption('weekly');
     // Monday to Friday, by each day's name (the picker starts on Monday, and may start with some days on).
     const weekdays = new Set([1, 2, 3, 4, 5].map((d) => T.schedule.weekdayNames[d]));
     const days = page.locator('.day-picker button');
@@ -290,7 +296,7 @@ async function newAutomation(
   }
   if (o.calendar || o.file) {
     const w = T.schedule.watch;
-    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.event }), { after: 900 });
+    await page.getByRole('combobox', { name: T.schedule.repeat }).selectOption('event');
     const trigger = page.locator('.schedule-form .schedule-trigger').first();
     const source = trigger.locator('.schedule-trigger-head select');
     await moveClick(source, { after: 300 });
@@ -313,19 +319,22 @@ async function newAutomation(
     mark('when', { repeat: 'event', source: o.calendar ? 'calendar' : 'file' });
   }
   if (o.webhook) {
-    await moveClick(page.locator('.schedule-form details.sub > summary', { hasText: T.schedule.hook.title }), { after: 700 });
+    await openRunOptions();
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.newSchedule.withHook }).locator('input'), { after: 700 });
     mark('webhook-on');
   }
   if (o.newChat) {
+    await openRunOptions();
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.schedule.newChat }).locator('input'), { after: 900 });
     mark('new-chat-each');
   }
   if (o.askUnwatched) {
+    await openRunOptions();
     const approvals = page.getByRole('radiogroup', { name: T.schedule.approvals, exact: true });
     await moveClick(approvals.getByRole('radio', { name: T.schedule.approvalsAsk, exact: true }), { after: 900 });
     mark('ask-unwatched');
   }
+  if ((o.permission && o.permission !== 'read-only') || o.title) await moveClick('.chat-options > summary', { after: 350 });
   if (o.permission && o.permission !== 'read-only') {
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: T.permissions[o.permission].label, exact: true }), {
       after: 900,
@@ -333,12 +342,9 @@ async function newAutomation(
     mark('permission', { permission: o.permission });
   }
   // Without lead review: the automations' runs are read when they come.
-  await page
-    .locator('.lead-review input[type="checkbox"]')
-    .uncheck()
-    .catch(() => {});
+  await page.locator('.lead-review input[type="checkbox"]').uncheck();
   if (o.title) {
-    await moveClick('.start-bar .title-input', { after: 200 });
+    await moveClick('.chat-options .title-input', { after: 200 });
     await typeSlow(o.title, 45);
     await sleep(600);
   }
@@ -776,7 +782,7 @@ const reconcile: UseCase = {
         at: 'review',
         kind: 'lead',
         team: 'q1',
-        say: 'Reviews the three: the same differences found, the balances re-checked, and what to confirm yourself.',
+        say: 'The lead compares six differences, notes that all three agree on $25,821.28, and flags the suspected duplicate ledger entry for verification.',
       },
     ],
     'zh-TW': [
@@ -786,7 +792,12 @@ const reconcile: UseCase = {
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位自己寫程式逐筆比對兩份檔案，看不到其他人的結果。' },
       { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '三份調節表：每筆差異、是時間差還是錯誤，以及調整分錄。' },
-      { at: 'review', kind: 'lead', team: 'q1', say: '審閱三份結果：找到的差異相同、重算餘額，並列出該由你親自確認的事。' },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: '三位成員都列出六項差異，調整後餘額都是 258,216 元。首席 agent 指出哪幾筆還要用原始憑證核對。',
+      },
     ],
   },
 };
@@ -923,7 +934,7 @@ const collectPayments: UseCase = {
         at: 'q2-answered',
         kind: 'team',
         team: 'q1',
-        say: 'They read the new mail, knowing what the last run found: nothing left to chase.',
+        say: 'Bayside pays the first half. Paper Lantern gives a payment date in writing, and the team drafts a reply to confirm it.',
       },
       { at: 'progress', kind: 'you', say: 'The automation’s progress, run by run: the goal is reached.' },
     ],
@@ -1054,7 +1065,12 @@ const callBrief: UseCase = {
       { at: 'start', kind: 'you', say: 'New automation: what to hand the team before each customer call, read-only.' },
       { at: 'when', kind: 'you', say: 'It waits for the calendar: 30 minutes before each event whose title has “Customer call”.' },
       { at: 'new-chat-each', kind: 'you', say: 'A new chat for each call, so that each brief starts afresh.' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, {rounds} of roundtable, and says why.' },
+      {
+        at: 'q1-plan',
+        kind: 'lead',
+        team: 'q1',
+        say: 'The lead assigns {names} their roles in the relay and explains how they will prepare the brief.',
+      },
       { at: 'first-check', kind: 'you', say: 'Check now: the first check only notes what is about to begin, so nothing starts.' },
       { at: 'call-soon', kind: 'you', say: 'Later: the renewal call with Harbor & Pine is less than half an hour away. Check again.' },
       { at: 'opened', kind: 'you', say: 'The check finds the call and starts a new chat for it: open it from the sidebar.' },
@@ -1070,7 +1086,7 @@ const callBrief: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'Their CFO asks the three hardest questions, the brief answers each from PRICING.md, and the CFO flags one answer that goes beyond it.',
+        say: 'Grok plays the CFO. The final brief answers three questions about seat count, SSO and discounts, and flags terms that need approval.',
       },
     ],
     'zh-TW': [
@@ -1089,7 +1105,12 @@ const callBrief: UseCase = {
         say: '他們用 Harness Relay 的工具讀上次會議的紀錄和往來的信，再讀筆記和使用量。',
       },
       { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '他們的財務長提出最難的問題；簡報依 PRICING.md 一一回答。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Grok 扮演財務長，追問席次、漲價和 SSO。Claude 整理成會前簡報，標出哪些條件還要找主管確認。',
+      },
     ],
   },
 };
@@ -1152,9 +1173,14 @@ const literatureReview: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'One summary for leadership: what holds up, what is thin, and the links they read.',
+        say: 'Claude drafts a one-page summary. The team finds stronger evidence for reduced burnout than for productivity or customer support coverage.',
       },
-      { at: 'review', kind: 'lead', team: 'q1', say: 'Reviews the replies: where they disagree, and which claims to check yourself.' },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: 'The lead points to two corrections and new council findings that the draft still needs before leadership sees it.',
+      },
       { at: 'jump', kind: 'you', say: 'Click a point of the review: the reply opens at the words it quotes, marked.' },
     ],
     'zh-TW': [
@@ -1163,8 +1189,18 @@ const literatureReview: UseCase = {
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，{rounds}，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位上網搜尋、讀研究，再回應其他人的論點。' },
       { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '給主管的一頁摘要：哪些證據站得住、哪些還薄弱，附上他們讀過的連結。' },
-      { at: 'review', kind: 'lead', team: 'q1', say: '審閱回覆：哪裡意見不同、哪些說法該由你親自確認。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: '團隊整理出附來源的主管摘要。減少耗竭的證據比提升產出更明確，建議先做有對照組的小規模試行。',
+      },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: '首席 agent 指出，摘要把一家機構停辦的理由套到了十二家，並標出上會前還要補哪些數字。',
+      },
       { at: 'jump', kind: 'you', say: '點審閱裡的一點：回覆隨即捲到它引用的文字，並標示出來。' },
     ],
   },
@@ -1225,7 +1261,7 @@ const writeAQuiz: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'The student scores full marks and the marker finds no question to misread, so nothing goes back; each lists its files.',
+        say: 'Grok scores 10/10 and flags four ambiguous questions. Codex explains the ambiguity, and Claude rewrites those questions and their answer key.',
       },
       { at: 'files', kind: 'you', say: 'Open quiz.md in Files, rendered as the class will read it.' },
       { at: 'zip', kind: 'you', say: 'Download the folder as a ZIP file: the quiz and its answer key together.' },
@@ -1240,7 +1276,7 @@ const writeAQuiz: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: '學生拿到滿分，批改也沒找到會讓人誤解的題目，所以沒有退回；每則回覆都列出它的檔案。',
+        say: '原卷得了 100 分，批改時仍發現四題有歧義。Claude 改題後，Grok 重答其中三題，Codex 複核通過。',
       },
       { at: 'files', kind: 'you', say: '在「檔案」打開 quiz.md，看學生拿到時的樣子。' },
       { at: 'zip', kind: 'you', say: '把資料夾下載成 ZIP 檔：考卷和解答一起帶走。' },
@@ -1319,11 +1355,27 @@ const contractReview: UseCase = {
       await sleep(3000);
     }
     await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
-    await page.waitForSelector('.new-chat-page .preset-card');
+    await page.waitForSelector('.new-chat-page .first-question');
     const id = await startChat(s, { permission: 'edit', leadReview: false });
-    const plan = await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
-    const off = (plan?.agents ?? []).filter((a) => a.model && a.model !== ENDPOINT.member());
-    if (off.length) s.log('WARNING: members not on the endpoint:', off.map((a) => `${a.name} ${a.model}`).join(', '));
+    const expected = this.providers;
+    await askTeam(s, id, this.text[s.lang]!.question!, {
+      replies: allOf,
+      async adjust(plan) {
+        const members = plan.agents ?? [];
+        if (members.length !== expected.length || members.some((a) => a.model && a.model !== ENDPOINT.member()))
+          throw new Error('The contract needs three members on the configured private endpoint');
+        if (members.every((a, i) => a.provider === expected[i])) return false;
+        await moveClick(page.locator('.plan-confirm').getByRole('button', { name: T.plan.adjust }));
+        const drawer = page.getByRole('dialog', { name: T.chat.teamSettings });
+        for (const [i, provider] of expected.entries()) {
+          if (members[i]!.provider !== provider)
+            await moveClick(drawer.locator('.agent-card').nth(i).getByRole('radio', { name: PROVIDER_LABEL[provider], exact: true }));
+        }
+        await moveClick(drawer.getByRole('button', { name: T.common.save, exact: true }));
+        await drawer.waitFor({ state: 'hidden' });
+        return true;
+      },
+    });
     await readBack(s, 1800);
     mark('q1-read');
     // The first reply that changed the contract: its diff is the redline.
@@ -1354,8 +1406,17 @@ const contractReview: UseCase = {
         say: 'One edits the clauses, one checks each edit, one writes the memo for the vendor.',
       },
       { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'Each reply lists the files it changed: the contract, then the memo.' },
-      { at: 'redline', kind: 'you', say: 'Open @{redline:agent}’s diff of contract.md: the redline, clause by clause.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'The memo covers six revised clauses and explains why the team kept the confidentiality and governing law clauses.',
+      },
+      {
+        at: 'redline',
+        kind: 'you',
+        say: 'Open @{redline:agent}’s diff. CHANGE-LIST.md shows the original wording, the edit and the playbook rule for each clause.',
+      },
       { at: 'files', kind: 'you', say: 'Open REDLINE-MEMO.md in Files: each change, its rule, and what to tell the vendor.' },
     ],
     'zh-TW': [
@@ -1365,7 +1426,12 @@ const contractReview: UseCase = {
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行、都用你的伺服器，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '一位改條款、一位檢查每處修改、一位寫給廠商的說明。' },
       { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '每則回覆都列出它改了哪些檔案：先是合約，再是說明。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Codex 指出第五條少了「以」字。Claude Code 補字後，團隊交付修過七處的合約與備忘錄。',
+      },
       { at: 'redline', kind: 'you', say: '打開 @{redline:agent} 改 contract.md 的差異：逐條的修訂紀錄。' },
       { at: 'files', kind: 'you', say: '在「檔案」打開 REDLINE-MEMO.md：每處修改、依據的準則，以及要跟廠商說什麼。' },
     ],
@@ -1664,7 +1730,7 @@ const translateStrings: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: '翻譯、不看英文回譯，再檢查：日文兩個字串退回重翻，其中一個就是你補充的 Snooze。',
+        say: 'Copilot 回譯後，Claude Code 核對七個字串並全部通過。Snooze 的繁中和日文都採用你指定的用詞。',
       },
       { at: 'diff', kind: 'you', say: '打開 @{diff:agent} 的差異：只動了新字串，每個 placeholder 都保留。' },
     ],
