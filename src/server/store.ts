@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { HttpError } from './errors';
+import type { AttachmentData, AttachmentPart } from './attachments';
 import type {
   AgentConfig,
   AgentSessionState,
@@ -42,6 +45,7 @@ import type {
 } from '../shared/types';
 import {
   ALERT_KINDS,
+  ATTACHMENT_LIMITS,
   PERMISSION_ORDER,
   PROGRESS_STATUSES,
   PROVIDERS,
@@ -946,6 +950,10 @@ export class Store {
 
     const scheduleRow = this.db.prepare('SELECT * FROM schedules WHERE conversation_id = ?').get(id) as ScheduleRow | undefined;
     const schedule = scheduleRow && toSchedule(scheduleRow);
+    if (schedule) {
+      const files = this.scheduleFileList(id);
+      if (files.length) schedule.attachments = files;
+    }
 
     return {
       id: c.id,
@@ -1122,6 +1130,46 @@ export class Store {
   }
 
   // Schedules ----------------------------------------------------------------------
+
+  private scheduleFileList(id: string): AttachmentPart[] {
+    return this.db
+      .prepare(
+        "SELECT 'attachment' AS type, id, name, mime_type AS mimeType, length(data) AS size FROM schedule_attachments WHERE conversation_id = ? ORDER BY rowid",
+      )
+      .all(id) as unknown as AttachmentPart[];
+  }
+
+  /** Load the originals one at a time only when a new scheduled message is sent. */
+  scheduleFileData(id: string): Iterable<AttachmentData> {
+    return this.db
+      .prepare('SELECT name, mime_type AS mimeType, data AS bytes FROM schedule_attachments WHERE conversation_id = ? ORDER BY rowid')
+      .iterate(id) as unknown as Iterable<AttachmentData>;
+  }
+
+  /** Save an edited definition and its file changes together. Routine scheduler writes leave the originals alone. */
+  setSchedule(conv: Conversation, schedule: ConversationSchedule, add: AttachmentData[], remove: string[]): void {
+    transaction(this.db, () => {
+      this.saveSchedule({ ...conv, schedule });
+      const del = this.db.prepare('DELETE FROM schedule_attachments WHERE conversation_id = ? AND id = ?');
+      for (const id of remove) del.run(conv.id, id);
+      // The same named file has a stable ID in this schedule, so retrying a save never adds it twice.
+      const insert = this.db.prepare(
+        'INSERT INTO schedule_attachments(id, conversation_id, name, mime_type, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
+      );
+      for (const file of add) {
+        const id = createHash('sha256')
+          .update(JSON.stringify([conv.id, file.name, file.mimeType]))
+          .update(file.bytes)
+          .digest('hex');
+        insert.run(id, conv.id, file.name, file.mimeType, file.bytes);
+      }
+      const files = this.scheduleFileList(conv.id);
+      if (files.length > ATTACHMENT_LIMITS.maxFiles) throw new HttpError(400, t().tooManyAttachments(ATTACHMENT_LIMITS.maxFiles));
+      if (files.length) schedule.attachments = files;
+      else delete schedule.attachments;
+    });
+    conv.schedule = schedule;
+  }
 
   /** Persist the conversation's schedule (none: delete it). */
   saveSchedule(conv: Conversation): void {

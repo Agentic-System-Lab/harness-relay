@@ -114,8 +114,12 @@ function uploads(cwd: string, files: Record<string, string | Buffer>): string[] 
   });
 }
 
-/** On the New chat page: picks the permission, sets lead review, starts the chat. Returns its id. */
-async function startChat(s: Session, o: { permission: Permission; leadReview: boolean }): Promise<string> {
+/** Sends the first question and any files from the New chat page. Returns the chat id. */
+async function startChat(
+  s: Session,
+  question: string,
+  o: { permission: Permission; leadReview: boolean; files?: string[] },
+): Promise<string> {
   const { page, moveClick, mark } = s;
   await s.moveTo(700, 420, 300);
   await sleep(1200);
@@ -128,12 +132,16 @@ async function startChat(s: Session, o: { permission: Permission; leadReview: bo
   }
   // Lead review is ticked in every new chat; unticked without the cursor, as the demo does.
   if (!o.leadReview) await page.locator('.lead-review input[type="checkbox"]').uncheck();
+  if (o.files?.length) await attach(s, o.files);
+  mark('chat-open');
+  await moveClick('#first-question');
+  await s.typeSlow(question);
   await moveClick('.start-bar .primary', { after: 900 });
+  mark('asked', { question });
   await page.waitForURL(/#\/c\//);
   const id = idFromUrl(page.url());
   s.log('conversation', id);
   await sleep(1000);
-  mark('chat-open');
   return id;
 }
 
@@ -154,15 +162,12 @@ async function attach(s: Session, files: string[]): Promise<void> {
 /** Replies a team gives before the run is over: everyone in relay mode, as each takes the file from the last. */
 const allOf = (plan: TeamPlan | undefined) => plan?.agents?.length ?? 1;
 
-/** Asks, then has the lead agent's team confirmed and its answers waited for (`replies` from its plan). */
-async function askTeam(
+/** Confirms the lead agent's team and waits for its answers (`replies` from its plan). */
+async function confirmAndWait(
   s: Session,
   id: string,
-  question: string,
   o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string; adjust?: (plan: TeamPlan) => Promise<boolean> } = {},
 ): Promise<TeamPlan | undefined> {
-  await s.ask(question);
-  s.mark('asked', { question });
   const plan = await s.designAndConfirm(id, 'q1', { adjust: o.adjust });
   await s.waitAnswered(id, 'q1', (o.replies ?? firstRound)(plan), { answer: o.answer });
   await sleep(800);
@@ -474,8 +479,8 @@ const fixABug: UseCase = {
   },
   async drive(s) {
     const { page, moveClick, mark } = s;
-    const id = await startChat(s, { permission: 'edit', leadReview: false });
-    await askTeam(s, id, this.text[s.lang]!.question!);
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'edit', leadReview: false });
+    await confirmAndWait(s, id);
     await readBack(s, 1600);
     mark('q1-read');
 
@@ -571,9 +576,8 @@ const productSpec: UseCase = {
   },
   async drive(s, p) {
     const { mark } = s;
-    const id = await startChat(s, { permission: 'edit', leadReview: false });
-    await attach(s, p.attach ?? []);
-    await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf, answer: this.text[s.lang]!.answer });
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'edit', leadReview: false, files: p.attach });
+    await confirmAndWait(s, id, { replies: allOf, answer: this.text[s.lang]!.answer });
     await readBack(s, 1800);
     mark('q1-read');
     const prd = changedFile(await s.conversation(id), /PRD\.md$/i) ?? 'PRD.md';
@@ -656,8 +660,8 @@ const launchCopy: UseCase = {
   async drive(s) {
     const { page, moveClick, mark } = s;
     const T = M(s);
-    const id = await startChat(s, { permission: 'read-only', leadReview: false });
-    await askTeam(s, id, this.text[s.lang]!.question!);
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'read-only', leadReview: false });
+    await confirmAndWait(s, id);
     await readBack(s, 1800);
     mark('q1-read');
 
@@ -752,9 +756,8 @@ const reconcile: UseCase = {
     },
   },
   async drive(s, p) {
-    const id = await startChat(s, { permission: 'read-only', leadReview: true });
-    await attach(s, p.attach ?? []);
-    await askTeam(s, id, this.text[s.lang]!.question!);
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'read-only', leadReview: true, files: p.attach });
+    await confirmAndWait(s, id);
     await readBack(s, 2200);
     s.mark('q1-read');
     await showReview(s);
@@ -1141,8 +1144,8 @@ const literatureReview: UseCase = {
   },
   async drive(s) {
     const { moveClick, mark } = s;
-    const id = await startChat(s, { permission: 'read-only', leadReview: true });
-    await askTeam(s, id, this.text[s.lang]!.question!);
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'read-only', leadReview: true });
+    await confirmAndWait(s, id);
     await readBack(s, 2200);
     mark('q1-read');
     const review = await showReview(s);
@@ -1232,9 +1235,8 @@ const writeAQuiz: UseCase = {
   },
   async drive(s, p) {
     const { page, moveClick, mark } = s;
-    const id = await startChat(s, { permission: 'edit', leadReview: false });
-    await attach(s, p.attach ?? []);
-    await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'edit', leadReview: false, files: p.attach });
+    await confirmAndWait(s, id, { replies: allOf });
     await readBack(s, 1800);
     mark('q1-read');
     const quiz = changedFile(await s.conversation(id), /quiz\.md$/i) ?? 'quiz.md';
@@ -1356,9 +1358,9 @@ const contractReview: UseCase = {
     }
     await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
     await page.waitForSelector('.new-chat-page .first-question');
-    const id = await startChat(s, { permission: 'edit', leadReview: false });
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'edit', leadReview: false });
     const expected = this.providers;
-    await askTeam(s, id, this.text[s.lang]!.question!, {
+    await confirmAndWait(s, id, {
       replies: allOf,
       async adjust(plan) {
         const members = plan.agents ?? [];
@@ -1578,10 +1580,7 @@ const designReview: UseCase = {
   },
   async drive(s, p) {
     const { page, mark } = s;
-    const id = await startChat(s, { permission: 'read-only', leadReview: false });
-    await attach(s, p.attach ?? []);
-    await s.ask(this.text[s.lang]!.question!);
-    mark('asked');
+    const id = await startChat(s, this.text[s.lang]!.question!, { permission: 'read-only', leadReview: false, files: p.attach });
     // The screens, as they went with the question: on screen while the lead agent designs the team.
     await page
       .locator('.msg-attachments img')

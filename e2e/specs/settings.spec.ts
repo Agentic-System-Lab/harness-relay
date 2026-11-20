@@ -1,6 +1,6 @@
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, finishedReply, openTeamChat, replies, send, startChat } from '../support/app';
+import { finishedReply, openTeamChat, replies, send, startChat, confirmTeam } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
 
@@ -445,8 +445,8 @@ test.describe('settings', () => {
     await page.getByRole('button', { name: 'New chat' }).first().click();
     await expect(page.getByText(/Codex will choose a team/)).toBeVisible();
 
-    await startChat(page);
-    await askAndConfirm(page, 'Who picks the team? e2e:team=grok');
+    await startChat(page, 'Who picks the team? e2e:team=grok');
+    await confirmTeam(page);
     await expect(page.locator('.plan-card').last()).toContainText('Lead agent: Codex');
     await expect(await finishedReply(page, 'Grok')).toContainText('You said: “Who picks the team?”.');
     // The lead agent's prompt went to the fake codex.

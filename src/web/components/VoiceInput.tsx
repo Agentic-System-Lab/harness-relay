@@ -31,14 +31,24 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
   cb.current = { onText, onError };
   const mode = voiceMode(status, canRecord());
 
-  useEffect(() => () => recorder.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      recorder.current?.cancel();
+      recorder.current = null;
+    },
+    [],
+  );
 
   const start = async () => {
     setRec('starting');
     const r = new Recorder();
+    recorder.current = r;
     try {
       await r.start();
     } catch (e) {
+      r.cancel();
+      if (recorder.current !== r) return;
+      recorder.current = null;
       setRec('idle');
       const err = e as DOMException;
       cb.current.onError(
@@ -46,7 +56,11 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
       );
       return;
     }
-    recorder.current = r;
+    // The user may have left the form while the browser was asking for the microphone.
+    if (recorder.current !== r) {
+      r.cancel();
+      return;
+    }
     startedAt.current = Date.now();
     setSeconds(0);
     setRec('recording');

@@ -14,6 +14,7 @@ import { useLimits } from '../limits';
 import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
+import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
 import { settingsHref } from '../route';
@@ -93,13 +94,14 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       // The drawer that shows a webhook's token, loaded before the token is made: in a page open across an
       // update it cannot be, and the page reloads for it (`loadPart`), which would lose a token made first.
       if (withHook) await loadPart(() => import('./ScheduleDrawer'));
+      const attachments = await readUploads(draft.files, t.composer.readFailed);
       const { newHook, ...conv } = await orCreateCwd(
         (createCwd) =>
           api.createSchedule({
             title: title.trim() || undefined,
             settings: team.settings,
             createCwd,
-            schedule: toUpdate(draft),
+            schedule: { ...toUpdate(draft), ...(attachments.length ? { attachments } : {}) },
             ...(withHook ? { hook: true } : {}),
           }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
@@ -127,6 +129,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
           <fieldset className="first-task automation-task" disabled={busy} aria-label={t.newSchedule.title}>
             <ScheduleForm
               draft={draft}
+              disabled={busy}
               onEdit={edit}
               settings={team.settings}
               creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}

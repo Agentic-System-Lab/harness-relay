@@ -19,6 +19,7 @@ import { HttpError } from '../src/server/errors';
 import { removeTree } from '../src/server/fsRemove';
 import { triggerKey } from '../src/shared/schedule';
 import {
+  ATTACHMENT_LIMITS,
   FILE_LIMITS,
   OPEN_PROVIDERS,
   SHARE_FILES_MAX,
@@ -122,17 +123,22 @@ async function createConversation(settings: Record<string, unknown> = {}): Promi
 }
 
 describe('creating a chat with its first question', () => {
-  const create = (firstMessage: unknown) =>
+  const create = (firstMessage: unknown, attachments?: unknown) =>
     app.request(
       '/api/conversations',
       json('POST', {
         firstMessage,
+        attachments,
         settings: { autoTeam: true, permission: 'read-only', cwd: project },
       }),
     );
 
   it('checks the question before creating a chat and rolls back a refused send', async () => {
     expect((await create({ text: 'bad input' })).status).toBe(400);
+    expect((await create('Review', {})).status).toBe(400);
+    expect((await create('  ', [{ name: 'notes.txt', data: 'YQ==' }])).status).toBe(400);
+    expect((await create('Review', [{ name: 'bad.txt' }])).status).toBe(400);
+    expect(await (await get('/api/conversations')).json()).toEqual([]);
     const send = vi.spyOn(orchestrator, 'send').mockRejectedValueOnce(new HttpError(409, 'busy'));
     try {
       expect((await create('  My first task  ')).status).toBe(409);
@@ -171,6 +177,7 @@ describe('retrying a task after losing the HTTP response', () => {
     const body = {
       requestId,
       firstMessage: 'First task',
+      attachments: [{ name: 'notes.txt', data: 'YQ==' }],
       agents: [{ name: 'Alice', provider: 'claude' }],
       settings: { cwd: project, permission: 'read-only' },
     };
@@ -179,6 +186,8 @@ describe('retrying a task after losing the HTTP response', () => {
     expect([one.status, two.status]).toEqual([200, 200]);
     const first = (await one.json()) as Conversation;
     expect(((await two.json()) as Conversation).id).toBe(first.id);
+    const parts = store.get(first.id)!.messages.find((m) => m.author.kind === 'user')!.parts;
+    expect(parts.filter((p) => p.type === 'attachment')).toEqual([expect.objectContaining({ name: 'notes.txt', size: 1 })]);
     const path = '/api/conversations/' + first.id + '/messages';
     const send = (text: string) => app.request(path, json('POST', { requestId, text }));
     try {
@@ -3283,6 +3292,29 @@ describe('schedules', () => {
     expect(off.nextRunAt).toBeUndefined();
     expect((await app.request(`/api/conversations/${conv.id}/schedule`, json('DELETE', {}))).status).toBe(200);
     expect(((await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation).schedule).toBeUndefined();
+  });
+
+  it('validates added and retained automation attachments together and leaves the saved definition intact on rejection', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const file = { name: 'note.txt', data: Buffer.from('original').toString('base64') };
+    expect((await put(conv.id, { ...valid, attachments: [file] })).status).toBe(200);
+    const saved = store.get(conv.id)!.schedule!;
+    const id = saved.attachments![0]!.id;
+    const batch = Array.from({ length: ATTACHMENT_LIMITS.maxFiles }, (_, i) => ({ ...file, name: 'note-' + i + '.txt' }));
+    const retry = await put(conv.id, { ...valid, attachments: [file] });
+    expect(((await retry.json()) as ConversationSchedule).attachments).toEqual(saved.attachments);
+    expect((await (await put(conv.id, { ...valid, text: 'new wording' })).json()) as ConversationSchedule).toMatchObject({
+      attachments: saved.attachments,
+    });
+    for (const change of [{ attachments: batch }, { removeAttachments: [id], attachments: [{}] }, { removeAttachments: 'all' }]) {
+      expect((await put(conv.id, { ...valid, ...change })).status).toBe(400);
+      expect(store.get(conv.id)!.schedule).toMatchObject({ text: 'new wording', attachments: saved.attachments });
+    }
+    const replaced = await put(conv.id, { ...valid, attachments: batch, removeAttachments: [id] });
+    expect(replaced.status).toBe(200);
+    const files = ((await replaced.json()) as ConversationSchedule).attachments!;
+    expect(files).toHaveLength(ATTACHMENT_LIMITS.maxFiles);
+    expect(files.some((f) => f.id === id)).toBe(false);
   });
 
   it('refuses a schedule that could never send, and one for a team that is not confirmed yet', async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { awaitingPlan, openNewChat, openTeamChat, replies, send, settled, startChat } from '../support/app';
+import { awaitingPlan, openNewChat, openTeamChat, replies, settled, startChat } from '../support/app';
 
 test.describe('limits the environment sets', () => {
   test.use({ serverEnv: { RELAY_MAX_TEAM_AGENTS: '2', RELAY_MAX_ACCOUNTS: '2', RELAY_TURN_TIMEOUT_MIN: '90' } });
@@ -29,8 +29,7 @@ test.describe('limits the environment sets', () => {
     await expect(page.getByRole('dialog')).toContainText('A team may have at most 2 members');
     await page.keyboard.press('Escape');
 
-    const id = await startChat(page);
-    await send(page, 'Should we rewrite it? e2e:template=builtin-debate');
+    const id = await startChat(page, 'Should we rewrite it? e2e:template=builtin-debate');
     const card = awaitingPlan(page);
     await expect(card).toContainText('Default team for this task · General-question panel');
     await expect(card).toContainText('the template "Three-way debate" has more members than a team may have (2)');

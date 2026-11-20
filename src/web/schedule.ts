@@ -21,10 +21,13 @@ import {
   validRepo,
   watchOf,
 } from '../shared/schedule';
+import type { PendingFile } from './components/MessageFiles';
 import type { Messages } from './i18n';
 
 /** The schedule drawer's form: every kind's fields are kept, so switching kinds and back loses nothing. */
 export interface ScheduleDraft {
+  files: PendingFile[];
+  removeAttachments: string[];
   text: string;
   kind: ScheduleRepeat['kind'];
   /** `once`: a datetime-local value ("YYYY-MM-DDTHH:MM"), in the browser's time zone. */
@@ -156,6 +159,8 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
   const draft: ScheduleDraft = {
+    files: [],
+    removeAttachments: [],
     text: '',
     kind: 'manual',
     at: localInput(tomorrow.getTime()),
@@ -243,7 +248,7 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
 
 /** Whether the form says something other than the saved schedule. */
 export function draftChanged(d: ScheduleDraft, s: ConversationSchedule | undefined): boolean {
-  if (!s) return true;
+  if (!s || d.files.length || d.removeAttachments.length) return true;
   // As it is saved, on or off: a schedule with no set times that its reached goal switched off is
   // turned on again by saving it.
   const saved = { ...toUpdate(draftFrom(s, 0)), enabled: s.enabled };

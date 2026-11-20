@@ -44,8 +44,14 @@ export async function openNewChat(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
 }
 
+export async function submitFirstQuestion(page: Page, question: string): Promise<void> {
+  await page.getByRole('textbox', { name: 'What would you like to accomplish?' }).fill(question);
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await page.waitForURL(/#\/c\//);
+}
+
 /** Starts a chat from the New chat page (the lead agent designs each question's team) and waits for it to open. */
-export async function startChat(page: Page, o: NewChatOptions = {}): Promise<string> {
+export async function startChat(page: Page, question: string, o: NewChatOptions = {}): Promise<string> {
   await openNewChat(page);
   if (o.permission || o.title) await page.locator('.chat-options > summary').click();
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
@@ -53,8 +59,7 @@ export async function startChat(page: Page, o: NewChatOptions = {}): Promise<str
     await page.getByRole('radio', { name: o.autoConfirm ? 'Start answering right away' : 'Wait for my confirmation' }).check();
   await page.getByRole('checkbox', { name: LEAD_REVIEW }).setChecked(o.leadReview ?? false);
   if (o.title) await page.getByPlaceholder(/Conversation title/).fill(o.title);
-  await page.getByRole('button', { name: 'Start chat →' }).click();
-  await page.waitForURL(/#\/c\//);
+  await submitFirstQuestion(page, question);
   return chatId(page);
 }
 

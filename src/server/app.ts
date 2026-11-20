@@ -68,7 +68,7 @@ import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
-import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
+import { attachmentPath, decodeAttachments, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
 import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
@@ -1370,12 +1370,17 @@ export function createApp({
   }
 
   /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
-  async function newConversation(conv: Conversation, firstMessage?: string, request?: TaskRequest, resume = false): Promise<void> {
+  async function newConversation(
+    conv: Conversation,
+    first?: { text: string; attachments?: AttachmentUpload[] },
+    request?: TaskRequest,
+    resume = false,
+  ): Promise<void> {
     if (!resume) store.create(conv, request);
     // Agents that may write need a git repository; set it up now so problems surface immediately.
     try {
       // Sending the first question prepares the same workspace as opening an empty chat.
-      if (firstMessage) await orchestrator.send(conv.id, firstMessage, undefined, false, request);
+      if (first) await orchestrator.send(conv.id, first.text, first.attachments, false, request);
       else {
         await orchestrator.prepareWorkspace(conv);
         if (request) store.recordTask(request, conv.id, false);
@@ -1387,13 +1392,19 @@ export function createApp({
   }
 
   app.post('/api/conversations', async (c) => {
-    const { requestId, ...b } = await body<Partial<Conversation> & { requestId?: unknown; createCwd?: unknown; firstMessage?: unknown }>(c);
+    const { requestId, ...b } = await body<
+      Partial<Conversation> & { requestId?: unknown; createCwd?: unknown; firstMessage?: unknown; attachments?: AttachmentUpload[] }
+    >(c);
     if (b.firstMessage !== undefined && typeof b.firstMessage !== 'string') throw new HttpError(400, t().invalidField('firstMessage'));
     const firstMessage = b.firstMessage?.trim();
+    if (b.attachments !== undefined && (!Array.isArray(b.attachments) || (b.attachments.length && !firstMessage))) {
+      throw new HttpError(400, t().invalidField('attachments'));
+    }
+    const first = firstMessage ? { text: firstMessage, attachments: b.attachments } : undefined;
     const created = await submitTask('new', requestId, { ...b, createCwd: undefined }, async (request, receipt) => {
       if (receipt) {
         const previous = getConv(receipt.conversationId);
-        if (receipt.queued === null) await newConversation(previous, firstMessage, request, true);
+        if (receipt.queued === null) await newConversation(previous, first, request, true);
         return previous;
       }
       const now = Date.now();
@@ -1413,11 +1424,20 @@ export function createApp({
         agentState: {},
         worktrees: {},
       };
-      await newConversation(conv, firstMessage, request);
+      await newConversation(conv, first, request);
       return conv;
     });
     return c.json(forClient(created));
   });
+
+  function scheduleFileChanges(input: unknown) {
+    const { attachments, removeAttachments = [] } = input as { attachments?: unknown; removeAttachments?: unknown };
+    const add = decodeAttachments(attachments);
+    if (!Array.isArray(removeAttachments) || !removeAttachments.every((id): id is string => typeof id === 'string')) {
+      throw new HttpError(400, t().invalidField('removeAttachments'));
+    }
+    return { add, remove: removeAttachments };
+  }
 
   // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
   // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
@@ -1429,6 +1449,7 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
+    const files = scheduleFileChanges(b.schedule);
     // A new automation names an account that is there, on or off.
     refuseMissingTrigger(update, true);
     refuseRelayFolderFirst(b.settings, defaultCwds());
@@ -1454,8 +1475,7 @@ export function createApp({
     if (next !== undefined) schedule.nextRunAt = next;
     await newConversation(conv);
     try {
-      conv.schedule = schedule;
-      store.saveSchedule(conv);
+      store.setSchedule(conv, schedule, files.add, files.remove);
       orchestrator.systemNote(conv, t().scheduleCreatedNote);
       await orchestrator.designForSchedule(conv.id);
     } catch (err) {
@@ -1537,9 +1557,11 @@ export function createApp({
   // Set the conversation's schedule: a message the team is sent at set times (it replaces the one
   // there was). Saving starts its times afresh; what happened last time is kept.
   app.put('/api/conversations/:id/schedule', async (c) => {
+    const input = await body<unknown>(c);
     const conv = getConv(c.req.param('id'));
     const now = Date.now();
-    const update = validateSchedule(await body<unknown>(c), now);
+    const update = validateSchedule(input, now);
+    const files = scheduleFileChanges(input);
     refuseMissingTrigger(update);
     // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
     if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
@@ -1573,8 +1595,7 @@ export function createApp({
     }
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
-    conv.schedule = schedule;
-    store.saveSchedule(conv);
+    store.setSchedule(conv, schedule, files.add, files.remove);
     orchestrator.emitConversation(conv);
     return c.json(scheduleForClient(schedule));
   });

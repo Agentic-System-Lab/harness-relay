@@ -37,12 +37,18 @@ export function attachmentPath(convId: string, a: Pick<AttachmentPart, 'id' | 'n
   return join(attachmentsDir(convId), a.id, safeFileName(a.name));
 }
 
-/** Writes the uploaded files to disk and returns their message parts. Throws a 400 for bad input. */
-export function saveAttachments(convId: string, uploads: AttachmentUpload[] | undefined): AttachmentPart[] {
-  if (!uploads?.length) return [];
+export interface AttachmentData {
+  name: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+/** Validate the whole upload before writing any file. */
+export function decodeAttachments(uploads: unknown): AttachmentData[] {
+  if (uploads === undefined) return [];
   if (!Array.isArray(uploads)) throw new HttpError(400, t().badAttachment);
   if (uploads.length > ATTACHMENT_LIMITS.maxFiles) throw new HttpError(400, t().tooManyAttachments(ATTACHMENT_LIMITS.maxFiles));
-  const files = uploads.map((u) => {
+  return uploads.map((u) => {
     if (typeof u?.data !== 'string' || typeof u.name !== 'string') throw new HttpError(400, t().badAttachment);
     const bytes = Buffer.from(u.data, 'base64');
     const name = safeFileName(u.name);
@@ -50,13 +56,27 @@ export function saveAttachments(convId: string, uploads: AttachmentUpload[] | un
     const mimeType = typeof u.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(u.mimeType) ? u.mimeType : 'application/octet-stream';
     return { name, mimeType, bytes };
   });
-  return files.map((f) => {
-    const part: AttachmentPart = { type: 'attachment', id: randomUUID(), name: f.name, mimeType: f.mimeType, size: f.bytes.length };
-    const file = attachmentPath(convId, part);
-    mkdirSync(join(attachmentsDir(convId), part.id), { recursive: true });
-    writeFileSync(file, f.bytes, { mode: 0o600 });
-    return part;
-  });
+}
+
+/** Give each message its own files, including when several runs use the same automation. */
+export function writeAttachments(convId: string, files: Iterable<AttachmentData>): AttachmentPart[] {
+  const parts: AttachmentPart[] = [];
+  try {
+    for (const f of files) {
+      const part: AttachmentPart = { type: 'attachment', id: randomUUID(), name: f.name, mimeType: f.mimeType, size: f.bytes.length };
+      parts.push(part);
+      mkdirSync(join(attachmentsDir(convId), part.id), { recursive: true });
+      writeFileSync(attachmentPath(convId, part), f.bytes, { mode: 0o600 });
+    }
+    return parts;
+  } catch (err) {
+    removeAttachments(convId, parts);
+    throw err;
+  }
+}
+
+export function saveAttachments(convId: string, uploads: AttachmentUpload[] | undefined): AttachmentPart[] {
+  return writeAttachments(convId, decodeAttachments(uploads));
 }
 
 /**

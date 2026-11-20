@@ -47,8 +47,19 @@ test.describe('the home page', () => {
     const options = page.locator('.chat-options > summary');
     const wait = page.getByRole('radio', { name: 'Wait for my confirmation' });
     const direct = page.getByRole('radio', { name: 'Start answering right away' });
+    const submit = page.getByRole('button', { name: 'Send question' });
+    await expect(submit).toBeDisabled();
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles({ name: 'agenda.txt', mimeType: 'text/plain', buffer: Buffer.from('Release agenda') });
+    await question.fill(' \n\t ');
+    await expect(submit).toBeDisabled();
     await expect(wait).toBeChecked();
     await expect(page.locator('.template-library .preset-main').first()).toBeHidden();
+    await question.fill('Prepare a release summary');
+    await expect(submit).toBeEnabled();
+    await question.clear();
+    await expect(submit).toBeDisabled();
     await question.fill('Prepare a release summary');
     await options.click();
     await page.getByPlaceholder(/Conversation title/).fill('Release notes');
@@ -65,6 +76,7 @@ test.describe('the home page', () => {
     await page.getByRole('link', { name: 'Change the lead agent' }).click();
     await page.getByRole('link', { name: 'Return to new chat draft' }).click();
     await expect(question).toHaveValue('Prepare a release summary');
+    await expect(page.locator('.attach-tray')).toContainText('agenda.txt');
     await expect(direct).toBeChecked();
     await expect(options).toContainText('Edit');
     await expect(options).toContainText(extra);
@@ -72,9 +84,10 @@ test.describe('the home page', () => {
     await expect(page.getByPlaceholder(/Conversation title/)).toHaveValue('Release notes');
     await wait.check();
     await expect(page.locator('.page-head')).toContainText('wait for your confirmation');
-    await page.getByRole('button', { name: 'Send first question' }).click();
+    await submit.click();
     await expect(page.locator('.plan-card.awaiting')).toBeVisible();
     await expect(page.locator('.msg-user')).toHaveCount(1);
+    await expect(page.locator('.msg-user .msg-attachments')).toContainText('agenda.txt');
     await expect(page.locator('.msg-user')).toContainText('Prepare a release summary');
     await page.getByRole('button', { name: 'Expand sidebar' }).click();
     await page.getByRole('link', { name: 'Harness Relay', exact: true }).click();
@@ -84,7 +97,10 @@ test.describe('the home page', () => {
     await expect(question).toHaveValue('');
     await expect(wait).toBeChecked();
     await direct.check();
-    await page.getByRole('button', { name: 'Start chat →' }).click();
+    await expect(submit).toBeDisabled();
+    await expect(page.locator('.attach-tray')).toHaveCount(0);
+    await question.fill('Summarize the follow-up work');
+    await submit.click();
     await page.waitForURL(/#\/c\//);
     await openNewChat(page);
     await expect(direct).toBeChecked();

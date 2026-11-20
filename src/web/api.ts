@@ -260,6 +260,8 @@ async function requestText(path: string, o: Sending = {}): Promise<string> {
   return text;
 }
 
+type ScheduleSubmission = ScheduleUpdate & { attachments?: AttachmentUpload[]; removeAttachments?: string[] };
+
 /** A file attached to a message, as sent to the server. */
 export interface AttachmentUpload {
   name: string;
@@ -350,6 +352,7 @@ export const api = {
   createConversation: (b: {
     title?: string;
     firstMessage?: string;
+    attachments?: AttachmentUpload[];
     agents: AgentConfig[];
     settings: ConversationSettings;
     createCwd?: boolean;
@@ -362,14 +365,14 @@ export const api = {
   /** Pin it to the top of the sidebar, or unpin it. */
   pinConversation: (id: string, pinned: boolean) => request<{ ok: true }>('PUT', `/api/conversations/${id}/pin`, { pinned }),
   /** Set the conversation's schedule (it replaces the one there was). */
-  saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
+  saveSchedule: (id: string, b: ScheduleSubmission) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
   deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
   /** A new schedule in a conversation of its own, whose lead agent designs the team for it now. */
   createSchedule: (b: {
     title?: string;
     settings: Partial<ConversationSettings>;
     createCwd?: boolean;
-    schedule: ScheduleUpdate;
+    schedule: ScheduleSubmission;
     hook?: boolean;
   }) => request<Conversation & { newHook?: NewScheduleHook }>('POST', '/api/schedules', b),
   /** Have the lead agent design the team for the schedule's message (again). */

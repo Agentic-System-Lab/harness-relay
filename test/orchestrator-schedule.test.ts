@@ -5,6 +5,7 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
@@ -33,6 +34,7 @@ import {
 } from './orchestrator-harness';
 
 // After the harness, which gives the server's modules their data folder before they load.
+const { attachmentPath } = await import('../src/server/attachments');
 const { createApp } = await import('../src/server/app');
 const { ProviderService } = await import('../src/server/providers');
 
@@ -102,6 +104,51 @@ describe('schedules', () => {
       nextRunAt: T0 + 2 * HOUR,
       lastResult: 'sent',
     });
+  });
+
+  it('gives each scheduled message an independent copy, whether sent in place, queued, or in a new chat', async () => {
+    const conv = solo();
+    schedule(conv);
+    const original = { name: 'brief.txt', mimeType: 'text/plain', bytes: Buffer.from('original') };
+    store.setSchedule(conv, conv.schedule!, [original], []);
+    const fileOf = (target: Conversation) => {
+      const part = target.messages
+        .filter((m) => m.scheduled)
+        .at(-1)
+        ?.parts.find((p) => p.type === 'attachment');
+      expect(part?.name).toBe(original.name);
+      return attachmentPath(target.id, part!);
+    };
+    const release = hold('Alice');
+    await orchestrator.sendScheduled(conv.id);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const first = fileOf(conv);
+    expect(readFileSync(first, 'utf8')).toBe('original');
+    writeFileSync(first, 'edited during a run');
+    try {
+      expect((await orchestrator.sendScheduled(conv.id)).result).toBe('queued');
+      const queued = conv.queue![0]!.parts.find((p) => p.type === 'attachment')!;
+      expect(readFileSync(attachmentPath(conv.id, queued), 'utf8')).toBe('original');
+      store.setSchedule(
+        conv,
+        { ...conv.schedule!, newChat: true },
+        [{ ...original, bytes: Buffer.from('updated') }],
+        [conv.schedule!.attachments![0]!.id],
+      );
+    } finally {
+      release();
+    }
+    await finish(conv.id);
+    expect(readFileSync(fileOf(conv), 'utf8')).toBe('original');
+    const next = await orchestrator.sendScheduled(conv.id);
+    if (next.result !== 'sent' || !next.chatId) throw new Error('Expected the automation to open a new chat');
+    await finish(next.chatId);
+    const childFile = fileOf(store.get(next.chatId)!);
+    expect(readFileSync(childFile, 'utf8')).toBe('updated');
+    delete conv.schedule;
+    store.saveSchedule(conv);
+    expect(readFileSync(first, 'utf8')).toBe('edited during a run');
+    expect(readFileSync(childFile, 'utf8')).toBe('updated');
   });
 
   const approvalParts = (conv: Conversation) =>

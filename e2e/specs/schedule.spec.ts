@@ -13,6 +13,9 @@ test.describe('schedules', () => {
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await expect(drawer).toBeVisible();
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    await drawer
+      .locator('input[type=file]')
+      .setInputFiles({ name: 'build.txt', mimeType: 'text/plain', buffer: Buffer.from('build instructions') });
     await drawer.getByRole('radio', { name: 'Every day' }).click();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     // Saved, it closes; the sidebar shows the chat has a schedule.
@@ -26,7 +29,15 @@ test.describe('schedules', () => {
     const sent = page.locator('.msg-user', { hasText: 'Check the build' });
     await expect(sent).toBeVisible();
     await expect(sent).toContainText('Automation');
-    await expect(await finishedReply(page, 'Codex')).toContainText('You said: “Check the build”.');
+    const attached = sent.getByRole('link', { name: /build.txt/ });
+    await expect(attached).toBeVisible();
+    await finishedReply(page, 'Codex');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: en.composer.removeFile('build.txt') }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    const download = await page.request.get(await attached.evaluate((link: HTMLAnchorElement) => link.href));
+    expect(await download.text()).toBe('build instructions');
   });
 
   test('a schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached', async ({ page, relay }) => {
@@ -149,6 +160,29 @@ test.describe('schedules', () => {
     page,
     relay,
   }) => {
+    // Exercise the browser's recorder with a tone. The local transcription service has a fixed reply.
+    await page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        const ctx = new AudioContext();
+        const tone = ctx.createOscillator();
+        const dest = ctx.createMediaStreamDestination();
+        tone.connect(dest);
+        tone.start();
+        await ctx.resume();
+        return dest.stream;
+      };
+    });
+    await page.route('**/api/voice', async (route) => {
+      const status = await (await route.fetch()).json();
+      await route.fulfill({ json: { ...status, ready: true } });
+    });
+    await page.route('**/api/voice/prepare', (route) => route.fulfill({ json: { ok: true } }));
+    await page.route('**/api/voice/transcribe', async (route) => {
+      const audio = Buffer.from(route.request().postDataJSON().audio, 'base64');
+      expect(audio.toString('ascii', 0, 4)).toBe('RIFF');
+      expect(audio.length).toBeGreaterThan(44);
+      await route.fulfill({ json: { text: 'merged pull requests' } });
+    });
     await page.getByRole('button', { name: 'New automation' }).click();
     const task = page.getByRole('textbox', { name: en.newSchedule.task });
     const when = page.getByRole('combobox', { name: en.schedule.repeat });
@@ -159,12 +193,27 @@ test.describe('schedules', () => {
     const create = page.getByRole('button', { name: en.newSchedule.create });
     await expect(create).toBeDisabled();
     await expect(goal).toBeVisible();
+    const attach = page.getByRole('button', { name: en.composer.attach });
+    const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     await task.press('Tab');
+    await expect(attach).toBeFocused();
+    await attach.press('Tab');
+    await expect(mic).toBeFocused();
+    await mic.press('Tab');
     await expect(goal).toBeFocused();
     await goal.press('Tab');
     await expect(when).toBeFocused();
     await expect(title).toBeHidden();
-    await task.fill('Summarize merged pull requests');
+    await page
+      .locator('.first-input input[type=file]')
+      .setInputFiles({ name: 'scope.txt', mimeType: 'text/plain', buffer: Buffer.from('main') });
+    await expect(create).toBeDisabled();
+    await task.fill('Summarize');
+    await mic.click();
+    const stop = page.getByRole('button', { name: en.voice.stop });
+    await expect(stop).toHaveText(/0:0[1-9]/);
+    await stop.click();
+    await expect(task).toHaveValue('Summarize merged pull requests');
     await goal.fill('All changes reviewed');
     await when.selectOption('weekly');
     await page.getByLabel(en.schedule.time, { exact: true }).fill('11:15');
@@ -176,6 +225,7 @@ test.describe('schedules', () => {
     await page.getByRole('link', { name: en.newChat.changeLead }).click();
     await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
     await expect(task).toHaveValue('Summarize merged pull requests');
+    await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toBeVisible();
     await expect(when).toHaveValue('weekly');
     await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
     await create.click();
@@ -187,6 +237,7 @@ test.describe('schedules', () => {
       schedule: {
         text: 'Summarize merged pull requests',
         goal: 'All changes reviewed',
+        attachments: [{ type: 'attachment', name: 'scope.txt', mimeType: 'text/plain', size: 4 }],
         repeat: { kind: 'weekly', time: '11:15' },
         newChat: true,
       },
@@ -194,6 +245,7 @@ test.describe('schedules', () => {
     expect(conv.messages.filter((m) => m.author.kind === 'user')).toHaveLength(0);
     await page.getByRole('button', { name: 'New automation' }).click();
     await expect(task).toHaveValue('');
+    await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toHaveCount(0);
     await expect(when).toHaveValue('manual');
     await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
   });

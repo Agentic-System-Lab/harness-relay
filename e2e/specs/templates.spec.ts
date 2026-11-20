@@ -1,17 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { en } from '../../src/web/locales/en';
-import {
-  askAndConfirm,
-  awaitingPlan,
-  finishedReply,
-  heightWithoutAddCard,
-  openNewChat,
-  replies,
-  send,
-  settled,
-  startChat,
-} from '../support/app';
+import { awaitingPlan, finishedReply, heightWithoutAddCard, openNewChat, replies, settled, startChat, confirmTeam } from '../support/app';
 import { notInstalledBut } from '../support/fake-cli';
 
 /** The CLI each member of the open template is on, in order. */
@@ -159,8 +149,7 @@ test.describe('templates', () => {
   });
 
   test('the lead agent can pick a template as it is', async ({ page, relay }) => {
-    const id = await startChat(page);
-    await send(page, 'Should we rewrite it? e2e:template=builtin-debate');
+    const id = await startChat(page, 'Should we rewrite it? e2e:template=builtin-debate');
     await expect(awaitingPlan(page)).toContainText('Using the template "Three-way debate"');
     await page.getByRole('button', { name: 'Confirm team' }).click();
     // Its two rounds: each member answers in the first, and in the second has nothing to add. Checked
@@ -180,8 +169,8 @@ test.describe('templates', () => {
   });
 
   test('a team the lead agent designed can be saved as a template', async ({ page }) => {
-    await startChat(page);
-    await askAndConfirm(page, 'Plan the release e2e:team=claude,grok e2e:name=Release_crew');
+    await startChat(page, 'Plan the release e2e:team=claude,grok e2e:name=Release_crew');
+    await confirmTeam(page);
     await finishedReply(page, 'Grok');
     const plan = page.locator('.plan-card').last();
     // It asks for the template's name, the team's by default.

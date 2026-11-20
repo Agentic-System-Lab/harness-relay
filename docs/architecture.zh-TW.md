@@ -669,6 +669,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `task_requests` | 建立對話及傳送任務的重試紀錄（schema 版本 37），保存內容摘要、對話和首次送出的佇列狀態，隨對話刪除。 |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 29），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序。webhook 呼叫隨排程訊息送來的內容存在 `event`（schema 版本 32），不是來自 webhook 時，它來自哪裡存在 `event_source`（`mail`：自動任務的觸發條件找到的；schema 版本 35）。 |
 | `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON；自動任務的第一件事也存成 `trigger`，給前一個版本讀）、時區、語言、是否啟用、核准與錯過時間的選擇、是否每次開新對話（`new_chat`）、下一次，以及上次結果（含它開的對話 `last_chat_id`）。追蹤的目標（`goal`）、追蹤狀態（`tracking`，JSON：`ScheduleTracking`）、它的 webhook（`hook`，JSON：建立與上次呼叫的時間）與權杖的 SHA-256（`hook_hash`，從不存權杖本身；schema 版本 32）。當某件事發生時才啟動的自動任務，在兩次檢查之間保留的每件事的來源狀態（`watch`，JSON：`ScheduleWatch` 的清單，每件事一個；schema 版本 35，能等好幾件事之前寫下的物件讀成那唯一一件事的狀態）。 |
+| `schedule_attachments` | 自動任務的附件原檔（schema 版本 38）。每列保存檔名、MIME 類型與內容，刪除排程時一併刪除。排程訊息送出或加入佇列時，會在接收對話中建立獨立副本。 |
 | `message_changes` | 每則訊息在它改的第一個 repository 中修改的檔案（路徑、A/M/D、增刪行數）；這一輪在其他 repository 的修改（含檔案）以 JSON 存在 `messages.more_changes` |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree，工作目錄的每個 repository 各一個（repository 根目錄、路徑、分支、起始快照、是否需要重設） |
 | `message_parts` | 每則訊息依序（`idx`）排列的 part：文字、思考、計畫與核准 part（資料以 JSON 存在 `data`），以及工具呼叫，含 `tool_error`（呼叫失敗或被拒絕的原因）與 `tool_output` |

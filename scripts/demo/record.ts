@@ -122,13 +122,15 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       await moveClick(page.locator('.template-editor-foot .ghost'), { after: 700 });
       await moveClick('.template-library > summary');
 
-      // Send the first question from New chat. The dry run opens an empty chat without starting a team.
+      // Send the first question from New chat. The dry run stops before submitting it.
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
-      if (!opts.dry) {
-        await moveClick('#first-question');
-        mark('first-question');
-        await typeSlow(L.question);
-        await sleep(600);
+      await moveClick('#first-question');
+      mark('first-question');
+      await typeSlow(L.question);
+      await sleep(600);
+      if (opts.dry) {
+        await page.screenshot({ path: join(outDir, 'dry.png') });
+        return;
       }
       await moveClick('.start-bar .primary', { after: 900 });
       await page.waitForURL(/#\/c\//);
@@ -137,11 +139,6 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       log('conversation', id);
       await sleep(1200);
       mark('chat-open');
-      if (opts.dry) {
-        await page.screenshot({ path: join(outDir, 'dry.png') });
-        return;
-      }
-
       mark('asked', { question: L.question });
       const first = await s.designAndConfirm(id, 'q1', { poster: true }); // the first team, all three agents on the card
       await s.waitAnswered(id, 'q1', firstRound(first));

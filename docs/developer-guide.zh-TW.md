@@ -414,11 +414,11 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/groups` | `{ name }` → `ConversationGroup`（名稱空白、太長或重複——包括「其他」／Other——或超過 50 個群組時回 400） |
 | `PATCH /api/groups/:id` | `{ name }` → `ConversationGroup` |
 | `DELETE /api/groups/:id` | 刪除群組；裡面的對話會移到「其他」 |
-| `POST /api/conversations` | `{ title?, agents, settings, createCwd?, firstMessage?, requestId? }` → `Conversation`；`settings.autoTeam: true` 時會忽略 `agents`（為空），由首席 agent 為每個新問題設計團隊，`settings.autoConfirm: true` 則直接採用它的團隊、不必確認；`settings.leadReview: true` 會在團隊回答後請首席 agent 審閱回覆（任何對話都可以；沒帶就是關閉的，新對話與新自動任務頁面則預設勾選並送出它）；`settings.extraCwds`：`settings.cwd` 之後的工作目錄（全部最多八個，每個只能一次；沒有 `settings.cwd` 時用預設的）；有工作目錄不存在時回 404 並帶 `code: "cwd-missing"` 與 `paths`（不存在的那些），除非帶 `createCwd: true`，此時會全部建立。可選的 `firstMessage` 文字會在回應前透過一般訊息流程送出；若遭拒則不保留新對話 |
+| `POST /api/conversations` | `{ title?, agents, settings, createCwd?, firstMessage?, attachments?, requestId? }` → `Conversation`；`settings.autoTeam: true` 時會忽略 `agents`（為空），由首席 agent 為每個新問題設計團隊，`settings.autoConfirm: true` 則直接採用它的團隊、不必確認；`settings.leadReview: true` 會在團隊回答後請首席 agent 審閱回覆（任何對話都可以；沒帶就是關閉的，新對話與新自動任務頁面則預設勾選並送出它）；`settings.extraCwds`：`settings.cwd` 之後的工作目錄（全部最多八個，每個只能一次；沒有 `settings.cwd` 時用預設的）；有工作目錄不存在時回 404 並帶 `code: "cwd-missing"` 與 `paths`（不存在的那些），除非帶 `createCwd: true`，此時會全部建立。可選的 `firstMessage` 與 `attachments` 會一起透過一般訊息流程送出。附件格式與傳送訊息相同，有附件時必須填寫問題。若遭拒則不保留新對話 |
 | `GET /api/conversations/:id` | → `Conversation` |
 | `PATCH /api/conversations/:id` | `{ title?, agents?, settings?, createCwd? }` → `Conversation`（執行中回 409；`agents` 與 `settings` 都不會開啟或關閉自動組隊，`settings.autoConfirm` 可以修改；`settings` 沒有 `leadReview` 時會關閉首席 agent 審閱，但讀取請求與準備工作區期間在設計卡片上做的切換仍然有效；設定 `agents` 會確認等待中的團隊設計，接著由這個團隊回答；團隊來自的那份設計（就是那份，否則是採用了的最新一份，略過之後被拒絕的）接著會換成團隊的 `agents` 與 `settings`（模式、輪數、hops）並記下 `adjustedAt`、拿掉 `savedPresetId`，除非團隊和它一樣；只有 `settings` 時對採用了的最新一份設計做同樣的事，從不動等待中的；`settings` 沒有 `cwd` 時保留對話原本的工作目錄，有 `cwd` 而沒有 `extraCwds` 時它就是唯一的工作目錄；工作目錄不存在時同 `POST`） |
 | `DELETE /api/conversations/:id` | 停止執行並刪除 |
-| `PUT /api/conversations/:id/schedule` | `{ text, repeat, timeZone?, enabled?, approvals?, missed?, newChat?, goal? }` → `ConversationSchedule`：設定對話的排程（每個對話一個；取代原本的排程，並保留上次的結果）。`repeat` 是 `{ kind: 'once', at }`、`{ kind: 'daily', time }`、`{ kind: 'weekly', time, days }`（0 = 星期日）、`{ kind: 'interval', hours }`（1–168，從最後一次設定時間算起；只改訊息或其他選項時節奏不變）、`{ kind: 'manual' }`（不定時）或 `{ kind: 'event', triggers }`（當某件事發生時：1 到 5 件要等的事，任何一件都會啟動它，同一個來源（同一個帳號與資料夾、行事曆、儲存庫、要等的動態與 CI 執行的分支，或樣式）不能有兩件；舊的用戶端送來的單一 `trigger` 當作唯一的一件，回應則用 `triggers`；每件是下列之一：`{ source: 'mail', account, folder?, from?, subject? }`，以 id 指定設定中的一個郵件帳號，沒給資料夾時是收件匣（`INBOX` 不論大小寫都是收件匣，回應寫成 `INBOX`；其他資料夾保留大小寫）；`{ source: 'calendar', account, minutes, title? }`，以 id 指定設定中的一個行事曆，每個行程開始前 1 到 1440 的整數分鐘；`{ source: 'github', repo, on: 'pr' \| 'ci', branch? }`，`擁有者/名稱` 或它在 github.com 的網址（擁有者最多 39 個字元，名稱最多 100 個），分支只用於 `ci`，要是 git 接受的名稱（不能有空白或 `~^:?*[\`，不能有 `..`，不能以 `-` 開頭）；`{ source: 'file', pattern }`，相對於工作目錄，不能有 `..`、磁碟代號或開頭的 `/`，`\` 當作 `/`，開頭的 `./` 會拿掉（所以只有 `./` 算是空的）；每段文字都是最多 200 字的一行，條件（`from`、`subject`、`title`）去掉前後空白，空的就省略；以上任何一項不符都回 400，以開啟狀態儲存時，任何一件指定的郵件帳號或行事曆不存在也回 400；只要那件事還在（同一個來源，不論在清單的哪裡）、而且自動任務一直開著，它保留的來源狀態就不變，移除的事則一起丟掉；回應的 `watches`（每件檢查過的事一個）不含它看過的行程與檔案）；`time` 是 `timeZone`（預設為伺服器的時區）中的 `HH:MM`。預設：啟用、`approvals: 'deny'`、`missed: 'skip'`、`newChat: false`（`true`：每次在新對話中送出，沿用同樣的團隊、設定（包括首席 agent 審閱）與群組）。訊息是空的或太長、時間格式錯誤、沒選星期、一次性排程的時間已過（啟用時）或不認得的時區為 400；啟用時團隊還要設計或確認為 409 |
+| `PUT /api/conversations/:id/schedule` | `{ text, repeat, timeZone?, enabled?, approvals?, missed?, newChat?, goal?, attachments?, removeAttachments? }` → `ConversationSchedule`：設定對話的排程（每個對話一個；取代原本的排程，並保留上次的結果）。`repeat` 是 `{ kind: 'once', at }`、`{ kind: 'daily', time }`、`{ kind: 'weekly', time, days }`（0 = 星期日）、`{ kind: 'interval', hours }`（1–168，從最後一次設定時間算起；只改訊息或其他選項時節奏不變）、`{ kind: 'manual' }`（不定時）或 `{ kind: 'event', triggers }`（當某件事發生時：1 到 5 件要等的事，任何一件都會啟動它，同一個來源（同一個帳號與資料夾、行事曆、儲存庫、要等的動態與 CI 執行的分支，或樣式）不能有兩件；舊的用戶端送來的單一 `trigger` 當作唯一的一件，回應則用 `triggers`；每件是下列之一：`{ source: 'mail', account, folder?, from?, subject? }`，以 id 指定設定中的一個郵件帳號，沒給資料夾時是收件匣（`INBOX` 不論大小寫都是收件匣，回應寫成 `INBOX`；其他資料夾保留大小寫）；`{ source: 'calendar', account, minutes, title? }`，以 id 指定設定中的一個行事曆，每個行程開始前 1 到 1440 的整數分鐘；`{ source: 'github', repo, on: 'pr' \| 'ci', branch? }`，`擁有者/名稱` 或它在 github.com 的網址（擁有者最多 39 個字元，名稱最多 100 個），分支只用於 `ci`，要是 git 接受的名稱（不能有空白或 `~^:?*[\`，不能有 `..`，不能以 `-` 開頭）；`{ source: 'file', pattern }`，相對於工作目錄，不能有 `..`、磁碟代號或開頭的 `/`，`\` 當作 `/`，開頭的 `./` 會拿掉（所以只有 `./` 算是空的）；每段文字都是最多 200 字的一行，條件（`from`、`subject`、`title`）去掉前後空白，空的就省略；以上任何一項不符都回 400，以開啟狀態儲存時，任何一件指定的郵件帳號或行事曆不存在也回 400；只要那件事還在（同一個來源，不論在清單的哪裡）、而且自動任務一直開著，它保留的來源狀態就不變，移除的事則一起丟掉；回應的 `watches`（每件檢查過的事一個）不含它看過的行程與檔案）；`time` 是 `timeZone`（預設為伺服器的時區）中的 `HH:MM`。預設：啟用、`approvals: 'deny'`、`missed: 'skip'`、`newChat: false`（`true`：每次在新對話中送出，沿用同樣的團隊、設定（包括首席 agent 審閱）與群組）。訊息是空的或太長、時間格式錯誤、沒選星期、一次性排程的時間已過（啟用時）或不認得的時區為 400；啟用時團隊還要設計或確認為 409 附件的上傳格式與對話訊息相同。每次儲存會加入 `attachments` 並移除 `removeAttachments` 指定的既有附件 ID。兩者都省略時會保留附件。檔名、MIME 類型與內容都相同的檔案重送後仍只有一份，回應只含附件資訊。 |
 | `POST /api/schedules` | `{ title?, settings, createCwd?, schedule, hook? }` → `Conversation`（`hook` 為 `true` 時（**同時建立 webhook**）另有 `newHook`，和 `POST …/schedule/hook` 的回應一樣是 `{ token, url, hook, platform }`）：新排程（**新自動任務**），放在一個自己的、自動組隊的對話裡（`settings` 同 `POST /api/conversations`；`schedule` 同 `PUT …/schedule`，預設啟用；標題預設為訊息的第一行）。首席 agent 立刻為排程的訊息開始組隊（`designForSchedule`）；不會貼出任何訊息，團隊確認後也不會執行，要等排程送出訊息。會先檢查排程再建立工作目錄；永遠不會送出的排程，或要等的郵件帳號或行事曆不存在（不論開或關），為 400，工作目錄不存在且沒有 `createCwd` 為 404（`code: CWD_MISSING`） |
 | `DELETE /api/conversations/:id/schedule` | → `{ ok }`：刪除排程 |
 | `POST /api/conversations/:id/schedule/design` | → `202` `{ ok }`：請首席 agent 為排程的訊息組隊（再一次，例如組隊被停止之後），和 `POST /api/schedules` 一樣。沒有排程為 404；對話沒有自動組隊為 400；已經有團隊、執行中或有團隊設計在等確認時為 409 |
@@ -641,7 +641,7 @@ Schema 定義在 `src/server/db.ts` 的 `MIGRATIONS` 陣列；`PRAGMA user_versi
 2. 更新 `store.ts` / `settings.ts` 中的資料列型別與查詢。
 3. 新增或更新 `test/store.test.ts` 的測試。
 
-每個遷移在啟動時各自於一個交易中執行。[架構 → 資料保存](architecture.zh-TW.md#資料保存)列出每個資料表，以及後來加入的欄位是哪個 schema 版本（37：任務重送紀錄；36：團隊檢查，存清單的 `conversations.checks` 和 `presets.checks`、存結果的 `messages.checks`，以及只有伺服器會讀、記下對話最新一份結果那一輪起點的 `check_baselines`）。node:sqlite 無法綁定 `undefined`；選填值請用 `nul()`，多個寫入敘述請用 `transaction(db, fn)`（不支援巢狀）。
+每個遷移在啟動時各自於一個交易中執行。[架構 → 資料保存](architecture.zh-TW.md#資料保存)列出每個資料表，以及後來加入的欄位是哪個 schema 版本（38：自動任務附件、37：任務重送紀錄；36：團隊檢查，存清單的 `conversations.checks` 和 `presets.checks`、存結果的 `messages.checks`，以及只有伺服器會讀、記下對話最新一份結果那一輪起點的 `check_baselines`）。node:sqlite 無法綁定 `undefined`；選填值請用 `nul()`，多個寫入敘述請用 `transaction(db, fn)`（不支援巢狀）。
 
 檢查資料：
 
@@ -914,7 +914,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 
 目前的測試（每個情境見 [`e2e/README.zh-TW.md`](../e2e/README.zh-TW.md)）：
 
-- `e2e/specs/home.spec.ts` — 首頁可開新對話、回到待確認的團隊；經過首席 agent 設定仍保留首問與工作目錄，且只送出一次；從側邊欄回首頁，以及 logo 的動畫：只播一次、只動 `transform` 與 `opacity`、減少動態效果時不播放。
+- `e2e/specs/home.spec.ts` — 首頁可開新對話、回到待確認的團隊；必須填寫問題，經過首席 agent 設定仍保留首問、附件與工作目錄，且只送出一次；從側邊欄回首頁，以及 logo 的動畫：只播一次、只動 `transform` 與 `opacity`、減少動態效果時不播放。
 - `e2e/specs/chat.spec.ts` — 新對話：首席 agent 的團隊卡片、確認後的回答；不詢問直接使用團隊；所有 CLI 組成的團隊依序回答（有登入的七個，以及五個開源 agent；CLI 比首席 agent 為新問題組的團隊上限五位還多的那一半，會分成人數差不多的幾個團隊，各在自己的對話裡回答，所以有登入的七個分成四人與三人的團隊）；追問時另組團隊。
 - `e2e/specs/activity.spec.ts` — 各 CLI 的思考、工具呼叫（它自己列出目錄的工具，含輸出）與待辦清單（Cline 與 Pi 沒有）；Markdown 回答（標題、清單、表格、程式碼）。
 - `e2e/specs/approvals.spec.ts` — 各 CLI 執行指令前的詢問（Pi 與 Copilot 在編輯模式下，針對 `npm publish`）：允許（會執行）、附註後拒絕（附註顯示在卡片上；轉交給 Claude Code、Grok、OpenCode、Goose 與 Pi，Codex、Cursor、Muse Code、Cline 與 OpenHands 則丟掉它，Antigravity 與 Copilot 結束它們的回合）；「一律允許」讓下一次同樣的請求自動通過；請求等待時停止；各 CLI 在完整權限下不詢問就執行指令並寫到任何地方；自動拒絕的對話。
@@ -1002,7 +1002,7 @@ README 與「第一個對話」文件連結的示範影片（`docs/media/demo-*.
 
 ```bash
 npm run demo                          # 錄製兩種語言，剪輯並發佈
-npm run demo -- record --dry          # 不跑 agent，只檢查到開啟對話為止的操作流程（不到一分鐘）
+npm run demo -- record --dry          # 不跑 agent，檢查到送出第一個問題之前（不到一分鐘）
 npm run demo -- record --lang en      # 只跑一個步驟、一種語言
 npm run demo -- cut publish           # 重新剪輯並發佈上次的錄影
 ```

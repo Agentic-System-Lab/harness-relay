@@ -3,7 +3,17 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { Conversation, SettingsView } from '../../src/shared/types';
-import { acceptNextDialog, chatId, composer, finishedReply, openNewChat, openTeamChat, send, settled } from '../support/app';
+import {
+  acceptNextDialog,
+  chatId,
+  composer,
+  finishedReply,
+  openNewChat,
+  openTeamChat,
+  send,
+  settled,
+  submitFirstQuestion,
+} from '../support/app';
 import { relaySandbox } from '../support/clis';
 
 /*
@@ -388,8 +398,7 @@ test.describe('team checks', () => {
     const editor = lastTeamField(page);
     await expect(editor.locator('summary')).toContainText('Advanced settings');
     await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
-    await page.getByRole('button', { name: 'Start chat →' }).click();
-    await page.waitForURL(/#\/c\//);
+    await submitFirstQuestion(page, 'Review the protected files');
     const chat = await relay.api<Conversation>(`/api/conversations/${chatId(page)}`);
     expect(chat.settings.checks).toEqual({ protectedPaths: ['.env', '*.pem'], fromDefault: true });
 

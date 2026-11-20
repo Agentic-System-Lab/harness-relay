@@ -14,6 +14,8 @@ import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
 import { leadLabel } from '../util';
+import { readUploads, type PendingFile } from './MessageFiles';
+import { TaskInput } from './TaskInput';
 import { TemplateLibrary } from './TemplateLibrary';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
@@ -70,11 +72,12 @@ export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: C
 
 /** Kept by the signed-in application while the user visits settings or another chat. */
 export interface NewChatDraft {
+  files: PendingFile[];
   question: string;
   title: string;
   team?: Team;
 }
-export const emptyChatDraft: NewChatDraft = { question: '', title: '' };
+export const emptyChatDraft: NewChatDraft = { question: '', title: '', files: [] };
 
 interface Props {
   draft: NewChatDraft;
@@ -122,15 +125,20 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
   const leadText = leadLabel(lead);
 
+  const firstMessage = draft.question.trim();
+  const canStart = Boolean(firstMessage) && !busy && problems.length === 0;
   const start = async () => {
+    if (!canStart) return;
     setBusy(true);
     setError('');
     try {
+      const attachments = await readUploads(draft.files, t.composer.readFailed);
       const conv = await orCreateCwd(
         (createCwd) =>
           api.createConversation({
             title: draft.title,
-            firstMessage: draft.question.trim() || undefined,
+            firstMessage,
+            ...(attachments.length ? { attachments } : {}),
             agents: [],
             settings: team.settings,
             createCwd,
@@ -160,12 +168,14 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
             <label className="first-question" htmlFor="first-question">
               {t.newChat.question}
             </label>
-            <textarea
-              className="task-input"
+            <TaskInput
               id="first-question"
-              rows={4}
-              value={draft.question}
-              onChange={(e) => onDraft({ ...draft, question: e.target.value })}
+              className="task-input"
+              text={draft.question}
+              onText={(question) => onDraft({ ...draft, question })}
+              files={draft.files}
+              onFiles={(files) => onDraft({ ...draft, files })}
+              disabled={busy}
             />
             <CreationOptions
               team={team}
@@ -183,8 +193,8 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
                 onTeam={(next) => onDraft({ ...draft, team: next })}
                 automaticLabel={t.newChat.startImmediately}
               />
-              <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
-                {busy ? t.newChat.creating : draft.question.trim() ? t.newChat.sendQuestion : t.newChat.start}
+              <button className="primary" onClick={start} disabled={!canStart}>
+                {busy ? t.newChat.creating : t.newChat.sendQuestion}
               </button>
             </div>
             {(problems.length > 0 || error) && (

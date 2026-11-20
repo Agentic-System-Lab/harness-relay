@@ -2455,6 +2455,22 @@ details.sub .model-picker {
   padding: 12px;
   font: inherit;
 }
+.first-input {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  border: 0;
+}
+.first-input textarea {
+  width: 100%;
+}
+.first-input-tools {
+  display: flex;
+  gap: 4px;
+}
+.first-input.dragging .task-input {
+  outline: 2px dashed var(--text);
+}
 .chat-options,
 .template-library {
   min-width: 0;

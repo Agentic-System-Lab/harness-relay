@@ -159,7 +159,7 @@ export const en: Messages = {
         ? `${lead} will choose a team for your question. The team will answer right away.`
         : `${lead} will choose a team for your question and wait for your confirmation before it answers.`,
     question: 'What would you like to accomplish?',
-    sendQuestion: 'Send first question',
+    sendQuestion: 'Send question',
     options: 'Workspace and chat settings',
     optionalTitle: 'Conversation title (optional)',
     afterDesign: 'Once the team is ready',
@@ -181,7 +181,6 @@ export const en: Messages = {
     titlePlaceholder: 'Conversation title (optional; defaults to the first question)',
     templateNamePrompt: 'Template name',
     creating: 'Creating…',
-    start: 'Start chat →',
   },
 
   template: {
@@ -405,9 +404,6 @@ export const en: Messages = {
     teamReady: 'The team is ready',
     leader: 'leader',
     noRole: '(no role set)',
-    autoIntroTitle: 'The lead agent builds the team first',
-    autoIntro: (lead, asks) =>
-      `Just ask your question. The lead agent (${lead}) picks a suitable template, adapts one, or designs a new team, and ${asks ? 'once you confirm it the team answers' : 'the team answers right away'}. Every new question gets its team the same way; a message that @mentions a member goes straight to them.`,
     drawerNote:
       "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
     confirmCreateCwd: (dirs) => `These working directories do not exist:\n${dirs}\nCreate them and save the team settings?`,
@@ -2295,7 +2291,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type your first question. Check the working directory and file permission below it, then send. To attach a file first, leave the question blank and open the chat. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. You can attach files beside it. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',
@@ -2409,7 +2405,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, something that happens, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
+        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message, attach files, and choose what starts it. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',

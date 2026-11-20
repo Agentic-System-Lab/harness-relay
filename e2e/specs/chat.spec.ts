@@ -2,18 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import {
-  askAndConfirm,
-  awaitingPlan,
-  chatId,
-  composer,
-  confirmTeam,
-  finishedReply,
-  replies,
-  send,
-  settled,
-  startChat,
-} from '../support/app';
+import { askAndConfirm, awaitingPlan, chatId, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
 import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
@@ -104,8 +93,7 @@ test.describe('auto team with exhausted CLI quotas', () => {
 
   test('refreshes quota before starting the next team and replaces a newly exhausted model', async ({ page, relay }) => {
     await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'codex' } } });
-    const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
-    await send(page, 'Choose Claude first e2e:team=claude');
+    const id = await startChat(page, 'Choose Claude first e2e:team=claude', { autoConfirm: true, permission: 'read-only' });
     await expect((await finishedReply(page, 'Claude')).locator('.provider-tag')).toHaveText('Claude Code');
     await settled(relay, id);
 
@@ -128,8 +116,7 @@ test.describe('auto team with exhausted CLI quotas', () => {
 
     test('shows the unavailable lead inside the fallback team card', async ({ page, relay }) => {
       await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'claude' } } });
-      const id = await startChat(page, { permission: 'read-only' });
-      await send(page, 'Choose a team');
+      const id = await startChat(page, 'Choose a team', { permission: 'read-only' });
       const card = awaitingPlan(page);
       const warning = card.getByText(/The lead agent \(Claude Code\) reached its 5-hour limit/);
       await expect(warning).toContainText('reported reset time');
@@ -148,8 +135,7 @@ test.describe('auto team with exhausted CLI quotas', () => {
     test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude,codex,grok' } });
 
     test('explains why it cannot start a team', async ({ page, relay }) => {
-      const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
-      await send(page, 'Choose a team');
+      const id = await startChat(page, 'Choose a team', { autoConfirm: true, permission: 'read-only' });
       const card = page.locator('.plan-card.failed');
       await expect(card.getByRole('status').filter({ hasText: 'No models are available for this team.' })).toBeVisible();
       await expect(card.getByRole('status').filter({ hasText: /lead agent .* was unavailable for this design/ })).toBeVisible();
@@ -164,8 +150,7 @@ test.describe('auto team with exhausted CLI quotas', () => {
 
 test.describe('team design progress and model checks', () => {
   test('shows collapsible progress during design and keeps it open when the model check finishes', async ({ page, relay }) => {
-    const id = await startChat(page);
-    await send(page, 'Choose a team e2e:slowplan=3');
+    const id = await startChat(page, 'Choose a team e2e:slowplan=3');
     const progress = 'details[aria-label="Team design progress"]';
     const liveActivity = page.locator('.plan-card.planning').locator(progress);
     await expect(liveActivity).toBeVisible();
@@ -189,8 +174,7 @@ test.describe('team design progress and model checks', () => {
   });
 
   test('checks a full-access team only after confirmation', async ({ page, relay }) => {
-    await startChat(page, { permission: 'full' });
-    await send(page, 'Choose a full-access team');
+    await startChat(page, 'Choose a full-access team', { permission: 'full' });
     await expect(awaitingPlan(page)).toContainText('Confirm this team to test the models before they answer.');
     const checks = () => relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
     expect(checks()).toEqual([]);
@@ -204,8 +188,7 @@ test.describe('team design progress and model checks', () => {
     test.use({ openBackend: false, serverEnv: { E2E_FAIL_MODEL_CHECK_CLIS: 'claude,codex,grok' } });
 
     test('shows the failed check and starts no team even with auto-confirm on', async ({ page, relay }) => {
-      const id = await startChat(page, { autoConfirm: true });
-      await send(page, 'Choose a team');
+      const id = await startChat(page, 'Choose a team', { autoConfirm: true });
       await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible();
       const activity = page.locator('.plan-card.failed details[aria-label="Team design progress"]');
       await activity.locator('summary').first().click();
@@ -219,10 +202,7 @@ test.describe('team design progress and model checks', () => {
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
-    await startChat(page);
-    await expect(composer(page)).toHaveAttribute('placeholder', /lead agent builds a team/);
-
-    await send(page, 'What does this project do?');
+    await startChat(page, 'What does this project do?');
     const card = awaitingPlan(page);
     await expect(card).toBeVisible();
     await expect(card).toContainText('Custom team "E2E team"');
@@ -243,8 +223,7 @@ test.describe('a new chat', () => {
   test("while the lead agent designs the team, its card shows the home page's logo, turning again and again with half a second still after each turn, and still with reduced motion", async ({
     page,
   }) => {
-    await startChat(page);
-    await send(page, 'Take your time e2e:slowplan');
+    await startChat(page, 'Take your time e2e:slowplan');
     const card = page.locator('.plan-card.planning').last();
     await expect(card).toContainText('is choosing a team for this question');
     const mark = card.locator('.plan-logo');
@@ -322,8 +301,7 @@ test.describe('a new chat', () => {
   });
 
   test("with the lead agent's teams used without asking, the team answers right away", async ({ page }) => {
-    await startChat(page, { autoConfirm: true });
-    await send(page, 'Hello there');
+    await startChat(page, 'Hello there', { autoConfirm: true });
     await expect(page.locator('.plan-card').last()).toContainText('Used without asking');
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Hello there”.');
     await expect(awaitingPlan(page)).toHaveCount(0);
@@ -339,8 +317,10 @@ test.describe('a new chat', () => {
       const size = Math.ceil(all.length / Math.ceil(all.length / LEAD_TEAM_MAX));
       for (let i = 0; i < all.length; i += size) {
         const team = all.slice(i, i + size);
-        await startChat(page, { permission: sharedPermission(team) });
-        await askAndConfirm(page, `Review the code together e2e:team=${team.map((c) => c.provider).join(',')}`);
+        await startChat(page, `Review the code together e2e:team=${team.map((c) => c.provider).join(',')}`, {
+          permission: sharedPermission(team),
+        });
+        await confirmTeam(page);
         for (const c of team) {
           const reply = await finishedReply(page, c.name);
           await expect(reply).toContainText(`Hello from ${c.name} (${c.label}). You said: “Review the code together”.`);
@@ -353,8 +333,8 @@ test.describe('a new chat', () => {
   });
 
   test('a follow-up question gets a team again and the members answer it', async ({ page, relay }) => {
-    await startChat(page);
-    await askAndConfirm(page, 'First question');
+    await startChat(page, 'First question');
+    await confirmTeam(page);
     await expect(await finishedReply(page, 'Claude')).toContainText('First question');
     await settled(relay, chatId(page));
 

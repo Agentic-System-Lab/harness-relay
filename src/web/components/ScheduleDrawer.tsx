@@ -16,6 +16,7 @@ import {
   type ScheduleDraft,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
+import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { ScheduleHookPanel, ScheduleProgress } from './ScheduleTracking';
 import { useDialog } from './useDialog';
@@ -96,7 +97,12 @@ export function ScheduleDrawer({
     setSaving(true);
     setError('');
     try {
-      await api.saveSchedule(conv.id, toUpdate(draft));
+      const attachments = await readUploads(draft.files, t.composer.readFailed);
+      await api.saveSchedule(conv.id, {
+        ...toUpdate(draft),
+        ...(attachments.length ? { attachments } : {}),
+        ...(draft.removeAttachments.length ? { removeAttachments: draft.removeAttachments } : {}),
+      });
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -259,7 +265,7 @@ export function ScheduleDrawer({
         )}
 
         <div className="schedule-form">
-          <ScheduleForm draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
+          <ScheduleForm disabled={saving} draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
 
           <div className="field">
             <span>{t.schedule.team}</span>
