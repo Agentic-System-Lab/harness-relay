@@ -159,6 +159,7 @@ export const en: Messages = {
         ? `${lead} will choose a team for your question. The team will answer right away.`
         : `${lead} will choose a team for your question and wait for your confirmation before it answers.`,
     question: 'What would you like to accomplish?',
+    scrollDown: 'Scroll down to see more',
     sendQuestion: 'Send question',
     options: 'Workspace and chat settings',
     optionalTitle: 'Conversation title (optional)',

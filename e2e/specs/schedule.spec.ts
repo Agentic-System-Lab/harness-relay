@@ -1,14 +1,33 @@
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import type { Conversation } from '../../src/shared/types';
+import type { Conversation, VoiceStatus } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
+
+/** A tone stands in for a microphone so the browser records without a physical device. */
+async function syntheticMicrophone(page: Page, status: VoiceStatus) {
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const ctx = new AudioContext();
+      const tone = ctx.createOscillator();
+      const dest = ctx.createMediaStreamDestination();
+      tone.connect(dest);
+      tone.start();
+      await ctx.resume();
+      return dest.stream;
+    };
+  });
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { ...status, ready: true } }));
+  await page.route('**/api/voice/prepare', (route) => route.fulfill({ json: { ok: true } }));
+}
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Daily check');
+    await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
     await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await expect(drawer).toBeVisible();
@@ -16,6 +35,12 @@ test.describe('schedules', () => {
     await drawer
       .locator('input[type=file]')
       .setInputFiles({ name: 'build.txt', mimeType: 'text/plain', buffer: Buffer.from('build instructions') });
+    await drawer.getByRole('button', { name: en.voice.start }).click();
+    await expect(drawer.getByRole('button', { name: en.voice.stop })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer.getByRole('button', { name: en.voice.start })).toBeVisible();
+    await expect(drawer.getByRole('textbox', { name: 'Message to send the team' })).toHaveValue('Check the build');
+    await expect(drawer.getByRole('button', { name: en.composer.removeFile('build.txt') })).toBeVisible();
     await drawer.getByRole('radio', { name: 'Every day' }).click();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     // Saved, it closes; the sidebar shows the chat has a schedule.
@@ -38,6 +63,83 @@ test.describe('schedules', () => {
     await expect(drawer).toBeHidden();
     const download = await page.request.get(await attached.evaluate((link: HTMLAnchorElement) => link.href));
     expect(await download.text()).toBe('build instructions');
+    // A slow attachment read from a dismissed draft cannot reinstate an automation deleted afterwards.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+    await page.evaluate(() => {
+      const read = FileReader.prototype.readAsDataURL;
+      FileReader.prototype.readAsDataURL = function (file) {
+        document.addEventListener(
+          'finish-test-read',
+          () => {
+            this.addEventListener('loadend', () => document.dispatchEvent(new Event('test-file-read')), { once: true });
+            read.call(this, file);
+          },
+          { once: true },
+        );
+        FileReader.prototype.readAsDataURL = read;
+      };
+    });
+    const updates: string[] = [];
+    page.on('request', (req) => {
+      if (req.method() === 'PUT' && req.url().endsWith('/schedule')) updates.push(req.url());
+    });
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer.getByRole('button', { name: en.schedule.remove })).toBeDisabled();
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await drawer.getByRole('button', { name: en.schedule.remove }).click();
+    await expect(drawer).toBeHidden();
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          document.addEventListener('test-file-read', () => done(), { once: true });
+          document.dispatchEvent(new Event('finish-test-read'));
+        }),
+    );
+    expect(updates).toEqual([]);
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveCount(0);
+  });
+
+  test('deleting a reopened automation waits for its pending attachment upload', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+    const open = page.locator('.chat-head').getByRole('button', { name: 'Automation' });
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await open.click();
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Pending upload');
+    await drawer.getByRole('radio', { name: 'Every day' }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await open.click();
+    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+
+    // Record the order in which the UI actually sends its mutations. Hold the upload before it reaches the server.
+    const calls = await page.evaluateHandle(() => {
+      const methods: string[] = [];
+      const fetch = window.fetch.bind(window);
+      window.fetch = async (url, options) => {
+        if (String(url).endsWith('/schedule') && options?.method) {
+          methods.push(options.method);
+          if (options.method === 'PUT') {
+            await new Promise<void>((resolve) => window.addEventListener('release-test-upload', () => resolve(), { once: true }));
+          }
+        }
+        return fetch(url, options);
+      };
+      return methods;
+    });
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => calls.jsonValue()).toEqual(['PUT']);
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await open.click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await drawer.getByRole('button', { name: en.schedule.remove }).click();
+    expect(await calls.jsonValue()).toEqual(['PUT']);
+    await page.evaluate(() => window.dispatchEvent(new Event('release-test-upload')));
+    await expect(drawer).toBeHidden();
+    expect(await calls.jsonValue()).toEqual(['PUT', 'DELETE']);
+    expect((await relay.api<Conversation>('/api/conversations/' + id)).schedule).toBeUndefined();
   });
 
   test('a schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached', async ({ page, relay }) => {
@@ -160,23 +262,7 @@ test.describe('schedules', () => {
     page,
     relay,
   }) => {
-    // Exercise the browser's recorder with a tone. The local transcription service has a fixed reply.
-    await page.evaluate(() => {
-      navigator.mediaDevices.getUserMedia = async () => {
-        const ctx = new AudioContext();
-        const tone = ctx.createOscillator();
-        const dest = ctx.createMediaStreamDestination();
-        tone.connect(dest);
-        tone.start();
-        await ctx.resume();
-        return dest.stream;
-      };
-    });
-    await page.route('**/api/voice', async (route) => {
-      const status = await (await route.fetch()).json();
-      await route.fulfill({ json: { ...status, ready: true } });
-    });
-    await page.route('**/api/voice/prepare', (route) => route.fulfill({ json: { ok: true } }));
+    await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
     await page.route('**/api/voice/transcribe', async (route) => {
       const audio = Buffer.from(route.request().postDataJSON().audio, 'base64');
       expect(audio.toString('ascii', 0, 4)).toBe('RIFF');

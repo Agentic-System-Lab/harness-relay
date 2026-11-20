@@ -116,14 +116,16 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
     const release = holdDialogs();
     const below = dialogsOpen();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing || dialogsOpen() > below) return;
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || dialogsOpen() > below) return;
+      // Cancel before an enclosing automation drawer handles Escape and discards its draft.
+      e.stopPropagation();
       e.preventDefault();
       cancelRef.current();
     };
-    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       clearInterval(timer);
-      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       release();
     };
   }, [rec, t]);

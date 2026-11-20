@@ -73,11 +73,12 @@ test.describe('templates', () => {
     await task.fill('Review incoming work');
     await goal.fill('Each issue has an owner');
     await when.selectOption('weekly');
-    const library = page.locator('.first-task > .template-library:has(+ .start-bar .team-confirmation)');
+    const library = page.locator('.creation-fields > .template-library');
     const checkDividerGap = async () => {
+      await page.locator('.new-chat-body').evaluate((pane) => pane.scrollTo(0, pane.scrollHeight));
       const [cards, actions] = await Promise.all([
         library.locator('.preset-row').boundingBox(),
-        page.locator('.first-task-actions').boundingBox(),
+        page.locator('.creation-team-options').boundingBox(),
       ]);
       expect(actions!.y - (cards!.y + cards!.height)).toBeGreaterThanOrEqual(23);
     };

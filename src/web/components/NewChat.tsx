@@ -17,6 +17,7 @@ import { leadLabel } from '../util';
 import { readUploads, type PendingFile } from './MessageFiles';
 import { TaskInput } from './TaskInput';
 import { TemplateLibrary } from './TemplateLibrary';
+import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
@@ -155,56 +156,43 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   };
 
   return (
-    <div className="page new-chat-page">
-      <div className="scroll new-chat-body">
-        <div className="page-inner">
-          <header className="page-head">
-            <h1>{t.newChat.title}</h1>
-            <p className="muted">
-              {t.newChat.intro(leadText, Boolean(team.settings.autoConfirm))} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
-            </p>
-          </header>
-          <fieldset className="first-task" disabled={busy} aria-label={t.newChat.title}>
-            <label className="first-question" htmlFor="first-question">
-              {t.newChat.question}
-            </label>
-            <TaskInput
-              id="first-question"
-              className="task-input"
-              text={draft.question}
-              onText={(question) => onDraft({ ...draft, question })}
-              files={draft.files}
-              onFiles={(files) => onDraft({ ...draft, files })}
-              disabled={busy}
-            />
-            <CreationOptions
-              team={team}
-              onTeam={(next) => onDraft({ ...draft, team: next })}
-              providers={providers}
-              catalog={catalog}
-              title={draft.title}
-              onTitle={(title) => onDraft({ ...draft, title })}
-              titlePlaceholder={t.newChat.titlePlaceholder}
-            />
-            <TemplateLibrary providers={providers} catalog={catalog} />
-            <div className="start-bar first-task-actions">
-              <CreationTeamOptions
-                team={team}
-                onTeam={(next) => onDraft({ ...draft, team: next })}
-                automaticLabel={t.newChat.startImmediately}
-              />
-              <button className="primary" onClick={start} disabled={!canStart}>
-                {busy ? t.newChat.creating : t.newChat.sendQuestion}
-              </button>
-            </div>
-            {(problems.length > 0 || error) && (
-              <p role="alert" className="error-line">
-                {error || problems[0]}
-              </p>
-            )}
-          </fieldset>
-        </div>
-      </div>
-    </div>
+    <CreationPage
+      title={t.newChat.title}
+      intro={
+        <>
+          {t.newChat.intro(leadText, Boolean(team.settings.autoConfirm))} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
+        </>
+      }
+      busy={busy}
+      error={error}
+      problem={problems[0]}
+      onSubmit={start}
+      submitLabel={busy ? t.newChat.creating : t.newChat.sendQuestion}
+      disabled={!canStart}
+    >
+      <label className="first-question" htmlFor="first-question">
+        {t.newChat.question}
+      </label>
+      <TaskInput
+        id="first-question"
+        className="task-input"
+        text={draft.question}
+        onText={(question) => onDraft({ ...draft, question })}
+        files={draft.files}
+        onFiles={(files) => onDraft({ ...draft, files })}
+        disabled={busy}
+      />
+      <CreationOptions
+        team={team}
+        onTeam={(next) => onDraft({ ...draft, team: next })}
+        providers={providers}
+        catalog={catalog}
+        title={draft.title}
+        onTitle={(title) => onDraft({ ...draft, title })}
+        titlePlaceholder={t.newChat.titlePlaceholder}
+      />
+      <TemplateLibrary providers={providers} catalog={catalog} />
+      <CreationTeamOptions team={team} onTeam={(next) => onDraft({ ...draft, team: next })} automaticLabel={t.newChat.startImmediately} />
+    </CreationPage>
   );
 }

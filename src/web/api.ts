@@ -262,6 +262,20 @@ async function requestText(path: string, o: Sending = {}): Promise<string> {
 
 type ScheduleSubmission = ScheduleUpdate & { attachments?: AttachmentUpload[]; removeAttachments?: string[] };
 
+// Keep this browser's edits in submission order, even when the drawer is closed and reopened during an upload.
+const scheduleWrites = new Map<string, Promise<unknown>>();
+
+async function writeSchedule<T>(id: string, send: () => Promise<T>): Promise<T> {
+  const previous = scheduleWrites.get(id);
+  const next = previous ? previous.then(send, send) : send();
+  scheduleWrites.set(id, next);
+  try {
+    return await next;
+  } finally {
+    if (scheduleWrites.get(id) === next) scheduleWrites.delete(id);
+  }
+}
+
 /** A file attached to a message, as sent to the server. */
 export interface AttachmentUpload {
   name: string;
@@ -365,8 +379,9 @@ export const api = {
   /** Pin it to the top of the sidebar, or unpin it. */
   pinConversation: (id: string, pinned: boolean) => request<{ ok: true }>('PUT', `/api/conversations/${id}/pin`, { pinned }),
   /** Set the conversation's schedule (it replaces the one there was). */
-  saveSchedule: (id: string, b: ScheduleSubmission) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
-  deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
+  saveSchedule: (id: string, b: ScheduleSubmission) =>
+    writeSchedule(id, () => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b)),
+  deleteSchedule: (id: string) => writeSchedule(id, () => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`)),
   /** A new schedule in a conversation of its own, whose lead agent designs the team for it now. */
   createSchedule: (b: {
     title?: string;

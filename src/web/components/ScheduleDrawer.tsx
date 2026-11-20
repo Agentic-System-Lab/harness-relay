@@ -98,12 +98,14 @@ export function ScheduleDrawer({
     setError('');
     try {
       const attachments = await readUploads(draft.files, t.composer.readFailed);
+      // The drawer can be dismissed while a file is still being read. Drop that unfinished edit.
+      if (!dialog.current) return;
       await api.saveSchedule(conv.id, {
         ...toUpdate(draft),
         ...(attachments.length ? { attachments } : {}),
         ...(draft.removeAttachments.length ? { removeAttachments: draft.removeAttachments } : {}),
       });
-      onClose();
+      if (dialog.current) onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -112,12 +114,15 @@ export function ScheduleDrawer({
   };
 
   const remove = async () => {
-    if (!confirm(t.schedule.confirmRemove)) return;
+    if (saving || !confirm(t.schedule.confirmRemove)) return;
+    setSaving(true);
     try {
       await api.deleteSchedule(conv.id);
-      onClose();
+      if (dialog.current) onClose();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -237,7 +242,7 @@ export function ScheduleDrawer({
               >
                 {t.schedule.runNow}
               </button>
-              <button type="button" className="ghost small-button danger" onClick={remove}>
+              <button type="button" className="ghost small-button danger" disabled={saving} onClick={remove}>
                 {t.schedule.remove}
               </button>
             </div>

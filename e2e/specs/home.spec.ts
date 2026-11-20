@@ -109,12 +109,67 @@ test.describe('the home page', () => {
 
   for (const automation of [false, true]) {
     const name = automation ? 'New automation' : 'New chat';
+    test(name + ' pins its actions and indicates when the form can scroll further', async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 1500 });
+      await page.getByRole('button', { name, exact: true }).first().click();
+      const pane = page.locator('.new-chat-body');
+      const footer = page.locator('.creation-footer');
+      const hint = page.getByRole('button', { name: 'Scroll down to see more' });
+      const submit = footer.getByRole('button', { name: automation ? 'Create automation' : 'Send question' });
+      await expect(submit).toBeInViewport();
+      await expect(pane.getByRole('radio', { name: 'Wait for my confirmation' })).toHaveCount(1);
+      await expect(pane.getByRole('checkbox', { name: /review the team.s replies/i })).toHaveCount(1);
+      await expect(hint).toHaveCount(0);
+      const card = page.locator('.first-task');
+      const short = (await card.boundingBox())!;
+      expect(short.y + short.height).toBeLessThan(1400); // A short card ends before the viewport's bottom.
+      const message = pane.locator('.task-input');
+      await message.fill('A line in a long task description.\n'.repeat(60));
+      expect(
+        await message.evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+          return el.scrollTop;
+        }),
+      ).toBeGreaterThan(0);
+      expect(await card.boundingBox()).toEqual(short);
+      await message.fill('');
+      await page.setViewportSize({ width: 390, height: 620 });
+      await page.locator('.chat-options > summary').click();
+      await pane.evaluate((el) => el.scrollTo(0, 0));
+      await expect(hint).toBeInViewport();
+      const fields = (await pane.boundingBox())!;
+      expect((await hint.boundingBox())!.y).toBeGreaterThanOrEqual(fields.y + fields.height - 1);
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await expect(hint.locator('svg')).toHaveCSS('animation-name', 'creation-scroll-down');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await expect(hint.locator('svg')).toHaveCSS('animation-name', 'none');
+      const pinned = await footer.boundingBox();
+      const frame = (await card.boundingBox())!;
+      expect(pinned!.y + pinned!.height).toBeCloseTo(frame.y + frame.height - 1, 0);
+      expect(frame.y + frame.height).toBeLessThan(620);
+      expect(pinned!.x).toBeGreaterThan(frame.x);
+      const heading = await page.locator('#creation-title').boundingBox();
+      await hint.click();
+      await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await pane.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await expect(hint).toHaveCount(0);
+      await expect(pane.getByRole('checkbox', { name: /review the team.s replies/i })).toBeInViewport();
+      await expect(submit).toBeInViewport();
+      expect(await footer.boundingBox()).toEqual(pinned);
+      expect(await page.locator('#creation-title').boundingBox()).toEqual(heading);
+      await pane.evaluate((el) => el.scrollTo(0, 0));
+      await expect(hint).toBeVisible();
+      await page.locator('.chat-options > summary').click();
+      await page.setViewportSize({ width: 1440, height: 1500 });
+      await expect(hint).toHaveCount(0);
+    });
+
     test(`${name} keeps a failed draft and leaves the current page in place after a background retry`, async ({ page }) => {
       const path = automation ? '/api/schedules' : '/api/conversations';
       await page.getByRole('button', { name, exact: true }).first().click();
       const message = page.locator('.first-task .task-input');
       await message.fill('Review this week’s invoices');
-      const review = page.locator('.first-task-actions').getByRole('checkbox', { name: /review the team.s replies/i });
+      const review = page.locator('.creation-fields').getByRole('checkbox', { name: /review the team.s replies/i });
       await expect(review).toBeChecked();
       await review.uncheck();
       const expectedSections = automation

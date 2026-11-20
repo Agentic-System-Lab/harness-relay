@@ -165,6 +165,7 @@ export const zhTW = {
     intro: (lead: string, auto: boolean) =>
       auto ? `${lead} 會為你的問題組隊，團隊隨即開始回答。` : `${lead} 會為你的問題組隊，等你確認後才開始回答。`,
     question: '你想完成什麼？',
+    scrollDown: '向下捲動以查看更多內容',
     sendQuestion: '送出問題',
     options: '工作目錄與對話設定',
     optionalTitle: '對話標題（選填）',

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 514 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 517 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,7 +36,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
-| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 8 | [User guide → Start a chat](../docs/user-guide.md#conversation-rules) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 10 | [User guide → Start a chat](../docs/user-guide.md#conversation-rules) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 7 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -57,7 +57,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [User guide → Groups](../docs/user-guide.md#groups), [Pinned conversations](../docs/user-guide.md#pinned-conversations), [Search](../docs/user-guide.md#search), [Starring Harness Relay on GitHub](../docs/user-guide.md#starring-harness-relay-on-github) |
-| [Automations](#automations) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 11 | [User guide → Automations](../docs/user-guide.md#automations), [Architecture → Schedules](../docs/architecture.md#schedules) |
+| [Automations](#automations) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [User guide → Automations](../docs/user-guide.md#automations), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
 | [Installing a CLI](#installing-a-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [User guide → Installing a CLI from Settings](../docs/user-guide.md#installing-a-cli-from-settings), [Architecture → Installing a CLI from Settings](../docs/architecture.md#installing-a-cli-from-settings) |
 | [Installing Git](#installing-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [User guide → Git and file safety](../docs/user-guide.md#conversation-rules) |
@@ -101,6 +101,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
+| New chat and New automation keep their actions visible (2 scenarios) | The submit button stays at the card’s bottom. The team choices and lead review scroll with the fields. Short cards fit their contents. A long description scrolls inside its text box. The form scrolls independently. Its arrow scrolls the form, disappears at the bottom or when the form fits, and stays still with reduced motion. |
 | Start a question from the collapsed home page | An empty, whitespace-only or cleared question keeps Send question disabled, even with a file attached. The question, file, title, folders, permission and team confirmation survive a visit to lead settings. Sending posts one message with the file, the home page links to the waiting team, and the next chat shows the saved confirmation preference. |
 | A slow creation from New chat or New automation (one scenario per form) | A rejected request keeps the draft, its visible lead review choice and error across Settings. A successful retry leaves Settings in front. At phone width the link there opens the created item, including the automation’s one-time webhook token. |
 | The app opens on it, and the logo and name lead back to it | The home page shows the logo and its tagline; the sidebar's logo and **Harness Relay** (marked as the current page there) go back to it from the New chat page and from a chat (`#/`). |
@@ -404,7 +405,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| A chat's schedule is saved, and running it once sends its message to the team | Codex | Saved "Every day", the sidebar marks the chat; **Run once now** sends the message and attached file, marked Automation, and the member answers. The message’s download still serves its original contents after removing the file from the automation. |
+| A chat's schedule is saved, and running it once sends its message to the team | Codex | Saved "Every day", the sidebar marks the chat; **Run once now** sends the message and attached file, marked Automation, and the member answers. Escape cancels a recording and keeps the edited message and file in the drawer. Closing a draft during a file read cancels that edit, so deleting the automation afterwards persists. The message’s download still serves its original contents after removing the file from the automation. |
+| Deleting a reopened automation waits for its pending attachment upload | Codex | Close the drawer while its upload is held and delete the automation from a reopened drawer. The browser sends the deletion after the upload finishes, and the server keeps the automation deleted. |
 | A schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached | Codex | Saved with a goal, the drawer's **Progress** says there is none yet; **Run once now** (the fake ends its reply with a `<progress status="done">` block, `e2e:progress`, naming the goal its briefing gave it): the reply shows a **Done** card, not the block's text, a note says the goal is reached and the schedule is off, and the drawer lists the one note, **Done**, with **On** unticked. |
 | A run whose reply says its goal is held up marks the chat as needing the user, and keeps the automation on | Codex | Its reply (the fake's `e2e:progress=blocked`) shows a **Blocked** card and a note that the goal is held up; the sidebar marks the chat **Goal held up** and the tab's title counts it; the drawer's **Progress** says **Blocked**. Once the user answers and the member replies, the mark is gone. |
 | A schedule's webhook shows its token once, and a program's call sends the message with what it posted | Codex | Set to **No set times**, the drawer says only **Run once now** and the webhook send it and has no **On** nor **Missed times**; saved, the sidebar's clock says so, and the status reads **No set times**. **Let another program start it (webhook)** is folded away until opened; **Add a webhook** shows a `curl` line with the token and the address (on Windows, PowerShell's `Invoke-RestMethod`), and **Not called yet**; a call from outside the browser with a wrong token is a 404, with the token a 202, and the drawer says when it was last called. The message, marked Scheduled, shows **What the webhook sent** with the JSON it posted, and the member answers it. Opened again, the drawer shows no token, only **New token**. |
