@@ -355,6 +355,9 @@ function mcpProvider(name: string, o: Omit<StoredMcpOAuth, 'status' | 'signedInA
     extraParams: { resource: o.resource, ...(o.resource === APP_SERVERS.heptabase ? { prompt: 'consent' } : {}) },
     tokenParams: { resource: o.resource },
     refreshOptional: true,
+    ...(o.token === 'https://slack.com/api/oauth.v2.user.access'
+      ? { revokedRefreshErrors: ['invalid_refresh_token', 'token_revoked'] }
+      : {}),
     issuer: o.issuer,
     ...(o.issParameter ? { issParameter: true } : {}),
     send: (url, r) => mcpSend(url, r, reach),

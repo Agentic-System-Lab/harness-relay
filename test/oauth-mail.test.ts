@@ -1055,6 +1055,8 @@ describe('chat tools for common apps', () => {
     const search = fake.requests.find((r) => r.path.startsWith('/drive/v3/files?'))!;
     expect(new URL(search.path, fake.url).searchParams.get('q')).toBe("trashed = false and name contains 'Ming\\'s notes'");
     expect(search.bearer).toBeTruthy();
+    expect((await call('drive_search', { query: "Ming's notes", pageToken: 'page-2' })).text).toContain('Shared notebook');
+    await expect(call('drive_search', { pageToken: ['bad'] })).rejects.toThrow();
     expect((await call('drive_read_document', { id: 'doc' })).text).toContain('Meeting summary');
     await expect(call('drive_read_document', { id: '..' })).rejects.toThrow();
     await service.removeAccount(drive.account!.id);
@@ -1067,7 +1069,9 @@ describe('chat tools for common apps', () => {
     const scopes = new URL(started.authorizeUrl!).searchParams.get('scope');
     expect(scopes).toContain('ChannelMessage.Read.All');
     expect(scopes).not.toMatch(/Calendar|IMAP/);
-    expect((await call('teams_list')).text).toContain('Product');
+    const teams = (await call('teams_list')).text;
+    expect(teams).toContain('Product');
+    expect(teams).not.toContain('Private team details');
     expect((await call('teams_list', { team: 'team1' })).text).toContain('General');
     expect((await call('teams_messages', { team: 'team1', channel: 'channel1' })).text).toContain('Friday update');
     await expect(service.startSignIn({ provider: 'google', uses: ['teams'], port: 8787 })).rejects.toThrow();

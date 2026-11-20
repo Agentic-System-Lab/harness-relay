@@ -839,7 +839,7 @@ export const en: Messages = {
       app: 'The app to sign in with',
       setUp: 'Set up the app',
       needsApp: (provider) =>
-        `Signing in with ${provider} needs an app registered with ${provider} first (Harness Relay has none of its own yet): give its client ID here.`,
+        `Signing in with ${provider} needs an app registered with ${provider} first. This installation does not include one. You can enter your registered app’s client ID here.`,
       clientId: 'Client ID',
       tenant: 'Tenant',
       tenantHint: 'common (work, school and personal accounts), organizations, consumers, or your tenant’s ID or domain.',
@@ -2473,13 +2473,13 @@ export const en: Messages = {
         ],
       },
       {
-        title: "Tool library: MCP, skills, memory and Harness Relay's tools",
-        body: "Set them up once in Settings → Tool library, and every member can use them, whichever CLI it runs on, in addition to each CLI's own setup:",
+        title: 'Connect apps to your chats',
+        body: 'Open Settings → Common apps. Choose Connect beside the service you want, then approve access on its page. For Obsidian, choose the folder that holds your notes.',
         points: [
-          'MCP servers: a local command or a URL; tokens go to your system credential store, and a server that asks for an OAuth sign-in signs in right there',
+          'Under Settings → Tool library you can choose individual assistants, add your own MCP servers or enable the built-in browser',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
           'Memory: one part for everyone, plus one for each CLI',
-          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password; Microsoft 365, Outlook.com and Google mail and calendars can sign in in the browser instead, their tokens kept in your credential store)",
+          'For Gmail, Drive, Calendar, Teams, GitHub or Obsidian, enable chat access on the card after connecting. Try asking for tomorrow’s schedule.',
           'Give each item only to some CLIs; the team settings can change it for a single member',
         ],
       },

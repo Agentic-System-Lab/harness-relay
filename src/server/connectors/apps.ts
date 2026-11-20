@@ -151,8 +151,12 @@ export function appTools(
       ['path'],
       async (a) => {
         const { real, rel } = vaultPath(root(), a.path);
-        if (!/\.md$/i.test(rel) || lstatSync(real).nlink !== 1) throw new Error(t().fileNotFound);
-        const preview = readPreview(real, rel);
+        if (!/\.md$/i.test(rel)) throw new Error(t().fileNotFound);
+        const preview = readPreview(real, rel, t().fileNotFound, () => {
+          const st = lstatSync(real);
+          if (!st.isFile() || st.nlink !== 1 || vaultPath(root(), rel).real !== real) throw new Error(t().fileNotFound);
+          return st;
+        });
         if (preview.kind !== 'text') throw new Error(t().fileNotFound);
         return { text: preview.text, truncated: Boolean(preview.truncated) };
       },
@@ -161,10 +165,12 @@ export function appTools(
     readTool(
       'drive',
       'drive_search',
-      'Find Google Drive files by name. Returns IDs and links.',
-      { account: accountSchema, query: string },
+      'Find accessible Google Drive files by name, including shared drives. Use nextPageToken as pageToken for the next page.',
+      { account: accountSchema, query: string, pageToken: { type: 'string', maxLength: 4096 } },
       [],
       async (a) => {
+        if (a.pageToken !== undefined && (typeof a.pageToken !== 'string' || !a.pageToken || a.pageToken.length > 4096))
+          throw new Error(t().invalidField('pageToken'));
         const query = String(a.query ?? '')
           .slice(0, 300)
           .replace(/[\\']/g, '\\$&');
@@ -172,6 +178,10 @@ export function appTools(
           q: `trashed = false${query ? ` and name contains '${query}'` : ''}`,
           fields: 'files(id,name,mimeType,webViewLink),nextPageToken',
           pageSize: '50',
+          corpora: 'user',
+          supportsAllDrives: 'true',
+          includeItemsFromAllDrives: 'true',
+          ...(typeof a.pageToken === 'string' ? { pageToken: a.pageToken } : {}),
           orderBy: 'modifiedTime desc',
         });
       },
@@ -192,7 +202,13 @@ export function appTools(
       'List your Microsoft Teams teams, or the channels in one team.',
       { account: accountSchema, team: string },
       [],
-      (a) => api('teams', a.account)(a.team ? `teams/${id(a.team)}/channels` : 'me/joinedTeams', { $select: 'id,displayName' }),
+      async (a) => {
+        const graph = api('teams', a.account);
+        if (a.team) return graph(`teams/${id(a.team)}/channels`, { $select: 'id,displayName' });
+        // Graph's joinedTeams endpoint does not accept OData query parameters.
+        const page = await graph('me/joinedTeams', {});
+        return { value: page.value.map(({ id, displayName }: { id: string; displayName: string }) => ({ id, displayName })) };
+      },
       none('teams'),
     ),
     readTool(

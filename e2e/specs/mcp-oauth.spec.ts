@@ -209,10 +209,30 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   // The refresh token it replaced is revoked.
   await expect.poll(() => auth.revoked.length).toBe(1);
 
-  // Sign out: its tokens deleted and revoked; Sign in is offered again.
+  // The catalog can lose its distributor registration while the user's grant still exists.
+  // Show the signed-in stand-in as the saved Slack entry; revocation still goes to the real relay route.
+  await page.route('**/api/tools', async (route) => {
+    const response = await route.fetch();
+    const library = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...library,
+        slackConfigured: false,
+        mcpServers: library.mcpServers.map((s: { name: string }) => (s.name === 'linear' ? { ...s, app: 'slack' } : s)),
+      },
+    });
+  });
+  await page.goto(`${relay.base}/#/settings/apps`);
+  await page.reload();
+  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  await expect(slack.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
+  await expect(slack.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  // Sign out: its tokens deleted and revoked; the library offers Sign in again.
   page.once('dialog', (d) => void d.accept());
-  await row.getByRole('button', { name: 'Sign out' }).click();
-  await expect(row).toContainText('Signed out of linear.');
+  await slack.getByRole('button', { name: 'Sign out' }).click();
+  await expect(slack).toContainText('Signed out of Slack.');
+  await page.goto(`${relay.base}/#/settings/tools`);
   await expect(row.locator('.badge')).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   expect(auth.revoked).toHaveLength(2);

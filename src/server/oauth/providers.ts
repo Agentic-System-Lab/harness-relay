@@ -87,6 +87,8 @@ export interface OAuthProvider {
    * may give none): its access token works until it expires, and it then needs a new sign-in.
    */
   refreshOptional?: boolean;
+  /** Additional provider-specific errors that require a new grant. */
+  revokedRefreshErrors?: readonly string[];
   /**
    * Its authorization server's issuer, as its metadata names it (an MCP server's): the `iss` a redirect
    * brings back must be it (RFC 9207), and must be there when `issParameter` (the metadata's

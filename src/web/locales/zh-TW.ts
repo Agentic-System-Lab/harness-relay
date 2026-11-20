@@ -845,7 +845,7 @@ export const zhTW = {
       app: '要用的 app',
       setUp: '設定 app',
       needsApp: (provider: string) =>
-        `要用 ${provider} 登入，需要先在 ${provider} 註冊一個 app（Harness Relay 目前還沒有自己的），再把它的用戶端 ID 填在這裡。`,
+        `要用 ${provider} 登入，需要先在 ${provider} 註冊一個 app。這個版本尚未提供註冊資料。你可以在這裡填入已註冊 app 的用戶端 ID。`,
       clientId: '用戶端 ID（Client ID）',
       tenant: '租用戶（Tenant）',
       tenantHint: 'common（公司、學校與個人帳號）、organizations、consumers，或你的租用戶 ID 或網域。',
@@ -2458,13 +2458,13 @@ export const zhTW = {
         ],
       },
       {
-        title: '工具庫：MCP、skill、記憶與 Harness Relay 的工具',
-        body: '在「設定 → 工具庫」設定一次，每位成員都能用，不管它跑在哪個 CLI，而且加在各 CLI 自己的設定之外：',
+        title: '在聊天中使用常用 App',
+        body: '打開「設定 → 常用 App」，按服務旁的「連結」，在服務商的頁面同意授權。使用 Obsidian 時，選擇存放筆記的資料夾即可。',
         points: [
-          'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區；要求 OAuth 登入的伺服器直接在這裡登入',
+          '「設定 → 工具庫」可以選擇個別助理、加入自己的 MCP 伺服器，或開啟內建瀏覽器',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
-          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 的郵件和日曆也可以改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',
+          '連結 Gmail、Drive、Calendar、Teams、GitHub 或 Obsidian 後，在卡片開啟聊天存取。可以先問「明天有哪些行程？」',
           '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
         ],
       },

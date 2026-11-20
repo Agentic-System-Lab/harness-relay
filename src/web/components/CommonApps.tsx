@@ -153,18 +153,15 @@ export function CommonApps({
             <li className="lib-row" key={key} aria-label={remote[key]}>
               <strong>{remote[key]}</strong>
               <p className="muted small">{a.details[key]}</p>
-              {key === 'slack' && !lib.slackConfigured ? (
-                <p className="muted small">{a.unavailable}</p>
-              ) : (
-                <AppSignIn
-                  name={remote[key]}
-                  oauth={server?.oauth}
-                  button={server?.oauth ? undefined : a.connect}
-                  startRequest={() => api.startAppSignIn(key)}
-                  onDone={() => change(() => api.tools())}
-                  onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
-                />
-              )}
+              {key === 'slack' && !lib.slackConfigured && <p className="muted small">{a.unavailable}</p>}
+              <AppSignIn
+                name={remote[key]}
+                oauth={server?.oauth}
+                button={server?.oauth ? undefined : a.connect}
+                startRequest={key === 'slack' && !lib.slackConfigured ? undefined : () => api.startAppSignIn(key)}
+                onDone={() => change(() => api.tools())}
+                onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
+              />
             </li>
           );
         })}

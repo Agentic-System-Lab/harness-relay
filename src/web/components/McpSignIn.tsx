@@ -43,7 +43,7 @@ export function AppSignIn({
 }: {
   name: string;
   oauth?: McpServerView['oauth'];
-  startRequest: () => Promise<OAuthSignInView>;
+  startRequest?: () => Promise<OAuthSignInView>;
   onDone: () => Promise<unknown>;
   onSignOut?: () => Promise<boolean>;
   button?: string;
@@ -89,7 +89,6 @@ export function AppSignIn({
       setBusy(false);
     }
   };
-  const start = () => withPage(startRequest);
   // Its page is on another host than its authorization server's: Continue opens it, once the server records it.
   const proceed = (id: string) => withPage(() => api.confirmOAuthSignIn(id));
   const cancel = async (id: string) => {
@@ -111,9 +110,11 @@ export function AppSignIn({
       <div className="mcp-signin-row">
         {line && <span className={`small ${line.warn ? 'warn-text' : 'muted'}`}>{line.text}</span>}
         <div className="lib-row-actions">
-          <button type="button" className="ghost small-button" disabled={busy || under} onClick={() => void start()}>
-            {button ?? (oauth ? m.signInAgain : m.signIn)}
-          </button>
+          {startRequest && (
+            <button type="button" className="ghost small-button" disabled={busy || under} onClick={() => void withPage(startRequest)}>
+              {button ?? (oauth ? m.signInAgain : m.signIn)}
+            </button>
+          )}
           {oauth && onSignOut && (
             <button type="button" className="ghost small-button" disabled={under} onClick={() => void signOut()}>
               {m.signOut}

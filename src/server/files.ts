@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
@@ -171,10 +171,10 @@ export function previewFile(root: string, rel: string): FilePreview {
  * The preview of the file at `real`, shown under `path`. The caller has checked that it may be read;
  * a missing file, or anything but a file, is a 404.
  */
-export function readPreview(real: string, path: string, notFound = t().fileNotFound): FilePreview {
+export function readPreview(real: string, path: string, notFound = t().fileNotFound, authorizedFile?: () => Stats): FilePreview {
   let st;
   try {
-    st = statSync(real);
+    st = authorizedFile ? authorizedFile() : statSync(real);
   } catch {
     throw new HttpError(404, notFound);
   }
@@ -185,9 +185,17 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   if (media) return { ...base, kind: media.startsWith('video/') ? 'video' : 'image' };
   const length = Math.min(st.size, FILE_LIMITS.maxPreviewBytes);
   const buf = Buffer.alloc(length);
-  const fd = openSync(file.real, 'r');
+  const flags = authorizedFile ? constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0) : constants.O_RDONLY;
+  const fd = openSync(file.real, flags);
   try {
-    if (fileKey(fstatSync(fd)) !== fileKey(st)) throw new HttpError(404, notFound);
+    const opened = fstatSync(fd);
+    // A vault authorizes a particular note. Recheck the selection and the path while holding its descriptor.
+    if (
+      !opened.isFile() ||
+      fileKey(opened) !== fileKey(st) ||
+      (authorizedFile && (opened.nlink !== 1 || fileKey(authorizedFile()) !== fileKey(opened)))
+    )
+      throw new HttpError(404, notFound);
     readSync(fd, buf, 0, length, 0);
   } finally {
     closeSync(fd);

@@ -421,7 +421,7 @@ export class TokenBroker {
     if (!body.access_token) {
       const why = tokenError(status, body);
       // Refused for good: only a new sign-in mends it. Anything else (the network, the provider down) may pass.
-      if (body.error && REFUSED_FOR_GOOD.includes(body.error)) {
+      if (body.error && (REFUSED_FOR_GOOD.includes(body.error) || provider.revokedRefreshErrors?.includes(body.error))) {
         this.tokens.delete(accountId);
         this.store.needsSignIn(accountId, why);
         throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));

@@ -105,6 +105,7 @@ it('uses the registered Slack desktop client, PKCE, and the public-channel grant
         expect(url.href).toBe('https://slack.com/api/oauth.v2.user.access');
         const form = new URLSearchParams(r.body);
         expect(form.get('client_id')).toBe('registered-test-client');
+        if (form.get('grant_type') === 'refresh_token') return Response.json({ ok: false, error: 'invalid_refresh_token' });
         expect(form.get('code_verifier')).toBeTruthy();
         expect(form.has('client_secret')).toBe(false);
         return Response.json({
@@ -127,6 +128,9 @@ it('uses the registered Slack desktop client, PKCE, and the public-channel grant
     expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.find((s) => s.name === name)?.headers.Authorization).toBe(
       'Bearer stand-in',
     );
+    now += 3600_000;
+    expect((await remote.forTurn(tools.forAgent(agent))).mcpServers.some((s) => s.name === name)).toBe(false);
+    expect(tools.view().mcpServers.find((s) => s.name === name)?.oauth?.status).toBe('reauth');
     await remote.signOut(name);
     expect(tools.forAgent(agent).mcpServers.some((s) => s.name === name)).toBe(false);
   } finally {

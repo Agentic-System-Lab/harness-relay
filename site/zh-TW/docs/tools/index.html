@@ -227,14 +227,14 @@
           </div>
         </div>
         <p class="lead">
-          每個 agent 都帶著自己的工具。Harness Relay 還能給整個團隊更多：一個瀏覽器、你的郵件與行事曆，以及你自己的
-          MCP 伺服器、skill、筆記與 hook。在<b>設定 → 工具庫</b>設定一次，再選擇哪些 agent 拿到哪一項。這裡的 hook 是新對話和新自動任務一開始帶著的。
+          在<b>設定 → 常用 App</b>連結平常使用的服務。<b>設定 → 工具庫</b>可以選擇開放給哪些助理，也可以加入瀏覽器、自己的 MCP 伺服器、skill、筆記與 hook。
         </p>
       </header>
 
       <nav class="doc-toc" aria-label="本頁內容">
         <p class="doc-toc-title">本頁內容</p>
         <ol>
+          <li><a href="#common-apps">連結常用 App</a></li>
           <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
           <li><a href="#outbox">沒有你，什麼都不會送到別人那裡</a></li>
           <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
@@ -245,11 +245,23 @@
       </nav>
 
       <div class="doc-body">
+        <section id="common-apps" aria-labelledby="common-apps-title">
+          <h2 id="common-apps-title">連結常用 App</h2>
+          <p>打開<b>設定 → 常用 App</b>，選取服務並按<b>連結</b>。在服務商的頁面檢查要授予哪些權限，選擇帳號並同意。若卡片顯示尚未設定登入，請聯絡提供此版本的人。工作或學校帳號可能需要管理員核准。</p>
+          <ul>
+            <li><b>Gmail、Google Drive、Google Calendar</b> 可以使用同一個 Google 帳號。選你需要的服務，例如連結 Drive 後，可請助理「找到會議紀錄並整理這份 Google 文件」。</li>
+            <li><b>Microsoft Teams</b> 可讀取團隊、頻道與近期頻道訊息。<b>GitHub</b> 可查看儲存庫的 Pull Request。它使用這台電腦的 GitHub CLI，卡片提供安裝連結與裝置碼登入。</li>
+            <li><b>Notion、Heptabase、Slack</b> 透過官方服務連結。確認授權後，支援的助理即可使用工作區。Slack 提供公開頻道搜尋與訊息讀取。</li>
+            <li><b>Obsidian</b> 請按<b>選擇筆記庫</b>，選擇執行 Harness Relay 的電腦上的筆記資料夾。你可以請助理讀取指定的 Markdown 筆記，解除連結後筆記仍保留在原處。</li>
+          </ul>
+          <p>其他內建工具連結後，按<b>讓支援的助理在聊天中使用</b>。同類工具的所有已連結帳號都會開放給這些助理。要指定個別助理，可到<b>設定 → 工具庫</b>調整。</p>
+          <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">手機版畫面</a></p>
+        </section>
+
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">瀏覽器、郵件與行事曆</h2>
           <p>
-            <b>設定 → 工具庫</b>最上面的 <b>Harness Relay 的工具</b>，是 Harness Relay 自己提供的三種工具。一開始都是關閉的：勾選要給哪些
-            agent 的成員使用。
+            <b>設定 → 工具庫</b>最上面的 <b>Harness Relay 的工具</b>，包含瀏覽器、郵件與行事曆。你可以為每種工具選擇要開放給哪些助理。
           </p>
           <ul>
             <li>
@@ -345,8 +357,8 @@
           <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
           <h3>Microsoft 365、Outlook.com 與 Google</h3>
           <p>
-            這些帳號不用密碼，而是在<b>登入的帳號</b>裡用瀏覽器登入，用於行事曆、郵件或兩者。Harness Relay 目前還沒有在 Microsoft 或 Google
-            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>；再勾選這次登入用於什麼，按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
+            在<b>登入的帳號</b>中選擇郵件、行事曆或兩者，再按<b>登入</b>。若發行版已提供註冊資料，就可直接前往服務商的頁面。管理者也能在<b>設定 app</b>指定自己的用戶端 ID。各服務的步驟請見
+            <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
           </p>
         </section>
 
