@@ -1,28 +1,11 @@
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { Conversation, VoiceStatus } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
-
-/** A tone stands in for a microphone so the browser records without a physical device. */
-async function syntheticMicrophone(page: Page, status: VoiceStatus) {
-  await page.evaluate(() => {
-    navigator.mediaDevices.getUserMedia = async () => {
-      const ctx = new AudioContext();
-      const tone = ctx.createOscillator();
-      const dest = ctx.createMediaStreamDestination();
-      tone.connect(dest);
-      tone.start();
-      await ctx.resume();
-      return dest.stream;
-    };
-  });
-  await page.route('**/api/voice', (route) => route.fulfill({ json: { ...status, ready: true } }));
-  await page.route('**/api/voice/prepare', (route) => route.fulfill({ json: { ok: true } }));
-}
+import { syntheticMicrophone } from '../support/voice';
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
@@ -297,7 +280,7 @@ test.describe('schedules', () => {
     await task.fill('Summarize');
     await mic.click();
     const stop = page.getByRole('button', { name: en.voice.stop });
-    await expect(stop).toHaveText(/0:0[1-9]/);
+    await expect(page.getByRole('timer')).toHaveText(/0:0[1-9]/);
     await stop.click();
     await expect(task).toHaveValue('Summarize merged pull requests');
     await goal.fill('All changes reviewed');

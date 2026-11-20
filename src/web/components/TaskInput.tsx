@@ -11,13 +11,13 @@ interface Props {
   onFiles: (files: PendingFile[]) => void;
   saved?: SavedFiles;
   disabled?: boolean;
-  className?: string;
+  creation?: boolean;
   placeholder?: string;
   maxLength?: number;
 }
 
 /** The required question for a new chat or the message an automation will send. */
-export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, ...textarea }: Props) {
+export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, creation, ...textarea }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [notice, setNotice] = useState('');
   const { addFiles, removeFile, onPaste, dragging, dropZone } = useMessageFiles(files, onFiles, setNotice, saved?.files.length);
@@ -32,14 +32,26 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, .
       field.setSelectionRange(next.caret, next.caret);
     });
   };
+  const tray = <AttachmentTray files={files} removeFile={removeFile} saved={saved} />;
   return (
     <fieldset disabled={disabled} className={dragging ? 'first-input dragging' : 'first-input'} {...(disabled ? {} : dropZone)}>
-      <textarea {...textarea} id={id} ref={ref} required rows={4} value={text} onChange={(e) => onText(e.target.value)} onPaste={onPaste} />
-      <AttachmentTray files={files} removeFile={removeFile} saved={saved} />
+      <textarea
+        {...textarea}
+        className={creation ? 'task-input' : undefined}
+        id={id}
+        ref={ref}
+        required
+        rows={4}
+        value={text}
+        onChange={(e) => onText(e.target.value)}
+        onPaste={onPaste}
+      />
+      {!creation && tray}
       <div className="first-input-tools">
         <AttachmentPicker addFiles={addFiles} />
-        <VoiceButton onError={setNotice} onText={insertVoice} />
+        <VoiceButton fixedButton={creation} onError={setNotice} onText={insertVoice} />
       </div>
+      {creation && tray}
       {notice && (
         <p role="alert" className="error-line">
           {notice}
