@@ -200,7 +200,7 @@ export function ScheduleForm({
           {creation ? t.newSchedule.task : t.schedule.message}
         </label>
         <TaskInput
-          className={creation ? 'task-input' : undefined}
+          creation={Boolean(creation)}
           id={messageId}
           text={draft.text}
           onText={(text) => onEdit({ text })}

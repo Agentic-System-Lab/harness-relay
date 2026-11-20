@@ -2480,6 +2480,23 @@ details.sub .model-picker {
   display: flex;
   gap: 4px;
 }
+.first-task .first-input-tools {
+  align-items: center;
+}
+.first-input-tools + .attach-tray {
+  margin-top: 6px;
+}
+.first-input-tools .mic-button {
+  position: relative;
+}
+.first-input-tools .mic-button.recording {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+}
+.recording-time {
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
 .first-input.dragging .task-input {
   outline: 2px dashed var(--text);
 }

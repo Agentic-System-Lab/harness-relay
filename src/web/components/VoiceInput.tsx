@@ -18,7 +18,15 @@ type RecState = 'idle' | 'starting' | 'recording' | 'transcribing';
  * The composer's microphone. Before voice input is set up it explains what gets installed and starts
  * the install; once it is ready, press to record, press again to turn the recording into text.
  */
-export function VoiceButton({ onText, onError }: { onText: (text: string) => void; onError: (message: string) => void }) {
+export function VoiceButton({
+  onText,
+  onError,
+  fixedButton = false,
+}: {
+  onText: (text: string) => void;
+  onError: (message: string) => void;
+  fixedButton?: boolean;
+}) {
   const t = useT();
   const { status, setStatus, refresh } = useVoiceStatus();
   const [rec, setRec] = useState<RecState>('idle');
@@ -148,34 +156,48 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
           ? t.voice.start
           : t.voice.setup;
 
+  const recording = rec === 'recording';
+  const cancelButton = (
+    <button type="button" className="icon-button" onClick={cancel} aria-label={t.voice.cancel} title={t.voice.cancel}>
+      ×
+    </button>
+  );
+  if (recording && !fixedButton) {
+    return (
+      <span className="voice-recording">
+        {cancelButton}
+        <button type="button" className="voice-stop" onClick={onClick} aria-label={t.voice.stop} title={t.voice.recordingHint}>
+          <span className="rec-dot" aria-hidden="true" />
+          {formatClock(seconds)}
+        </button>
+      </span>
+    );
+  }
+
   return (
     <>
-      {rec === 'recording' ? (
-        <span className="voice-recording">
-          <button type="button" className="icon-button" onClick={cancel} aria-label={t.voice.cancel} title={t.voice.cancel}>
-            ×
-          </button>
-          <button type="button" className="voice-stop" onClick={onClick} aria-label={t.voice.stop} title={t.voice.recordingHint}>
-            <span className="rec-dot" aria-hidden="true" />
+      <button
+        type="button"
+        className={`icon-button mic-button ${recording ? 'recording' : mode}`}
+        onClick={onClick}
+        disabled={rec === 'starting' || rec === 'transcribing'}
+        aria-label={recording ? t.voice.stop : label}
+        title={recording ? t.voice.recordingHint : label}
+      >
+        {rec === 'idle' || recording ? <MicIcon /> : <LogoSpinner size={16} />}
+        {mode === 'installing' && (
+          <span className="mic-badge" aria-hidden="true">
+            <LogoSpinner size={12} />
+          </span>
+        )}
+      </button>
+      {recording && (
+        <>
+          <span role="timer" className="recording-time">
             {formatClock(seconds)}
-          </button>
-        </span>
-      ) : (
-        <button
-          type="button"
-          className={`icon-button mic-button ${mode}`}
-          onClick={onClick}
-          disabled={rec !== 'idle'}
-          aria-label={label}
-          title={label}
-        >
-          {rec === 'idle' ? <MicIcon /> : <LogoSpinner size={16} />}
-          {mode === 'installing' && (
-            <span className="mic-badge" aria-hidden="true">
-              <LogoSpinner size={12} />
-            </span>
-          )}
-        </button>
+          </span>
+          {cancelButton}
+        </>
       )}
       {dialog && <VoiceSetupDialog status={status} onStatus={setStatus} onClose={() => setDialog(false)} />}
     </>

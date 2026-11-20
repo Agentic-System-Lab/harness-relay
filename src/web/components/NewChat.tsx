@@ -175,7 +175,7 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
       </label>
       <TaskInput
         id="first-question"
-        className="task-input"
+        creation
         text={draft.question}
         onText={(question) => onDraft({ ...draft, question })}
         files={draft.files}

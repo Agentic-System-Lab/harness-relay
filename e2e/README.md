@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 517 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 519 tests in 39 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -67,7 +67,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Plan usage](#plan-usage) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [User guide → Plan usage](../docs/user-guide.md#plan-usage), [Architecture → Providers](../docs/architecture.md#providers-status-login-and-models) |
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
-| [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 3 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
+| [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 5 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 10 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Notification inbox](../docs/user-guide.md#notification-inbox), [Architecture → Notifications](../docs/architecture.md#notifications) |
@@ -548,8 +548,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
+| New chat and New automation keep the attachment and microphone buttons in place (one test each) | On desktop and phone widths, compare both buttons’ positions and sizes before and after selecting multiple files, while recording, after cancellation, during transcription and after removing the files. |
 | Leaving New chat before microphone permission is granted | Granting the synthetic microphone after opening lead settings releases its track. |
-| The install shows its steps in line, says their state to screen readers, and its download in the bar | The steps in a row, the current one marked `aria-current`, the download's percent and the bar's fill; the app's loader beside the install's state, and in a chat at the microphone's top right, 12px. |
+| The install shows its steps in line, says their state to screen readers, and its download in the bar | The steps in a row, the current one marked `aria-current`, the download's percent and the bar's fill; the app's loader beside the install's state, and at the microphone's top right (12px) in New chat, New automation and the chat composer. |
 | A failed install says which step stopped | The step it stopped at is shown as failed. |
 
 ## The guided tour and the theme

@@ -1,6 +1,8 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import type { VoiceJobView, VoiceStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
+import { en } from '../../src/web/locales/en';
+import { syntheticMicrophone } from '../support/voice';
 import { openTeamChat } from '../support/app';
 
 const MB = 1024 * 1024;
@@ -83,14 +85,22 @@ test.describe("voice input's install", () => {
     // While it runs, the app's loader (the Logo turning) beside its state; and in a chat, at the
     // microphone's top right, 12px.
     await expect(page.locator('.voice-job .login-state .logo-spinner')).toBeVisible();
+    const expectBadgeOnMic = async (mic: Locator) => {
+      const badge = mic.locator('.mic-badge .logo-spinner');
+      await expect(badge).toBeVisible();
+      const box = (await badge.boundingBox())!;
+      const button = (await mic.boundingBox())!;
+      expect(box.width).toBeCloseTo(12, 0);
+      expect(box.x + box.width).toBeCloseTo(button.x + button.width - 2, 0);
+      expect(box.y).toBeCloseTo(button.y + 2, 0);
+    };
+    for (const name of ['New chat', 'New automation']) {
+      await page.getByRole('button', { name, exact: true }).first().click();
+      await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+      await expectBadgeOnMic(page.locator('.first-input .mic-button'));
+    }
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    const badge = page.locator('.composer .mic-button .mic-badge .logo-spinner');
-    await expect(badge).toBeVisible();
-    const box = (await badge.boundingBox())!;
-    const mic = (await page.locator('.composer .mic-button').boundingBox())!;
-    expect(box.width).toBeCloseTo(12, 0);
-    expect(box.x + box.width).toBeCloseTo(mic.x + mic.width - 2, 0);
-    expect(box.y).toBeCloseTo(mic.y + 2, 0);
+    await expectBadgeOnMic(page.locator('.composer .mic-button'));
   });
 
   test('says which step stopped a failed install', async ({ page, relay }) => {
@@ -136,3 +146,62 @@ test('leaving New chat releases a microphone granted after navigation', async ({
   await page.evaluate(() => document.dispatchEvent(new Event('grant-test-microphone')));
   await expect.poll(trackState).toBe('ended');
 });
+
+for (const name of ['New chat', 'New automation']) {
+  test(name + ' keeps the attachment and microphone buttons in place', async ({ page, relay }) => {
+    await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
+    await page.getByRole('button', { name, exact: true }).first().click();
+    const attach = page.getByRole('button', { name: en.composer.attach });
+    const mic = page.getByRole('button', { name: en.voice.start, exact: true });
+    const stop = page.getByRole('button', { name: en.voice.stop, exact: true });
+    const cancel = page.getByRole('button', { name: en.voice.cancel });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(mic).toBeInViewport();
+      const attachBox = await attach.boundingBox();
+      const micBox = (await mic.boundingBox())!;
+      const picker = page.waitForEvent('filechooser');
+      await attach.click();
+      const files = ['weekly-report.txt', 'release-notes.txt', 'meeting-agenda.txt', 'review-checklist.txt'];
+      await (await picker).setFiles(files.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('draft') })));
+      await expect(page.getByRole('button', { name: en.composer.removeFile(files[0]!) })).toBeVisible();
+      expect(await attach.boundingBox()).toEqual(attachBox);
+      expect(await mic.boundingBox()).toEqual(micBox);
+
+      await mic.click();
+      await expect(stop).toBeVisible();
+      expect(await stop.boundingBox()).toEqual(micBox);
+      expect(await attach.boundingBox()).toEqual(attachBox);
+      await expect(cancel).toBeInViewport();
+      if (width === 1280) {
+        await cancel.click();
+      } else {
+        // Hold the response so we can measure the busy button before the transcript arrives.
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await page.route('**/api/voice/transcribe', async (route) => {
+          await held;
+          await route.fulfill({ json: { text: 'Review the files' } });
+        });
+        await expect(page.getByRole('timer')).toHaveText(/0:0[1-9]/);
+        await stop.click();
+        try {
+          const busy = page.getByRole('button', { name: en.voice.transcribing });
+          await expect(busy).toBeDisabled();
+          expect(await busy.boundingBox()).toEqual(micBox);
+          expect(await attach.boundingBox()).toEqual(attachBox);
+        } finally {
+          release();
+        }
+        await expect(page.locator('.task-input')).toHaveValue('Review the files');
+      }
+      await expect(mic).toBeVisible();
+      expect(await mic.boundingBox()).toEqual(micBox);
+      for (const file of files) await page.getByRole('button', { name: en.composer.removeFile(file) }).click();
+      expect(await attach.boundingBox()).toEqual(attachBox);
+      expect(await mic.boundingBox()).toEqual(micBox);
+    }
+  });
+}
