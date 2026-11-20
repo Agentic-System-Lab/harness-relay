@@ -555,7 +555,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | What is checked |
 | --- | --- |
-| Returning browser | Only revised steps open after an update. Settings can still replay the full tour. |
+| Returning browser | A browser that missed several releases sees the revised steps once each. Reloading an unfinished tour restarts those steps. Settings can still replay the full tour. |
 | The tour shows on a first visit, steps through to the end, and is not shown again | It opens at step 1 without Back; Next, Back and the arrow keys move; the last step has no Skip, **Get started** closes it, and a reload does not bring it back. |
 | The tour can be skipped, and Settings starts it again | Skipped, it stays away after a reload; **Settings → Guided tour → Replay the tour** opens it at step 1, Escape closes it, and it stays done. |
 | On a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons | At 390×560, the longest step (file permission) sits at the bottom of the screen with **Next** inside it; its text scrolls, also with End while **Next** has the focus, a line shows above the buttons, and the next step starts at its top. |
@@ -610,7 +610,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Desktop phone pairing | — | The sidebar and collapsed home link open pairing. The phone opens the illustrated guide, switches Android/iPhone, and reaches notification settings. Closing and signing out the phone update the desktop status. |
+| Desktop phone pairing | — | The sidebar and collapsed home link open pairing inside the **Connect your phone** guide. Signed-in browsers retains the sign-out controls. The phone opens the illustrated guide, switches Android/iPhone, and reaches notification settings. Closing and signing out the phone update the desktop status. |
 | Phone setup and single-use pairing | — | Shows a separate Tailscale download QR. A stand-in Serve address on port 8443 and a real code pair an independent browser once. |
 | Lost acknowledgement, approval and download | Claude Code | Drops the response after task acceptance, retries once, and checks for one task. Another client approves while the phone is offline. A simulated notification click refreshes the result and the phone downloads the report. |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within a tenth of a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |

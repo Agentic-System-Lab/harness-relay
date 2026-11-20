@@ -173,7 +173,7 @@ src/
                            BackendsSettings（設定 → 模型來源）、
                            SessionsSettings（設定 → Agent 的 session）、
                            SharesSettings（設定 → 分享的對話）、ShareDialog（複製或分享對話）、
-                           SignIn（登入頁）、BrowsersSettings（設定 → 已登入的瀏覽器）、
+                           SignIn（登入頁）、BrowsersSettings（已登入的瀏覽器）、HomeScreenGuide 與 PhonePairing（設定 → 連接手機）、
                            NotificationsSettings（設定 → 通知與提示音）、
                            InboxButton（側邊欄收合按鈕旁的鈴鐺）、InboxDialog（它打開的通知收件匣）、
                            GhHelp（GitHub CLI 沒安裝或沒登入時該怎麼做，以及在那裡登入它）、LoginLinks（登入的連結與代碼，在那裡與設定頁共用）、

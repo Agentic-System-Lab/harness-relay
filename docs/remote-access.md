@@ -22,17 +22,19 @@ The server stays bound to `127.0.0.1`. `tailscale serve`, on the same computer, 
 - **Tailscale on that computer and on the phone**, signed in to the same tailnet (on iOS and Android, the Tailscale app). On a Mac, if the `tailscale` command is missing, install it from the Tailscale app's settings (CLI integration).
 - **MagicDNS and HTTPS certificates** turned on in the Tailscale admin console (**DNS** page). If HTTPS is off, the first `tailscale serve` prints a link that turns it on.
 
-In the computer’s sidebar, **Connect your phone** (at the top right of Home with the sidebar collapsed) opens the pairing controls in Settings. **Phone connected** means a signed-in phone browser has Harness Relay open in front. When the phone locks or loses its connection, **Phone paired** means it can return without pairing again.
+In the computer’s sidebar, **Connect your phone** (at the top right of Home with the sidebar collapsed) opens the pairing controls at the top of the **Connect your phone** guide. **Phone connected** means a signed-in phone browser has Harness Relay open in front. When the phone locks or loses its connection, **Phone paired** means it can return without pairing again.
 
 <img src="media/mobile-sidebar-en.png" alt="The Connect your phone and Settings rows in the desktop sidebar" width="267">
 
 ## With the desktop app
 
-Choose **Share with your phone (Tailscale)…** in the desktop app’s menu. If the computer needs Tailscale, open its official download page from the dialog. Install it, sign in, then return and choose **Check connection**. Once private HTTPS sharing is ready, the app opens **Signed-in browsers** on the computer.
+Choose **Share with your phone (Tailscale)…** in the desktop app’s menu. If the computer needs Tailscale, open its official download page from the dialog. Install it, sign in, then return and choose **Check connection**. Once private HTTPS sharing is ready, the app opens the **Connect your phone** guide on the computer with phone pairing expanded. On a phone, tap the connection status to expand the same controls.
 
 1. If the phone needs Tailscale, expand **Need Tailscale on your phone?** and scan the download code with the phone camera. Sign in with the same account as the computer and allow the VPN connection. The download code works at any time.
 2. Once the phone is connected, click **Sign in another device** on the computer and scan the new sign-in QR code. It contains the actual shared address and a single-use sign-in code valid for ten minutes. The computer generates it locally. Start here if the phone already has Tailscale. Click the button again if the code expires.
 3. For lock-screen notifications, follow [Add it to the home screen](#4-add-it-to-the-home-screen), enable notifications and send a test.
+
+<img src="media/mobile-pairing-guide-en.png" alt="Phone pairing and the home screen guide in one Settings card on the computer" width="640">
 
 - **The first time**, if Serve or HTTPS is not enabled for your tailnet yet, the app opens Tailscale's page for it in your browser. Allow it there, then choose **Share with your phone** again.
 - **On Linux**, if Tailscale does not let your user change its settings, the app shows the command to run once: `sudo tailscale set --operator=$USER`.
@@ -85,7 +87,7 @@ Put several names in one list, separated by commas. On the computer itself, http
 
 ## 3. Open it on your phone
 
-Turn Tailscale on in the phone and open the address from step 1, for example `https://my-computer.tail1234.ts.net`. The first time, it shows the sign-in page: on the computer, open **Settings → Signed-in browsers → Sign in another device**, and type the code it shows on the phone (or open its link there). The chat, **Settings & sign-in** and voice input then work as they do on the computer, in a layout made for small screens.
+Turn Tailscale on in the phone and open the address from step 1, for example `https://my-computer.tail1234.ts.net`. The first time, it shows the sign-in page: on the computer, open **Settings → Connect your phone → Sign in another device**, and type the code it shows on the phone (or open its link there). The chat, **Settings & sign-in** and voice input then work as they do on the computer, in a layout made for small screens.
 
 - **Working directories** are folders on the computer, not on the phone.
 - **Files the agents make** (a PDF, slides, a spreadsheet…): tap the link in the reply, or **Download** in **Files**, and the file is saved on the phone: on an iPhone or iPad in the Files app under **Downloads** (Safari may ask first), on Android in **Downloads**.
@@ -99,7 +101,7 @@ With `npm start`, complete steps 1 and 2, then generate the phone QR code from S
 
 An icon on the home screen, Harness Relay's three dots, opens the chat with one tap. It only works while Tailscale is on in the phone and the computer can be reached.
 
-In Harness Relay, open **Settings → Home Screen** for an illustrated walkthrough. Pick iPhone or Android to see where to tap. [Apple’s iPhone guide](https://support.apple.com/guide/iphone/iphea86e5236/ios) · [Google’s Android guide](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid).
+In Harness Relay, open **Settings → Connect your phone** for an illustrated walkthrough. Pick iPhone or Android to see where to tap. [Apple’s iPhone guide](https://support.apple.com/guide/iphone/iphea86e5236/ios) · [Google’s Android guide](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid).
 
 <img src="media/mobile-home-screen-en.png" alt="The Android home screen guide as it appears on a phone" width="320">
 

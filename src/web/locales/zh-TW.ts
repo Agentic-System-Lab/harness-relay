@@ -1232,7 +1232,7 @@ export const zhTW = {
     whereDesktop: '從桌面 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「在瀏覽器打開」：它會用新的登入連結在瀏覽器打開對話。',
     whereDesktopWindow:
       '從 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「打開 Harness Relay」：這個視窗會用新的登入連結重新登入。',
-    whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
+    whereOther: '或從另一個已登入的瀏覽器：設定 → 連接手機 → 讓另一個裝置登入（例如手機）。',
   },
 
   notifications: {
@@ -1272,7 +1272,8 @@ export const zhTW = {
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
   },
   homeScreen: {
-    title: '加入手機主畫面圖解',
+    title: '連接手機',
+    installHeading: '加入主畫面',
     platform: '選擇手機系統',
     ios: {
       menu: '在 Safari 點「分享」',
@@ -1920,7 +1921,7 @@ export const zhTW = {
       sessions: 'Agent 的 session',
       shares: '分享',
       browsers: '已登入的瀏覽器',
-      'home-screen': '主畫面圖解',
+      'home-screen': '連接手機',
       tour: '使用導覽',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
       agents: '助理設定',
@@ -2262,13 +2263,13 @@ export const zhTW = {
       },
       {
         title: '先確認各 agent 可以使用',
-        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。若要從手機使用，到「已登入的瀏覽器」取得代碼。',
+        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。',
       },
       {
         title: '連接手機',
         body: '用手機交辦任務、核准請求、下載結果。Agent 會在你的電腦上執行。',
         points: [
-          '在電腦側欄「設定與登入」上方選「連接手機」。收合側欄時，入口在首頁右上角。',
+          '在電腦側欄「設定與登入」上方點「連接手機」，即可配對，接著照圖解把圖示加入手機主畫面。收合側欄時，入口在首頁右上角。',
           '還沒裝 Tailscale？先掃下載碼，讓電腦和手機用相同帳號登入，再掃另行產生的 Harness Relay 一次性登入碼。',
           '「手機已連線」表示手機正在開啟網頁，鎖屏後仍會保留配對。傳送後若斷線，在同一分頁重送同一份內容即可。',
         ],
@@ -2338,7 +2339,7 @@ export const zhTW = {
         points: [
           '顯示系統通知：分頁在背景或視窗被擋住時跳出通知，點一下就打開那個對話',
           '播放提示音：回覆完是兩個音，需要你是三個音',
-          '在手機的「設定 → 主畫面圖解」可看 iPhone 或 Android 的操作圖解。要在 iPhone 鎖定畫面收通知，請從主畫面圖示開啟後，再啟用通知',
+          '在手機的「設定 → 連接手機」可看 iPhone 或 Android 的操作圖解。要在 iPhone 鎖定畫面收通知，請從主畫面圖示開啟後，再啟用通知',
           '可以只選「回覆完成」或「需要你」，也能先傳一則測試通知試試看',
         ],
       },

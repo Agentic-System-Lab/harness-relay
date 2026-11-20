@@ -367,7 +367,7 @@ export function SettingsPage({
         <SharesCard />
 
         <BrowsersCard browsers={browsers} />
-        <HomeScreenGuide />
+        <HomeScreenGuide phone={browsers.phone} />
 
         <section className="card" id={sectionId('tour')}>
           <SectionTitle section="tour">{t.settings.tour}</SectionTitle>

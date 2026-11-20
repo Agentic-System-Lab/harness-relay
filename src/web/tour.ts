@@ -1,12 +1,12 @@
 // This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
 const DONE_KEY = 'relay:onboarded';
-export const TOUR_VERSION = 22;
+export const TOUR_VERSION = 23;
 
 /** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
 export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 17 }, // welcome
   { target: 'settings', revision: 20 }, // check agents
-  { target: 'pair-phone', revision: 22 }, // connect a phone
+  { target: 'pair-phone', revision: 23 }, // connect a phone
   { target: 'settings', revision: 12 }, // open-source agents
   { target: 'new-chat', revision: 20 }, // new chat
   { revision: 20 }, // auto team
@@ -14,7 +14,7 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 9 }, // writing a message
   { revision: 1 }, // while the team replies
   { revision: 18 }, // when the team needs you
-  { target: 'settings', revision: 22 }, // notifications and sound
+  { target: 'settings', revision: 23 }, // notifications and sound
   { target: 'inbox', revision: 18 },
   { revision: 14 }, // permissions
   { revision: 21 }, // team checks

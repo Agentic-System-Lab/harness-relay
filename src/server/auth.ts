@@ -12,7 +12,7 @@ import type { Database } from './db';
  * type, so it gets a slow hash of its own (scrypt): a fast one could be undone by trying every code.
  *
  * A browser signs in with a one-time code: from the link the server prints when it starts, from
- * `npm run login`, or from a browser already signed in (Settings → Signed-in browsers), for a phone.
+ * `npm run login`, or from a browser already signed in (Settings → Connect your phone), for a phone.
  */
 
 /** The cookie that names a signed-in browser's session: `<id>.<secret>`. */

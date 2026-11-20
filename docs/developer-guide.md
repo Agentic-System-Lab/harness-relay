@@ -173,7 +173,7 @@ src/
                            BackendsSettings (Settings → Model backends),
                            SessionsSettings (Settings → Agent sessions),
                            SharesSettings (Settings → Shared conversations), ShareDialog (copy or share a conversation),
-                           SignIn (the sign-in page), BrowsersSettings (Settings → Signed-in browsers),
+                           SignIn (the sign-in page), BrowsersSettings (signed-in sessions), HomeScreenGuide and PhonePairing (Settings → Connect your phone),
                            NotificationsSettings (Settings → Notifications and sound),
                            InboxButton (the bell beside the sidebar's collapse button), InboxDialog (the notification inbox it opens),
                            GhHelp (what to do when the GitHub CLI is missing or not signed in, and its sign-in from there), LoginLinks (a sign-in's link and code, there and in Settings),

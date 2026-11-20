@@ -1136,6 +1136,9 @@ p {
   padding: 10px 22px;
 }
 /* Home Screen instructions: each illustration enlarges the controls its caption names. */
+.guide-install-title {
+  margin: 0;
+}
 .guide-platforms {
   width: fit-content;
   display: inline-flex;
@@ -1291,8 +1294,29 @@ p {
   }
 }
 
-.phone-pair-title {
-  margin: 12px 0 4px;
+.guide-pairing {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.guide-pairing > summary {
+  cursor: pointer;
+}
+.guide-pairing h4 {
+  margin: 0;
+}
+.phone-pair-form {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding-top: 8px;
+}
+.phone-pair-form > p,
+.phone-pair-form > .card-actions {
+  margin: 0;
+}
+.phone-pair-form > * {
+  min-width: 0;
+  max-width: 100%;
 }
 .phone-link {
   display: inline-flex;
@@ -8908,7 +8932,7 @@ a.share-action {
   font-size: 13.5px;
 }
 
-/* Settings → Signed-in browsers: a code for another device. */
+/* Phone guide: installation and single-use sign-in codes. */
 .phone-setup summary {
   cursor: pointer;
 }

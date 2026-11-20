@@ -1226,7 +1226,7 @@ export const en: Messages = {
       "Choose Open in browser in the desktop app's menu (its icon in the menu bar or system tray): it opens the chat in your browser with a new sign-in link.",
     whereDesktopWindow:
       "Choose Open Harness Relay in the app's menu (its icon in the menu bar or system tray): this window signs in again with a new link.",
-    whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
+    whereOther: 'Or from a browser that is signed in: Settings → Connect your phone → Sign in another device (a phone, say).',
   },
 
   notifications: {
@@ -1269,7 +1269,8 @@ export const en: Messages = {
     testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
   },
   homeScreen: {
-    title: 'How to add Harness Relay to your Home Screen',
+    title: 'Connect your phone',
+    installHeading: 'Add to Home Screen',
     platform: 'Choose a phone platform',
     ios: {
       menu: 'Tap Share in Safari',
@@ -1932,7 +1933,7 @@ export const en: Messages = {
       sessions: 'Agent sessions',
       shares: 'Shares',
       browsers: 'Browsers',
-      'home-screen': 'Home Screen',
+      'home-screen': 'Connect your phone',
       tour: 'Tour',
       agents: 'Agents',
       agentsAt: (name) => `Agents: ${name}`,
@@ -2271,13 +2272,13 @@ export const en: Messages = {
       },
       {
         title: 'Check that each agent is ready',
-        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI, sign in, or connect a model backend. One ready assistant is enough to start. To use Harness Relay on your phone, get a code under Signed-in browsers.',
+        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI, sign in, or connect a model backend. One ready assistant is enough to start.',
       },
       {
         title: 'Connect your phone',
         body: 'Use your phone to send tasks, approve requests and download results. Your computer runs the agents.',
         points: [
-          'On your computer, choose Connect your phone above Settings in the sidebar. With the sidebar collapsed, look at the top right of Home.',
+          'Choose Connect your phone above Settings in the computer’s sidebar, or at the top right of Home when the sidebar is collapsed. Pair your phone there, then follow the instructions for your home screen.',
           'New to Tailscale? Scan its download code and sign in on both devices. Then scan the separate, single-use Harness Relay code.',
           'Phone connected means a phone has the page open. A locked phone stays paired. If a send loses its response, retry the same draft in the same tab.',
         ],
@@ -2351,7 +2352,7 @@ export const en: Messages = {
         points: [
           'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
           'Play a sound: two notes when a reply is done, three when you are needed',
-          'On your phone, open Settings → Home Screen for the iPhone or Android illustrated guide. On iPhone, launch the Home Screen icon before enabling Lock Screen notifications',
+          'On your phone, open Settings → Connect your phone for the iPhone or Android illustrated guide. On iPhone, launch the Home Screen icon before enabling Lock Screen notifications',
           'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
         ],
       },

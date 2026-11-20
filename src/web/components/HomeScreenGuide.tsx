@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import type { BrowserSessions } from '../browserSessions';
+import { PhonePairing } from './PhonePairing';
 import { isIos } from '../alerts';
 import { useT } from '../i18n';
 import { sectionId, settingsHref } from '../route';
@@ -7,15 +9,18 @@ import { Logo } from './Logo';
 import { SectionTitle } from './SectionTitle';
 
 /** Zoomed-in illustrations of the controls on the phone. The captions describe every action. */
-export function HomeScreenGuide() {
+export function HomeScreenGuide({ phone }: { phone: BrowserSessions['phone'] }) {
   const t = useT().homeScreen;
   const android = /Android/.test(navigator.userAgent);
+  const onPhone = android || isIos(navigator);
   const [platform, setPlatform] = useState<'ios' | 'android'>(android ? 'android' : 'ios');
   const ios = platform === 'ios';
   const steps = t[platform];
   return (
     <section className="card home-screen-guide" id={sectionId('home-screen')}>
       <SectionTitle section="home-screen">{t.title}</SectionTitle>
+      <PhonePairing phone={phone} onPhone={onPhone} />
+      <h4 className="guide-install-title">{t.installHeading}</h4>
       <div className="guide-platforms" role="group" aria-label={t.platform}>
         <button type="button" aria-pressed={ios} onClick={() => setPlatform('ios')}>
           iPhone · Safari
@@ -69,7 +74,7 @@ export function HomeScreenGuide() {
       <div className="guide-notifications">
         <h4>{t.notifications}</h4>
         <p className="small">{steps.notify}</p>
-        {(android || isIos(navigator)) && (
+        {onPhone && (
           <a className="small" href={settingsHref('notifications')}>
             {t.openNotifications}
           </a>

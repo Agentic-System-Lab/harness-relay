@@ -22,17 +22,19 @@ flowchart LR
 - **那台電腦和手機都裝好 Tailscale**，並登入同一個 tailnet（iOS 與 Android 用 Tailscale App）。Mac 上如果沒有 `tailscale` 指令，到 Tailscale App 的設定裡安裝（CLI integration）。
 - **MagicDNS 與 HTTPS 憑證**：在 Tailscale 管理後台的 **DNS** 頁開啟。HTTPS 還沒開的話，第一次執行 `tailscale serve` 時會印出開啟用的連結。
 
-在電腦的側欄底部點 **連接手機**（收合側欄時，入口在首頁右上角），會直接捲到配對設定。**手機已連線** 代表已有登入的手機正在前景開啟 Harness Relay；鎖屏或斷線後會顯示 **手機已配對**，下次開啟即可繼續使用。
+在電腦的側欄底部點 **連接手機**（收合側欄時，入口在首頁右上角），會直接捲到 **連接手機** 最上方的配對操作。**手機已連線** 代表已有登入的手機正在前景開啟 Harness Relay；鎖屏或斷線後會顯示 **手機已配對**，下次開啟即可繼續使用。
 
 <img src="media/mobile-sidebar-zh-TW.png" alt="電腦側欄的「連接手機」與「設定與登入」入口" width="267">
 
 ## 用桌面 app
 
-在桌面 App 選單選 **分享到手機（Tailscale）…**。電腦尚未安裝時，可以直接開啟官方下載頁。安裝並登入後，回到對話框按 **檢查連線**。App 設好私有 HTTPS 分享後，會在電腦的瀏覽器打開 **已登入的瀏覽器**。
+在桌面 App 選單選 **分享到手機（Tailscale）…**。電腦尚未安裝時，可以直接開啟官方下載頁。安裝並登入後，回到對話框按 **檢查連線**。App 設好私有 HTTPS 分享後，會在電腦上開啟 **連接手機**，並展開配對操作。在手機上，點圖解裡的連線狀態也能展開這些操作。
 
 1. 如果手機還沒安裝，展開 **手機還沒安裝 Tailscale？**，用手機相機掃描下載碼。安裝後用跟電腦相同的帳號登入，允許 VPN 連線。這個下載碼隨時可掃。
 2. 手機連上 Tailscale 後，在電腦按 **讓另一個裝置登入**，再用手機相機掃描新的登入 QR code。它包含這台電腦的實際分享網址與一次性代碼，十分鐘內有效，在電腦上產生。手機已有 Tailscale 時可直接從這一步開始。過期時再按一次按鈕。
 3. 想收到鎖屏通知，請依[加入主畫面](#4-加到主畫面)的步驟開啟通知並傳送測試。
+
+<img src="media/mobile-pairing-guide-zh-TW.png" alt="電腦上的主畫面圖解，從連接手機到安裝圖示和設定鎖屏通知" width="640">
 
 - **第一次**分享時，如果你的 tailnet 還沒開啟 Serve 或 HTTPS，app 會在瀏覽器打開 Tailscale 的對應頁面。在那裡允許之後，再選一次 **分享到手機**。
 - **在 Linux 上**，如果 Tailscale 不允許你的帳號修改設定，app 會顯示要執行一次的指令：`sudo tailscale set --operator=$USER`。
@@ -85,7 +87,7 @@ npm start
 
 ## 3. 用手機打開
 
-在手機上開啟 Tailscale，打開第 1 步的網址，例如 `https://my-computer.tail1234.ts.net`。第一次會顯示登入頁：在電腦上打開「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，把它顯示的代碼輸入手機（或在手機上打開它的連結）。之後聊天、**設定與登入**和語音輸入都跟在電腦上一樣，版面會配合小螢幕調整。
+在手機上開啟 Tailscale，打開第 1 步的網址，例如 `https://my-computer.tail1234.ts.net`。第一次會顯示登入頁：在電腦上打開「**設定 → 連接手機 → 讓另一個裝置登入**」，把它顯示的代碼輸入手機（或在手機上打開它的連結）。之後聊天、**設定與登入**和語音輸入都跟在電腦上一樣，版面會配合小螢幕調整。
 
 - **工作目錄**是那台電腦上的資料夾，不是手機上的。
 - **agent 做的檔案**（PDF、簡報、試算表…）：點回覆裡的連結，或在 **檔案** 裡按 **下載**，檔案就會存到手機上：iPhone 與 iPad 存在「檔案」App 的 **下載項目**（Safari 可能會先詢問），Android 則在 **下載**。
@@ -99,7 +101,7 @@ npm start
 
 把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就能打開聊天室。手機的 Tailscale 必須開著、而且連得到那台電腦，圖示才能用。
 
-在 Harness Relay 開啟 **設定 → 主畫面圖解**，切換 iPhone 或 Android 即可看到該點的位置。[Apple 的 iPhone 使用手冊](https://support.apple.com/zh-tw/guide/iphone/iphea86e5236/ios) · [Google 的 Android 操作說明](https://support.google.com/chrome/answer/9658361?hl=zh-Hant&co=GENIE.Platform%3DAndroid)。
+在 Harness Relay 開啟 **設定 → 連接手機**，切換 iPhone 或 Android 即可看到該點的位置。[Apple 的 iPhone 使用手冊](https://support.apple.com/zh-tw/guide/iphone/iphea86e5236/ios) · [Google 的 Android 操作說明](https://support.google.com/chrome/answer/9658361?hl=zh-Hant&co=GENIE.Platform%3DAndroid)。
 
 <img src="media/mobile-home-screen-zh-TW.png" alt="手機上的 iPhone 主畫面圖解與鎖屏通知說明" width="320">
 

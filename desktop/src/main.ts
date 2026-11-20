@@ -535,7 +535,7 @@ function run(): void {
     const url = new URL(chatAddress(state.url, await supervisor.signInLink()));
     if (pairPhone) {
       if (url.hash) url.searchParams.set('pair', '1');
-      else url.hash = '/settings/browsers';
+      else url.hash = '/settings/home-screen';
     }
     await shell.openExternal(url.href);
   }

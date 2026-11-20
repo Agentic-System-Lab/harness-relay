@@ -216,7 +216,7 @@ test.describe('settings', () => {
       'Agent sessions',
       'Shares',
       'Browsers',
-      'Home Screen',
+      'Connect your phone',
       'Tour',
     ]);
     await expect(agents).toHaveAccessibleName('Agents');

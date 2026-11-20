@@ -80,6 +80,6 @@ Releases are made only by the Release workflow, run by hand: it builds the insta
 - [Developer guide → The desktop app](../docs/developer-guide.md#the-desktop-app): how it runs, building, the checks, fuses, signing and the installers.
 - [Architecture → Desktop app](../docs/architecture.md#desktop-app): the process, signing in, the environment, the tailnet, the window and updates.
 - [Developer guide → Releasing](../docs/developer-guide.md#releasing): the Release workflow and the version rules.
-- [Use it from your phone → With the desktop app](../docs/remote-access.md#with-the-desktop-app): checking the Tailscale installation, sharing privately and opening the phone pairing page from the tray menu.
+- [Use it from your phone → With the desktop app](../docs/remote-access.md#with-the-desktop-app): checking the Tailscale installation, sharing privately and opening phone pairing in **Connect your phone** from the tray menu.
 - [OS sandboxes by platform](../docs/sandboxing.md) and [Architecture → Security](../docs/architecture.md#security): what agents may not read, the window's sign-in included.
 - [Contributing](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md): the rules for every change.

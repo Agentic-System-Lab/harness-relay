@@ -109,7 +109,7 @@ const LINK: LinkDeps = {
   hash: () => window.location.hash,
   dropCode: () => {
     const url = new URL(location.href);
-    url.hash = url.searchParams.get('pair') === '1' ? '/settings/browsers' : '/';
+    url.hash = url.searchParams.get('pair') === '1' ? '/settings/home-screen' : '/';
     url.searchParams.delete('pair');
     history.replaceState(null, '', url);
   },

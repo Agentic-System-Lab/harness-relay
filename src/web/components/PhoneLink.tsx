@@ -9,9 +9,9 @@ export function PhoneLink({ phone }: { phone: BrowserSessions['phone'] }) {
     <a
       className="phone-link"
       data-tour="pair-phone"
-      href={settingsHref('browsers')}
+      href={settingsHref('home-screen')}
       title={b.phoneDetail[phone]}
-      onClick={() => scrollToSection('browsers')}
+      onClick={() => scrollToSection('home-screen')}
     >
       <PhoneIcon size={18} />
       <span>{b.phoneTitle[phone]}</span>

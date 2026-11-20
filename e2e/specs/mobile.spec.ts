@@ -145,8 +145,10 @@ test('the desktop home links to pairing and follows a phone opening, closing, an
   await page.getByRole('button', { name: 'Collapse sidebar' }).click();
   await page.locator('.home-phone-corner .phone-link').click();
   await page.getByRole('button', { name: 'Expand sidebar' }).click();
-  const card = page.locator('#settings-browsers');
-  await expect(card.getByRole('heading', { name: 'Connect your phone' })).toBeInViewport();
+  const card = page.locator('#settings-home-screen');
+  await expect(card.getByRole('heading', { name: 'Connect your phone', exact: true })).toBeInViewport();
+  await expect(card.getByRole('button', { name: 'Sign in another device' })).toBeVisible();
+  await expect(card.getByRole('heading', { name: 'Add to Home Screen' })).toBeVisible();
   const phone = await browser.newContext({ ...devices['Pixel 7'] });
   try {
     const tab = await phone.newPage();
@@ -174,12 +176,14 @@ test('the desktop home links to pairing and follows a phone opening, closing, an
     await expect(home).toContainText('Phone paired', { timeout: 20_000 });
     await home.click();
     page.once('dialog', (d) => d.accept());
-    await card
+    await page.getByRole('navigation', { name: 'Sections of this page' }).getByRole('link', { name: 'Browsers', exact: true }).click();
+    await page
+      .locator('#settings-browsers')
       .locator('.share-row')
       .filter({ hasText: /Android/ })
       .getByRole('button', { name: 'Sign out' })
       .click();
-    await expect(card.getByRole('heading', { name: 'Connect your phone' })).toBeVisible();
+    await expect(home).toContainText('Connect your phone');
   } finally {
     await phone.close();
   }
@@ -192,7 +196,10 @@ test.describe('on a phone', () => {
 
   test('pairs a phone after installing Tailscale, using a single-use sign-in link', async ({ page, browser, relay }) => {
     await page.goto(relay.base + '/?pair=1#code=' + (await relay.newSignInCode()));
-    const card = page.locator('#settings-browsers');
+    const card = page.locator('#settings-home-screen');
+    await expect(page).toHaveURL(/#\/settings\/home-screen$/);
+    await expect(page.locator('#settings-browsers').getByRole('button', { name: 'Sign in another device' })).toHaveCount(0);
+    await card.locator('.guide-pairing > summary').click();
     await card.locator('.phone-setup summary').click();
     await expect(card.getByRole('img', { name: 'Need Tailscale on your phone?' })).toBeVisible();
     await expect(card.getByRole('link', { name: /official Tailscale/ })).toHaveAttribute('href', 'https://tailscale.com/download');

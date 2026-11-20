@@ -78,6 +78,6 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 - [開發者說明 → 桌面 app](../docs/developer-guide.zh-TW.md#桌面-app)：它如何執行、建置、檢查、fuse、簽署與安裝檔。
 - [架構 → 桌面 app](../docs/architecture.zh-TW.md#桌面-app)：程序、登入、環境、tailnet、視窗與更新。
 - [開發者說明 → 發佈](../docs/developer-guide.zh-TW.md#發佈)：發佈 workflow 與版本規則。
-- [用手機連線 → 用桌面 app](../docs/remote-access.zh-TW.md#用桌面-app)：從系統匣選單啟用分享、檢查 Tailscale 安裝狀態，再開啟手機配對頁。
+- [用手機連線 → 用桌面 app](../docs/remote-access.zh-TW.md#用桌面-app)：從系統匣選單啟用分享、檢查 Tailscale 安裝狀態，再開啟**連接手機**內的配對操作。
 - [各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)與[架構 → 安全性](../docs/architecture.zh-TW.md#安全性)：agent 不能讀取的地方，包括視窗的登入資料。
 - [參與開發](../CONTRIBUTING.zh-TW.md)與 [AGENTS.md](../AGENTS.md)：每個修改都要遵守的規則。
