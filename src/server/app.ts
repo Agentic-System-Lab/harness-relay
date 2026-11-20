@@ -14,9 +14,10 @@ import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
-import { APP_SERVERS } from '../shared/apps';
+import { APP_SERVERS, HOSTED_APPS } from '../shared/apps';
 import { TeamsGraph } from './connectors/teams';
 import { githubSignOut, githubStatus } from './connectors/apps';
+import { HostedAppChecks } from './connectors/hostedApps';
 import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -327,6 +328,7 @@ export function createApp({
   mcpOAuth = settings.mcpOAuth,
 }: AppDeps): Hono {
   const app = new Hono();
+  const hostedApps = new HostedAppChecks(settings);
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
   const screenshots = new Set<string>();
   /**
@@ -803,6 +805,17 @@ export function createApp({
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
 
+  // Read the selected provider account's status. Hosted service credentials are managed by the provider.
+  app.post('/api/apps/:app/hosted/:provider', async (c) => {
+    const app = c.req.param('app');
+    const p = c.req.param('provider');
+    if (!Object.hasOwn(HOSTED_APPS, app)) throw new HttpError(404, t().invalidField('app'));
+    if (p !== 'claude' && p !== 'codex') throw new HttpError(404, t().unknownProvider(p));
+    const id = account(c, p);
+    const { verify } = await body<{ verify?: unknown }>(c);
+    if (verify !== undefined && typeof verify !== 'boolean') throw new HttpError(400, t().invalidField('verify'));
+    return c.json({ status: await hostedApps.check(app as keyof typeof HOSTED_APPS, p, id, verify === true) });
+  });
   app.get('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.view()));
   app.put('/api/apps/slack/posting', async (c) => c.json(await settings.slackPosting.connect((await body<{ token?: unknown }>(c))?.token)));
   app.delete('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.disconnect()));

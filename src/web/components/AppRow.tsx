@@ -19,6 +19,7 @@ export function AppRow({
   status,
   label,
   reveal,
+  onOpen,
   children,
 }: {
   name: string;
@@ -26,6 +27,7 @@ export function AppRow({
   status?: string;
   label?: string;
   reveal?: boolean;
+  onOpen?: () => void;
   children: ReactNode;
 }) {
   const details = useRef<HTMLDetailsElement>(null);
@@ -44,6 +46,9 @@ export function AppRow({
       <details
         className="app-options"
         ref={details}
+        onToggle={(e) => {
+          if (e.target === e.currentTarget && e.currentTarget.open) onOpen?.();
+        }}
         onFocusCapture={(e) => {
           focused.current = e.target;
         }}

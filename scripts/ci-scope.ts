@@ -116,6 +116,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     ...PROSE,
     'LICENSE',
     'test/**',
+    '!test/fake-mail-servers.ts',
+    '!test/fake-mcp-auth-server.ts',
     'desktop/**',
     'site/**',
     '!site/share/**',

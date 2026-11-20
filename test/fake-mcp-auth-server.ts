@@ -93,7 +93,7 @@ export interface FakeMcpAuth {
 
 const b64url = (b: Buffer) => b.toString('base64url');
 
-export async function fakeMcpAuth(): Promise<FakeMcpAuth> {
+export async function fakeMcpAuth(tool?: { name: string; text: string; calls: string[] }): Promise<FakeMcpAuth> {
   const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string; resource: string | null }>();
   const self: FakeMcpAuth = {
     url: '',
@@ -217,8 +217,18 @@ export async function fakeMcpAuth(): Promise<FakeMcpAuth> {
 
     // The MCP server: a good token, or 401 with where to sign in.
     if (url.pathname === '/mcp') {
-      if (self.open || (bearer && self.accessTokens.get(bearer)))
+      if (self.open || (bearer && self.accessTokens.get(bearer))) {
+        if (tool && req.method === 'POST') {
+          const request = JSON.parse(body);
+          if (request.method === 'tools/call') {
+            if (request.params.name !== tool.name)
+              return json(200, { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Unknown tool' } });
+            tool.calls.push(request.params.name);
+            return json(200, { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: tool.text }] } });
+          }
+        }
         return json(200, { jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } });
+      }
       const params = [
         ...(self.header === 'resource_metadata'
           ? [`resource_metadata="${self.resourceMetadataUrl ?? `${self.publicUrl}/.well-known/oauth-protected-resource/mcp`}"`]

@@ -5,18 +5,16 @@ import {
   type ObsidianVault,
   type RelayToolGroup,
   type TeamsConnection,
-  type SlackPostingConnection,
   type ToolLibraryView,
 } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { AppSignIn } from './McpSignIn';
-import { HostedAppLinks } from './HostedAppLinks';
+import { HostedAppRow, type HostedAccounts } from './HostedAppLinks';
 import { ChevronIcon } from './icons';
 import { AppRow } from './AppRow';
 import { GoogleProjectConnection } from './GoogleProjectConnection';
-import { SlackPostingSettings } from './SlackPostingSettings';
-import { APP_SERVERS } from '../../shared/apps';
+import { SlackAppRow } from './SlackAppRow';
 import { TeamsSignIn } from './TeamsSignIn';
 import { GithubConnectionRow } from './GithubConnectionRow';
 
@@ -33,6 +31,8 @@ export function CommonApps({
   connectors,
   relayAccess,
   browserSettings,
+  hostedAccounts,
+  activeApps,
 }: {
   lib: ToolLibraryView;
   oauth: OAuthView | null;
@@ -42,15 +42,14 @@ export function CommonApps({
   connectors: ConnectorsView | null;
   relayAccess: (group: RelayToolGroup) => ReactNode;
   browserSettings: ReactNode;
+  hostedAccounts: HostedAccounts;
+  activeApps: boolean;
 }) {
   const t = useT();
   const a = t.apps;
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [teams, setTeams] = useState<TeamsConnection>();
-  const [slack, setSlack] = useState<SlackPostingConnection>();
-  const slackServers = lib.mcpServers.filter((s) => s.app === 'slack' || (s.transport === 'http' && s.url === APP_SERVERS.slack));
-  const savedSlack = slackServers.filter((s) => s.oauth);
   const connectedAccountRow = (use: keyof typeof accounts) => {
     const provider = use === 'teams' ? 'microsoft' : 'google';
     const linked =
@@ -75,15 +74,7 @@ export function CommonApps({
             t.connectors.oauth.connected
           : undefined;
     return (
-      <AppRow
-        name={accounts[use]}
-        key={use}
-        description={a.details[use]}
-        label={status ? a.manage : a.options}
-        status={status}
-        reveal={pending}
-      >
-        <HostedAppLinks app={use} />
+      <HostedAppRow active={activeApps} app={use} key={use} accounts={hostedAccounts} directStatus={status} reveal={pending}>
         {linked.map((x) => (
           <div key={x.id}>
             <span>
@@ -128,8 +119,8 @@ export function CommonApps({
             onDone={refreshAccounts}
           />
         )}
-        {relayAccess(use)}
-      </AppRow>
+        {(linked.length > 0 || nativeTeams?.status === 'connected') && relayAccess(use)}
+      </HostedAppRow>
     );
   };
   return (
@@ -172,36 +163,7 @@ export function CommonApps({
         </AppGroup>
         <AppGroup name={a.categories.team}>
           {connectedAccountRow('teams')}
-          <AppRow
-            name="Slack"
-            description={a.details.slack}
-            label={savedSlack.length || slack?.status === 'connected' ? a.manage : a.options}
-            status={
-              slack?.status === 'connected'
-                ? slack.sender + ' · ' + slack.workspace + ' · ' + a.postingEnabled
-                : savedSlack.length
-                  ? savedSlack.some((s) => s.oauth?.status === 'reauth')
-                    ? t.connectors.oauth.reauth
-                    : a.savedSlack
-                  : undefined
-            }
-          >
-            <HostedAppLinks app="slack" />
-            <SlackPostingSettings view={slack} setView={setSlack} />
-            {relayAccess('slack')}
-            {slackServers.map((server) => (
-              <div key={server.id}>
-                {server.oauth && <p className="small">{a.slackExisting(server.name)}</p>}
-                <AppSignIn
-                  name="Slack"
-                  oauth={server.oauth}
-                  startRequest={server.oauth ? () => api.startMcpSignIn(server.name) : undefined}
-                  onDone={() => change(() => api.tools())}
-                  onSignOut={() => change(() => api.signOutMcp(server.name))}
-                />
-              </div>
-            ))}
-          </AppRow>
+          <SlackAppRow active={activeApps} lib={lib} accounts={hostedAccounts} access={relayAccess('slack')} change={change} />
         </AppGroup>
         <AppGroup name={a.categories.notes}>
           {connectedAccountRow('drive')}

@@ -393,7 +393,7 @@ base('common apps connects Teams and a local Obsidian vault, keeps them after re
   graph = { status: 'missing-module' };
   await teams.getByRole('button', { name: 'Check again' }).click();
   await teams.getByRole('button', { name: 'Install Microsoft Graph for Teams' }).click();
-  await expect(teams.getByRole('status')).toContainText('Installing Microsoft Graph');
+  await expect(teams.locator('details.app-secondary').getByRole('status')).toContainText('Installing Microsoft Graph');
   graph = { status: 'signed-out' };
   await teams.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(teams).toContainText('TEAMS1234');

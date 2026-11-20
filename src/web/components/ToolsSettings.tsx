@@ -32,7 +32,17 @@ import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
 /** Settings → Tool library: MCP servers, skills and the shared memory every agent can be given. */
-export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView | null; tab: 'apps' | 'tools'; draftLink?: ReactNode }) {
+export function ToolsCard({
+  settings,
+  tab,
+  activeApps,
+  draftLink,
+}: {
+  activeApps: boolean;
+  settings: SettingsView | null;
+  tab: 'apps' | 'tools';
+  draftLink?: ReactNode;
+}) {
   const env = useChecksEnvironment();
   const t = useT();
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
@@ -131,8 +141,13 @@ export function ToolsCard({ settings, tab, draftLink }: { settings: SettingsView
         {lib ? (
           <AccountSignInProvider>
             <CommonApps
+              activeApps={activeApps}
               lib={lib}
               oauth={oauth}
+              hostedAccounts={{
+                claude: settings?.providers.find((p) => p.provider === 'claude')?.accounts ?? [],
+                codex: settings?.providers.find((p) => p.provider === 'codex')?.accounts ?? [],
+              }}
               connectors={connectors}
               accountSettings={(kind) => (
                 <ConnectorsSettings
@@ -252,7 +267,7 @@ function RelayAccess({ group, lib, change }: { group: RelayToolGroup; lib: ToolL
   };
   return (
     <details className="sub app-chat-access">
-      <summary>{t.apps.chatAccess(providers.length)}</summary>
+      <summary>{group === 'slack' ? t.apps.postingAssistants(providers.length) : t.apps.chatAccess(providers.length)}</summary>
       <fieldset className="sub-body app-access-controls" disabled={saving} aria-label={t.tools.givenTo}>
         <p className="small muted">{group === 'browser' || group === 'obsidian' ? t.apps.deviceGrant : t.apps.grantHint}</p>
         {(!lib.gateway.available || lib.gateway.reason) && (

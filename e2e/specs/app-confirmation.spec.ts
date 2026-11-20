@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
+import { checkToolOff, openCommonApp, selectAssistant } from '../support/app-access';
 import { finishedReply, openTeamChat, send } from '../support/app';
 
 test('Obsidian previews the exact note in full access, supports discard, and checks for changes before saving', async ({ page, relay }) => {
@@ -67,13 +68,23 @@ test.describe('Slack workspace posting', () => {
     await page.goto(relay.base + '/#/settings/apps');
     const row = page.getByRole('listitem', { name: 'Slack', exact: true });
     await row.locator('.app-options > summary').click();
-    await row.getByText('Send from Relay', { exact: true }).click();
-    await row.getByLabel('Slack OAuth token').fill('xoxb-fixture-for-relay');
+    const direct = row.getByText('Send from Relay', { exact: true }).locator('..');
+    const accessLabel = 'Assistants who can draft messages';
+    await expect(row.getByText(accessLabel, { exact: true })).toHaveCount(0);
+    await direct.locator(':scope > summary').click();
+    await expect(direct.getByText(accessLabel, { exact: true })).toHaveCount(0);
+    await direct.getByLabel('Slack OAuth token').fill('xoxb-fixture-for-relay');
     await row.getByRole('button', { name: 'Enable sending' }).click();
     await expect(row).toContainText('Demo bot · Demo workspace');
-    await row.getByText('Choose assistants to enable this tool').click();
-    await row.getByRole('button', { name: 'Claude Code', exact: true }).click();
-    await expect(row).toContainText('Assistants using this tool · 1');
+    await expect(direct.getByText(accessLabel, { exact: true })).toBeVisible();
+    await expect(direct.getByRole('button', { name: 'Claude Code', exact: true })).toBeHidden();
+    await direct.getByText(accessLabel, { exact: true }).click();
+    await direct.getByRole('button', { name: 'Claude Code', exact: true }).click();
+    await expect(direct).toContainText('Assistants who can draft messages · 1');
+    await direct.locator(':scope > summary').click();
+    await expect(direct.getByText('Assistants who can draft messages · 1', { exact: true })).toBeHidden();
+    await expect(row.getByRole('link', { name: 'Connect Slack in Claude' })).toBeVisible();
+    await expect(row.locator('.app-options > summary')).not.toContainText('Connected in Claude');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Slack message');
     const text = 'Ready to share?\nThe update is ready.';
     const proposal = JSON.stringify({ destination: 'https://relay-demo.slack.com/archives/CPLANS', text }) + ' e2e:mcp=slack_send_message';
@@ -100,6 +111,12 @@ test.describe('Slack workspace posting', () => {
       .map((line) => JSON.parse(line));
     expect(readFileSync(posts, 'utf8').trimEnd().split('\n')).toHaveLength(1);
     expect(payload).toMatchObject({ channel: 'CPLANS', text, blocks: [{ type: 'section', text: { type: 'plain_text', text } }] });
+    const chat = page.url();
+    const settings = await openCommonApp(page, relay, 'Slack');
+    await settings.getByText('Send from Relay', { exact: true }).click();
+    await selectAssistant(settings, false);
+    await checkToolOff(page, chat, 'slack_send_message', { destination: 'CPLANS', text });
+    expect(readFileSync(posts, 'utf8').trimEnd().split('\n')).toHaveLength(1);
   });
 });
 
@@ -107,15 +124,17 @@ test('common app disclosure typography matches and setup labels stay above field
   await page.goto(relay.base + '/#/settings/apps');
   const row = page.getByRole('listitem', { name: 'Google Drive', exact: true });
   await row.locator('.app-options > summary').click();
+  const mailStyle = page.getByRole('listitem', { name: 'Mail', exact: true });
+  await mailStyle.locator('.app-options > summary').click();
   const typography = (e: Element) => {
     const css = getComputedStyle(e);
     return [css.fontFamily, css.fontSize, css.fontWeight];
   };
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    const expected = await row.locator('.app-chat-access > summary').evaluate(typography);
+    const expected = await mailStyle.locator('.app-chat-access > summary').evaluate(typography);
     for (const summary of await row.locator('.app-secondary > summary').all()) expect(await summary.evaluate(typography)).toEqual(expected);
-    await expect(row.getByText('Choose assistants to enable this tool')).toBeVisible();
+    await expect(row.getByText('Choose assistants to enable this tool')).toHaveCount(0);
   }
   const docs = row.locator('.app-secondary').filter({ has: page.getByText('Create or edit Google Docs in Relay', { exact: true }) });
   const project = row
@@ -135,6 +154,7 @@ test('common app disclosure typography matches and setup labels stay above field
   }
   await project.locator('summary').click();
   await docs.locator('summary').click();
+  await mailStyle.locator('.app-options > summary').click();
   const calendar = page.getByRole('listitem', { name: 'Calendar', exact: true });
   await calendar.locator('.app-options > summary').click();
   const mail = page.getByRole('listitem', { name: 'Mail', exact: true });
@@ -471,6 +491,11 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(card.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
     await expect(card).toContainText('Check the result');
     await expect(card).toContainText('Request a fresh preview.');
+    expect(state()).toEqual(external);
+    const chat = page.url();
+    const settings = await openCommonApp(page, relay, 'Google Drive');
+    await selectAssistant(settings, false);
+    await checkToolOff(page, chat, 'drive_edit_document', edit);
     expect(state()).toEqual(external);
   });
 });

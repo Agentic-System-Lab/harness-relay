@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { matchesPreparedDocument } from '../outbox';
 import type { OutboxPreview } from '../../shared/types';
 import type { GatewayTool } from '../gateway';
 import { t } from '../i18n';
@@ -17,7 +17,9 @@ const fileId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-
 const tabId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_.-]{1,256}$/.test(v) && !/\s/.test(v);
 const revision = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 2048 && !/[\s\x00-\x1f\x7f]/.test(v);
 const link = (id: string) => `https://docs.google.com/document/d/${id}/edit`;
-const digest = (p: Preview) => createHash('sha256').update(JSON.stringify(p)).digest('hex');
+function hasDocsScope(scopes: unknown): boolean {
+  return Array.isArray(scopes) && scopes.some((scope) => scope === SCOPE);
+}
 
 function textField(v: unknown, field: string, singleLine = false): string {
   // Docs strips control characters and BMP private-use characters. A preview must match the exact write.
@@ -205,18 +207,11 @@ export function driveDocumentTools(oauth: OAuthService): GatewayTool[] {
           a.provider === 'google' &&
           a.status === 'connected' &&
           a.uses.includes('documents') &&
-          oauth.store.account(a.id)?.scopes.includes(SCOPE),
+          hasDocsScope(oauth.store.account(a.id)?.scopes),
       );
   const account = (id: string) => {
     const a = oauth.store.account(id);
-    if (
-      !a ||
-      a.provider !== 'google' ||
-      a.status !== 'connected' ||
-      !a.subject ||
-      !a.uses.includes('documents') ||
-      !a.scopes.includes(SCOPE)
-    )
+    if (!a || a.provider !== 'google' || a.status !== 'connected' || !a.subject || !a.uses.includes('documents') || !hasDocsScope(a.scopes))
       throw new Error(t().docsGrant);
     const provider = oauth.provider('google');
     return { id: a.id, subject: a.subject, email: a.email, api: endpoint(provider.docsApi), client: provider.clientId };
@@ -313,13 +308,13 @@ export function driveDocumentTools(oauth: OAuthService): GatewayTool[] {
         return {
           title: create ? t().docsCreate(doc.title) : t().docsEdit(doc.title),
           preview: { fields: [], document: doc },
-          args: { ...target, owner, digest: digest(doc) },
+          args: { ...target, owner, document: structuredClone(doc) },
         };
       },
       async send(args, item, recordProgress) {
         const doc = item.preview.document,
           frozen = args.owner;
-        if (!doc || digest(doc) !== args.digest || !object(frozen) || typeof frozen.id !== 'string') throw changed();
+        if (!doc || !matchesPreparedDocument(args, doc) || !object(frozen) || typeof frozen.id !== 'string') throw changed();
         const owner = account(frozen.id);
         if (
           owner.email !== doc.account ||

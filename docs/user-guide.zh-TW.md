@@ -336,7 +336,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 | GitHub | 列出儲存庫的拉取請求。展開 GitHub 可安裝 GitHub CLI、使用畫面上的代碼登入，或管理已登入的帳號。 |
 | 瀏覽器 | 選擇哪些助理可以開啟網頁與擷取畫面。「要啟動的瀏覽器」可指定執行檔。 |
 
-使用 Claude 時，請用與 Relay 的 Claude Code 相同的 Claude 訂閱帳號。使用 Codex 時，在該帳號的 ChatGPT 工作區安裝外掛、授權，再到 Relay 建立新對話。要在 Relay 檢查連線，打開該助理的設定，選擇帳號，在 CLI 自行載入的工具清單中按「查詢」。Claude Code 查看「MCP 工具」，Codex 查看「Plugins」。若 Codex 沒有列出該 App，請檢查該帳號的外掛目錄。所選服務會收到你請它讀取的內容，適用你自己的方案與工作區規則。這些連結不使用 Relay 發行者的 API 憑證。
+使用 Claude 時，請用與 Relay 的 Claude Code 相同的 Claude 訂閱帳號。使用 Codex 時，在該帳號的 ChatGPT 工作區安裝外掛、授權，再到 Relay 建立新對話。在供應商頁面連結 Drive、Teams 或 Slack 後，請回到 Relay。各服務分別顯示 Claude 與 Codex 的狀態，以及目前查詢的帳號。Claude 顯示已連結時，代表 Claude Code 回報連線成功。Codex 顯示可使用時，代表該 App 已啟用且可呼叫；按**重新檢查連線**或從供應商頁回到 Relay 時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示**已在 Codex 連結**表示已通過需要登入的查詢，狀態回應不包含個人資料。要核對授權的工作區或帳號，可在 Codex 的**設定 → 外掛（Plugins）**開啟該 App，查看已連結帳號。若未授權就關閉頁面，可按**重新檢查連線**更新兩個供應商的狀態。已連結的供應商會顯示解除連結的選項。使用 Claude 時，請前往連接器管理頁移除服務。Teams 使用 Microsoft 365 連接器，移除後也會影響該連接器的其他 Microsoft 365 服務。若使用 Codex，請在該 App 的已連結帳號中選取帳號後解除連結，再回到 Relay 確認結果。移除帳號授權後，該 App 仍可能顯示為可使用。若查詢失敗，狀態會顯示無法確認。另一個供應商與 Relay 的直接連線各有自己的權限。若要檢視 CLI 載入的工具，請打開該助理的設定、選擇帳號，在 CLI 自行載入的工具清單中按「查詢」。Claude Code 查看「MCP 工具」，Codex 查看「Plugins」。若 Codex 沒有列出該 App，請檢查該帳號的外掛目錄。所選服務會收到你請它讀取的內容，適用你自己的方案與工作區規則。這些連結不使用 Relay 發行者的 API 憑證。
 
 **在 Relay 新增或編輯 Google 文件**
 
@@ -347,7 +347,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 Claude 和 Codex 提供的 Drive 連線也可用來找檔案，這些工具的權限由各服務管理。若希望每次寫入 Google 文件都先在 Relay 檢閱，請將這些代管工具的編輯權限維持關閉。
 
-要選擇哪些助理可透過 Relay 使用**郵件**、**行事曆**、**瀏覽器**、**Google Drive**、**Microsoft Teams**、**Slack**、**GitHub** 或 **Obsidian**，請展開該服務，再展開**選擇助理以啟用工具**。選好後會顯示**可使用此工具的助理 · N 種**，N 是目前勾選的數量。再次展開即可更改。這項設定適用於該工具所有已連結的帳號。例如，開放郵件給 Codex 後，它可以使用你連結的信箱。行事曆可另外選擇助理。解除直接透過 OAuth 連線的 Google 或 Microsoft 帳號時，會一併移除該帳號列出的所有用途。
+要選擇哪些助理可透過 Relay 使用**郵件**、**行事曆**、**瀏覽器**、**Google Drive**、**Microsoft Teams**、**GitHub** 或 **Obsidian**，請展開該服務，再展開**選擇助理以啟用工具**。Slack 的**可提議傳送訊息的助理**位於**從 Relay 傳送訊息**中，開啟傳送權限後才會出現。Claude 與 Codex 代管的 Slack 連線各自獨立。選好後會顯示**可使用此工具的助理 · N 種**，N 是目前勾選的數量。再次展開即可更改。這項設定適用於該工具所有已連結的帳號。例如，開放郵件給 Codex 後，它可以使用你連結的信箱。行事曆可另外選擇助理。解除直接透過 OAuth 連線的 Google 或 Microsoft 帳號時，會一併移除該帳號列出的所有用途。
 
 **登出 GitHub。** 在**常用 App → 開發與瀏覽**展開 **GitHub**，按**登出 GitHub**，並確認畫面上的帳號。這會將該帳號從執行 Relay 那台電腦的 GitHub CLI 登出。其他使用同一套 CLI 的應用程式也會失去該帳號的存取權。Relay 的對話分享與 GitHub 自動任務都使用這套 CLI。如果還有其他已登入的帳號，請查看 GitHub 列目前顯示的是哪一個。若目前的權杖來自環境變數，GitHub 列會顯示變數名稱。請從啟動 Relay 的環境移除該變數，再重新啟動 Relay。
 
@@ -361,7 +361,7 @@ Claude 和 Codex 提供的 Drive 連線也可用來找檔案，這些工具的�
 
 ### Harness Relay 的工具：瀏覽器、郵件與行事曆
 
-內建工具的聊天存取預設是關閉的。在**設定 → App 與工具 → 常用 App** 展開該工具，再展開**選擇助理以啟用工具**，勾選要給哪些 CLI 的成員（每個 CLI 都可以；Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只有完全存取時才能用，因為在那以下，裝著它們指令的沙箱也裝著它們啟動的 MCP server，讀不到 Harness Relay 放每一回合權杖的資料夾），某一組給了任何 CLI 之後，也可以像工具庫的項目一樣，在[團隊成員](#團隊成員)的 **工具** 為單一成員調整。有其中任何一項的成員，它的每一回合會多一個 MCP server：`relay`，每個 CLI 都一樣：OpenCode、Codex 與 Copilot 自己在這台電腦上連過去，用只有它們持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。密碼與帳號留在 Harness Relay，CLI 只會看到每次呼叫的結果，而且 agent 會被告知那是網頁、郵件或行事曆的資料，不是指令。這個伺服器無法提供時，這一段會說明原因（在桌面 app 中，那個小程式需要 `PATH` 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個；OpenCode、Codex 與 Copilot 不需要）。
+瀏覽器、郵件與行事曆的聊天存取預設是關閉的。在**設定 → App 與工具 → 常用 App** 展開該服務，再展開**選擇助理以啟用工具**，勾選要給哪些 CLI 的成員（每個 CLI 都可以；Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只有完全存取時才能用，因為在那以下，裝著它們指令的沙箱也裝著它們啟動的 MCP server，讀不到 Harness Relay 放每一回合權杖的資料夾），某一組給了任何 CLI 之後，也可以像工具庫的項目一樣，在[團隊成員](#團隊成員)的 **工具** 為單一成員調整。有其中任何一項的成員，它的每一回合會多一個 MCP server：`relay`，每個 CLI 都一樣：OpenCode、Codex 與 Copilot 自己在這台電腦上連過去，用只有它們持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。密碼與帳號留在 Harness Relay，CLI 只會看到每次呼叫的結果，而且 agent 會被告知那是網頁、郵件或行事曆的資料，不是指令。這個伺服器無法提供時，這一段會說明原因（在桌面 app 中，那個小程式需要 `PATH` 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個；OpenCode、Codex 與 Copilot 不需要）。
 
 每次呼叫不經你同意能做什麼，取決於它做的事：
 

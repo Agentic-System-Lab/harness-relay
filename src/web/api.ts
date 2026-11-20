@@ -2,6 +2,9 @@ import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
   AboutInfo,
+  HostedApp,
+  HostedProvider,
+  HostedAppStatus,
   AccountUsage,
   AlertPrefs,
   ApiBackend,
@@ -535,6 +538,8 @@ export const api = {
     request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
   addObsidianVaults: (paths: string[]) => request<ToolLibraryView>('POST', '/api/apps/obsidian', { paths }),
   removeObsidianVault: (id: string) => request<ToolLibraryView>('DELETE', '/api/apps/obsidian/' + encodeURIComponent(id)),
+  hostedAppStatus: (app: HostedApp, provider: HostedProvider, account: string, verify = false) =>
+    request<{ status: HostedAppStatus }>('POST', '/api/apps/' + app + '/hosted/' + provider + accountQuery(account), { verify }),
   slackPosting: () => request<import('../shared/types').SlackPostingConnection>('GET', '/api/apps/slack/posting'),
   connectSlackPosting: (token: string) =>
     request<import('../shared/types').SlackPostingConnection>('PUT', '/api/apps/slack/posting', { token }),

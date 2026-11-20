@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { removeTree } from '../../src/server/fsRemove';
@@ -6,6 +6,7 @@ import { openDatabase } from '../../src/server/db';
 import { ToolLibrary } from '../../src/server/tools';
 import { APP_SERVERS } from '../../src/shared/apps';
 import type { ToolLibraryView } from '../../src/shared/types';
+import { hostedApps, hostedPage, hostConnectorPages, type HostedApp, type HostedProvider } from '../support/hosted-apps';
 import { saveLegacySlackGrant } from '../support/legacy-slack-grant';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -274,33 +275,149 @@ base('Notion and Heptabase connect from the full row and keep sign-in controls a
   }
 });
 
-base("Slack opens Claude's official connector and leaves Relay's shared tools and members alone", async ({ page, relay }) => {
-  const directory = 'https://claude.ai/directory/597f662f-36de-437e-836e-5a81013cbfbe';
-  const library = () => relay.api<{ mcpServers: unknown[] }>('/api/tools');
+base('Drive, Teams and Slack check and disconnect Claude and Codex independently', async ({ page, relay }) => {
+  base.slow();
+  const { set } = await hostConnectorPages(page.context(), relay.home);
+  const providers = ['Claude', 'Codex'] as const;
+  const callsFile = join(relay.home, '.codex', 'e2e-hosted-profile-calls.jsonl');
+  const calls = () =>
+    existsSync(callsFile)
+      ? readFileSync(callsFile, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as string)
+      : [];
+
+  const ready = (provider: HostedProvider) => (provider === 'Claude' ? 'Connected in Claude' : 'Available in Codex');
+  const extra = await Promise.all(
+    providers.map((name) =>
+      relay.api<{ id: string }>('/api/settings/providers/' + name.toLowerCase() + '/accounts', { method: 'POST', body: { label: 'Work' } }),
+    ),
+  );
+  const library = () => relay.api<ToolLibraryView>('/api/tools');
   const before = await library();
   const writes: string[] = [];
   page.on('request', (request) => {
     const { pathname } = new URL(request.url());
-    if (request.method() !== 'GET' && /^\/api\/(?:apps\/slack|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname))
+    if (
+      request.method() !== 'GET' &&
+      /^\/api\/(?:apps|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname) &&
+      !/^\/api\/apps\/(?:drive|teams|slack)\/hosted\/(?:claude|codex)$/.test(pathname)
+    )
       writes.push(pathname);
   });
-  // Exercise the external link offline; opening a page alone cannot attest to a Slack grant.
-  await page
-    .context()
-    .route(directory, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Claude connector</title>' }));
-  await page.goto(`${relay.base}/#/settings/apps`);
-  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
-  await slack.locator('.app-options > summary').click();
-  const connect = slack.getByRole('link', { name: 'Connect Slack in Claude' });
-  await expect(connect).toHaveAttribute('href', directory);
-  const [tab] = await Promise.all([page.context().waitForEvent('page'), connect.click()]);
-  await expect(tab).toHaveURL(directory);
-  await tab.close();
-  await expect(slack.locator('.app-options > summary')).not.toContainText(/connected|signed in|sending enabled/i);
-  await expect(slack.getByRole('status')).toHaveCount(0);
-  await expect(slack.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/settings\/apps$/);
-  expect((await library()).mcpServers).toEqual(before.mcpServers);
+  const row = (app: HostedApp) => page.getByRole('listitem', { name: app.name, exact: true });
+  const group = (app: HostedApp, provider: HostedProvider) => row(app).getByRole('group', { name: provider, exact: true });
+  const check = (app: HostedApp, provider: HostedProvider) =>
+    page.waitForResponse(
+      (res) =>
+        new URL(res.url()).pathname === '/api/apps/' + app.id + '/hosted/' + provider.toLowerCase() && res.request().method() === 'POST',
+    );
+  const change = async (
+    app: HostedApp,
+    provider: HostedProvider,
+    action: 'Allow' | 'Disconnect' | 'Cancel' | 'Cancel disconnect',
+    expected: string,
+  ) => {
+    const disconnect = action === 'Disconnect' || action === 'Cancel disconnect';
+    const link = group(app, provider).getByRole('link', { name: (disconnect ? 'Disconnect ' : 'Connect ') + app.name + ' in ' + provider });
+    const url = hostedPage(app, provider, disconnect);
+    await expect(link).toHaveAttribute('href', url);
+    const [tab] = await Promise.all([page.waitForEvent('popup'), link.click()]);
+    await expect(tab).toHaveURL(url);
+    await expect(group(app, provider).getByRole('status')).toContainText(
+      disconnect ? new RegExp('(Connected|Available) in ' + provider) : 'does not list ' + app.name,
+    );
+    if (action === 'Allow' || action === 'Disconnect') {
+      await tab.getByRole('button', { name: action + ' ' + app.name }).click();
+      await expect(tab.getByText('Updated')).toBeVisible();
+    }
+    const fresh = check(app, provider);
+    await tab.close();
+    await page.bringToFront();
+    // Headless tabs can already report focus; send the same return notification the browser sends to the visible page.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    const res = await fresh;
+    expect(await res.json()).toEqual({ status: expected });
+  };
+  await page.goto(relay.base + '/#/settings/apps');
+  for (const app of hostedApps) {
+    await base.step('Verify both connections for ' + app.name, async () => {
+      await row(app).locator('.app-options > summary').click();
+      for (const provider of providers) {
+        const status = group(app, provider).getByRole('status');
+        await expect(status).toContainText('This ' + provider + ' account does not list ' + app.name);
+        await expect(status).toContainText('Default account');
+        if (app.id === 'slack' && provider === 'Claude') {
+          await change(app, provider, 'Cancel', 'not-found');
+          await expect(status).toContainText('does not list Slack');
+        }
+        await change(app, provider, 'Allow', 'connected');
+        await expect(status).toHaveText('Connected in ' + provider + ' · Default account');
+      }
+      await expect(row(app).locator('.app-options > summary')).toContainText('Claude');
+      await expect(row(app).locator('.app-options > summary')).toContainText('Codex');
+    });
+  }
+  expect(calls()).toEqual(['google_drive.get_profile', 'microsoft_teams.get_profile', 'slack.slack_read_user_profile']);
+  await page.reload();
+  for (const app of hostedApps) {
+    await base.step('Reload and disconnect ' + app.name + ' in each provider', async () => {
+      await row(app).locator('.app-options > summary').click();
+      for (const provider of providers)
+        await expect(group(app, provider).getByRole('status')).toHaveText(ready(provider) + ' · Default account');
+      if (app.id === 'slack') {
+        for (const [index, provider] of providers.entries()) {
+          const g = group(app, provider);
+          const account = g.getByRole('combobox', { name: provider + ' account' });
+          await account.selectOption(extra[index]!.id);
+          await expect(g.getByRole('status')).toContainText('This ' + provider + ' account does not list Slack · Work');
+          await account.selectOption('');
+          await expect(g.getByRole('status')).toHaveText(ready(provider) + ' · Default account');
+        }
+        await row(app).getByText('Send from Relay', { exact: true }).click();
+        await expect(row(app).getByLabel('Slack OAuth token')).toBeVisible();
+        await expect(row(app).getByText('Assistants who can draft messages', { exact: true })).toHaveCount(0);
+      }
+      const previousCalls = calls().length;
+      const [verified] = await Promise.all([check(app, 'Codex'), row(app).getByRole('button', { name: 'Check connections' }).click()]);
+      expect(verified.request().postDataJSON()).toEqual({ verify: true });
+      expect(await verified.json()).toEqual({ status: 'connected' });
+      expect(calls()).toHaveLength(previousCalls + 1);
+      await expect(group(app, 'Codex').getByRole('status')).toHaveText('Connected in Codex · Default account');
+      await expect(group(app, 'Codex')).not.toContainText('e2e-private');
+      await change(app, 'Claude', 'Disconnect', 'not-found');
+      await expect(group(app, 'Claude').getByRole('status')).toContainText('does not list ' + app.name);
+      await expect(group(app, 'Codex').getByRole('status')).toHaveText('Connected in Codex · Default account');
+      if (app.id === 'slack') {
+        // Opening account management cannot confirm a disconnect while the app remains callable.
+        await change(app, 'Codex', 'Cancel disconnect', 'connected');
+        await expect(group(app, 'Codex').getByRole('status')).toContainText('Connected in Codex');
+      }
+      await change(app, 'Codex', 'Disconnect', 'not-found');
+      await expect(group(app, 'Codex').getByRole('status')).toContainText('does not list ' + app.name);
+    });
+  }
+  const slack = hostedApps.find((item) => item.id === 'slack')!;
+  // Removing upstream consent can leave the Codex app callable until its read-only profile is checked.
+  set(slack, 'Codex', 'available-without-account');
+  const [revoked] = await Promise.all([check(slack, 'Codex'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  expect(await revoked.json()).toEqual({ status: 'needs-auth' });
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('Slack needs authorization in Codex');
+  set(slack, 'Codex', 'not-found');
+  set(slack, 'Claude', 'unknown');
+  const [response] = await Promise.all([check(slack, 'Claude'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  expect(await response.json()).toEqual({ status: 'unknown' });
+  await expect(group(slack, 'Claude').getByRole('status')).toContainText('Could not verify the connection in Claude');
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('does not list Slack');
+  set(slack, 'Codex', 'unknown');
+  const [codex] = await Promise.all([check(slack, 'Codex'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  expect(await codex.json()).toEqual({ status: 'unknown' });
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('Could not verify the connection in Codex');
+  for (const internal of ['private-helper', 'e2e-private']) await expect(row(slack)).not.toContainText(internal);
+  const after = await library();
+  expect(after.mcpServers).toEqual(before.mcpServers);
+  expect(after.relayTools).toEqual(before.relayTools);
   expect(writes).toEqual([]);
 });
 

@@ -1,9 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SlackPostingConnection } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 
-export function SlackPostingSettings({ view, setView }: { view?: SlackPostingConnection; setView: (v: SlackPostingConnection) => void }) {
+export function SlackPostingSettings({
+  view,
+  setView,
+  access,
+}: {
+  view?: SlackPostingConnection;
+  setView: (v: SlackPostingConnection) => void;
+  access: ReactNode;
+}) {
   const t = useT();
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
@@ -44,6 +52,7 @@ export function SlackPostingSettings({ view, setView }: { view?: SlackPostingCon
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => void act(api.disconnectSlackPosting)}>
               {t.apps.disablePosting}
             </button>
+            {access}
           </>
         ) : (
           <form

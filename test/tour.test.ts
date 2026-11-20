@@ -65,7 +65,8 @@ describe('guided tour', () => {
       expect(titles(26)).toEqual(['Connect apps to your chats']);
       expect(titles(27)).toEqual(['Connect apps to your chats']);
       expect(titles(28)).toEqual(['Connect apps to your chats']);
-      expect(tourIndices(29)).toEqual([]);
+      expect(titles(29)).toEqual(['Connect apps to your chats']);
+      expect(tourIndices(30)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -109,6 +110,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 29, fingerprint: '816687c7dd9c' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 30, fingerprint: '3da38a2bcda4' });
   });
 });

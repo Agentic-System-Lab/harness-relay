@@ -340,6 +340,7 @@ export function SettingsPage({
         )}
 
         <ToolsCard
+          activeApps={section === 'apps'}
           settings={settings}
           tab={section === 'tools' ? 'tools' : 'apps'}
           draftLink={section === 'tools' || section === 'apps' ? draftLink : undefined}

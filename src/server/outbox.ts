@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { OutboxItem, OutboxPreview, OutboxStatus } from '../shared/types';
 import { nul, type Database } from './db';
@@ -28,6 +28,12 @@ interface OutboxRow {
   result: string | null;
   created_at: number;
   decided_at: number | null;
+}
+
+export function matchesPreparedDocument(args: Record<string, unknown>, preview: NonNullable<OutboxPreview['document']>): boolean {
+  if ('document' in args) return isDeepStrictEqual(args.document, preview);
+  // Pending drafts from the first desktop build kept a SHA-256 content fingerprint.
+  return typeof args.digest === 'string' && createHash('sha256').update(JSON.stringify(preview)).digest('hex') === args.digest;
 }
 
 function toItem(r: OutboxRow): OutboxItem {
@@ -133,7 +139,16 @@ export class Outbox {
         .all(item.convId, item.tool) as unknown as OutboxRow[]
     ).find((r) => {
       try {
-        return isDeepStrictEqual(JSON.parse(r.args), args);
+        const saved = JSON.parse(r.args);
+        // Before document drafts stored a snapshot in args, they stored a fingerprint of the preview.
+        // Recognize the same pending proposal across an upgrade, including its account and revision.
+        if (item.preview.document && saved && !('document' in saved) && typeof saved.digest === 'string') {
+          const existing = toItem(r).preview.document;
+          if (!existing || !matchesPreparedDocument(saved, existing)) return false;
+          delete saved.digest;
+          saved.document = existing;
+        }
+        return isDeepStrictEqual(saved, args);
       } catch {
         return false;
       }

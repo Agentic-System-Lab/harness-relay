@@ -239,3 +239,43 @@
     flex-wrap: wrap;
   }
 }
+.hosted-connections {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+.hosted-connection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 20px;
+  padding-block: 8px;
+}
+.hosted-connection + .hosted-connection {
+  border-top: 1px solid var(--border);
+}
+.hosted-identity {
+  display: grid;
+  gap: 4px;
+}
+.hosted-account,
+.hosted-help {
+  grid-column: 1 / -1;
+}
+.hosted-account {
+  grid-row: 2;
+}
+.hosted-connection .hosted-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .hosted-connection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hosted-connection .hosted-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}

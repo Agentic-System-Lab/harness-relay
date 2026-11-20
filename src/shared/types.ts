@@ -461,6 +461,11 @@ export type TeamsConnection =
   | { status: 'connected'; account: string; canPost?: true; posting?: TeamsPostingState }
   | { status: 'error'; message: string };
 
+export type HostedApp = 'slack' | 'teams' | 'drive';
+export type HostedProvider = 'claude' | 'codex';
+/** A passive Codex check reports runtime availability. Only its explicit self-profile check can report connected. */
+export type HostedAppStatus = 'connected' | 'available' | 'needs-auth' | 'not-found' | 'disabled' | 'unknown';
+
 export type SlackPostingConnection = { status: 'signed-out' } | { status: 'connected'; workspace: string; sender: string };
 
 export type GithubTokenVariable = 'GH_TOKEN' | 'GITHUB_TOKEN';

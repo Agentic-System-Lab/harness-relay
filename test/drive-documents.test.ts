@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation, OAuthUse, Permission } from '../src/shared/types';
 import { ConnectorStore } from '../src/server/connectors/accounts';
@@ -134,6 +135,42 @@ describe('direct Google Docs proposals', () => {
     await propose('create', { ...preview, title: 'Discard me' });
     expect((await answer(outbox.list('c').at(-1)!.id, 'discard')).status).toBe('discarded');
     expect(calls).toHaveLength(3);
+  });
+
+  it.each(['current', 'legacy'] as const)('checks the original preview for %s drafts when a user confirms', async (format) => {
+    for (const modified of [false, true]) {
+      await propose('create', { title: 'Approval', content: '' });
+      const item = outbox.list('c').find((x) => x.status === 'pending')!;
+      if (format === 'legacy') {
+        const row = db.prepare('SELECT args FROM outbox WHERE id = ?').get(item.id) as { args: string };
+        const { document, ...args } = JSON.parse(row.args);
+        args.digest = createHash('sha256').update(JSON.stringify(document)).digest('hex');
+        db.prepare('UPDATE outbox SET args = ? WHERE id = ?').run(JSON.stringify(args), item.id);
+      }
+      await propose('create', { title: 'Approval', content: '' });
+      expect(
+        outbox
+          .list('c')
+          .filter((x) => x.status === 'pending')
+          .map((x) => x.id),
+      ).toEqual([item.id]);
+      if (modified) {
+        item.preview.document!.after = 'unreviewed';
+        db.prepare('UPDATE outbox SET preview = ? WHERE id = ?').run(JSON.stringify(item.preview), item.id);
+      }
+      calls.length = 0;
+      handle = () => json({ documentId: 'doc_1', title: 'Approval', revisionId: 'rev1' });
+      expect((await answer(item.id)).status).toBe(modified ? 'failed' : 'sent');
+      expect(calls).toHaveLength(modified ? 0 : 1);
+    }
+  });
+
+  it('requires a complete documents scope entry in a valid scope list', async () => {
+    for (const malformed of [scope, [scope + '.other'], ['prefix-' + scope]]) {
+      Object.assign(store.account(id)!, { scopes: malformed });
+      expect((await propose('create', preview)).isError).toBe(true);
+      expect(outbox.waiting('c')).toBe(0);
+    }
   });
 
   it('keeps UTF-16 ranges within the chosen nested tab and refuses another waiting edit after the first changes the revision', async () => {
