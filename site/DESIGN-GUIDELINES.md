@@ -105,7 +105,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | # | Section | Purpose |
 | --- | --- | --- |
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub star count, theme. At 980px and narrower the native Explore / 探索 disclosure offers use cases, installation guide and docs. The header stays on one line down to 280px. The language links follow the current section or case in both directions. |
-| 2 | Hero | Headline about the visitor’s own agents and a lead explaining how they work together. Keep the installer and the installation guide side by side, using a shorter guide label on narrow screens. Codespaces and GitHub follow. |
+| 2 | Hero | Headline about the visitor’s own agents and a lead explaining how they work together. Show the installation guide beside the download button only in the two-column desktop layout (above 920px). Codespaces and GitHub follow. |
 | 3 | Use cases (`#use-cases`) | *Hand it a task*: the twelve use cases as cards, one for each kind of work, (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
 | 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |

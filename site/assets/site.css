@@ -747,10 +747,6 @@ html:not(.js) .theme-toggle {
   color: var(--muted);
 }
 
-.install-short {
-  display: none;
-}
-
 .hero-grid .download-row {
   flex-wrap: nowrap;
 }
@@ -2453,6 +2449,10 @@ html:not(.js) .theme-toggle {
 }
 
 @media (max-width: 920px) {
+  .install-link {
+    display: none;
+  }
+
   .hero-grid,
   .agents-grid,
   .open-grid,
@@ -2620,22 +2620,7 @@ html:not(.js) .theme-toggle {
   }
 }
 
-/* Keep both installation actions side by side when only the short link label fits. */
-@media (max-width: 660px) {
-  :lang(en) .install-link > :first-child {
-    display: none;
-  }
-  :lang(en) .install-short {
-    display: inline;
-  }
-}
 @media (max-width: 480px) {
-  .hero-grid .download-row {
-    gap: 8px;
-  }
-  .hero-grid .install-link {
-    font-size: 14px;
-  }
   .hero-grid .download-row .btn-download {
     padding-inline: 12px;
     font-size: 14px;
@@ -2647,12 +2632,6 @@ html:not(.js) .theme-toggle {
   }
 }
 @media (max-width: 360px) {
-  .install-link > :first-child {
-    display: none;
-  }
-  .install-short {
-    display: inline;
-  }
   .hero-grid .download-row .btn-download {
     padding-inline: 8px;
     font-size: 13px;
@@ -2660,12 +2639,6 @@ html:not(.js) .theme-toggle {
 }
 
 @media (max-width: 320px) {
-  .install-prefix {
-    display: none;
-  }
-  .install-short {
-    text-transform: capitalize;
-  }
   .hero-grid .download-row .btn-download {
     padding-inline: 6px;
   }
