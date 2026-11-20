@@ -185,8 +185,8 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | File | Source |
 | --- | --- |
 | `media/demo-en.mp4`, `media/demo-zh-TW.mp4` | Copied from `docs/media/` by the Pages workflow; not stored twice |
-| `assets/media/poster-en.webp` | Frame at 0:31.2 of `docs/media/demo-en.mp4` |
-| `assets/media/poster-zh-TW.webp` | Frame at 0:27.1 of `docs/media/demo-zh-TW.mp4` |
+| `assets/media/poster-en.webp` | Frame at 0:37.5 of `docs/media/demo-en.mp4` |
+| `assets/media/poster-zh-TW.webp` | Frame at 0:31.5 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
 | `assets/media/docs/<page>-<what>-<lang>.webp` | The docs' pictures: frames of the use cases' recordings (`assets/media/use-cases/`), cut with ffmpeg and encoded with `cwebp -q 80`, each frame's origin in a `.webp.json` sidecar |
 | `assets/media/use-cases/<case>-<lang>.mp4`, `.webp` | Each use case's recording and its poster, written by `npm run use-cases` (the poster from the frame its use case names, its origin in a `.webp.json` sidecar); the use-cases pages share the landing page's social cards |
