@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  type CheckList,
   MEMORY_SCOPES,
   PROVIDERS,
   PROVIDER_LABEL,
@@ -8,21 +9,25 @@ import {
   type McpTransport,
   type MemoryScope,
   type Provider,
+  type SettingsView,
   type SkillCandidate,
   type ToolLibraryView,
 } from '../../shared/types';
 import { api } from '../api';
+import { checkProblems, hooksFromRows, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
+import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
 /** Settings → Tool library: MCP servers, skills and the shared memory every agent can be given. */
-export function ToolsCard({ draftLink }: { draftLink?: React.ReactNode }) {
+export function ToolsCard({ settings, draftLink }: { settings: SettingsView | null; draftLink?: React.ReactNode }) {
+  const env = useChecksEnvironment();
   const t = useT();
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
   const [error, setError] = useState('');
@@ -57,6 +62,12 @@ export function ToolsCard({ draftLink }: { draftLink?: React.ReactNode }) {
           <McpSection lib={lib} change={change} />
           <SkillsSection lib={lib} change={change} />
           <MemorySection lib={lib} change={change} />
+          {settings && (
+            <>
+              <ChecksDefaultSection part="hooks" defaults={settings.checksDefault} env={env} />
+              <ChecksDefaultSection part="checks" defaults={settings.checksDefault} env={env} />
+            </>
+          )}
         </>
       )}
     </section>
@@ -669,5 +680,78 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
         </button>
       </div>
     </div>
+  );
+}
+
+/** One independently saved section of the defaults copied into new chats and automations. */
+function ChecksDefaultSection({
+  part,
+  defaults,
+  env,
+}: {
+  part: 'hooks' | 'checks';
+  defaults?: CheckList;
+  env: ReturnType<typeof useChecksEnvironment>;
+}) {
+  const t = useT();
+  const hooksOnly = part === 'hooks';
+  const sectionOf = (list: CheckList = {}): CheckList => {
+    const { hooks, ...checks } = list;
+    return hooksOnly ? { hooks } : checks;
+  };
+  const [saved, setSaved] = useState(() => sectionOf(defaults));
+  const [draft, setDraft] = useState<CheckList | undefined>(saved);
+  const [opened, setOpened] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+  const changed = !sameChecks(draft, saved);
+  const problem = checkProblems(draft, t.checks)[0];
+  const edit = (next: CheckList | undefined) => {
+    setDraft(next);
+    setDone(false);
+    setError('');
+  };
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const patch = hooksOnly
+        ? { hooks: draft?.hooks ?? [] }
+        : { protectedPaths: draft?.protectedPaths ?? [], commitPattern: draft?.commitPattern ?? '', commands: draft?.commands ?? [] };
+      const kept = sectionOf(await api.updateCheckDefaults(patch));
+      setSaved(kept);
+      setDraft(kept);
+      setOpened((n) => n + 1);
+      setDone(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const title = hooksOnly ? t.checks.hooks : t.tools.checksDefault;
+  return (
+    <section className={`tools-section ${part}-default`} aria-label={title}>
+      <h4>{title}</h4>
+      <p className="muted small">{hooksOnly ? t.tools.hooksDefaultHint : t.tools.checksDefaultHint}</p>
+      <fieldset className="team-fieldset" disabled={busy} aria-label={title}>
+        {hooksOnly ? (
+          <HooksEditor key={opened} value={saved.hooks} env={env} onChange={(hooks) => edit({ hooks: hooksFromRows(hooks) })} />
+        ) : (
+          <ChecksEditor key={opened} value={draft} onChange={edit} env={env} variant="defaults" />
+        )}
+      </fieldset>
+      {(problem || error) && <p className="error-line">{problem || error}</p>}
+      <div className="button-row">
+        <span className="muted small" role="status">
+          {done && !changed ? t.tools.saved : ''}
+        </span>
+        <button className="primary" disabled={busy || !changed || Boolean(problem)} onClick={() => void save()}>
+          {t.common.save}
+        </button>
+      </div>
+    </section>
   );
 }

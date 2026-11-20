@@ -352,6 +352,70 @@ export async function treeOf(root: string, commit: string): Promise<string> {
   return out(await git(root, ['rev-parse', `${commit}^{tree}`]));
 }
 
+/**
+ * The commits a repository's branches and HEAD point at (team checks: where its history stood), without
+ * Harness Relay's own: the parallel-mode branches (`relay/*`; its snapshots are not on branches). Empty
+ * for a repository with no commit yet.
+ */
+export async function branchTips(root: string): Promise<string[]> {
+  const r = await git(root, ['show-ref', '--head', '--heads'], { allowFail: true });
+  const tips = new Set<string>();
+  for (const line of r.stdout.split('\n')) {
+    const [sha, ref] = line.trim().split(' ');
+    if (!sha || !ref || ref.startsWith('refs/heads/relay/')) continue;
+    tips.add(sha);
+  }
+  return [...tips];
+}
+
+/** A file's content at a commit (team checks: `package.json` before and after a run), or undefined when it is not there. */
+export async function fileAt(root: string, commit: string, path: string): Promise<string | undefined> {
+  const r = await git(root, ['show', `${commit}:${path.split(sep).join('/')}`], { allowFail: true, maxCapture: 4 * 1024 * 1024 });
+  return r.code === 0 ? r.stdout : undefined;
+}
+
+/** A commit the team made (team checks), with its subject. */
+export interface MadeCommit {
+  sha: string;
+  subject: string;
+  /** Committer time, in milliseconds. */
+  at: number;
+}
+
+/**
+ * Commits on the repository's branches and HEAD now (`branchTips`) that were on none of `before`, made
+ * since `since` (milliseconds; a branch switched to brings older commits, which the team did not make),
+ * newest first, merges left out; at most `limit`, and whether there were more.
+ */
+export async function commitsSince(
+  root: string,
+  before: readonly string[],
+  since: number,
+  limit: number,
+): Promise<{ commits: MadeCommit[]; more: boolean }> {
+  const now = await branchTips(root);
+  if (!now.length) return { commits: [], more: false };
+  const r = await git(root, [
+    'log',
+    '--no-merges',
+    '--format=%H%x00%ct%x00%s',
+    `--since=${Math.floor(since / 1000)}`,
+    `--max-count=${limit + 1}`,
+    ...now,
+    ...(before.length ? ['--not', ...before] : []),
+    '--',
+  ]);
+  const commits = r.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [sha = '', at = '0', ...subject] = line.split('\0');
+      return { sha, at: Number(at) * 1000, subject: subject.join('\0') };
+    })
+    .filter((c) => c.sha && c.at >= since);
+  return { commits: commits.slice(0, limit), more: commits.length > limit };
+}
+
 /** Files changed between two commits. NUL-separated output keeps unusual file names intact. */
 export async function diffFiles(root: string, base: string, head: string): Promise<FileChange[]> {
   // One git command for the statuses (`--raw`) and the line counts (`--numstat`): each one also reads
@@ -411,6 +475,23 @@ export async function removeWorktree(root: string, path: string, branch?: string
     if (branch) await git(root, ['branch', '-D', branch], { allowFail: true });
   }
   rmSync(path, { recursive: true, force: true });
+}
+
+/**
+ * A worktree of `commit` with no branch, at `path` (team checks: a parallel result checked on the
+ * working directory as it is, before it is applied). Remove it with `removeWorktree()`.
+ */
+export async function addCheckTree(root: string, path: string, commit: string): Promise<void> {
+  // A tree a stopped server left is gone (removed at startup), but still registered: pruned first.
+  await git(root, ['worktree', 'prune'], { allowFail: true });
+  if (existsSync(path)) await removeWorktree(root, path);
+  mkdirSync(join(path, '..'), { recursive: true });
+  await git(root, ['worktree', 'add', '-q', '-f', '--detach', path, commit]);
+}
+
+/** Applies a checked patch onto another checkout of its repository (a check tree). */
+export async function applyPatchIn(dir: string, p: CheckedPatch): Promise<void> {
+  await git(dir, ['apply', '--whitespace=nowarn', '-'], { stdin: p.patch });
 }
 
 export async function worktreeHead(path: string): Promise<string> {

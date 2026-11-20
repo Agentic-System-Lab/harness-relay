@@ -1056,7 +1056,232 @@ export interface ConversationSettings {
    * ask the user in the chat (default), or refuse automatically.
    */
   approvals?: 'ask' | 'deny';
+  /**
+   * Team checks: what Harness Relay itself checks the team's work against once the team has answered,
+   * whichever CLI each member runs on (`CheckList`). Copied from a template with the team; once the
+   * conversation has a list, a new team or template leaves it as it is.
+   */
+  checks?: CheckList;
 }
+
+/**
+ * The rules of a conversation's team checks (`ConversationSettings.checks`), each one optional. Harness
+ * Relay checks them itself, after the team's turns (and before the lead agent's review), in runs that
+ * may write (edit or full access); it reports what it found and never undoes anything.
+ */
+export interface CheckList {
+  /**
+   * Files the team may not change, in each working directory, as gitignore-like patterns: `*` and `?`
+   * within a name, `**` across folders, a pattern without `/` matching a name at any depth, a trailing
+   * `/` a whole folder. Ignored files count too (`.env`, `*.pem`): they are compared on disk.
+   */
+  protectedPaths?: string[];
+  /**
+   * A regular expression (JavaScript) every commit's subject the team makes must match. Checked in
+   * roundtable and relay mode only (parallel mode applies its results without their commits).
+   */
+  commitPattern?: string;
+  /**
+   * Commands that must succeed (a test suite, a linter, a team script), each run once the team has
+   * answered, in roundtable and relay mode, after a run that changed something. Below full access they
+   * run in Harness Relay's own sandbox (no network), which fails closed; with full access without one,
+   * as the agents ran. Not on Windows yet.
+   */
+  commands?: CheckCommand[];
+  /**
+   * Commands Harness Relay runs around the members' own tool calls, as they happen (`CheckHook`): before
+   * a call, which a failing one refuses, and after it, whose failure goes back to the agent. Each CLI's
+   * adapter has its CLI call them as far as it can (`HOOK_PROVIDERS`); below full access they run in
+   * Harness Relay's own sandbox, as the commands do. In runs that may write; not on Windows yet.
+   */
+  hooks?: CheckHook[];
+  /**
+   * The default from Settings (`SettingsView.checksDefault`), copied into a new chat or automation as it
+   * was made and not changed since: a template the lead agent picks that has a list of its own replaces
+   * it. Any change to the list drops it; a default, a template and an empty list never have it.
+   */
+  fromDefault?: true;
+}
+
+/** A command a check list runs (`CheckList.commands`). */
+export interface CheckCommand {
+  /** Stable within its list, for its results. */
+  id: string;
+  /** What to run: a shell command line (`sh -c`), such as `npm test` or `npm run lint && npm test`. */
+  run: string;
+  /** Where to run it: a folder relative to the first working directory (absent: that directory), or a full path inside one of them. */
+  cwd?: string;
+  /** Minutes before it is stopped (`CHECK_LIMITS.timeoutMin` when absent). */
+  timeoutMin?: number;
+  /**
+   * In the sandbox (below full access) on macOS: let it listen on and connect to every local port, which
+   * a test with a server of its own needs. It then reaches every service on this computer's own address,
+   * Harness Relay's API among them. Off by default; nothing changes on Linux, where the sandbox has a
+   * loopback of its own.
+   */
+  localPorts?: boolean;
+  /**
+   * In the sandbox on Linux: let it open any Unix socket, which a test with a socket of its own needs. It
+   * then reaches every socket it can name (Docker's, an ssh agent's, the session bus). Off by default; on
+   * macOS its own temporary folder's sockets are always allowed.
+   */
+  unixSockets?: boolean;
+}
+
+/** Which of a member's tool calls a hook runs around: its commands, its own file changes, or every call. */
+export type HookTools = 'command' | 'edit' | 'any';
+
+/**
+ * A hook a check list runs around the members' tool calls (`CheckList.hooks`): a shell command line,
+ * given the call in its environment (`RELAY_HOOK_*`, `hookEnv()`) and run as a check's command is.
+ * `before`: exit 0 lets the call run; anything else (a non-zero exit, a time limit, a sandbox that
+ * cannot start) refuses it, its output the reason the agent gets. `after`: the call has run; a non-zero
+ * exit sends its output back to the agent, to act on.
+ */
+export interface CheckHook {
+  /** Stable within its list. */
+  id: string;
+  when: 'before' | 'after';
+  tools: HookTools;
+  /** What to run (`sh -c`), such as `./scripts/allow-command.sh` or `npx prettier --check "$RELAY_HOOK_FILES"`. */
+  run: string;
+  /** Where to run it: a folder relative to the first working directory (absent: that directory). */
+  cwd?: string;
+  /** Seconds before it is stopped (`CHECK_LIMITS.hookTimeoutSec` when absent). */
+  timeoutSec?: number;
+}
+
+/**
+ * The CLIs whose adapters run the team's hooks around their tool calls (`RunOptions.hooks`): the others'
+ * members work without them, and the chat says so.
+ */
+export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot', 'muse', 'pi'];
+
+/**
+ * How many protected path patterns a list may have, the longest pattern and commit pattern, how many
+ * commands, the longest command line and folder, and a command's time limit in minutes (default, most);
+ * how many hooks, and a hook's time limit in seconds (default, most).
+ */
+export const CHECK_LIMITS = {
+  protectedPaths: 50,
+  pattern: 300,
+  commitPattern: 500,
+  commands: 10,
+  command: 1000,
+  folder: 500,
+  timeoutMin: 10,
+  maxTimeoutMin: 60,
+  hooks: 10,
+  hookTimeoutSec: 60,
+  maxHookTimeoutSec: 600,
+};
+
+/** The commit pattern the Conventional Commits button fills in. */
+export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([\\w./-]+\\))?!?: \\S';
+
+/**
+ * Where a check stands: `running`; `passed`; `failed`, the team broke the rule; `error`, it could not be
+ * checked (a git error, a working directory that is gone: never a pass); `na`, there was nothing to
+ * check (no commit was made, the mode does not keep commits).
+ */
+export type CheckStatus = 'running' | 'passed' | 'failed' | 'error' | 'na';
+
+/** The rules a team check result reports on. */
+export type CheckRuleKind = 'paths' | 'commits' | 'command';
+
+/** Something a check found: a protected file changed, or a commit whose subject does not match. */
+export interface CheckFinding {
+  /** paths: the file, relative to its working directory (`/`-separated). */
+  path?: string;
+  /** paths: added, changed or removed. */
+  change?: 'added' | 'changed' | 'removed';
+  /** The working directory it is in (its folder name), when the conversation has more than one. */
+  folder?: string;
+  /** commits: the commit (abbreviated) and its subject. */
+  commit?: string;
+  subject?: string;
+  /** The member whose turn it happened in, as named then; absent: it cannot be told (parallel mode, between turns). */
+  by?: string;
+  /** paths: in the member's own worktree (parallel mode), not in the working directory yet: applying its result brings it. */
+  worktree?: boolean;
+}
+
+/** One rule's result. */
+export interface CheckOutcome {
+  rule: CheckRuleKind;
+  status: CheckStatus;
+  /** Why it could not be checked (`error`) or why there was nothing to check (`na`), in the user's language. */
+  reason?: string;
+  /** What it found (at most `CHECK_RESULT_LIMITS.findings`; `more` counts the rest). */
+  findings?: CheckFinding[];
+  more?: number;
+  /** command: which one (`CheckCommand.id`), and its command line as it was run. */
+  commandId?: string;
+  command?: string;
+  /** command: how it ended (`exitCode` null: it was stopped), and how long it took. */
+  exitCode?: number | null;
+  durationMs?: number;
+  /** command: the end of what it printed, stdout and stderr together (at most `CHECK_RESULT_LIMITS.output` characters). */
+  output?: string;
+  /** command: it ran without Harness Relay's sandbox (full access). */
+  unsandboxed?: boolean;
+  /**
+   * command: not run, because the run changed files the checks read (a test configuration, a script
+   * the command names): which. The user runs it anyway with Check again; in a run nobody watched it fails.
+   */
+  configChanged?: string[];
+  /** command: files in the working directory it changed itself (not ignored by git): new snapshots, formatted files. */
+  wroteFiles?: string[];
+  /**
+   * command: it could not run for a reason that says nothing of the team's work: stopped (Stop, the
+   * server shutting down, the chat deleted), interrupted (the server stopped while it ran), or this
+   * system runs no command (native Windows). Never a pass, but it holds nothing, agents are not told to
+   * fix it, and a schedule's run does not fail for it.
+   */
+  notRun?: 'stopped' | 'interrupted' | 'platform';
+}
+
+/**
+ * The team checks' result a system message carries (`ChatMessage.checks`), shown as a card after the
+ * team's replies. `when`: after the team's turns (`run`), when the team stopped to ask the user
+ * something (`pause`, what was done until then), the user checked again (`recheck`), or before a
+ * parallel-mode result was applied (`apply`).
+ */
+export interface ChecksResult {
+  status: CheckStatus;
+  when: 'run' | 'pause' | 'recheck' | 'apply';
+  /**
+   * `apply`: checked before a member's parallel-mode result was applied, on the working directories as
+   * they were with that result in them: whose, and whether it was then applied (not when it did not pass,
+   * until the user applies it anyway).
+   */
+  applyOf?: {
+    agentId: string;
+    name: string;
+    /** The member's worktree heads it checked: Apply anyway applies only that result. */ heads?: string;
+  };
+  applied?: boolean;
+  outcomes: CheckOutcome[];
+  /** The replies whose work it checked (message ids), oldest first. */
+  replyIds?: string[];
+  /** A result copied from another conversation when branching, shown in history only. */
+  historical?: true;
+  /** When it was checked, and how long that took. */
+  checkedAt: number;
+  durationMs?: number;
+  /**
+   * The working directories changed after it was checked (Harness Relay saw them changed: a later
+   * turn, an applied result): it says nothing about them as they are now.
+   */
+  stale?: boolean;
+  /** The user went on without it passing: queued messages go, and agents are not told of it any more. Still not a pass. */
+  skippedAt?: number;
+  /** The user asked a member to fix it (the member's name then). */
+  fixBy?: string;
+}
+
+/** Most findings one rule's result keeps, the most of a command's output it keeps, and the most of it agents are shown. */
+export const CHECK_RESULT_LIMITS = { findings: 20, output: 8000, promptOutput: 3000 };
 
 /**
  * The working directories the working directory box offers (`GET /api/cwds`): the default one (Settings)
@@ -1433,6 +1658,8 @@ export interface ChatMessage {
   plan?: TeamPlan;
   /** A system message carrying the lead agent's review of the team's replies (`ConversationSettings.leadReview`). */
   review?: LeadReview;
+  /** A system message carrying the team checks' result (`ConversationSettings.checks`). */
+  checks?: ChecksResult;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
@@ -2392,6 +2619,11 @@ export interface SettingsView {
   agentsViewLink: string;
   /** Why the last update of AgentsView failed; absent after a success. */
   agentsViewError?: string;
+  /**
+   * The team checks a new chat or automation starts with (Settings → Tool library), there to change or
+   * remove; absent: none. Chats and automations made before keep their own.
+   */
+  checksDefault?: CheckList;
 }
 
 /** `PUT /api/settings`: only the fields given change. */
@@ -2408,6 +2640,8 @@ export interface SettingsUpdate {
   agentsViewUrl?: string;
   /** Empty = the link opens `agentsViewUrl`. */
   agentsViewLink?: string;
+  /** The team checks new chats and automations start with; `null` or a list without rules: none. */
+  checksDefault?: CheckList | null;
 }
 
 /** Suggested folder for the CLIs' own homes. */

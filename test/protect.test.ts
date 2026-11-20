@@ -406,6 +406,8 @@ describe("the turns' own temporary folders", () => {
     mkdirSync(join(tmp, 'cursor-x9Y8z7'));
     writeFileSync(join(tmp, 'cursor-x9Y8z7', 'cli-config.json'), '{}');
     symlinkSync(sessions, join(tmp, 'cursor-x9Y8z7', 'acp-sessions'), process.platform === 'win32' ? 'junction' : 'dir');
+    writeFileSync(join(tmp, 'hook-abc123.token'), 'old hook token');
+    writeFileSync(join(tmp, 'hook-abc123.mjs'), '');
     // What others keep there: shares' clones (cleared by shares), Grok's kept programs.
     mkdirSync(join(tmp, 'share-k1'));
     mkdirSync(join(tmp, 'grok-programs'));

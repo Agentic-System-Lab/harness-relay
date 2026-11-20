@@ -11,6 +11,10 @@ import type {
   ApprovalAnswer,
   AuthSessionView,
   ChatMessage,
+  CheckCommand,
+  CheckList,
+  CheckOutcome,
+  Permission,
   Conversation,
   ConversationGroup,
   ConversationSchedule,
@@ -402,6 +406,15 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Team checks: the latest result's card. */
+  recheckChecks: (id: string, messageId: string, confirm = false) =>
+    request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),
+  tryCheck: (id: string, command: CheckCommand, permission?: Permission) =>
+    request<CheckOutcome>('POST', `/api/conversations/${id}/checks/try`, { command, ...(permission ? { permission } : {}) }),
+  checksEnvironment: () => request<{ platform: string; sandbox?: string }>('GET', '/api/checks/environment'),
+  skipChecks: (id: string, messageId: string) => request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/skip`, {}),
+  fixChecks: (id: string, messageId: string, agentId: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/checks/${messageId}/fix`, { agentId }),
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   /** Ask the lead agent to change the team being edited (nothing is saved); aborting `signal` stops it. */
@@ -424,8 +437,13 @@ export const api = {
   deleteShare: (id: string) => request<{ ok: true }>('DELETE', `/api/shares/${id}`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
-  applyAgent: (id: string, agentId: string) =>
-    request<{ ok: true; files: FileChange[] }>('POST', `/api/conversations/${id}/agents/${agentId}/apply`),
+  /** Team checks run first: one that does not pass applies nothing (`held`, its card's id), unless `force`. */
+  applyAgent: (id: string, agentId: string, o: { force?: boolean; confirm?: boolean } = {}) =>
+    request<{ ok: true; files: FileChange[]; held?: string }>(
+      'POST',
+      `/api/conversations/${id}/agents/${agentId}/apply`,
+      o.force || o.confirm ? o : undefined,
+    ),
 
   // presets
   listPresets: () => request<TeamPreset[]>('GET', '/api/presets'),
@@ -467,6 +485,7 @@ export const api = {
     request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
+  updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault'>) => request<CheckList>('PATCH', '/api/settings/checks-default', patch),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) => request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

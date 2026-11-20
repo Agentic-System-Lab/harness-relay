@@ -488,6 +488,20 @@ const MIGRATIONS: string[] = [
   ALTER TABLE schedules ADD COLUMN watch TEXT;
   ALTER TABLE messages ADD COLUMN event_source TEXT;
   `,
+  // 36: team checks: a conversation's and a template's check list (conversations.checks,
+  // presets.checks, JSON: CheckList), the result a system message carries (messages.checks, JSON:
+  // ChecksResult), and where the run of a conversation's latest result started from, which only the
+  // server reads, to check it again (check_baselines.data, JSON: StoredBaseline in checks.ts).
+  `
+  ALTER TABLE conversations ADD COLUMN checks TEXT;
+  ALTER TABLE presets ADD COLUMN checks TEXT;
+  ALTER TABLE messages ADD COLUMN checks TEXT;
+  CREATE TABLE check_baselines (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id      TEXT NOT NULL,
+    data            TEXT NOT NULL
+  );
+  `,
 ];
 
 /**

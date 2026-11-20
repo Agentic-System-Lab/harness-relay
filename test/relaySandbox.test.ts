@@ -20,6 +20,7 @@ import type { ApprovalRequest } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 import { CONTROL_CHANNEL, runProcess } from '../src/server/process';
 import { RELAY_ROOT, agentFolders, cliFolder } from '../src/server/protect';
+import { sandboxGuardGlobs } from '../src/server/writeGuard';
 import {
   DENY_REASONS,
   canonicalHost,
@@ -285,6 +286,25 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(c.ripgrep).toEqual({ command: '/usr/bin/rg' });
   });
 
+  it("keeps the team's protected paths from being written: what is there by name on both systems, and globs on macOS only", () => {
+    mkdirSync(join(cwd, 'sub'), { recursive: true });
+    writeFileSync(join(cwd, 'sub', 'k.pem'), 'x');
+    const guard = { dirs: [cwd], patterns: ['*.pem', '.env'] };
+    const paths = relaySandboxPaths(spec({ permission: 'edit', guard }), ctx, runDirs);
+    expect(paths.denyWrite).toContain(join(cwd, 'sub', 'k.pem'));
+    // A name that is not there is never given (on Linux it would get a stand-in in the folder).
+    expect(paths.denyWrite).not.toContain(join(cwd, '.env'));
+    expect(paths.denyRead).not.toContain(join(cwd, 'sub', 'k.pem'));
+    const hosts = relaySandboxHosts(['api.openai.com'], ctx);
+    const globs = sandboxGuardGlobs(guard);
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh' } };
+    const cm = relaySandboxConfig(paths, hosts, mac, { guardGlobs: globs });
+    expect(cm.filesystem.denyWrite).toEqual(expect.arrayContaining([{ path: join(cwd, 'sub', 'k.pem'), literal: true }, ...globs]));
+    const cl = relaySandboxConfig(paths, hosts, ctx, { guardGlobs: globs });
+    for (const entry of cl.filesystem.denyWrite) expect(entry).toEqual({ path: expect.any(String), literal: true });
+    rmSync(join(cwd, 'sub'), { recursive: true, force: true });
+  });
+
   it("opts into a pty, the run's own unix sockets (macOS only) and the trustd service (macOS only)", () => {
     const paths = relaySandboxPaths(spec(), ctx, runDirs);
     const hosts = relaySandboxHosts(['api.openai.com'], ctx);
@@ -304,6 +324,23 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(off.allowPty).toBe(false);
     expect(off.network.allowUnixSockets).toEqual([]);
     expect(off.network.allowMachLookup).toBeUndefined();
+  });
+
+  it("opens every local port (macOS) or every unix socket (Linux) only when a team check's command asks, each on its own system", () => {
+    const paths = relaySandboxPaths(spec(), ctx, runDirs);
+    const hosts = relaySandboxHosts([], ctx);
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh', bash: '/bin/bash' } };
+    const both = { allowLocalBinding: true, allowAllUnixSockets: true };
+    const cm = relaySandboxConfig(paths, hosts, mac, both);
+    expect(cm.network.allowLocalBinding).toBe(true);
+    expect(cm.network.allowAllUnixSockets).toBe(false);
+    const cl = relaySandboxConfig(paths, hosts, { ...ctx, platform: 'linux' as const }, both);
+    expect(cl.network.allowLocalBinding).toBe(false);
+    expect(cl.network.allowAllUnixSockets).toBe(true);
+    for (const off of [relaySandboxConfig(paths, hosts, mac), relaySandboxConfig(paths, hosts, { ...ctx, platform: 'linux' as const })]) {
+      expect(off.network.allowLocalBinding).toBe(false);
+      expect(off.network.allowAllUnixSockets).toBe(false);
+    }
   });
 
   it('denies the quietly-denied hosts with a reason, winning over allow, never asked', () => {
@@ -1019,6 +1056,9 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     expect(answers(host.lines)[0].allow).toBe(false);
     await run.dispose();
     await expect(run.decide('late.example', 443)).resolves.toEqual({ allow: false, reason: DENY_REASONS.refused('late.example') });
+    // Each host it was refused, once, as a card names it (a team check's command says it needed the network).
+    await run.decide('late.example', 443);
+    expect(run.refusedHosts).toEqual(['example.org', 'late.example']);
   });
 
   it('reports why the sandbox did not start, in the language asked for', async () => {

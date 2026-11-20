@@ -40,9 +40,10 @@ import {
   startModel,
   toolsOf,
   type ScriptedModel,
+  writeCall,
 } from '../scripts/cli-check/model';
 import { HELP_ARGS } from '../scripts/cli-check/probe';
-import { NO_RUN, SCENARIOS, type Check, type Ctx, type Outcome } from '../scripts/cli-check/scenarios';
+import { NO_RUN, SCENARIOS, guardsShell, guardsTool, type Check, type Ctx, type Outcome } from '../scripts/cli-check/scenarios';
 import { KEPT, cliEnv, makeScratch } from '../scripts/cli-check/scratch';
 import {
   describeDiff,
@@ -788,7 +789,20 @@ describe('layers 2 and 3: what they run', () => {
   it('asks every CLI for its help, and runs the scenarios on every CLI that can be put on a model of its own', () => {
     expect(Object.keys(HELP_ARGS).sort()).toEqual([...PROVIDERS].sort());
     expect(Object.keys(NO_RUN).sort()).toEqual(['cursor', 'grok']);
-    expect(SCENARIOS.map((s) => s.name)).toEqual(['reply', 'command', 'read-only-write', 'outside-write', 'protected-read', 'stop']);
+    expect(SCENARIOS.map((s) => s.name)).toEqual([
+      'reply',
+      'command',
+      'read-only-write',
+      'outside-write',
+      'protected-read',
+      'stop',
+      'guard-write',
+      'guard-write-full',
+      'guard-tool-write',
+      'hook-before',
+      'hook-before-full',
+      'hook-after',
+    ]);
   });
 
   it('tells only Antigravity it is over SSH (Cursor refuses to start so where the keychain is out of reach)', () => {
@@ -868,6 +882,7 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
     dirs.push(root);
     for (const d of ['work', 'outside', 'data']) mkdirSync(join(root, d));
     return {
+      provider: 'claude',
       nonce: 'n0nce',
       scratch: { data: join(root, 'data') } as unknown as Ctx['scratch'],
       cli: { work: join(root, 'work'), outside: join(root, 'outside') },
@@ -909,6 +924,98 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
       failed(sc('read-only-write').checks(outcome({ error: 'unknown flag --sandbox', requests: [request('{}', ['read'])] }), c)),
     ).toEqual([expect.stringContaining('the turn failed')]);
   });
+
+  it("calls each CLI's own write tool with its own parameters, or none when it offers none", () => {
+    const tool = (name: string, properties: Record<string, unknown>, required: string[] = []) => ({
+      name,
+      schema: { type: 'object', properties, required },
+    });
+    expect(writeCall([tool('Write', { file_path: {}, content: {} })], '/w/.env', 'x')?.args).toEqual({
+      file_path: '/w/.env',
+      content: 'x',
+    });
+    // An editor tool: its command that makes a file, and Cline's `new_text`.
+    expect(
+      writeCall([tool('file_editor', { command: { enum: ['view', 'create'] }, path: {}, file_text: {} })], '/w/.env', 'x')?.args,
+    ).toEqual({ command: 'create', path: '/w/.env', file_text: 'x' });
+    expect(writeCall([tool('editor', { path: {}, old_text: {}, new_text: {} }, ['path', 'new_text'])], '/w/.env', 'x')?.args).toEqual({
+      path: '/w/.env',
+      new_text: 'x',
+    });
+    expect(writeCall([tool('apply_patch', { input: {} })], '/w/.env', 'x')?.args).toEqual({
+      input: '*** Begin Patch\n*** Add File: /w/.env\n+x\n*** End Patch\n',
+    });
+    expect(writeCall([tool('bash', { command: {} })], '/w/.env', 'x')).toBeUndefined();
+    expect(guardsTool('copilot', 'full', 'darwin')).toBe(true);
+    expect(guardsTool('antigravity', 'edit', 'linux')).toBe(true);
+    expect(guardsTool('antigravity', 'full', 'linux')).toBe(false);
+    expect(guardsTool('muse', 'edit', 'darwin')).toBe(false);
+    expect(guardsTool('claude', 'read-only', 'darwin')).toBe(false);
+  });
+
+  it('says which CLIs refuse a write to the team’s protected paths before it, with which permission, on which system', () => {
+    expect(guardsShell('claude', 'edit', 'linux')).toBe(true);
+    expect(guardsShell('claude', 'full', 'darwin')).toBe(true);
+    expect(guardsShell('claude', 'full', 'win32')).toBe(false);
+    expect(guardsShell('goose', 'edit', 'darwin')).toBe(true);
+    expect(guardsShell('goose', 'edit', 'linux')).toBe(false);
+    expect(guardsShell('goose', 'full', 'darwin')).toBe(false);
+    expect(guardsShell('codex', 'edit', 'darwin')).toBe(true);
+    expect(guardsShell('codex', 'full', 'darwin')).toBe(false);
+    expect(guardsShell('codex', 'edit', 'linux')).toBe(false);
+    expect(guardsShell('copilot', 'edit', 'darwin')).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    "guard-write gives the team's protected path to the run, fails a write a CLI says it refuses, warns for the others, and removes the file",
+    () => {
+      const c = ctx();
+      expect(sc('guard-write').extra!(c)).toEqual({ guard: { dirs: [realpathSync(c.cli.work)], patterns: ['.env'] } });
+      expect(sc('guard-write').command!(c)).toBe(`echo x > ${join(c.cli.work, '.env')}`);
+      expect(failed(sc('guard-write').checks(outcome({ requests: [call()] }), c))).toEqual([]);
+      writeFileSync(join(c.cli.work, '.env'), 'x');
+      expect(failed(sc('guard-write-full').checks(outcome({ requests: [call()] }), c))).toEqual([
+        "the team's protected path was written, though its adapter says it refuses that",
+      ]);
+      expect(existsSync(join(c.cli.work, '.env'))).toBe(false);
+      const other = { ...ctx(), provider: 'copilot' as const };
+      writeFileSync(join(other.cli.work, '.env'), 'x');
+      const checks = sc('guard-write').checks(outcome({ requests: [call()] }), other);
+      expect(failed(checks)).toEqual([]);
+      expect(checks.find((x) => x.ok === 'warn')?.what).toContain('does not refuse it before');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'hook-before gives the run a hook that refuses commands, fails a write that went through or a reason that never reached the model, and warns for a CLI without hooks',
+    async () => {
+      const c = ctx();
+      const { hooks } = sc('hook-before').extra!(c);
+      expect([...hooks!.kinds('before')]).toEqual(['command']);
+      const said = await hooks!.before({ kind: 'command', tool: 'Bash', command: 'ls' });
+      const mark = `HOOK-REFUSED-${c.nonce}`;
+      expect(said).toContain(mark);
+      const file = sc('hook-before').command!(c).replace(/^echo x > /, '');
+      expect(failed(sc('hook-before').checks(outcome({ requests: [call(), request(mark)] }), c))).toEqual([]);
+      writeFileSync(file, 'x');
+      expect(failed(sc('hook-before-full').checks(outcome({ requests: [call()] }), c))).toEqual([
+        "the command ran, though the team's before hook refused it",
+        "the hook's reason never reached the model",
+      ]);
+      expect(existsSync(file)).toBe(false);
+      const other = { ...ctx(), provider: 'grok' as const };
+      const checks = sc('hook-before').checks(outcome({ requests: [call()] }), other);
+      expect(failed(checks)).toEqual([]);
+      expect(checks.find((x) => x.ok === 'warn')?.what).toContain('runs no hooks');
+      const after = sc('hook-after');
+      expect(failed(after.checks(outcome({ requests: [call(), request(`cli-check-42-${c.nonce} HOOK-AFTER-${c.nonce}`)] }), c))).toEqual(
+        [],
+      );
+      expect(failed(after.checks(outcome({ requests: [call(), request(`cli-check-42-${c.nonce}`)] }), c))).toEqual([
+        "the after hook's output never reached the model",
+      ]);
+    },
+  );
 
   it('fails outside-write on a file outside the working directory, and says when its own refusal, not a sandbox, kept the command in', () => {
     const c = ctx();

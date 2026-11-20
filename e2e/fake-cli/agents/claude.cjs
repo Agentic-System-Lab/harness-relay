@@ -12,6 +12,12 @@
  * itself are its home's skills/ and the projects' .claude/skills/ (`--disable-slash-commands`,
  * `skillOverrides` in `--settings` leave them out).
  *
+ * The hooks its `initialize` registers (Harness Relay's team hooks) are called around its command
+ * (`e2e:approve`) and its Write (`e2e:write`), as Claude Code 2.1.327 calls them: a `hook_callback` for
+ * the `PreToolUse` entry whose matcher names the tool (or has none), whose `permissionDecision: deny`
+ * refuses the call with its reason; once it ran, one for the `PostToolUse` entry, whose `decision:
+ * block` reason it is told.
+ *
  * Its usage is counted as Claude Code 2.1.323's: each run that reaches the model costs $0.0012, 120
  * tokens in and 40 out (a failed one too); a kept session's result reports the session's totals
  * (`total_cost_usd`, `modelUsage`), counted on from the last `cost-state` record of its file
@@ -183,6 +189,25 @@ function claudeStream() {
       pending.set(requestId, resolve);
       out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', ...request } });
     });
+  // The hooks `initialize` registered, by event: the callback a tool's call goes to, if any.
+  o.hooks = {};
+  o.hook = (event, input) => {
+    const entry = (o.hooks[event] || []).find((e) => !e.matcher || e.matcher.split('|').includes(input.tool_name));
+    if (!entry) return Promise.resolve({});
+    return new Promise((resolve) => {
+      const requestId = newId('hook');
+      pending.set(requestId, resolve);
+      out({
+        type: 'control_request',
+        request_id: requestId,
+        request: {
+          subtype: 'hook_callback',
+          callback_id: entry.hookCallbackIds[0],
+          input: { hook_event_name: event, cwd: process.cwd(), ...input },
+        },
+      });
+    });
+  };
 
   onLines(async (m) => {
     if (m.type === 'control_response') {
@@ -197,6 +222,8 @@ function claudeStream() {
     if (m.type === 'control_request') {
       switch (m.request && m.request.subtype) {
         case 'initialize':
+          o.hooks = (m.request && m.request.hooks) || {};
+          record({ hooks: o.hooks });
           return reply(m, {
             claude_code_version: '2.1.999',
             // With its skills left out it lists no commands, its own ones included.
@@ -404,6 +431,17 @@ async function claudeTurn(steps, o) {
       message: { id: msgId, role: 'assistant', content: [block] },
     });
   };
+  /** The team's before hooks on a call: the reason they refused it, or undefined. */
+  const hookBefore = async (tool_name, tool_input) => {
+    const a = await o.hook('PreToolUse', { tool_name, tool_input });
+    const s = (a && a.hookSpecificOutput) || {};
+    return s.permissionDecision === 'deny' ? String(s.permissionDecisionReason || 'Refused by a hook') : undefined;
+  };
+  /** The team's after hooks on a call that ran: what they told it, or ''. */
+  const hookAfter = async (tool_name, tool_input, tool_response) => {
+    const a = await o.hook('PostToolUse', { tool_name, tool_input, tool_response });
+    return a && a.decision === 'block' && a.reason ? `The team's after hook said: ${String(a.reason).split('\n').slice(-1)[0]} ` : '';
+  };
   /** Asks (or not) to use a tool beyond what it may do by itself: { ok, note }. */
   const permission = async (tool_name, input) => {
     if (!o.asks) return { ok: false, message: `Permission to use ${tool_name} has been denied.` };
@@ -449,9 +487,16 @@ async function claudeTurn(steps, o) {
     }
     if (step.type === 'approve') {
       const input = { command: step.command, description: 'Print a line (an e2e check)' };
+      const refused = await hookBefore('Bash', input);
+      if (refused) {
+        await tool('Bash', input, async () => ({ content: refused, isError: true }));
+        full += `The team's hook refused the command: ${refused.split('\n').slice(-1)[0]} `;
+        continue;
+      }
       const p = o.mode === 'bypassPermissions' ? { ok: true } : await permission('Bash', input);
       await tool('Bash', input, async () => (p.ok ? { content: 'e2e-approval', isError: false } : { content: p.message, isError: true }));
       full += p.ok ? 'The command ran: e2e-approval. ' : declined('command', noteIn(p.message));
+      if (p.ok) full += await hookAfter('Bash', input, { stdout: 'e2e-approval', stderr: '' });
     }
     if (step.type === 'write') {
       const file = targetOf(step, process.cwd(), o.others);
@@ -465,6 +510,12 @@ async function claudeTurn(steps, o) {
         continue;
       }
       const input = { file_path: file, content: step.content };
+      const refused = await hookBefore('Write', input);
+      if (refused) {
+        await tool('Write', input, async () => ({ content: refused, isError: true }));
+        full += `The team's hook refused writing ${step.path}: ${refused.split('\n').slice(-1)[0]} `;
+        continue;
+      }
       const p = inside(file, o.dirs) ? { ok: true } : await permission('Write', input);
       await tool('Write', input, async () => {
         if (!p.ok) return { content: p.message, isError: true };
@@ -472,6 +523,7 @@ async function claudeTurn(steps, o) {
         return { content: `File created successfully at: ${file}`, isError: false };
       });
       full += wrote(step, p.ok, p.ok ? '' : noteIn(p.message));
+      if (p.ok) full += await hookAfter('Write', input, { filePath: file });
     }
     if (step.type === 'text') {
       full += step.text;

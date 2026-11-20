@@ -6,6 +6,7 @@ import {
   ACCOUNT_ID_RE,
   MAX_ACCOUNT_LABEL,
   type AccountRunSettings,
+  type CheckList,
   isEndpointCli,
   isOpenProvider,
   nativeItemsFor,
@@ -697,6 +698,18 @@ export class SettingsStore {
     this.saveAppSetting('agentsview_link', url);
   }
 
+  /** The team checks new chats and automations start with (validated by the caller); none: undefined. */
+  get checksDefault(): CheckList | undefined {
+    const list = parseJson(this.appSetting('checks_default') ?? 'null') as CheckList | null;
+    return list && typeof list === 'object' && !Array.isArray(list) ? list : undefined;
+  }
+
+  /** Keeps `list` as the default, or none (`undefined`). */
+  setChecksDefault(list: CheckList | undefined): void {
+    if (list) this.saveAppSetting('checks_default', JSON.stringify(list));
+    else this.db.prepare("DELETE FROM app_settings WHERE key = 'checks_default'").run();
+  }
+
   /** The agent that designs the team for auto-team conversations. */
   get lead(): LeadAgentSettings {
     return { ...this.leadAgent };
@@ -846,6 +859,7 @@ export class SettingsStore {
       agentHome: this.agentHomeDir,
       agentsViewUrl: this.agentsView,
       agentsViewLink: this.agentsViewLinkValue,
+      ...(this.checksDefault ? { checksDefault: this.checksDefault } : {}),
       providers: PROVIDERS.map((p) => {
         const accounts = this.accountViews(p);
         return {

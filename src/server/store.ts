@@ -17,6 +17,9 @@ import type {
   InboxSummary,
   Lang,
   LeadReview,
+  CheckList,
+  ConversationSettings,
+  ChecksResult,
   MessagePart,
   Mode,
   Permission,
@@ -53,7 +56,8 @@ import { mailFolder, triggerKey, watchOf } from '../shared/schedule';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { reviewText } from '../shared/review';
-import { currentLang } from './i18n';
+import { currentLang, t } from './i18n';
+import { overallStatus } from '../shared/checks';
 import { builtinPresets } from './presets';
 
 interface ShareRow {
@@ -120,6 +124,7 @@ interface ConversationRow {
   auto_confirm: number;
   lead_review: number;
   approvals: string | null;
+  checks: string | null;
   allow_rules: string | null;
   queue: string | null;
   pause: string | null;
@@ -160,6 +165,7 @@ interface MessageRow {
   more_changes: string | null;
   plan: string | null;
   review: string | null;
+  checks: string | null;
   queued: number | null;
   asked: number | null;
   scheduled: number | null;
@@ -404,6 +410,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     changes: toChanges(r, files),
     plan: parsePlan(r.plan),
     review: parseReview(r.review),
+    ...checksOf(r.checks),
     queued: r.queued ? true : undefined,
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
@@ -652,11 +659,23 @@ function parseReview(json: string | null): LeadReview | undefined {
   return review && typeof review === 'object' ? review : undefined;
 }
 
+/** A system message's team checks result (`ChatMessage.checks`). */
+function checksOf(json: string | null): Pick<ChatMessage, 'checks'> {
+  const checks = parseJson<ChecksResult | null>(json, null);
+  return checks && typeof checks === 'object' && Array.isArray(checks.outcomes) ? { checks } : {};
+}
+
+/** A conversation's or a template's check list (`ConversationSettings.checks`). */
+function checkListOf(json: string | null): Pick<ConversationSettings, 'checks'> {
+  const list = parseJson<CheckList | null>(json, null);
+  return list && typeof list === 'object' ? { checks: list } : {};
+}
+
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled, event, tracked, event_source)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked, event_source, checks)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -665,7 +684,7 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
-   tracked = excluded.tracked, event_source = excluded.event_source`;
+   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -708,6 +727,20 @@ export class Store {
            AND message_id IN (SELECT id FROM messages WHERE status IN ('streaming', 'aborted'))`,
       ).run();
       db.prepare("UPDATE messages SET status = 'aborted' WHERE status = 'streaming'").run();
+      // A team checks command it was still running did not finish: the card can be checked again.
+      const checking = db.prepare(`SELECT id, checks FROM messages WHERE checks LIKE '%"running"%'`).all() as {
+        id: string;
+        checks: string;
+      }[];
+      const settle = db.prepare('UPDATE messages SET checks = ? WHERE id = ?');
+      for (const r of checking) {
+        const c = parseJson<ChecksResult | null>(r.checks, null);
+        if (!c || !Array.isArray(c.outcomes) || !c.outcomes.some((o) => o.status === 'running')) continue;
+        const outcomes = c.outcomes.map((o) =>
+          o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted, notRun: 'interrupted' as const } : o,
+        );
+        settle.run(JSON.stringify({ ...c, outcomes, status: overallStatus(outcomes) }), r.id);
+      }
     });
   }
 
@@ -924,6 +957,7 @@ export class Store {
         ...(c.auto_confirm ? { autoConfirm: true } : {}),
         ...(c.lead_review ? { leadReview: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+        ...checkListOf(c.checks),
       },
       messages,
       agentState,
@@ -943,8 +977,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, extra_cwds,
-                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch, checks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -964,6 +998,7 @@ export class Store {
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
+          s.checks ? JSON.stringify(s.checks) : null,
         );
       this.writeAgents(conv);
       if (conv.messages.length) this.insertMessages(conv.id, conv, new Set(conv.messages.map((m) => m.id)));
@@ -979,7 +1014,8 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             extra_cwds = ?, auto_team = ?, auto_confirm = ?, lead_review = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
+             extra_cwds = ?, auto_team = ?, auto_confirm = ?, lead_review = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?,
+             checks = ?
            WHERE id = ?`,
         )
         .run(
@@ -998,6 +1034,7 @@ export class Store {
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
+          s.checks ? JSON.stringify(s.checks) : null,
           conv.id,
         );
       this.writeAgents(conv);
@@ -1282,6 +1319,7 @@ export class Store {
         nul(m.event),
         m.tracked ? JSON.stringify(m.tracked) : null,
         m.event !== undefined ? nul(m.eventSource) : null,
+        m.checks ? JSON.stringify(m.checks) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
@@ -1699,6 +1737,7 @@ export class Store {
       rounds: number;
       max_hops: number;
       permission: Permission;
+      checks: string | null;
     }[];
     const agentStmt = this.db.prepare(
       'SELECT agent_id, name, provider, role, model, effort, tools, account FROM preset_agents WHERE preset_id = ? ORDER BY position',
@@ -1708,7 +1747,7 @@ export class Store {
       name: r.name,
       description: opt(r.description),
       agents: (agentStmt.all(r.id) as unknown as AgentRow[]).map(toAgent),
-      settings: { mode: r.mode, rounds: r.rounds, maxHops: r.max_hops, permission: r.permission },
+      settings: { mode: r.mode, rounds: r.rounds, maxHops: r.max_hops, permission: r.permission, ...checkListOf(r.checks) },
     }));
     return [...builtinPresets(currentLang()), ...user];
   }
@@ -1718,12 +1757,22 @@ export class Store {
       const s = p.settings;
       this.db
         .prepare(
-          `INSERT INTO presets (id, name, description, mode, rounds, max_hops, permission, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO presets (id, name, description, mode, rounds, max_hops, permission, created_at, checks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, mode = excluded.mode,
-             rounds = excluded.rounds, max_hops = excluded.max_hops, permission = excluded.permission`,
+             rounds = excluded.rounds, max_hops = excluded.max_hops, permission = excluded.permission, checks = excluded.checks`,
         )
-        .run(p.id, p.name, nul(p.description), s.mode, s.rounds, s.maxHops, s.permission, Date.now());
+        .run(
+          p.id,
+          p.name,
+          nul(p.description),
+          s.mode,
+          s.rounds,
+          s.maxHops,
+          s.permission,
+          Date.now(),
+          s.checks ? JSON.stringify(s.checks) : null,
+        );
       this.db.prepare('DELETE FROM preset_agents WHERE preset_id = ?').run(p.id);
       const insert = this.db.prepare(
         `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account)
@@ -1737,6 +1786,27 @@ export class Store {
 
   deletePreset(id: string): void {
     this.db.prepare('DELETE FROM presets WHERE id = ?').run(id);
+  }
+
+  // Team checks' baselines (where the run of a conversation's latest result started from) -----------
+
+  /** Keep where the run of a conversation's latest check result (`messageId`) started from, replacing the one before. */
+  saveChecksBaseline(convId: string, messageId: string, baseline: unknown): void {
+    if (this.deleted.has(convId)) return;
+    this.db
+      .prepare(
+        `INSERT INTO check_baselines (conversation_id, message_id, data) VALUES (?, ?, ?)
+         ON CONFLICT(conversation_id) DO UPDATE SET message_id = excluded.message_id, data = excluded.data`,
+      )
+      .run(convId, messageId, JSON.stringify(baseline));
+  }
+
+  /** Where the run of this check result started from, when it is the conversation's latest one with a baseline. */
+  checksBaseline<T>(convId: string, messageId: string): T | undefined {
+    const row = this.db.prepare('SELECT message_id, data FROM check_baselines WHERE conversation_id = ?').get(convId) as
+      { message_id: string; data: string } | undefined;
+    if (!row || row.message_id !== messageId) return undefined;
+    return parseJson<T | undefined>(row.data, undefined);
   }
 
   // Notification inbox (the sidebar's bell; recorded by src/server/inbox.ts) -------------------

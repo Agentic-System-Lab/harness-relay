@@ -5,6 +5,8 @@ import {
   cwdsOf,
   type AgentConfig,
   type ChatMessage,
+  type CheckOutcome,
+  type ChecksResult,
   type ConversationSettings,
   type LeadReview,
   type ReviewHighlight,
@@ -108,7 +110,11 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
   const last = messages.slice(0, start).findLast((m) => m.review?.status === 'ready')?.review;
   const items: { text: string; reply?: ChatMessage }[] = [];
   for (const m of messages.slice(start)) {
-    if (m.author.kind === 'system') continue;
+    if (m.author.kind === 'system') {
+      // Harness Relay's own team checks of what the team did: the lead reads how they went.
+      if (m.checks) items.push({ text: checksForReview(m.checks) });
+      continue;
+    }
     if (m.author.kind === 'user') {
       const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : []));
       const text = [textOf(m), files.length ? `(Attached files: ${files.join(', ')})` : ''].filter(Boolean).join('\n');
@@ -155,6 +161,27 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
     ...(messages[start] ? { fromId: messages[start]!.id } : {}),
     ...(previous ? { previous } : {}),
   };
+}
+
+const CHECK_RULE: Record<CheckOutcome['rule'], string> = { paths: 'protected paths', commits: 'commit format', command: 'command' };
+
+/** A team checks result as the lead reads it: each rule's status, and what failed. */
+export function checksForReview(c: ChecksResult): string {
+  const lines = c.outcomes.map((o) => {
+    const found = (o.findings ?? []).map((f) =>
+      f.commit
+        ? `${f.commit} "${f.subject ?? ''}"${f.by ? ` by @${f.by}` : ''}`
+        : `${f.path} ${f.change}${f.by ? ` by @${f.by}` : ''}${f.worktree ? ' (in its worktree)' : ''}`,
+    );
+    const more = o.more ? [`… and ${o.more} more`] : [];
+    const detail = [...found, ...more].join('; ');
+    const rule = o.rule === 'command' ? `command \`${o.command ?? ''}\`` : CHECK_RULE[o.rule];
+    const status =
+      o.status === 'na' ? 'nothing to check' : o.status === 'error' ? `could not be checked${o.reason ? `: ${o.reason}` : ''}` : o.status;
+    const exit = o.rule === 'command' && o.status === 'failed' ? `, exit ${o.exitCode ?? '?'}` : '';
+    return `- ${rule}: ${status}${exit}${detail ? ` (${detail})` : ''}`;
+  });
+  return `<team_checks status="${c.status}"${c.skippedAt ? ' skipped_by_user="yes"' : ''}>\nHarness Relay's own checks of the team's work:\n${lines.join('\n')}\n</team_checks>`;
 }
 
 /** A member's worktrees in parallel mode, where what it changed is until the user applies it. */

@@ -63,7 +63,9 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
         if (!live) return;
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setDefaults(
+          autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), settings.checksDefault),
+        );
       })
       .catch((e) => {
         if (live) setLoadError(String(e.message ?? e));

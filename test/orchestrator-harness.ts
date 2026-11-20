@@ -50,6 +50,8 @@ export const { attachmentPath, attachmentsDir, safeFileName } = await import('..
 export const { mediaRoots, resolveMedia } = await import('../src/server/media');
 export const { worktreeDir } = await import('../src/server/workspace');
 export const { BUSY_RETRY_MS, MISSED_AFTER_MS, Scheduler, scheduleTime } = await import('../src/server/scheduler');
+export const { defaultCheckCommandDeps } = await import('../src/server/checkCommands');
+export const { RunCheck } = await import('../src/server/checks');
 
 /** A fake CLI run. */
 export interface Call {

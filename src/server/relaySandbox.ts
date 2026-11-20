@@ -29,6 +29,7 @@ import {
 import { runAsync, sweepRunSandboxes, sweepRunSandboxesAsync } from './sandboxProcs';
 import { clearUserFlags, removeTree } from './fsRemove';
 import { DATA_DIR } from './settings';
+import { guardedNow, sandboxGuardGlobs, type WriteGuard } from './writeGuard';
 
 /*
  * Harness Relay's own OS sandbox, for the agent CLIs that bring none (the open agents: OpenCode,
@@ -75,6 +76,14 @@ export interface RelaySandboxSpec {
    * database and its own temporary folder are added in any case.
    */
   protectedPaths: string[];
+  /**
+   * The team checks' protected paths, which the run may not write (reading them stays allowed): on
+   * macOS as globs, which cover a path made later too, and on both systems what matches them when the
+   * run starts, as names (`guardedNow()`). On Linux the sandbox takes no glob, and would put a stand-in
+   * on a path that is not there, so a protected path made during the run is found only once the team
+   * has answered.
+   */
+  guard?: WriteGuard;
   /** Hosts the run may reach without asking: "host" or "host:port" (the model backends it uses). */
   allowedHosts: string[];
   /**
@@ -127,6 +136,21 @@ export interface RelaySandboxSpec {
    * must not need one there (its adapter falls back to a plain pseudo-terminal). Never a blanket allow.
    */
   allowUnixSocketsInTmp?: boolean;
+  /**
+   * macOS only: let the run listen on and connect to every local port (sandbox-runtime's
+   * `allowLocalBinding`), which a test that starts a server of its own needs. It then reaches every
+   * service on this computer's loopback, Harness Relay's own API among them (which still wants a signed-in
+   * browser's key). For a team check's command that the user turned it on for (`CheckCommand.localPorts`),
+   * never for an agent. Ignored on Linux, where the sandbox has a loopback of its own.
+   */
+  allowLocalBinding?: boolean;
+  /**
+   * Linux only: let the run open any Unix socket (sandbox-runtime's `allowAllUnixSockets`: its seccomp
+   * filter cannot allow one path). It then reaches every socket it can name: Docker's (as good as root),
+   * an ssh agent's, the session bus. For a team check's command that the user turned it on for
+   * (`CheckCommand.unixSockets`), never for an agent. Ignored on macOS (`allowUnixSocketsInTmp` there).
+   */
+  allowAllUnixSockets?: boolean;
   /**
    * The run's folders, made beforehand with `makeRunDirs()` by a caller that needs the temporary
    * folder before the command is wrapped (an adapter writes its config and relocates its caches there).
@@ -798,7 +822,7 @@ function withReal(paths: Iterable<string>): string[] {
 export function relaySandboxPaths(
   spec: Pick<
     RelaySandboxSpec,
-    'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'
+    'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots' | 'guard'
   >,
   ctx: Pick<RelaySandboxContext, 'home' | 'dataDir'>,
   run: RelaySandboxRunDirs & { programs?: readonly string[] },
@@ -818,6 +842,7 @@ export function relaySandboxPaths(
     ...(edit ? cwds.flatMap((cwd) => projectAgentConfig(cwd)) : []),
     ...(run.programs ?? []).map((p) => dirname(p)),
     ...srtDefaultWrites(ctx.home),
+    ...(spec.guard ? guardedNow(spec.guard) : []),
   ]);
   // Other runs' folders: not readable; the run's own parts of them still are, except anything
   // protected: what it may write, its own config (read-only: Goose keeps its config in its private
@@ -1015,7 +1040,16 @@ export function relaySandboxConfig(
   paths: ReturnType<typeof relaySandboxPaths>,
   hosts: ReturnType<typeof relaySandboxHosts>,
   ctx: Pick<RelaySandboxContext, 'platform' | 'tools'>,
-  o: { allowPty?: boolean; unixSocketDir?: string; allowTlsTrustd?: boolean; localPorts?: readonly number[] } = {},
+  o: {
+    allowPty?: boolean;
+    unixSocketDir?: string;
+    allowTlsTrustd?: boolean;
+    localPorts?: readonly number[];
+    allowLocalBinding?: boolean;
+    allowAllUnixSockets?: boolean;
+    /** The team's protected paths as globs (`sandboxGuardGlobs()`): macOS only. */
+    guardGlobs?: readonly string[];
+  } = {},
 ): SandboxRuntimeConfig {
   // Only on macOS, and only sockets inside the run's own temporary folder (a `subpath` rule); its
   // seccomp filter cannot allow one socket path on Linux, so there they stay blocked.
@@ -1033,8 +1067,10 @@ export function relaySandboxConfig(
       ],
       deniedDomains: hosts.denied,
       deniedDomainReasons: Object.fromEntries(hosts.denied.map((d) => [d, hosts.quietReasons[d] ?? DENY_REASONS.relay])),
-      allowLocalBinding: false,
-      allowAllUnixSockets: false,
+      // A team check's own openings (`RelaySandboxSpec.allowLocalBinding`, `allowAllUnixSockets`), each
+      // on its own system only; never an agent's.
+      allowLocalBinding: Boolean(o.allowLocalBinding) && ctx.platform === 'darwin',
+      allowAllUnixSockets: Boolean(o.allowAllUnixSockets) && ctx.platform === 'linux',
       allowUnixSockets,
       // The one mach service `enableWeakerNetworkIsolation` opens, named on its own so nothing else is
       // (sandbox-runtime reads it from `network`).
@@ -1044,7 +1080,7 @@ export function relaySandboxConfig(
       denyRead: paths.denyRead.map(literal),
       allowRead: paths.allowRead.map(literal),
       allowWrite: paths.allowWrite.map(literal),
-      denyWrite: paths.denyWrite.map(literal),
+      denyWrite: [...paths.denyWrite.map(literal), ...(ctx.platform === 'darwin' ? (o.guardGlobs ?? []) : [])],
       allowGitConfig: false,
     },
     allowPty: Boolean(o.allowPty),
@@ -1185,14 +1221,33 @@ export class RelaySandboxRun {
    */
   decide(host: string, port: number | undefined): Promise<HostAnswer> {
     const canonical = canonicalHost(host);
-    if (!canonical) return Promise.resolve({ allow: false, reason: DENY_REASONS.refused(hostLabel(host, port)) });
+    if (!canonical) {
+      this.noteRefused(hostLabel(host, port));
+      return Promise.resolve({ allow: false, reason: DENY_REASONS.refused(hostLabel(host, port)) });
+    }
     const key = `${canonical}:${port ?? ''}`;
     let answer = this.answers.get(key);
     if (!answer) {
       answer = this.ask(canonical, port);
       this.answers.set(key, answer);
+      const where = hostLabel(canonical, port);
+      void answer.then(
+        (a) => a.allow || this.noteRefused(where),
+        () => this.noteRefused(where),
+      );
     }
     return answer;
+  }
+
+  /**
+   * The hosts the run was refused (at most 20), as the cards name them: a team check's command that
+   * failed after one is said to have needed the network, which a client often shows only as a status
+   * (`CONNECT tunnel failed, response 403`).
+   */
+  readonly refusedHosts: string[] = [];
+
+  private noteRefused(where: string): void {
+    if (this.refusedHosts.length < 20 && !this.refusedHosts.includes(where)) this.refusedHosts.push(where);
   }
 
   private async ask(host: string, port: number | undefined): Promise<HostAnswer> {
@@ -1629,6 +1684,9 @@ export async function sandboxCommand(
           allowTlsTrustd: spec.allowTlsTrustd,
           localPorts,
           unixSocketDir: spec.allowUnixSocketsInTmp ? dirs.tmp : undefined,
+          allowLocalBinding: spec.allowLocalBinding,
+          allowAllUnixSockets: spec.allowAllUnixSockets,
+          ...(spec.guard && ctx.platform === 'darwin' ? { guardGlobs: sandboxGuardGlobs(spec.guard) } : {}),
         }),
         command,
         binShell: sandboxShell(ctx),

@@ -64,7 +64,10 @@ import {
   prepareCopilotRun,
   readCopilotJson,
   type CopilotToolCall,
+  copilotGuardArgs,
 } from '../src/server/agents/copilot';
+import { copilotHookCall, copilotHooksListed, copilotTeamHooks } from '../src/server/agents/copilotHooks';
+import { turnHooks } from '../src/server/hooks';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
 import { discoverModels } from '../src/server/models';
@@ -85,6 +88,106 @@ import { writeFakeCopilot } from './fake-copilot';
 const FIX = fileURLToPath(new URL('./fixtures/copilot/', import.meta.url));
 const CLI = join(FIX, 'cli');
 const CWD = '/work/app';
+
+describe('Copilot team hooks', () => {
+  it('keeps shell input whole and gives after hooks the CLI result', () => {
+    expect(
+      copilotHookCall(
+        {
+          toolName: 'bash',
+          toolArgs: { command: 'echo one; echo two' },
+          toolResult: { resultType: 'success', textResultForLlm: 'done' },
+        },
+        CWD,
+      ),
+    ).toEqual({
+      kind: 'command',
+      tool: 'bash',
+      command: 'echo one; echo two',
+      input: { command: 'echo one; echo two' },
+      output: 'done',
+    });
+  });
+
+  it('resolves native edit paths and marks an error result', () => {
+    const cwd = realpathSync(dataDir);
+    expect(copilotHookCall({ toolName: 'edit', toolArgs: { path: 'notes.md' }, error: 'could not edit' }, cwd)).toEqual({
+      kind: 'edit',
+      tool: 'edit',
+      files: [join(cwd, 'notes.md')],
+      input: { path: 'notes.md' },
+      output: 'could not edit',
+      failed: true,
+    });
+  });
+
+  it('preserves raw and JSON-encoded freeform patch arguments and resolves all their paths', () => {
+    const cwd = realpathSync(dataDir);
+    const patch = '*** Begin Patch\n*** Add File:  notes.md\n+Hello\n*** Delete File: old.md\n*** End Patch';
+    for (const toolArgs of [patch, JSON.stringify(patch)]) {
+      expect(copilotHookCall({ toolName: 'apply_patch', toolArgs }, cwd)).toEqual({
+        kind: 'edit',
+        tool: 'apply_patch',
+        files: [join(cwd, ' notes.md'), join(cwd, 'old.md')],
+        input: patch,
+      });
+    }
+  });
+
+  it('requires every expected event to name this run’s hook file in the environment inventory', () => {
+    const file = join(dataDir, 'relay-team.json');
+    const list = `**Hooks**\n\n- preToolUse: 2 hooks (sources: \`${file}\`, \`/own.json\`)\n- postToolUse: 1 hook (sources: \`${file}\`)\n\n**Extensions**\n\nNone.`;
+    expect(copilotHooksListed(list, file, ['preToolUse', 'postToolUse'])).toBe(true);
+    expect(copilotHooksListed(list, file, ['preToolUse', 'postToolUseFailure'])).toBe(false);
+    expect(copilotHooksListed(list, join(dataDir, 'different.json'), ['preToolUse'])).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'registers command hooks with a shorter Relay timeout and preserves the native hooks switch',
+    () => {
+      const teamHooks = turnHooks(
+        [
+          { id: 'before', when: 'before', tools: 'command', run: 'exit 1' },
+          { id: 'after', when: 'after', tools: 'any', run: 'exit 1' },
+        ],
+        {
+          place: { cwds: [dataDir], protectedPaths: [], privateRoots: [], unsandboxed: true },
+          agent: 'Copilot',
+          provider: 'copilot',
+          notice: () => undefined,
+          program: (_handler, mode) => {
+            expect(mode).toBe('inline');
+            return {
+              program: { bin: '/node', args: ['relay-hook'], env: { RELAY_HOOK_TOKEN: 'test-capability' }, socketDir: dataDir },
+              revoke: () => undefined,
+            };
+          },
+        },
+      )!;
+      const hooks = copilotTeamHooks(teamHooks, dataDir);
+      const home = join(dataDir, 'team-hook-home');
+      mkdirSync(join(home, 'hooks'), { recursive: true });
+      writeFileSync(join(home, 'hooks', 'native.json'), '{"version":1}');
+      const run = prepareCopilotRun(home, { permission: 'edit', cwd: dataDir, nativeOff: ['hooks'], teamHooks: hooks }, 'briefing');
+      try {
+        expect(readCopilotJson(join(run.dir, 'settings.json'))?.disableAllHooks).toBe(true);
+        expect(readdirSync(join(run.dir, 'hooks'))).toHaveLength(1);
+        expect(readCopilotJson(run.teamHooksFile!)).toEqual({
+          version: 1,
+          hooks: {
+            preToolUse: [
+              expect.objectContaining({ type: 'command', exec: '/node', args: ['relay-hook', 'before', '120'], timeoutSec: 150 }),
+            ],
+            postToolUse: [expect.objectContaining({ args: ['relay-hook', 'after', '120'] })],
+            postToolUseFailure: [expect.objectContaining({ args: ['relay-hook', 'after', '120'] })],
+          },
+        });
+      } finally {
+        run.done();
+      }
+    },
+  );
+});
 
 const rows = (name: string) =>
   readFileSync(join(FIX, `${name}.jsonl`), 'utf8')
@@ -1333,6 +1436,50 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
       .map((e) => (e as { text: string }).text)
       .join('');
 
+  const teamHookOptions = () =>
+    turnHooks([{ id: 'p', when: 'before', tools: 'any', run: 'exit 1' }], {
+      agent: 'Copilot',
+      provider: 'copilot',
+      notice: () => undefined,
+      place: { cwds: [dataDir], protectedPaths: [], privateRoots: [], unsandboxed: true },
+      program: () => ({
+        program: { bin: '/node', args: [], env: { RELAY_HOOK_TOKEN: 'test-capability' }, socketDir: dataDir },
+        revoke: () => undefined,
+      }),
+    });
+
+  it('verifies the team hook file before sending the prompt, even with native hooks left out', async () => {
+    const r = run(undefined, { hooks: teamHookOptions(), nativeOff: ['hooks'] });
+    await expect(copilotRunner.run(r.o)).resolves.toMatchObject({ sessionId: 's-1' });
+    expect(starts(r)).toHaveLength(2);
+    expect(starts(r)[0]?.files.hooks).toBeUndefined();
+    expect(starts(r)[1]?.files.hooks).toEqual({ dir: true });
+    expect(JSON.parse(starts(r)[1]?.files['settings.json']).disableAllHooks).toBe(true);
+    if (process.platform === 'linux') {
+      const fs = JSON.parse(starts(r)[1]?.files['settings.json']).sandbox.userPolicy.filesystem;
+      expect(fs.readonlyPaths).toContain(dataDir);
+      expect(fs.deniedPaths).toContain(relayTmpDir());
+    }
+    expect(
+      r
+        .log()
+        .filter((m) => m.method === 'session/prompt')
+        .map((m) => m.params.prompt[0].text),
+    ).toEqual(['/sandbox policy', '/sandbox policy', '/env', r.o.prompt]);
+    expect(text(r)).toBe('hello');
+  });
+
+  it('stops before sending the prompt when the team hook file is absent from the inventory', async () => {
+    const r = run(undefined, { permission: 'full', hooks: teamHookOptions() }, undefined, { FAKE_COPILOT_MISSING_TEAM_HOOKS: '1' });
+    await expect(withLang('en', () => copilotRunner.run(r.o))).rejects.toThrow(/could not confirm that the team's hooks are loaded/);
+    expect(
+      r
+        .log()
+        .filter((m) => m.method === 'session/prompt')
+        .map((m) => m.params.prompt[0].text),
+    ).toEqual(['/env']);
+  });
+
   it('runs a turn in a home of its own, checks its sandbox, and asks it about nothing edit mode covers', async () => {
     const r = run('plain', {}, () => ({ allow: true }));
     const result = await withLang('en', () => copilotRunner.run(r.o));
@@ -1800,5 +1947,25 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(methods(r)).toEqual(['initialize', 'logout']);
     const bad = run(undefined, {}, undefined, { FAKE_COPILOT_LOGOUT_FAIL: '1' });
     await expect(copilotLogout(bin, bad.o.env)).rejects.toThrow('keychain locked');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Copilot and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/work/app'], patterns: ['.env', '[!a].txt'] };
+  it('denies its write tool them with any permission, and refuses a write it asks about below full access', () => {
+    const args = copilotGuardArgs(guard);
+    expect(args).toEqual(expect.arrayContaining(['--deny-tool=write(/work/app/.env)', '--deny-tool=write(/work/app/**/.env)']));
+    // Copilot's globs have no negated set: that one is left to the checks after the turn.
+    expect(args.some((a) => a.includes('[!a]'))).toBe(false);
+    expect(copilotArgs({ permission: 'full', guard })).toEqual(expect.arrayContaining(args));
+    expect(copilotGuardArgs(undefined)).toEqual([]);
+    withLang('en', () => {
+      expect(copilotPermissionDecision('edit', call('edit', { path: '/work/app/.env' }), CWD, [], [], guard)).toEqual({
+        run: 'refuse',
+        reason: t().guardRefused,
+      });
+      expect(copilotPermissionDecision('edit', call('read', { path: '/work/app/.env' }), CWD, [], [], guard)).toEqual({ run: 'allow' });
+    });
   });
 });

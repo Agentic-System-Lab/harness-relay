@@ -1,0 +1,259 @@
+import { describe, expect, it } from 'vitest';
+import {
+  badCommitPattern,
+  badPath,
+  cardActions,
+  commandProblem,
+  fixCandidates,
+  gatedFiles,
+  hookProblem,
+  listFrom,
+  pathsFromText,
+  pathsText,
+  ruleCount,
+  sameChecks,
+  startingChecks,
+} from '../src/web/checks';
+import type { AgentConfig, ChatMessage, ChecksResult } from '../src/shared/types';
+
+const card = (checks: Partial<ChecksResult> = {}): ChatMessage => ({
+  id: 'c',
+  author: { kind: 'system' },
+  createdAt: 0,
+  parts: [],
+  status: 'done',
+  checks: { status: 'failed', when: 'run', outcomes: [{ rule: 'paths', status: 'failed' }], checkedAt: 0, ...checks },
+});
+
+describe('team checks editor', () => {
+  it('reads a pattern a line, each once, and writes them back the same way', () => {
+    expect(pathsFromText(' .env \n\n*.pem\n.env\n')).toEqual(['.env', '*.pem']);
+    expect(pathsText({ protectedPaths: ['.env', 'secrets/'] })).toBe('.env\nsecrets/');
+    expect(pathsText(undefined)).toBe('');
+  });
+
+  it('points at a line that cannot be a pattern, and a commit pattern JavaScript cannot read', () => {
+    expect(badPath('.env\n../up\n')).toBe('../up');
+    expect(badPath('.env\nsecrets/')).toBeUndefined();
+    expect(badCommitPattern('(')).toBeTruthy();
+    expect(badCommitPattern('  ')).toBeUndefined();
+    expect(badCommitPattern('^feat')).toBeUndefined();
+  });
+
+  it('makes no list for one that had none, and keeps an emptied one as an empty list', () => {
+    expect(listFrom('', ' ', undefined)).toBeUndefined();
+    expect(listFrom('', '', { protectedPaths: ['.env'] })).toEqual({});
+    expect(listFrom('.env\n', ' ^feat ', undefined)).toEqual({ protectedPaths: ['.env'], commitPattern: '^feat' });
+    expect(listFrom('', '^fix', {})).toEqual({ commitPattern: '^fix' });
+    expect(ruleCount({ protectedPaths: ['a', 'b'], commitPattern: 'x' })).toBe(3);
+    expect(ruleCount(undefined)).toBe(0);
+  });
+});
+
+describe('team checks card', () => {
+  it('offers something on the latest result only, and nothing while the team replies', () => {
+    expect(cardActions(card(), true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: false });
+    expect(cardActions(card(), false, false)).toEqual({ recheck: false, fix: false, skip: false, confirm: false });
+    expect(cardActions(card(), true, true)).toEqual({ recheck: false, fix: false, skip: false, confirm: false });
+    expect(cardActions(card({ status: 'running' }), true, false).recheck).toBe(false);
+  });
+
+  it('offers Fix and Skip only while it fails and was not skipped; Check again always', () => {
+    expect(cardActions(card({ status: 'passed' }), true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
+    expect(cardActions(card({ status: 'error' }), true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: false });
+    expect(cardActions(card({ skippedAt: 1 }), true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
+  });
+
+  it('lists the members its findings name first', () => {
+    const agents: AgentConfig[] = ['Alice', 'Bob', 'Carol'].map((name) => ({ id: name[0]!, name, provider: 'claude', role: '' }));
+    const found = card({
+      outcomes: [
+        {
+          rule: 'paths',
+          status: 'failed',
+          findings: [
+            { path: '.env', change: 'changed', by: 'Carol' },
+            { path: 'x', change: 'added' },
+          ],
+        },
+        {
+          rule: 'commits',
+          status: 'failed',
+          findings: [
+            { commit: 'abc', subject: 'x', by: 'Bob' },
+            { commit: 'def', subject: 'y', by: 'Carol' },
+          ],
+        },
+      ],
+    });
+    expect(fixCandidates(found, agents).map((a) => a.name)).toEqual(['Carol', 'Bob', 'Alice']);
+    // A member renamed since is not found by its old name.
+    expect(
+      fixCandidates(card({ outcomes: [{ rule: 'paths', status: 'failed', findings: [{ path: 'a', by: 'Dave' }] }] }), agents).map(
+        (a) => a.name,
+      ),
+    ).toEqual(['Alice', 'Bob', 'Carol']);
+  });
+});
+
+describe('team checks as Markdown', async () => {
+  const { checksMarkdown } = await import('../src/web/copy');
+  const { en } = await import('../src/web/locales/en');
+  it('says its status, each rule, and what it found', () => {
+    const md = checksMarkdown(
+      {
+        status: 'failed',
+        when: 'run',
+        checkedAt: 0,
+        skippedAt: 1,
+        outcomes: [
+          { rule: 'paths', status: 'failed', findings: [{ path: '.env', change: 'changed', by: 'Bob' }], more: 2 },
+          { rule: 'commits', status: 'na', reason: 'No new commit in this run.' },
+        ],
+      },
+      en,
+    );
+    expect(md).toBe(
+      [
+        '*Team checks: Failed* (skipped)',
+        '- **Protected paths**: Failed',
+        "  - `.env` changed · in @Bob's turn",
+        '  - 2 more',
+        '- **Commit format**: Not applicable · No new commit in this run.',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('team checks: commands in the page', () => {
+  it('keeps the rows with a command line, trimmed, the defaults left out', () => {
+    expect(
+      listFrom('', '', undefined, [
+        { id: 'a', run: ' npm test ', cwd: ' app ', timeoutMin: 10, localPorts: false },
+        { id: 'b', run: '  ' },
+        { id: 'c', run: 'make lint', timeoutMin: 3, unixSockets: true },
+      ]),
+    ).toEqual({
+      commands: [
+        { id: 'a', run: 'npm test', cwd: 'app' },
+        { id: 'c', run: 'make lint', timeoutMin: 3, unixSockets: true },
+      ],
+    });
+    expect(ruleCount({ commands: [{ id: 'a', run: 'x' }], commitPattern: 'y' })).toBe(2);
+  });
+
+  it('says what is wrong with a row', () => {
+    expect(commandProblem({ run: ' ' })).toBe('run');
+    expect(commandProblem({ run: 'x', cwd: '../up' })).toBe('folder');
+    expect(commandProblem({ run: 'x', timeoutMin: 0 })).toBe('timeout');
+    expect(commandProblem({ run: 'x', timeoutMin: 61 })).toBe('timeout');
+    expect(commandProblem({ run: 'x', cwd: '/abs/ok', timeoutMin: 60 })).toBeUndefined();
+  });
+
+  it('offers to confirm and run the commands a run kept from running', () => {
+    const gated = card({
+      outcomes: [{ rule: 'command', status: 'error', commandId: 'a', configChanged: ['package.json', 'eslint.config.js'] }],
+    });
+    expect(gatedFiles(gated)).toEqual(['package.json', 'eslint.config.js']);
+    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: false, skip: true, confirm: true });
+  });
+});
+
+describe('team checks: what cannot be fixed', () => {
+  it('asks no member to fix commands held back by changed settings, nor commands stopped or not run here', () => {
+    const gated = card({ outcomes: [{ rule: 'command', status: 'error', commandId: 'a', configChanged: ['vitest.config.ts'] }] });
+    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: false, skip: true, confirm: true });
+    const stopped = card({ status: 'error', outcomes: [{ rule: 'command', status: 'error', commandId: 'a', notRun: 'stopped' }] });
+    expect(cardActions(stopped, true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
+  });
+});
+
+describe('team checks: before applying a parallel result', async () => {
+  const { applyAnyway } = await import('../src/web/checks');
+  it('offers to apply anyway a result the checks held, once, on the latest card, and no Check again of its own', () => {
+    const held = card({ when: 'apply', applyOf: { agentId: 'b', name: 'Bob' } });
+    expect(applyAnyway(held, true, false)).toBe('b');
+    expect(applyAnyway(held, false, false)).toBeUndefined();
+    expect(applyAnyway(held, true, true)).toBeUndefined();
+    expect(applyAnyway(card({ when: 'apply', applyOf: { agentId: 'b', name: 'Bob' }, applied: true }), true, false)).toBeUndefined();
+    expect(
+      applyAnyway(
+        card({ when: 'apply', status: 'passed', outcomes: [{ rule: 'paths', status: 'passed' }], applyOf: { agentId: 'b', name: 'Bob' } }),
+        true,
+        false,
+      ),
+    ).toBeUndefined();
+    expect(applyAnyway(card(), true, false)).toBeUndefined();
+    expect(cardActions(held, true, false)).toEqual({ recheck: false, fix: true, skip: true, confirm: false });
+  });
+});
+
+describe('team checks: hooks in the page', () => {
+  it('keeps the rows with a command line, trimmed, the default time limit left out, and counts them as rules', () => {
+    const list = listFrom(
+      '',
+      '',
+      undefined,
+      [],
+      [
+        { id: 'a', when: 'before', tools: 'command', run: ' ./allow.sh ', cwd: ' tools ', timeoutSec: 60 },
+        { id: 'b', when: 'after', tools: 'edit', run: '   ' },
+        { id: 'c', when: 'after', tools: 'any', run: 'fmt', timeoutSec: 5 },
+      ],
+    );
+    expect(list).toEqual({
+      hooks: [
+        { id: 'a', when: 'before', tools: 'command', run: './allow.sh', cwd: 'tools' },
+        { id: 'c', when: 'after', tools: 'any', run: 'fmt', timeoutSec: 5 },
+      ],
+    });
+    expect(ruleCount(list)).toBe(2);
+    expect(startingChecks(list)).toEqual({ ...list, fromDefault: true });
+  });
+
+  it('says what is wrong with a row', () => {
+    expect(hookProblem({ run: ' ' })).toBe('run');
+    expect(hookProblem({ run: 'x', cwd: '../up' })).toBe('folder');
+    expect(hookProblem({ run: 'x', timeoutSec: 0 })).toBe('timeout');
+    expect(hookProblem({ run: 'x', timeoutSec: 601 })).toBe('timeout');
+    expect(hookProblem({ run: 'x', timeoutSec: 600 })).toBeUndefined();
+  });
+
+  it('tells whether the hooks changed, ids and the default time limit aside', () => {
+    const saved = { hooks: [{ id: 'server', when: 'before' as const, tools: 'command' as const, run: 'x' }] };
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'before', tools: 'command', run: ' x ', timeoutSec: 60 }] })).toBe(true);
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'after', tools: 'command', run: 'x' }] })).toBe(false);
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'before', tools: 'any', run: 'x' }] })).toBe(false);
+  });
+});
+
+describe("Settings' default team checks", () => {
+  it('starts a new chat with a marked copy of the default, and none without rules', () => {
+    const def = { protectedPaths: ['.env'], commands: [{ id: 'a', run: 'npm test' }] };
+    const start = startingChecks(def)!;
+    expect(start).toEqual({ ...def, fromDefault: true });
+    // A copy: changing it in the form leaves the default as it is.
+    start.protectedPaths!.push('x');
+    expect(def.protectedPaths).toEqual(['.env']);
+    expect(startingChecks(undefined)).toBeUndefined();
+    expect(startingChecks({})).toBeUndefined();
+  });
+
+  it('drops the mark once the list is changed in the editor', () => {
+    const start = startingChecks({ protectedPaths: ['.env'] });
+    expect(listFrom('.env\n*.pem', '', start)).toEqual({ protectedPaths: ['.env', '*.pem'] });
+    // Emptied: an empty list of the chat's own (a template's is then not copied in).
+    expect(listFrom('', '', start)).toEqual({});
+  });
+
+  it('tells whether the rules changed, ids, the mark and the default time limit aside', () => {
+    const saved = { protectedPaths: ['.env'], commands: [{ id: 'server-id', run: 'npm test' }] };
+    expect(
+      sameChecks(saved, { protectedPaths: ['.env'], commands: [{ id: 'other', run: ' npm test ', timeoutMin: 10 }], fromDefault: true }),
+    ).toBe(true);
+    expect(sameChecks(saved, { protectedPaths: ['.env'], commands: [{ id: 'x', run: 'npm test', localPorts: true }] })).toBe(false);
+    expect(sameChecks(saved, { protectedPaths: ['.env', 'secrets/'], commands: saved.commands })).toBe(false);
+    expect(sameChecks(undefined, {})).toBe(true);
+    expect(sameChecks(undefined, { commitPattern: '^feat' })).toBe(false);
+  });
+});

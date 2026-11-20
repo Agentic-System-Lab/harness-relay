@@ -38,6 +38,8 @@ import {
   claudeNativeSettings,
   claudeReadRule,
   claudeRunSettings,
+  claudeGuardRules,
+  claudeDenyReadRules,
   claudeRunner,
   claudeSandboxSettings,
   claudeSandboxWrites,
@@ -47,7 +49,13 @@ import {
   createClaudeParser,
   parseClaudePluginList,
   type ClaudeControlRequest,
+  CLAUDE_HOOK_IDS,
+  claudeHookAnswer,
+  claudeHookCall,
+  claudeHookOutput,
+  claudeHooksConfig,
 } from '../src/server/agents/claude';
+import type { TurnHooks } from '../src/server/hooks';
 import { AgentRunError, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
 import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
@@ -1353,6 +1361,179 @@ describe("a turn's cost and tokens", () => {
         first.sessionId,
       );
       expect(second).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1535, outputTokens: 27 });
+    });
+  });
+
+  describe('the team checks’ protected paths', () => {
+    const guard = { dirs: ['/w/app', '/w/lib'], patterns: ['.env', 'config/prod.yml'] };
+
+    it('are Edit deny rules with absolute globs, with any permission, full access included', () => {
+      const rules = claudeGuardRules(guard, 'darwin', () => false, []);
+      expect(rules).toEqual(
+        expect.arrayContaining([
+          'Edit(//w/app/.env)',
+          'Edit(//w/app/**/.env)',
+          'Edit(//w/app/**/.env/**)',
+          'Edit(//w/lib/config/prod.yml)',
+          'Edit(//w/lib/config/prod.yml/**)',
+        ]),
+      );
+      expect(rules.some((r) => r.includes('/**/config'))).toBe(false);
+      // What matches when the turn starts, by name too (none here: the folders are not there).
+      expect(claudeRunSettings('full', [], [], {}, 'darwin', [], undefined, guard)).toEqual({ permissions: { deny: rules } });
+      expect(claudeGuardRules(guard, 'darwin', () => false, ['/w/app/sub/.env'])).toEqual([
+        ...rules,
+        'Edit(//w/app/sub/.env)',
+        'Edit(//w/app/sub/.env/**)',
+      ]);
+      const edit = claudeRunSettings('edit', [], [], {}, 'darwin', ['/data/relay.db'], undefined, guard) as {
+        permissions: { deny: string[] };
+      };
+      expect(edit.permissions.deny).toEqual([...claudeDenyReadRules('/data/relay.db'), ...rules]);
+      expect(claudeRunSettings('full', [], [], {}, 'darwin', [], undefined, undefined)).toBeUndefined();
+    });
+
+    it('on Linux name a path with no wildcard only when it is there (its sandbox puts a stand-in on one that is not)', () => {
+      const rules = claudeGuardRules(guard, 'linux', (p) => p === '/w/app/.env' || p === '/w/app/sub/.env', ['/w/app/sub/.env']);
+      expect(rules).toContain('Edit(//w/app/.env)');
+      expect(rules).toContain('Edit(//w/app/.env/**)');
+      expect(rules).toContain('Edit(//w/app/sub/.env)');
+      expect(rules).not.toContain('Edit(//w/lib/.env)');
+      // A rule ending in `/**` is the name before it to that sandbox: not given for a name that is not there.
+      expect(rules).not.toContain('Edit(//w/lib/.env/**)');
+      expect(rules).not.toContain('Edit(//w/lib/config/prod.yml)');
+      expect(rules).not.toContain('Edit(//w/lib/config/prod.yml/**)');
+      expect(rules).toContain('Edit(//w/lib/**/.env)');
+      expect(rules).toContain('Edit(//w/lib/**/.env/**)');
+    });
+
+    it('are none on native Windows, and none for a folder a rule would read as a pattern', () => {
+      expect(claudeGuardRules(guard, 'win32')).toEqual([]);
+      expect(claudeGuardRules({ dirs: ['/w/a[1]'], patterns: ['.env'] }, 'darwin')).toEqual([]);
+      expect(claudeGuardRules({ dirs: ['/w/a'], patterns: ['*.pem'] }, 'darwin', () => true, ['/w/a/k[1].pem'])).not.toContain(
+        'Edit(//w/a/k[1].pem)',
+      );
+      expect(claudeGuardRules(undefined, 'darwin')).toEqual([]);
+    });
+  });
+});
+
+describe("the team's hooks, through Claude Code's hook callbacks", () => {
+  const fake = (kinds: { before?: string[]; after?: string[] }, refuse?: string, tell?: string) => {
+    const seen: { when: string; call: unknown }[] = [];
+    const hooks: TurnHooks = {
+      kinds: (when) => new Set((kinds[when] ?? []) as never),
+      budgetSec: (when) => (when === 'before' ? 90 : 30),
+      before: async (call) => {
+        seen.push({ when: 'before', call });
+        return refuse;
+      },
+      after: async (call) => {
+        seen.push({ when: 'after', call });
+        return tell;
+      },
+      program: () => undefined,
+      dispose: async () => undefined,
+    };
+    return { hooks, seen };
+  };
+
+  it('registers a callback for each moment a hook needs, for the tools its kinds cover, waiting for every hook it may run', () => {
+    expect(claudeHooksConfig(undefined)).toBeNull();
+    expect(claudeHooksConfig(fake({}).hooks)).toBeNull();
+    expect(claudeHooksConfig(fake({ before: ['command', 'edit'], after: ['any'] }).hooks)).toEqual({
+      // Every tool that runs a command line (Monitor too), and its file tools; longer than Harness Relay's own deadline.
+      PreToolUse: [{ matcher: 'Bash|Monitor|Edit|Write|MultiEdit|NotebookEdit', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 180 }],
+      PostToolUse: [{ hookCallbackIds: [CLAUDE_HOOK_IDS.after], timeout: 120 }],
+    });
+  });
+
+  it('reads a call as the hooks see it: a command, the file its own tools change (a full path), or another tool', () => {
+    expect(claudeHookCall({ tool_name: 'Bash', tool_input: { command: 'npm test' } })).toEqual({
+      kind: 'command',
+      tool: 'Bash',
+      command: 'npm test',
+      input: { command: 'npm test' },
+    });
+    // Monitor runs its command in a shell of its own: a command, as Bash's.
+    expect(claudeHookCall({ tool_name: 'Monitor', tool_input: { command: 'git push --force' } })).toMatchObject({
+      kind: 'command',
+      command: 'git push --force',
+    });
+    expect(claudeHookCall({ tool_name: 'Write', cwd: '/w', tool_input: { file_path: 'src/a.ts', content: 'x' } })).toMatchObject({
+      kind: 'edit',
+      files: [resolve('/w', 'src/a.ts')],
+    });
+    expect(claudeHookCall({ tool_name: 'NotebookEdit', tool_input: { notebook_path: '/w/n.ipynb' } }).files).toEqual(['/w/n.ipynb']);
+    expect(claudeHookCall({ tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } }).kind).toBe('other');
+    expect(claudeHookOutput({ tool_response: { stdout: 'out', stderr: 'err' } })).toBe('out\nerr');
+    expect(claudeHookOutput({ tool_response: { filePath: '/w/a' } })).toBe('{"filePath":"/w/a"}');
+  });
+
+  it('refuses with permissionDecision deny, never allows (the permission still asks), and passes on what after hooks said', () => {
+    expect(claudeHookAnswer('before', 'no')).toEqual({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no' },
+    });
+    expect(claudeHookAnswer('before', undefined)).toEqual({});
+    expect(claudeHookAnswer('after', 'fix it')).toEqual({ decision: 'block', reason: 'fix it' });
+    expect(claudeHookAnswer('after', undefined)).toEqual({});
+  });
+
+  describe.skipIf(process.platform === 'win32')('in a turn (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-hooks-')));
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    let n = 0;
+    const run = async (hooks: TurnHooks | undefined, call: Record<string, unknown>, extra: Record<string, string> = {}) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      await claudeRunner.run({
+        bin,
+        env: { ...process.env, FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_HOOK_CALL: JSON.stringify(call), ...extra },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'full',
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+        ...(hooks ? { hooks } : {}),
+      });
+      return readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, any>);
+    };
+
+    it("answers Claude Code's callbacks from the hooks: a refusal before the call, what the after hooks said after it", async () => {
+      const refused = fake({ before: ['command'] }, 'not allowed');
+      const lines = await run(refused.hooks, { tool_name: 'Bash', tool_input: { command: 'rm -rf build' } });
+      expect(lines.find((l) => 'hooks' in l)?.hooks).toEqual({
+        PreToolUse: [{ matcher: 'Bash|Monitor', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 180 }],
+      });
+      expect(lines.find((l) => l.hook === 'before')?.answer).toEqual(claudeHookAnswer('before', 'not allowed'));
+      expect(refused.seen).toEqual([
+        { when: 'before', call: { kind: 'command', tool: 'Bash', command: 'rm -rf build', input: { command: 'rm -rf build' } } },
+      ]);
+
+      const told = fake({ before: ['command'], after: ['command'] }, undefined, 'lint failed');
+      const after = await run(told.hooks, { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'a', stderr: '' } });
+      expect(after.find((l) => l.hook === 'before')?.answer).toEqual({});
+      expect(after.find((l) => l.hook === 'after')?.answer).toEqual({ decision: 'block', reason: 'lint failed' });
+      expect(told.seen[1]).toEqual({ when: 'after', call: expect.objectContaining({ kind: 'command', output: 'a' }) });
+    });
+
+    it('registers no hooks without them, and answers a callback it does not know with nothing', async () => {
+      const lines = await run(undefined, { tool_name: 'Bash', tool_input: { command: 'ls' } });
+      expect(lines.find((l) => 'hooks' in l)?.hooks).toBeNull();
+      expect(lines.find((l) => l.hook === 'before')?.answer).toBeNull();
+      // A callback id that is not Harness Relay's: answered with nothing, and no hook is asked.
+      const other = fake({ before: ['command'] }, 'not allowed');
+      const unknown = await run(
+        other.hooks,
+        { tool_name: 'Bash', tool_input: { command: 'ls' } },
+        { FAKE_CLAUDE_HOOK_ID: 'someone-elses' },
+      );
+      expect(unknown.find((l) => l.hook === 'before')?.answer).toEqual({});
+      expect(other.seen).toEqual([]);
     });
   });
 });

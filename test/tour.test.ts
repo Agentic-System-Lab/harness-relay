@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../src/shared/types';
 import { TOUR_TARGETS, TOUR_VERSION, scrollBy, tourSeen } from '../src/web/components/Onboarding';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
@@ -31,6 +32,14 @@ describe('guided tour', () => {
     expect(tourSeen('yes', 2)).toBe(false);
   });
 
+  it.each([en, zhTW])('explains the permissions and CLI support for team checks in $langName', (messages) => {
+    const step = messages.tour.steps.find((s) => s.title === messages.checks.title);
+    expect(step?.body).toContain(messages.permissions.edit.label);
+    expect(step?.body).toContain(messages.permissions.full.label);
+    const points = step?.points?.join('\n');
+    for (const provider of HOOK_PROVIDERS) expect(points).toContain(PROVIDER_LABEL[provider]);
+  });
+
   it("scrolls a long step's text with the keys, while the focus is on its buttons", () => {
     expect(scrollBy('ArrowDown', 300, 900)).toBe(40);
     expect(scrollBy('ArrowUp', 300, 900)).toBe(-40);
@@ -52,6 +61,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see it again, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 20, fingerprint: '8b95c795f5a8' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 21, fingerprint: 'ed948360fa24' });
   });
 });

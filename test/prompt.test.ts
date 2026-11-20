@@ -507,3 +507,13 @@ describe('scheduled messages', () => {
     expect(buildTurnPrompt(conv, team[0]!, [reply], false, info)).not.toContain('via="schedule"');
   });
 });
+
+describe('team checks in the briefing', async () => {
+  const { checkRuleLines } = await import('../src/server/prompt');
+  it('tells agents the commands must succeed (in parallel mode, when a result is applied), but not on native Windows, which runs none', () => {
+    const list = { protectedPaths: ['.env'], commands: [{ id: 'c', run: 'npm test' }] };
+    expect(checkRuleLines(list, 'roundtable', 'linux').some((l) => l.includes('`npm test`'))).toBe(true);
+    expect(checkRuleLines(list, 'roundtable', 'win32').some((l) => l.includes('npm test'))).toBe(false);
+    expect(checkRuleLines(list, 'parallel', 'linux').find((l) => l.includes('npm test'))).toContain("when a member's result is applied");
+  });
+});

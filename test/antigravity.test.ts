@@ -1006,3 +1006,38 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(r.log()[0]!.env.SSH_CONNECTION).toBeTruthy();
   });
 });
+
+describe.skipIf(process.platform === 'win32')("Antigravity and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/work/app'], patterns: ['.env', '*.pem'] };
+  const call = (name: string, kind: string, path: string): AntigravityToolCall => ({
+    name,
+    kind,
+    title: 'File x',
+    rawInput: { Path: path },
+    locations: [{ path }],
+  });
+  it('refuses a write it asks about to one of them below full access, and leaves reads and other writes alone', () => {
+    const refused = { run: 'refuse', reason: withLang('en', () => t().guardRefused) };
+    withLang('en', () => {
+      expect(antigravityPermissionDecision('edit', call('write_file', 'edit', '/work/app/.env'), '/work/app', [], [], guard)).toEqual(
+        refused,
+      );
+      expect(antigravityPermissionDecision('edit', call('write_file', 'edit', '/work/app/keys/a.pem'), '/work/app', [], [], guard)).toEqual(
+        refused,
+      );
+      expect(
+        antigravityPermissionDecision('read-only', call('delete_file', 'delete', '/work/app/.env'), '/work/app', [], [], guard),
+      ).toEqual(refused);
+      expect(antigravityPermissionDecision('edit', call('write_file', 'edit', '/work/app/a.ts'), '/work/app', [], [], guard)).toEqual({
+        run: 'allow',
+      });
+      expect(antigravityPermissionDecision('edit', call('read_file', 'read', '/work/app/.env'), '/work/app', [], [], guard)).toEqual({
+        run: 'allow',
+      });
+      expect(antigravityPermissionDecision('full', call('write_file', 'edit', '/work/app/.env'), '/work/app', [], [], guard)).toEqual({
+        run: 'allow',
+      });
+    });
+  });
+});

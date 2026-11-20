@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   GATEWAY_SERVER_NAME,
   OPEN_PROVIDERS,
@@ -15,9 +15,11 @@ import {
   type Provider,
   type RelayToolGroup,
 } from '../shared/types';
-import { withLang } from './i18n';
+import { currentLang, withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
+import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
+import { realPath, RUN_TMP_PREFIXES } from './protect';
 
 /*
  * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`), in one
@@ -140,6 +142,33 @@ interface Grant {
   claimed?: boolean;
 }
 
+/** What a CLI's hook program prints, and the code it exits with (`hookShim.ts`). */
+export interface HookReply {
+  stdout?: string;
+  stderr?: string;
+  code: number;
+}
+
+/** What answers a turn's hook program: the call as the CLI gave it, before or after it ran. */
+export type HookHandler = (when: 'before' | 'after', payload: unknown) => Promise<HookReply>;
+
+/** The program a CLI runs as its hook command, with its arguments; the CLI adds `before` or `after`. */
+export interface HookProgram {
+  bin: string;
+  args: string[];
+  /** Passed only to an inline hook command, never to the CLI's process environment. */
+  env?: Record<string, string>;
+  /** The inline hook's Unix socket directory. Linux must make this directory visible to the hook. */
+  socketDir?: string;
+}
+export type HookProgramMode = 'file' | 'inline';
+
+/** A turn's hook grant: its handler, and its program's token file and copy. */
+interface HookGrant {
+  handle: HookHandler;
+  files?: string[];
+}
+
 /** How a turn gets the gateway (`ToolGateway.grant()`). */
 export interface GrantOptions {
   /** Over the loopback HTTP endpoint, the token only in the CLI's memory, instead of the stdio program. */
@@ -156,7 +185,10 @@ export interface GrantOptions {
 export type GatewayUnavailable = 'not-started' | 'no-node' | 'no-node-path';
 
 /** A line the server and the shim exchange, after the token. */
-type Request = { id: number; method: 'list' } | { id: number; method: 'call'; name?: unknown; arguments?: unknown };
+type Request =
+  | { id: number; method: 'list' }
+  | { id: number; method: 'call'; name?: unknown; arguments?: unknown }
+  | { id: number; method: 'hook'; when?: unknown; payload?: unknown };
 
 /** How long a connection may take to show its token. */
 const TOKEN_WAIT_MS = 10_000;
@@ -182,6 +214,8 @@ export const GATEWAY_HTTP_PATH = '/mcp';
 export class ToolGateway {
   private server?: Server;
   private readonly grants = new Map<string, Grant>();
+  /** The turns' hook programs' grants, by token: each program connects once per call, and the token stays. */
+  private readonly hookGrants = new Map<string, HookGrant>();
   private readonly tools = new Map<string, GatewayTool>();
   readonly socketPath: string;
   /**
@@ -313,6 +347,7 @@ export class ToolGateway {
     this.http = undefined;
     this.httpAt = undefined;
     for (const token of [...this.grants.keys()]) this.revoke(token);
+    for (const token of [...this.hookGrants.keys()]) this.revokeHook(token);
     for (const sock of this.sockets) sock.destroy();
     if (http) {
       http.closeAllConnections();
@@ -396,6 +431,57 @@ export class ToolGateway {
     };
   }
 
+  /**
+   * A turn's hook program (`hookShim.ts`): a copy and its token's file in `data/tmp`, where sandboxed
+   * commands cannot reach them, and `handle` to answer each call it passes on. Its token serves every
+   * connection until `revoke`, as the CLI runs the program once for each call. The inline program
+   * carries its token in the hook-specific environment, so it can run inside Copilot's sandbox without
+   * opening the temporary folder. Undefined when the program cannot
+   * be given now (not listening, no Node.js to start it with).
+   */
+  hookProgram(handle: HookHandler, mode: HookProgramMode = 'file'): { program: HookProgram; revoke: () => void } | undefined {
+    const node = this.node();
+    if (!this.server || !node) return undefined;
+    const token = randomBytes(32).toString('base64url');
+    const revoke = () => this.revokeHook(token);
+    const lang = currentLang();
+    const run: HookHandler = (when, payload) => withLang(lang, () => handle(when, payload));
+    if (mode === 'inline') {
+      const socketDir = realPath(dirname(this.socketPath));
+      const socketPath = join(socketDir, basename(this.socketPath));
+      this.hookGrants.set(token, { handle: run });
+      return {
+        program: {
+          bin: node,
+          args: ['--input-type=module', '-e', HOOK_SHIM_SOURCE, '--', 'relay-hook', socketPath, ''],
+          env: { [HOOK_INLINE_TOKEN_ENV]: token },
+          socketDir,
+        },
+        revoke,
+      };
+    }
+    const name = `${RUN_TMP_PREFIXES.hook}${randomBytes(8).toString('hex')}`;
+    const tokenFile = join(this.tokenDir, `${name}.token`);
+    const shimFile = join(this.tokenDir, `${name}.mjs`);
+    writeFileSync(tokenFile, token, { mode: 0o600 });
+    try {
+      writeFileSync(shimFile, HOOK_SHIM_SOURCE, { mode: 0o600 });
+    } catch (err) {
+      rmSync(tokenFile, { force: true });
+      rmSync(shimFile, { force: true });
+      throw err;
+    }
+    this.hookGrants.set(token, { handle: run, files: [tokenFile, shimFile] });
+    return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke };
+  }
+
+  private revokeHook(token: string): void {
+    const grant = this.hookGrants.get(token);
+    if (!grant) return;
+    this.hookGrants.delete(token);
+    for (const file of grant.files ?? []) rmSync(file, { force: true });
+  }
+
   private revoke(token: string): void {
     const grant = this.grants.get(token);
     if (!grant) return;
@@ -414,6 +500,8 @@ export class ToolGateway {
     sock.setEncoding('utf8');
     let buffer = '';
     let grant: Grant | undefined;
+    let hookToken: string | undefined;
+    let hookAsked = false;
     let authed = false;
     let taken = false;
     const reply = (msg: unknown) => {
@@ -455,6 +543,8 @@ export class ToolGateway {
           // The program's tokens only: one given over HTTP never works here.
           grant = typeof token === 'string' ? this.grants.get(token) : undefined;
           if (grant?.http) grant = undefined;
+          // A hook program's: its token serves each call's own connection.
+          if (!grant && typeof token === 'string' && this.hookGrants.has(token)) hookToken = token;
           authed = true;
           clearTimeout(hello);
           if (grant && this.claimOnce) {
@@ -467,7 +557,7 @@ export class ToolGateway {
               if (grant.tokenFile) rmSync(grant.tokenFile, { force: true });
             }
           }
-          if (grant) {
+          if (grant || hookToken) {
             this.pending.delete(sock);
             if (this.sockets.size - this.pending.size > MAX_CONNECTIONS) return sock.destroy();
           } else {
@@ -479,6 +569,26 @@ export class ToolGateway {
         }
         const req = msg as Request;
         if (typeof req?.id !== 'number') continue;
+        if (hookToken) {
+          // Each invocation makes one call on its own connection.
+          if (hookAsked) return;
+          hookAsked = true;
+          // Looked up again: a turn that ended takes its hooks with it.
+          const hook = this.hookGrants.get(hookToken);
+          if (!hook || req.method !== 'hook' || (req.when !== 'before' && req.when !== 'after')) {
+            reply({ id: req.id, error: hook ? 'Unknown request' : 'This turn is over: Harness Relay has no hooks for it any more' });
+            return void sock.end();
+          }
+          const finish = (message: unknown) => {
+            reply(message);
+            sock.end();
+          };
+          void hook.handle(req.when, req.payload).then(
+            (result) => finish({ id: req.id, result }),
+            (err: Error) => finish({ id: req.id, error: err.message }),
+          );
+          continue;
+        }
         // Looked up again for each request: a turn that ended takes its tools with it.
         const live = grant && [...this.grants.values()].includes(grant) ? grant : undefined;
         if (!live) {

@@ -184,7 +184,7 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -518,7 +518,7 @@ describe('Store (SQLite)', () => {
              INSERT INTO agent_worktrees VALUES ('conv-1', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 1);
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 20;`);
     const migrated = new Store(reopen()).get(conv.id)!;
     expect(migrated.worktrees).toEqual({
@@ -543,7 +543,7 @@ describe('Store (SQLite)', () => {
                  PRIMARY KEY (conversation_id, agent_id));
                INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
                ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
-               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox;
+               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox;
                ${upTo}
                PRAGMA user_version = ${version};`);
     const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -551,7 +551,7 @@ describe('Store (SQLite)', () => {
     db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
     early(25, '');
     reopen();
-    expect(version()).toBe(35);
+    expect(version()).toBe(36);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({
@@ -562,7 +562,7 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
     );
     reopen();
-    expect(version()).toBe(35);
+    expect(version()).toBe(36);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
     // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
@@ -575,7 +575,7 @@ describe('Store (SQLite)', () => {
       );
     beforeAccounts(22, '');
     reopen();
-    expect(version()).toBe(35);
+    expect(version()).toBe(36);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
@@ -588,16 +588,16 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
     );
     reopen();
-    expect(version()).toBe(35);
+    expect(version()).toBe(36);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     // A database of main's own at 21 (several working directories, no model backends) is left as it is.
     db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; PRAGMA user_version = 21;`);
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; PRAGMA user_version = 21;`);
     reopen();
-    expect(version()).toBe(35);
+    expect(version()).toBe(36);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
@@ -1061,7 +1061,7 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -1641,7 +1641,7 @@ describe('SettingsStore accounts', () => {
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1921,6 +1921,80 @@ describe('Store schedules', () => {
     expect(new Store(reopen()).get(conv.id)!.schedule!.watches).toBeUndefined();
   });
 
+  it("keeps a conversation's and a template's team checks, the result a message carries, and the latest result's baseline only (schema 36)", () => {
+    const store = new Store(db);
+    const checks = { protectedPaths: ['.env', 'secrets/'], commitPattern: '^feat' };
+    const conv = { ...sampleConversation(), settings: { ...sampleConversation().settings, checks } };
+    store.create(conv);
+    const result = {
+      status: 'failed' as const,
+      when: 'run' as const,
+      outcomes: [
+        { rule: 'paths' as const, status: 'failed' as const, findings: [{ path: '.env', change: 'changed' as const, by: 'Builder' }] },
+      ],
+      replyIds: ['m2'],
+      checkedAt: 5,
+      durationMs: 3,
+      skippedAt: 9,
+    };
+    const msg: ChatMessage = { id: 'c1', author: { kind: 'system' }, createdAt: 3, parts: [], status: 'done', checks: result };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    store.saveChecksBaseline(conv.id, 'c1', { at: 1, patterns: ['.env'] });
+    let back = new Store(reopen()).get(conv.id)!;
+    expect(back.settings.checks).toEqual(checks);
+    expect(back.messages[0]!.checks).toEqual(result);
+    // Only the latest result's baseline is kept: a new one replaces it.
+    const again = new Store(db);
+    expect(again.checksBaseline(conv.id, 'c1')).toEqual({ at: 1, patterns: ['.env'] });
+    again.saveChecksBaseline(conv.id, 'c2', { at: 2 });
+    expect(again.checksBaseline(conv.id, 'c1')).toBeUndefined();
+    expect(again.checksBaseline(conv.id, 'c2')).toEqual({ at: 2 });
+    // An empty list stays a list (a template's is then not copied in); none is none.
+    back.settings = { ...back.settings, checks: {} };
+    again.saveMeta(back);
+    back = new Store(reopen()).get(conv.id)!;
+    expect(back.settings.checks).toEqual({});
+    back.settings = { mode: 'relay', rounds: 1, maxHops: 6, permission: 'edit', cwd: '/tmp' };
+    new Store(db).saveMeta(back);
+    expect('checks' in new Store(reopen()).get(conv.id)!.settings).toBe(false);
+    // A template keeps its list too.
+    const preset: TeamPreset = {
+      id: 'user-x',
+      name: 'X',
+      agents: conv.agents,
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', checks },
+    };
+    new Store(db).savePreset(preset);
+    expect(new Store(reopen()).listPresets().find((p) => p.id === 'user-x')!.settings.checks).toEqual(checks);
+    // Deleting the conversation takes its baseline with it.
+    new Store(db).delete(conv.id);
+    expect(new Store(db).checksBaseline(conv.id, 'c2')).toBeUndefined();
+  });
+
+  it('settles a team checks command a stopped server left running: it could not run, and the card can be checked again', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const checks = {
+      status: 'running' as const,
+      when: 'run' as const,
+      checkedAt: 1,
+      outcomes: [
+        { rule: 'paths' as const, status: 'passed' as const },
+        { rule: 'command' as const, status: 'passed' as const, commandId: 'a', command: 'npm run lint' },
+        { rule: 'command' as const, status: 'running' as const, commandId: 'b', command: 'npm test' },
+      ],
+    };
+    const msg: ChatMessage = { id: 'c1', author: { kind: 'system' }, createdAt: 3, parts: [], status: 'done', checks };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    const back = new Store(reopen()).get(conv.id)!.messages[0]!.checks!;
+    expect(back.status).toBe('error');
+    expect(back.outcomes[1]).toMatchObject({ status: 'passed' });
+    expect(back.outcomes[2]).toMatchObject({ status: 'error', commandId: 'b', reason: expect.any(String) });
+  });
+
   it('reads an automation saved when it waited for one thing as waiting for that one, and writes each trigger and what its checks keep', () => {
     const store = new Store(db);
     const inbox = { source: 'mail' as const, account: 'work', folder: 'INBOX' };
@@ -2038,7 +2112,7 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;

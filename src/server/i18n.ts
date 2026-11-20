@@ -38,6 +38,11 @@ const zhTW = {
     `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們或它們的工具（${detail}）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消「MCP 工具」分頁的不載入勾選。`,
   codexLeftOutUnchecked: (detail: string) =>
     `無法確認 Codex 在這次執行中沒有載入設為不載入的 skill、hook 或 plugin（${detail}），所以沒有執行。請再試一次，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中取消這些不載入勾選。`,
+  copilotHooksUnchecked: '無法確認 Copilot 已載入團隊的 hook，因此未開始這個回合。',
+  codexHookShell: 'Codex 的團隊 hook 需要 POSIX shell，PowerShell 帳號的這個回合未開始。',
+  codexHooksUnprotected: 'Codex 的編輯沙箱無法保護團隊的 hook 程式，因此未開始這個回合。',
+  codexHooksUnchecked:
+    '無法確認 Codex 已載入並信任團隊的 hook，因此未開始這個回合。請確認 Codex 已啟用 hook 並更新到 0.167.0 或以上，再試一次。',
   codexNoProfile: (active: string | undefined) =>
     `Codex 沒有在 Harness Relay 給它的權限設定檔中執行這個 thread（它回報的是${active ? `「${active}」` : '沒有設定檔'}，可能是不認得這個欄位的舊版 Codex），它的沙箱就擋不住你瀏覽器的資料夾與 Harness Relay 的資料庫，所以沒有執行。請更新 Codex（0.167 可以）再試一次。`,
   codexStillLoaded: (parts: ('skills' | 'hooks' | 'plugins')[]) =>
@@ -120,6 +125,7 @@ const zhTW = {
   cursorConfigFailed: (err: string) => `無法替這一輪準備 Cursor 的設定資料夾：${err}`,
   cursorAccountLogin:
     'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡），所以額外的 Cursor 帳號不能用瀏覽器登入：請替它設定 API key。預設帳號才用 Cursor 自己的登入。',
+  guardRefused: '這是團隊檢查的受保護路徑，已在寫入前拒絕',
   antigravityRefused: '超出這個對話的權限，已拒絕',
   antigravityProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   antigravityEndsTurn: '（Antigravity 在拒絕後會結束這一輪）',
@@ -427,6 +433,73 @@ const zhTW = {
     `已把 @${name} 的修改套用到工作目錄（${files} 個檔案，尚未 commit）。下一次平行作業會從新的工作目錄狀態開始。`,
   noChanges: '這則訊息沒有檔案修改',
   relayLimit: (hops: number) => `已達接力上限（${hops} 棒），交還給使用者。可按「繼續」讓團隊接著做。`,
+
+  // Team checks
+  checksTooManyFiles: (max: number) =>
+    `要比對的檔案超過 ${max} 個，無法檢查受保護路徑；請把路徑寫得更明確（例如 config/*.pem，而不是 *.pem）。`,
+  checksListChanged: '檢查清單在這一輪開始後改過，這一輪的受保護路徑無法用新清單比對；下一輪會照新清單檢查。',
+  checksNoBaseline: '找不到這一輪開始時的狀態，無法重新比對。',
+  checksCommitsParallel: '平行模式套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
+  checksNoCommits: '這一輪沒有新的 commit。',
+  checksPatternSlow: 'commit 格式的正規表示式跑太久，已中止；請改寫得簡單一點。',
+  checksTooManyCommits: (n: number) => `新的 commit 超過 ${n} 個，只檢查了最新的 ${n} 個。`,
+  checksBadPath: (p: string) => `受保護路徑「${p}」無法使用：請寫工作目錄裡的相對路徑，不能有 ..`,
+  checksTooManyPaths: (n: number) => `受保護路徑最多 ${n} 條`,
+  checksBadCommitPattern: (why: string) => `commit 格式不是有效的正規表示式：${why}`,
+  checksCommitPatternTooLong: (n: number) => `commit 格式最長 ${n} 個字元`,
+  checksNotFound: '找不到這份檢查結果',
+  checksNotLatest: '只有最新的一份檢查結果可以這樣處理',
+  checksPassedAlready: '這份檢查結果沒有未通過的項目',
+  checksFixMessage: (name: string) => `@${name} 請修正上一份團隊檢查未通過的項目（整份結果都要通過）。`,
+  checksScheduleFailed: '團隊檢查未通過',
+  checksScheduleError: '團隊檢查無法執行',
+  checksSandboxDenial: (kind: string, on: boolean) =>
+    ({
+      localPorts: on
+        ? '沙箱擋下了本機連接埠。'
+        : '沙箱擋下了它要開的本機連接埠（macOS）。如果這個指令的測試需要自己的伺服器，可以在這條指令開啟「允許所有本機連接埠」，但它就能連到這台電腦所有本機服務，包括 Harness Relay 的 API。',
+      unixSockets: on
+        ? '沙箱擋下了 Unix socket。'
+        : '沙箱擋下了它要開的 Unix socket（Linux）。如果這個指令需要，可以在這條指令開啟「允許所有 Unix socket」，但它就能連到 Docker、ssh agent 等所有 socket。',
+      readOnly: '它要寫入工作目錄以外的地方（例如 /tmp），沙箱只讓它寫工作目錄和它自己的暫存資料夾。',
+      phantom: '它讀到沙箱在工作目錄最上層放的保護項目（例如 .zshrc、.vscode；Linux）。請讓指令略過這些名稱，或只檢查需要的資料夾。',
+      browser: '沙箱裡無法啟動瀏覽器，端對端測試請在沙箱外執行。',
+      network: '沙箱裡沒有網路，指令要連的主機無法連線。',
+      denied: '沙箱擋下了它要做的事（Operation not permitted）。',
+    })[kind] ?? '沙箱擋下了它要做的事。',
+  checksCommandTimedOut: (min: number) => `超過 ${min} 分鐘還沒結束，已停止。`,
+  checksCommandNotFound: '找不到要執行的程式（exit 127）。Harness Relay 不會自己安裝缺少的東西。',
+  checksCommandWindows: '原生 Windows 上還不能執行指令檢查（沒有 Harness Relay 的沙箱）；只檢查受保護路徑和 commit 格式。',
+  checksCommandNoFolder: (cwd: string) =>
+    cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
+  checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
+  checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
+  checksConfigChanged: (files: string) =>
+    `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
+  checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
+  checksAlsoRefused: (hosts: string) => `沙箱也擋下了它要連的主機（${hosts}），但輸出看不出它是因此失敗。`,
+  checksCommandsReadOnly: '唯讀權限下不執行指令檢查。',
+  checksTryReadOnly: '唯讀權限下不能試跑指令：檢查不會執行指令。',
+  checksInterrupted: '伺服器在指令執行中停止了，這條沒有跑完。',
+  checksConfigChangedUnattended: (files: string) => `團隊改到了檢查會讀的設定（${files}），沒有人確認，所以算未通過。`,
+  checksTooManyCommands: (n: number) => `指令檢查最多 ${n} 條`,
+  checksCommandEmpty: '指令檢查不能是空的',
+  checksCommandTooLong: (n: number) => `一條指令最長 ${n} 個字元`,
+  checksBadFolder: (f: string) => `無法使用資料夾「${f}」：請寫第一個工作目錄裡的相對路徑（不能有 ..），或工作目錄裡的完整路徑`,
+  checksBadTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
+  hooksTooMany: (n: number) => `hook 最多 ${n} 個`,
+  hookTimedOut: (sec: number) => `超過 ${sec} 秒的時間上限，已停止。`,
+  hooksBadTimeout: (max: number) => `hook 的時間上限是 1 到 ${max} 秒`,
+  hookRefused: (hook: string, call: string, why: string) => `團隊的 hook「${hook}」拒絕了 ${call}：${why}`,
+  hookFailed: (hook: string, call: string, why: string) => `${call} 之後，團隊的 hook「${hook}」沒有通過，已告訴 agent：${why}`,
+  hookNoOutput: '（沒有輸出）',
+  hooksTooLate: '沒有在時間內跑完，已停止',
+  hookCallTooLong: (call: string) => `團隊的 hook 拒絕了 ${call}：這次呼叫太長，hook 讀不完`,
+  hookRefusedLabel: '團隊的 hook 拒絕了這次呼叫',
+  hooksNoProgram: (cli: string) =>
+    `這一輪沒有開始：不能把團隊的 hook 交給 ${cli}（找不到可以啟動 hook 程式的 Node.js，或 Harness Relay 的 gateway 沒有在執行）。請安裝 Node.js 22.12 以上（設定 → 沙箱可以安裝），或在團隊檢查裡拿掉 hook。`,
+  hookMoreNotices: '這一輪之後的 hook 拒絕或沒有通過，不再一一列出。',
+  hooksUnsupported: (cli: string) => `${cli} 還不能執行團隊的 hook：這位成員這一輪的工具呼叫不經過它們，團隊答完後的檢查照常。`,
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
@@ -885,6 +958,11 @@ const en: ServerMessages = {
     `Codex could not list its MCP servers, so they or their tools could not be left out of this run (${detail}). Update Codex, or clear what is left out on the MCP tools tab of "…this CLI loads by itself" in Codex's settings.`,
   codexLeftOutUnchecked: (detail) =>
     `Could not check that Codex left out the skills, hooks or plugins this run leaves out (${detail}), so it did not run. Try again, or clear them in "…this CLI loads by itself" in Codex's settings.`,
+  copilotHooksUnchecked: "Copilot could not confirm that the team's hooks are loaded. The turn did not start.",
+  codexHookShell: 'Codex team hooks require a POSIX shell. This turn did not start with PowerShell as the account shell.',
+  codexHooksUnprotected: "The Codex edit sandbox cannot protect the team's hook program. The turn did not start.",
+  codexHooksUnchecked:
+    "Codex could not confirm that the team's hooks are loaded and trusted. The turn did not start. Enable hooks in Codex and use Codex 0.167.0 or newer.",
   codexNoProfile: (active) =>
     `Codex did not run this thread in the permission profile Harness Relay gave it (it answered ${active ? `"${active}"` : 'no profile'}; an older Codex that does not know the field, say), so its sandbox would not keep it out of your browsers' folders and Harness Relay's database, and it did not run. Update Codex (0.167 works) and try again.`,
   codexStillLoaded: (parts) =>
@@ -969,6 +1047,7 @@ const en: ServerMessages = {
   cursorConfigFailed: (err) => `Could not prepare Cursor's config folder for this turn: ${err}`,
   cursorAccountLogin:
     "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
+  guardRefused: "Refused before writing: one of the team checks' protected paths",
   antigravityRefused: "Refused: not covered by this conversation's permission",
   antigravityProtected:
     "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
@@ -1287,6 +1366,82 @@ const en: ServerMessages = {
     `Applied @${name}'s changes to the working directory (${files} files, not committed). The next parallel round starts from the new state.`,
   noChanges: 'This message changed no files',
   relayLimit: (hops) => `Reached the relay limit (${hops} hand-offs); back to you. Press Continue to let the team keep going.`,
+
+  checksTooManyFiles: (max) =>
+    `More than ${max} files to compare: the protected paths could not be checked. Make the paths more specific (config/*.pem rather than *.pem, say).`,
+  checksListChanged:
+    'The check list changed after this run started, so its protected paths cannot be compared with the new list; the next run is checked with it.',
+  checksNoBaseline: 'Where this run started from is not known any more, so it cannot be compared again.',
+  checksCommitsParallel: 'Parallel mode applies its results without their commits, so the commit format is not checked.',
+  checksNoCommits: 'No new commit in this run.',
+  checksPatternSlow: 'The commit format’s regular expression took too long and was stopped; make it simpler.',
+  checksTooManyCommits: (n) => `More than ${n} new commits: only the newest ${n} were checked.`,
+  checksBadPath: (p) => `The protected path "${p}" cannot be used: write a path relative to the working directory, without ..`,
+  checksTooManyPaths: (n) => `At most ${n} protected paths`,
+  checksBadCommitPattern: (why) => `The commit format is not a valid regular expression: ${why}`,
+  checksCommitPatternTooLong: (n) => `The commit format can be at most ${n} characters`,
+  checksNotFound: 'Check result not found',
+  checksNotLatest: 'Only the latest check result can be handled this way',
+  checksPassedAlready: 'Nothing in this check result failed',
+  checksFixMessage: (name) => `@${name} please fix what failed in the latest team checks (the whole result has to pass).`,
+  checksScheduleFailed: 'The team checks did not pass',
+  checksScheduleError: 'The team checks could not run',
+  checksSandboxDenial: (kind, on) =>
+    ({
+      localPorts: on
+        ? 'The sandbox refused a local port.'
+        : 'The sandbox refused a local port it opened (macOS). If its tests need a server of their own, turn on "Allow every local port" for this command; it then reaches every service on this computer, Harness Relay\'s API among them.',
+      unixSockets: on
+        ? 'The sandbox refused a Unix socket.'
+        : 'The sandbox refused a Unix socket it opened (Linux). If it needs one, turn on "Allow every Unix socket" for this command; it then reaches every socket, Docker\'s and an ssh agent\'s among them.',
+      readOnly:
+        'It wrote outside the working directory (/tmp, say): in the sandbox it may write only there and in its own temporary folder.',
+      phantom:
+        'It read one of the entries the sandbox puts at the top of the working directory to protect it (.zshrc, .vscode…; Linux). Have the command skip those names, or check only the folders it needs.',
+      browser: 'A browser cannot start in the sandbox: run end-to-end tests outside it.',
+      network: 'There is no network in the sandbox: the host it wanted could not be reached.',
+      denied: 'The sandbox refused something it did (Operation not permitted).',
+    })[kind] ?? 'The sandbox refused something it did.',
+  checksCommandTimedOut: (min) => `It had not finished after ${min} ${min === 1 ? 'minute' : 'minutes'}, and was stopped.`,
+  checksCommandNotFound: 'The program it runs was not found (exit 127). Harness Relay never installs what is missing.',
+  checksCommandWindows:
+    'Commands cannot be checked on native Windows yet (Harness Relay has no sandbox there): only the protected paths and the commit format are.',
+  checksCommandNoFolder: (cwd) =>
+    cwd
+      ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`
+      : "The chat's working directory is not there.",
+  checksCommandsAtEnd: 'Commands are run once the team has finished.',
+  checksCommandsParallel:
+    "Parallel mode's results are not in the working directory until they are applied: commands are checked when one is.",
+  checksConfigChanged: (files) =>
+    `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
+  checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,
+  checksAlsoRefused: (hosts) =>
+    `The sandbox also refused hosts it wanted (${hosts}), though its output does not show that it failed for it.`,
+  checksCommandsReadOnly: 'Commands are not run with read-only permission.',
+  checksTryReadOnly: 'Commands cannot be tried with read-only permission: the checks run none.',
+  checksInterrupted: 'The server stopped while it ran: it did not finish.',
+  checksConfigChangedUnattended: (files) => `The team changed settings the checks read (${files}), and nobody confirmed them: a failure.`,
+  checksTooManyCommands: (n) => `At most ${n} commands`,
+  checksCommandEmpty: 'A command cannot be empty',
+  checksCommandTooLong: (n) => `A command can be at most ${n} characters`,
+  checksBadFolder: (f) =>
+    `The folder "${f}" cannot be used: write a path relative to the first working directory (without ..), or a full path inside a working directory`,
+  checksBadTimeout: (max) => `The time limit is 1 to ${max} minutes`,
+  hooksTooMany: (n) => `At most ${n} hooks`,
+  hookTimedOut: (sec) => `Stopped at its time limit of ${sec} seconds.`,
+  hooksBadTimeout: (max) => `A hook's time limit is 1 to ${max} seconds`,
+  hookRefused: (hook, call, why) => `The team's hook \`${hook}\` refused ${call}: ${why}`,
+  hookFailed: (hook, call, why) => `After ${call}, the team's hook \`${hook}\` did not pass, and the agent was told: ${why}`,
+  hookNoOutput: '(no output)',
+  hooksTooLate: 'they did not finish in time, and were stopped',
+  hookCallTooLong: (call) => `The team's hooks refused ${call}: the call is too long for them to read`,
+  hookRefusedLabel: "Refused by the team's hook",
+  hooksNoProgram: (cli) =>
+    `This turn did not start: the team's hooks could not be given to ${cli} (no Node.js to start their program with, or Harness Relay's gateway is not running). Install Node.js 22.12 or later (Settings → Sandboxes can), or take the hooks out of the team checks.`,
+  hookMoreNotices: 'Later hook refusals or failures in this turn are not listed.',
+  hooksUnsupported: (cli) =>
+    `${cli} cannot run the team's hooks yet: this member's tool calls in this turn go without them; the checks once the team has answered run as usual.`,
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',

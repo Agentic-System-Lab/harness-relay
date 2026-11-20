@@ -3,6 +3,7 @@ import {
   type AgentConfig,
   type ChatMessage,
   type Conversation,
+  type ChecksResult,
   type Lang,
   type LeadReview,
   type UsageSpan,
@@ -211,6 +212,23 @@ export function reviewMarkdown(review: LeadReview, t: Messages): string {
   return lines.join('\n');
 }
 
+/** A team checks result as Markdown: its status, and each rule with what it found. */
+export function checksMarkdown(c: ChecksResult, t: Messages): string {
+  const lines = [`*${t.checks.title}: ${t.checks.status[c.status]}*${c.skippedAt ? ` (${t.checks.skippedTag})` : ''}`];
+  for (const o of c.outcomes) {
+    const command = o.command ? ` \`${o.command}\`` : '';
+    const exit = o.rule === 'command' && o.status === 'failed' && o.exitCode !== undefined ? ` (${t.checks.exit(o.exitCode)})` : '';
+    lines.push(`- **${t.checks.rules[o.rule]}**${command}: ${t.checks.status[o.status]}${exit}${o.reason ? ` · ${o.reason}` : ''}`);
+    for (const f of o.findings ?? []) {
+      const what = f.commit ? `\`${f.commit}\` ${f.subject ?? ''}` : `\`${f.path}\` ${f.change ? t.checks.change[f.change] : ''}`;
+      const by = f.by ? ` · ${f.worktree ? t.checks.inWorktree(f.by) : t.checks.by(f.by)}` : '';
+      lines.push(`  - ${what.trim()}${f.folder ? ` · ${f.folder}` : ''}${by}`);
+    }
+    if (o.more) lines.push(`  - ${t.checks.more(o.more)}`);
+  }
+  return lines.join('\n');
+}
+
 /** The whole conversation as Markdown: one block per message, labelled with who said it. */
 export function conversationMarkdown(conv: Conversation, t: Messages): string {
   const blocks: string[] = [];
@@ -220,6 +238,8 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
       // A review that is not ready (being written, stopped, failed) says nothing of the replies.
       if (m.review) {
         if (m.review.status === 'ready') blocks.push(reviewMarkdown(m.review, t));
+      } else if (m.checks) {
+        if (m.checks.status !== 'running') blocks.push(checksMarkdown(m.checks, t));
       } else if (m.plan?.status === 'ready') {
         // A declined design did not answer: say so.
         blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}${m.plan.declinedAt ? ` (${t.plan.declined})` : ''}*`);

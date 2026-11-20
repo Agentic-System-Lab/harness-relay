@@ -6,7 +6,7 @@
     <title>團隊與對話模式 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、內建範本與你自己的範本、團隊成員，以及三種對話模式。"
+      content="Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、範本、團隊成員、三種對話模式，以及團隊的成果要通過的檢查。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="團隊與對話模式 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="Harness Relay 的團隊怎麼運作：首席 agent 為每個問題從你的範本挑選或設計團隊，每位成員都有角色、使用的 coding agent 與模型，團隊以圓桌、平行或接力模式輪流。"
+      content="Harness Relay 的團隊怎麼運作：首席 agent 為每個問題從你的範本挑選或設計團隊，每位成員都有角色、使用的 coding agent 與模型，團隊以圓桌、平行或接力模式輪流，Harness Relay 再依你的團隊檢查驗收成果。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/",
         "name": "團隊與對話模式 · Harness Relay 文件",
-        "description": "Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、內建範本與你自己的範本、團隊成員，以及三種對話模式。",
+        "description": "Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、範本、團隊成員、三種對話模式，以及團隊的成果要通過的檢查。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -238,6 +238,7 @@
           <li><a href="#templates">範本</a></li>
           <li><a href="#members">團隊成員</a></li>
           <li><a href="#modes">三種對話模式</a></li>
+          <li><a href="#checks">團隊檢查</a></li>
           <li><a href="#change-the-team">在對話中修改團隊</a></li>
           <li><a href="#writing-roles">寫出好的角色</a></li>
         </ol>
@@ -394,6 +395,63 @@
           </p>
         </section>
 
+        <section id="checks" aria-labelledby="checks-title">
+          <h2 id="checks-title">團隊檢查</h2>
+          <p>
+            團隊檢查在<b>可編輯</b>與<b>完全存取</b>的對話中，讓整個團隊遵守同一份規則。Harness Relay 會自行檢查磁碟上的檔案和 commit，並執行指令。
+            在<b>團隊設定</b>中，展開<b>進階設定</b>即可編輯規則。在<b>新對話</b>或<b>新自動任務</b>中，請先展開<b>工作目錄與對話設定</b>。編輯範本時，請展開<b>團隊檢查</b>。
+          </p>
+          <dl class="doc-terms">
+            <dt>受保護路徑</dt>
+            <dd>
+              團隊不能新增、修改或刪除的檔案，一行一條，寫法同 <code>.gitignore</code>：<code>.env</code>、<code>*.pem</code>、<code>secrets/</code>。被
+              git 忽略的檔案也會檢查。大多數 agent 也會在寫入前就拒絕：見<a href="../permissions/#sandboxes">沙箱做了什麼</a>。
+            </dd>
+            <dt>commit 格式</dt>
+            <dd>每個 commit 的標題都要符合的正規表示式；<b>填入 Conventional Commits</b> 會幫你填一個。只在圓桌和接力模式檢查。</dd>
+            <dt>指令</dt>
+            <dd>
+              必須成功的指令，例如 <code>npm test</code> 或 <code>npm run lint</code>（<b>新增指令</b>），各有要執行的資料夾和時間上限；<b>試跑</b>會現在跑一次，確認它能跑。低於完全存取時，指令在
+              Harness Relay 自己的沙箱裡執行，沒有網路。原生 Windows 上還不能執行。
+            </dd>
+            <dt>Hook</dt>
+            <dd>
+              成員每次使用自己的工具時，在前後執行的指令（<b>新增 hook</b>）：<b>執行前</b>的 hook 對指令、檔案修改或所有呼叫執行，沒有成功就拒絕那次呼叫，它的輸出就是
+              agent 收到的原因；<b>執行後</b>的 hook 沒有成功，輸出會交回給 agent 修正。hook 從 <code>RELAY_HOOK_COMMAND</code>、<code>RELAY_HOOK_FILES</code>
+              這類變數讀取這次呼叫。Harness Relay 也會保護 hook 指定的工作目錄腳本。Hook 可在 macOS 和 Linux 上用於 Claude Code、Codex、Copilot、Muse Code 和 Pi
+              支援的工具呼叫。成員未使用團隊 hook 時，回覆會註明。
+            </dd>
+          </dl>
+          <p>
+            agent 一開始就會知道這些規則。在可以修改檔案的對話裡，回覆後面會有一張<b>團隊檢查</b>卡片，說明每條規則的結果：<b>通過</b>、<b>未通過</b>（附上檔案或
+            commit，以及是誰發言時發生的）、<b>無法執行</b>（不算通過，原因寫在卡片上）或<b>不適用</b>。這一輪沒改到規則涵蓋的東西，就不會有卡片。最新的結果未通過時：
+          </p>
+          <ul>
+            <li>每位成員下一次發言時，會看到哪裡沒過，並被要求修正。</li>
+            <li>團隊回覆期間你送出的訊息會在佇列裡等著；<b>仍要送出</b>會送出。</li>
+            <li>
+              <b>重新檢查</b>會再檢查一次：檔案改回原樣就會通過。<b>請成員修正</b>讓一位成員發言一次來修正。<b>略過</b>不再要求 agent 修正；未通過的紀錄會保留，不會變成通過。
+            </li>
+          </ul>
+          <p>
+            平行模式會在套用成員的結果前，比對檔案與受保護路徑，並在套用結果後的工作目錄副本中執行指令。檢查未通過時，可以修正後重試，或選<b>仍要套用</b>。
+            如果結果修改了指令會讀取的設定，檢視後可選<b>確認後執行指令，通過就套用</b>。
+            <a href="../permissions/#changes">檢視與套用修改</a>
+          </p>
+          <p>
+            <b>設定 → 工具庫</b>的 <b>Hooks</b> 與<b>團隊檢查預設</b>決定每個新對話和新自動任務一開始帶著的規則。自動任務在沒人看著時執行，未通過就是那一次的結果，不會等你。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                團隊檢查只回報，不會撤銷任何修改：agent 改了的東西，要等成員或你改回來。要避免指令在執行當下造成傷害，請用低於完全存取的權限。另外，指令檢查的是程式碼現在的樣子：agent
+                關掉的測試照樣會通過。
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section id="change-the-team" aria-labelledby="change-the-team-title">
           <h2 id="change-the-team-title">在對話中修改團隊</h2>
           <p>
@@ -427,12 +485,13 @@
         <aside class="doc-more" aria-label="技術細節">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
-            <p>首席 agent 讀了什麼、成員的每個欄位，以及各對話模式的每條規則，都在 GitHub 上的使用者說明裡：</p>
+            <p>首席 agent 讀了什麼、成員的每個欄位、各對話模式的規則，以及團隊檢查的每種情況，都在 GitHub 上的使用者說明裡：</p>
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#自動組隊">自動組隊</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#範本">範本</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#團隊成員">團隊成員</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#團隊檢查">團隊檢查</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話中修改團隊">對話中修改團隊</a></li>
             </ul>
           </div>

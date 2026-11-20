@@ -268,7 +268,8 @@
             </li>
             <li>
               <b>The lead agent reviews the replies</b>: a short summary, what to look at closely, and the next
-              steps. You can turn this off for any chat.
+              steps. You can turn this off for any chat. When Harness Relay reports team check results for the run, the
+              lead agent reads them before reviewing the replies.
             </li>
           </ol>
           <figure class="doc-figure">
@@ -304,7 +305,7 @@
               <a href="first-chat/"><b>Your first chat</b>Start a chat, confirm the team, and talk with it while it works.</a>
             </li>
             <li>
-              <a href="teams/"><b>Teams and modes</b>How the lead agent picks a team, your templates, and how members take turns.</a>
+              <a href="teams/"><b>Teams and modes</b>How the lead agent picks a team, your templates, how members take turns, and the checks on their work.</a>
             </li>
             <li>
               <a href="permissions/"><b>Permissions and approvals</b>What agents may do on their own, what they ask about, and how to review their changes.</a>
@@ -316,7 +317,7 @@
               <a href="automations/"><b>Automations</b>Send the team a message at set times, or when a mail, an event or a file comes in.</a>
             </li>
             <li>
-              <a href="tools/"><b>Tools</b>Give agents a browser, your mail and calendar, and your own MCP servers and skills.</a>
+              <a href="tools/"><b>Tools</b>Give agents a browser, your mail and calendar, and your own MCP servers, skills and hooks.</a>
             </li>
             <li>
               <a href="phone/"><b>Use it from your phone</b>Reach Harness Relay on your phone, with notifications, through Tailscale.</a>
@@ -347,6 +348,8 @@
             <dd>What every agent in the chat may do without asking you: <b>Read-only</b>, <b>Edit</b> or <b>Full access</b>.</dd>
             <dt>Approval</dt>
             <dd>A card in the chat when an agent wants to do something its permission does not cover. It waits until you allow or decline it.</dd>
+            <dt>Team checks</dt>
+            <dd>Rules Harness Relay checks in Edit and Full access chats, including protected paths, a commit format, and commands such as <code>npm test</code>.</dd>
             <dt>Model backend</dt>
             <dd>An API key, or a model server of your own, that the open-source agents run on, since they have no sign-in of their own.</dd>
           </dl>

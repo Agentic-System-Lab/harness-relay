@@ -315,7 +315,7 @@ export function SettingsPage({
           />
         )}
 
-        <ToolsCard draftLink={section === 'tools' ? draftLink : undefined} />
+        <ToolsCard settings={settings} draftLink={section === 'tools' ? draftLink : undefined} />
 
         <VoiceCard />
 

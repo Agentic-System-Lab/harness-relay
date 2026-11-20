@@ -701,6 +701,10 @@
               <strong>它也會讀回答。</strong>每個新對話都預設開啟首席 agent 審閱，不需要時可以在對話中關閉：團隊回答完，它會直接在回覆中標出需要特別注意的地方（風險、需要你決定的事、成員意見分歧、需要確認的說法），並建議接下來的步驟；點一下就把要交給團隊的訊息放進輸入框。<a href="docs/first-chat/#lead-review">首席 agent 的審閱</a>。
             </p>
             <p>
+              <strong>為整個團隊設定規則。</strong>在可編輯與完全存取的對話中，Harness Relay 會檢查受保護路徑、commit 格式及 <code>npm test</code>
+              這類指令。大多數 agent 也能拒絕寫入受保護路徑。<a href="docs/teams/#checks">了解團隊檢查</a>。
+            </p>
+            <p>
               <strong>範本由你設計。</strong>替每個 agent 決定定位（架構師、實作者、審查者、魔鬼代言人），選擇模型與推理強度，並安排發言順序。最多八位成員，同一種
               agent 也可以有好幾位；首席 agent 設計的團隊也能一鍵存成範本。
             </p>
@@ -857,7 +861,7 @@
             <li><b>通知與提示音</b>回覆完或 agent 需要你時，跳出通知並播放提示音；把 Harness Relay 加到手機主畫面後，手機鎖定了也收得到推播。側邊欄的鈴鐺會收著每一則。</li>
             <li><b>在 app 裡登入</b>Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code 都能在 app 裡登入，開源 agent 則設定模型來源；agent 自己載入的工具與設定，它允許時也能關掉。</li>
             <li><b>自動任務</b>在設定的時間、某件事發生時（新郵件、即將開始的行程、新的 pull request 或失敗的 CI、工作目錄中的檔案），或由 webhook 觸發，把訊息傳給團隊。執行時可能沒人看著，所以預設拒絕權限範圍以外的動作。給它一個目標，每次執行都回報進度，達成後自動關閉。</li>
-            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，給所有成員或只給部分成員，加在各 agent 自己的設定之外；用 OAuth 的 MCP 伺服器直接在工具庫裡登入。還有 Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆；郵件會在待送出匣等你按「送出」。</li>
+            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，給所有成員或只給部分成員，加在各 agent 自己的設定之外；新對話一開始的 hook 也在這裡設定。用 OAuth 的 MCP 伺服器直接在工具庫裡登入。還有 Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆；郵件會在待送出匣等你按「送出」。</li>
             <li><b>在 AgentsView 中看每個 session</b>可選擇在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session：工具呼叫、token 與成本。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>

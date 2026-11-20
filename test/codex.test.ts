@@ -1,6 +1,6 @@
 import { appendFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { isPathDetail } from '../src/web/chat';
 import {
@@ -28,10 +28,14 @@ import {
   describeCodexItem,
   folderTail,
   sharedFolder,
+  codexGuardReads,
+  codexGuardRefuses,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
+import { turnHooks } from '../src/server/hooks';
+import { codexHookCall } from '../src/server/agents/codexHooks';
 
 // Shapes trimmed from real `codex app-server` traffic (codex-cli 0.167.0).
 const command = (extra: Record<string, unknown>) => ({
@@ -691,6 +695,59 @@ describe('codex thread config', () => {
   });
 });
 
+describe('Codex team hook payloads', () => {
+  it('preserves a shell command and the result Codex gives the hook', () => {
+    expect(codexHookCall({ tool_name: 'Bash', tool_input: { command: 'echo hello; exit 2' }, tool_response: 'hello' }, '/repo')).toEqual({
+      kind: 'command',
+      tool: 'Bash',
+      command: 'echo hello; exit 2',
+      input: { command: 'echo hello; exit 2' },
+      output: 'hello',
+    });
+  });
+
+  it('resolves the old and new patch paths against the tool working directory', () => {
+    const command = '*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch';
+    const cwd = resolve('repo', 'other');
+    expect(codexHookCall({ tool_name: 'apply_patch', cwd, tool_input: { command } }, resolve('repo'))).toEqual({
+      kind: 'edit',
+      tool: 'apply_patch',
+      files: [join(cwd, 'old.txt'), join(cwd, 'new.txt')],
+      input: { command },
+    });
+  });
+
+  it('follows Codex patch header indentation and preserves spaces that are part of the filename', () => {
+    const command = [
+      '*** Begin Patch',
+      '  *** Add File:  new file.txt',
+      '+contents',
+      '  *** Update File: old name.txt',
+      '*** End of File',
+      '*** Move to:  moved file.txt',
+      '@@',
+      ' *** Add File: this is context.txt',
+      '-old line',
+      '+new line',
+      '*** Delete File: delete.txt',
+      '*** End Patch',
+    ].join('\n');
+    const cwd = resolve('repo');
+    const call = codexHookCall({ tool_name: 'apply_patch', cwd, tool_input: { command } }, cwd);
+    expect(call.files).toEqual([' new file.txt', 'old name.txt', ' moved file.txt', 'delete.txt'].map((name) => join(cwd, name)));
+  });
+
+  it('preserves an MCP error for an after hook', () => {
+    expect(codexHookCall({ tool_name: 'mcp__a__b', tool_input: { query: 'a' }, tool_response: { isError: true } }, '/repo')).toEqual({
+      kind: 'other',
+      tool: 'mcp__a__b',
+      input: { query: 'a' },
+      output: '{"isError":true}',
+      failed: true,
+    });
+  });
+});
+
 // The stand-ins are scripts run by their `#!` line, which Windows cannot start.
 describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
@@ -710,6 +767,7 @@ const off = (key) => !process.env.FAKE_CODEX_IGNORE && set.includes(key + '=fals
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 let init = {};
 let profiled = false;
+let hookState = {};
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
@@ -718,7 +776,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   const reply = (result) => out({ id: m.id, result });
   switch (m.method) {
     case 'initialize': init = m.params; return reply({});
+    case 'thread/resume':
     case 'thread/start': {
+      hookState = m.params.config?.['hooks.state'] || {};
+      if (process.env.FAKE_CODEX_TEAM_HOOKS) log({ hookState });
       const profile = m.params.permissions && !process.env.FAKE_CODEX_NO_PROFILE ? { activePermissionProfile: { id: m.params.permissions } } : {};
       profiled = Boolean(m.params.permissions);
       log({ capabilities: init.capabilities ?? null, permissions: m.params.permissions ?? null, sandbox: m.params.sandbox ?? null });
@@ -733,6 +794,19 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return reply({ thread: { id: 'thr-1' }, ...profile });
     }
     case 'hooks/list': {
+      if (process.env.FAKE_CODEX_TEAM_HOOKS) {
+        const cfg = set.find((arg) => arg.startsWith('hooks.PreToolUse='));
+        const command = cfg?.match(/"command" = ("(?:[^"\\\\]|\\\\.)*")/)?.[1];
+        const hook = { key: 'relay-hook', eventName: 'preToolUse', enabled: true, source: 'sessionFlags',
+          handlerType: 'command', async: false, matcher: '^(?:Bash)$', timeoutSec: 150,
+          command: command && JSON.parse(command), currentHash: 'relay-hash',
+          trustStatus: hookState['relay-hook']?.trusted_hash === 'relay-hash' && !process.env.FAKE_CODEX_IGNORE ? 'trusted' : 'untrusted' };
+        // Identical command from an unrelated source must never be trusted by Relay.
+        const native = { ...hook, key: 'own-hook', source: 'user', currentHash: 'own-hash',
+          trustStatus: 'untrusted', enabled: hookState['own-hook']?.enabled !== false };
+        const hooks = command ? [hook, native] : [native];
+        return reply({ data: [{ hooks }] });
+      }
       const r = { data: [{ hooks: off('features.hooks') ? [] : [{ key: 'h', eventName: 'stop', enabled: true }] }] };
       return process.env.FAKE_CODEX_SLOW ? setTimeout(() => reply(r), 2000) : reply(r);
     }
@@ -757,7 +831,12 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   const bin = join(dir, 'codex');
   writeFileSync(bin, FAKE_CODEX, { mode: 0o755 });
   let n = 0;
-  function run(extra: Record<string, string> = {}, signal = new AbortController().signal, protectedPaths: string[] = []) {
+  function run(
+    extra: Record<string, string> = {},
+    signal = new AbortController().signal,
+    protectedPaths: string[] = [],
+    more: Partial<Parameters<typeof codexRunner.run>[0]> = {},
+  ) {
     const log = join(dir, `log-${++n}.jsonl`);
     appendFileSync(log, '');
     const result = withLang('en', () =>
@@ -772,6 +851,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         onEvent: () => undefined,
         nativeOff: ['hooks', 'plugins'],
         protectedPaths,
+        ...more,
       }),
     );
     const lines = () =>
@@ -787,10 +867,75 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
               capabilities?: unknown;
               permissions?: string | null;
               sandbox?: string | null;
+              hookState?: Record<string, unknown>;
             },
         );
     return { result, lines, methods: () => lines().flatMap((l) => (l.method ? [l.method] : [])) };
   }
+
+  const teamHooks = (program = true) =>
+    turnHooks([{ id: 'before', when: 'before', tools: 'command', run: 'exit 1' }], {
+      agent: 'Codex',
+      provider: 'codex',
+      notice: () => undefined,
+      place: { cwds: [dir], unsandboxed: true, protectedPaths: [], privateRoots: [] },
+      ...(program
+        ? {
+            program: () => ({
+              program: { bin: '/node', args: [join(dir, 'team-hook.mjs'), join(dir, 'socket'), join(dir, 'team-hook.token')] },
+              revoke: () => undefined,
+            }),
+          }
+        : {}),
+    });
+
+  it('trusts only the Relay hook on a resumed thread and keeps native hooks left out', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [], { permission: 'full', sessionId: 'thr-1', hooks: teamHooks() });
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+    expect(r.lines().find((l) => l.hookState)?.hookState).toEqual({
+      'relay-hook': { enabled: true, trusted_hash: 'relay-hash' },
+      'own-hook': { enabled: false },
+    });
+    expect(r.lines()[0]?.args).not.toContain('features.hooks=false');
+    expect(r.methods()).toEqual(['initialize', 'hooks/list', 'thread/resume', 'hooks/list', 'plugin/installed', 'turn/start']);
+  });
+
+  it('does not start when Codex did not apply trust to a team hook', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1', FAKE_CODEX_IGNORE: '1' }, undefined, [], {
+      permission: 'full',
+      nativeOff: [],
+      hooks: teamHooks(),
+    });
+    await expect(r.result).rejects.toThrow(/team's hooks/i);
+    expect(r.methods()).toEqual(['initialize', 'hooks/list', 'thread/start', 'hooks/list']);
+  });
+
+  it('does not launch Codex when the hook program is unavailable', async () => {
+    const r = run({}, undefined, [], { permission: 'full', hooks: teamHooks(false) });
+    await expect(r.result).rejects.toThrow(/team's hooks/i);
+    expect(r.lines()).toEqual([]);
+  });
+
+  it('refuses hooked edits unless the permission profile protects the program and token', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, ['/unrelated'], { permission: 'edit', hooks: teamHooks() });
+    await expect(r.result).rejects.toThrow(/cannot protect the team's hook program/i);
+    expect(r.lines()).toEqual([]);
+  });
+
+  it('never retries a hooked edit in the legacy sandbox when the permission profile fails', async () => {
+    try {
+      const opts = { permission: 'edit', hooks: teamHooks() } as const;
+      const r = run({ FAKE_CODEX_TEAM_HOOKS: '1', FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, [dir], opts);
+      await expect(r.result).rejects.toThrow(/cannot protect the team's hook program/i);
+      expect(r.methods().filter((method) => method === 'turn/start')).toHaveLength(1);
+      expect(r.lines().filter((line) => line.args)).toHaveLength(1);
+      const next = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [dir], opts);
+      await expect(next.result).rejects.toThrow(/cannot protect the team's hook program/i);
+      expect(next.lines()).toEqual([]);
+    } finally {
+      resetCodexProfiles();
+    }
+  });
 
   it('gives its app-server the switches too, and checks them before the turn starts', async () => {
     const r = run();
@@ -838,6 +983,22 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         expect.objectContaining({ permissions: null, sandbox: 'read-only' }),
       ]);
     } finally {
+      resetCodexProfiles();
+    }
+  });
+
+  it("falls back to the legacy sandbox without the team's protected paths too, when Codex cannot load a profile", async () => {
+    // There, so that Linux too names it (only a path that is there).
+    writeFileSync(join(dir, '.env'), 'x');
+    try {
+      const guard = { dirs: [dir], patterns: ['.env'] };
+      const r = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, [], { permission: 'edit', guard });
+      await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+      const starts = r.lines().filter((l) => 'permissions' in l);
+      expect(starts[0]).toMatchObject({ permissions: expect.stringMatching(/^harness-relay-/), sandbox: null });
+      expect(starts[1]).toMatchObject({ permissions: null, sandbox: 'workspace-write' });
+    } finally {
+      rmSync(join(dir, '.env'), { force: true });
       resetCodexProfiles();
     }
   });
@@ -965,5 +1126,43 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     stop.abort();
     await expect(r.result).rejects.toMatchObject({ message: 'Stopped' });
     expect(r.methods()).not.toContain('turn/start');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Codex and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/w/app'], patterns: ['.env', 'config/prod.yml', '*.pem'] };
+  it('makes them read-only in its profile in edit mode: each plain pattern where it is anchored, and what matches now', () => {
+    expect(codexGuardReads(guard, ['/w/app/sub/k.pem'], 'darwin')).toEqual(['/w/app/.env', '/w/app/config/prod.yml', '/w/app/sub/k.pem']);
+    expect(codexGuardReads(guard, ['/w/app/k[1].pem'], 'darwin')).not.toContain('/w/app/k[1].pem');
+    expect(codexProfile('edit', ['/x'], 'darwin', [], guard, [])).toEqual({
+      extends: ':workspace',
+      filesystem: { '/w/app/.env': 'read', '/w/app/config/prod.yml': 'read', '/x': 'deny' },
+    });
+    // Read-only writes nothing anyway, and full access has no profile.
+    expect(codexProfile('read-only', ['/x'], 'darwin', [], guard, [])).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
+    expect(codexProfile('full', ['/x'], 'darwin', [], guard, [])).toBeUndefined();
+    expect(codexProfile('edit', [], 'darwin', [], guard, [])).toMatchObject({ filesystem: { '/w/app/.env': 'read' } });
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Codex's refusals and Linux entries for the team checks' protected paths", () => {
+  const guard = { dirs: ['/w/app'], patterns: ['.env'] };
+  it('refuses a file change or a patch that writes, moves to or moves away one of them, and nothing else', () => {
+    const fc = 'item/fileChange/requestApproval';
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/.env' }], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/a.ts', kind: { type: 'update', move_path: '/w/app/.env' } }], guard, '/w/app')).toBe(
+      true,
+    );
+    expect(codexGuardRefuses(fc, {}, [{ path: 'sub/.env' }], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/a.ts' }], guard, '/w/app')).toBe(false);
+    expect(codexGuardRefuses('applyPatchApproval', { fileChanges: { '/w/app/.env': {} } }, [], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses('item/commandExecution/requestApproval', {}, [{ path: '/w/app/.env' }], guard, '/w/app')).toBe(false);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/.env' }], undefined, '/w/app')).toBe(false);
+  });
+
+  it('gives Linux only the paths that are there (its sandbox would put a stand-in on one that is not)', () => {
+    expect(codexGuardReads(guard, ['/w/app/sub/.env'], 'linux', (p) => p === '/w/app/sub/.env')).toEqual(['/w/app/sub/.env']);
+    expect(codexGuardReads(guard, [], 'darwin', () => false)).toEqual(['/w/app/.env']);
   });
 });

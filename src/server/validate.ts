@@ -3,10 +3,12 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { reservedMcpName } from './gateway';
+import { commitPatternError, hasRules, tidyFolder, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
   BACKEND_LIMITS,
+  CHECK_LIMITS,
   CWD_MISSING,
   ENDPOINT_ID_RE,
   GROUP_LIMITS,
@@ -32,6 +34,9 @@ import {
   type AgentConfig,
   type AlertPrefs,
   type ApiBackend,
+  type CheckCommand,
+  type CheckHook,
+  type CheckList,
   type ConversationGroup,
   type ConversationSettings,
   type LeadAgentSettings,
@@ -568,7 +573,107 @@ export function validateSettings(
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.leadReview === true ? { leadReview: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+    ...(s.checks !== undefined && s.checks !== null ? { checks: validateChecks(s.checks) } : {}),
   };
+}
+
+/**
+ * A team check list (`ConversationSettings.checks`): protected path patterns, each tidied and once
+ * (`tidyPattern`), and a commit pattern JavaScript can read. Refuses what cannot be used, rather than
+ * leave a rule out unseen. An empty list is kept: the conversation then has none, and a template's is
+ * not copied into it.
+ */
+export function validateChecks(input: unknown): CheckList {
+  if (typeof input !== 'object' || Array.isArray(input)) bad(t().invalidField('checks'));
+  const c = input as Record<string, unknown>;
+  const out: CheckList = {};
+  if (c.protectedPaths !== undefined) {
+    if (!Array.isArray(c.protectedPaths)) bad(t().invalidField('checks.protectedPaths'));
+    const paths: string[] = [];
+    for (const raw of c.protectedPaths) {
+      if (typeof raw !== 'string') bad(t().invalidField('checks.protectedPaths'));
+      if (!raw.trim()) continue;
+      const tidy = tidyPattern(raw);
+      if (!tidy) bad(t().checksBadPath(raw.trim().slice(0, CHECK_LIMITS.pattern)));
+      if (!paths.includes(tidy)) paths.push(tidy);
+    }
+    if (paths.length > CHECK_LIMITS.protectedPaths) bad(t().checksTooManyPaths(CHECK_LIMITS.protectedPaths));
+    if (paths.length) out.protectedPaths = paths;
+  }
+  if (c.commitPattern !== undefined) {
+    if (typeof c.commitPattern !== 'string') bad(t().invalidField('checks.commitPattern'));
+    const pattern = c.commitPattern.trim();
+    if (pattern.length > CHECK_LIMITS.commitPattern) bad(t().checksCommitPatternTooLong(CHECK_LIMITS.commitPattern));
+    const why = pattern ? commitPatternError(pattern) : undefined;
+    if (why) bad(t().checksBadCommitPattern(why));
+    if (pattern) out.commitPattern = pattern;
+  }
+  if (c.commands !== undefined) {
+    if (!Array.isArray(c.commands)) bad(t().invalidField('checks.commands'));
+    if (c.commands.length > CHECK_LIMITS.commands) bad(t().checksTooManyCommands(CHECK_LIMITS.commands));
+    const commands: CheckCommand[] = [];
+    for (const raw of c.commands) {
+      const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const run = typeof r.run === 'string' ? r.run.trim() : '';
+      if (!run) bad(t().checksCommandEmpty);
+      if (run.length > CHECK_LIMITS.command) bad(t().checksCommandTooLong(CHECK_LIMITS.command));
+      const cwd = r.cwd === undefined ? '' : typeof r.cwd === 'string' ? tidyFolder(r.cwd) : undefined;
+      if (cwd === undefined) bad(t().checksBadFolder(String(r.cwd).slice(0, CHECK_LIMITS.folder)));
+      let timeoutMin: number | undefined;
+      if (r.timeoutMin !== undefined) {
+        timeoutMin = Number(r.timeoutMin);
+        if (!Number.isInteger(timeoutMin) || timeoutMin < 1 || timeoutMin > CHECK_LIMITS.maxTimeoutMin)
+          bad(t().checksBadTimeout(CHECK_LIMITS.maxTimeoutMin));
+      }
+      // An id the list keeps for the command's results; a new command gets one (each once).
+      const given = typeof r.id === 'string' && /^[\w-]{1,40}$/.test(r.id) ? r.id : undefined;
+      const id = given && !commands.some((x) => x.id === given) ? given : randomUUID().slice(0, 8);
+      commands.push({
+        id,
+        run,
+        ...(cwd ? { cwd } : {}),
+        ...(timeoutMin !== undefined && timeoutMin !== CHECK_LIMITS.timeoutMin ? { timeoutMin } : {}),
+        ...(r.localPorts === true ? { localPorts: true } : {}),
+        ...(r.unixSockets === true ? { unixSockets: true } : {}),
+      });
+    }
+    if (commands.length) out.commands = commands;
+  }
+  if (c.hooks !== undefined) {
+    if (!Array.isArray(c.hooks)) bad(t().invalidField('checks.hooks'));
+    if (c.hooks.length > CHECK_LIMITS.hooks) bad(t().hooksTooMany(CHECK_LIMITS.hooks));
+    const hooks: CheckHook[] = [];
+    for (const raw of c.hooks) {
+      const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      if (r.when !== 'before' && r.when !== 'after') bad(t().invalidField('checks.hooks.when'));
+      if (r.tools !== 'command' && r.tools !== 'edit' && r.tools !== 'any') bad(t().invalidField('checks.hooks.tools'));
+      const run = typeof r.run === 'string' ? r.run.trim() : '';
+      if (!run) bad(t().checksCommandEmpty);
+      if (run.length > CHECK_LIMITS.command) bad(t().checksCommandTooLong(CHECK_LIMITS.command));
+      const cwd = r.cwd === undefined ? '' : typeof r.cwd === 'string' ? tidyFolder(r.cwd) : undefined;
+      if (cwd === undefined) bad(t().checksBadFolder(String(r.cwd).slice(0, CHECK_LIMITS.folder)));
+      let timeoutSec: number | undefined;
+      if (r.timeoutSec !== undefined) {
+        timeoutSec = Number(r.timeoutSec);
+        if (!Number.isInteger(timeoutSec) || timeoutSec < 1 || timeoutSec > CHECK_LIMITS.maxHookTimeoutSec)
+          bad(t().hooksBadTimeout(CHECK_LIMITS.maxHookTimeoutSec));
+      }
+      const given = typeof r.id === 'string' && /^[\w-]{1,40}$/.test(r.id) ? r.id : undefined;
+      const id = given && !hooks.some((x) => x.id === given) ? given : randomUUID().slice(0, 8);
+      hooks.push({
+        id,
+        when: r.when,
+        tools: r.tools,
+        run,
+        ...(cwd ? { cwd } : {}),
+        ...(timeoutSec !== undefined && timeoutSec !== CHECK_LIMITS.hookTimeoutSec ? { timeoutSec } : {}),
+      });
+    }
+    if (hooks.length) out.hooks = hooks;
+  }
+  // Settings' default, unchanged since it was copied in (a list with rules only).
+  if (c.fromDefault === true && hasRules(out)) out.fromDefault = true;
+  return out;
 }
 
 /**

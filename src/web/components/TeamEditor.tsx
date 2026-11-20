@@ -17,6 +17,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
+import { checkProblems } from '../checks';
 import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
@@ -35,6 +36,7 @@ import {
   type ModelChoice,
 } from '../util';
 import { AccountPicker } from './AccountPicker';
+import { ChecksEditor, useChecksEnvironment } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { CliPicker } from './CliPicker';
@@ -65,6 +67,10 @@ interface Props {
   teamOptionsInEditor?: boolean;
   /** The conversation's schedule: its runs may have nobody watching. */
   schedule?: ConversationSchedule;
+  /** The conversation being edited (Team settings): its team checks' commands can be tried there. */
+  convId?: string;
+  /** Reset unfinished check fields when the parent reloads its draft. */
+  checksEditorVersion?: number;
 }
 
 const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
@@ -90,6 +96,7 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
     }
   }
   if (!opts.template && !team.settings.cwd.trim()) out.push(p.needCwd);
+  out.push(...checkProblems(team.settings.checks, t.checks));
   return out;
 }
 
@@ -120,8 +127,11 @@ export function TeamEditor({
   leadLabel,
   teamOptionsInEditor = true,
   schedule,
+  convId,
+  checksEditorVersion,
 }: Props) {
   const t = useT();
+  const checksEnv = useChecksEnvironment();
   const { maxTeamAgents } = useLimits();
   const { agents, settings } = value;
   /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
@@ -157,6 +167,21 @@ export function TeamEditor({
     [next[i], next[j]] = [next[j]!, next[i]!];
     setAgents(next);
   };
+
+  const checksEditor = (
+    <ChecksEditor
+      key={checksEditorVersion}
+      variant={template ? 'template' : 'team'}
+      value={settings.checks}
+      env={checksEnv}
+      permission={template ? undefined : settings.permission}
+      convId={template ? undefined : convId}
+      onChange={(checks) => {
+        const { checks: _old, ...rest } = settings;
+        onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });
+      }}
+    />
+  );
 
   return (
     <div className="team-editor">
@@ -317,6 +342,7 @@ export function TeamEditor({
         {!template && teamOptionsInEditor && (
           <LeadReviewOption enabled={Boolean(settings.leadReview)} onChange={(on) => setSettings({ leadReview: on || undefined })} />
         )}
+        {template && checksEditor}
         {showMembers && (
           <div className="option-row">
             {MODES.map((m) => (
@@ -432,6 +458,7 @@ export function TeamEditor({
             )}
           </div>
         )}
+        {!template && checksEditor}
       </section>
     </div>
   );

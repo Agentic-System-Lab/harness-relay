@@ -1,3 +1,4 @@
+import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
 import type { Messages } from './zh-TW';
 
 const EFFORT: Record<string, string> = {
@@ -972,6 +973,98 @@ export const en: Messages = {
     marksTitle: (n) => `The lead agent points out ${n} ${n === 1 ? 'thing' : 'things'} in this reply to look at closely; click to see why`,
   },
 
+  checks: {
+    title: 'Team checks',
+    status: { running: 'Checking', passed: 'Passed', failed: 'Failed', error: 'Could not run', na: 'Not applicable' },
+    whenPause: 'Checked when the team stopped to ask you: what it did until then',
+    whenRecheck: 'Checked again',
+    whenApply: (name) => `Checked before applying: the working directory with @${name}'s result in it`,
+    applied: 'Applied to the working directory',
+    held: 'It did not pass, so it was not applied: apply it again once fixed, or apply it anyway',
+    applyAnyway: 'Apply anyway',
+    confirmApply: 'Confirm, run the commands and apply if they pass',
+    applyAnywayAsk: (name) => `The team checks did not pass. Apply @${name}'s result to the working directory anyway? The failure is kept.`,
+    rules: { paths: 'Protected paths', commits: 'Commit format', command: 'Command' },
+    change: { added: 'added', changed: 'changed', removed: 'removed' },
+    by: (name) => `in @${name}'s turn`,
+    inWorktree: (name) => `in @${name}'s worktree: applying its result brings it into the working directory`,
+    more: (n) => `${n} more`,
+    stale: 'Out of date: the working directory changed after this check, so it does not describe it as it is now',
+    skipped: 'Skipped: the failure is kept, and agents are no longer asked to fix it',
+    skippedTag: 'skipped',
+    fixBy: (name) => `@${name} was asked to fix it`,
+    afterFact: 'Checked after the fact: nothing is undone.',
+    recheck: 'Check again',
+    fix: 'Ask a member to fix it',
+    fixAs: (name) => `Ask @${name} to fix it`,
+    skip: 'Skip',
+    skipConfirm:
+      'Skip this failed check? The waiting messages are sent, and agents are no longer asked to fix it. The failure is kept: it does not become a pass.',
+    failedAction: (why) => `That did not work: ${why}`,
+    advancedSettings: 'Advanced settings',
+    editorHint:
+      'Harness Relay checks these rules in chats with Edit or Full access. Hooks run around supported tool calls, and results for completed work appear in the chat.',
+    protectedPaths: 'Protected paths',
+    protectedPathsHint:
+      'One per line, written as in .gitignore: .env, *.pem, secrets/, config/prod.yml. Files git ignores are checked too.',
+    protectedPathsBefore:
+      'Claude Code, Codex, Cursor, Copilot, Antigravity and the open-source agents also refuse writing them before it happens, each as far as it can (see the user guide); with Grok and Muse Code they are found once the team has answered.',
+    commitPattern: 'Commit format (regular expression)',
+    commitPatternHint: "Every commit's subject the team makes must match it. Checked in roundtable and relay mode only.",
+    conventional: 'Use Conventional Commits',
+    readOnlyNote: 'Team checks and hooks are skipped in read-only chats.',
+    badPattern: (why) => `Not a valid regular expression: ${why}`,
+    badPath: (p) => `"${p}" cannot be used: write a path relative to the working directory, without ..`,
+    count: (n) => (n === 1 ? '1 rule' : `${n} rules`),
+    exit: (code) => (code === null ? 'stopped' : `exit ${code}`),
+    took: (s) => `took ${s}`,
+    output: 'Output (the end)',
+    unsandboxed: 'Full access: run without the sandbox',
+    wrote: (files) => `The check changed these files itself: ${files}`,
+    confirmRun: 'Confirm and run the commands',
+    confirmRunAsk: (files) =>
+      `This run changed settings the checks read:\n${files}\n\nRun the command checks, now that you have looked at them?`,
+    commands: 'Commands',
+    commandsHint:
+      "Commands that must succeed once the team has answered, such as npm test or npm run lint, with only basic variables (PATH, HOME…) and CI=1. In roundtable and relay mode, after a run that changed something: below full access in Harness Relay's sandbox (no network, writing only in the working directories), with full access as the agents run. In parallel mode, when you apply a member's result: on a copy of the working directories with it in them, in the sandbox whenever it can start.",
+    addCommand: 'Add a command',
+    commandRun: 'Command',
+    commandFolder: 'Folder (relative to the first working directory; optional)',
+    commandTimeout: 'Time limit (minutes)',
+    removeCommand: 'Remove this command',
+    localPorts: 'Allow every local port (macOS)',
+    localPortsHint:
+      "Only for tests that start a server of their own. With it, the command reaches every service on this computer, Harness Relay's API among them.",
+    unixSockets: 'Allow every Unix socket (Linux)',
+    unixSocketsHint:
+      "Only for tests that open a socket of their own. With it, the command reaches every socket it can find, Docker's (as good as root) and an ssh agent's among them.",
+    tryIt: 'Try it',
+    trying: 'Running…',
+    tryFirst: 'Run it once on the working directory as it is, to see that it runs in a check.',
+    windowsNote: 'Commands cannot be checked on native Windows yet.',
+    noSandbox: (why) =>
+      `Harness Relay's sandbox cannot start on this computer now, so below full access the commands show "Could not run": ${why}`,
+    badCommand: 'A command cannot be empty',
+    badFolder: (f) => `The folder "${f}" cannot be used: no ..`,
+    badTimeout: (max) => `The time limit is 1 to ${max} minutes`,
+    hooks: 'Hooks',
+    hooksHint:
+      'Commands Harness Relay runs before and after each tool call a member makes. A Before hook that does not succeed (exit 0) refuses the call, its output the reason the agent gets; an After hook that does not succeed sends its output to the agent. A hook reads the call from its environment: RELAY_HOOK_COMMAND, RELAY_HOOK_FILES (a full path a line), RELAY_HOOK_TOOL, RELAY_HOOK_INPUT (JSON). Like the commands, below full access they run in Harness Relay’s sandbox; each call waits for them. The script it runs from the working directory (./scripts/allow.sh or sh ci/check.sh, say) is protected like a protected path; list anything else it reads under Protected paths yourself.',
+    hooksWho: (clis) =>
+      `Run for ${clis.join(', ')} for now; members on other agents make their tool calls without them, and the chat says so.`,
+    hooksWindowsNote: 'Hooks do not run on native Windows yet.',
+    hookWhen: 'When',
+    hookBefore: 'Before',
+    hookAfter: 'After',
+    hookTools: 'Which calls',
+    hookToolsLabel: { command: 'Commands', edit: 'File changes', any: 'Every tool call' },
+    hookRun: 'Hook command',
+    hookTimeout: 'Time limit (seconds)',
+    addHook: 'Add a hook',
+    removeHook: 'Remove this hook',
+    badHookTimeout: (max) => `The time limit is 1 to ${max} seconds`,
+  },
+
   changes: {
     status: { A: 'Added', M: 'Modified', D: 'Deleted' },
     confirmApply: (name) =>
@@ -1104,6 +1197,9 @@ export const en: Messages = {
     skipReview: 'Skip the review and send now',
     confirm: 'Sent once the team is set',
     stopped: 'Not delivered yet',
+    checks: 'The team checks failed: these are not delivered yet',
+    checksNote: 'Handle the check card first, or send them as they are',
+    sendAnyway: 'Send anyway',
     sendNow: 'Stop and send now',
     send: 'Send',
     edit: 'Edit',
@@ -1455,6 +1551,10 @@ export const en: Messages = {
       "Notes for members, such as your preferences and project conventions, put in members' briefings in every conversation. Everyone gets \"All members\"; each CLI's tab goes only to that CLI's members, after the shared part.",
     memoryFor: (scope) => `Memory: ${scope}`,
     memoryPlaceholder: 'For example: Lead with the conclusion. Indent code with 2 spaces.',
+    checksDefault: 'Default team checks',
+    hooksDefaultHint: 'New chats and automations start with these hooks. You can change them for each team.',
+    checksDefaultHint:
+      'New chats and automations start with these team checks, which you can change or remove there. Changing them here later leaves the chats and automations made before as they are. While these are unchanged, a template the lead agent picks with team checks of its own adds them (its commit format, when it has one, takes the place of this one).',
     chars: (n, max) => `${n} / ${max} characters`,
     saved: 'Saved',
   },
@@ -2212,6 +2312,18 @@ export const en: Messages = {
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
+        ],
+      },
+      {
+        title: 'Team checks',
+        body: 'Set one list of rules for the whole team in Team settings or a template. Team checks run in chats with Edit or Full access.',
+        points: [
+          'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
+          "Commit format: a regular expression every commit's subject must match",
+          'Commands: such as npm test, which must succeed',
+          `Hooks run around supported tool calls on macOS and Linux for ${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join(', ')}. A Before hook that fails refuses the call.`,
+          "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
+          'In Parallel mode, commands check a member’s result before you apply it. In Settings → Tool library, set the starting rules for new chats and automations under Hooks and Default team checks.',
         ],
       },
       {

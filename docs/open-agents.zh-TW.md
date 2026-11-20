@@ -123,7 +123,7 @@ OpenCode、Goose、Cline 與 OpenHands 透過 stdio 使用 [Agent Client Protoco
 
 **唯讀是一道界線，不只是一個詢問。** 唯讀時，即使使用者允許了修改或指令，它仍然無法寫入：Harness Relay 的沙箱會擋下，核准卡片也會說明這點（`readOnlySandbox`），其他工具也一樣（MCP 伺服器同樣在沙箱中執行）；之後若工具因 CLI 原始的「Operation not permitted」而失敗，對話裡會說明是 Harness Relay 的沙箱拒絕了它，以及原因。要讓 agent 修改檔案，對話需要可編輯權限。權限提高時，成員會開新的 session，並清空它的狀態（[每位成員自己的狀態](#每位成員自己的狀態)）。
 
-Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會攔下它的每個工具呼叫，透過它的 RPC 詢問，所以它也有同樣的判斷與核准；唯讀時也會把它的工具限制為只讀的那些。Harness Relay 的沙箱仍然是界線。
+Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會攔下它的每個工具呼叫，透過它的 RPC 詢問，所以它也有同樣的判斷與核准；唯讀時也會把它的工具限制為只讀的那些。Harness Relay 的沙箱仍然是界線。這一輪有團隊的 hook 時，完全存取也會載入 gate，先跑「執行前」的 hook；有「執行後」的 hook 時，gate 也會把每次呼叫的結果交給 Harness Relay（[架構 → 團隊檢查](architecture.zh-TW.md#團隊檢查)，「Hook」）。
 
 ## Harness Relay 的沙箱
 
@@ -335,7 +335,7 @@ Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同
 
 轉接器：`src/server/agents/pi.ts`，以及它的 gate 擴充功能 `src/server/agents/piGate.js`。以 Pi 1.5.1（npm `@earendil-works/pi-coding-agent`，Node ≥ 22.19）驗證過。
 
-**指令與協定。** 每一輪一個程序：`pi --mode rpc --model <provider>/<model> --no-extensions --no-skills --no-prompt-templates --no-themes --no-approve`，完全存取以外加上 `-e <gate>`，有工具庫的伺服器時加 `-e builtin:mcp`（否則 `--no-mcp`），角色說明用 `--append-system-prompt <檔案>`，接續用 `--session <檔案>`，唯讀時加 `--tools …`，有推理強度時加 `--thinking <level>`，不載入指示檔時加 `--no-context-files`。Pi 的 RPC 是 JSONL：指令走 stdin，回應與事件走 stdout，每行一個 JSON 物件，**只以 LF 分隔**（`PiLines` 直接切原始位元組；一般的逐行讀取器也可能在 U+2028/U+2029 或單獨的 CR 處斷行）。一輪是 `get_state`（session 與模型）→ `get_commands`（gate 已載入）→ `get_available_thinking_levels` / `set_thinking_level` → `prompt` → 事件 → **`agent_settled`**，這一輪的結束（`agent_end` 不是：之後還可能重試或處理排隊的訊息）；接著關閉 stdin，Pi 自行結束。一輪的結果看最後一個 assistant 的 `message_end`：`stopReason` 為 `error` 時這一輪失敗，並把 `errorMessage` 說成使用者能處理的話（金鑰被拒、模型來源沒有這個模型、連不上端點，包括沙箱的 proxy 這樣回報時：顯示 `HTTP 502`，而不是 undici 的原文）；不是我們停止的 `aborted` 也算失敗。
+**指令與協定。** 每一輪一個程序：`pi --mode rpc --model <provider>/<model> --no-extensions --no-skills --no-prompt-templates --no-themes --no-approve`，完全存取以外加上 `-e <gate>`（這一輪有團隊的 hook 時，完全存取也加：gate 這時先跑「執行前」的 hook，有「執行後」的 hook 時，`HARNESS_RELAY_PI_AFTER=1`，也用第二個對話框 `harness-relay:tool_result` 把每次呼叫的結果交給 Harness Relay，回答會加到結果裡），有工具庫的伺服器時加 `-e builtin:mcp`（否則 `--no-mcp`），角色說明用 `--append-system-prompt <檔案>`，接續用 `--session <檔案>`，唯讀時加 `--tools …`，有推理強度時加 `--thinking <level>`，不載入指示檔時加 `--no-context-files`。Pi 的 RPC 是 JSONL：指令走 stdin，回應與事件走 stdout，每行一個 JSON 物件，**只以 LF 分隔**（`PiLines` 直接切原始位元組；一般的逐行讀取器也可能在 U+2028/U+2029 或單獨的 CR 處斷行）。一輪是 `get_state`（session 與模型）→ `get_commands`（gate 已載入）→ `get_available_thinking_levels` / `set_thinking_level` → `prompt` → 事件 → **`agent_settled`**，這一輪的結束（`agent_end` 不是：之後還可能重試或處理排隊的訊息）；接著關閉 stdin，Pi 自行結束。一輪的結果看最後一個 assistant 的 `message_end`：`stopReason` 為 `error` 時這一輪失敗，並把 `errorMessage` 說成使用者能處理的話（金鑰被拒、模型來源沒有這個模型、連不上端點，包括沙箱的 proxy 這樣回報時：顯示 `HTTP 502`，而不是 undici 的原文）；不是我們停止的 `aborted` 也算失敗。
 
 **事件。** `message_update` → `text`（`text_delta`，到 `text_end` 結束）與 `thinking`（`thinking_delta`）；`tool_execution_start` / `_end` → 工具列，名稱為 `Read`、`Bash`、`Edit`、`Write`、`Grep`、`Find`、`List` 或 `mcp__<server>__<tool>`，附上檔案、指令或搜尋樣式、輸出（修改時是帶行號的 diff）或失敗原因。用量加總這一輪所有 assistant 訊息（輸入含快取的 token、輸出；費用是 Pi 依它的目錄為 OpenAI、Anthropic、xAI 算的，端點或它不認得的模型沒有費用）。Pi 沒有計畫或待辦事件。`system` 角色的訊息（Pi 在 session 第一次請求時送出的提示）不會顯示。OpenAI 的推理摘要在它的 API 送出時以思考顯示（有些輪次沒有）。
 

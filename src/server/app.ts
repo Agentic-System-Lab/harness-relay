@@ -37,6 +37,7 @@ import {
   PUSH_GONE,
   PUSH_TAKEN,
   type ApprovalAnswer,
+  type CheckList,
   type Conversation,
   type ServerLimits,
   type ConversationSchedule,
@@ -52,10 +53,14 @@ import {
   type TeamPreset,
   type WorkingDirectories,
   type ZipCheck,
+  PERMISSION_ORDER,
+  type Permission,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
+import { hasRules } from '../shared/checks';
 import { servingPort } from './relaySandbox';
+import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
 import type { McpOAuth } from './oauth/mcp';
@@ -115,6 +120,7 @@ import {
   validateInboxRead,
   validatePushSubscription,
   validateSchedule,
+  validateChecks,
   validateSettings,
   validateToolLibraryUpdate,
   validConnectorId,
@@ -520,6 +526,14 @@ export function createApp({
 
   app.get('/api/settings', (c) => c.json(settingsView()));
 
+  app.patch('/api/settings/checks-default', async (c) => {
+    const patch = await body<Omit<CheckList, 'fromDefault'>>(c);
+    // Merge with the current default so simultaneous saves of hooks and other checks both survive.
+    const { fromDefault: _copied, ...list } = validateChecks({ ...settings.checksDefault, ...patch });
+    settings.setChecksDefault(hasRules(list) ? list : undefined);
+    return c.json(list);
+  });
+
   app.put('/api/settings', async (c) => {
     const b = await body<{
       defaultCwd?: unknown;
@@ -529,9 +543,17 @@ export function createApp({
       agentHome?: unknown;
       agentsViewUrl?: unknown;
       agentsViewLink?: unknown;
+      checksDefault?: unknown;
     }>(c);
     // Validate everything before saving anything; the folders last, since creating them is a side effect.
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
+    // The team checks new chats start with: `null`, or a list without rules, for none.
+    let checksDefault: CheckList | null | undefined;
+    if (b.checksDefault === null) checksDefault = null;
+    else if (b.checksDefault !== undefined) {
+      const { fromDefault: _copied, ...list } = validateChecks(b.checksDefault);
+      checksDefault = hasRules(list) ? list : null;
+    }
     const viewUrl = b.agentsViewUrl !== undefined ? validAgentsViewUrl(b.agentsViewUrl) : undefined;
     const viewLink = b.agentsViewLink !== undefined ? validAgentsViewLink(b.agentsViewLink) : undefined;
     // The default working directories: `defaultCwd`, then the others (none when not given with it).
@@ -547,6 +569,7 @@ export function createApp({
     if (lead !== undefined) settings.setLead(lead);
     if (viewUrl !== undefined) settings.setAgentsViewUrl(viewUrl);
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
+    if (checksDefault !== undefined) settings.setChecksDefault(checksDefault ?? undefined);
     if (home !== undefined && home !== settings.agentHome) {
       settings.setAgentHome(home);
       // Another home (for every account): another sign-in, other models and other parts of its own.
@@ -1111,7 +1134,8 @@ export function createApp({
           .trim()
           .slice(0, 2000) || undefined,
       agents: validateAgents(b.agents, limits.maxTeamAgents),
-      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission },
+      // A template's own list: never marked as Settings' default (`fromDefault`), which it would replace.
+      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission, ...ownChecks(s.checks) },
     };
     store.savePreset(preset);
     return c.json(preset);
@@ -1964,6 +1988,41 @@ export function createApp({
     return c.json({ ok: true }, 202);
   });
 
+  // Team checks: the latest result's card. Check it again (a new result after it), go on without it
+  // passing (what waits in the queue goes), or ask a member to fix it (a turn of its own).
+  // `confirm`: run the commands the run's changes kept from running (it changed what they read).
+  app.post('/api/conversations/:id/checks/:messageId/recheck', async (c) => {
+    const b = await body<{ confirm?: unknown }>(c);
+    return c.json(await orchestrator.recheckChecks(c.req.param('id'), c.req.param('messageId'), { confirm: b.confirm === true }));
+  });
+
+  // Run one command of the list being edited on the working directories as they are now, as the
+  // checks would with the permission Team settings shows (`permission`), and say how it went (Team
+  // settings' "Try it"); nothing is posted.
+  app.post('/api/conversations/:id/checks/try', async (c) => {
+    const b = await body<{ command?: unknown; permission?: unknown }>(c);
+    const [command] = validateChecks({ commands: [b.command] }).commands ?? [];
+    if (!command) throw new HttpError(400, t().invalidField('command'));
+    if (b.permission !== undefined && !PERMISSION_ORDER.includes(b.permission as Permission))
+      throw new HttpError(400, t().invalidField('permission'));
+    return c.json(await orchestrator.tryCheckCommand(c.req.param('id'), command, b.permission as Permission | undefined));
+  });
+
+  // What team checks' commands can do on this computer: its system, and why Harness Relay's sandbox
+  // cannot start here, if it cannot (below full access they then cannot run).
+  app.get('/api/checks/environment', async (c) => c.json(await checksEnvironment(orchestrator.checkCommandDeps)));
+
+  app.post('/api/conversations/:id/checks/:messageId/skip', (c) =>
+    c.json(orchestrator.skipChecks(c.req.param('id'), c.req.param('messageId'))),
+  );
+
+  app.post('/api/conversations/:id/checks/:messageId/fix', async (c) => {
+    const b = await body<{ agentId?: unknown }>(c);
+    if (typeof b.agentId !== 'string' || !b.agentId) throw new HttpError(400, t().invalidField('agentId'));
+    await orchestrator.fixChecks(c.req.param('id'), c.req.param('messageId'), b.agentId);
+    return c.json({ ok: true }, 202);
+  });
+
   // Branch the conversation from an agent's reply: a new conversation with the messages up to and
   // including it, which goes on from there on its own (this one stays as it is). Answers with it.
   app.post('/api/conversations/:id/messages/:messageId/branch', async (c) =>
@@ -2013,9 +2072,26 @@ export function createApp({
     c.text(await orchestrator.agentDiff(c.req.param('id'), c.req.param('agentId'))),
   );
 
+  // Team checks run first, on the folders with the result in them: one that does not pass is not
+  // applied (`held`: its card's id), unless `force` (the card's "Apply anyway").
   app.post('/api/conversations/:id/agents/:agentId/apply', async (c) => {
-    const files = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'));
-    return c.json({ ok: true, files });
+    // No body at all (as before `force`) is an apply with the checks.
+    const text = await c.req.text();
+    type ApplyBody = { force?: unknown; confirm?: unknown } | null;
+    let b: ApplyBody = null;
+    if (text.trim()) {
+      try {
+        b = JSON.parse(text) as ApplyBody;
+      } catch {
+        throw new HttpError(400, 'Invalid JSON body');
+      }
+    }
+    // `confirm`: the result changed what the commands read, and the user had them run all the same.
+    const { files, held } = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'), {
+      force: b?.force === true,
+      confirm: b?.confirm === true,
+    });
+    return c.json({ ok: true, files, ...(held ? { held } : {}) });
   });
 
   app.post('/api/conversations/:id/stop', (c) => {
@@ -2051,4 +2127,11 @@ export function createApp({
   });
 
   return app;
+}
+
+/** A list kept as a template's own, without the mark of Settings' default it may have been copied from. */
+function ownChecks(list: CheckList | undefined): { checks?: CheckList } {
+  if (!list) return {};
+  const { fromDefault: _copied, ...own } = list;
+  return { checks: own };
 }

@@ -51,6 +51,8 @@ export const SHARE_DROP = [
   '.more-button',
   '.plan-ask-save',
   '.plan-review',
+  // A team checks card's Ask a member to fix it (its buttons go as every button does).
+  '.checks-fix',
   // A stopped or failed review card's word on the next review: the chat's state, not the page's.
   '.review-later',
   '.file-missing',

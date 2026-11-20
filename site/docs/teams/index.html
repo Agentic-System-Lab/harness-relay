@@ -6,7 +6,7 @@
     <title>Teams and modes · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: how the lead agent picks a team for each question, the built-in templates and your own, team members, and the three modes."
+      content="Harness Relay docs: how the lead agent picks a team for each question, the templates, team members, the three modes, and team checks on the team's work."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Teams and modes · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How teams work in Harness Relay: the lead agent picks or designs a team for each question from your templates, each member has a role, a coding agent and a model, and the team takes turns in roundtable, parallel or relay mode."
+      content="How teams work in Harness Relay: the lead agent picks or designs a team for each question from your templates, each member has a role, a coding agent and a model, the team takes turns in roundtable, parallel or relay mode, and Harness Relay checks its work against your team checks."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/teams/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/teams/",
         "name": "Teams and modes · Harness Relay docs",
-        "description": "Harness Relay docs: how the lead agent picks a team for each question, the built-in templates and your own, team members, and the three modes.",
+        "description": "Harness Relay docs: how the lead agent picks a team for each question, the templates, team members, the three modes, and team checks on the team's work.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -242,6 +242,7 @@
           <li><a href="#templates">Templates</a></li>
           <li><a href="#members">Team members</a></li>
           <li><a href="#modes">The three modes</a></li>
+          <li><a href="#checks">Team checks</a></li>
           <li><a href="#change-the-team">Change the team mid-chat</a></li>
           <li><a href="#writing-roles">Writing good roles</a></li>
         </ol>
@@ -430,6 +431,77 @@
           </p>
         </section>
 
+        <section id="checks" aria-labelledby="checks-title">
+          <h2 id="checks-title">Team checks</h2>
+          <p>
+            Team checks give the whole team one set of rules in <b>Edit</b> and <b>Full access</b> chats. Harness Relay
+            checks the files on disk and the commits, and runs the commands itself. In <b>Team settings</b>, open <b>Advanced settings</b> to edit the rules. In <b>New chat</b> or <b>New automation</b>, open <b>Workspace and chat settings</b> first. In a template, open <b>Team checks</b>.
+          </p>
+          <dl class="doc-terms">
+            <dt>Protected paths</dt>
+            <dd>
+              Files the team may not create, change or delete, one per line, written as in <code>.gitignore</code>:
+              <code>.env</code>, <code>*.pem</code>, <code>secrets/</code>. Files git ignores are checked too. Most agents
+              also refuse to write them in the first place: see <a href="../permissions/#sandboxes">What the sandboxes do</a>.
+            </dd>
+            <dt>Commit format</dt>
+            <dd>
+              A regular expression every commit's subject must match; <b>Use Conventional Commits</b> fills one in. Checked
+              in roundtable and relay mode.
+            </dd>
+            <dt>Commands</dt>
+            <dd>
+              Commands that must succeed, such as <code>npm test</code> or <code>npm run lint</code> (<b>Add a command</b>),
+              each with its folder and a time limit; <b>Try it</b> runs one now, to see that it works. Below full access they
+              run in Harness Relay's own sandbox, with no network. They do not run on native Windows yet.
+            </dd>
+            <dt>Hooks</dt>
+            <dd>
+              Commands that run around each member's own tool calls as they happen (<b>Add a hook</b>): <b>Before</b> a
+              command, a file change or every call, where a hook that does not succeed refuses the call and its output is the
+              reason the agent gets; or <b>After</b> one, where its output goes back to the agent to fix. A hook reads the call
+              from variables such as <code>RELAY_HOOK_COMMAND</code> and <code>RELAY_HOOK_FILES</code>, and the script it names in
+              your folder is protected like a protected path. Hooks run on macOS and Linux for supported tool calls in
+              Claude Code, Codex, Copilot, Muse Code and Pi. The reply records when a member runs without team hooks.
+            </dd>
+          </dl>
+          <p>
+            The agents are told the rules from the start. In a chat that can change files, a <b>Team checks</b> card after
+            the replies says how each rule went: <b>Passed</b>, <b>Failed</b> (with the files or commits, and whose turn it
+            was), <b>Could not run</b> (never a pass; the card says why) or <b>Not applicable</b>. A run that changed nothing
+            the rules cover gets no card. While the latest result fails:
+          </p>
+          <ul>
+            <li>Each member's next turn is shown what failed, and asked to fix it.</li>
+            <li>What you sent while the team replied waits in the tray; <b>Send anyway</b> sends it.</li>
+            <li>
+              <b>Check again</b> checks once more: a file put back passes. <b>Ask a member to fix it</b> gives one member a
+              turn to fix it. <b>Skip</b> stops asking the agents; the failure stays on record and never becomes a pass.
+            </li>
+          </ul>
+          <p>
+            In parallel mode, Harness Relay checks a member's result before applying it. It compares the files against the
+            protected paths and runs the commands on a copy of your folder with the result applied. If the check fails, you
+            can fix the result and retry, or choose <b>Apply anyway</b>. If the result changes settings the commands read,
+            review them and choose <b>Confirm, run the commands and apply if they pass</b>.
+            <a href="../permissions/#changes">Reviewing and applying changes</a>
+          </p>
+          <p>
+            In <b>Settings → Tool library</b>, <b>Hooks</b> and <b>Default team checks</b> hold the rules every new chat and automation starts with.
+            When an automation runs with nobody watching, a failure is that run's result, and nothing waits for you.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                Team checks report and undo nothing: what an agent changed stays changed until a member or you put it
+                back. To keep a command from doing harm as it runs, use a permission below full access. And a command
+                checks the code as it is: a test an agent turned off still passes.
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section id="change-the-team" aria-labelledby="change-the-team-title">
           <h2 id="change-the-team-title">Change the team mid-chat</h2>
           <p>
@@ -477,12 +549,13 @@
         <aside class="doc-more" aria-label="Technical details">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
-            <p>What the lead agent reads, every field of a member and every rule of each mode are in the user guide on GitHub:</p>
+            <p>What the lead agent reads, every field of a member, each mode's rules and every case of team checks are in the user guide on GitHub:</p>
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#auto-team">Auto team</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#templates">Templates</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#team-members">Team members</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#team-checks">Team checks</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#editing-the-team-mid-chat">Editing the team mid-chat</a></li>
             </ul>
           </div>

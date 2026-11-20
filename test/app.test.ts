@@ -657,6 +657,201 @@ describe('settings', () => {
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps team checks as given, tidied, refuses one that cannot be used, and keeps them with a template', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const made = await post({
+      agents,
+      settings: { cwd: project, checks: { protectedPaths: [' ./.env ', '.env', '', 'secrets\\keys/'], commitPattern: ' ^feat ' } },
+    });
+    expect(made.status).toBe(200);
+    const conv = (await made.json()) as Conversation;
+    expect(conv.settings.checks).toEqual({ protectedPaths: ['.env', 'secrets/keys/'], commitPattern: '^feat' });
+    expect(store.get(conv.id)!.settings.checks).toEqual(conv.settings.checks);
+
+    const refused = async (checks: unknown) => {
+      const res = await post({ agents, settings: { cwd: project, checks } });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refused({ protectedPaths: ['../outside'] })).toContain('../outside');
+    expect(await refused({ protectedPaths: Array.from({ length: 51 }, (_, i) => `f${i}`) })).toContain('50');
+    expect(await refused({ commitPattern: '(' })).toMatch(/not a valid regular expression/);
+    expect(await refused({ commitPattern: 'x'.repeat(501) })).toContain('500');
+    expect(await refused({ protectedPaths: '.env' })).toContain('checks.protectedPaths');
+    expect(await refused([])).toContain('checks');
+
+    // A PATCH that leaves them out has none (the team drawer sends the settings whole).
+    const { checks: _gone, ...rest } = conv.settings;
+    const patched = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { settings: rest }));
+    expect(((await patched.json()) as Conversation).settings.checks).toBeUndefined();
+
+    const preset = await app.request(
+      '/api/presets',
+      json('POST', { name: 'Checked', agents, settings: { mode: 'roundtable', permission: 'edit', checks: { protectedPaths: ['.env'] } } }),
+    );
+    expect(((await preset.json()) as TeamPreset).settings.checks).toEqual({ protectedPaths: ['.env'] });
+  });
+
+  it('keeps team checks commands as given, each with an id, and refuses one that cannot be used', async () => {
+    const post = (checks: unknown) =>
+      app.request(
+        '/api/conversations',
+        json(
+          'POST',
+          { agents: [{ name: 'Alice', provider: 'claude', role: '' }], settings: { cwd: project, checks } },
+          { 'x-relay-lang': 'en' },
+        ),
+      );
+    const made = (await (
+      await post({
+        commands: [
+          { run: ' npm test ', cwd: 'apps\\web', timeoutMin: 10, localPorts: true, unixSockets: 'yes' },
+          { id: 'lint', run: 'npm run lint', timeoutMin: 3 },
+        ],
+      })
+    ).json()) as Conversation;
+    const [test, lint] = made.settings.checks!.commands!;
+    expect(test).toEqual({ id: expect.stringMatching(/^[\w-]{8}$/), run: 'npm test', cwd: 'apps/web', localPorts: true });
+    expect(lint).toEqual({ id: 'lint', run: 'npm run lint', timeoutMin: 3 });
+    const refused = async (commands: unknown) => {
+      const res = await post({ commands });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refused([{ run: '  ' }])).toContain('cannot be empty');
+    expect(await refused([{ run: 'x'.repeat(1001) }])).toContain('1000');
+    expect(await refused([{ run: 'x', cwd: '../up' }])).toContain('"../up"');
+    expect(await refused([{ run: 'x', timeoutMin: 61 }])).toContain('60');
+    expect(await refused(Array.from({ length: 11 }, () => ({ run: 'x' })))).toContain('10');
+    expect(await refused('npm test')).toContain('checks.commands');
+  });
+
+  it("keeps the team's hooks as given, each with an id, the default time limit left out, and refuses one that cannot be used", async () => {
+    const post = (checks: unknown) =>
+      app.request(
+        '/api/conversations',
+        json(
+          'POST',
+          { agents: [{ name: 'Alice', provider: 'claude', role: '' }], settings: { cwd: project, checks } },
+          { 'x-relay-lang': 'en' },
+        ),
+      );
+    const made = (await (
+      await post({
+        hooks: [
+          { when: 'before', tools: 'command', run: ' ./allow.sh ', cwd: 'tools\\hooks', timeoutSec: 60 },
+          { id: 'fmt', when: 'after', tools: 'edit', run: 'npx prettier --check "$RELAY_HOOK_FILES"', timeoutSec: 20 },
+        ],
+      })
+    ).json()) as Conversation;
+    const [allow, fmt] = made.settings.checks!.hooks!;
+    expect(allow).toEqual({
+      id: expect.stringMatching(/^[\w-]{8}$/),
+      when: 'before',
+      tools: 'command',
+      run: './allow.sh',
+      cwd: 'tools/hooks',
+    });
+    expect(fmt).toEqual({ id: 'fmt', when: 'after', tools: 'edit', run: 'npx prettier --check "$RELAY_HOOK_FILES"', timeoutSec: 20 });
+    const refused = async (hooks: unknown) => {
+      const res = await post({ hooks });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    const ok = { when: 'before', tools: 'command', run: 'x' };
+    expect(await refused([{ ...ok, run: ' ' }])).toContain('cannot be empty');
+    expect(await refused([{ ...ok, when: 'during' }])).toContain('checks.hooks.when');
+    expect(await refused([{ ...ok, tools: 'reads' }])).toContain('checks.hooks.tools');
+    expect(await refused([{ ...ok, cwd: '../up' }])).toContain('"../up"');
+    expect(await refused([{ ...ok, timeoutSec: 601 }])).toContain('600 seconds');
+    expect(await refused(Array.from({ length: 11 }, () => ok))).toContain('10 hooks');
+    expect(await refused('x')).toContain('checks.hooks');
+    // A list with hooks alone is a list: Settings keeps it as the default.
+    const settings = await app.request('/api/settings', json('PUT', { checksDefault: { hooks: [ok] } }));
+    expect(settings.status).toBe(200);
+    expect(((await settings.json()) as { checksDefault?: { hooks?: unknown[] } }).checksDefault?.hooks).toHaveLength(1);
+  });
+
+  it('applies a parallel result with the team checks first, says which card held it, and applies it anyway with force', async () => {
+    const apply = vi.spyOn(orchestrator, 'applyAgentWork');
+    try {
+      apply.mockResolvedValueOnce({ files: [], held: 'card' });
+      const at = (body?: unknown) =>
+        app.request(
+          '/api/conversations/conv/agents/b/apply',
+          body === undefined ? { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' } } : json('POST', body),
+        );
+      expect(await (await at()).json()).toEqual({ ok: true, files: [], held: 'card' });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: false });
+      apply.mockResolvedValueOnce({ files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
+      expect(await (await at({ force: true })).json()).toEqual({ ok: true, files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: true, confirm: false });
+      apply.mockResolvedValueOnce({ files: [] });
+      await at({ confirm: true });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: true });
+    } finally {
+      apply.mockRestore();
+    }
+  });
+
+  it("tries a command of the list being edited, and says what this computer's sandbox can do", async () => {
+    const tried = vi.spyOn(orchestrator, 'tryCheckCommand').mockResolvedValue({ rule: 'command', status: 'passed', commandId: 'x' });
+    const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);
+    try {
+      const res = await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: ' npm test ' } }));
+      expect(await res.json()).toEqual({ rule: 'command', status: 'passed', commandId: 'x' });
+      expect(tried).toHaveBeenCalledWith('conv', { id: 'x', run: 'npm test' }, undefined);
+      // With the permission the drawer shows, which the route checks.
+      await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: 'true' }, permission: 'edit' }));
+      expect(tried).toHaveBeenLastCalledWith('conv', { id: 'x', run: 'true' }, 'edit');
+      expect(
+        (await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: 'true' }, permission: 'root' }))).status,
+      ).toBe(400);
+      expect((await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: '' } }))).status).toBe(400);
+      expect((await app.request('/api/conversations/conv/checks/try', json('POST', {}))).status).toBe(400);
+      await app.request('/api/conversations/conv/checks/c1/recheck', json('POST', { confirm: true }));
+      expect(recheck).toHaveBeenLastCalledWith('conv', 'c1', { confirm: true });
+      await app.request('/api/conversations/conv/checks/c1/recheck', json('POST', { confirm: 'yes' }));
+      expect(recheck).toHaveBeenLastCalledWith('conv', 'c1', { confirm: false });
+    } finally {
+      tried.mockRestore();
+      recheck.mockRestore();
+    }
+    // The sandbox is never started by a test: what it would answer is stood in for.
+    const saved = orchestrator.checkCommandDeps;
+    orchestrator.checkCommandDeps = { ...saved, platform: 'linux', sandboxAvailable: async () => ({ ok: false, reason: 'no bubblewrap' }) };
+    try {
+      expect(await (await get('/api/checks/environment')).json()).toEqual({ platform: 'linux', sandbox: 'no bubblewrap' });
+      orchestrator.checkCommandDeps = { ...saved, platform: 'darwin', sandboxAvailable: async () => ({ ok: true }) };
+      expect(await (await get('/api/checks/environment')).json()).toEqual({ platform: 'darwin' });
+    } finally {
+      orchestrator.checkCommandDeps = saved;
+    }
+  });
+
+  it('checks the latest team checks result again, skips it, or asks a member to fix it', async () => {
+    const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);
+    const skip = vi.spyOn(orchestrator, 'skipChecks').mockReturnValue({ id: 'c1' } as ChatMessage);
+    const fix = vi.spyOn(orchestrator, 'fixChecks').mockResolvedValue();
+    try {
+      const at = (what: string, body: unknown = {}) => app.request(`/api/conversations/conv/checks/c1/${what}`, json('POST', body));
+      expect(await (await at('recheck')).json()).toEqual({ id: 'c2' });
+      expect(recheck).toHaveBeenCalledWith('conv', 'c1', { confirm: false });
+      expect(await (await at('skip')).json()).toEqual({ id: 'c1' });
+      expect(skip).toHaveBeenCalledWith('conv', 'c1');
+      expect((await at('fix', { agentId: 'a' })).status).toBe(202);
+      expect(fix).toHaveBeenCalledWith('conv', 'c1', 'a');
+      expect((await at('fix', {})).status).toBe(400);
+    } finally {
+      recheck.mockRestore();
+      skip.mockRestore();
+      fix.mockRestore();
+    }
+    // Without the mock: a result that is not there.
+    expect((await app.request('/api/conversations/nope/checks/c1/skip', json('POST', {}))).status).toBe(404);
+  });
+
   it('takes several working directories, each once and at most eight, and names all those missing', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
@@ -1096,6 +1291,76 @@ describe('accounts', () => {
     // One the CLI does not have is the default account.
     const other = (await (await call('PUT', '/api/settings', { lead: { provider: 'claude', account: id } })).json()) as SettingsView;
     expect(other.lead).toEqual({ provider: 'claude' });
+  });
+});
+
+describe('default team checks', () => {
+  it('keeps the list new chats start with in Settings, tidied, for every browser and after a restart, and none when emptied', async () => {
+    const db = openDatabase(':memory:');
+    const s = new SettingsStore(db);
+    const store = new Store(db);
+    const hub = new Hub();
+    const orchestrator = new Orchestrator(store, hub, s);
+    const app = createApp({ auth: null, store, settings: s, hub, orchestrator, providers: new ProviderService(s) });
+    const put = async (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const view = async () => (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
+    expect((await view()).checksDefault).toBeUndefined();
+
+    const set = await put({
+      checksDefault: { protectedPaths: ['  .env ', '.env', '/secrets/'], commands: [{ run: ' npm test ' }], fromDefault: true },
+    });
+    expect(set.status).toBe(200);
+    const list = ((await set.json()) as SettingsView).checksDefault!;
+    // Tidied as a chat's list is; never marked as a copy of itself.
+    expect(list).toMatchObject({ protectedPaths: ['.env', '/secrets/'], commands: [{ run: 'npm test' }] });
+    expect(list.fromDefault).toBeUndefined();
+    expect((await view()).checksDefault).toEqual(list);
+    // Kept in the database: another server on it has it too.
+    expect(new SettingsStore(db).view().checksDefault).toEqual(list);
+
+    // A list that cannot be used changes nothing.
+    expect((await put({ checksDefault: { protectedPaths: ['../outside'] } })).status).toBe(400);
+    expect((await put({ checksDefault: 'npm test' })).status).toBe(400);
+    expect((await view()).checksDefault).toEqual(list);
+    // Emptied, or null: none.
+    expect(((await (await put({ checksDefault: {} })).json()) as SettingsView).checksDefault).toBeUndefined();
+    await put({ checksDefault: { commitPattern: '^feat' } });
+    expect(((await (await put({ checksDefault: null })).json()) as SettingsView).checksDefault).toBeUndefined();
+    expect(new SettingsStore(db).view().checksDefault).toBeUndefined();
+  });
+
+  it('merges independent edits to default hooks and checks, including clears, and rejects invalid patches atomically', async () => {
+    const patch = (fields: unknown) => app.request('/api/settings/checks-default', json('PATCH', fields));
+    const view = async () => ((await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView).checksDefault;
+    const hooks = [{ id: 'hook', when: 'before', tools: 'command', run: 'echo hook' }];
+    const protectedPaths = ['*.pem'];
+    const results = await Promise.all([patch({ hooks }), patch({ protectedPaths })]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(await view()).toEqual({ hooks, protectedPaths });
+
+    expect((await patch({ protectedPaths: [], hooks: 'invalid' })).status).toBe(400);
+    expect(await view()).toEqual({ hooks, protectedPaths });
+    expect(await (await patch({ protectedPaths: [] })).json()).toEqual({ hooks });
+    expect(await (await patch({ hooks: [] })).json()).toEqual({});
+    expect(await view()).toBeUndefined();
+  });
+
+  it('keeps the mark of a copied default in a new chat, and never in a template', async () => {
+    const conv = await createConversation({ checks: { protectedPaths: ['.env'], fromDefault: true } });
+    expect(store.get(conv.id)!.settings.checks).toEqual({ protectedPaths: ['.env'], fromDefault: true });
+    // Without rules there is nothing to replace: no mark.
+    const empty = await createConversation({ checks: { fromDefault: true } });
+    expect(store.get(empty.id)!.settings.checks).toEqual({});
+    const res = await app.request(
+      '/api/presets',
+      json('POST', {
+        name: 'From a chat',
+        agents: [{ name: 'A', provider: 'claude', role: '' }],
+        settings: { mode: 'roundtable', permission: 'edit', checks: { protectedPaths: ['.env'], fromDefault: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as TeamPreset).settings.checks).toEqual({ protectedPaths: ['.env'] });
   });
 });
 
