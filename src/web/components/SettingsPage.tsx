@@ -1506,14 +1506,22 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   const menuId = useId();
   const agentsButton = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback((refocus: boolean) => {
+    setMenuOpen(false);
+    if (refocus) agentsButton.current?.focus({ preventScroll: true });
+  }, []);
   // The Tool library links to the same picker as the navigation. A bookmarked link
   // or a return with Back opens it with the keyboard focus on a choice.
   useLayoutEffect(() => {
-    if (section !== 'agents') return;
-    agentsButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-    focusOnOpen.current = 'first';
-    setMenuOpen(true);
-  }, [section]);
+    if (section === 'agents') {
+      agentsButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      focusOnOpen.current = 'first';
+      setMenuOpen(true);
+    } else if (section && isAgentSection(section) && menu.current) {
+      // Close when the chosen card becomes current. A quick Back can already be opening the picker again.
+      closeMenu(true);
+    }
+  }, [section, closeMenu]);
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   /** Focuses an item, scrolling the menu (and only it) just far enough to show it. */
   const focusItem = (item: HTMLElement | undefined) => {
@@ -1529,10 +1537,6 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     focusOnOpen.current = focus;
     setMenuOpen(true);
   };
-  const closeMenu = useCallback((refocus: boolean) => {
-    setMenuOpen(false);
-    if (refocus) agentsButton.current?.focus({ preventScroll: true });
-  }, []);
   useLayoutEffect(() => {
     if (!menuOpen) return setMenuAt(undefined);
     const place = () => {
@@ -1645,8 +1649,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
       onClick={() => {
         pick(p);
         scrollToSection(p);
-        // Closed once the link is followed: the item stays in the page until the browser has.
-        window.setTimeout(() => closeMenu(true));
+        if (section === p) closeMenu(true);
       }}
     >
       <i style={{ background: PROVIDER_COLOR[p] }} aria-hidden="true" />

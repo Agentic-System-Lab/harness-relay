@@ -256,13 +256,28 @@ test.describe('settings', () => {
     await link.press('Enter');
     const menu = page.getByRole('menu', { name: 'Agents' });
     await expect(menu.getByRole('menuitem').first()).toBeFocused();
-    await menu.getByRole('menuitem', { name: 'Codex', exact: true }).click();
+    // Return before any deferred work from choosing Codex can run.
+    const now = Date.now();
+    await page.clock.install({ time: now });
+    await page.clock.pauseAt(now + 1000);
+    const codex = menu.getByRole('menuitem', { name: 'Codex', exact: true });
+    await codex.press('Enter');
     await expect(page).toHaveURL(/#\/settings\/codex$/);
     await expect(page.locator('#settings-codex')).toContainText('this CLI loads by itself');
     await page.goBack();
-    await expect(menu).toBeVisible();
+    await expect(page).toHaveURL(/#\/settings\/agents$/);
+    await page.clock.runFor(50);
+    await page.clock.resume();
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
     await page.reload();
     await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.goForward();
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    const agents = page.getByRole('button', { name: 'Agents: Codex', exact: true });
+    await agents.click();
+    await codex.press('Enter'); // Selecting the same card has no new hash change.
+    await expect(menu).toBeHidden();
+    await expect(agents).toBeFocused();
   });
 
   test("the links row gathers the agents in one menu, which leads to each agent's card and names the one being read", async ({ page }) => {
