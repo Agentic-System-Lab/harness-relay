@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalAnswer, OutboxItem } from '../src/shared/types';
 import { removeTree } from '../src/server/fsRemove';
@@ -11,7 +11,7 @@ import {
   GatewaySocketPathError,
   ToolGateway,
   gatewayDecision,
-  gatewaySocketTooLong,
+  gatewayListenPath,
   gatewayToolNamed,
   outboxTool,
   reservedMcpName,
@@ -325,26 +325,104 @@ describe('the gateway and the MCP server the CLIs start', () => {
     slow(20_000),
   );
 
-  it('refuses a data folder too long for its socket, before it makes anything, rather than listen on a cut path', async () => {
+  it('listens by a path short enough for a Unix socket: its own, else from the working folder, else not at all', async () => {
     // `/gateway/relay.sock` takes 19 bytes: a data folder of 84 fits on macOS (103 in all), of 88 on Linux (107).
     const folder = (bytes: number) => '/' + 'd'.repeat(bytes - 1);
-    expect(gatewaySocketTooLong(folder(84), 'darwin')).toBeUndefined();
-    expect(gatewaySocketTooLong(folder(85), 'darwin')).toMatch(/104 bytes, longer than the 103 .*RELAY_DATA_DIR .*at most 84 bytes/);
-    expect(gatewaySocketTooLong(folder(85), 'freebsd')).toMatch(/at most 84 bytes/);
-    expect(gatewaySocketTooLong(folder(88), 'linux')).toBeUndefined();
-    expect(gatewaySocketTooLong(folder(89), 'linux')).toMatch(/at most 88 bytes/);
+    const sock = (dir: string) => join(dir, 'gateway', 'relay.sock');
+    const far = '/elsewhere';
+    expect(gatewayListenPath(folder(84), 'darwin', far)).toEqual({ path: sock(folder(84)) });
+    expect(gatewayListenPath(folder(85), 'darwin', far).refusal).toMatch(
+      /104 bytes, longer than the 103 .*RELAY_DATA_DIR .*at most 84 bytes/,
+    );
+    expect(gatewayListenPath(folder(85), 'freebsd', far).refusal).toMatch(/at most 84 bytes/);
+    expect(gatewayListenPath(folder(88), 'linux', far)).toEqual({ path: sock(folder(88)) });
+    expect(gatewayListenPath(folder(89), 'linux', far).refusal).toMatch(/at most 88 bytes/);
     // Bytes, not characters: 28 Chinese characters take 84.
-    expect(gatewaySocketTooLong('/' + '資'.repeat(28), 'darwin')).toMatch(/at most 84 bytes/);
-    // A named pipe on Windows: any data folder.
-    expect(gatewaySocketTooLong(folder(500), 'win32')).toBeUndefined();
+    expect(gatewayListenPath('/' + '資'.repeat(28), 'darwin', far).refusal).toMatch(/at most 84 bytes/);
+    // `npm run dev` in an agent's worktree: the data folder is deep, but `data/` of the server's working folder.
+    const checkout = folder(200);
+    expect(gatewayListenPath(join(checkout, 'data'), 'darwin', checkout)).toEqual({ path: sock('data') });
+    expect(gatewayListenPath(join(checkout, 'data'), 'linux', join(checkout, 'web'))).toEqual({
+      path: join('..', 'data', 'gateway', 'relay.sock'),
+    });
+    // Too long from there as well, or no working folder (it was removed): refused.
+    expect(gatewayListenPath(join(checkout, 'data'), 'darwin', far).refusal).toMatch(/at most 84 bytes/);
+    expect(gatewayListenPath(join(checkout, 'data'), 'darwin', undefined).refusal).toMatch(/at most 84 bytes/);
 
-    const dataDir = join(root, 'd'.repeat(Math.max(1, 120 - root.length)));
+    // Refused before it makes anything: a name of its own longer than any socket path, whatever the working folder.
+    const dataDir = join(root, 'd'.repeat(110));
     const long = new ToolGateway(dataDir, join(dataDir, 'tmp'), () => process.execPath, 'darwin');
     await expect(long.start()).rejects.toThrow(GatewaySocketPathError);
     expect(long.listening()).toBe(false);
     expect(long.unavailable()).toBe('not-started');
     expect(existsSync(dataDir)).toBe(false);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'works in a data folder too deep for a socket path: listens from the working folder, and both programs reach it from its folder',
+    async () => {
+      const runHook = (args: string[], env: Record<string, string> = {}) =>
+        new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+          const child = spawn(process.execPath, [...args, 'before'], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+          children.push(child);
+          let stdout = '';
+          let stderr = '';
+          child.stdout!.on('data', (d) => (stdout += d));
+          child.stderr!.on('data', (d) => (stderr += d));
+          child.on('close', (code) => resolve({ code, stdout, stderr }));
+          child.stdin!.end('{}');
+        });
+      // A checkout as deep as an agent's worktree, with the server started from it.
+      const checkout = join(root, 'w'.repeat(60), 'x'.repeat(40));
+      mkdirSync(checkout, { recursive: true });
+      const deep = new ToolGateway(join(checkout, 'data'), join(checkout, 'data', 'tmp'), () => process.execPath);
+      deep.register(tools);
+      const before = process.cwd();
+      process.chdir(checkout);
+      try {
+        await deep.start();
+      } finally {
+        process.chdir(before);
+      }
+      try {
+        expect(Buffer.byteLength(deep.socketPath)).toBeGreaterThan(107);
+        // In its own folder by its own name, never a cut one (`relay.so`) beside it or elsewhere.
+        expect(readdirSync(dirname(deep.socketPath))).toEqual(['relay.sock']);
+
+        const grant = deep.grant(ctx(), ['browser'])!;
+        const mcp = client(grant.spec);
+        await mcp.request('initialize', { protocolVersion: '2025-06-18' });
+        expect((await mcp.request('tools/list')).result.tools.map((t: { name: string }) => t.name)).toEqual([
+          'page_title',
+          'page_click',
+          'broken',
+        ]);
+        grant.revoke();
+
+        const hook = deep.hookProgram(async () => ({ code: 0, stdout: 'reached' }))!;
+        expect(await runHook(hook.program.args)).toEqual({ code: 0, stdout: 'reached', stderr: '' });
+        const inline = deep.hookProgram(async () => ({ code: 0, stdout: 'inline' }), 'inline')!;
+        expect(await runHook(inline.program.args, inline.program.env)).toMatchObject({ code: 0, stdout: 'inline' });
+        // A folder the program cannot enter: no server, so the call is refused (exit 2), never let through.
+        const nowhere = join(root, 'gone', 'y'.repeat(120), 'relay.sock');
+        const refused = await runHook([hook.program.args[0]!, nowhere, hook.program.args[2]!]);
+        expect(refused.code).toBe(2);
+        expect(refused.stderr).toContain('Harness Relay is not reachable');
+        hook.revoke();
+        inline.revoke();
+        // And the MCP program answers each call that it is not reachable.
+        const live = deep.grant(ctx(), ['browser'])!;
+        const lost = client({ ...live.spec, env: { ...live.spec.env, RELAY_GATEWAY_SOCKET: nowhere } });
+        await lost.request('initialize', { protocolVersion: '2025-06-18' });
+        expect((await lost.request('tools/list')).error.message).toMatch(/not reachable/);
+        live.revoke();
+      } finally {
+        await deep.stop();
+      }
+      expect(existsSync(deep.socketPath)).toBe(false);
+    },
+    slow(20_000),
+  );
 
   it(
     "serves each token to one connection where data/tmp cannot be protected (Windows): its file goes once the CLI's shim has shown it",
