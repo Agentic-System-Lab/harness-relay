@@ -4,7 +4,14 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import { removeTree } from '../src/server/fsRemove';
-import { ToolGateway, type GatewayContext, type GatewayResult, type GatewayScope, type GatewayTool } from '../src/server/gateway';
+import {
+  ToolGateway,
+  type GatewayAsking,
+  type GatewayContext,
+  type GatewayResult,
+  type GatewayScope,
+  type GatewayTool,
+} from '../src/server/gateway';
 import { runProcess } from '../src/server/process';
 import type { RelaySandboxCommand, RelaySandboxRunDirs, RelaySandboxSpec } from '../src/server/relaySandbox';
 import {
@@ -72,18 +79,27 @@ const tool = (name: string, tier: GatewayTool['tier'], o: Partial<GatewayTool> =
 /** A scope whose calls `answer` answers, recording each one. */
 function fakeScope(
   tools: GatewayTool[],
-  answer: (name: string, args: Record<string, unknown>, gone?: () => boolean) => Promise<GatewayResult> | GatewayResult,
+  answer: (
+    name: string,
+    args: Record<string, unknown>,
+    gone?: () => boolean,
+    asking?: GatewayAsking,
+  ) => Promise<GatewayResult> | GatewayResult,
 ) {
   const made: { name: string; args: Record<string, unknown> }[] = [];
   const scope: GatewayScope = {
     tools,
-    call: async (name, args, gone) => {
+    call: async (name, args, gone, asking) => {
       made.push({ name, args });
-      return answer(name, args, gone);
+      return answer(name, args, gone, asking);
     },
   };
   return { scope, made };
 }
+
+/** The user asked through `asking`, as the gateway asks: answering after `ms`, or never. */
+const userAnswers = async (asking: GatewayAsking | undefined, ms: number, allow = true) =>
+  asking!(() => new Promise((resolve) => (ms === Infinity ? undefined : setTimeout(() => resolve({ allow }), ms))));
 
 /** What the code returned, from a result's `<value>` block. */
 const valueOf = (r: GatewayResult) => /<value>\n([\s\S]*)\n<\/value>/.exec(r.text)?.[1];
@@ -163,9 +179,10 @@ return { hits, read, tools: relay.tools.map((t) => t.name), env: Object.keys(pro
     'stops code that runs past its time, not counting the time the user takes to answer',
     async () => {
       const wait = (ms: number) => new Promise<GatewayResult>((resolve) => setTimeout(() => resolve({ text: 'done' }), ms));
-      const { scope } = fakeScope([tool('page_click', 'act'), tool('slow_read', 'read')], (name) =>
-        wait(name === 'page_click' ? 1500 : 1500),
-      );
+      const { scope } = fakeScope([tool('page_click', 'act'), tool('slow_read', 'read')], async (name, _args, _gone, asking) => {
+        if (name === 'page_click') await userAnswers(asking, 1500);
+        return wait(name === 'page_click' ? 0 : 1500);
+      });
       // A click the user is asked about for 1.5 s, in a run of 1 s: the answer's time does not count.
       const asked = await runCode({ code: `return await relay.page_click({})`, timeout_sec: 1 }, ctx(), scope, deps());
       expect(asked.isError).toBeUndefined();
@@ -251,8 +268,8 @@ return out;`,
     const stopped = await runCode(
       { code: `relay.page_click({}); await new Promise(() => {});`, timeout_sec: 1 },
       ctx(),
-      fakeScope([tool('slow_read', 'read'), tool('page_click', 'act')], async (name, _args, gone) => {
-        await new Promise((r) => setTimeout(r, 1500));
+      fakeScope([tool('slow_read', 'read'), tool('page_click', 'act')], async (name, _args, gone, asking) => {
+        await userAnswers(asking, 1500);
         if (gone?.()) return { text: 'not done', isError: true };
         done.push(name);
         return { text: name };
@@ -478,6 +495,19 @@ posix('run_code through the gateway', () => {
         describe: (a) => ({ title: `Mail to ${String(a.to)}`, preview: { fields: [] } }),
         send: async () => 'sent',
       }),
+      // As browser_open does: a read whose tool asks the user itself about a host it has not opened yet.
+      tool('page_open', 'read', {
+        group: 'browser',
+        run: async (a, c) => {
+          const answer = await c.ask!({
+            kind: 'fetch',
+            detail: String(a.url),
+            reason: 'A host this browser has not opened.',
+            noLock: true,
+          });
+          return answer.allow ? { text: `Opened ${String(a.url)}` } : { text: `Not opened ${String(a.url)}`, isError: true };
+        },
+      }),
       runCodeTool(deps({ mode: () => labs })),
     ]);
     await gateway.start();
@@ -518,7 +548,7 @@ posix('run_code through the gateway', () => {
     };
     labs = { mode: 'off' };
     try {
-      expect((await list()).map((t) => t.name).sort()).toEqual(['page_click', 'page_title']);
+      expect((await list()).map((t) => t.name).sort()).toEqual(['page_click', 'page_open', 'page_title']);
       expect(await call(spec, RUN_CODE_TOOL, { code: 'return 1' })).toEqual({ text: 'No such tool: run_code', isError: true });
       labs = { mode: 'rlm', rlmModel: 'homelab/tiny' };
       const offered = (await list()).find((t) => t.name === RUN_CODE_TOOL)!;
@@ -539,7 +569,7 @@ posix('run_code through the gateway', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
     const names = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
-    expect(names.sort()).toEqual(['page_click', 'page_title', RUN_CODE_TOOL]);
+    expect(names.sort()).toEqual(['page_click', 'page_open', 'page_title', RUN_CODE_TOOL]);
     const r = await call(spec, RUN_CODE_TOOL, {
       code: `const names = relay.tools.map((t) => t.name);
 const tries = [];
@@ -548,7 +578,7 @@ return { names, tries, title: await relay.page_title({ url: 'https://example.com
     });
     expect(r.isError).toBe(false);
     expect(JSON.parse(valueOf(r)!)).toEqual({
-      names: ['page_title', 'page_click'],
+      names: ['page_title', 'page_click', 'page_open'],
       tries: ['No such tool: run_code', 'No such tool: mail_out'],
       title: 'Title of https://example.com',
     });
@@ -587,6 +617,29 @@ return { names, tries, title: await relay.page_title({ url: 'https://example.com
     expect(valueOf(refused)).toBe("The user's settings refuse page_click in this conversation without asking; do not try it another way.");
     expect(clicked).toEqual(['Buy']);
     end();
+  });
+
+  it('asks about a new host as the browser does, its card saying code asked, and no more often than the run may ask', async () => {
+    asked.length = 0;
+    const { spec, revoke } = gateway.grant(turn(), ['browser'], { http: true })!;
+    const r = await call(spec, RUN_CODE_TOOL, {
+      code: `const out = [];
+for (let i = 1; i <= 7; i++) { try { out.push(await relay.page_open({ url: 'https://site' + i + '.example' })); } catch (e) { out.push(e.message.split('\\n')[0]); } }
+return out;`,
+    });
+    expect(asked).toHaveLength(RUN_CODE_LIMITS.confirmations);
+    expect(asked[0]).toEqual({
+      kind: 'fetch',
+      detail: 'https://site1.example',
+      reason: 'Asked by code the agent runs with run_code. A host this browser has not opened.',
+      noLock: true,
+    });
+    expect(JSON.parse(valueOf(r)!)).toEqual([
+      ...Array.from({ length: RUN_CODE_LIMITS.confirmations }, (_, i) => `Opened https://site${i + 1}.example`),
+      'Not opened https://site6.example',
+      'Not opened https://site7.example',
+    ]);
+    revoke();
   });
 
   it('calls nothing more once its turn is over', async () => {
@@ -871,7 +924,10 @@ await new Promise(() => {});`,
 
   it("stops when its caller stops waiting for it, and caps the time it waits for the user's answers", async () => {
     let gone = false;
-    const { scope } = fakeScope([tool('page_click', 'act')], () => new Promise<GatewayResult>(() => undefined));
+    const { scope } = fakeScope([tool('page_click', 'act')], async (_name, _args, _gone, asking) => {
+      await userAnswers(asking, Infinity);
+      return { text: 'never' };
+    });
     setTimeout(() => (gone = true), 300);
     const left = await runCode({ code: `await new Promise(() => {})` }, ctx(), { ...scope, gone: () => gone }, deps());
     expect(left.text).toMatch(/^<run_code_result status="stopped"/);
@@ -887,6 +943,61 @@ await new Promise(() => {});`,
       deps({ waitMs: 300 }),
     );
     expect(busy.text).toMatch(/^<run_code_result status="timeout"/);
+  });
+
+  it('counts the questions a tool asks by itself (the browser about a new host) with the others, and stops its clock meanwhile', async () => {
+    const asked: string[] = [];
+    // As browser_open does: a read whose tool asks the user about a host it has not opened yet.
+    const { scope } = fakeScope([tool('page_open', 'read')], async (_name, args, _gone, asking) => {
+      const answer = await asking!(async () => {
+        asked.push(String(args.url));
+        await new Promise((r) => setTimeout(r, String(args.url) === 'slow' ? 1500 : 10));
+        return { allow: true };
+      });
+      return answer.allow
+        ? { text: `opened ${String(args.url)}` }
+        : { text: `The user did not allow opening ${String(args.url)}`, isError: true };
+    });
+    const r = await runCode(
+      {
+        code: `const out = [];
+for (let i = 1; i <= ${RUN_CODE_LIMITS.confirmations + 2}; i++) { try { out.push(await relay.page_open({ url: 'host' + i })); } catch (e) { out.push(e.message); } }
+return out;`,
+      },
+      ctx(),
+      scope,
+      deps(),
+    );
+    const out = JSON.parse(valueOf(r)!) as string[];
+    // As many as the run may ask, then none: the tool is told no, and the code why.
+    expect(asked).toEqual(Array.from({ length: RUN_CODE_LIMITS.confirmations }, (_, i) => `host${i + 1}`));
+    expect(out.slice(0, RUN_CODE_LIMITS.confirmations)).toEqual(asked.map((h) => `opened ${h}`));
+    for (const refused of out.slice(RUN_CODE_LIMITS.confirmations))
+      expect(refused).toMatch(
+        new RegExp(
+          `^The user did not allow opening host\\d\n\\(The user was not asked: run_code asks the user at most ${RUN_CODE_LIMITS.confirmations} times in one run`,
+        ),
+      );
+    expect(r.text).toContain('- page_open: failed: not asked: over the limit of questions to the user');
+    // The time the user takes to answer it does not count against the run's.
+    const slow = await runCode({ code: `return await relay.page_open({ url: 'slow' })`, timeout_sec: 1 }, ctx(), scope, deps());
+    expect(valueOf(slow)).toBe('opened slow');
+  });
+
+  it("stops waiting for a call the code left behind once the wait's limit is up, and lists what was not done", async () => {
+    const done: string[] = [];
+    const { scope } = fakeScope([tool('page_click', 'act'), tool('mail_out', 'send')], async (name, _args, gone, asking) => {
+      if (name === 'page_click') await userAnswers(asking, 2000);
+      if (gone?.()) return { text: 'not done', isError: true };
+      done.push(name);
+      return { text: name };
+    });
+    const r = await runCode({ code: `relay.page_click({}); relay.mail_out({}); return 'early';` }, ctx(), scope, deps({ waitMs: 300 }));
+    expect(valueOf(r)).toBe('early');
+    expect(r.text).toContain("- page_click: failed: not done: the run stopped waiting for the user's answer");
+    expect(r.text).toContain('- and 1 more, not made: the run stopped waiting before them.');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(done).toEqual([]);
   });
 
   it('ends the questions still being answered when its process ends without a result', async () => {

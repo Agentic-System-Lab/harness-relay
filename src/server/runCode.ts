@@ -3,6 +3,7 @@ import {
   dataBody,
   dataLine,
   gatewayDecision,
+  type GatewayAsking,
   type GatewayContext,
   type GatewayResult,
   type GatewayScope,
@@ -371,12 +372,18 @@ export function runCodeUnavailable(deps: Pick<RunCodeDeps, 'platform' | 'node'>,
 /**
  * A run's time limit, which stands still while the user is asked about a call (its runner still runs, so
  * that time is capped too: `maxWaitMs` in all, after which the run ends as one that waited too long).
+ * Once the code has finished (`finish()`), its own time no longer runs, but the wait's limit still holds
+ * for the calls it made before, which are still made.
  */
 class Clock {
   private timer?: NodeJS.Timeout;
   private left: number;
   private since = 0;
+  /** The code finished: its own time no longer runs. */
+  private finished = false;
+  /** The run is over: nothing runs any more. */
   private stopped = false;
+  private paused = false;
   private waitTimer?: NodeJS.Timeout;
   private waited = 0;
   private waitSince = 0;
@@ -387,29 +394,45 @@ class Clock {
     private onEnd: (why: 'time' | 'wait') => void,
   ) {
     this.left = ms;
-    this.resume();
+    this.start();
   }
 
+  private start(): void {
+    if (this.stopped || this.finished || this.timer) return;
+    this.since = Date.now();
+    this.timer = setTimeout(() => this.onEnd('time'), Math.max(0, this.left));
+    this.timer.unref();
+  }
+
+  /** The user is asked: the run's time stands still, the wait's runs. */
   pause(): void {
-    if (!this.timer) return;
-    clearTimeout(this.timer);
-    this.timer = undefined;
-    this.left -= Date.now() - this.since;
+    if (this.stopped || this.paused) return;
+    this.paused = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      this.left -= Date.now() - this.since;
+    }
     this.waitSince = Date.now();
     this.waitTimer = setTimeout(() => this.onEnd('wait'), Math.max(0, this.maxWaitMs - this.waited));
     this.waitTimer.unref();
   }
 
+  /** The user answered. */
   resume(): void {
-    if (this.waitTimer) {
-      clearTimeout(this.waitTimer);
-      this.waitTimer = undefined;
-      this.waited += Date.now() - this.waitSince;
-    }
-    if (this.stopped || this.timer) return;
-    this.since = Date.now();
-    this.timer = setTimeout(() => this.onEnd('time'), Math.max(0, this.left));
-    this.timer.unref();
+    if (!this.paused) return;
+    this.paused = false;
+    if (this.waitTimer) clearTimeout(this.waitTimer);
+    this.waitTimer = undefined;
+    this.waited += Date.now() - this.waitSince;
+    this.start();
+  }
+
+  /** The code finished. */
+  finish(): void {
+    this.finished = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
   }
 
   stop(): void {
@@ -494,6 +517,8 @@ export function runCodeResult(r: {
   calls: readonly CallRecord[];
   /** Calls the code made past the most a run makes, not made and not listed one by one. */
   notListed?: number;
+  /** Calls the code made before it finished that were not made, as the run stopped waiting first. */
+  stoppedBefore?: number;
   seconds: number;
   output: string;
   value?: string;
@@ -504,7 +529,7 @@ export function runCodeResult(r: {
   const llm = r.rlm
     ? ` llm_calls="${r.rlm.asked}" llm_calls_left="${r.rlm.left}" input_tokens="${r.rlm.inputTokens}" output_tokens="${r.rlm.outputTokens}"`
     : '';
-  const total = r.calls.length + (r.notListed ?? 0);
+  const total = r.calls.length + (r.notListed ?? 0) + (r.stoppedBefore ?? 0);
   const lines = [`<run_code_result status="${r.status}" calls="${total}"${llm} seconds="${r.seconds}">`];
   if (total) {
     lines.push('<calls>');
@@ -512,6 +537,7 @@ export function runCodeResult(r: {
       lines.push(`- ${inLine(c.name, NAME_MAX)}: ${c.ok ? 'ok' : `failed${c.note ? `: ${inLine(c.note, NOTE_MAX)}` : ''}`}`);
     if (r.notListed)
       lines.push(`- and ${r.notListed} more, not made: ${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.calls} tool calls in one run.`);
+    if (r.stoppedBefore) lines.push(`- and ${r.stoppedBefore} more, not made: the run stopped waiting before them.`);
     lines.push('</calls>');
   }
   if (r.output.trim()) lines.push('<output>', body(r.output), '</output>');
@@ -591,6 +617,8 @@ export async function runCode(
   let done: { value?: string; error?: string } | undefined;
   let ended: 'time' | 'wait' | 'flood' | 'caller' | undefined;
   let confirmations = 0;
+  /** The call being made now, if one is (calls are made one at a time). */
+  let inFlight: string | undefined;
   const asked = { count: 0, failed: 0, truncated: 0, refused: 0, inputTokens: 0, outputTokens: 0 };
   let stateNote: string | undefined;
   /**
@@ -599,11 +627,21 @@ export async function runCode(
    * finished, the calls it made before are still made, and listed.
    */
   let abandoned = false;
+  let gaveUp!: () => void;
+  /** Settles once the run is abandoned: the calls left after the code finished are not waited for any more. */
+  const givenUp = new Promise<void>((resolve) => (gaveUp = resolve));
   const abandon = (why?: typeof ended) => {
     if (why && !ended) ended = why;
     abandoned = true;
     stop.abort();
+    gaveUp();
   };
+  const onTurnEnd = () => abandon();
+  ctx.signal.addEventListener('abort', onTurnEnd, { once: true });
+  /** Calls the code made that are not done yet (the one being made included). */
+  let callsLeft = 0;
+  /** Of them, those the run stopped waiting for once the code had finished. */
+  let stoppedBefore = 0;
   let child: ChildProcess | undefined;
   const clock = new Clock(timeout * 1000, deps.waitMs ?? RUN_CODE_LIMITS.waitSec * 1000, (why) => abandon(why));
   const reply = (msg: unknown) => {
@@ -649,17 +687,43 @@ export async function runCode(
       return notMade(
         `${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.confirmations} calls that ask the user or use the outbox in one run; this one was not made. Call ${name.slice(0, NAME_MAX)} directly instead.`,
       );
-    // The time the user takes to answer does not count against the run's (up to the wait's own limit).
-    if (decision === 'ask') clock.pause();
+    // Every question the call asks the user (an act's, counted above; one its tool asks itself, as the
+    // browser about a new host does) counts as one of those, and the time the user takes to answer it does
+    // not count against the run's (up to the wait's own limit). One past the limit is not asked.
+    let counted = decision === 'ask';
+    let unasked = false;
+    const asking: GatewayAsking = async (ask) => {
+      if (counted) counted = false;
+      else if (++confirmations > RUN_CODE_LIMITS.confirmations) {
+        unasked = true;
+        return { allow: false };
+      }
+      clock.pause();
+      try {
+        return await ask();
+      } finally {
+        clock.resume();
+      }
+    };
     let result: GatewayResult;
+    inFlight = name;
     try {
-      result = await scope.call(name, callArgs, () => abandoned);
+      result = await scope.call(name, callArgs, () => abandoned, asking);
     } catch (err) {
       result = { text: `${name} failed: ${(err as Error).message}`, isError: true };
     } finally {
-      if (decision === 'ask') clock.resume();
+      inFlight = undefined;
     }
-    record({ name, ok: !result.isError, ...(result.isError ? { note: result.text } : {}) });
+    if (unasked)
+      result = {
+        ...result,
+        text: `${result.text}\n(The user was not asked: ${RUN_CODE_TOOL} asks the user at most ${RUN_CODE_LIMITS.confirmations} times in one run, with the calls that use the outbox. Call ${name.slice(0, NAME_MAX)} directly instead.)`,
+      };
+    record({
+      name,
+      ok: !result.isError && !unasked,
+      ...(result.isError || unasked ? { note: unasked ? 'not asked: over the limit of questions to the user' : result.text } : {}),
+    });
     answer(result);
   };
 
@@ -720,7 +784,9 @@ export async function runCode(
     if (!msg) return addOutput(`${line}\n`);
     if (msg.type === 'output') return addOutput(typeof msg.text === 'string' ? msg.text : '');
     if (msg.type === 'call') {
-      if (!done) queue = queue.then(() => callOf(msg, line.length));
+      if (done) return;
+      callsLeft++;
+      queue = queue.then(() => callOf(msg, line.length)).finally(() => void callsLeft--);
       return;
     }
     if (msg.type === 'llm') return void llmOf(msg);
@@ -737,7 +803,7 @@ export async function runCode(
         else
           stateNote = `state was not kept: ${typeof msg.stateError === 'string' ? msg.stateError : 'it could not be written as JSON'}; it is as it was before this run.`;
       }
-      clock.stop();
+      clock.finish();
       setTimeout(() => stop.abort(), EXIT_GRACE_MS).unref();
     }
   };
@@ -789,16 +855,23 @@ export async function runCode(
   } catch (err) {
     spawnError = err as Error;
   } finally {
-    clearInterval(caller);
-    clock.stop();
-    // The runner is gone: so are the answers it waited for, and any question still being asked.
+    // The runner is gone: so are the answers it waited for, and any question to the sub-model still being asked.
     stop.abort();
     child?.stdin?.end();
     await runner.dispose();
   }
-  if (!done) abandoned = true;
-  // The calls the code made before it finished, also those it did not wait for: made, and listed.
-  if (done) await queue;
+  if (!done) abandon();
+  // The calls the code made before it finished, also those it did not wait for: made, and listed; unless
+  // the run stops waiting for them (the wait's limit for the user's answers, its caller or the turn gone).
+  if (done) await Promise.race([queue, givenUp]);
+  clearInterval(caller);
+  clock.stop();
+  ctx.signal.removeEventListener('abort', onTurnEnd);
+  if (done && abandoned && callsLeft) {
+    if (inFlight)
+      calls.push({ name: inFlight.slice(0, NAME_MAX), ok: false, note: "not done: the run stopped waiting for the user's answer" });
+    stoppedBefore = callsLeft - (inFlight ? 1 : 0);
+  }
 
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   if (rlm && !done) stateNote = 'state is as it was before this run: the code did not finish.';
@@ -816,6 +889,7 @@ export async function runCode(
   const base = {
     calls,
     ...(notListed ? { notListed } : {}),
+    ...(stoppedBefore ? { stoppedBefore } : {}),
     seconds,
     output: outputOver ? `${output}\n… (more output left out)` : output,
     ...(report ? { rlm: report } : {}),

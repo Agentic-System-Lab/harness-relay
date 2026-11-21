@@ -126,9 +126,19 @@ export interface GatewayScope {
   tools: GatewayTool[];
   /** Whether the scoped tool's own caller stopped waiting for it (the CLI's MCP call closed): it may stop then. */
   gone?: () => boolean;
-  /** `gone`: whether the scoped tool stopped waiting for it, checked as the gateway checks its own caller's. */
-  call(name: string, args: Record<string, unknown>, gone?: () => boolean): Promise<GatewayResult>;
+  /**
+   * `gone`: whether the scoped tool stopped waiting for it, checked as the gateway checks its own caller's.
+   * `asking`: wraps each question the call asks the user, an act's and one its tool asks itself (the
+   * browser about a new host), every one of them marked on its card as asked by code.
+   */
+  call(name: string, args: Record<string, unknown>, gone?: () => boolean, asking?: GatewayAsking): Promise<GatewayResult>;
 }
+
+/**
+ * Wraps one question a call from a scoped tool asks the user (`GatewayContext.ask`): it may answer it
+ * without asking (`allow: false`, as a limit says), and knows how long the user takes to answer.
+ */
+export type GatewayAsking = (ask: () => Promise<ApprovalAnswer>) => Promise<ApprovalAnswer>;
 
 /** What a call of `tier` does in a turn with `permission`, given whether the turn can ask the user. */
 export function gatewayDecision(tier: GatewayTier, permission: Permission, canAsk: boolean): 'run' | 'ask' | 'refuse' | 'outbox' {
@@ -679,13 +689,25 @@ export class ToolGateway {
     return {
       tools,
       gone: () => Boolean(gone?.()),
-      call: async (name, args, callGone) => {
+      call: async (name, args, callGone, asking) => {
         // Looked up again for each call: a turn that ended takes its tools with it.
         if (![...this.grants.values()].includes(grant))
           return { text: 'This turn is over: Harness Relay has no tools for it any more', isError: true };
         const tool = tools.find((t) => t.name === name);
         if (!tool) return { text: `No such tool: ${name}`, isError: true };
-        return this.call(tool, args, grant.ctx, () => Boolean(gone?.() || callGone?.()), { fromCode: true });
+        // Every question the call asks goes through the scoped tool (an act's, and one its tool asks
+        // itself, as the browser about a new host does), its card saying that code asked.
+        const ask = grant.ctx.ask;
+        const ctx: GatewayContext = ask
+          ? {
+              ...grant.ctx,
+              ask: (req) => {
+                const asked = () => ask({ ...req, reason: [t().gatewayFromCode, req.reason].filter(Boolean).join(' ') });
+                return asking ? asking(asked) : asked();
+              },
+            }
+          : grant.ctx;
+        return this.call(tool, args, ctx, () => Boolean(gone?.() || callGone?.()));
       },
     };
   }
@@ -803,14 +825,14 @@ export class ToolGateway {
   /**
    * A call, as its tier and the turn allow. `gone`: whether the client stopped waiting for it (its
    * connection closed), checked once the user has answered about an act. `scope`: for a scoped tool, the
-   * turn's other tools; `fromCode`: the call comes from code a scoped tool runs, which its approval card says.
+   * turn's other tools.
    */
   async call(
     tool: GatewayTool,
     args: Record<string, unknown>,
     ctx: GatewayContext,
     gone?: () => boolean,
-    o: { scope?: GatewayScope; fromCode?: boolean } = {},
+    o: { scope?: GatewayScope } = {},
   ): Promise<GatewayResult> {
     const missing = tool.unavailable?.();
     if (missing) return { text: `${tool.name} cannot be used now: ${missing}`, isError: true };
@@ -858,7 +880,7 @@ export class ToolGateway {
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
       // no folder lock either: the call writes nothing in the working directory.
       const answered = tool.asking?.(ctx);
-      const reason = o.fromCode ? [t().gatewayFromCode, described.detail].filter(Boolean).join(' ') : described.detail;
+      const reason = described.detail;
       const answer = await ctx.ask!({
         kind: 'other',
         tool: gatewayApprovalTool(tool.name),

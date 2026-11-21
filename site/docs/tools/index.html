@@ -670,7 +670,7 @@
               <b>Let assistants script the tools (CodeAct)</b>: an agent writes a short program that calls the tools one after
               another, such as going through 50 mails and keeping only what matters, instead of one call at a time. Each call is
               decided as the agent's own would be: reads run, actions ask you, and mail waits in the <a href="#outbox">outbox</a>,
-              at most 5 such calls a run. The program runs in Harness Relay's own sandbox, also in Full access: no network and no
+              at most 5 questions or outbox items a run, the browser's question about a new site included. The program runs in Harness Relay's own sandbox, also in Full access: no network and no
               file changed, though it can read what your account can read, except the protected folders. A run takes a minute
               by default.
             </li>
