@@ -17,8 +17,10 @@ test.describe('PowerShell distribution', () => {
     await row.locator('.app-options > summary').click();
     await expect(row.getByRole('link', { name: /in (Claude|Codex)/ })).toHaveCount(0);
     await row.getByRole('button', { name: 'Install PowerShell 7', exact: true }).click();
+    const installing = row.getByRole('status');
+    await expect(installing).toContainText('Preparing Teams sign-in');
     await page.reload();
-    await expect(row.getByRole('status')).toContainText('Preparing Teams sign-in');
+    await expect(installing).toContainText('Preparing Teams sign-in');
     await expect.poll(() => existsSync(file('downloads'))).toBe(true);
     writeFileSync(file('release-download'), '');
     await expect(row.getByRole('alert')).toContainText(/download|checksum|verified/i);
