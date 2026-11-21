@@ -10,6 +10,8 @@ import {
   type ModelBackendsView,
   type ModelEndpointUpdate,
 } from '../shared/types';
+import type { ModelLimits, TokenLimits } from '../shared/types';
+import { effectiveLimits, validContext, validOutput } from '../shared/modelLimits';
 import { AgentRunError, type RunBackends, type RunEndpoint } from './agents/types';
 import { transaction, type Database } from './db';
 import { HttpError } from './errors';
@@ -128,6 +130,7 @@ interface Row {
   base_url: string;
   models: string;
   api_key: string;
+  model_limits: string;
   created_at: number;
 }
 
@@ -140,8 +143,84 @@ function parseModels(text: string): string[] {
   }
 }
 
+/**
+ * `model_backends.model_limits` as kept: each model's limits the user set and the server reported, only
+ * figures Settings takes (anything else in the column is left out, never given to a run).
+ */
+export function parseModelLimits(text: string): Record<string, ModelLimits> {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const tokens = (o: unknown): TokenLimits => {
+    const l = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>;
+    return { ...(validContext(l.context) ? { context: l.context } : {}), ...(validOutput(l.output) ? { output: l.output } : {}) };
+  };
+  const out: [string, ModelLimits][] = [];
+  for (const [model, value] of Object.entries(v as Record<string, unknown>)) {
+    const reported = tokens((value as { reported?: unknown } | null)?.reported);
+    const entry: ModelLimits = { ...tokens(value), ...(reported.context || reported.output ? { reported } : {}) };
+    if (entry.context || entry.output || entry.reported) out.push([model, entry]);
+  }
+  return Object.fromEntries(out);
+}
+
+/** A copy of an endpoint's limits, of `models` only (in their order). */
+function limitsOf(limits: Record<string, ModelLimits>, models: readonly string[]): Record<string, ModelLimits> {
+  return Object.fromEntries(
+    models.flatMap((m) =>
+      Object.hasOwn(limits, m) ? [[m, { ...limits[m], ...(limits[m]!.reported ? { reported: { ...limits[m]!.reported } } : {}) }]] : [],
+    ),
+  );
+}
+
+/**
+ * An endpoint's limits after a save: the user's (`u.limits`, else those kept), and the server's
+ * (`reported`, when the save asked it; else those kept, unless the endpoint moved to another address,
+ * where they were of another server), for the models it lists now. Throws when an output limit the user
+ * set is not less than the context window the server reports.
+ */
+export function savedLimits(
+  before: Record<string, ModelLimits>,
+  u: Pick<ModelEndpointUpdate, 'models' | 'limits'>,
+  reported: Record<string, TokenLimits> | undefined,
+  moved: boolean,
+): Record<string, ModelLimits> {
+  const out: [string, ModelLimits][] = [];
+  for (const model of u.models) {
+    const kept = Object.hasOwn(before, model) ? before[model] : undefined;
+    const set = u.limits ? (Object.hasOwn(u.limits, model) ? u.limits[model] : undefined) : kept;
+    const server = reported ? (Object.hasOwn(reported, model) ? reported[model] : undefined) : moved ? undefined : kept?.reported;
+    const entry: ModelLimits = {
+      ...(set?.context ? { context: set.context } : {}),
+      ...(set?.output ? { output: set.output } : {}),
+      ...(server?.context || server?.output ? { reported: { ...server } } : {}),
+    };
+    const context = entry.context ?? entry.reported?.context;
+    if (entry.output && context && entry.output >= context)
+      throw new HttpError(400, t().endpointOutputTooLarge(model, entry.output, context));
+    if (entry.context || entry.output || entry.reported) out.push([model, entry]);
+  }
+  return Object.fromEntries(out);
+}
+
+/** What a run uses of an endpoint's limits (`effectiveLimits()`), for the models that have any. */
+function runLimitsOf(limits: Record<string, ModelLimits>, models: readonly string[]): Record<string, TokenLimits> {
+  return Object.fromEntries(
+    models.flatMap((m) => {
+      const l = effectiveLimits(Object.hasOwn(limits, m) ? limits[m] : undefined);
+      return l.context || l.output ? [[m, l]] : [];
+    }),
+  );
+}
+
 interface Endpoint extends RunEndpoint {
   createdAt: number;
+  /** Its models' limits as kept (`model_backends.model_limits`). */
+  modelLimits: Record<string, ModelLimits>;
 }
 
 /**
@@ -166,7 +245,7 @@ export class ModelBackendStore {
     private keyring?: SecretStore,
   ) {
     const rows = db
-      .prepare('SELECT id, name, base_url, models, api_key, created_at FROM model_backends ORDER BY created_at, id')
+      .prepare('SELECT id, name, base_url, models, api_key, model_limits, created_at FROM model_backends ORDER BY created_at, id')
       .all() as unknown as Row[];
     for (const r of rows) {
       if (isApiBackend(r.id)) {
@@ -181,6 +260,7 @@ export class ModelBackendStore {
         models: parseModels(r.models),
         ...(r.api_key ? { apiKey: r.api_key } : {}),
         createdAt: r.created_at,
+        modelLimits: parseModelLimits(r.model_limits),
       });
     }
     for (const r of db.prepare('SELECT id FROM deleted_endpoints').all() as { id: string }[]) {
@@ -268,11 +348,11 @@ export class ModelBackendStore {
     if (!e) return;
     this.db
       .prepare(
-        `INSERT INTO model_backends (id, name, base_url, models, api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO model_backends (id, name, base_url, models, api_key, model_limits, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET name = excluded.name, base_url = excluded.base_url,
-           models = excluded.models, api_key = excluded.api_key`,
+           models = excluded.models, api_key = excluded.api_key, model_limits = excluded.model_limits`,
       )
-      .run(e.id, e.name, e.baseUrl, JSON.stringify(e.models), key, e.createdAt);
+      .run(e.id, e.name, e.baseUrl, JSON.stringify(e.models), key, JSON.stringify(e.modelLimits), e.createdAt);
   }
 
   private clearStoredKey(id: string): void {
@@ -329,14 +409,20 @@ export class ModelBackendStore {
     return this.endpointRevisions.get(id) ?? 0;
   }
 
-  /** Adds or replaces an endpoint. A saved key belongs to the base URL it was given for. */
-  putEndpoint(id: string, u: ModelEndpointUpdate): void {
+  /**
+   * Adds or replaces an endpoint. A saved key belongs to the base URL it was given for. `reported`: what
+   * the server reported of its models' limits when this save asked it (`verifyEndpointModels()`);
+   * absent, those kept stay (`savedLimits()`).
+   */
+  putEndpoint(id: string, u: ModelEndpointUpdate, reported?: Record<string, TokenLimits>): void {
     let e = this.endpoints.find((x) => x.id === id);
     // Added again: its models run on it again, once it is saved (in the same write, so that a failed
     // save leaves it deleted, not neither).
     const readded = this.deleted.has(id);
     const added = !e;
     const moved = !!e && e.baseUrl !== u.baseUrl;
+    // Checked before anything changes: an output limit that does not fit refuses the whole save.
+    const modelLimits = savedLimits(e?.modelLimits ?? {}, u, reported, moved);
     // The keyring and SQLite commit independently. Clear the keyring before publishing a
     // different URL and install its replacement only after the new URL is durable.
     // A new ID may also have a credential left behind by an interrupted add from an earlier version.
@@ -347,20 +433,27 @@ export class ModelBackendStore {
     this.endpointRevisions.set(id, this.endpointRevision(id) + 1);
     // What to put back when the save fails: nothing of the change is kept, in memory or in the
     // keyring (a key left there would come back for this id at the next start, `loadKeys`).
-    const before = e ? { name: e.name, baseUrl: e.baseUrl, models: [...e.models], apiKey: e.apiKey } : undefined;
+    const before = e
+      ? { name: e.name, baseUrl: e.baseUrl, models: [...e.models], apiKey: e.apiKey, modelLimits: e.modelLimits }
+      : undefined;
     const flags = { leftInDb: this.keysLeftInDb.has(id), unreadable: this.unreadable.has(id) };
     if (!e) {
-      e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now() };
+      e = { id, name: u.name, baseUrl: u.baseUrl, models: [...u.models], createdAt: Date.now(), modelLimits };
       this.endpoints.push(e);
     } else {
-      Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models] });
+      Object.assign(e, { name: u.name, baseUrl: u.baseUrl, models: [...u.models], modelLimits });
     }
     const endpoint = e;
     let keyStored = false;
     const undo = () => {
       if (added) this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
       else {
-        Object.assign(endpoint, { name: before!.name, baseUrl: before!.baseUrl, models: before!.models });
+        Object.assign(endpoint, {
+          name: before!.name,
+          baseUrl: before!.baseUrl,
+          models: before!.models,
+          modelLimits: before!.modelLimits,
+        });
         if (before!.apiKey) endpoint.apiKey = before!.apiKey;
         else delete endpoint.apiKey;
       }
@@ -478,15 +571,19 @@ export class ModelBackendStore {
     const flags = (id: string) => (this.unreadable.has(id) ? { keyUnreadable: true } : {});
     return {
       apis: API_BACKENDS.map((id) => ({ id, keyMasked: maskSecret(this.apis[id] ?? ''), keyStorage: this.storage(id), ...flags(id) })),
-      endpoints: this.endpoints.map((e) => ({
-        id: e.id,
-        name: e.name,
-        baseUrl: e.baseUrl,
-        models: [...e.models],
-        keyMasked: maskSecret(e.apiKey ?? ''),
-        keyStorage: this.storage(e.id),
-        ...flags(e.id),
-      })),
+      endpoints: this.endpoints.map((e) => {
+        const limits = limitsOf(e.modelLimits, e.models);
+        return {
+          id: e.id,
+          name: e.name,
+          baseUrl: e.baseUrl,
+          models: [...e.models],
+          keyMasked: maskSecret(e.apiKey ?? ''),
+          keyStorage: this.storage(e.id),
+          ...flags(e.id),
+          ...(Object.keys(limits).length ? { limits } : {}),
+        };
+      }),
       deletedEndpoints: [...this.deleted].sort(),
     };
   }
@@ -500,7 +597,10 @@ export class ModelBackendStore {
   forRun(): RunBackends {
     return {
       apis: { ...this.apis },
-      endpoints: this.endpoints.map(({ createdAt: _, ...e }) => ({ ...e, models: [...e.models] })),
+      endpoints: this.endpoints.map(({ createdAt: _, modelLimits, ...e }) => {
+        const limits = runLimitsOf(modelLimits, e.models);
+        return { ...e, models: [...e.models], ...(Object.keys(limits).length ? { limits } : {}) };
+      }),
       ...(this.deleted.size ? { deletedEndpoints: [...this.deleted] } : {}),
     };
   }

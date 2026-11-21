@@ -13,6 +13,7 @@ import {
   type Provider,
   type ToolCallKind,
 } from '../../shared/types';
+import type { TokenLimits } from '../../shared/types';
 import { CONFIG } from '../config';
 import type { TurnHooks } from '../hooks';
 import type { WriteGuard } from '../writeGuard';
@@ -218,6 +219,11 @@ export interface RunEndpoint {
   baseUrl: string;
   models: string[];
   apiKey?: string;
+  /**
+   * Its models' context windows and output limits as a run uses them (`effectiveLimits()`: the user's
+   * over the server's), by model id: only the models that have one (`runLimits()` reads them).
+   */
+  limits?: Record<string, TokenLimits>;
 }
 
 /** An MCP server to hand to a CLI, with its secret values. */

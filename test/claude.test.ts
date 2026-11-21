@@ -1127,6 +1127,14 @@ describe("Claude Code's sandbox below full access", () => {
       CLAUDE_CODE_SUBAGENT_MODEL: 'qwen3',
     });
     expect(claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, apiKey: 'k' } }).ANTHROPIC_AUTH_TOKEN).toBe('k');
+    // Its context window and the tokens of an answer, when Settings knows them.
+    expect(claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, limits: { qwen3: { context: 32768 } } } })).toMatchObject({
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: '32768',
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '8192',
+    });
+    const outputOnly = claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, limits: { qwen3: { output: 2048 } } } });
+    expect(outputOnly.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('2048');
+    expect(outputOnly).not.toHaveProperty('CLAUDE_CODE_MAX_CONTEXT_TOKENS');
     expect(claudeEndpointUrl('http://10.0.0.5:11434/v1')).toBe('http://10.0.0.5:11434');
     expect(claudeEndpointUrl('http://10.0.0.5:11434')).toBe('http://10.0.0.5:11434');
     expect(claudeEndpointUrl('https://gw.example/anthropic/')).toBe('https://gw.example/anthropic');

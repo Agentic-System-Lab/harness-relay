@@ -5466,6 +5466,13 @@ details.sub summary {
   overflow-wrap: anywhere;
 }
 
+/* Settings → Model connections: each model's context window and output limit, side by side where they fit. */
+.endpoint-limit-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 8px 12px;
+}
+
 /* Voice input: setup dialog and Settings card */
 .voice-dialog {
   width: min(580px, 100%);

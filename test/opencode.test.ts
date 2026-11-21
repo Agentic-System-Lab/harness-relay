@@ -43,7 +43,9 @@ import {
   opencodeBriefing,
   opencodeClientRequest,
   opencodeConfigText,
+  opencodeContextConfig,
   opencodeHome,
+  opencodeModelLimit,
   opencodeModelId,
   opencodeModels,
   opencodeNative,
@@ -959,6 +961,48 @@ describe('the run config', () => {
     const cfg = opencodeRunConfig(ep.o, ep.run, []) as any;
     expect(cfg.enabled_providers).toEqual(['relay-homelab']);
     expect(Object.keys(cfg.provider['relay-homelab'].models)).toEqual(['muse-glimmer-30b-nvfp4', 'typed-model']);
+    // Without a context window in Settings: as before, no limit, pruning or tool output limits.
+    expect(cfg.provider['relay-homelab'].models['muse-glimmer-30b-nvfp4']).toEqual({ name: 'muse-glimmer-30b-nvfp4', tool_call: true });
+    expect(cfg).not.toHaveProperty('compaction');
+    expect(cfg).not.toHaveProperty('tool_output');
+  });
+
+  it("writes each endpoint model's context window and output limit, and pruning and tool output limits for the run's", () => {
+    const limited = backends();
+    limited.endpoints[0]!.models.push('big', 'out-only');
+    limited.endpoints[0]!.limits = {
+      'muse-glimmer-30b-nvfp4': { context: 32768 },
+      big: { context: 262144, output: 16384 },
+      'out-only': { output: 2048 },
+    };
+    const ep = context({ backends: limited }, 'homelab/muse-glimmer-30b-nvfp4');
+    const cfg = opencodeRunConfig(ep.o, ep.run, []) as any;
+    expect(cfg.provider['relay-homelab'].models).toEqual({
+      // A quarter of the window for an answer, else OpenCode would keep 32,000 tokens of a 32k window for it.
+      'muse-glimmer-30b-nvfp4': { name: 'muse-glimmer-30b-nvfp4', tool_call: true, limit: { context: 32768, output: 8192 } },
+      big: { name: 'big', tool_call: true, limit: { context: 262144, output: 16384 } },
+      // No window: OpenCode does not compact before the server refuses, but asks for no more than this.
+      'out-only': { name: 'out-only', tool_call: true, limit: { context: 0, output: 2048 } },
+    });
+    expect(cfg.compaction).toEqual({ prune: true });
+    expect(cfg.tool_output).toEqual({ max_lines: 480, max_bytes: 12288 });
+    // A large window keeps OpenCode's own tool output limits; a model without a window, none of this.
+    const big = context({ backends: limited }, 'homelab/big');
+    expect(opencodeRunConfig(big.o, big.run, [])).toMatchObject({ compaction: { prune: true } });
+    expect(opencodeRunConfig(big.o, big.run, [])).not.toHaveProperty('tool_output');
+    const none = context({ backends: limited }, 'homelab/out-only');
+    expect(opencodeRunConfig(none.o, none.run, [])).not.toHaveProperty('compaction');
+    expect(opencodeModelLimit(undefined)).toBeUndefined();
+    expect(opencodeContextConfig({ context: 8192 })).toEqual({
+      compaction: { prune: true },
+      tool_output: { max_lines: 120, max_bytes: 3072 },
+    });
+    expect(opencodeContextConfig({ context: 2048 })).toEqual({
+      compaction: { prune: true },
+      tool_output: { max_lines: 50, max_bytes: 768 },
+    });
+    expect(opencodeContextConfig({ context: 136_535 }).tool_output).toBeDefined();
+    expect(opencodeContextConfig({ context: 136_536 }).tool_output).toBeUndefined();
   });
 });
 

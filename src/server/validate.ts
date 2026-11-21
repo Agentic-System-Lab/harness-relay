@@ -80,6 +80,8 @@ import { apiPort } from './ports';
 import { isLocalHost, isLoopbackHost, localAddresses, relayPorts } from './relaySandbox';
 import { validAddress } from './connectors/mime';
 import { endpointProblem, subscriptionKeys } from './push';
+import { MODEL_LIMIT_RANGE, validContext, validOutput } from '../shared/modelLimits';
+import type { TokenLimits } from '../shared/types';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
@@ -955,15 +957,44 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
   if (u.verifyModels !== undefined && typeof u.verifyModels !== 'boolean') bad(t().invalidField('verifyModels'));
   if (u.allowMissingMetadata !== undefined && (typeof u.allowMissingMetadata !== 'boolean' || u.verifyModels !== true))
     bad(t().invalidField('allowMissingMetadata'));
+  const unique = [...new Set(names)];
   const out = {
     name,
     baseUrl,
-    models: [...new Set(names)],
+    models: unique,
     ...(u.apiKey === undefined ? {} : { apiKey: validateBackendKey(u) }),
     ...(u.verifyModels === true ? { verifyModels: true } : {}),
     ...(u.allowMissingMetadata === true ? { allowMissingMetadata: true } : {}),
+    ...(u.limits === undefined ? {} : { limits: validEndpointLimits(u.limits, unique) }),
   };
   return out;
+}
+
+/**
+ * An endpoint's context windows and output limits as the user set them (`ModelEndpointUpdate.limits`):
+ * an object by model id, only of the models it lists, each `{ context?, output? }` in whole tokens
+ * (`MODEL_LIMIT_RANGE`), an output limit less than the context window set with it. A model with
+ * neither is left out.
+ */
+export function validEndpointLimits(input: unknown, models: readonly string[]): Record<string, TokenLimits> {
+  const { minContext, maxContext, minOutput, maxOutput } = MODEL_LIMIT_RANGE;
+  const fail = () => bad(t().endpointLimitsInvalid(minContext, maxContext, minOutput, maxOutput));
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail();
+  // As entries, so that a model named `__proto__` is a key like any other.
+  const out: [string, TokenLimits][] = [];
+  for (const [model, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!models.includes(model) || !value || typeof value !== 'object' || Array.isArray(value)) fail();
+    const { context, output, ...rest } = value as Record<string, unknown>;
+    if (Object.keys(rest).length) fail();
+    if ((context !== undefined && !validContext(context)) || (output !== undefined && !validOutput(output))) fail();
+    if (context !== undefined && output !== undefined && (output as number) >= (context as number)) fail();
+    const limits = {
+      ...(context !== undefined ? { context: context as number } : {}),
+      ...(output !== undefined ? { output: output as number } : {}),
+    };
+    if (limits.context !== undefined || limits.output !== undefined) out.push([model, limits]);
+  }
+  return Object.fromEntries(out);
 }
 
 /** How many notifications one `POST /api/notifications/read` may name. */

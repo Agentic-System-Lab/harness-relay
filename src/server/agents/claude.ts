@@ -15,6 +15,7 @@ import {
   type PlanEntry,
 } from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
 import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -500,11 +501,13 @@ export function claudeEndpointUrl(baseUrl: string): string {
  *   an `ANTHROPIC_API_KEY`, an `apiKeyHelper` or the user's sign-in), or `CLAUDE_ENDPOINT_NO_KEY`;
  * - no Anthropic key or sign-in token, and none of the cloud providers (Bedrock, Vertex, Foundry),
  *   which Claude Code would take first;
- * - the model for everything it runs: the turn, its background requests and its subagents.
+ * - the model for everything it runs: the turn, its background requests and its subagents;
+ * - its context window and output limit, when Settings knows them (`claudeEndpointLimitsEnv`).
  */
 export function claudeEndpointEnv(run: EndpointModel): Record<string, string> {
   const m = run.model;
   return {
+    ...claudeEndpointLimitsEnv(run),
     ANTHROPIC_BASE_URL: claudeEndpointUrl(run.endpoint.baseUrl),
     ANTHROPIC_AUTH_TOKEN: run.endpoint.apiKey || CLAUDE_ENDPOINT_NO_KEY,
     ANTHROPIC_API_KEY: '',
@@ -518,6 +521,24 @@ export function claudeEndpointEnv(run: EndpointModel): Record<string, string> {
     ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
     ANTHROPIC_SMALL_FAST_MODEL: m,
     CLAUDE_CODE_SUBAGENT_MODEL: m,
+  };
+}
+
+/**
+ * A model of the user's own endpoint whose limits Settings knows: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, the
+ * window Claude Code takes for a model id it does not recognize (else it assumes one, 200K before
+ * 2.1.323 and 1M since, and compacts only near it), and `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, the tokens it asks for one answer: the
+ * model's output limit, else `outputReserve()`. Both from Claude Code's model configuration docs, and in
+ * the binary of 2.1.327 to 2.1.330. An id that names one of Claude's own models (a gateway's alias) keeps
+ * that model's window. Empty without limits.
+ */
+export function claudeEndpointLimitsEnv(run: EndpointModel): Record<string, string> {
+  const l = runLimits(run.endpoint, run.model);
+  if (!l) return {};
+  const output = l.context ? outputReserve({ ...l, context: l.context }, 32_000) : l.output;
+  return {
+    ...(l.context ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(l.context) } : {}),
+    ...(output ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(output) } : {}),
   };
 }
 

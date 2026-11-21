@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { RunBackends } from '../src/server/agents/types';
 import type { ProviderRequest } from '../src/server/oauth/broker';
-import { llmAnswer, llmComplete, llmRequest, llmTarget, type LlmDeps, type LlmTarget } from '../src/server/llmQuery';
+import {
+  CHARS_PER_TOKEN,
+  llmAnswer,
+  llmComplete,
+  llmRequest,
+  llmTarget,
+  promptTokens,
+  type LlmDeps,
+  type LlmTarget,
+} from '../src/server/llmQuery';
 
 const backends: RunBackends = {
   apis: { anthropic: 'sk-ant-secret', openai: 'sk-openai-secret' },
@@ -36,6 +45,20 @@ describe("RLM's sub-model: where it is asked", () => {
     expect(() => llmTarget(backends, 'gemma')).toThrow('gemma is not a model as <backend>/<model>');
     expect(() => llmTarget(backends, 'xai/grok-4.3')).toThrow('no xAI API key is set up in Settings → Model connections');
     expect(() => llmTarget(backends, 'gone/model')).toThrow('the model connection gone is not set up in Settings → Model connections');
+  });
+});
+
+describe("RLM's sub-model: how long a question is", () => {
+  it('counts Chinese, Japanese and Korean characters as a token each, and other text three characters to one', () => {
+    expect(CHARS_PER_TOKEN).toBe(3);
+    expect(promptTokens('')).toBe(0);
+    expect(promptTokens('abcdef')).toBe(2);
+    expect(promptTokens('abcdefg')).toBe(3);
+    expect(promptTokens('上下文長度')).toBe(5);
+    expect(promptTokens('コンテキスト')).toBe(6);
+    expect(promptTokens('컨텍스트')).toBe(4);
+    // Full-width punctuation counts as wide; the rest as other text.
+    expect(promptTokens('長度：32768。')).toBe(4 + Math.ceil(5 / 3));
   });
 });
 

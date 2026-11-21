@@ -41,6 +41,7 @@ import {
   openhandsAgentSettings,
   openhandsBashrc,
   openhandsCallInfo,
+  openhandsCondenserTokens,
   openhandsDecide,
   openhandsDescribeCall,
   openhandsEffort,
@@ -469,6 +470,25 @@ describe('the run home and settings', () => {
       extended_thinking_budget: 64000,
     });
     expect(JSON.stringify(openhandsAgentSettings(endpoint, 'high', 'edit'))).not.toMatch(/sk-test/);
+    // Without a context window in Settings: condensing by events only, and no output limit sent.
+    expect((openhandsAgentSettings(endpoint, null, 'full') as any).condenser).not.toHaveProperty('max_tokens');
+    expect((openhandsAgentSettings(endpoint, null, 'full') as any).llm).not.toHaveProperty('max_output_tokens');
+    // With one: the condenser's token budget, and the output limit when it is known (never max_input_tokens).
+    const limited: BackendRun = {
+      ...endpoint,
+      endpoint: { ...BACKENDS.endpoints[0]!, models: ['m'], limits: { m: { context: 32768, output: 4096 } } },
+    };
+    const settings = openhandsAgentSettings(limited, null, 'full') as any;
+    expect(settings.condenser).toMatchObject({ max_size: 80, keep_first: 4, max_tokens: 32768 - 4096 - 8192 });
+    expect(settings.llm.max_output_tokens).toBe(4096);
+    expect(settings.condenser.llm).not.toHaveProperty('max_output_tokens');
+    expect(JSON.stringify(settings)).not.toContain('max_input_tokens');
+    expect(openhandsCondenserTokens({ context: 32768 })).toBe(16384);
+    expect(openhandsCondenserTokens({ context: 131072 })).toBe(82688);
+    expect(openhandsCondenserTokens({ output: 100 })).toBeUndefined();
+    expect(openhandsCondenserTokens({ context: 1024, output: 1000 })).toBeUndefined();
+    // An API backend's model has none of this.
+    expect((openhandsAgentSettings(api, null, 'full') as any).condenser).not.toHaveProperty('max_tokens');
     // The filter keeps every tool but the subagents (MCP tools too).
     const keep = (name: string) => new RegExp(OPENHANDS_TOOL_FILTER).test(name);
     expect(['terminal', 'file_editor', 'task_tracker', 'finish', 'think', 'invoke_skill', 'relay_echo', 'tasks'].every(keep)).toBe(true);

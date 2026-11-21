@@ -15,6 +15,8 @@ import {
   type PlanEntry,
 } from '../../shared/types';
 import { API_BACKEND_ENV, backendLabel, type BackendRun } from '../backends';
+import { outputReserve, runLimits, toolOutputChars } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import { commandLine } from '../commands';
 import { openRunDatabase, readRunDatabase } from '../db';
 import { t } from '../i18n';
@@ -552,6 +554,45 @@ export function opencodeBaseUrl(url: string): string {
   return url.replace(/\$\{/g, '%24%7B');
 }
 
+/** The tokens OpenCode keeps for one answer at the most (`OUTPUT_TOKEN_MAX`, OpenCode 1.19.5). */
+export const OPENCODE_OUTPUT_MAX = 32_000;
+
+/** OpenCode's own tool output limits (`tool_output`'s defaults, OpenCode 1.19.5). */
+export const OPENCODE_TOOL_OUTPUT = { maxLines: 2000, maxBytes: 51_200 };
+
+/**
+ * An endpoint model's `limit` in OpenCode's config: `context`, from which it compacts (at the context
+ * less `output`, the tokens it keeps for one answer and asks the server for; without a context, 0, it
+ * never compacts before the server refuses), and `output` (`outputReserve()`: given a context, OpenCode
+ * would otherwise keep 32,000 tokens for each answer, all of a 32k window). Its schema wants both.
+ * Undefined when Settings knows neither.
+ */
+export function opencodeModelLimit(l: TokenLimits | undefined): { context: number; output: number } | undefined {
+  if (l?.context) return { context: l.context, output: outputReserve({ ...l, context: l.context }, OPENCODE_OUTPUT_MAX) };
+  return l?.output ? { context: 0, output: l.output } : undefined;
+}
+
+/**
+ * What a known context window adds to the run's config:
+ * - `compaction.prune`: at the end of a turn, old tool output is cleared beyond the newest 40,000 tokens
+ *   of it, when that frees more than 20,000 (OpenCode's fixed figures), so compaction comes later. It
+ *   acts only once a window holds more than some 60,000 tokens of tool output; it costs a server's
+ *   prefix cache once each time, less than a compaction does.
+ * - `tool_output`: one tool output at most `toolOutputChars()` bytes (an eighth of the window) and as
+ *   many lines in proportion to OpenCode's defaults (2,000 lines to 51,200 bytes), at least 50; the rest
+ *   goes to a file the agent can read in parts. Read by its truncation (`@opencode/Truncate`) from the
+ *   config a run is given. Left out where OpenCode's defaults are smaller (a window of 136,536 tokens or more).
+ */
+export function opencodeContextConfig(l: TokenLimits | undefined): Record<string, unknown> {
+  if (!l?.context) return {};
+  const bytes = Math.min(OPENCODE_TOOL_OUTPUT.maxBytes, toolOutputChars(l.context));
+  const lines = Math.max(50, Math.round((OPENCODE_TOOL_OUTPUT.maxLines * bytes) / OPENCODE_TOOL_OUTPUT.maxBytes));
+  return {
+    compaction: { prune: true },
+    ...(bytes < OPENCODE_TOOL_OUTPUT.maxBytes ? { tool_output: { max_lines: lines, max_bytes: bytes } } : {}),
+  };
+}
+
 /** The run's config (`OPENCODE_CONFIG_CONTENT`): everything that differs between runs of one home. */
 export function opencodeRunConfig(
   o: Pick<RunOptions, 'permission' | 'nativeOff' | 'nativeItems' | 'limits'>,
@@ -580,7 +621,12 @@ export function opencodeRunConfig(
               // Its key comes from this variable (set only when the endpoint has one), never from a file.
               env: [OPENCODE_ENDPOINT_KEY_ENV],
               options: { baseURL: opencodeBaseUrl(endpoint.baseUrl) },
-              models: Object.fromEntries(models.map((m) => [m, { name: m, tool_call: true }])),
+              models: Object.fromEntries(
+                models.map((m) => {
+                  const limit = opencodeModelLimit(runLimits(endpoint, m));
+                  return [m, { name: m, tool_call: true, ...(limit ? { limit } : {}) }];
+                }),
+              ),
             },
           },
         }
@@ -588,6 +634,8 @@ export function opencodeRunConfig(
     permission: opencodePermission(o),
     ...(instructions.length ? { instructions } : {}),
     experimental: { continue_loop_on_deny: true },
+    // The run's model's context window (Settings → Model connections): pruning and tool output limits.
+    ...opencodeContextConfig(endpoint ? runLimits(endpoint, run.model) : undefined),
     agent: {
       // Each new session's title would cost a call to the model of its own.
       title: { disable: true },

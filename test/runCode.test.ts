@@ -22,7 +22,10 @@ import {
   runCode,
   runCodeResult,
   runCodeTool,
+  runCodeDescription,
   runCodeUnavailable,
+  rlmPromptBudget,
+  rlmQuestionLimits,
   runnerArgs,
   runnerEnv,
   sandboxedRunner,
@@ -31,7 +34,7 @@ import {
 } from '../src/server/runCode';
 import { GATEWAY_MAX_CALL } from '../src/server/gatewayShim';
 import type { LlmRequest } from '../src/server/llmQuery';
-import type { LabSettings, OutboxItem } from '../src/shared/types';
+import type { LabSettings, OutboxItem, TokenLimits } from '../src/shared/types';
 import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-runcode-')));
@@ -666,16 +669,27 @@ return out;`,
 posix('run_code in RLM mode (Settings → Labs)', () => {
   const { scope } = fakeScope([tool('mail_read', 'read')], (_name, args) => ({ text: `Mail ${String(args.id)}` }));
 
-  /** RLM mode's tool on a sub-model that answers with `answer`, recording each question. */
-  function rlmTool(answer: (req: LlmRequest) => Promise<string> | string = (req) => `answer to ${req.prompt.length} characters`) {
+  /**
+   * RLM mode's tool on a sub-model that answers with `answer`, recording each question: `model` (an
+   * endpoint's, by default), with `limits` from Settings.
+   */
+  function rlmTool(
+    answer: (req: LlmRequest) => Promise<string> | string = (req) => `answer to ${req.prompt.length} characters`,
+    model = 'homelab/tiny',
+    limits?: TokenLimits,
+  ) {
     const asked: LlmRequest[] = [];
     let at = 0;
     let most = 0;
     const t = runCodeTool(
       deps({
-        mode: () => ({ mode: 'rlm', rlmModel: 'homelab/tiny' }),
-        ask: async (model, req) => {
-          expect(model).toBe('homelab/tiny');
+        mode: () => ({ mode: 'rlm', rlmModel: model }),
+        limits: (m) => {
+          expect(m).toBe(model);
+          return limits;
+        },
+        ask: async (m, req) => {
+          expect(m).toBe(model);
           asked.push(req);
           most = Math.max(most, ++at);
           try {
@@ -728,10 +742,11 @@ posix('run_code in RLM mode (Settings → Labs)', () => {
   );
 
   it('asks the sub-model with the prompt, system prompt and max_tokens the code gives, a few at once, and says what it cost', async () => {
+    // An API backend's model: as many at once as a run sends.
     const { t, asked, most } = rlmTool(async (req) => {
       await new Promise((r) => setTimeout(r, 50));
       return `summary of ${req.prompt.length}`;
-    });
+    }, 'openai/gpt-5.4-nano');
     const r = await t.run!(
       {
         code: `const parts = 'y'.repeat(10000).match(/.{1,1000}/g);
@@ -800,6 +815,50 @@ return { answers: answers.length, first: answers[0], mail };`,
     expect((await t.run!({ code: `return await llm_query('q', { max_tokens: 5 })` }, fresh, scope)).text).toContain(
       '1 of its answers were cut at max_tokens.',
     );
+  });
+
+  it('asks one of the user’s own endpoints only a few questions at once, over every run', async () => {
+    const { t, asked, most } = rlmTool(async (req) => {
+      await new Promise((r) => setTimeout(r, 40));
+      return req.prompt;
+    });
+    const code = `return (await Promise.all(['a', 'b', 'c', 'd'].map((p) => llm_query(p)))).join('')`;
+    // Two runs of two turns at once: four questions each, two of all of them answered at a time.
+    const [one, two] = await Promise.all([t.run!({ code }, ctx(), scope), t.run!({ code }, ctx(), scope)]);
+    expect([valueOf(one), valueOf(two)]).toEqual(['abcd', 'abcd']);
+    expect(asked).toHaveLength(8);
+    expect(most()).toBe(RLM_LIMITS.endpointConcurrent);
+  });
+
+  it("fits each question in the sub-model's context window, and tells the agent how much fits", async () => {
+    const limits = { context: 8192 };
+    const { t, asked } = rlmTool(undefined, 'homelab/tiny', limits);
+    const q = rlmQuestionLimits(limits);
+    // max_tokens by default and at the most within the window: a quarter and a half of it at most.
+    expect(q).toEqual({ context: 8192, maxTokens: 2048, maxMaxTokens: 4096 });
+    expect(rlmQuestionLimits({ context: 2048, output: 300 })).toEqual({ context: 2048, maxTokens: 300, maxMaxTokens: 300 });
+    expect(rlmQuestionLimits()).toEqual({ maxTokens: RLM_LIMITS.maxTokens, maxMaxTokens: RLM_LIMITS.maxMaxTokens });
+    const budget = rlmPromptBudget(8192, 2048);
+    expect(budget).toBe(Math.floor((8192 - 2048) * 0.9));
+    expect(t.description).toContain(
+      `give it one part at a time (at most about ${budget * 3} characters, or ${budget} of Chinese, Japanese or Korean, with the default max_tokens: its context window is 8192 tokens`,
+    );
+    expect(t.description).toContain('(max_tokens 2048 by default, up to 4096)');
+    expect(runCodeDescription('homelab/tiny')).toContain(`(at most ${RLM_LIMITS.prompt} characters)`);
+    const turn = ctx();
+    const run = async (code: string) =>
+      valueOf(await t.run!({ code: `try { return await ${code}; } catch (e) { return e.message; }` }, turn, scope));
+    // What fits is asked; English three characters to a token, Chinese one each.
+    expect(await run(`llm_query('e'.repeat(${budget * 3}))`)).toBe(`answer to ${budget * 3} characters`);
+    expect(await run(`llm_query('e'.repeat(${budget * 3 + 1}))`)).toBe(
+      `llm_query's question is too long for the sub-model's context window of 8192 tokens with max_tokens 2048: it counts as about ${budget + 1} tokens (each Chinese, Japanese or Korean character one, other characters 3 to a token), and at most ${budget} fit: split it.`,
+    );
+    expect(await run(`llm_query('字'.repeat(${budget + 1}))`)).toMatch(/too long for the sub-model's context window/);
+    expect(await run(`llm_query('字'.repeat(${budget - 10}), { system: 'x'.repeat(30) })`)).toBe(`answer to ${budget - 10} characters`);
+    // A larger max_tokens leaves less for the question, and may not pass half the window.
+    expect(await run(`llm_query('e'.repeat(${budget * 3}), { max_tokens: 4000 })`)).toMatch(/with max_tokens 4000/);
+    expect(await run(`llm_query('q', { max_tokens: 4097 })`)).toBe("llm_query's max_tokens must be a whole number from 1 to 4096.");
+    expect(asked.map((a) => a.maxTokens)).toEqual([2048, 2048]);
   });
 
   it("throws the sub-model's failure in the code, and counts it", async () => {

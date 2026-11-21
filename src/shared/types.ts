@@ -2884,6 +2884,8 @@ export interface ModelEndpointView {
   keyMasked: string;
   keyStorage: KeyStorage;
   keyUnreadable?: boolean;
+  /** Its models' context windows and output limits, by model id: only the models that have one. */
+  limits?: Record<string, ModelLimits>;
 }
 
 export interface ModelBackendsView {
@@ -2910,6 +2912,30 @@ export interface ModelEndpointUpdate {
   models: string[];
   /** string = set / replace, null = remove, absent = keep. */
   apiKey?: string | null;
+  /**
+   * The context windows and output limits the user set, by model id (models it lists only); the
+   * server's own figures are kept apart (`ModelLimits.reported`). Absent: those set before are kept.
+   */
+  limits?: Record<string, TokenLimits>;
+}
+
+/**
+ * An endpoint model's token limits: its context window (the most tokens one request may hold, its
+ * answer's included) and the most tokens one answer may have (`docs/open-agents.md`, "Context windows").
+ */
+export interface TokenLimits {
+  context?: number;
+  output?: number;
+}
+
+/**
+ * One endpoint model's limits as kept (`model_backends.model_limits`, JSON by model id): what the user
+ * set in Settings (`context`, `output`), which wins, and what the server reported the last time the
+ * endpoint was saved with a check of its models (`reported`: vLLM's `max_model_len`, llama.cpp's
+ * `meta.n_ctx`).
+ */
+export interface ModelLimits extends TokenLimits {
+  reported?: TokenLimits;
 }
 
 /** An open agent's model id, `<backend>/<model>`, taken apart. */

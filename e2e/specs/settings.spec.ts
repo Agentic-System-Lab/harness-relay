@@ -674,6 +674,44 @@ test.describe('settings', () => {
     expect(await savedEndpoint()).toMatchObject({ baseUrl: chatOnly, models: [unlistedModel, models[0]] });
   });
 
+  test("an endpoint model's context window comes from the server at Save, and one typed wins", async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/backends');
+    const card = page.locator('#settings-backends');
+    await card.locator('summary', { hasText: 'Custom endpoints' }).click();
+    await card.getByRole('button', { name: /Add endpoint/ }).click();
+    await card.getByLabel('Name', { exact: true }).fill('Ctx');
+    await card.getByLabel('Base URL').fill(relay.fakeEndpoint.url);
+    await card.getByRole('button', { name: 'Load models' }).click();
+    const [first, second] = relay.fakeEndpoint.models;
+    await card.getByRole('checkbox', { name: first, exact: true }).check();
+    await card.getByRole('checkbox', { name: second, exact: true }).check();
+    // Before Save, nothing is known yet: the server is asked then.
+    const limitsTitle = card.locator('summary', { hasText: 'Context windows and output limits' });
+    const limits = limitsTitle.locator('xpath=..');
+    await limitsTitle.click();
+    const model = (id: string) => limits.locator('fieldset', { has: page.getByText(id, { exact: true }) });
+    await expect(model(second).getByLabel('Context window (tokens)')).toHaveAttribute('placeholder', 'Read from the server when you save');
+    const save = card.locator('details').getByRole('button', { name: 'Save', exact: true });
+    await save.click();
+    const row = card.locator('.field', { has: page.getByText('ctx/…', { exact: true }) });
+    await expect(row).toContainText(`Context windows: ${second} 32,768 (from the server)`);
+
+    // Typed in, a value wins over the server's, and is shown as the user's own.
+    await row.getByRole('button', { name: 'Edit' }).click();
+    await limitsTitle.click();
+    await expect(model(second).getByLabel('Context window (tokens)')).toHaveAttribute('placeholder', '32,768 (from the server)');
+    const context = model(first).getByLabel('Context window (tokens)');
+    await context.fill('abc');
+    await expect(card.getByText(/A context window is a whole number from 1,024 to 10,000,000/)).toBeVisible();
+    await expect(save).toBeDisabled();
+    await context.fill('16,384');
+    await model(first).getByLabel('Output limit (tokens)').fill('2048');
+    await save.click();
+    await expect(row).toContainText(`${first} 16,384, output limit 2,048 · ${second} 32,768 (from the server)`);
+    const saved = (await relay.api<ModelBackendsView>('/api/backends')).endpoints.find((e) => e.id === 'ctx');
+    expect(saved?.limits).toEqual({ [first]: { context: 16384, output: 2048 }, [second]: { reported: { context: 32768 } } });
+  });
+
   test('settings subheadings stay close to the first field or description on desktop and phone', async ({ page, relay }) => {
     await relay.api('/api/backends/endpoints/e2e', { method: 'DELETE', body: {} });
     await page.goto(relay.base + '/#/settings/backends');

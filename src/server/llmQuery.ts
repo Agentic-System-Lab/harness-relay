@@ -46,6 +46,23 @@ export interface LlmAnswer {
 /** How long one question may take. */
 export const LLM_TIMEOUT_MS = 120_000;
 
+/** Characters of Chinese, Japanese and Korean (their scripts, punctuation and full-width forms). */
+const WIDE_CHARS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/gu;
+
+/** Characters of any other text to a token, cautiously: English and code run nearer four. */
+export const CHARS_PER_TOKEN = 3;
+
+/**
+ * A cautious count of the tokens `text` takes for a sub-model whose tokenizer Harness Relay does not
+ * know: each character of Chinese, Japanese or Korean as one token (today's tokenizers give most of
+ * them one or less; an older one may give more), and other characters `CHARS_PER_TOKEN` to a token,
+ * rounded up.
+ */
+export function promptTokens(text: string): number {
+  const wide = text.match(WIDE_CHARS)?.length ?? 0;
+  return wide + Math.ceil((text.length - wide) / CHARS_PER_TOKEN);
+}
+
 /** The most an answer may be, in bytes. */
 const MAX_ANSWER_BYTES = 4 * 1024 * 1024;
 

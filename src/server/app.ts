@@ -669,13 +669,15 @@ export function createApp({
   app.put('/api/backends/endpoints/:id', async (c) => {
     const id = validEndpointId(c.req.param('id'));
     const endpoint = validateEndpoint(await body<unknown>(c));
+    // The context windows the server reports, read from the same answers as the check (none asked for a new name only).
+    let reported: Awaited<ReturnType<typeof verifyEndpointModels>> | undefined;
     if (endpoint.verifyModels && !settings.backends.isEndpointRename(id, endpoint)) {
       const revision = settings.backends.endpointRevision(id);
       const key = endpoint.apiKey === undefined ? settings.backends.endpointCatalogKey(id, endpoint.baseUrl) : endpoint.apiKey;
-      await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models, endpoint.allowMissingMetadata);
+      reported = await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models, endpoint.allowMissingMetadata);
       if (settings.backends.endpointRevision(id) !== revision) throw new HttpError(409, t().endpointVerifyChanged);
     }
-    changingBackends(() => settings.backends.putEndpoint(id, endpoint));
+    changingBackends(() => settings.backends.putEndpoint(id, endpoint, reported));
     return c.json(settings.backends.view());
   });
 

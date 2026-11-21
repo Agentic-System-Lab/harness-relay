@@ -13,6 +13,7 @@ import {
   GATEWAY_SERVER_NAME,
 } from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -437,6 +438,21 @@ export function codexEndpointProviderConfig(run: EndpointModel): Record<string, 
 }
 
 /**
+ * A model of the user's own endpoint whose context window Settings knows: Codex's `model_context_window`
+ * (it knows none for a model not of its own catalog), and `model_auto_compact_token_limit`, the tokens
+ * past which it compacts, at the window less what an answer may need (`outputReserve()`), as OpenCode
+ * does. Both keys of Codex's config (its config reference; ConfigToml in codex 0.167.0). Empty otherwise.
+ */
+export function codexEndpointContextConfig(run: EndpointModel): Record<string, unknown> {
+  const l = runLimits(run.endpoint, run.model);
+  if (!l?.context) return {};
+  return {
+    model_context_window: l.context,
+    model_auto_compact_token_limit: l.context - outputReserve({ ...l, context: l.context }, 32_000),
+  };
+}
+
+/**
  * The effort a Codex run on the user's own endpoint sends: one its endpoint models offer
  * (`endpointEffort`). With none given, the one the user's Codex config sets is asked (`config/read`):
  * Codex cannot be told to send none, and one such as `xhigh`, meant for OpenAI's models, would make
@@ -493,7 +509,7 @@ export function codexThreadRequest(
   const provider = endpoint ? codexEndpointProvider(endpoint.endpoint.id) : undefined;
   // The app-server is started with it too (`codexEndpointProviderConfig`): Codex refuses a thread whose
   // `modelProvider` is not the app-server's own (codex 0.167).
-  if (endpoint) Object.assign(config, codexEndpointProviderConfig(endpoint));
+  if (endpoint) Object.assign(config, codexEndpointProviderConfig(endpoint), codexEndpointContextConfig(endpoint));
   const model = endpoint ? endpoint.model : o.model;
   const params = {
     cwd: o.cwd,

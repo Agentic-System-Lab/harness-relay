@@ -14,6 +14,8 @@ import {
 } from '../../shared/types';
 import { commandLine } from '../commands';
 import { backendLabel, type BackendRun } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import type { HookCall, HookResult } from '../hooks';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
@@ -205,8 +207,11 @@ export function piModelRef(run: Pick<BackendRun, 'kind' | 'backend' | 'model'>):
   return `${piProvider(run)}/${run.model}`;
 }
 
-/** Pi's user settings for a run: no project trust, no telemetry, no cache warming between runs. */
-export function piSettings(): Record<string, unknown> {
+/**
+ * Pi's user settings for a run: no project trust, no telemetry, no cache warming between runs; and its
+ * compaction's figures for the endpoint models whose context window is known (`piCompaction()`).
+ */
+export function piSettings(compaction?: Record<string, { reserveTokens: number; keepRecentTokens: number }>): Record<string, unknown> {
   return {
     defaultProjectTrust: 'never',
     enableInstallTelemetry: false,
@@ -215,7 +220,49 @@ export function piSettings(): Record<string, unknown> {
     quietStartup: true,
     collapseChangelog: true,
     cacheWarming: 'off',
+    ...(compaction && Object.keys(compaction).length ? { compaction: { modelOverrides: compaction } } : {}),
   };
+}
+
+/** The tokens Pi keeps for one answer by default (`maxTokens`), and its compaction's (`reserveTokens`, `keepRecentTokens`; Pi 1.5.1). */
+export const PI_DEFAULTS = { maxTokens: 16_384, reserveTokens: 16_384, keepRecentTokens: 20_000 };
+
+/**
+ * An endpoint model's `contextWindow` and `maxTokens` in models.json, from its limits: Pi takes 128,000
+ * and 16,384 without them, and compacts once the context passes `contextWindow − reserveTokens`.
+ * `maxTokens` is the model's output limit, else `outputReserve()` (a quarter of the window, at most Pi's
+ * 16,384).
+ */
+export function piModelLimits(l: TokenLimits | undefined): { contextWindow?: number; maxTokens?: number } {
+  if (l?.context) return { contextWindow: l.context, maxTokens: outputReserve({ ...l, context: l.context }, PI_DEFAULTS.maxTokens) };
+  return l?.output ? { maxTokens: l.output } : {};
+}
+
+/**
+ * Pi's compaction for each model of the run's endpoint whose context window is known, as per-model
+ * overrides (`compaction.modelOverrides`, keyed `<provider>/<model>`): it starts once fewer than
+ * `reserveTokens` are free, its model's `maxTokens` (at most Pi's 16,384), so that the next answer
+ * fits; and keeps the newest `keepRecentTokens` as they are, a quarter of the window (at most Pi's
+ * 20,000), so what compaction keeps leaves room to work in. Pi's own figures suit 128,000 tokens; in a
+ * 32k window they would keep more than it compacts.
+ */
+export function piCompaction(
+  run: Pick<BackendRun, 'kind' | 'backend' | 'endpoint'>,
+): Record<string, { reserveTokens: number; keepRecentTokens: number }> {
+  if (run.kind !== 'endpoint' || !run.endpoint) return {};
+  const out: [string, { reserveTokens: number; keepRecentTokens: number }][] = [];
+  for (const id of run.endpoint.models) {
+    const l = piModelLimits(runLimits(run.endpoint, id));
+    if (!l.contextWindow || !l.maxTokens) continue;
+    out.push([
+      `${piProvider(run)}/${id}`,
+      {
+        reserveTokens: Math.min(PI_DEFAULTS.reserveTokens, l.maxTokens),
+        keepRecentTokens: Math.min(PI_DEFAULTS.keepRecentTokens, Math.floor(l.contextWindow / 4)),
+      },
+    ]);
+  }
+  return Object.fromEntries(out);
 }
 
 /** Where an API backend's models live in Pi, for a model its catalog does not have (`piModelsJson`). */
@@ -249,7 +296,12 @@ export function piModelsJson(run: BackendRun, effort?: string, known = true): { 
         baseUrl: run.endpoint.baseUrl,
         api: 'openai-completions',
         apiKey: run.endpoint.apiKey ? `$${PI_ENDPOINT_KEY_VAR}` : PI_NO_KEY,
-        models: ids.map((id) => ({ id, name: id, reasoning: id === run.model && reasoning })),
+        models: ids.map((id) => ({
+          id,
+          name: id,
+          reasoning: id === run.model && reasoning,
+          ...piModelLimits(runLimits(run.endpoint, id)),
+        })),
       },
     },
   };
@@ -446,7 +498,7 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
 
-  writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings(), null, 2));
+  writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings(piCompaction(run)), null, 2));
   const known = run.kind === 'endpoint' ? true : ((await piKnownModels.has(o.bin, ctx.env, run.id)) ?? true);
   writeFile(join(agentDir, 'models.json'), JSON.stringify(piModelsJson(run, o.effort, known), null, 2));
   if (run.endpoint?.apiKey) ctx.env[PI_ENDPOINT_KEY_VAR] = run.endpoint.apiKey;
