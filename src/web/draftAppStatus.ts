@@ -39,19 +39,19 @@ export class DraftAppStatus {
   }
 
   /** Remove outdated answers before a picker can use them. Other groups can stay ready. */
-  prepare(permission: Permission, changedPermission = false, groups: readonly AppGroup[] = appGroupNames) {
+  prepare(permission: Permission, invalidate = false, groups: readonly AppGroup[] = appGroupNames) {
     const snapshot = this.snapshots.get(permission);
     if (!snapshot) return;
     const stale = groups.filter((group) => {
       const at = snapshot.checked[group];
-      return changedPermission || (at !== undefined && Date.now() - at >= freshFor);
+      return invalidate || (at !== undefined && Date.now() - at >= freshFor);
     });
     if (!stale.length) return;
     const states = { ...snapshot.states };
     const checked = { ...snapshot.checked };
     const unknown = new Set<DraftApp>();
     for (const group of stale) {
-      if (changedPermission) {
+      if (invalidate) {
         const key = permission + '/' + group;
         this.pending.get(key)?.controller.abort();
         this.pending.delete(key);
@@ -77,10 +77,14 @@ export class DraftAppStatus {
     this.notify();
   }
 
-  recheck() {
+  recheck(reason: 'focus' | 'settings') {
     const permissions = new Set<Permission>(['read-only', ...this.snapshots.keys()]);
-    this.clear();
-    for (const permission of permissions) this.warm(permission);
+    for (const permission of permissions) {
+      // Returning to the window can coincide with a user's verification. Settings changes invalidate even that answer.
+      const groups = appGroupNames.filter((group) => reason === 'settings' || !this.pending.get(permission + '/' + group)?.confirm);
+      this.prepare(permission, true, groups);
+      this.warm(permission);
+    }
   }
 
   read(permission: Permission, group: AppGroup, mode: 'cached' | 'refresh' | 'confirm'): Result {

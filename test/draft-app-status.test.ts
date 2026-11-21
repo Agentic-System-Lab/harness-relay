@@ -35,7 +35,7 @@ it('discards late responses from before a settings change or sign-out', async ()
     .mockResolvedValue({ ...ready, mail: 'needs-connection' });
   const status = new DraftAppStatus();
   const old = status.read('read-only', 'local', 'cached');
-  status.recheck();
+  status.recheck('settings');
   await status.read('read-only', 'local', 'cached');
   expect(read.mock.calls[0][0]?.aborted).toBe(true);
   before.resolve(ready);
@@ -64,6 +64,36 @@ it('rechecks selected apps on submission and keeps a passive Slack read from rep
   await status.read('edit', 'local', 'cached');
   read.mockResolvedValue({ ...ready, drive: 'needs-assistant' });
   expect((await status.read('edit', 'local', 'confirm'))?.drive).toBe('needs-assistant');
+});
+
+it('preserves explicit verification on focus and discards it after a settings change or sign-out', async () => {
+  const first = delayedAnswer();
+  const second = delayedAnswer();
+  const verify = vi.spyOn(api, 'verifyDraftSlack').mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const passive = vi.spyOn(api, 'draftAppAvailability').mockResolvedValue({ ...ready, slack: 'needs-verification' });
+  const status = new DraftAppStatus();
+  const checking = status.read('read-only', 'slack', 'confirm');
+  status.recheck('focus');
+  expect(status.read('read-only', 'slack', 'cached')).toBe(checking);
+  expect(passive.mock.calls.map((call) => call[2])).toEqual(['local', 'github', 'teams']);
+  first.resolve(ready);
+  await checking;
+  expect(status.snapshot('read-only').states.slack).toBe('ready');
+
+  const superseded = status.read('read-only', 'slack', 'confirm');
+  status.recheck('settings');
+  expect(verify.mock.calls[1][1]?.aborted).toBe(true);
+  second.resolve(ready);
+  expect(await superseded).toBeUndefined();
+  expect(status.snapshot('read-only').states.slack).toBe('needs-verification');
+
+  const last = delayedAnswer();
+  verify.mockReturnValueOnce(last.promise);
+  const signedOut = status.read('read-only', 'slack', 'confirm');
+  status.clear();
+  last.resolve(ready);
+  expect(await signedOut).toBeUndefined();
+  expect(status.snapshot('read-only').states).toEqual({});
 });
 
 it('clears only the expired group being checked until its replacement arrives', async () => {

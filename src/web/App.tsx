@@ -221,7 +221,7 @@ function RelayApp() {
     let previous = parseHash();
     const onHash = () => {
       const next = parseHash();
-      if (previous.page === 'settings' && next.page !== 'settings') appStatus.recheck();
+      if (previous.page === 'settings' && next.page !== 'settings') appStatus.recheck('settings');
       setRoute(next);
       if (next.page !== 'settings') setSettingsReturn(undefined);
       else if (previous.page === 'new' || previous.page === 'schedule') setSettingsReturn({ page: previous.page });
@@ -237,7 +237,7 @@ function RelayApp() {
     const onReturn = () => {
       if (document.visibilityState !== 'visible') return;
       clearTimeout(timer);
-      timer = setTimeout(() => appStatus.recheck(), 0);
+      timer = setTimeout(() => appStatus.recheck('focus'), 0);
     };
     window.addEventListener('focus', onReturn);
     document.addEventListener('visibilitychange', onReturn);

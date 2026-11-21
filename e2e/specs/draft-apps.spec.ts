@@ -193,11 +193,19 @@ test('Slack profile verification requires an explicit choice and the selected co
 }) => {
   const states = appStates({ slack: 'needs-verification' });
   let checks = 0;
-  await page.route('**/api/apps/availability?*', (route) => route.fulfill({ json: states }));
-  await page.route('**/api/apps/availability/slack/verify', (route) => {
+  let localReads = 0;
+  let finishVerification!: () => void;
+  const waiting = new Promise<void>((resolve) => (finishVerification = resolve));
+  await page.route('**/api/apps/availability?*', (route) => {
+    if (new URL(route.request().url()).searchParams.get('app') === 'local') localReads++;
+    return route.fulfill({ json: states });
+  });
+  await page.route('**/api/apps/availability/slack/verify', async (route) => {
     expect(route.request().postDataJSON()).toEqual({ permission: 'read-only' });
     checks++;
-    return route.fulfill({ json: { ...states, slack: checks === 1 ? 'ready' : 'needs-connection' } });
+    if (checks === 1) await waiting;
+    states.slack = checks === 1 ? 'ready' : 'needs-connection';
+    await route.fulfill({ json: states });
   });
   await page.goto(relay.base + '/#/new');
   await page.locator('.task-input').fill('Summarize my team updates');
@@ -207,10 +215,17 @@ test('Slack profile verification requires an explicit choice and the selected co
   const verify = choices.getByRole('button', { name: 'Check Slack connection', exact: true });
   await expect(verify).toHaveAccessibleDescription('Codex checks your own Slack profile.');
   await expect(slack).toBeDisabled();
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(verify).toBeVisible();
   expect(checks).toBe(0);
-  await verify.press('Enter');
+  try {
+    await verify.press('Enter');
+    await expect.poll(() => checks).toBe(1);
+    const beforeFocus = localReads;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => localReads).toBeGreaterThan(beforeFocus);
+    expect(checks).toBe(1);
+  } finally {
+    finishVerification();
+  }
   await expect(slack).toBeEnabled();
   await expect(slack).toBeFocused();
   await slack.check();
