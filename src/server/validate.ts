@@ -21,6 +21,7 @@ import {
   MEMORY_SCOPES,
   RELAY_TOOL_GROUPS,
   NATIVE_ITEM_KINDS,
+  NATIVE_ON_PARTS,
   NATIVE_PARTS,
   PROVIDERS,
   SCHEDULE_KINDS,
@@ -306,7 +307,7 @@ export function validAccountLabel(input: unknown): string {
 
 /**
  * An account update: a name, its key (null to remove), and how it runs: strings, a valid effort,
- * `nativeOff` a list of known parts, `nativeItems` lists of ids by known kind.
+ * `nativeOff` and `nativeOn` lists of known parts, `nativeItems` lists of ids by known kind.
  */
 export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
@@ -341,6 +342,11 @@ export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
     if (!valid) bad(t().invalidField('nativeItems'));
     out.nativeItems = items as ProviderAccountUpdate['nativeItems'];
   }
+  if (u.nativeOn !== undefined) {
+    const parts = u.nativeOn;
+    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_ON_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOn'));
+    out.nativeOn = parts as ProviderAccountUpdate['nativeOn'];
+  }
   return out;
 }
 
@@ -371,7 +377,7 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
  */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
-  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems']) {
+  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems', 'nativeOn']) {
     if (u[field] !== undefined) bad(t().invalidField(field));
   }
   const out: ProviderSettingsUpdate = {};

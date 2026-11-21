@@ -1974,6 +1974,7 @@ export const en: Messages = {
         hooks: 'hooks in settings files and plugins',
         agents: 'custom and plugin subagents; the built-in ones stay',
         plugins: 'every installed plugin, with its skills, subagents, hooks and MCP servers',
+        subagents: 'its Agent tool: no subagent runs at all, the built-in ones (Explore, general-purpose…) too',
       },
       codex: {
         skills: 'its instructions no longer list skills',
@@ -1984,6 +1985,8 @@ export const en: Messages = {
         hooks: "plugins' hooks too",
         agents: 'Codex has no setting that leaves out only its custom subagents',
         plugins: 'with their skills, MCP servers and hooks',
+        subagents:
+          "agents.enabled = false, with both multi-agent features off; always off below full access, where they would lose the sandbox's read entries (before Codex 0.170.0) and the approval check sees no path",
       },
       grok: {
         skills:
@@ -1996,6 +1999,8 @@ export const en: Messages = {
         agents: 'Grok has no setting that leaves out only its custom subagents',
         plugins:
           "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
+        subagents:
+          'GROK_SUBAGENTS=0; always off below full access, since they run in the background and the turn ends before they wake Grok',
       },
       cursor: {
         skills:
@@ -2009,6 +2014,7 @@ export const en: Messages = {
           "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json, your organisation's hooks and Claude Code's in ~/.claude/settings.json (which Cursor loads too, whatever you leave out of Claude Code's runs) also run in Harness Relay's runs",
         agents: 'Cursor has no setting to skip subagents for one run',
         plugins: 'Cursor loads no plugins in ACP mode',
+        subagents: 'Cursor has no switch for its subagents over ACP: they stay on',
       },
       antigravity: {
         skills:
@@ -2022,6 +2028,8 @@ export const en: Messages = {
           "Antigravity has no setting to skip hooks for one run: those in ~/.gemini/config/hooks.json and a project's .agents/hooks.json run in Harness Relay's runs too, outside any sandbox",
         agents: 'Antigravity has no setting to skip custom agents for one run',
         plugins: 'Antigravity has no setting to skip plugins for one run (their skills, rules, MCP servers and hooks load as usual)',
+        subagents:
+          'agy acp has no switch for its subagents: they stay on, and its briefing asks it not to end a turn with one still running',
       },
       copilot: {
         skills: "Its skill tool and skill list (built-in ones, ~/.copilot/skills, a project's .github/skills…) are not given",
@@ -2034,6 +2042,7 @@ export const en: Messages = {
           "Your own hooks (~/.copilot's: disableAllHooks). A project's (.github/hooks, and those in its .github/copilot or .claude settings) still run, so below full access each run asks you before them",
         agents: 'Copilot has no setting to skip custom agents for one run',
         plugins: 'Every installed plugin, with its skills and MCP servers',
+        subagents: 'Copilot has no switch for its subagents that one run can be given: they stay on',
       },
       muse: {
         skills:
@@ -2047,6 +2056,7 @@ export const en: Messages = {
           "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
         agents: 'Muse Code has no setting to skip custom agents for one run',
         plugins: 'Muse Code has no setting to skip plugins for one run',
+        subagents: 'Muse Code has no switch for its subagents that one run can be given: they stay on (its workflows are always off)',
       },
       goose: {
         skills:
@@ -2059,6 +2069,7 @@ export const en: Messages = {
         agents: 'Goose has no setting that leaves out only its custom subagents',
         plugins:
           "each plugin in the project's .agents/plugins, with its hooks, skills and MCP servers (the MCP servers from a new conversation on)",
+        subagents: "its summon extension (delegate, and load with it); its subagents' calls are asked about like Goose's own",
       },
       // The open agents: each adapter adds what its switches leave out, once its CLI has any.
       cline: {
@@ -2071,6 +2082,7 @@ export const en: Messages = {
         hooks: "Cline has no setting that leaves out hooks: those in the project's .clinerules/hooks and .cline/hooks still run",
         agents: 'Cline has no setting that leaves out custom agents',
         plugins: 'Cline leaves out plugins only one by one, by path; pick them one by one',
+        subagents: 'its spawn_agent tool',
       },
       opencode: {
         skills:
@@ -2082,6 +2094,8 @@ export const en: Messages = {
         hooks: 'OpenCode has no hooks (its plugins are not loaded in Harness Relay)',
         agents: 'its subagents general and explore (always off below full access)',
         plugins: 'OpenCode loads no plugins in Harness Relay',
+        subagents:
+          "its task tool, every subagent (permission.task: deny); always off below full access, where a subagent's question would never reach you",
       },
       openhands: {
         skills:
@@ -2095,6 +2109,7 @@ export const en: Messages = {
         agents:
           'OpenHands has no setting that leaves out subagents (.agents/agents, .openhands/agents); below full access its subagent tools are not offered, so they do not run',
         plugins: 'OpenHands does not report plugins',
+        subagents: 'its task tool; always off below full access, since its subagents act without asking',
       },
       pi: {
         skills: "Pi's own skills are never loaded in Harness Relay; the tool library's are listed in the briefing",
@@ -2106,6 +2121,7 @@ export const en: Messages = {
         hooks: "Pi's extensions are never loaded in Harness Relay, only its gate and MCP extensions",
         agents: 'Pi does not report subagents',
         plugins: "Pi's extensions, packages and a project's .pi folder are never loaded in Harness Relay",
+        subagents: 'Pi has no subagents',
       },
     },
     offCodexThreads:

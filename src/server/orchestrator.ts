@@ -2435,8 +2435,32 @@ export class Orchestrator {
         this.hub.emit(convId, { type: 'message', message: msg });
         break;
       }
-      case 'tool_start':
-        msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
+      case 'tool_start': {
+        // A CLI that tells the same call again (a subagent's start, then its name) updates it in place.
+        const known = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
+        if (known?.type === 'tool') {
+          if (e.detail) known.detail = e.detail;
+          if (e.agent) known.agent = e.agent;
+          if (e.model) known.model = e.model;
+          this.hub.emit(convId, { type: 'message', message: msg });
+          break;
+        }
+        msg.parts.push({
+          type: 'tool',
+          id: e.id,
+          name: e.name,
+          detail: e.detail,
+          ...(e.kind ? { kind: e.kind } : {}),
+          status: 'running',
+          ...(e.parentId ? { parentId: e.parentId } : {}),
+          ...(e.agent ? { agent: e.agent } : {}),
+          ...(e.model ? { model: e.model } : {}),
+        });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'notice':
+        msg.parts.push({ type: 'notice', text: e.text });
         this.hub.emit(convId, { type: 'message', message: msg });
         break;
       case 'tool_end': {
@@ -2601,8 +2625,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
           history,
@@ -2736,8 +2759,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees),
         systemPrompt: REVIEWER_BRIEFING,
@@ -3700,8 +3722,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
@@ -4188,8 +4209,13 @@ export class Orchestrator {
           this.activity(conv.id, msg, e);
           return;
         case 'thinking':
-        case 'tool_start':
+        case 'notice':
           textOpen = false;
+          this.activity(conv.id, msg, e);
+          return;
+        case 'tool_start':
+          // A subagent's call goes inside the call that started it, not between the agent's words.
+          if (!e.parentId) textOpen = false;
           this.activity(conv.id, msg, e);
           return;
         case 'tool_end':
@@ -4345,9 +4371,8 @@ export class Orchestrator {
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       };
-      // The account's own: its home has its own skills, MCP servers and hooks.
-      const nativeOff = this.settings.nativeOff(agent.provider, account);
-      const nativeItems = this.settings.nativeItems(agent.provider, account);
+      // The account's own (its home has its own skills, MCP servers and hooks), at this run's permission.
+      const { nativeOff, nativeItems, nativeOn } = this.settings.runNative(agent.provider, account, conv.settings.permission);
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
@@ -4386,6 +4411,7 @@ export class Orchestrator {
           backends: this.settings.backendsFor(agent.provider),
           nativeOff,
           nativeItems,
+          nativeOn,
           sandboxTerminal: this.settings.sandboxTerminal(agent.provider),
           prompt,
           systemPrompt: buildBriefing(

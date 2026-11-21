@@ -282,11 +282,35 @@ function toolsJson(a: AgentConfig): string | null {
   return a.tools && Object.keys(a.tools).length ? JSON.stringify(a.tools) : null;
 }
 
-/** What a tool part keeps in its `data` column: its kind, when it has one (one this server does not know is dropped). */
-function toolData(json: string | null): { kind?: ToolCallKind } {
+type ToolData = Pick<Extract<MessagePart, { type: 'tool' }>, 'kind' | 'parentId' | 'agent' | 'model'>;
+
+/**
+ * What a tool part keeps in its `data` column: its kind (one this server does not know is dropped), the
+ * call a subagent made it under, and a subagent's name and model, when it has them.
+ */
+function toolData(json: string | null): ToolData {
   const data = parseJson<unknown>(json, {});
-  const kind = data && typeof data === 'object' ? (data as { kind?: unknown }).kind : undefined;
-  return typeof kind === 'string' && (TOOL_CALL_KINDS as readonly string[]).includes(kind) ? { kind: kind as ToolCallKind } : {};
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const kind = typeof d.kind === 'string' && (TOOL_CALL_KINDS as readonly string[]).includes(d.kind) ? (d.kind as ToolCallKind) : undefined;
+  const out: ToolData = {};
+  if (kind) out.kind = kind;
+  for (const key of ['parentId', 'agent', 'model'] as const) {
+    const v = text(d[key]);
+    if (v) out[key] = v;
+  }
+  return out;
+}
+
+/** A tool part's `data` column (`toolData()` reads it back), or null when it has none of it. */
+function toolDataJson(p: Extract<MessagePart, { type: 'tool' }>): string | null {
+  const data: ToolData = {
+    ...(p.kind ? { kind: p.kind } : {}),
+    ...(p.parentId ? { parentId: p.parentId } : {}),
+    ...(p.agent ? { agent: p.agent } : {}),
+    ...(p.model ? { model: p.model } : {}),
+  };
+  return Object.keys(data).length ? JSON.stringify(data) : null;
 }
 
 function toPart(r: PartRow): MessagePart {
@@ -338,7 +362,7 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'notice':
       return [p.text, null, null, null, null, null, null, null];
     case 'tool':
-      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];
+      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), toolDataJson(p)];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
     case 'progress':

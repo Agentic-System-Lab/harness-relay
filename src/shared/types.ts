@@ -537,9 +537,10 @@ export interface ToolLibraryUpdate {
 /**
  * The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs, all of a
  * kind at once. `agents` are the CLI's own subagents (its built-in ones stay); `tools` its built-in
- * tools.
+ * tools; `subagents` the CLI's whole subagent feature, its built-in subagents included (Codex's
+ * `agents.enabled`, Grok's `GROK_SUBAGENTS`…), which Settings shows as a switch of its own, on by default.
  */
-export const NATIVE_PARTS = ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'] as const;
+export const NATIVE_PARTS = ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins', 'subagents'] as const;
 export type NativePart = (typeof NATIVE_PARTS)[number];
 
 /**
@@ -558,24 +559,29 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
-  claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
-  codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
-  grok: ['skills', 'mcp', 'memory', 'hooks'],
+  // Claude Code: `subagents` denies its `Agent` tool (every subagent, built-in ones too).
+  claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins', 'subagents'],
+  // Codex: `subagents` is `agents.enabled=false` with both multi-agent features off.
+  codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins', 'subagents'],
+  // Grok: `subagents` is `GROK_SUBAGENTS=0`.
+  grok: ['skills', 'mcp', 'memory', 'hooks', 'subagents'],
   cursor: [],
   antigravity: [],
   copilot: ['skills', 'mcp', 'memory', 'hooks', 'plugins'],
   // Muse Code: its MCP servers and hooks are its settings', and each run has settings of its own.
   muse: ['mcp', 'hooks'],
   // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
-  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
-  opencode: ['skills', 'instructions', 'agents'],
+  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`), all of them (`permission.task`).
+  opencode: ['skills', 'instructions', 'agents', 'subagents'],
 
-  goose: ['mcp', 'instructions', 'plugins'],
+  // Goose: `subagents` leaves out its `summon` extension (`delegate`).
+  goose: ['mcp', 'instructions', 'plugins', 'subagents'],
 
-  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run).
-  cline: ['skills'],
+  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run), and its `spawn_agent`.
+  cline: ['skills', 'subagents'],
 
-  openhands: [], // none: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md)
+  // OpenHands: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md); its `task` tool.
+  openhands: ['subagents'],
 
   // Pi: `--no-context-files` leaves out every AGENTS.md / CLAUDE.md it would load (none alone).
   pi: ['instructions'],
@@ -584,6 +590,52 @@ export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
 export function nativeOffFor(provider: Provider, parts: readonly string[]): NativePart[] {
   return NATIVE_PARTS.filter((p) => NATIVE_OFF_SUPPORT[provider].includes(p) && parts.includes(p));
+}
+
+/**
+ * The CLIs whose subagents Harness Relay turns off below full access whatever Settings says
+ * (`subagents` left out): Codex's lose the sandbox's `read` entries before 0.170.0 and its approval
+ * check sees no path for them; Grok's run in the background, and its turn ends before they wake it;
+ * OpenCode's would wait on a question no one is asked; OpenHands' act without asking. Settings' switch
+ * then reaches their runs at full access only.
+ */
+export const SUBAGENTS_FULL_ACCESS_ONLY: readonly Provider[] = ['codex', 'grok', 'opencode', 'openhands'];
+
+/** The parts a run of `provider` leaves out at `permission`: the account's, and its subagents where they are full access only. */
+export function runNativeOff(provider: Provider, permission: Permission, off: readonly NativePart[]): NativePart[] {
+  const forced = permission !== 'full' && SUBAGENTS_FULL_ACCESS_ONLY.includes(provider) ? ['subagents'] : [];
+  return nativeOffFor(provider, [...off, ...forced]);
+}
+
+/**
+ * What a CLI can do by itself that Harness Relay's runs leave off unless the account turns it on:
+ * `workflows`, scripts of subagents within one turn (Claude Code's `Workflow` tool); `ultracode`,
+ * Claude Code planning a workflow for every substantial task (its `"ultracode": true` setting, keeping
+ * the member's effort), which needs `workflows`.
+ */
+export const NATIVE_ON_PARTS = ['workflows', 'ultracode'] as const;
+export type NativeOnPart = (typeof NATIVE_ON_PARTS)[number];
+
+/** Which of them each CLI has a switch for. A CLI without one runs as its own default (docs/architecture.md). */
+export const NATIVE_ON_SUPPORT: Record<Provider, readonly NativeOnPart[]> = {
+  claude: ['workflows', 'ultracode'],
+  codex: [],
+  grok: [],
+  cursor: [],
+  antigravity: [],
+  copilot: [],
+  muse: [],
+  opencode: [],
+  goose: [],
+  cline: [],
+  openhands: [],
+  pi: [],
+};
+
+/** The parts in `parts` that `provider` can turn on, once each, in NATIVE_ON_PARTS order; `ultracode` only with `workflows`. */
+export function nativeOnFor(provider: Provider, parts: readonly string[]): NativeOnPart[] {
+  const on = NATIVE_ON_PARTS.filter((p) => NATIVE_ON_SUPPORT[provider].includes(p) && parts.includes(p));
+  return on.includes('workflows') ? on : on.filter((p) => p !== 'ultracode');
 }
 
 /**
@@ -1577,7 +1629,24 @@ export type MessagePart =
    * `kind`: what the call does, when its CLI says (or its adapter can tell from the tool); only
    * AgentsView's record of a member's session uses it (`memberTranscript`).
    */
-  | { type: 'tool'; id: string; name: string; detail?: string; kind?: ToolCallKind; status: ToolStatus; error?: string; output?: string }
+  | {
+      type: 'tool';
+      id: string;
+      name: string;
+      detail?: string;
+      kind?: ToolCallKind;
+      status: ToolStatus;
+      error?: string;
+      output?: string;
+      /**
+       * The call it was made under, when a subagent (or another call that runs calls, like `run_code`)
+       * made it: the id of the tool part that started that subagent. The chat shows it inside that one.
+       */
+      parentId?: string;
+      /** On a call that starts a subagent: the subagent's name and model, when the CLI says. */
+      agent?: string;
+      model?: string;
+    }
   /** The agent asked to do something its permission does not cover; the user decides. */
   | {
       type: 'approval';
@@ -2557,6 +2626,8 @@ export interface AccountRunSettings {
   nativeOff: NativePart[];
   /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
   nativeItems: NativeItemsOff;
+  /** What Harness Relay's runs turn on that they otherwise leave off (see NATIVE_ON_SUPPORT). */
+  nativeOn: NativeOnPart[];
 }
 
 /** One account of a CLI as Settings shows it. */
@@ -2584,6 +2655,8 @@ export interface ProviderAccountUpdate {
   nativeOff?: NativePart[];
   /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
   nativeItems?: NativeItemsOff;
+  /** The whole list, replacing the current one; parts the CLI cannot turn on are dropped. */
+  nativeOn?: NativeOnPart[];
 }
 
 /**

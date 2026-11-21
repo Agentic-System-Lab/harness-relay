@@ -1971,6 +1971,7 @@ export const zhTW = {
         hooks: '設定檔與 plugin 裡的 hook',
         agents: '自訂與 plugin 的 subagent；內建的照常提供',
         plugins: '每個已安裝的 plugin，連同它的 skill、subagent、hook 與 MCP 伺服器',
+        subagents: '它的 Agent 工具：任何 subagent 都不會執行，內建的（Explore、general-purpose…）也是',
       },
       codex: {
         skills: '指示裡不再列出 skill',
@@ -1981,6 +1982,8 @@ export const zhTW = {
         hooks: '也包括 plugin 的 hook',
         agents: 'Codex 沒有只略過自訂 subagent 的設定',
         plugins: '連同它們的 skill、MCP 伺服器與 hook',
+        subagents:
+          'agents.enabled = false，兩個 multi-agent 功能也關掉；完全存取以外一律關閉，因為它們會失去沙箱的 read 項目（Codex 0.170.0 之前），核准時的檢查也看不到路徑',
       },
       grok: {
         skills:
@@ -1993,6 +1996,7 @@ export const zhTW = {
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
         plugins:
           'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
+        subagents: 'GROK_SUBAGENTS=0；完全存取以外一律關閉，因為它們在背景執行，回合在它們喚醒 Grok 之前就結束了',
       },
       cursor: {
         skills:
@@ -2006,6 +2010,7 @@ export const zhTW = {
           'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json、組織的 hook，以及 ~/.claude/settings.json 裡 Claude Code 的 hook（Cursor 也會載入，不論你讓 Claude Code 的執行不載入哪些）也會在 Harness Relay 的執行中執行',
         agents: 'Cursor 沒有能單次略過 subagent 的設定',
         plugins: 'Cursor 在 ACP 模式下不載入 plugin',
+        subagents: 'Cursor 在 ACP 下沒有關閉 subagent 的開關：它們保持開啟',
       },
       antigravity: {
         skills:
@@ -2018,6 +2023,7 @@ export const zhTW = {
           'Antigravity 沒有能單次略過 hook 的設定：~/.gemini/config/hooks.json 與專案 .agents/hooks.json 的 hook 也會在 Harness Relay 的執行中執行，而且在沙箱外',
         agents: 'Antigravity 沒有能單次略過自訂 agent 的設定',
         plugins: 'Antigravity 沒有能單次略過 plugin 的設定（plugin 帶來的 skill、規則、MCP 與 hook 都照常載入）',
+        subagents: 'agy acp 沒有關閉 subagent 的開關：它們保持開啟，簡報會要它結束回合前不要留下還在跑的 subagent',
       },
       copilot: {
         skills: '它的 skill 工具與 skill 清單（內建的、~/.copilot/skills、專案 .github/skills 等）都不提供',
@@ -2030,6 +2036,7 @@ export const zhTW = {
           '你自己的 hook（~/.copilot 的，disableAllHooks）。專案的 hook（.github/hooks，以及專案 .github/copilot 或 .claude 設定裡的）仍會執行，所以低於完整權限時，每次執行前都會先問你',
         agents: 'Copilot 沒有能單次略過自訂 agent 的設定',
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
+        subagents: 'Copilot 沒有能單次關閉 subagent 的開關：它們保持開啟',
       },
       muse: {
         skills:
@@ -2042,6 +2049,7 @@ export const zhTW = {
         hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
         agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
         plugins: 'Muse Code 沒有能單次略過 plugin 的設定',
+        subagents: 'Muse Code 沒有能單次關閉 subagent 的開關：它們保持開啟（它的 workflow 一律關閉）',
       },
       goose: {
         skills:
@@ -2053,6 +2061,7 @@ export const zhTW = {
         hooks: 'hook 只來自 plugin：關掉 plugin 就不會執行',
         agents: 'Goose 沒有只略過自訂 subagent 的設定',
         plugins: '專案 .agents/plugins 裡的每個 plugin，連同它的 hook、skill 與 MCP 伺服器（MCP 伺服器從新的對話開始）',
+        subagents: '它的 summon 擴充功能（delegate，連同 load）；它的 subagent 的呼叫和 Goose 自己的一樣會詢問',
       },
       // The open agents: each adapter adds what its switches leave out, once its CLI has any.
       cline: {
@@ -2064,6 +2073,7 @@ export const zhTW = {
         hooks: 'Cline 沒有略過 hook 的設定：專案 .clinerules/hooks 與 .cline/hooks 裡的 hook 照常執行',
         agents: 'Cline 沒有略過自訂 agent 的設定',
         plugins: 'Cline 只能依路徑個別略過 plugin；請個別勾選',
+        subagents: '它的 spawn_agent 工具',
       },
       opencode: {
         skills: '它從 .claude/skills 與 .agents/skills 找到的 skill，以及內建的 customize-opencode（skill 工具整個關掉）',
@@ -2074,6 +2084,7 @@ export const zhTW = {
         hooks: 'OpenCode 沒有 hook（Harness Relay 裡不載入它的 plugin）',
         agents: '它的 subagent general 與 explore（完全存取以外一律關閉）',
         plugins: 'Harness Relay 裡的 OpenCode 不載入任何 plugin',
+        subagents: '它的 task 工具，所有 subagent（permission.task: deny）；完全存取以外一律關閉，因為 subagent 的提問永遠到不了你面前',
       },
       openhands: {
         skills:
@@ -2087,6 +2098,7 @@ export const zhTW = {
         agents:
           'OpenHands 沒有排除 subagent（.agents/agents、.openhands/agents）的設定；完全存取以外不提供它的 subagent 工具，所以它們不會執行',
         plugins: 'OpenHands 不回報 plugin',
+        subagents: '它的 task 工具；完全存取以外一律關閉，因為它的 subagent 不經詢問就行動',
       },
       pi: {
         skills: 'Harness Relay 裡從不載入 Pi 自己的 skill；工具庫的 skill 會列在角色說明裡',
@@ -2097,6 +2109,7 @@ export const zhTW = {
         hooks: 'Harness Relay 裡從不載入 Pi 的擴充功能，只有它的 gate 與 MCP 擴充功能',
         agents: 'Pi 不回報 subagent',
         plugins: 'Harness Relay 裡從不載入 Pi 的擴充功能、套件與專案的 .pi 資料夾',
+        subagents: 'Pi 沒有 subagent',
       },
     } as Record<Provider, Record<NativePart, string>>,
     offCodexThreads:

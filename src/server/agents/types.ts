@@ -5,6 +5,7 @@ import {
   type ApprovalAnswer,
   type ApprovalKind,
   type NativeItemsOff,
+  type NativeOnPart,
   type NativePart,
   type Permission,
   type PlanEntry,
@@ -26,15 +27,35 @@ export type AgentEvent =
   | { type: 'thinking'; text: string }
   /** The agent's plan / to-do list, replacing the previous one. */
   | { type: 'plan'; entries: PlanEntry[] }
-  /** `kind`: what the call does, when the CLI says or its adapter can tell (`toolCallKind()`). */
-  | { type: 'tool_start'; id: string; name: string; detail?: string; kind?: ToolCallKind }
+  /**
+   * `kind`: what the call does, when the CLI says or its adapter can tell (`toolCallKind()`).
+   * `parentId`: the id of the call that started the subagent making this one (its `tool_start`'s id),
+   * for a subagent's call; the chat shows it inside that call. `agent` and `model`: on a call that
+   * starts a subagent, its name and model, when the CLI says. A second `tool_start` with the same id
+   * updates the call's detail, agent and model.
+   */
+  | {
+      type: 'tool_start';
+      id: string;
+      name: string;
+      detail?: string;
+      kind?: ToolCallKind;
+      parentId?: string;
+      agent?: string;
+      model?: string;
+    }
   /**
    * `error`: the CLI's stated reason when a call failed or was refused (shown under the tool).
    * `output`: the end of what the call returned.
    * `detail`: what the call was about, when the CLI only says so once it is done (a web search's
    * query); it replaces the one from `tool_start`.
    */
-  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string; detail?: string };
+  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string; detail?: string }
+  /**
+   * What the CLI reports about its own run, not the agent's words: it compacted the context, retried a
+   * request, switched models. Shown as Harness Relay's note in the reply, never forwarded as the agent's.
+   */
+  | { type: 'notice'; text: string };
 
 /** Something an agent wants to do that its permission does not cover. */
 export interface ApprovalRequest {
@@ -97,6 +118,8 @@ export interface RunOptions {
   nativeOff?: readonly NativePart[];
   /** Single items of what the CLI loads by itself to leave out of this run. */
   nativeItems?: NativeItemsOff;
+  /** What the CLI can do by itself that this run turns on (its workflows: `NATIVE_ON_SUPPORT`); off when absent. */
+  nativeOn?: readonly NativeOnPart[];
   /**
    * Paths the agent's sandbox may not let it read below full access: the browsers' folders,
    * Harness Relay's database and its own temporary folder (`protectedReads()`, worked out by the

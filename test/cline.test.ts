@@ -349,7 +349,7 @@ describe('its home and the config written for each run', () => {
   });
 
   it('can leave out its skills tool, single built-in tools and single plugins', () => {
-    expect(NATIVE_OFF_SUPPORT.cline).toEqual(['skills']);
+    expect(NATIVE_OFF_SUPPORT.cline).toEqual(['skills', 'subagents']);
     expect(NATIVE_ITEM_SUPPORT.cline).toEqual(['tools', 'plugins']);
   });
 
