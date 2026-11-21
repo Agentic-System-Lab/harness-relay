@@ -66,12 +66,20 @@ export function ToolsCard({
     const current = await api.oauth();
     if (id === oauthRead.current) setOauth(current);
   }, []);
+  // A connector mutation returns a snapshot of both services. An older response can arrive
+  // after a newer mutation, so read current state after each write and apply only the latest read.
+  const connectorRead = useRef(0);
+  const reloadConnectors = useCallback(async () => {
+    const id = ++connectorRead.current;
+    const latest = await api.connectors();
+    if (id === connectorRead.current) setConnectors(latest);
+  }, []);
   const refreshAccounts = async () => {
     setOauthError('');
     setConnectorError('');
     await Promise.all([
       reloadOAuth().catch((e: Error) => setOauthError(e.message)),
-      api.connectors().then(setConnectors, (e: Error) => setConnectorError(e.message)),
+      reloadConnectors().catch((e: Error) => setConnectorError(e.message)),
     ]);
   };
 
@@ -150,7 +158,13 @@ export function ToolsCard({
               }}
               connectors={connectors}
               accountSettings={(kind) => (
-                <ConnectorsSettings kind={kind} view={connectors} setView={setConnectors} oauth={oauth} reloadOAuth={reloadOAuth} />
+                <ConnectorsSettings
+                  kind={kind}
+                  view={connectors}
+                  reloadConnectors={reloadConnectors}
+                  oauth={oauth}
+                  reloadOAuth={reloadOAuth}
+                />
               )}
               relayAccess={(group) => <RelayAccess group={group} lib={lib} change={(call) => change(call, setAppError)} />}
               browserSettings={<BrowserPath lib={lib} change={(call) => change(call, setAppError)} />}

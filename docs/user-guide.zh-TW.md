@@ -321,43 +321,48 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 ### 常用 App
 
-開啟**設定 → App 與工具**，選擇**常用 App**分頁。四組服務都在同一頁。**郵件與行事曆**分別管理郵件及行事曆帳號。**團隊通訊**包含 Microsoft Teams 與 Slack。**文件與筆記**包含 Google Drive、Notion、Heptabase 與 Obsidian。**開發與瀏覽**包含 GitHub 與瀏覽器。使用 Microsoft Teams 或 Slack 時，請按該服務旁的**連結**，再選擇 Claude 或 Codex。兩項服務也可以透過 Relay 直接連線。使用 Notion 或 Heptabase 時，按該服務那一列即可開始登入。
+開啟**設定 → App 與工具**，選擇**常用 App**分頁。四組服務都在同一頁。**郵件與行事曆**分別管理郵件及行事曆帳號。**團隊通訊**包含 Microsoft Teams 與 Slack。**文件與筆記**包含 Google Drive、Notion、Heptabase 與 Obsidian。**開發與瀏覽**包含 GitHub 與瀏覽器。展開 Teams 即可直接用 Microsoft 帳號登入。Slack 可按**連結**選擇 Claude 或 Codex，也可在**從 Relay 傳送訊息**設定直接發文。使用 Notion 或 Heptabase 時，按該服務那一列即可開始登入。
 
 | App | 在聊天中可以做什麼 |
 | --- | --- |
 | 郵件 | 選 **Gmail**、**iCloud 郵件**、**Outlook**或**其他信箱**連結信箱，就能請助理搜尋郵件或儲存草稿。外寄郵件會等你按**送出**才寄出。 |
 | 行事曆 | 可選 **Google Calendar**、**iCloud 行事曆**、**Outlook** 或**其他（CalDAV）**。你可以請助理列出活動或建立會議。邀請會在待送出匣等你確認。 |
-| Microsoft Teams | 選擇 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器，以工作或學校帳號登入。Claude 的連接器需要 Microsoft Entra 管理員同意。若要讓其他支援的助理唯讀查詢團隊、頻道及近期頻道訊息，請展開**在 Relay 讀取與傳送 Teams 訊息**，視需要安裝 PowerShell 7，按「安裝 Teams 需要的 Microsoft Graph 工具」，再到 Microsoft 頁面輸入登入代碼。 |
+| Microsoft Teams | 用工作或學校帳號直接連結 Relay，勾選可列出團隊、頻道和讀取近期頻道訊息的助理。需要發文時可另行授權，在待送出匣逐則確認。 |
 | Slack | 選擇在 Claude 或 Codex 開啟 Slack，選取自己的工作區，確認要求的權限（可能包含傳送訊息）。組織可能需要管理員核准。工具庫中如果已有 Slack 連線，可按 Slack 這一列的**管理**，重新登入或登出。 |
-| Google Drive | 按**連結 Google Drive**並授予唯讀權限，即可依檔名搜尋，並以純文字讀取 Google 文件。若要讓助理在你於 Relay 核准後建立或編輯 Google 文件，請另外開啟文件編輯。 |
+| Google Drive | 選擇搜尋與讀取後按**用 Google 登入**，即可依檔名搜尋，並以純文字讀取 Google 文件。若要讓助理在你核准後建立或編輯 Google 文件，可在登入時選擇編輯權限，或稍後在該帳號那一列開啟。 |
 | Notion | 授權工作區以使用 Notion 工具。授權頁會說明要求的存取權。 |
 | Heptabase | 授權知識庫，使用 Heptabase 的工具讀寫其中的內容。 |
 | Obsidian | 可在執行 Relay 的電腦上連結一個或多個筆記庫。獲得授權的每位助理都能列出所有已連結筆記庫中的資料夾、讀取 Markdown 筆記，並提議修改。要解除某個筆記庫的連結，請使用該完整路徑旁的按鈕。筆記會留在磁碟上。 |
 | GitHub | 列出儲存庫的拉取請求。展開 GitHub 可安裝 GitHub CLI、使用畫面上的代碼登入，或管理已登入的帳號。 |
 | 瀏覽器 | 選擇哪些助理可以開啟網頁與擷取畫面。「要啟動的瀏覽器」可指定執行檔。 |
 
-使用 Claude 時，請用與 Relay 的 Claude Code 相同的 Claude 訂閱帳號。使用 Codex 時，在該帳號的 ChatGPT 工作區安裝外掛、授權，再到 Relay 建立新對話。在供應商頁面連結 Teams 或 Slack 後，請回到 Relay。各服務分別顯示 Claude 與 Codex 的狀態，以及目前查詢的帳號。Claude 顯示已連結時，代表 Claude Code 回報連線成功。Codex 顯示可使用時，代表該 App 已啟用且可呼叫；按**重新檢查連線**或從供應商頁回到 Relay 時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示**已在 Codex 連結**表示已通過需要登入的查詢，狀態回應不包含個人資料。要核對授權的工作區或帳號，可在 Codex 的**設定 → 外掛（Plugins）**開啟該 App，查看已連結帳號。若未授權就關閉頁面，可按**重新檢查連線**更新兩個供應商的狀態。已連結的供應商會顯示解除連結的選項。使用 Claude 時，請前往連接器管理頁移除服務。Teams 使用 Microsoft 365 連接器，移除後也會影響該連接器的其他 Microsoft 365 服務。若使用 Codex，請在該 App 的已連結帳號中選取帳號後解除連結，再回到 Relay 確認結果。移除帳號授權後，該 App 仍可能顯示為可使用。若查詢失敗，狀態會顯示無法確認。另一個供應商與 Relay 的直接連線各有自己的權限。若要檢視 CLI 載入的工具，請打開該助理的設定、選擇帳號，在 CLI 自行載入的工具清單中按「查詢」。Claude Code 查看「MCP 工具」，Codex 查看「Plugins」。若 Codex 沒有列出該 App，請檢查該帳號的外掛目錄。所選服務會收到你請它讀取的內容，適用你自己的方案與工作區規則。這些連結不使用 Relay 發行者的 API 憑證。
+要在 Claude 連結 Slack，請用與 Relay 的 Claude Code 相同的 Claude 訂閱帳號。使用 Codex 時，在該帳號的 ChatGPT 工作區安裝外掛、授權，再到 Relay 建立新對話。在供應商頁面授權 Slack 後，請回到 Relay。Slack 列會分別顯示 Claude 與 Codex 的狀態，以及目前查詢的帳號。Claude 顯示已連結時，代表 Claude Code 回報連線成功。Codex 顯示可使用時，代表該 App 已啟用且可呼叫；按**重新檢查連線**或從供應商頁回到 Relay 時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示**已在 Codex 連結**表示已通過需要登入的查詢，狀態回應不包含個人資料。要核對授權的工作區或帳號，可在 Codex 的**設定 → 外掛（Plugins）**開啟該 App，查看已連結帳號。若未授權就關閉頁面，可按**重新檢查連線**更新兩個供應商的狀態。已連結的供應商會顯示解除連結的選項。使用 Claude 時，請前往連接器管理頁移除服務。若使用 Codex，請在該 App 的已連結帳號中選取帳號後解除連結，再回到 Relay 確認結果。移除帳號授權後，該 App 仍可能顯示為可使用。若查詢失敗，狀態會顯示無法確認。另一個供應商與 Relay 的直接連線各有自己的權限。若要檢視 CLI 載入的工具，請打開該助理的設定、選擇帳號，在 CLI 自行載入的工具清單中按「查詢」。Claude Code 查看「MCP 工具」，Codex 查看「Plugins」。若 Codex 沒有列出該 App，請檢查該帳號的外掛目錄。所選服務會收到你請它讀取的內容，適用你自己的方案與工作區規則。這些連結不使用 Relay 發行者的 API 憑證。
 
 **在 Relay 新增或編輯 Google 文件**
 
 1. 到**設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）**，選 **Google**，輸入並儲存自己 Google Cloud 專案的桌面 OAuth 用戶端 ID 與用戶端密碼。若還沒設定 Google 用戶端，可在 **Google Drive** 按**設定 Google 登入**，開啟同一處設定。在該專案啟用 **Google Docs API**，即可建立文件或依 ID 編輯文件。若也要透過 Drive 直接連線依檔名搜尋或讀取檔案，再啟用 **Google Drive API**。郵件與行事曆的直接連線也使用同一個 Google 用戶端，更換後既有帳號需要重新登入。配額與可能的費用歸該專案。
-2. 在 **Google Drive → 在 Relay 新增或編輯 Google 文件**按**開啟文件編輯**，或在列出的帳號旁按**為該帳號開啟文件編輯**，再用想要使用的 Google 帳號授權。Drive 的直接搜尋與讀取使用唯讀權限，編輯時 Google 會另行要求存取 Google 文件的權限（`https://www.googleapis.com/auth/documents`）。在**選擇助理以啟用工具**勾選你的助理。[Google 文件 API 權限說明](https://developers.google.com/workspace/docs/api/auth?hl=zh-tw)
+2. 展開 **Google Drive**。新帳號預設為搜尋與讀取。若要寫入，可選「搜尋與讀取、新增及編輯 Google 文件」，也可只選新增及編輯。按一次**用 Google 登入**即可授予所選權限。若帳號已唯讀連結，可在該帳號那一列按**開啟文件新增與編輯**。Drive 的直接搜尋與讀取使用唯讀權限，編輯時 Google 會另行要求存取 Google 文件的權限（`https://www.googleapis.com/auth/documents`）。在**選擇助理以啟用工具**勾選你的助理。[Google 文件 API 權限說明](https://developers.google.com/workspace/docs/api/auth?hl=zh-tw)
 3. 請助理起草 Google 文件，或提供文件連結並指明要替換的原文。每次編輯可替換內文段落中一段只出現一次的文字，必要時可指定文件分頁。替換的內容是純文字，會沿用周圍的格式。若要在同一段文字內套用不同格式，請直接在 Google 文件編輯。Relay 的文件工具僅支援 Google 文件的文字；試算表或簡報請在 Google 試算表或 Google 簡報編輯。
 4. 在聊天中核對 Google 帳號和標題。新文件會顯示完整的提議文字。編輯時會列出修改前後的文字，點選文件標題即可開啟既有文件的目標分頁。按**建立文件**或**儲存變更**套用預覽中的內容，或按**捨棄**取消。每次寫入都要經過你確認，包括「完全存取」模式。如果文件版本已變更，請助理重新產生預覽。若 Google 已建立檔案但未能加入內文，可從卡片上的連結開啟檔案確認。
 
-如需唯讀存取，在 Drive 列按**連結 Google Drive**，或為已登入的 Google 帳號開啟 Drive 讀取權限。在**選擇助理以啟用工具**勾選可依檔名搜尋與讀取 Google 文件的助理。[查看 Drive 設定](../site/assets/media/docs/tools-drive-editing-zh-TW.webp)
+連結後在 Drive 列按**管理**。每個帳號各有一列，顯示電子郵件地址，以及目前能否搜尋與讀取檔案、編輯 Google 文件。只有編輯權限的帳號可按**開啟檔案搜尋與讀取**補授讀取權限。按**解除連結**會先列出該帳號的服務供你確認。需要更新授權時才會顯示**重新登入**。若要再連結另一個 Google 帳號，請展開清單下方的**新增帳號**，從相同的三種用途中擇一，再按**用 Google 登入**。在**選擇助理以啟用工具**勾選可依檔名搜尋與讀取 Google 文件的助理。[查看 Drive 設定](../site/assets/media/docs/tools-drive-editing-zh-TW.webp)
 
 要選擇哪些助理可透過 Relay 使用**郵件**、**行事曆**、**瀏覽器**、**Google Drive**、**Microsoft Teams**、**GitHub** 或 **Obsidian**，請展開該服務，再展開**選擇助理以啟用工具**。Slack 的**可提議傳送訊息的助理**位於**從 Relay 傳送訊息**中，開啟傳送權限後才會出現。Claude 與 Codex 代管的 Slack 連線各自獨立。選好後會顯示**可使用此工具的助理 · N 種**，N 是目前勾選的數量。再次展開即可更改。這項設定適用於該工具所有已連結的帳號。例如，開放郵件給 Codex 後，它可以使用你連結的信箱。行事曆可另外選擇助理。解除直接透過 OAuth 連線的 Google 或 Microsoft 帳號時，會一併移除該帳號列出的所有用途。
 
 **登出 GitHub。** 在**常用 App → 開發與瀏覽**展開 **GitHub**，按**登出 GitHub**，並確認畫面上的帳號。這會將該帳號從執行 Relay 那台電腦的 GitHub CLI 登出。其他使用同一套 CLI 的應用程式也會失去該帳號的存取權。Relay 的對話分享與 GitHub 自動任務都使用這套 CLI。如果還有其他已登入的帳號，請查看 GitHub 列目前顯示的是哪一個。若目前的權杖來自環境變數，GitHub 列會顯示變數名稱。請從啟動 Relay 的環境移除該變數，再重新啟動 Relay。
 
-**從 Relay 發送 Slack 或 Teams 訊息**
+#### 連結 Microsoft Teams 並發送訊息
+
+1. 在**常用 App → 團隊通訊 → Microsoft Teams**，若出現**安裝 PowerShell 7**，請按下按鈕。Relay 會將 Microsoft 的可攜式 PowerShell 套件與需要下載的 Graph 登入模組安裝到自己的資料夾，不需系統管理員權限。已安裝的 PowerShell 7 或 Graph 模組可直接使用。若已有 PowerShell 7、只缺少模組，請按**安裝 Teams 需要的 Microsoft Graph 工具**。
+2. 按**登入 Microsoft Teams**，開啟 Microsoft 登入頁面，輸入 Relay 顯示的代碼，再用工作或學校帳號登入。組織可能需要管理員核准存取權。在**選擇助理以啟用工具**勾選可以列出團隊、頻道和讀取近期頻道訊息的助理。例如，可以請助理摘要某個頻道最新的討論。
+3. 若要發文，按**開啟發送權限**，在相同租用戶用同一帳號完成第二次裝置登入。在 Relay 聊天貼上 Teams 頻道、聊天或訊息連結，請助理擬稿。在待送出匣核對發送帳號、目的地與全文，再按**送出**或**捨棄**。在頻道發文會開始新的對話。即使在「完全存取」或自動任務，每則訊息仍需你確認。
+
+Relay 重新啟動後需要再登入。在 Windows 上，Graph PowerShell 可能會記住你選的帳號。[Teams 設定圖解](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/#microsoft-teams)
+
+#### 從 Relay 發送 Slack 訊息
 
 1. 在**常用 App → Slack** 開啟**從 Relay 傳送訊息**。視需要請管理員在 Slack 工作區安裝 App，授予 `chat:write` 及目的地所需的讀取權限。公開頻道用 `channels:read`、私人頻道用 `groups:read`、私訊用 `im:read`、多人私訊用 `mpim:read`。若使用機器人權杖，請邀請它加入要發文的頻道。在 Relay 填入該 App 的機器人或使用者 OAuth 權杖。這項授權與你在 Claude 或 Codex 的 Slack 連線分開設定。
-2. 使用 **Microsoft Teams** 時，在 Teams 列用工作或學校帳號登入 Microsoft Graph，再按**開啟發送權限**，並用同一帳號完成第二次裝置登入。取消發文授權時仍可讀取頻道。組織可能需要管理員核准。
-3. Slack 請在**從 Relay 傳送訊息**中勾選可以擬稿的助理。Teams 則在該服務的**選擇助理以啟用工具**勾選助理。在聊天中貼上 Slack 對話 ID 或連結，或 Teams 的頻道、聊天或訊息連結，請助理準備訊息。待送出匣會顯示發送者、目的地與完整訊息，檢閱後按**送出**或**捨棄**。每一則都要你確認，即使是「完全存取」或自動任務也一樣。Teams 訊息連結用來選擇現有聊天室或頻道；在頻道中發文會開始新的對話。
-
-直接使用 Microsoft Graph 的連線會持續到 Relay 重新啟動。在 Windows 上，Graph PowerShell 可能會記住你選的帳號。
+2. 在**從 Relay 傳送訊息**中勾選可以擬稿的助理。在聊天中貼上 Slack 對話 ID 或連結，請助理準備訊息。待送出匣會顯示發送者、目的地與完整訊息，檢閱後按**送出**或**捨棄**。每一則都要你確認，即使是「完全存取」或自動任務也一樣。
 
 ### Harness Relay 的工具：瀏覽器、郵件與行事曆
 
@@ -389,7 +394,17 @@ CLI 自己對這些工具的詢問，由 Harness Relay 直接回答、不顯示�
 - **Google**：在自己的 Google Cloud 專案建立「電腦版應用程式」類型的 OAuth 用戶端。要使用 Gmail，在 OAuth 同意畫面加入範圍 `https://mail.google.com/`。要使用 Google Calendar，啟用 Google Calendar API 與 CalDAV API，並加入範圍 `https://www.googleapis.com/auth/calendar`。若 app 還在「測試」階段，請將自己的帳號加入**測試使用者**。在這個階段，這些範圍的更新權杖會在七天後失效。在 Relay 輸入用戶端 ID 與用戶端密碼，按**儲存**。
 - **Microsoft**：在 Microsoft Entra 系統管理中心註冊支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」的 app。平台選「行動與桌面應用程式」，允許 Relay 顯示的重新導向網址（例如 `http://localhost/oauth/callback`，連接埠不限）。行事曆需要 Microsoft Graph 的 `Calendars.ReadWrite` 與 `offline_access` 權限，郵件則需加入 Office 365 Exchange Online 的 `IMAP.AccessAsUser.All` 與 `SMTP.Send`。Microsoft 365 信箱需開啟 SMTP AUTH 才能寄信。本機登入請以 `localhost` 或 `127.0.0.1` 開啟 Relay，若以 `[::1]` 開啟 Relay，Microsoft 登入會改用 `localhost` 回呼，因為 Microsoft Entra 不接受 IPv6 回送位址。若要在另一台裝置登入，請開啟「允許公用用戶端流程」。在 Relay 儲存用戶端 ID 與租用戶設定。
 
-回到所選服務，按**用 Google 登入**或**用 Microsoft 365 / Outlook.com 登入**。服務的登入頁面會在新分頁開啟（桌面版則在你的瀏覽器開啟），你允許之後會回到 Harness Relay 自己的頁面完成登入；帳號會顯示為已連線，它自己的行事曆會加入行事曆工具，或它的郵件帳號（`Outlook · <地址>`、`Gmail · <地址>`）會加入郵件工具與郵件觸發，用該服務自己的伺服器（只在每種用途第一次登入時加入：之後你移除的，重新登入也不會再加回來）。請在服務的頁面上保留行事曆或郵件的存取權限（Google 讓你取消勾選）：沒有它，登入會失敗並說明原因，請重新登入。若要讓同一帳號使用另一項服務，請展開該服務、按登入，再於 Google 或 Microsoft 的授權頁選取相同帳號。Relay 會將新用途加入該帳號。如果服務提供者拒絕原先已授予的存取權，Relay 會回報錯誤並保留原有帳號。**重新登入**是為卡片上所列的帳號更新授權。若要使用其他帳號，請從該服務的登入按鈕開始。這樣使用的郵件帳號沒有密碼或伺服器可以編輯；**測試** 會用帳號的權杖登入它的 IMAP 與 SMTP，移除它之後，按它帳號的 **用於郵件** 就能再加入。**行事曆** 會列出這個帳號的其他行事曆，可以再加入。如果 Harness Relay 在另一台電腦上（codespace、Tailscale），回來的那個頁面會打不開：把那個頁面的網址貼到「設定」顯示的欄位。如果這台電腦上在那個網址跑的是另一個 Harness Relay，它的頁面會說這不是它的登入，並顯示網址與複製按鈕，讓你改貼到開始登入的那一個。**在另一台裝置上登入**（Microsoft）則會給你一組代碼，到 Microsoft 的網址輸入。權杖存在你的憑證儲存區，只會送到該帳號的服務；agent 永遠拿不到。登入失效的帳號（被撤銷，或你改了密碼）會顯示 **需要重新登入**（行事曆的 **測試** 發現時也會），行事曆工具也會這樣說；你在**帳號登入設定（OAuth 2.0）**更換用戶端（另一個用戶端 ID 或租用戶）時，它的帳號也一樣，因為它們的權杖屬於原本的 app；還在等待的登入也會結束，請重新開始。**行事曆** 發現登入已經失效時，帳號也會這樣顯示。按 **重新登入** 即可（這時只提供這一種登入：它會要求帳號所有的用途）。郵件工具、等新郵件的自動任務與它的 IMAP IDLE 也會這樣說，你重新登入後 IDLE 會自己再連線。按**移除**時會列出這個帳號的所有用途。確認後會刪除權杖、行事曆與郵件帳號。Google 的權杖還會被撤銷，Microsoft 則由「設定」列出你移除 app 存取權的頁面。Microsoft 365 在國家雲時，用 `RELAY_MICROSOFT_LOGIN_URL` 與 `RELAY_MICROSOFT_GRAPH_URL` 指定它的登入與 Graph，用於它的行事曆；它的郵件還不支援（`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP` 是給測試中這台電腦上的替身用的）。
+回到所選服務，按**用 Google 登入**或**用 Microsoft 365 / Outlook.com 登入**。服務的登入頁面會在新分頁開啟（桌面版則在你的瀏覽器開啟），你允許之後會回到 Harness Relay 自己的頁面完成登入；帳號會顯示為已連線，它自己的行事曆會加入行事曆工具，或它的郵件帳號（`Outlook · <地址>`、`Gmail · <地址>`）會加入郵件工具與郵件觸發，用該服務自己的伺服器（只在每種用途第一次登入時加入：之後你移除的，重新登入也不會再加回來）。請在服務的頁面上保留行事曆或郵件的存取權限（Google 讓你取消勾選）：沒有它，登入會失敗並說明原因，請重新登入。
+
+若要讓同一帳號使用另一項服務，請展開該服務、按登入，再於 Google 或 Microsoft 的授權頁選取相同帳號。Relay 會將新用途加入該帳號。如果服務提供者拒絕原先已授予的存取權，Relay 會回報錯誤並保留原有帳號。**重新登入**是為卡片上所列的帳號更新授權。若要使用其他帳號，請從該服務的登入按鈕開始。
+
+在**已連結的信箱**或**已連結的行事曆**，每個 Google 或 Microsoft 帳號會列出自己的資源。每個資源可**測試**，也可單獨**移除信箱**或**移除行事曆**。測試信箱會用該帳號的權杖登入 IMAP 與 SMTP。移除最後一項資源仍會保留授權，可按**加入信箱**或**選擇行事曆**重新加入。已有行事曆時，按**管理行事曆**可加入同帳號的其他行事曆。手動設定的資源保留各自的**編輯**。
+
+如果 Harness Relay 在另一台電腦上（codespace、Tailscale），回來的那個頁面會打不開：把那個頁面的網址貼到「設定」顯示的欄位。如果這台電腦上在那個網址跑的是另一個 Harness Relay，它的頁面會說這不是它的登入，並顯示網址與複製按鈕，讓你改貼到開始登入的那一個。**在另一台裝置上登入**（Microsoft）則會給你一組代碼，到 Microsoft 的網址輸入。權杖存在你的憑證儲存區，只會送到該帳號的服務；agent 永遠拿不到。
+
+登入失效的帳號（被撤銷，或你改了密碼）會顯示 **需要重新登入**（行事曆的 **測試** 發現時也會），行事曆工具也會這樣說；你在**帳號登入設定（OAuth 2.0）**更換用戶端（另一個用戶端 ID 或租用戶）時，它的帳號也一樣，因為它們的權杖屬於原本的 app；還在等待的登入也會結束，請重新開始。**管理行事曆**發現登入已經失效時，帳號也會這樣顯示。按 **重新登入** 即可（這時只提供這一種登入：它會要求帳號所有的用途）。郵件工具、等新郵件的自動任務與它的 IMAP IDLE 也會這樣說，你重新登入後 IDLE 會自己再連線。
+
+按**解除帳號連結**時會列出這個帳號受影響的所有服務。確認後會刪除權杖、行事曆與郵件帳號。Google 的權杖還會被撤銷，Microsoft 則由「設定」列出你移除 app 存取權的頁面。Microsoft 365 在國家雲時，用 `RELAY_MICROSOFT_LOGIN_URL` 與 `RELAY_MICROSOFT_GRAPH_URL` 指定它的登入與 Graph，用於它的行事曆；它的郵件還不支援（`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP` 是給測試中這台電腦上的替身用的）。
 
 ### Agent 的 session：各 CLI 自己的資料夾與 AgentsView
 

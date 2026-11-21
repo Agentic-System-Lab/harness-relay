@@ -14,7 +14,7 @@ const settings = {
   nativeOff: () => [],
   nativeItems: () => ({}),
 };
-const names = { teams: 'microsoft_teams.get_profile', slack: 'slack.slack_read_user_profile' };
+const names = { slack: 'slack.slack_read_user_profile' };
 function catalog(app: HostedApp) {
   const name = names[app];
   return {
@@ -54,17 +54,22 @@ function mockCodex(received?: (method: string) => void) {
       const responses: Record<string, unknown> = {
         initialize: {},
         'account/read': { account: { type: 'chatgpt' } },
-        'app/installed': { apps: [{ id: HOSTED_APPS.teams.codexConnector, enabled: true, callable: true }] },
+        'app/installed': { apps: [{ id: HOSTED_APPS.slack.codexConnector, enabled: true, callable: true }] },
         'config/read': { config: { mcp_servers: { project_script: { command: 'unwanted' } } } },
         'thread/start': { thread: { id: 'ephemeral' } },
         'app/read': {
-          apps: [{ id: HOSTED_APPS.teams.codexConnector, toolSummaries: [{ name: 'get_profile', isReadOnly: true, isEnabled: true }] }],
+          apps: [
+            {
+              id: HOSTED_APPS.slack.codexConnector,
+              toolSummaries: [{ name: 'slack_read_user_profile', isReadOnly: true, isEnabled: true }],
+            },
+          ],
           missingAppIds: [],
         },
-        'mcpServerStatus/list': catalog('teams'),
+        'mcpServerStatus/list': catalog('slack'),
         'mcpServer/tool/call': {
           content: [],
-          structuredContent: { id: 'example-id', userPrincipalName: 'fixture@example.test' },
+          structuredContent: { user: { id: 'U12345', profile: { display_name: 'Fixture' } } },
         },
       };
       opts.onMessage({ id: m.id, result: responses[m.method] }, write, () => {
@@ -79,7 +84,8 @@ function mockCodex(received?: (method: string) => void) {
 describe('hosted connector checks', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it.each(['slack', 'teams'] as const)('requires the exact hosted Claude name and scope for %s', (app) => {
+  it('requires the exact hosted Slack name and scope for Claude', () => {
+    const app = 'slack';
     const name = HOSTED_APPS[app].claudeName;
     const details = (scope: string, status: string) => name + ':\n  Scope: ' + scope + '\n  Status: ' + status;
     for (const [raw, expected] of [
@@ -127,68 +133,63 @@ describe('hosted connector checks', () => {
   });
 
   it('keeps catalog accessibility, blocked tools and an actual OAuth verification distinct', () => {
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, isAccessible: true, isEnabled: true }]).teams).toBe('unknown');
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, enabled: true, callable: true }])).toEqual({
-      teams: 'available',
-      slack: 'not-found',
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.slack.codexConnector, isAccessible: true, isEnabled: true }]).slack).toBe('unknown');
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.slack.codexConnector, enabled: true, callable: true }])).toEqual({
+      slack: 'available',
     });
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, enabled: false, callable: false }]).teams).toBe('disabled');
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.slack.codexConnector, enabled: false, callable: false }]).slack).toBe('disabled');
     expect(codexHostedSnapshot([{ id: 'third-party-copy', runtimeName: 'Slack', enabled: true, callable: true }]).slack).toBe('not-found');
-    expect(codexHostedSnapshot(null).teams).toBe('unknown');
+    expect(codexHostedSnapshot(null).slack).toBe('unknown');
   });
 
   it('honors policy on the particular profile tool even when other tools in the app are available', () => {
-    const response = (toolSummaries: unknown[]) => ({ apps: [{ id: HOSTED_APPS.teams.codexConnector, toolSummaries }], missingAppIds: [] });
-    const tool = { name: 'get_profile', isReadOnly: true, isEnabled: true };
-    expect(profilePermission('teams', response([tool]))).toBe('allowed');
-    expect(profilePermission('teams', response([{ ...tool, isEnabled: false }]))).toBe('disabled');
-    expect(profilePermission('slack', response([tool]))).toBe('unknown');
-    expect(profilePermission('teams', response([{ ...tool, isReadOnly: false }]))).toBe('unknown');
-    expect(profilePermission('teams', response([tool, tool]))).toBe('unknown');
+    const response = (toolSummaries: unknown[]) => ({ apps: [{ id: HOSTED_APPS.slack.codexConnector, toolSummaries }], missingAppIds: [] });
+    const tool = { name: 'slack_read_user_profile', isReadOnly: true, isEnabled: true };
+    expect(profilePermission('slack', response([tool]))).toBe('allowed');
+    expect(profilePermission('slack', response([{ ...tool, isEnabled: false }]))).toBe('disabled');
+    expect(profilePermission('slack', response([{ ...tool, name: 'get_profile' }]))).toBe('unknown');
+    expect(profilePermission('slack', response([{ ...tool, isReadOnly: false }]))).toBe('unknown');
+    expect(profilePermission('slack', response([tool, tool]))).toBe('unknown');
   });
 
   it('enforces the tool origin, app, link, zero arguments and unique target', () => {
-    const match = () => catalog('teams');
-    expect(profileTool('teams', match())).toEqual({ name: names.teams, link: 'link-fixture' });
+    const match = () => catalog('slack');
+    expect(profileTool('slack', match())).toEqual({ name: names.slack, link: 'link-fixture' });
     for (const change of [
       (r: ReturnType<typeof match>) => {
         r.data[0].httpOrigin = 'https://example.test';
       },
       (r: ReturnType<typeof match>) => {
-        r.data[0].tools[names.teams]._meta.connector_id = HOSTED_APPS.slack.codexConnector as typeof HOSTED_APPS.teams.codexConnector;
+        r.data[0].tools[names.slack]._meta.connector_id = 'other-connector' as typeof HOSTED_APPS.slack.codexConnector;
       },
       (r: ReturnType<typeof match>) => {
-        r.data[0].tools[names.teams]._meta.link_id = 'synthetic_link::test';
+        r.data[0].tools[names.slack]._meta.link_id = 'synthetic_link::test';
       },
       (r: ReturnType<typeof match>) => {
-        Object.assign(r.data[0].tools[names.teams].inputSchema, { required: ['user_id'] });
+        Object.assign(r.data[0].tools[names.slack].inputSchema, { required: ['user_id'] });
       },
       (r: ReturnType<typeof match>) => {
-        const name = 'another_account.get_profile';
-        r.data[0].tools[name] = { ...r.data[0].tools[names.teams], name };
+        const name = 'another_account.slack_read_user_profile';
+        r.data[0].tools[name] = { ...r.data[0].tools[names.slack], name };
       },
     ]) {
       const r = match();
       change(r);
-      expect(profileTool('teams', r)).toBeUndefined();
+      expect(profileTool('slack', r)).toBeUndefined();
     }
   });
 
-  it.each([
-    ['teams', { id: 'guid', userPrincipalName: 'fixture@example.test' }],
-    ['slack', { user: { id: 'U12345', profile: { display_name: 'Fixture' } } }],
-  ] as const)('checks actual structured %s profile evidence and ignores setup text or failures', (app, data) => {
+  it('checks actual structured Slack profile evidence and ignores setup text or failures', () => {
+    const data = { user: { id: 'U12345', profile: { display_name: 'Fixture' } } };
     const jsonProfile = [{ type: 'text', text: JSON.stringify(data) }];
-    expect(profileStatus(app, { structuredContent: { success: false, error: 'Not signed in' }, content: jsonProfile })).toBe('unknown');
-    expect(profileStatus(app, { structuredContent: data, content: [{ type: 'text', text: '{"ok":false,"error":"denied"}' }] })).toBe(
-      'unknown',
-    );
-    expect(profileStatus(app, { structuredContent: {}, content: jsonProfile })).toBe('connected');
-    expect(profileStatus(app, { structuredContent: data })).toBe('connected');
-    expect(profileStatus(app, { isError: null, structuredContent: data })).toBe('connected');
-    expect(profileStatus(app, { isError: null, structuredContent: { message: 'Connect on the provider page' } })).toBe('unknown');
-    expect(profileStatus(app, { isError: null, structuredContent: data, _meta: { 'mcp/www_authenticate': 'Bearer' } })).toBe('needs-auth');
-    expect(profileStatus(app, { content: [{ type: 'text', text: JSON.stringify(data) }] })).toBe('connected');
+    expect(profileStatus({ structuredContent: { success: false, error: 'Not signed in' }, content: jsonProfile })).toBe('unknown');
+    expect(profileStatus({ structuredContent: data, content: [{ type: 'text', text: '{"ok":false,"error":"denied"}' }] })).toBe('unknown');
+    expect(profileStatus({ structuredContent: {}, content: jsonProfile })).toBe('connected');
+    expect(profileStatus({ structuredContent: data })).toBe('connected');
+    expect(profileStatus({ isError: null, structuredContent: data })).toBe('connected');
+    expect(profileStatus({ isError: null, structuredContent: { message: 'Connect on the provider page' } })).toBe('unknown');
+    expect(profileStatus({ isError: null, structuredContent: data, _meta: { 'mcp/www_authenticate': 'Bearer' } })).toBe('needs-auth');
+    expect(profileStatus({ content: [{ type: 'text', text: JSON.stringify(data) }] })).toBe('connected');
     for (const other of [
       { content: [{ type: 'text', text: 'Sign in to see your account' }] },
       { isError: true, structuredContent: data },
@@ -196,8 +197,8 @@ describe('hosted connector checks', () => {
       { structuredContent: { id: 'service' } },
       { isError: true, _meta: { code: 403 } },
     ])
-      expect(profileStatus(app, other)).toBe('unknown');
-    expect(profileStatus(app, { isError: true, _meta: { 'mcp/www_authenticate': ['Bearer error="invalid_token"'] } })).toBe('needs-auth');
+      expect(profileStatus(other)).toBe('unknown');
+    expect(profileStatus({ isError: true, _meta: { 'mcp/www_authenticate': ['Bearer error="invalid_token"'] } })).toBe('needs-auth');
   });
 
   it('a fresh explicit verification supersedes only an older verification of that app on the same profile', async () => {
@@ -216,11 +217,11 @@ describe('hosted connector checks', () => {
       return { stderr: '', timedOut: false };
     });
     const checks = new HostedAppChecks(settings);
-    const older = checks.check('teams', 'codex', 'profile', true);
+    const older = checks.check('slack', 'codex', 'profile', true);
     await entered;
-    await checks.check('teams', 'codex', 'second-profile', true);
+    await checks.check('slack', 'codex', 'second-profile', true);
     expect(signals[0].aborted).toBe(false);
-    await checks.check('teams', 'codex', 'profile', true);
+    await checks.check('slack', 'codex', 'profile', true);
     expect(await older).toBe('unknown');
     expect(signals[0].aborted).toBe(true);
     expect(call).toHaveBeenCalledTimes(3);
@@ -242,12 +243,12 @@ describe('hosted connector checks', () => {
           nativeItems: (): NativeItemsOff => {
             if (!changed) return {};
             if (reason === 'server') return { mcp: ['codex_apps'] };
-            if (reason === 'package') return { plugins: [HOSTED_APPS.teams.codexPackage] };
-            if (reason === 'tool') return { mcpTools: [JSON.stringify(['codex_apps', names.teams])] };
+            if (reason === 'package') return { plugins: [HOSTED_APPS.slack.codexPackage] };
+            if (reason === 'tool') return { mcpTools: [JSON.stringify(['codex_apps', names.slack])] };
             return {};
           },
         });
-        expect(await checks.check('teams', 'codex', 'chosen', true)).toBe(
+        expect(await checks.check('slack', 'codex', 'chosen', true)).toBe(
           reason === 'account' || reason === 'home' ? 'unknown' : 'disabled',
         );
         expect(calls.filter((m) => m.method === 'mcpServer/tool/call')).toHaveLength(phase === 'before' ? 0 : 1);
@@ -262,9 +263,9 @@ describe('hosted connector checks', () => {
     vi.stubEnv('CODEX_HOME', '/fixture-inherited-codex');
     try {
       const checks = new HostedAppChecks({ ...settings, accountHome: () => configured });
-      const previous = checks.check('teams', 'codex', '');
+      const previous = checks.check('slack', 'codex', '');
       configured = '/fixture-configured-codex';
-      const fresh = checks.check('teams', 'codex', '');
+      const fresh = checks.check('slack', 'codex', '');
       expect(await fresh).toBe('available');
       expect(await previous).toBe('unknown');
       expect(probe).toHaveBeenCalledTimes(2);
@@ -311,10 +312,10 @@ describe('hosted connector checks', () => {
       return { stderr: '', timedOut: false };
     });
     const checks = new HostedAppChecks({ ...settings, nativeOff: (): NativePart[] => (disabled ? ['mcp'] : []) });
-    const active = checks.check('teams', 'codex', 'account', true);
+    const active = checks.check('slack', 'codex', 'account', true);
     await entered;
     disabled = true;
-    expect(await checks.check('teams', 'codex', 'account')).toBe('disabled');
+    expect(await checks.check('slack', 'codex', 'account')).toBe('disabled');
     expect(signal!.aborted).toBe(true);
     expect(await active).toBe('disabled');
   });
@@ -323,11 +324,11 @@ describe('hosted connector checks', () => {
     const { calls, probe } = mockCodex();
     const checks = new HostedAppChecks(settings);
     expect(
-      await Promise.all([checks.check('teams', 'codex', 'A'), checks.check('slack', 'codex', 'A'), checks.check('slack', 'codex', 'B')]),
-    ).toEqual(['available', 'not-found', 'not-found']);
+      await Promise.all([checks.check('slack', 'codex', 'A'), checks.check('slack', 'codex', 'A'), checks.check('slack', 'codex', 'B')]),
+    ).toEqual(['available', 'available', 'available']);
     expect(probe).toHaveBeenCalledTimes(2);
     expect(calls.some((m) => m.method === 'thread/start')).toBe(false);
-    expect(await checks.check('teams', 'codex', 'A', true)).toBe('connected');
+    expect(await checks.check('slack', 'codex', 'A', true)).toBe('connected');
     expect(probe).toHaveBeenCalledTimes(3);
     const thread = calls.find((m) => m.method === 'thread/start')!.params;
     expect(probe.mock.calls.at(-1)![0].args.some((arg) => arg.startsWith('sqlite_home='))).toBe(false);
@@ -344,9 +345,9 @@ describe('hosted connector checks', () => {
       {
         params: {
           server: 'codex_apps',
-          tool: names.teams,
+          tool: names.slack,
           arguments: {},
-          _meta: { connector_id: HOSTED_APPS.teams.codexConnector, link_id: 'link-fixture' },
+          _meta: { connector_id: HOSTED_APPS.slack.codexConnector, link_id: 'link-fixture' },
         },
       },
     ]);

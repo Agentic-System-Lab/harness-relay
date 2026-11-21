@@ -9,8 +9,12 @@ const docFile = () => join(process.env.RELAY_DATA_DIR, 'google-docs-state.json')
 const docsScope = 'https://www.googleapis.com/auth/documents';
 const driveScope = 'https://www.googleapis.com/auth/drive.readonly';
 const tabId = 't.decision';
-const accessScopes = new Map();
-let refreshScopes;
+const accountsByCode = new Map([
+  ['fixture-docs-code', 'editor@example.test'],
+  ['fixture-reader-code', 'reader@example.test'],
+]);
+const accessGrants = new Map();
+const refreshGrants = new Map();
 let serial = 0;
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, data) => writeFileSync(file, JSON.stringify(data));
@@ -22,31 +26,30 @@ async function tokens(request) {
   if (form.get('client_id') !== 'fixture.apps.googleusercontent.com' || form.get('client_secret') !== 'fake') {
     return Response.json({ error: 'invalid_client' }, { status: 401 });
   }
+  let refreshToken = form.get('refresh_token');
   if (form.get('grant_type') === 'authorization_code') {
+    const email = accountsByCode.get(form.get('code'));
     const challenge = createHash('sha256')
       .update(form.get('code_verifier') || '')
       .digest('base64url');
-    if (
-      grant.used ||
-      grant.challenge !== challenge ||
-      form.get('code') !== 'fixture-docs-code' ||
-      form.get('redirect_uri') !== grant.redirect
-    ) {
+    if (grant.used || grant.challenge !== challenge || !email || form.get('redirect_uri') !== grant.redirect) {
       return Response.json({ error: 'invalid_grant' }, { status: 400 });
     }
-    refreshScopes = grant.scopes;
+    refreshToken = 'fixture-refresh-' + email;
+    refreshGrants.set(refreshToken, { email, scopes: grant.scopes });
     save(authFile(), { ...grant, used: true });
-  } else if (form.get('grant_type') !== 'refresh_token' || form.get('refresh_token') !== 'fixture-docs-refresh' || !refreshScopes) {
+  } else if (form.get('grant_type') !== 'refresh_token' || !refreshGrants.has(refreshToken)) {
     return Response.json({ error: 'invalid_grant' }, { status: 400 });
   }
   const accessToken = 'fixture-google-token-' + ++serial;
-  accessScopes.set(accessToken, refreshScopes);
+  const identity = refreshGrants.get(refreshToken);
+  accessGrants.set(accessToken, identity);
   return Response.json({
     access_token: accessToken,
-    refresh_token: 'fixture-docs-refresh',
+    refresh_token: refreshToken,
     token_type: 'Bearer',
     expires_in: 3600,
-    scope: refreshScopes.join(' '),
+    scope: identity.scopes.join(' '),
   });
 }
 
@@ -101,22 +104,28 @@ globalThis.fetch = async (input, init) => {
   const request = new Request(input, init);
   if (url.origin === 'https://oauth2.googleapis.com' && url.pathname === '/token' && request.method === 'POST') return tokens(request);
   if (url.href === 'https://oauth2.googleapis.com/revoke' && request.method === 'POST') {
-    if (new URLSearchParams(await request.text()).get('token') !== 'fixture-docs-refresh') return error(400, 'Invalid refresh token');
-    accessScopes.clear();
-    refreshScopes = undefined;
+    const token = new URLSearchParams(await request.text()).get('token');
+    const identity = refreshGrants.get(token);
+    if (!identity) return error(400, 'Invalid refresh token');
+    refreshGrants.delete(token);
+    for (const [access, grant] of accessGrants) {
+      if (grant.email === identity.email) accessGrants.delete(access);
+    }
     save(authFile(), { ...read(authFile()), revoked: true });
     return Response.json({});
   }
-  const scopes = accessScopes.get(request.headers.get('authorization')?.replace(/^Bearer /, ''));
-  if (!scopes) return error(401, 'Unknown fixture token');
+  const identity = accessGrants.get(request.headers.get('authorization')?.replace(/^Bearer /, ''));
+  if (!identity) return error(401, 'Unknown fixture token');
+  const { email } = identity;
+  const scopes = new Set(identity.scopes);
   if (url.href === 'https://openidconnect.googleapis.com/v1/userinfo')
-    return Response.json({ sub: 'docs-test-user', email: 'editor@example.test', name: 'Test Editor' });
-  if (url.href.startsWith('https://www.googleapis.com/drive/v3/files?') && request.method === 'GET') {
-    return scopes.includes(driveScope)
+    return Response.json({ sub: 'fixture-' + email, email, name: 'Test user' });
+  if (url.origin === 'https://www.googleapis.com' && url.pathname === '/drive/v3/files' && request.method === 'GET') {
+    return scopes.has(driveScope)
       ? Response.json({ files: [{ id: 'planning', name: 'Planning notes' }] })
       : error(403, 'Missing Drive read permission');
   }
-  if (url.origin !== 'https://docs.googleapis.com' || !scopes.includes(docsScope)) return error(403, 'Missing Docs permission');
+  if (url.origin !== 'https://docs.googleapis.com' || !scopes.has(docsScope)) return error(403, 'Missing Docs permission');
   const state = existsSync(docFile()) ? read(docFile()) : null;
   if (url.pathname === '/v1/documents' && request.method === 'POST') {
     const { title } = await request.json();

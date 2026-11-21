@@ -57,7 +57,7 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
-import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, ROOT } from './paths';
+import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, FAKE_PWSH_SCRIPT, ROOT } from './paths';
 
 /** The CLIs whose fake is written; the others' fakes say they are not and exit with code 2. */
 export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FACTS[p].implemented);
@@ -88,7 +88,7 @@ const exe = process.platform === 'win32' ? '.exe' : '';
 /** A build used this recently may still be in use by another run (a module changed meanwhile): it is kept. */
 const IN_USE_MS = 60 * 60 * 1000;
 /** What the bundle is made of, changed when how it is made changes (its text is in the cache key too). */
-const LAYOUT = 'bundle-2';
+const LAYOUT = 'bundle-3';
 
 /** A CLI's fake's file name in the fake folder (`cursor-agent`, `agy.exe`). */
 export const fakeBin = (p: Provider): string => FACTS[p].bin + exe;
@@ -105,7 +105,7 @@ const OPENHANDS_VENV = {
 };
 
 /** The fakes that are standalone scripts of their own, not modules of the fake CLIs. */
-const STANDALONE = new Set([basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT), basename(FAKE_NPM_SCRIPT)]);
+const STANDALONE = new Set([basename(FAKE_PWSH_SCRIPT), basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT), basename(FAKE_NPM_SCRIPT)]);
 
 /** The fake CLIs' modules: every `.cjs` under e2e/fake-cli/ but the standalone ones, by their path there without `.cjs` (`lib/rpc`). */
 function fakeModules(): [id: string, text: string][] {
@@ -169,6 +169,7 @@ export async function installFakeClis(): Promise<string> {
   const dialogScript = process.platform === 'win32' ? '' : readFileSync(FAKE_DIALOG_SCRIPT, 'utf8');
   const ghScript = readFileSync(FAKE_GH_SCRIPT, 'utf8');
   const npmScript = readFileSync(FAKE_NPM_SCRIPT, 'utf8');
+  const pwshScript = readFileSync(FAKE_PWSH_SCRIPT, 'utf8');
   const key = createHash('sha256')
     .update(LAYOUT)
     .update(PROVIDERS.map((p) => FACTS[p].bin).join(','))
@@ -176,6 +177,7 @@ export async function installFakeClis(): Promise<string> {
     .update(dialogScript)
     .update(ghScript)
     .update(npmScript)
+    .update(pwshScript)
     .update(process.version)
     .update(process.execPath)
     .update(`${process.platform}-${process.arch}-${sea ? 'sea' : 'script'}`)
@@ -187,8 +189,9 @@ export async function installFakeClis(): Promise<string> {
   const dialog = dialogScript ? join(folder, 'zenity') : undefined;
   const gh = join(folder, `gh${exe}`);
   const npm = join(folder, `npm${exe}`);
+  const pwsh = join(folder, 'powershell', `pwsh${exe}`);
   const litellm = sea ? [] : [join(folder, OPENHANDS_VENV.models)];
-  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, ...litellm].every((b) => existsSync(b))) {
+  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, pwsh, ...litellm].every((b) => existsSync(b))) {
     // Marked as in use, so that another run, of a changed module, leaves it to this one.
     const now = new Date();
     utimesSync(folder, now, now);
@@ -202,7 +205,7 @@ export async function installFakeClis(): Promise<string> {
     const path = join(cache, old);
     if (Date.now() - statSync(path).mtimeMs > IN_USE_MS) rmSync(path, { recursive: true, force: true });
   }
-  mkdirSync(folder, { recursive: true });
+  mkdirSync(dirname(pwsh), { recursive: true });
   if (sea) {
     // Each fake that is written answers `--version` as its module says (a broken module fails here, not in each test).
     const load = createRequire(import.meta.url);
@@ -211,10 +214,10 @@ export async function installFakeClis(): Promise<string> {
       (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe,
     ]);
     await buildExecutables(
-      seaEntry(script, ghScript, npmScript),
+      seaEntry(script, ghScript, npmScript, pwshScript),
       folder,
-      [...bins, gh, npm],
-      [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/]],
+      [...bins, gh, npm, pwsh],
+      [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/], [pwsh, /^PowerShell 7/]],
     );
   } else {
     for (const p of PROVIDERS) {
@@ -223,17 +226,18 @@ export async function installFakeClis(): Promise<string> {
     }
     writeScript(gh, ghScript);
     writeScript(npm, npmScript);
+    writeScript(pwsh, pwshScript);
   }
   if (dialog) writeScript(dialog, dialogScript);
   return folder;
 }
 
 /**
- * The single executable's script: the fake GitHub CLI when it runs as `gh`, the fake npm as `npm`,
+ * The single executable's script runs the matching fake for `gh`, `npm` and `pwsh`,
  * else the fake CLIs (which tell the CLIs apart by the same name). Each runs in a function of its own,
  * as it would in a module of its own.
  */
-function seaEntry(cliScript: string, ghScript: string, npmScript: string): string {
+function seaEntry(cliScript: string, ghScript: string, npmScript: string, pwshScript: string): string {
   return [
     "'use strict';",
     "const __runName = require('node:path').basename(process.execPath).replace(/\\.exe$/i, '').toLowerCase();",
@@ -244,6 +248,10 @@ function seaEntry(cliScript: string, ghScript: string, npmScript: string): strin
     "} else if (__runName === 'npm') {",
     '(function () {',
     npmScript,
+    '})();',
+    "} else if (__runName === 'pwsh') {",
+    '(function () {',
+    pwshScript,
     '})();',
     '} else {',
     '(function () {',

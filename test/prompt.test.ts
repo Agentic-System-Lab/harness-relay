@@ -165,6 +165,15 @@ describe('isForwardable', () => {
 });
 
 describe('buildBriefing', () => {
+  it('routes Teams reads and sends through Relay even when an assistant has other connectors', () => {
+    const briefing = buildBriefing(conv, team[0]!);
+    expect(briefing).toContain('teams_list and teams_messages');
+    expect(briefing).toContain('Draft a Teams channel or chat message with teams_send_message');
+    expect(briefing).toContain('selects Send in the chat to post it');
+    expect(briefing).toContain('Never send a Teams message through another connector, the browser or the command line');
+    expect(briefing).toContain('Settings → Apps and tools → Microsoft Teams');
+  });
+
   it("names the snapshot each teammate's worktree started from", () => {
     const briefing = buildBriefing(conv, team[0]!, {
       kind: 'isolated',

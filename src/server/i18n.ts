@@ -614,6 +614,10 @@ const zhTW = {
   oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
   oauthNoDocumentsAccess: '若要建立或編輯 Google 文件，請重新登入 Google 並授權文件編輯。',
   oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
+  teamsRuntimeUnsupported: '這個系統或處理器沒有可自動安裝的 PowerShell 7 版本。請依 Microsoft 的指示手動安裝，再重試。',
+  teamsRuntimeDownload: '無法從 Microsoft 的 PowerShell 發行頁下載或驗證套件。請檢查連線和磁碟空間，再重試。',
+  teamsRuntimeTools: '安裝 PowerShell 7 需要系統的 curl 與 tar。請安裝這兩個工具，或手動安裝 PowerShell 7，再重試。',
+  teamsRuntimeRun: '無法解壓縮或啟動 PowerShell 7。請確認系統支援 Microsoft 的 PowerShell 發行版本，且已安裝其原生相依套件。',
   teamsSetupFailed: '無法設定 Microsoft Graph。請確認已安裝 PowerShell 7 並可連至 PowerShell Gallery，再試一次。',
   teamsForbidden: 'Teams 拒絕存取這個目的地（HTTP 403）。請檢查該頻道或聊天的存取權限。',
   teamsPostingConnect: '請先在「設定 → App 與工具 → 常用 App → Microsoft Teams」允許發送訊息。',
@@ -1628,6 +1632,14 @@ const en: ServerMessages = {
   oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
   oauthNoDocumentsAccess: 'To create or edit Google documents, sign in again and allow document editing.',
   oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
+  teamsRuntimeUnsupported:
+    'A portable PowerShell 7 build is unavailable for this system or processor. Install PowerShell using Microsoft’s instructions, then retry.',
+  teamsRuntimeDownload:
+    'Relay could not download or verify the package from Microsoft’s PowerShell release. Check the connection and available disk space, then retry.',
+  teamsRuntimeTools:
+    'Installing PowerShell 7 requires the system curl and tar tools. Install these tools or install PowerShell 7 manually, then retry.',
+  teamsRuntimeRun:
+    'Relay could not unpack or start PowerShell 7. Check that your system supports Microsoft’s PowerShell build and has its native dependencies installed.',
   teamsSetupFailed:
     'Could not set up Microsoft Graph. Check that PowerShell 7 is installed and can reach the PowerShell Gallery, then try again.',
   teamsForbidden: 'Teams refused access to this destination (HTTP 403). Check the channel or chat permissions.',

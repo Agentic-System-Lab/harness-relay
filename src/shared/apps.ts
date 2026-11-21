@@ -20,11 +20,4 @@ export const HOSTED_APPS = {
     codexPlugin: 'plugin_asdk_app_69a1d78e929881919bba0dbda1f6436d',
     codexConnector: 'asdk_app_69a1d78e929881919bba0dbda1f6436d',
   },
-  teams: {
-    codexPackage: 'teams@openai-curated-remote',
-    claudeName: 'claude.ai Microsoft 365',
-    claudeDirectory: 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582',
-    codexPlugin: 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644',
-    codexConnector: 'connector_246af0940da3457da0e751171dc1ce60',
-  },
 } as const;

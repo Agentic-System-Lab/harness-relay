@@ -5,7 +5,7 @@ $ProgressPreference = 'SilentlyContinue'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if ($PSVersionTable.PSVersion.Major -lt 7) { exit 20 }
-# Resolve from PowerShell's own installation and the standard user/system directories.
+# Prefer the modules downloaded into Relay's data folder. Existing user/system modules can still be used.
 if ($IsWindows) {
   $userModules = [IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'PowerShell', 'Modules')
   $systemModules = [IO.Path]::Combine([Environment]::GetFolderPath('ProgramFiles'), 'PowerShell', 'Modules')
@@ -13,32 +13,36 @@ if ($IsWindows) {
   $userModules = $env:RELAY_TEAMS_USER_MODULES
   $systemModules = '/usr/local/share/powershell/Modules'
 }
-$env:PSModulePath = @([IO.Path]::Combine($PSHOME, 'Modules'), $userModules, $systemModules) -join [IO.Path]::PathSeparator
+$env:PSModulePath = @($env:RELAY_TEAMS_MODULES, [IO.Path]::Combine($PSHOME, 'Modules'), $userModules, $systemModules) -join [IO.Path]::PathSeparator
 $name = 'Microsoft.Graph.Authentication'
 `;
 
 export const PROBE_TEAMS =
   CHECK_TEAMS +
   `
-if (!(Get-Module -ListAvailable -Name $name)) { exit 21 }
+try { Import-Module -Name $name -ErrorAction Stop } catch { exit 21 }
 `;
 
 export const INSTALL_TEAMS =
   CHECK_TEAMS +
   `
-if (!(Get-Module -ListAvailable -Name $name)) {
-  $gallery = 'https://www.powershellgallery.com/api/v2'
-  if (Get-Module -ListAvailable -Name Microsoft.PowerShell.PSResourceGet) {
-    $repo = Microsoft.PowerShell.PSResourceGet\\Get-PSResourceRepository -Name PSGallery
-    if ($repo.Uri.AbsoluteUri.TrimEnd('/') -ne $gallery) { exit 22 }
-    Microsoft.PowerShell.PSResourceGet\\Install-PSResource -Name $name -Scope CurrentUser -Repository PSGallery -TrustRepository -Quiet
-  } else {
-    $repo = PowerShellGet\\Get-PSRepository -Name PSGallery
-    if ($repo.SourceLocation.TrimEnd('/') -ne $gallery) { exit 22 }
-    PowerShellGet\\Install-Module -Name $name -Scope CurrentUser -Repository PSGallery -Force
-  }
+$gallery = 'https://www.powershellgallery.com/api/v2'
+if (Get-Module -ListAvailable -Name Microsoft.PowerShell.PSResourceGet) {
+  $repo = Microsoft.PowerShell.PSResourceGet\\Get-PSResourceRepository -Name PSGallery
+  if ($repo.Uri.AbsoluteUri.TrimEnd('/') -ne $gallery) { exit 22 }
+  Microsoft.PowerShell.PSResourceGet\\Save-PSResource -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery -TrustRepository -Quiet
+} else {
+  $repo = PowerShellGet\\Get-PSRepository -Name PSGallery
+  if ($repo.SourceLocation.TrimEnd('/') -ne $gallery) { exit 22 }
+  PowerShellGet\\Save-Module -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery -Force
 }
-Import-Module $name
+# Import the saved version by its own manifest, even if a broken or newer user copy is discoverable.
+$stage = $env:RELAY_TEAMS_MODULE_STAGE
+$moduleDir = [IO.Path]::Combine($stage, $name)
+$manifest = @(Get-ChildItem -LiteralPath $moduleDir -Filter ($name + '.psd1') -File -Depth 1)
+if ($manifest.Count -ne 1) { exit 22 }
+$env:PSModulePath = $stage + [IO.Path]::PathSeparator + $env:PSModulePath
+try { Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop } catch { exit 22 }
 `;
 
 // The write-capable helper is started only by an explicit, separate device sign-in.
@@ -53,7 +57,6 @@ function connectTeams(posting: boolean): string {
 function Reply($reply) {
   [Console]::WriteLine('RELAY ' + (ConvertTo-Json -Compress -Depth 4 -InputObject $reply))
 }
-try { Import-Module $name } catch { exit 22 }
 try {
   [Threading.Thread]::CurrentThread.CurrentUICulture = [Globalization.CultureInfo]::GetCultureInfo('en-US')
   # Windows resolves the SDK's .mg directory through the OS user profile. The SDK can delete its

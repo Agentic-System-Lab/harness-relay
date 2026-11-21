@@ -5,7 +5,7 @@ type Data = Record<string, unknown>;
 const object = (v: unknown): v is Data => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !!v.trim();
 const email = (v: unknown) => typeof v === 'string' && /^[^\s@]+@[^\s@]+$/.test(v);
-const leaves = { teams: 'get_profile', slack: 'slack_read_user_profile' } as const;
+const profileName = 'slack_read_user_profile';
 
 export function profilePermission(app: HostedApp, reply: unknown): 'allowed' | 'disabled' | 'unknown' {
   if (
@@ -18,7 +18,7 @@ export function profilePermission(app: HostedApp, reply: unknown): 'allowed' | '
     return 'unknown';
   const item = reply.apps[0];
   if (!object(item) || item.id !== HOSTED_APPS[app].codexConnector || !Array.isArray(item.toolSummaries)) return 'unknown';
-  const matches = item.toolSummaries.filter((t) => object(t) && t.name === leaves[app]);
+  const matches = item.toolSummaries.filter((t) => object(t) && t.name === profileName);
   if (matches.length !== 1 || matches[0].isReadOnly !== true) return 'unknown';
   if (matches[0].isEnabled === false) return 'disabled';
   return matches[0].isEnabled === true ? 'allowed' : 'unknown';
@@ -37,7 +37,7 @@ export function profileTool(app: HostedApp, reply: unknown): { name: string; lin
     if (
       !object(tool) ||
       tool.name !== name ||
-      name.split('.').at(-1) !== leaves[app] ||
+      name.split('.').at(-1) !== profileName ||
       !object(tool._meta) ||
       tool._meta.connector_id !== HOSTED_APPS[app].codexConnector
     )
@@ -73,23 +73,20 @@ function failed(raw: unknown): boolean {
   );
 }
 
-function profile(app: HostedApp, raw: unknown): boolean {
+function profile(raw: unknown): boolean {
   if (!object(raw) || failed(raw)) return false;
-  if (app === 'slack') {
-    const user = object(raw.user) ? raw.user : raw;
-    const p = object(user.profile) ? user.profile : undefined;
-    return (
-      !!p &&
-      ((typeof user.id === 'string' && /^[UW][A-Z0-9]+$/.test(user.id)) || email(p.email)) &&
-      [p.real_name, p.display_name, p.email].some(text)
-    );
-  }
-  return text(raw.id) && (email(raw.userPrincipalName) || email(raw.mail) || email(raw.email));
+  const user = object(raw.user) ? raw.user : raw;
+  const p = object(user.profile) ? user.profile : undefined;
+  return (
+    !!p &&
+    ((typeof user.id === 'string' && /^[UW][A-Z0-9]+$/.test(user.id)) || email(p.email)) &&
+    [p.real_name, p.display_name, p.email].some(text)
+  );
 }
 
 /** Require recognizable self-profile fields in structured output or a JSON MCP text result.
  * Plain prose, setup links and bot/tool errors never establish an authenticated account. */
-export function profileStatus(app: HostedApp, result: unknown): HostedAppStatus {
+export function profileStatus(result: unknown): HostedAppStatus {
   if (!object(result)) return 'unknown';
   const auth = object(result._meta) ? result._meta['mcp/www_authenticate'] : undefined;
   if (result.isError === true || auth !== undefined) {
@@ -110,5 +107,5 @@ export function profileStatus(app: HostedApp, result: unknown): HostedAppStatus 
   }
   const candidates = [result.structuredContent, jsonText];
   if (failed(result) || candidates.some((v) => failed(v) || (object(v) && failed(v.data)))) return 'unknown';
-  return candidates.some((v) => profile(app, v) || (object(v) && profile(app, v.data))) ? 'connected' : 'unknown';
+  return candidates.some((v) => profile(v) || (object(v) && profile(v.data))) ? 'connected' : 'unknown';
 }

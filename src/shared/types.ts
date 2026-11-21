@@ -461,9 +461,9 @@ export type TeamsConnection =
   | { status: 'missing-powershell' | 'missing-module' | 'signed-out' | 'installing' }
   | { status: 'signing-in'; code?: string; url?: string }
   | { status: 'connected'; account: string; canPost?: true; posting?: TeamsPostingState }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; retry?: 'install' };
 
-export type HostedApp = 'slack' | 'teams';
+export type HostedApp = 'slack';
 export type HostedProvider = 'claude' | 'codex';
 /** A passive Codex check reports runtime availability. Only its explicit self-profile check can report connected. */
 export type HostedAppStatus = 'connected' | 'available' | 'needs-auth' | 'not-found' | 'disabled' | 'unknown';

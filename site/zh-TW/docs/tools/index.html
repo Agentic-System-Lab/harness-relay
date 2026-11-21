@@ -235,6 +235,8 @@
         <p class="doc-toc-title">本頁內容</p>
         <ol>
           <li><a href="#common-apps">連結常用 App</a></li>
+          <li><a href="#microsoft-teams">設定 Microsoft Teams</a></li>
+          <li><a href="#google-drive">管理 Google Drive 與文件權限</a></li>
           <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
           <li><a href="#outbox">檢閱待送訊息、文件與筆記變更</a></li>
           <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
@@ -250,11 +252,11 @@
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">連結常用 App</h2>
           <p><b>常用 App</b> 在同一頁顯示四組服務。<b>郵件與行事曆</b>包含郵件和行事曆，<b>團隊通訊</b>包含 Microsoft Teams 和 Slack，<b>文件與筆記</b>包含 Google Drive、Notion、Heptabase 和 Obsidian，<b>開發與瀏覽</b>包含 GitHub 和瀏覽器。</p>
-          <p>在<b>常用 App</b> 分頁按 Teams 或 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。回到 Relay 後，「已在 Claude 連結」表示 Claude Code 回報連線成功；Codex 顯示可使用則表示該 App 已啟用且可呼叫。要核對授權的帳號或工作區，請在 Codex 的<b>設定 → 外掛（Plugins）</b>開啟該 App，查看已連結帳號。移除帳號後，App 仍可能顯示為可使用。按<b>重新檢查連線</b>或從供應商頁回來時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示<b>已在 Codex 連結</b>表示查詢成功，Relay 只顯示結果，不顯示個人資料。要解除連結，請在該供應商的管理頁移除連線，再回來確認狀態。各供應商與 Relay 的直接工具分別使用各自的授權。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
+          <p>在<b>常用 App</b> 分頁按 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。回到 Relay 後，「已在 Claude 連結」表示 Claude Code 回報連線成功；Codex 顯示可使用則表示該 App 已啟用且可呼叫。要核對授權的帳號或工作區，請在 Codex 的<b>設定 → 外掛（Plugins）</b>開啟該 App，查看已連結帳號。移除帳號後，App 仍可能顯示為可使用。按<b>重新檢查連線</b>或從供應商頁回來時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示<b>已在 Codex 連結</b>表示查詢成功，Relay 只顯示結果，不顯示個人資料。要解除連結，請在該供應商的管理頁移除連線，再回來確認狀態。各供應商與 Relay 的直接工具分別使用各自的授權。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
           <ul>
-            <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要透過 Relay 唯讀查閱頻道，請展開<b>在 Relay 讀取與傳送 Teams 訊息</b>、安裝 Microsoft Graph PowerShell，再到 Microsoft 頁面輸入登入代碼。</li>
+            <li><b>Microsoft Teams</b> 可用工作或學校帳號直接連結 Relay，讀取頻道內容或請助理擬稿。<a href="#microsoft-teams">設定 Microsoft Teams</a></li>
             <li><b>Slack</b> 可在 Claude 或 Codex 授權工作區。請檢查要求的權限，包括是否可傳送訊息。你的工作區可能需要管理員核准。選擇要使用的 Claude 或 Codex 帳號。Relay 可分別檢查兩個連接器的狀態，不會讀取 Slack 訊息。 <a href="../../../assets/media/docs/tools-hosted-slack-zh-TW.webp">查看 Slack 連線狀態畫面</a></li>
-            <li id="google-drive"><b>Google Drive。</b>按<b>連結 Google Drive</b>並授予唯讀權限，即可依檔名搜尋，並以純文字讀取 Google 文件。若看到<b>設定 Google 登入</b>，請先設定桌面用戶端。要寫入文件，展開<b>在 Relay 新增或編輯 Google 文件</b>，按<b>開啟文件編輯</b>，另外授予 Google 文件權限。到<b>選擇助理以啟用工具</b>勾選可使用這些工具的助理。每次寫入都會在待送出匣等你確認。<a href="#google-oauth-setup">設定 Google OAuth</a> · <a href="#outbox">檢閱文件提案</a> · <a href="https://developers.google.com/workspace/docs/api/auth?hl=zh-tw">Google 文件 API 權限說明</a> · <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp">查看文件編輯設定</a></li>
+            <li><b>Google Drive</b> 可直接連結 Google 帳號以搜尋及讀取檔案，也可另外授權編輯 Google 文件。<a href="#google-drive">連結或管理 Drive 帳號</a></li>
             <li>使用 <b>Notion</b> 或 <b>Heptabase</b> 時，按該服務那一列即可開始登入，在服務的授權頁面確認存取範圍，再授權要開放給助理的工作區。</li>
             <li>在 <b>Obsidian</b> 首次連結時按<b>選擇筆記庫</b>，之後按<b>加入筆記庫</b>可繼續加入。執行 Relay 的電腦上，每個選取的資料夾都必須含有實際的 <code>.obsidian</code> 目錄。若使用遠端瀏覽器，請每行輸入一個完整路徑。Relay 會先確認所有選取的資料夾都有效，再一次加入。在<b>選擇助理以啟用工具</b>中勾選的助理可存取所有已連結的筆記庫。請助理讀取、新增或編輯筆記時，可指定目標筆記庫。若要解除其中一個筆記庫的連結，請使用該完整路徑旁的按鈕。筆記會留在磁碟上。 <a href="../../../assets/media/docs/tools-obsidian-settings-zh-TW.webp">查看筆記庫設定畫面</a></li>
             <li id="github"><b>GitHub</b> 使用執行 Relay 那台電腦的 GitHub CLI 帳號。在<b>開發與瀏覽</b>展開 GitHub 即可登入。要登出時，請按<b>登出 GitHub</b>並確認畫面上的帳號。分享對話與 GitHub 自動任務也使用這套 CLI，其他帳號可能仍保持登入。如果畫面顯示提供權杖的環境變數名稱，請從啟動 Relay 的環境移除該變數，再重新啟動 Relay。</li>
@@ -268,8 +270,38 @@
           <figure class="doc-figure">
             <a href="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp"><img src="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp" width="842" height="460" alt="行事曆服務已選取「iCloud 行事曆」，下方有 Apple 帳號電子郵件與 App 專用密碼兩個欄位，以及「尋找行事曆」按鈕。" loading="lazy" /></a>
           </figure>
-          <p>若要在 Relay 發送訊息，請在 <b>Slack</b> 列選<b>從 Relay 傳送訊息</b>。在工作區安裝 Slack App，授予 <code>chat:write</code> 及目的地所需的讀取權限（<code>channels:read</code>、<code>groups:read</code>、<code>im:read</code> 或 <code>mpim:read</code>），再填入機器人或使用者 OAuth 權杖。若使用機器人，請先邀請它加入頻道。若要在 <b>Microsoft Teams</b> 發文，請先登入 Microsoft Graph，再按<b>開啟發送權限</b>，並用同一個工作或學校帳號完成第二次裝置登入。Slack 開啟傳送後，可在<b>從 Relay 傳送訊息</b>中的<b>可提議傳送訊息的助理</b>勾選助理。Teams 則在<b>選擇助理以啟用工具</b>勾選助理。Claude 與 Codex 代管的 Slack 連線各有自己的權限。</p>
+          <p>若要在 Relay 發送訊息，請在 <b>Slack</b> 列選<b>從 Relay 傳送訊息</b>。在工作區安裝 Slack App，授予 <code>chat:write</code> 及目的地所需的讀取權限（<code>channels:read</code>、<code>groups:read</code>、<code>im:read</code> 或 <code>mpim:read</code>），再填入機器人或使用者 OAuth 權杖。若使用機器人，請先邀請它加入頻道。開啟傳送後，可在<b>從 Relay 傳送訊息</b>中的<b>可提議傳送訊息的助理</b>勾選助理。Claude 與 Codex 代管的 Slack 連線各有自己的權限。</p>
           <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a> · <a href="../../../assets/media/docs/tools-mail-access-desktop-zh-TW.webp">郵件帳號與助理選擇的桌面版畫面</a></p>
+        </section>
+
+        <section id="microsoft-teams" aria-labelledby="microsoft-teams-title">
+          <h2 id="microsoft-teams-title">設定 Microsoft Teams</h2>
+          <ol>
+            <li>開啟<b>設定與登入 → App 與工具 → 常用 App → 團隊通訊 → Microsoft Teams</b>。若出現<b>安裝 PowerShell 7</b>，請按下按鈕。Relay 會將 Microsoft 的可攜式 PowerShell 套件與需要下載的 Graph 登入模組安裝到自己的資料夾，不需系統管理員權限。已安裝的 PowerShell 7 或 Graph 模組可直接使用。若只缺少 Graph 模組，請按<b>安裝 Teams 需要的 Microsoft Graph 工具</b>。</li>
+            <li>按<b>登入 Microsoft Teams</b>，開啟 Microsoft 登入頁面，輸入 Relay 顯示的裝置代碼，再用工作或學校帳號登入。組織可能需要管理員核准存取權。Teams 使用 Microsoft Graph PowerShell 內建的登入，連結 Teams 時可以略過 Outlook 的用戶端註冊。</li>
+            <li>在<b>選擇助理以啟用工具</b>勾選哪些助理可以列出團隊、頻道和讀取近期頻道訊息。可以請助理摘要某個頻道的討論。Relay 伺服器重新啟動後需要再登入。</li>
+            <li>若要發文，按<b>開啟發送權限</b>，在相同租用戶用同一帳號完成第二次裝置登入。在 Relay 聊天貼上 Teams 頻道、聊天或訊息連結，請助理擬稿。核對發送帳號、目的地與全文後，按<b>送出</b>或<b>捨棄</b>。即使在「完全存取」或自動任務，每則訊息仍需你確認。<a href="#outbox">檢閱待送出的訊息</a></li>
+          </ol>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-teams-setup-zh-TW.webp"><img src="../../../assets/media/docs/tools-teams-setup-zh-TW.webp" width="842" height="156" alt="展開的 Microsoft Teams 列顯示「安裝 PowerShell 7」按鈕。" loading="lazy" /></a>
+            <figcaption>在 Teams 列按「安裝 PowerShell 7」，即可在這台電腦上準備 Microsoft 登入所需的工具。</figcaption>
+          </figure>
+          <p>若安裝失敗，請依畫面上的錯誤說明處理，再按<b>重試安裝</b>。若要自行安裝 PowerShell，請選擇執行 Relay 的電腦所用的作業系統。<a href="https://learn.microsoft.com/zh-tw/powershell/scripting/install/install-powershell">Microsoft 的 PowerShell 安裝指南</a></p>
+        </section>
+
+        <section id="google-drive" aria-labelledby="google-drive-title">
+          <h2 id="google-drive-title">管理 Google Drive 與文件權限</h2>
+          <p>開啟<b>常用 App → 文件與筆記 → Google Drive</b>，選擇帳號用途。預設為搜尋與讀取檔案，第二項可同時搜尋與讀取檔案、新增及編輯 Google 文件，第三項則僅新增及編輯 Google 文件。選好後按一次<b>用 Google 登入</b>，在 Google 頁面授予所選的權限。若顯示<b>設定 Google 登入</b>，請先到共用設定註冊桌面用戶端。<a href="#google-oauth-setup">設定 Google OAuth</a> · <a href="https://developers.google.com/workspace/docs/api/auth?hl=zh-tw">Google 文件 API 權限說明</a></p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-drive-add-account-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-add-account-zh-TW.webp" width="842" height="496" alt="Drive 帳號設定可選搜尋與讀取、讀取與編輯或僅新增及編輯，下方有一個「用 Google 登入」按鈕。" loading="lazy" /></a>
+            <figcaption>選擇這個 Google 帳號的用途，再登入一次即可授予所選權限。</figcaption>
+          </figure>
+          <p>連結完成後，按<b>管理</b>。每個帳號各有一列，列出電子郵件地址，以及目前能否讀取 Drive 檔案或編輯 Google 文件。唯讀帳號可按<b>開啟文件新增與編輯</b>，只有編輯權限的帳號可按<b>開啟檔案搜尋與讀取</b>。按<b>解除連結</b>會先列出該帳號的服務供你確認。需要更新授權時才會顯示<b>重新登入</b>。要再連結另一個 Google 帳號，請展開清單下方的<b>新增帳號</b>，從相同的三種用途中擇一，再按<b>用 Google 登入</b>。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-editing-zh-TW.webp" width="842" height="331" alt="Drive 管理畫面列出一個唯讀帳號，以及授權文件新增與編輯、解除連結和新增帳號的控制項。" loading="lazy" /></a>
+            <figcaption>這個帳號已有搜尋與讀取權限。可在該列另外授權新增及編輯 Google 文件。</figcaption>
+          </figure>
+          <p>在<b>選擇助理以啟用工具</b>勾選可使用這些帳號的助理。當助理提議修改文件時，請在待送出匣核對 Google 帳號及文字，再按<b>建立文件</b>或<b>儲存變更</b>。<a href="#outbox">檢閱文件提案</a></p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
@@ -378,6 +410,16 @@
           </ul>
           <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
           <p>在<b>行事曆</b>選 <b>Google Calendar</b> 或 <b>Outlook</b>，即可授予行事曆存取權。若要用同一個帳號連結郵件與行事曆，請展開另一項服務並按登入，再於 Google 或 Microsoft 的授權頁選取相同帳號。權杖會保存在憑證儲存區。</p>
+          <p>在<b>已連結的信箱</b>或<b>已連結的行事曆</b>找到自己的電子郵件地址。每個 Google 或 Microsoft 帳號會列出自己的資源。可對個別資源按<b>測試</b>、<b>移除信箱</b>或<b>移除行事曆</b>。手動設定的項目也可以<b>編輯</b>。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-mail-connected-zh-TW.webp"><img src="../../../assets/media/docs/tools-mail-connected-zh-TW.webp" width="842" height="381" alt="已連結的信箱清單顯示一個 Google 帳號、該帳號的 Gmail 信箱，以及資源與帳號各自的操作。" loading="lazy" /></a>
+            <figcaption>「移除信箱」會保留帳號授權。之後可在同一帳號按「加入信箱」恢復使用。</figcaption>
+          </figure>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-calendar-connected-zh-TW.webp"><img src="../../../assets/media/docs/tools-calendar-connected-zh-TW.webp" width="842" height="419" alt="已連結的行事曆清單顯示一個 Google 帳號的兩個行事曆，各有測試與移除按鈕。" loading="lazy" /></a>
+            <figcaption>按「管理行事曆」可加入該帳號的其他行事曆。移除最後一個行事曆後，按「選擇行事曆」即可重新加入。</figcaption>
+          </figure>
+          <p>帳號授權失效時，請在該帳號按<b>重新登入</b>。要解除這個帳號的共用登入，請按<b>解除帳號連結</b>。確認畫面會列出該帳號已授權且會受影響的服務，例如郵件、行事曆或 Drive。其他帳號保留原有授權。</p>
           <p><b>帳號登入設定（OAuth 2.0）</b>會分別列出 Google 和 Microsoft 的狀態：<b>未設定</b>、<b>已設定</b>或<b>已停用</b>。選擇其中一家的<b>停用</b>，核對受影響的服務並確認後，Relay 會暫停該服務提供者的直接連線。用戶端設定與原有授權會保留，之後可按<b>啟用</b>恢復。</p>
           <p>發行版未內建 OAuth 用戶端。選 <b>Gmail</b>、<b>Google Calendar</b> 或 <b>Outlook</b> 可開啟該服務。若該服務的 OAuth 設定不完整或已停用，選取後會顯示停用的登入按鈕，旁邊會說明原因並提供該服務的設定入口與圖解教學連結。初次設定時，按<b>設定 Google 登入</b>或<b>設定 Microsoft 登入</b>即可開啟<b>設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）</b>中對應服務的設定。<a href="#google-oauth-setup">Google 設定步驟</a> · <a href="#microsoft-oauth-setup">Microsoft 設定步驟</a></p>
           <figure class="doc-figure">
@@ -401,7 +443,7 @@
             </li>
             <li><b>建立桌面用戶端。</b>到 <b>Google Auth Platform → 用戶端（Clients）→ 建立用戶端</b>，應用程式類型選<b>電腦版應用程式（Desktop app）</b>，命名後建立。在建立結果的對話框中複製用戶端 ID 與用戶端密碼。桌面用戶端會自動接受 Relay 的本機回呼。<a href="https://developers.google.com/workspace/guides/create-credentials?hl=zh-tw#desktop-app">建立桌面用戶端憑證</a> · <a href="https://developers.googleblog.com/en/usability-and-safety-updates-to-google-auth-platform/">Google 官方控制台畫面</a></li>
             <li><b>在 Relay 儲存用戶端。</b>到<b>設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）</b>，選 <b>Google</b>。填入用戶端 ID 與用戶端密碼，再按<b>儲存</b>。也可以從服務列的<b>設定 Google 登入</b>開啟同一個表單。</li>
-            <li><b>連結帳號。</b>在<b>郵件 → Gmail</b> 或<b>行事曆 → Google Calendar</b>，按<b>用 Google 登入</b>並授予所選服務的存取權。要讀取 Drive，請在 <b>Google Drive</b> 按<b>連結 Google Drive</b>。若想讓助理提議修改 Google 文件，再按<b>開啟文件編輯</b>授權。<a href="../../../assets/media/docs/tools-gmail-setup-zh-TW.webp">查看 Gmail 登入按鈕</a></li>
+            <li><b>連結帳號。</b>在<b>郵件 → Gmail</b> 或<b>行事曆 → Google Calendar</b>，按<b>用 Google 登入</b>並授予所選服務的存取權。在 <b>Google Drive</b> 選擇帳號用途，再按<b>用 Google 登入</b>。可一併授權讀取與編輯，或單獨授予其中一項。<a href="../../../assets/media/docs/tools-gmail-setup-zh-TW.webp">查看 Gmail 登入按鈕</a></li>
           </ol>
           <figure class="doc-figure">
             <a href="../../../assets/media/docs/google-cloud-client-details.png"><img src="../../../assets/media/docs/google-cloud-client-details.png" width="809" height="384" alt="Google Cloud 用戶端詳細資料頁面，建立後只顯示遮蔽的用戶端密碼，以及新增密碼的選項。" loading="lazy" /></a>

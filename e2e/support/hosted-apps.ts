@@ -3,10 +3,6 @@ import { join } from 'node:path';
 import type { BrowserContext } from '@playwright/test';
 
 const profileFixtures = {
-  teams: {
-    tool: 'microsoft_teams.get_profile',
-    profile: { id: '2c731042-2503-4405-a567-cc352ba5b909', userPrincipalName: 'e2e-private@example.test' },
-  },
   slack: {
     tool: 'slack.slack_read_user_profile',
     profile: { user: { id: 'U012ABC', team_id: 'T012ABC', profile: { display_name: 'e2e-private' } } },
@@ -14,14 +10,6 @@ const profileFixtures = {
 } as const;
 
 export const hostedApps = [
-  {
-    id: 'teams',
-    runtimeId: 'connector_246af0940da3457da0e751171dc1ce60',
-    name: 'Microsoft Teams',
-    claudeName: 'claude.ai Microsoft 365',
-    directory: 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582',
-    plugin: 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644',
-  },
   {
     id: 'slack',
     runtimeId: 'asdk_app_69a1d78e929881919bba0dbda1f6436d',

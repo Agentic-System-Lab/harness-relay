@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, isAbsolute, join, parse } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, parse } from 'node:path';
 import type { Writable } from 'node:stream';
 import type { TeamsConnection } from '../../shared/types';
 import { HttpError } from '../errors';
@@ -9,13 +10,14 @@ import { t } from '../i18n';
 import { LOGIN_TIMEOUT_MS } from '../login';
 import { CommandNotFoundError, runProcess, stripAnsi, type SpawnOptions } from '../process';
 import { CONNECT_TEAMS, INSTALL_TEAMS, POST_TEAMS, PROBE_TEAMS } from './teamsPowerShell';
+import { installTeamsRuntime, publishTeamsDirectory, runtimeFolder, teamsModulesFolder, TeamsRuntimeError } from './teamsRuntime';
 
 type Run = (
   script: string,
   options: Pick<SpawnOptions, 'signal' | 'timeoutMs' | 'onLine' | 'onSpawn' | 'keepStdinOpen'>,
 ) => Promise<number | null>;
 
-const runPowerShell: Run = async (script, options) => {
+function powerShellEnv() {
   const env: NodeJS.ProcessEnv = {};
   // Keep OS, HTTPS proxy and certificate settings. Never inherit a PowerShell profile/module path,
   // .NET startup hooks, cloud service credentials, or npm's project-local bin directories.
@@ -32,12 +34,27 @@ const runPowerShell: Run = async (script, options) => {
     .filter((p) => isAbsolute(p) && !/(^|[/\\])node_modules([/\\]|$)/i.test(p))
     .join(delimiter);
   env.PATHEXT = '.EXE';
+  return env;
+}
+
+const runPowerShell = async (script: string, options: Parameters<Run>[1], executable?: string): Promise<number | null> => {
+  const env = powerShellEnv();
   const systemDirs =
     process.platform === 'win32'
       ? [join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7')]
       : [...BREW_DIRS, '/usr/bin', '/usr/local/microsoft/powershell/7'];
-  const bin = findOnPath('pwsh', env, process.platform, systemDirs, isProgram);
+  const portable = join(runtimeFolder(), process.platform === 'win32' ? 'pwsh.exe' : 'pwsh');
+  const bin = executable ?? (isProgram(portable) ? portable : findOnPath('pwsh', env, process.platform, systemDirs, isProgram));
   if (!bin) throw new CommandNotFoundError('pwsh');
+  if (script === INSTALL_TEAMS) {
+    // An unloadable Graph module can leave incompatible assemblies in its process. Validate the existing
+    // copy separately so the installer always verifies its freshly downloaded manifest in a clean shell.
+    const existing = await runPowerShell(PROBE_TEAMS, { signal: options.signal, timeoutMs: 15000 }, bin);
+    if (existing !== 21) return existing;
+    options.signal?.throwIfAborted();
+  }
+  const modules = teamsModulesFolder();
+  env.RELAY_TEAMS_MODULES = modules;
   // The SDK uses the .NET home for its account hint even when the token cache is process-scoped.
   const privateHome =
     (script === CONNECT_TEAMS || script === POST_TEAMS) && process.platform !== 'win32'
@@ -51,7 +68,14 @@ const runPowerShell: Run = async (script, options) => {
     );
     if (privateHome) env.HOME = privateHome;
   }
+  let moduleTemp: string | undefined;
   try {
+    if (script === INSTALL_TEAMS) {
+      await mkdir(dirname(modules), { recursive: true, mode: 0o700 });
+      moduleTemp = await mkdtemp(modules + '-install-');
+      env.RELAY_TEAMS_MODULE_STAGE = join(moduleTemp, 'modules');
+      await mkdir(env.RELAY_TEAMS_MODULE_STAGE, { mode: 0o700 });
+    }
     const result = await runProcess({
       ...options,
       bin,
@@ -61,8 +85,13 @@ const runPowerShell: Run = async (script, options) => {
       maxCapture: 512,
     });
     if (result.timedOut) throw new Error(t().timedOut);
+    const staged = env.RELAY_TEAMS_MODULE_STAGE;
+    if (result.code === 0 && staged && existsSync(join(staged, 'Microsoft.Graph.Authentication'))) {
+      await publishTeamsDirectory(staged, modules, options.signal!);
+    }
     return result.code;
   } finally {
+    if (moduleTemp) await rm(moduleTemp, { recursive: true, force: true, maxRetries: 3 });
     if (privateHome) await rm(privateHome, { recursive: true, force: true }).catch(() => {});
   }
 };
@@ -88,6 +117,7 @@ class TeamsSession {
   tenantId?: string;
   private view?: TeamsConnection;
   private probe?: Promise<TeamsConnection>;
+  private installation = 0;
   private controller?: AbortController;
   private stdin?: Writable;
   private signInTimer?: NodeJS.Timeout;
@@ -111,23 +141,58 @@ class TeamsSession {
 
   async status(): Promise<TeamsConnection> {
     if (this.view) return this.view;
-    this.probe ??= this.run(PROBE_TEAMS, { timeoutMs: 15000 })
-      .then(dependency, (err) => this.failure(err))
-      .finally(() => {
-        this.probe = undefined;
-      });
-    const available = await this.probe;
-    return this.view ?? available;
+    const installation = this.installation;
+    const probe = (this.probe ??= this.run(PROBE_TEAMS, { timeoutMs: 15000 }).then(dependency, (err) => this.failure(err)));
+    const available = await probe;
+    if (probe === this.probe) this.probe = undefined;
+    if (this.view) return this.view;
+    return installation === this.installation ? available : this.status();
   }
 
-  async install(): Promise<TeamsConnection> {
+  async install(installRuntime: (signal: AbortSignal) => Promise<void>): Promise<TeamsConnection> {
     if (this.controller && this.view) return this.view;
+    // A diagnostic taken before this installation may finish after its dependency changes.
+    this.installation++;
+    this.probe = undefined;
     const controller = new AbortController();
     this.controller = controller;
     this.view = { status: 'installing' };
-    void this.run(INSTALL_TEAMS, { signal: controller.signal, timeoutMs: 180000 }).then(
-      (code) => this.end(controller, dependency(code)),
-      (err) => this.end(controller, this.failure(err)),
+    const { signal } = controller;
+    const module = () => this.run(INSTALL_TEAMS, { signal, timeoutMs: 180000 });
+    const prepare = async () => {
+      // The installer first probes the shell version and the existing Graph module.
+      let result = await module().catch((err) => {
+        if (err instanceof CommandNotFoundError) return 20;
+        throw err;
+      });
+      if (result === 20) {
+        signal.throwIfAborted();
+        try {
+          await installRuntime(signal);
+        } catch (err) {
+          if (err instanceof TeamsRuntimeError) throw err;
+          throw new TeamsRuntimeError(t().teamsRuntimeRun);
+        }
+        signal.throwIfAborted();
+        result = await module();
+      }
+      if (result !== 0) throw new Error(t().teamsSetupFailed);
+      signal.throwIfAborted();
+      if ((await this.run(PROBE_TEAMS, { signal, timeoutMs: 15000 })) !== 0) throw new Error(t().teamsSetupFailed);
+    };
+    void prepare().then(
+      () => this.end(controller),
+      (err) =>
+        this.end(
+          controller,
+          signal.aborted
+            ? undefined
+            : {
+                status: 'error',
+                message: err instanceof TeamsRuntimeError ? err.message : t().teamsSetupFailed,
+                retry: 'install',
+              },
+        ),
     );
     return this.view;
   }
@@ -161,6 +226,11 @@ class TeamsSession {
   }
 
   disconnect(): void {
+    if (this.view?.status === 'installing') {
+      // Keep the installation slot until its child exits and its staging folder is cleaned up.
+      this.controller?.abort();
+      return;
+    }
     if (this.controller) this.end(this.controller);
     this.view = undefined;
   }
@@ -330,7 +400,11 @@ export class TeamsGraph {
   private read: TeamsSession;
   private writer?: TeamsSession;
 
-  constructor(private run: Run = runPowerShell) {
+  constructor(
+    private run: Run = runPowerShell,
+    private installRuntime: (signal: AbortSignal) => Promise<void> = (signal) =>
+      installTeamsRuntime(signal, (exe) => runPowerShell(PROBE_TEAMS, { signal, timeoutMs: 15000 }, exe), powerShellEnv()),
+  ) {
     this.read = new TeamsSession(run, undefined, () => this.disconnectPosting());
   }
 
@@ -341,7 +415,7 @@ export class TeamsGraph {
     return this.connected() && !!this.writer?.connected();
   }
   install(): Promise<TeamsConnection> {
-    return this.read.install();
+    return this.read.install(this.installRuntime);
   }
   async connect(): Promise<TeamsConnection> {
     await this.read.connect();

@@ -5,7 +5,7 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { AppRow } from './AppRow';
 
-const services: Record<App, string> = { teams: 'Microsoft Teams', slack: 'Slack' };
+const services: Record<App, string> = { slack: 'Slack' };
 const names = { claude: 'Claude', codex: 'Codex' } as const;
 export type HostedAccounts = Record<Provider, ProviderAccountView[]>;
 
@@ -137,14 +137,7 @@ function Connection({ app, connection }: { app: App; connection: ReturnType<type
         )}
       </div>
       {available && !connection.disconnectHelp && <p className="muted small hosted-help">{a.codexAccountsHint}</p>}
-      {(connected || connection.disconnectHelp) && app === 'teams' && provider === 'claude' && (
-        <p className="muted small hosted-help">{a.sharedMicrosoft}</p>
-      )}
-      {connection.disconnectHelp && (
-        <p className="muted small hosted-help">
-          {a.disconnectHostedHelp(platform, app === 'teams' && provider === 'claude' ? 'Microsoft 365' : service)}
-        </p>
-      )}
+      {connection.disconnectHelp && <p className="muted small hosted-help">{a.disconnectHostedHelp(platform, service)}</p>}
     </div>
   );
 }
@@ -182,7 +175,7 @@ export function HostedAppRow({
       status={lines.join(' · ')}
       reveal={reveal}
     >
-      <p className="muted small">{app === 'teams' ? a.hostedTeamsNote : a.hostedSlackHint}</p>
+      <p className="muted small">{a.hostedSlackHint}</p>
       <div className="hosted-connections">
         <Connection app={app} connection={claude} />
         <Connection app={app} connection={codex} />

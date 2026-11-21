@@ -275,7 +275,7 @@ base('Notion and Heptabase connect from the full row and keep sign-in controls a
   }
 });
 
-base('Teams and Slack check and disconnect Claude and Codex independently', async ({ page, relay }) => {
+base('Slack checks and disconnects Claude and Codex independently', async ({ page, relay }) => {
   base.slow();
   const { set } = await hostConnectorPages(page.context(), relay.home);
   const providers = ['Claude', 'Codex'] as const;
@@ -302,7 +302,7 @@ base('Teams and Slack check and disconnect Claude and Codex independently', asyn
     if (
       request.method() !== 'GET' &&
       /^\/api\/(?:apps|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname) &&
-      !/^\/api\/apps\/(?:teams|slack)\/hosted\/(?:claude|codex)$/.test(pathname)
+      !/^\/api\/apps\/slack\/hosted\/(?:claude|codex)$/.test(pathname)
     )
       writes.push(pathname);
   });
@@ -348,7 +348,7 @@ base('Teams and Slack check and disconnect Claude and Codex independently', asyn
         const status = group(app, provider).getByRole('status');
         await expect(status).toContainText('This ' + provider + ' account does not list ' + app.name);
         await expect(status).toContainText('Default account');
-        if (app.id === 'slack' && provider === 'Claude') {
+        if (provider === 'Claude') {
           await change(app, provider, 'Cancel', 'not-found');
           await expect(status).toContainText('does not list Slack');
         }
@@ -359,26 +359,24 @@ base('Teams and Slack check and disconnect Claude and Codex independently', asyn
       await expect(row(app).locator('.app-options > summary')).toContainText('Codex');
     });
   }
-  expect(calls()).toEqual(['microsoft_teams.get_profile', 'slack.slack_read_user_profile']);
+  expect(calls()).toEqual(['slack.slack_read_user_profile']);
   await page.reload();
   for (const app of hostedApps) {
     await base.step('Reload and disconnect ' + app.name + ' in each provider', async () => {
       await row(app).locator('.app-options > summary').click();
       for (const provider of providers)
         await expect(group(app, provider).getByRole('status')).toHaveText(ready(provider) + ' · Default account');
-      if (app.id === 'slack') {
-        for (const [index, provider] of providers.entries()) {
-          const g = group(app, provider);
-          const account = g.getByRole('combobox', { name: provider + ' account' });
-          await account.selectOption(extra[index]!.id);
-          await expect(g.getByRole('status')).toContainText('This ' + provider + ' account does not list Slack · Work');
-          await account.selectOption('');
-          await expect(g.getByRole('status')).toHaveText(ready(provider) + ' · Default account');
-        }
-        await row(app).getByText('Send from Relay', { exact: true }).click();
-        await expect(row(app).getByLabel('Slack OAuth token')).toBeVisible();
-        await expect(row(app).getByText('Assistants who can draft messages', { exact: true })).toHaveCount(0);
+      for (const [index, provider] of providers.entries()) {
+        const g = group(app, provider);
+        const account = g.getByRole('combobox', { name: provider + ' account' });
+        await account.selectOption(extra[index]!.id);
+        await expect(g.getByRole('status')).toContainText('This ' + provider + ' account does not list Slack · Work');
+        await account.selectOption('');
+        await expect(g.getByRole('status')).toHaveText(ready(provider) + ' · Default account');
       }
+      await row(app).getByText('Send from Relay', { exact: true }).click();
+      await expect(row(app).getByLabel('Slack OAuth token')).toBeVisible();
+      await expect(row(app).getByText('Assistants who can draft messages', { exact: true })).toHaveCount(0);
       const previousCalls = calls().length;
       const [verified] = await Promise.all([check(app, 'Codex'), row(app).getByRole('button', { name: 'Check connections' }).click()]);
       expect(verified.request().postDataJSON()).toEqual({ verify: true });
@@ -389,11 +387,9 @@ base('Teams and Slack check and disconnect Claude and Codex independently', asyn
       await change(app, 'Claude', 'Disconnect', 'not-found');
       await expect(group(app, 'Claude').getByRole('status')).toContainText('does not list ' + app.name);
       await expect(group(app, 'Codex').getByRole('status')).toHaveText('Connected in Codex · Default account');
-      if (app.id === 'slack') {
-        // Opening account management cannot confirm a disconnect while the app remains callable.
-        await change(app, 'Codex', 'Cancel disconnect', 'connected');
-        await expect(group(app, 'Codex').getByRole('status')).toContainText('Connected in Codex');
-      }
+      // Opening account management cannot confirm a disconnect while the app remains callable.
+      await change(app, 'Codex', 'Cancel disconnect', 'connected');
+      await expect(group(app, 'Codex').getByRole('status')).toContainText('Connected in Codex');
       await change(app, 'Codex', 'Disconnect', 'not-found');
       await expect(group(app, 'Codex').getByRole('status')).toContainText('does not list ' + app.name);
     });

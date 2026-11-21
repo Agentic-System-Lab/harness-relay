@@ -12,7 +12,7 @@ export function ICloudCalendar({
   onSaving,
 }: {
   accounts: ConnectorsView['calendar'];
-  onSaved: (v: ConnectorsView) => void;
+  onSaved: () => Promise<void>;
   onClose: () => void;
   onSaving: (busy: boolean) => void;
 }) {
@@ -81,9 +81,8 @@ export function ICloudCalendar({
         item.name,
         accounts.map((c) => c.id),
       );
-      onSaved(
-        await api.saveCalendarAccount(id, { name: item.name, url: item.url, username: email.trim(), password, address: email.trim() }),
-      );
+      await api.saveCalendarAccount(id, { name: item.name, url: item.url, username: email.trim(), password, address: email.trim() });
+      await onSaved();
       onClose();
     } catch (e) {
       setStatus((e as Error).message);

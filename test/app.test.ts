@@ -130,10 +130,12 @@ describe('hosted account status', () => {
       const post = (path: string, input: unknown) => app.request('/api/apps/' + path, json('POST', input));
       expect(await (await post('slack/hosted/codex', {})).json()).toEqual({ status: 'available' });
       expect(probe).toHaveBeenLastCalledWith('slack', 'codex', '', false);
-      expect((await post('teams/hosted/claude?account=default', { verify: true })).status).toBe(200);
-      expect(probe).toHaveBeenLastCalledWith('teams', 'claude', '', true);
+      expect((await post('slack/hosted/claude?account=default', { verify: true })).status).toBe(200);
+      expect(probe).toHaveBeenLastCalledWith('slack', 'claude', '', true);
       expect((await post('slack/hosted/codex', { verify: 'true' })).status).toBe(400);
       for (const path of [
+        'teams/hosted/codex',
+        'teams/hosted/claude',
         'drive/hosted/codex',
         'drive/hosted/claude',
         'slack/hosted/codex?account=missing',

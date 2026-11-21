@@ -12,7 +12,7 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { oauthClientStatus } from '../oauth';
 import { AppSignIn } from './McpSignIn';
-import { HostedAppRow, type HostedAccounts } from './HostedAppLinks';
+import { type HostedAccounts } from './HostedAppLinks';
 import { ChevronIcon } from './icons';
 import { OAuthClientSettings, OAuthSetupHint } from './OAuthAccounts';
 import { AppRow } from './AppRow';
@@ -61,15 +61,17 @@ export function CommonApps({
     (teams?.status === 'connected' && teams.posting?.status === 'signing-in');
   const teamsAccount = teams?.status === 'connected' ? teams.account : linkedTeams[0]?.email;
   const teamsStatus =
-    teams?.status !== 'connected' && linkedTeams.length && microsoftState !== 'ready'
-      ? t.connectors.oauth.clientState[microsoftState]
-      : linkedTeams.some((x) => x.status === 'reauth')
-        ? t.connectors.oauth.reauth
-        : pendingTeams
-          ? a.inProgress
-          : teamsAccount
-            ? [a.directConnection, teamsAccount, t.connectors.oauth.connected].join(' · ')
-            : undefined;
+    teams?.status === 'connected'
+      ? [teams.account, t.connectors.oauth.connected].join(' · ')
+      : pendingTeams
+        ? a.inProgress
+        : linkedTeams.length && microsoftState !== 'ready'
+          ? t.connectors.oauth.clientState[microsoftState]
+          : linkedTeams.some((account) => account.status === 'reauth')
+            ? t.connectors.oauth.reauth
+            : teamsAccount
+              ? [teamsAccount, t.connectors.oauth.connected].join(' · ')
+              : undefined;
   const disconnect = async (account: OAuthAccountView) => {
     const uses = account.uses.map((use) => t.connectors.oauth.uses[use]).join(t.common.listSeparator);
     if (!confirm(a.confirmAccount(account.email, uses))) return;
@@ -123,7 +125,13 @@ export function CommonApps({
           })}
         </AppGroup>
         <AppGroup name={a.categories.team}>
-          <HostedAppRow active={activeApps} app="teams" accounts={hostedAccounts} directStatus={teamsStatus} reveal={pendingTeams}>
+          <AppRow
+            name="Microsoft Teams"
+            description={a.details.teams}
+            label={teamsAccount ? a.manage : a.connect}
+            status={teamsStatus}
+            reveal={pendingTeams}
+          >
             {linkedTeams.map((account) => (
               <div key={account.id}>
                 <span>
@@ -151,7 +159,7 @@ export function CommonApps({
             {linkedTeams.length > 0 && microsoftClient && microsoftState !== 'ready' && <OAuthSetupHint client={microsoftClient} />}
             <TeamsSignIn view={teams} setView={setTeams} />
             {(linkedTeams.length > 0 || teams?.status === 'connected') && relayAccess('teams')}
-          </HostedAppRow>
+          </AppRow>
           <SlackAppRow active={activeApps} lib={lib} accounts={hostedAccounts} access={relayAccess('slack')} change={change} />
         </AppGroup>
         <AppGroup name={a.categories.notes}>

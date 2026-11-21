@@ -51,6 +51,7 @@ export function AppSignIn({
   rowDescription,
   disabled = false,
   describedBy,
+  onPendingChange,
 }: {
   name: string;
   oauth?: McpServerView['oauth'];
@@ -62,6 +63,7 @@ export function AppSignIn({
   rowDescription?: string;
   disabled?: boolean;
   describedBy?: string;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const { t, lang } = useI18n();
   const descriptionId = useId();
@@ -120,6 +122,9 @@ export function AppSignIn({
 
   const line = mcpSignInLine(oauth, t, lang);
   const under = Boolean(signIn && waiting(signIn));
+  useEffect(() => {
+    onPendingChange?.(busy || under);
+  }, [busy, under, onPendingChange]);
   const asking = under && signIn?.confirm ? signIn : undefined;
   return (
     <div className="mcp-signin">

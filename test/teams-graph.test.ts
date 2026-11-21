@@ -14,7 +14,7 @@ type Call = {
   requests: { id: number; uri: string; text?: string }[];
 };
 
-function helper() {
+function helper(installRuntime = vi.fn(async (_signal: AbortSignal) => {})) {
   const calls: Call[] = [];
   const teams = new TeamsGraph(
     (script, options) =>
@@ -29,6 +29,7 @@ function helper() {
         });
         options.onSpawn?.({ stdin } as ChildProcess);
       }),
+    installRuntime,
   );
   return { teams, calls };
 }
@@ -66,7 +67,8 @@ describe('the Teams Graph PowerShell connection', () => {
     const probes = [teams.status(), teams.status()];
     expect(calls).toHaveLength(1);
     expect(calls[0].script).toBe(PROBE_TEAMS);
-    expect(PROBE_TEAMS).not.toMatch(/Connect-MgGraph|Install-PSResource|Install-Module/);
+    expect(PROBE_TEAMS).toContain('try { Import-Module -Name $name -ErrorAction Stop } catch { exit 21 }');
+    expect(PROBE_TEAMS).not.toMatch(/Connect-MgGraph|Save-PSResource|Save-Module/);
     calls[0].complete(21);
     expect(await Promise.all(probes)).toEqual([{ status: 'missing-module' }, { status: 'missing-module' }]);
     const missing = new TeamsGraph(async () => {
@@ -75,7 +77,7 @@ describe('the Teams Graph PowerShell connection', () => {
     expect(await missing.status()).toEqual({ status: 'missing-powershell' });
   });
 
-  it('installs only after an explicit action, using the official repository and current user', async () => {
+  it('downloads a missing module only after an explicit action, into Relay’s folder from the official repository', async () => {
     const { teams, calls } = helper();
     expect(await teams.install()).toEqual({ status: 'installing' });
     expect(await teams.connect()).toEqual({ status: 'installing' });
@@ -84,17 +86,98 @@ describe('the Teams Graph PowerShell connection', () => {
     expect(INSTALL_TEAMS).toContain('https://www.powershellgallery.com/api/v2');
     expect(INSTALL_TEAMS).toContain("AbsoluteUri.TrimEnd('/') -ne $gallery");
     expect(INSTALL_TEAMS).toContain("SourceLocation.TrimEnd('/') -ne $gallery");
-    expect(INSTALL_TEAMS).toContain('-Scope CurrentUser -Repository PSGallery');
+    expect(INSTALL_TEAMS).toContain('Get-ChildItem -LiteralPath $moduleDir');
+    expect(INSTALL_TEAMS).toContain('Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop');
+    expect(INSTALL_TEAMS).not.toContain('Import-Module -Name $name');
+    expect(INSTALL_TEAMS).toContain('Save-PSResource -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery');
+    expect(INSTALL_TEAMS).toContain('Save-Module -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery');
+    expect(INSTALL_TEAMS).not.toMatch(/Install-Module|Install-PSResource|-Scope CurrentUser/);
+    for (const script of [PROBE_TEAMS, INSTALL_TEAMS, CONNECT_TEAMS, POST_TEAMS]) {
+      expect(script).toContain(
+        "PSModulePath = @($env:RELAY_TEAMS_MODULES, [IO.Path]::Combine($PSHOME, 'Modules'), $userModules, $systemModules)",
+      );
+    }
     calls[0].complete(22);
-    await Promise.resolve();
-    expect(await teams.status()).toEqual({ status: 'error', message: t().teamsSetupFailed });
+    await expect.poll(() => teams.status()).toEqual({ status: 'error', message: t().teamsSetupFailed, retry: 'install' });
     await teams.install();
     calls[1].complete(0);
-    await Promise.resolve();
-    const state = teams.status();
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2].script).toBe(PROBE_TEAMS);
     calls[2].complete(0);
+    await vi.waitFor(() => expect(calls[2].options.signal?.aborted).toBe(true));
+    const state = teams.status();
+    calls[3].complete(0);
     expect(await state).toEqual({ status: 'signed-out' });
+  });
+
+  it('prepares PowerShell and Graph once, then verifies the module without signing in', async () => {
+    const runtime = vi.fn(async (_signal: AbortSignal) => {});
+    const { teams, calls } = helper(runtime);
+    const installing = { status: 'installing' };
+    expect(await Promise.all([teams.install(), teams.install(), teams.connect()])).toEqual([installing, installing, installing]);
+    expect(calls).toHaveLength(1);
+    calls[0].complete(20);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(runtime).toHaveBeenCalledTimes(1);
+    expect(await teams.status()).toEqual(installing);
+    calls[1].complete(0);
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
     expect(calls.map((c) => c.script)).toEqual([INSTALL_TEAMS, INSTALL_TEAMS, PROBE_TEAMS]);
+    calls[2].complete(21);
+    await expect.poll(() => teams.status()).toMatchObject({ status: 'error', retry: 'install' });
+  });
+
+  it('a diagnostic that started before installation returns the newly verified state', async () => {
+    let oldProbe!: (code: number) => void;
+    let first = true;
+    const graph = new TeamsGraph(async (script) => {
+      if (script === PROBE_TEAMS && first) {
+        first = false;
+        return new Promise<number>((resolve) => {
+          oldProbe = resolve;
+        });
+      }
+      return 0;
+    });
+    const before = graph.status();
+    await graph.install();
+    await vi.waitFor(async () => expect(await graph.status()).toEqual({ status: 'signed-out' }));
+    oldProbe(20);
+    expect(await before).toEqual({ status: 'signed-out' });
+  });
+
+  it('retries a failed runtime download when no pwsh exists and serializes cancellation with a new request', async () => {
+    let installed = false;
+    let release!: () => void;
+    const firstDownload = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = vi.fn(async (signal: AbortSignal) => {
+      if (runtime.mock.calls.length === 1) {
+        await firstDownload;
+        signal.throwIfAborted();
+      }
+      if (runtime.mock.calls.length === 2) throw new Error('download refused');
+      installed = true;
+    });
+    const run = vi.fn<Runner>(async () => {
+      if (!installed) throw new CommandNotFoundError('pwsh');
+      return 0;
+    });
+    const graph = new TeamsGraph(run, runtime);
+    await graph.install();
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledTimes(1));
+    graph.disconnect();
+    await graph.install();
+    expect(runtime).toHaveBeenCalledTimes(1);
+    release();
+    await expect.poll(() => graph.status()).toEqual({ status: 'missing-powershell' });
+    await graph.install();
+    await expect.poll(() => graph.status()).toMatchObject({ status: 'error', retry: 'install' });
+    await graph.install();
+    await expect.poll(() => graph.status()).toEqual({ status: 'signed-out' });
+    expect(runtime).toHaveBeenCalledTimes(3);
+    expect(run.mock.calls.map(([script]) => script)).not.toContain(CONNECT_TEAMS);
   });
 
   it.each(['https://login.microsoft.com/device', 'https://microsoft.com/devicelogin'])(

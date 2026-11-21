@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CalendarAccountView, OAuthView, ConnectorsView, MailAccountView, MailSecurity } from '../../shared/types';
+import type { CalendarAccountView, OAuthAccountView, OAuthView, ConnectorsView, MailAccountView, MailSecurity } from '../../shared/types';
 import { api } from '../api';
 import {
   CALENDAR_PRESETS,
@@ -31,13 +31,13 @@ type Service = (typeof serviceOrder)[number];
 export function ConnectorsSettings({
   kind,
   view,
-  setView,
+  reloadConnectors,
   oauth,
   reloadOAuth,
 }: {
   kind: 'mail' | 'calendar';
   view: ConnectorsView | null;
-  setView: (v: ConnectorsView) => void;
+  reloadConnectors: () => Promise<void>;
   oauth: OAuthView | null;
   reloadOAuth: () => Promise<void>;
 }) {
@@ -71,7 +71,8 @@ export function ConnectorsSettings({
   const change = async (call: () => Promise<ConnectorsView>): Promise<boolean> => {
     setError('');
     try {
-      setView(await call());
+      await call();
+      await reloadConnectors();
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -93,45 +94,72 @@ export function ConnectorsSettings({
     const account = oauth?.accounts.find((a) => a.id === id);
     return !account || oauthClientStatus(clientFor(account.provider)) !== 'ready';
   };
-  const row = (a: MailAccountView | CalendarAccountView, detail: string) => (
-    <li key={a.id} className="lib-row relay-group">
-      <div className="lib-row-main">
-        <span className="lib-name">{a.name}</span>
-        <code className="lib-detail">{detail}</code>
-      </div>
-      {tested[a.id] && <p className="small muted">{tested[a.id]}</p>}
-      <div className="lib-row-actions">
-        <button type="button" className="ghost small-button" disabled={accountUnavailable(a.oauth)} onClick={() => test(a.id)}>
-          {t.connectors.test}
-        </button>
-        {/* One reached through a sign-in has no password nor servers to edit: removed and added again from its account. */}
-        {!a.oauth && (
+  const renderResource = (resource: MailAccountView | CalendarAccountView, account?: OAuthAccountView) => {
+    if (editing === resource.id && !resource.oauth) {
+      return (
+        <li key={resource.id} data-editor={resource.id}>
+          {'imap' in resource ? (
+            <MailEditor account={resource} taken={taken} change={change} onDone={close} />
+          ) : (
+            <CalendarEditor account={resource} taken={taken} change={change} onDone={close} />
+          )}
+        </li>
+      );
+    }
+    // OAuth-generated names include the email already shown in the account heading.
+    const suffix = account && ` · ${account.email}`;
+    const name = suffix && resource.name.endsWith(suffix) ? resource.name.slice(0, -suffix.length) : resource.name;
+    let detail: string | undefined;
+    if ('imap' in resource) detail = account ? resource.imap.host : `${resource.address} · ${resource.imap.host}`;
+    else if (!resource.oauth) detail = resource.url;
+    else if (!account) detail = resource.address || resource.username;
+    return (
+      <li key={resource.id} className={account ? 'connector-resource' : 'lib-row relay-group'}>
+        <div className="lib-row-main">
+          <span className="lib-name">{name}</span>
+          {detail && <code className="lib-detail">{detail}</code>}
+        </div>
+        {tested[resource.id] && (
+          <p className="small muted" role="status">
+            {tested[resource.id]}
+          </p>
+        )}
+        <div className="lib-row-actions">
           <button
             type="button"
             className="ghost small-button"
-            data-edit={a.id}
-            onClick={() => {
-              editFocus.current = a.id;
-              setEditing(a.id);
-            }}
+            disabled={accountUnavailable(resource.oauth)}
+            onClick={() => test(resource.id)}
           >
-            {t.tools.edit}
+            {t.connectors.test}
           </button>
-        )}
-        <button
-          type="button"
-          className="ghost small-button danger"
-          aria-label={t.common.remove}
-          onClick={() =>
-            confirm(a.oauth ? t.connectors.removeLinked(a.name) : t.connectors.confirmRemove(a.name)) &&
-            change(() => api.deleteConnector(kind, a.id))
-          }
-        >
-          {t.common.remove}
-        </button>
-      </div>
-    </li>
-  );
+          {!resource.oauth && (
+            <button
+              type="button"
+              className="ghost small-button"
+              data-edit={resource.id}
+              onClick={() => {
+                editFocus.current = resource.id;
+                setEditing(resource.id);
+              }}
+            >
+              {t.tools.edit}
+            </button>
+          )}
+          <button
+            type="button"
+            className="ghost small-button danger"
+            onClick={() =>
+              confirm(resource.oauth ? t.connectors.removeLinked(resource.name) : t.connectors.confirmRemove(resource.name)) &&
+              change(() => api.deleteConnector(kind, resource.id))
+            }
+          >
+            {resource.oauth ? t.connectors.oauth.removeResource[kind] : t.common.remove}
+          </button>
+        </div>
+      </li>
+    );
+  };
 
   const mail = kind === 'mail';
   const taken = view[kind].map((a) => a.id);
@@ -177,7 +205,7 @@ export function ConnectorsSettings({
         (mail ? (
           <ICloudMailbox taken={taken} change={saveNew} onDone={closeService} />
         ) : (
-          <ICloudCalendar accounts={view.calendar} onSaved={setView} onClose={closeService} onSaving={setSavingAccount} />
+          <ICloudCalendar accounts={view.calendar} onSaved={reloadConnectors} onClose={closeService} onSaving={setSavingAccount} />
         ))}
       {service === 'other' &&
         (mail ? (
@@ -194,36 +222,13 @@ export function ConnectorsSettings({
           {error}
         </p>
       )}
-      {taken.length > 0 && <h5>{mail ? t.apps.linkedMail : t.apps.linkedCalendars}</h5>}
-      {taken.length > 0 && (
-        <ul className="lib-list" aria-label={mail ? t.connectors.mailAccounts : t.connectors.calendar}>
-          {mail
-            ? view.mail.map((a) =>
-                editing === a.id ? (
-                  <li key={a.id} data-editor={a.id}>
-                    <MailEditor account={a} taken={taken} change={change} onDone={close} />
-                  </li>
-                ) : (
-                  row(a, `${a.address} · ${a.imap.host}`)
-                ),
-              )
-            : view.calendar.map((a) =>
-                editing === a.id ? (
-                  <li key={a.id} data-editor={a.id}>
-                    <CalendarEditor account={a} taken={taken} change={change} onDone={close} />
-                  </li>
-                ) : (
-                  row(a, a.oauth ? a.address || a.username : a.url)
-                ),
-              )}
-        </ul>
-      )}
       <OAuthAccounts
         kind={kind}
         view={oauth}
         reloadOAuth={reloadOAuth}
         connectors={view}
-        onConnectors={setView}
+        renderResource={renderResource}
+        reloadConnectors={reloadConnectors}
         refresh={oauthTested}
         servicePicker={servicePicker}
         provider={service === 'google' || service === 'microsoft' ? service : undefined}

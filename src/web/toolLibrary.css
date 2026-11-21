@@ -91,8 +91,28 @@
 .library-connectors {
   gap: 8px;
 }
-.library-connectors .oauth-accounts > .lib-list:empty {
-  display: none;
+.connector-account,
+.connector-resources {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.connector-account .lib-name {
+  overflow-wrap: anywhere;
+}
+.connector-resources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.connector-resource {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.connector-resource > [role='status'] {
+  flex-basis: 100%;
 }
 .app-access-controls {
   margin: 0;
@@ -148,10 +168,47 @@
   overflow-wrap: anywhere;
 }
 
+.teams-setup,
 .oauth-client-list,
 .oauth-setup-hint {
   display: grid;
   gap: 16px;
+}
+.teams-setup {
+  justify-items: start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.drive-account,
+.drive-account-identity {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.drive-account {
+  gap: 16px;
+  justify-items: start;
+}
+.drive-account-identity {
+  gap: 4px;
+}
+.drive-account .form-actions {
+  margin: 0;
+  align-items: flex-start;
+}
+.drive-permission-form {
+  display: grid;
+  gap: 16px;
+  max-width: 100%;
+}
+.drive-permission-form select {
+  max-width: 100%;
+}
+.drive-permission-form[hidden] {
+  display: none;
+}
+.drive-account .mcp-signin {
+  max-width: 100%;
 }
 .oauth-client-row {
   display: flex;
@@ -228,7 +285,7 @@
   text-align: center;
 }
 .vault-list,
-.library-connectors > .lib-list {
+.library-connectors .oauth-accounts > .lib-list {
   width: 100%;
   max-width: 100%;
   min-width: 0;

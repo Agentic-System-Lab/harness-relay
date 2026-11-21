@@ -19,6 +19,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -234,7 +235,12 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!o.live) {
     // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
     const exe = process.platform === 'win32' ? '.exe' : '';
-    const wanted = [...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin), `gh${exe}`, `npm${exe}`];
+    const wanted = [
+      ...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin),
+      `gh${exe}`,
+      `npm${exe}`,
+      join('powershell', `pwsh${exe}`),
+    ];
     const missing = wanted.map((name) => join(o.fakeBinDir, name)).filter((bin) => !existsSync(bin));
     if (missing.length) throw new Error(`The fake CLIs are missing (${missing.join(', ')}): run the tests again to build them.`);
     // In use as long as servers start with it, so that a run of a changed script leaves it alone.
@@ -265,6 +271,11 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     ...Object.values(xdg),
   ])
     mkdirSync(d, { recursive: true });
+  // Teams omits node_modules from PATH. A link outside the cache exposes only the fake pwsh,
+  // even when Windows keeps its large test executables and temporary folders on different drives.
+  const pwshDir = join(root, 'bin');
+  if (!o.live)
+    symlinkSync(realpathSync.native(join(o.fakeBinDir, 'powershell')), pwshDir, process.platform === 'win32' ? 'junction' : 'dir');
   seedProject(workDir);
   const fake = await startFakeEndpoint(fakeLog);
 
@@ -328,7 +339,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     // Where a fake in Harness Relay's own sandbox sends its log lines (lib/log.cjs).
     E2E_FAKE_LOG_URL: fake.logUrl,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
-    PATH: [...(o.live ? [] : [o.fakeBinDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
+    PATH: [...(o.live ? [] : [o.fakeBinDir, pwshDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
     NO_COLOR: '1',
     ...o.env,
   });
