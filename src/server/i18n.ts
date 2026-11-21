@@ -500,6 +500,7 @@ const zhTW = {
   checksCommandTimedOut: (min: number) => `超過 ${min} 分鐘還沒結束，已停止。`,
   checksCommandNotFound: '找不到要執行的程式（exit 127）。Harness Relay 不會自己安裝缺少的東西。',
   checksCommandWindows: '原生 Windows 上還不能執行指令檢查（沒有 Harness Relay 的沙箱）；只檢查受保護路徑和 commit 格式。',
+  gatewayFromCode: '由代理用 run_code 執行的程式碼發出。',
   checksCommandNoFolder: (cwd: string) =>
     cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
   checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
@@ -1535,6 +1536,7 @@ const en: ServerMessages = {
   checksCommandNotFound: 'The program it runs was not found (exit 127). Harness Relay never installs what is missing.',
   checksCommandWindows:
     'Commands cannot be checked on native Windows yet (Harness Relay has no sandbox there): only the protected paths and the commit format are.',
+  gatewayFromCode: 'Asked by code the agent runs with run_code.',
   checksCommandNoFolder: (cwd) =>
     cwd
       ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`

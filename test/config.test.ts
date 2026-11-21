@@ -16,6 +16,7 @@ describe('server configuration from the environment', () => {
       voiceModelBaseUrl: undefined,
       voiceEngineBaseUrl: undefined,
       voiceDir: undefined,
+      runCode: false,
     });
     expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
     const blank = readConfig({
@@ -24,8 +25,22 @@ describe('server configuration from the environment', () => {
       RELAY_TURN_TIMEOUT_MIN: '',
       RELAY_VOICE_DIR: '  ',
       RELAY_VOICE_MODEL_BASE_URL: '',
+      RELAY_RUN_CODE: ' ',
     });
     expect(blank).toEqual({ config, problems: [] });
+  });
+
+  it('gives agents run_code only when RELAY_RUN_CODE is on, and refuses a value that is neither on nor off', () => {
+    expect(readConfig({ RELAY_RUN_CODE: 'on' })).toMatchObject({ config: { runCode: true }, problems: [] });
+    expect(readConfig({ RELAY_RUN_CODE: ' ON ' }).config.runCode).toBe(true);
+    expect(readConfig({ RELAY_RUN_CODE: 'off' })).toMatchObject({ config: { runCode: false }, problems: [] });
+    expect(readConfig({ RELAY_RUN_CODE: 'Off' }).config.runCode).toBe(false);
+    // Not read as on: the server refuses to start rather than guess.
+    for (const raw of ['1', 'true', 'yes', 'enabled']) {
+      const read = readConfig({ RELAY_RUN_CODE: raw });
+      expect(read.config.runCode).toBe(false);
+      expect(read.problems).toEqual([`RELAY_RUN_CODE=${raw} is neither on nor off.`]);
+    }
   });
 
   it("takes another cloud's Microsoft sign-in and Graph over https, or a stand-in's over http on this computer only", () => {
@@ -162,5 +177,6 @@ describe('server configuration from the environment', () => {
   it("reads this server's environment once, which the tests leave unset", () => {
     expect(CONFIG_PROBLEMS).toEqual([]);
     expect(limitsOf(CONFIG)).toEqual(DEFAULT_LIMITS);
+    expect(CONFIG.runCode).toBe(false);
   });
 });

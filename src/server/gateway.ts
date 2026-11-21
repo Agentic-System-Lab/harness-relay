@@ -15,7 +15,7 @@ import {
   type Provider,
   type RelayToolGroup,
 } from '../shared/types';
-import { currentLang, withLang } from './i18n';
+import { currentLang, t, withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
 import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
@@ -85,8 +85,16 @@ export interface GatewayTool {
   describe(args: Record<string, unknown>, ctx?: GatewayContext): { title: string; detail?: string; preview?: OutboxPreview };
   /** `send`: prepare the preview and frozen arguments together when they depend on the same snapshot. */
   prepare?(args: Record<string, unknown>, ctx: GatewayContext): PreparedOutboxCall | Promise<PreparedOutboxCall>;
-  /** `read` and `act`: what the call does now. */
-  run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
+  /**
+   * `read` and `act`: what the call does now. A `scoped` tool is given `scope`: the turn's other tools,
+   * which it may call as the turn would.
+   */
+  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope): Promise<GatewayResult>;
+  /**
+   * It calls the turn's other tools (`run_code`, `runCode.ts`), through the `GatewayScope` its `run` is
+   * given. Never one of the tools in a scope, so it cannot call itself or another such tool.
+   */
+  scoped?: boolean;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
@@ -102,6 +110,17 @@ export interface GatewayTool {
    * still there).
    */
   asking?(ctx: GatewayContext): () => void;
+}
+
+/**
+ * What a `scoped` tool reaches of its turn's grant: the turn's other tools (never a scoped one), each
+ * call decided as the turn's own call of it would be (`ToolGateway.call()`: its tier, the user asked
+ * below full access, a send put in the outbox), and only while the turn goes on.
+ */
+export interface GatewayScope {
+  tools: GatewayTool[];
+  /** `gone`: whether the scoped tool stopped waiting for it, checked as the gateway checks its own caller's. */
+  call(name: string, args: Record<string, unknown>, gone?: () => boolean): Promise<GatewayResult>;
 }
 
 /** What a call of `tier` does in a turn with `permission`, given whether the turn can ask the user. */
@@ -635,8 +654,27 @@ export class ToolGateway {
     const args =
       req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
     const ctx = grant.ctx;
-    const run = () => this.call(tool, args, ctx, gone);
+    const run = () => this.call(tool, args, ctx, gone, tool.scoped ? { scope: this.scopeOf(grant, gone) } : {});
     return toolResult(await (ctx.lang ? withLang(ctx.lang, run) : run()));
+  }
+
+  /**
+   * What a scoped tool called in `grant`'s turn reaches: its other tools but the scoped ones, each call
+   * as the turn's own (`call()`), its approval card saying that code asked; nothing once the turn is over.
+   */
+  private scopeOf(grant: Grant, gone?: () => boolean): GatewayScope {
+    const tools = this.toolsFor(grant).filter((t) => !t.scoped);
+    return {
+      tools,
+      call: async (name, args, callGone) => {
+        // Looked up again for each call: a turn that ended takes its tools with it.
+        if (![...this.grants.values()].includes(grant))
+          return { text: 'This turn is over: Harness Relay has no tools for it any more', isError: true };
+        const tool = tools.find((t) => t.name === name);
+        if (!tool) return { text: `No such tool: ${name}`, isError: true };
+        return this.call(tool, args, grant.ctx, () => Boolean(gone?.() || callGone?.()), { fromCode: true });
+      },
+    };
   }
 
   /**
@@ -751,9 +789,16 @@ export class ToolGateway {
 
   /**
    * A call, as its tier and the turn allow. `gone`: whether the client stopped waiting for it (its
-   * connection closed), checked once the user has answered about an act.
+   * connection closed), checked once the user has answered about an act. `scope`: for a scoped tool, the
+   * turn's other tools; `fromCode`: the call comes from code a scoped tool runs, which its approval card says.
    */
-  async call(tool: GatewayTool, args: Record<string, unknown>, ctx: GatewayContext, gone?: () => boolean): Promise<GatewayResult> {
+  async call(
+    tool: GatewayTool,
+    args: Record<string, unknown>,
+    ctx: GatewayContext,
+    gone?: () => boolean,
+    o: { scope?: GatewayScope; fromCode?: boolean } = {},
+  ): Promise<GatewayResult> {
     const missing = tool.unavailable?.();
     if (missing) return { text: `${tool.name} cannot be used now: ${missing}`, isError: true };
     const decision = gatewayDecision(tool.tier, ctx.permission, Boolean(ctx.ask));
@@ -800,11 +845,12 @@ export class ToolGateway {
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
       // no folder lock either: the call writes nothing in the working directory.
       const answered = tool.asking?.(ctx);
+      const reason = o.fromCode ? [t().gatewayFromCode, described.detail].filter(Boolean).join(' ') : described.detail;
       const answer = await ctx.ask!({
         kind: 'other',
         tool: gatewayApprovalTool(tool.name),
         detail: described.title,
-        ...(described.detail ? { reason: described.detail } : {}),
+        ...(reason ? { reason } : {}),
         noLock: true,
       }).finally(() => answered?.());
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
@@ -812,7 +858,7 @@ export class ToolGateway {
     }
     if (ctx.signal.aborted) return { text: 'The turn ended.', isError: true };
     try {
-      return await tool.run!(args, ctx);
+      return await tool.run!(args, ctx, o.scope);
     } catch (err) {
       return { text: `${tool.name} failed: ${(err as Error).message}`, isError: true };
     }
