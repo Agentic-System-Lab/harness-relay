@@ -86,7 +86,7 @@ export interface FakeLogEntry {
 
 /**
  * The test's fake model endpoint, a small HTTP server of its own: Harness Relay's endpoint `e2e`
- * (Settings → Model backends) with its models, unless the test asks for none (`openBackend: false`).
+ * (Settings → Custom models) with its models, unless the test asks for none (`openBackend: false`).
  * No model answers there: it lists its models (`GET /v1/models`), and takes the log lines of fakes
  * that run in Harness Relay's own sandbox (`POST /e2e-log`), the run's backend being the one host
  * the sandbox lets a run reach.

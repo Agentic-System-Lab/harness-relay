@@ -244,9 +244,9 @@
           <li><a href="#api-keys">Or use an API key</a></li>
           <li>
             <details>
-              <summary>Open-source agents and model backends</summary>
+              <summary>Open-source agents and custom models</summary>
               <ol>
-                <li><a href="#open-agents" aria-label="Open-source agents and model backends overview">Overview</a></li>
+                <li><a href="#open-agents" aria-label="Open-source agents and custom models overview">Overview</a></li>
                 <li><a href="#agents-on-your-server">The other agents on your own server</a></li>
               </ol>
             </details>
@@ -280,7 +280,7 @@
           <p>
             Click <b>Settings &amp; sign-in</b> at the foot of the sidebar. <b>Available AI assistants</b> lists the assistants ready to use.
             Open <b>Connect another assistant</b> to see who needs installation, sign-in or a model backend. Choose an assistant to open its setup.
-            <b>Model backends</b> comes before the agents, then each agent has a card. A card shows the agent's version, or, when Harness
+            <b>Custom models</b> comes before the agents, then each agent has a card. A card shows the agent's version, or, when Harness
             Relay does not find it on your computer, a button that <a href="../install/#what-else">installs it</a>. Each of its
             accounts has a box of its own, with its sign-in, its API key and its default model.
           </p>
@@ -396,10 +396,10 @@
         </section>
 
         <section id="open-agents" aria-labelledby="open-agents-title">
-          <h2 id="open-agents-title">Open-source agents and model backends</h2>
+          <h2 id="open-agents-title">Open-source agents and custom models</h2>
           <p>
             OpenCode, Goose, Cline, OpenHands and Pi have no sign-in. They run on the model backends you set up under
-            <b>Settings → Model backends</b>, and on nothing else:
+            <b>Settings → Custom models</b>, and on nothing else:
           </p>
           <ul>
             <li>
@@ -419,13 +419,10 @@
               src="../../assets/media/docs/agents-backends-en.webp"
               width="1280"
               height="800"
-              alt="Settings, scrolled to Model backends: a note on which agents run on them, then API keys for OpenAI, Anthropic and xAI, each not set with a Save button, and the start of Custom endpoints, with one named Homelab vLLM."
+              alt="Custom models in Settings &amp; sign-in, showing empty API key fields for OpenAI, Anthropic and xAI and the Homelab vLLM custom endpoint."
               loading="lazy"
             />
-            <figcaption>
-              Settings → Model backends, with a custom endpoint for a vLLM server: a frame of the use case
-              <a href="../../use-cases/#contract-review">Redline a contract, on your own model server</a>.
-            </figcaption>
+            <figcaption>Add your own model server under Custom models. The <a href="../../use-cases/#contract-review">contract review example</a> shows how to use an endpoint like this in a chat.</figcaption>
           </figure>
           <p>
             A member of an open-source agent then gets a model written as backend and name: <code>openai/…</code>,
@@ -488,13 +485,10 @@
               src="../../assets/media/docs/agents-lead-en.webp"
               width="1280"
               height="800"
-              alt="Settings, scrolled to Lead agent: a row of agents with Claude Code chosen, the model set to Custom… with a model of the user's own server, and the reasoning effort left to the agent; the Tool library starts below."
+              alt="Lead agent settings with Claude Code selected, a model from the Homelab vLLM endpoint, and reasoning effort set to the CLI default."
               loading="lazy"
             />
-            <figcaption>
-              The lead agent, on Claude Code with a model of your own server: a frame of the use case
-              <a href="../../use-cases/#contract-review">Redline a contract, on your own model server</a>.
-            </figcaption>
+            <figcaption>The lead agent can use a model from your custom endpoint. See the <a href="../../use-cases/#contract-review">contract review example</a> for this setup.</figcaption>
           </figure>
         </section>
 
@@ -504,7 +498,7 @@
             <p>The user guide has the details: each agent's sign-in and its quirks, which APIs each agent needs from your server, what each account keeps apart, and what each agent loads by itself.</p>
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in">Sign in to each agent</a></li>
-              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#open-source-agents-and-model-backends">Open-source agents and model backends</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#open-source-agents-and-custom-models">Open-source agents and custom models</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#more-than-one-account">More than one account</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.md">Open agents</a></li>
             </ul>

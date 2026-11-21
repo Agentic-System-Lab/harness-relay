@@ -1,4 +1,4 @@
 {
-  "prompt": "Origin: frame at 0:07.5 of site/assets/media/use-cases/contract-review-en.mp4 (Harness Relay's own use-case recording), extracted with ffmpeg, encoded with cwebp -q 80.\n",
-  "createdAt": "2026-11-18T12:35:22.000Z"
+  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the lead assistant configured to use Claude Code with a model from the sample local endpoint in the built Harness Relay settings. Language en, viewport 1280 × 800. Isolated local server, fake CLIs and fictitious configuration. Encoded with cwebp -q 92.",
+  "createdAt": "2026-11-21T03:53:58.802Z"
 }

@@ -18,7 +18,7 @@ Until an agent's adapter is done (`implemented: true` in its file), its runs fai
 
 ## Model backends
 
-**Settings → Model backends** holds what the open agents run their models on (`src/server/backends.ts`, `ModelBackendStore`, reached as `settings.backends`):
+**Settings → Custom models** holds what the open agents run their models on (`src/server/backends.ts`, `ModelBackendStore`, reached as `settings.backends`):
 
 - **API backends**: `openai`, `anthropic` and `xai`, one API key each.
 - **Custom endpoints**: the user's own OpenAI-compatible servers (vLLM, Ollama, LM Studio, llama.cpp), each `{ id, name, baseUrl, models }` and an optional key. The id is a lowercase slug (`ENDPOINT_ID_RE`, never one of the API backends' names) that starts its models' ids and stays when the endpoint is renamed; `models` are the model names the user typed, since Harness Relay never asks a model API anything. The base URL is http(s), without credentials, a query or a fragment, and never Harness Relay's own address on this computer (its API's port or its dev server's), however it is spelled: `localhost` and names under it, a trailing dot, 127/8, `::1`, an IPv4 address written in IPv6, the unspecified address (`0`, `[::]`), or one of this computer's own addresses (`validEndpointUrl`).

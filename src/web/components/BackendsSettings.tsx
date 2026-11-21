@@ -9,7 +9,7 @@ import { SectionTitle } from './SectionTitle';
 type Note = { text: string; error?: boolean };
 
 /**
- * Settings → Model backends: what the open agents (OpenCode, Goose, Cline, OpenHands, Pi) run their
+ * Settings → Custom models: what the open agents (OpenCode, Goose, Cline, OpenHands, Pi) run their
  * models on. An API key for OpenAI, Anthropic and xAI each, and the user's own OpenAI-compatible
  * endpoints. Keys are only ever shown masked.
  */

@@ -11,7 +11,7 @@
 寫程式之前先開一個**功能建議**的 issue：新的 agent CLI 屬於比較大的改動（[CONTRIBUTING → 提出功能建議](../CONTRIBUTING.zh-TW.md#提出功能建議)）。說明它走哪一條路：
 
 - **原生 adapter**，給有自己登入的 CLI（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code）。它在自己的家目錄與帳號下執行，低於完全存取時在它自己的 OS 沙箱裡執行；沒有可用的沙箱時，每個指令都先詢問（Cursor、Antigravity）。
-- **開源 agent**，給在「設定」的模型來源上執行的開源 CLI，用 Harness Relay 自己的家目錄，低於完全存取時在 Harness Relay 自己的沙箱裡執行（[開源 agent](open-agents.zh-TW.md)）。
+- **開源 agent**，給使用「設定 → 自定義模型」所提供模型的開源 CLI，用 Harness Relay 自己的家目錄，低於完全存取時在 Harness Relay 自己的沙箱裡執行（[開源 agent](open-agents.zh-TW.md)）。
 
 從 `main` 開分支，在 repository 裡你自己的 worktree 工作（[AGENTS.md → Worktrees](../AGENTS.md#worktrees)），在裡面執行 `npm install`，並設定一個短的 `RELAY_DATA_DIR`（relay 沙箱的 socket 需要短路徑）。
 
@@ -41,7 +41,7 @@
 | **它自己會載入的東西**（skill、MCP 伺服器、hook、subagent、plugin、指示檔），以及每一種有沒有單次執行的開關？ | 「設定」裡的清單與 `NATIVE_OFF_SUPPORT`；會執行程式碼的專案檔案（hook、MCP 伺服器）是逃出沙箱的途徑。 | Antigravity 一開啟 session 就會啟動專案的 `.agents/hooks.json` 與 `mcp_config.json`，不經詢問，唯讀模式下也一樣；其他 agent 寫得到它們，所以 Harness Relay 會在 agy 啟動前先詢問。Copilot 也一樣會執行專案的 `.github/hooks/*.json`（在它的沙箱中），所以同樣會先詢問。Muse Code 只在信任的工作區載入專案的指示檔、skill 與 hook，並在它的沙箱外執行那些 hook：完全存取以外，每次執行自己的設定資料夾裡有一個把工作目錄標成不受信任的 `trust.json`，絕不用帳號的。 |
 | **同一個呼叫被問兩次**？ | 使用者只該被問一次，兩次請求得到同樣的回答。 | Muse Code 對寫到工作區外的指令，會用同一個 `toolCallId` 問兩次；它問指令能不能連網時也用那個 `toolCallId`，那個請求必須得到它自己的回答。 |
 | 它在工作目錄裡**留下**什麼？ | 使用者沒要的檔案或資料夾；空的 `.hg` 或 `.sl` 可能被版本控制工具當成 repository。 | Muse Code 在 Linux 上的 bubblewrap 會留下空的 `.agents`、`.muse`、`.hg`、`.sl` 與 `.eden` 資料夾；它的 adapter 會移除這一輪之前不存在的那些。 |
-| 能不能跑在使用者**自己的端點**上？ | 成員能不能用端點的模型（「設定」→「模型來源」）；Harness Relay 自己從不呼叫模型 API，所以補不了伺服器缺的部分。 | Muse Code 用 Responses API，但會先抓只有 Meta API 提供的模型目錄（`/muse-code/models`），所以只能跑在 Meta 的服務上。 |
+| 能不能跑在使用者**自己的端點**上？ | 成員能不能用端點的模型（「設定」→「自定義模型」）；Harness Relay 自己從不呼叫模型 API，所以補不了伺服器缺的部分。 | Muse Code 用 Responses API，但會先抓只有 Meta API 提供的模型目錄（`/muse-code/models`），所以只能跑在 Meta 的服務上。 |
 
 **沒有付費帳號時**，若 CLI 能設定 base URL，就讓它連到模型 API 的模擬伺服器（Antigravity 是用 Gemini API key 搭配一個照腳本回應的 Gemini API 模擬伺服器探索的，順便看到它送出的系統提示與工具；Copilot 則是用它自己那組「使用者自己的模型供應商」變數，連到一個照腳本回應的 OpenAI 相容 API 模擬伺服器；Muse Code 則用假的 Meta API key 搭配 Meta API 的模擬伺服器：它的 Responses API 與模型目錄），或是 OpenAI 相容的 CLI 連到本機模型伺服器（Ollama、vLLM）。用這種方式確認不了的部分（真正的登入、真正的模型），要在文件裡寫明。
 

@@ -400,14 +400,17 @@ if (toc) {
   toc.prepend(toggle);
 
   const setOpen = (open) => {
-    toc.classList.toggle('is-open', open);
     toggle.setAttribute('aria-expanded', String(open));
+    list.hidden = !toggle.hidden && !open;
   };
   const head = document.querySelector('.doc-head');
   const resize = () => {
     // Put the tab stops in visual order. Preserve a usable focus target when a breakpoint hides its control.
     const focus = document.activeElement;
     const inside = toc.contains(focus);
+    // A media rule can run before its change event and blur a hidden control. Change visibility only
+    // here, after capturing the actual focus, so an earlier visit to this menu cannot steal it back.
+    toggle.hidden = !compactDocs.matches;
     setOpen(false);
     if (compactDocs.matches) head.before(toc);
     else head.after(toc);
@@ -418,14 +421,14 @@ if (toc) {
   };
   resize();
   compactDocs.addEventListener('change', resize);
-  toggle.addEventListener('click', () => setOpen(!toc.classList.contains('is-open')));
+  toggle.addEventListener('click', () => setOpen(list.hidden));
   const outside = (event) => {
     if (!toc.contains(event.target)) setOpen(false);
   };
   document.addEventListener('click', outside);
   document.addEventListener('focusin', outside);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !toc.classList.contains('is-open')) return;
+    if (event.key !== 'Escape' || toggle.hidden || list.hidden) return;
     setOpen(false);
     toggle.focus({ preventScroll: true });
   });

@@ -159,19 +159,19 @@ test.describe('an open agent without a model backend', () => {
     test.skip(!cli, 'no open agent has a fake written yet');
     await expect(page.locator(`.provider-health a[href="#/settings/${cli!.provider}"]`)).toHaveAttribute(
       'title',
-      `${cli!.label} · No model backend yet`,
+      `${cli!.label} · Custom models not set up`,
     );
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const overview = page.locator('#settings-overview');
     await overview.getByText('Connect another assistant').click();
-    await overview.getByRole('link', { name: `${cli!.label} Set up a model backend` }).press('Enter');
+    await overview.getByRole('link', { name: `${cli!.label} Set up custom models` }).press('Enter');
     await expect(page.locator('#settings-backends .section-title a')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.locator('#settings-backends :focus')).toHaveCount(1);
     await expect(page.locator('#settings-backends')).toBeInViewport();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
-    await expect(card).toContainText('No model backend set up yet (Settings → Model backends)');
+    await expect(card).toContainText('No model backend set up yet (Settings → Custom models)');
 
     await chatWith(page, relay, cli!);
     await send(page, 'Anyone there?');
@@ -205,7 +205,7 @@ test.describe('settings', () => {
       for (const cli of faked(CLIS)) {
         const dot = page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`);
         await expect(dot).toBeVisible();
-        if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
+        if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Custom models set up`);
       }
       for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
         await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute(
@@ -278,7 +278,7 @@ test.describe('settings', () => {
       'Appearance',
       'Notifications',
       'Sandboxes',
-      'Model backends',
+      'Custom models',
       'Lead agent',
       'Apps and tools',
       'Voice',
@@ -502,8 +502,36 @@ test.describe('settings', () => {
     await expect(page.getByRole('heading', { name: '設定與登入', level: 1 })).toBeVisible();
     await page.reload();
     await expect(page.getByRole('heading', { name: '設定與登入', level: 1 })).toBeVisible();
+    const modelSettings = page.getByRole('navigation').locator('a[href="#/settings/backends"]');
+    await expect(modelSettings).toHaveText('自定義模型');
+    await modelSettings.click();
+    await expect(page).toHaveURL(/#\/settings\/backends$/);
+    const title = page.locator('#settings-backends .section-title');
+    await expect(title).toHaveAccessibleName('自定義模型');
     await languages.getByRole('radio', { name: 'English' }).click();
     await expect(page.getByRole('heading', { name: 'Settings & sign-in', level: 1 })).toBeVisible();
+    await expect(modelSettings).toHaveText('Custom models');
+    await expect(title).toHaveAccessibleName('Custom models');
+  });
+
+  test('settings subheadings stay close to the first field or description on desktop and phone', async ({ page, relay }) => {
+    await relay.api('/api/backends/endpoints/e2e', { method: 'DELETE', body: {} });
+    await page.goto(relay.base + '/#/settings/backends');
+    const headings = page.locator('#settings-backends > h4, #settings-sessions .settings-part > h4');
+    await expect(headings).toHaveCount(5);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      const gaps = await headings.evaluateAll((items) =>
+        items.map((heading) => ({
+          title: heading.textContent,
+          gap: heading.nextElementSibling!.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+        })),
+      );
+      for (const { title, gap } of gaps) {
+        expect(gap, title + ' at ' + width).toBeGreaterThanOrEqual(8);
+        expect(gap, title + ' at ' + width).toBeLessThanOrEqual(12);
+      }
+    }
   });
 
   test('another CLI can be the lead agent', async ({ page, relay }) => {

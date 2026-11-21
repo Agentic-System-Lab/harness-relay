@@ -1,6 +1,6 @@
 import { BACKEND_LIMITS, ENDPOINT_ID_RE, isApiBackend, type ModelEndpointUpdate, type ModelEndpointView } from '../shared/types';
 
-/** Settings → Model backends: the endpoint form's logic, kept out of the component so it can be tested without a DOM. */
+/** Settings → Custom models: the endpoint form's logic, kept out of the component so it can be tested without a DOM. */
 
 /** The endpoint form as typed: the models one per line (or separated by commas or spaces). */
 export interface EndpointDraft {

@@ -314,7 +314,7 @@ describe('the docs', () => {
       /\.js \.doc-search:focus-within ~ \.doc-nav-toggle,\s*\.js \.doc-search\.is-wide ~ \.doc-nav-toggle \{[^}]*display: none;/s,
     );
     expect(css).toContain('scroll-margin-top: calc(var(--doc-search-bottom) + var(--doc-contents-height) + 8px)');
-    expect(css).toContain('.js .doc-toc:not(.is-open) > ol');
+    expect(css).toContain('.doc-toc > ol[hidden]');
     const behavior = read('site/assets/site.js');
     expect(read('site/assets/docs.js')).toContain("form.classList.add('is-wide')");
     expect(behavior).toContain('scrollPaddingTop');

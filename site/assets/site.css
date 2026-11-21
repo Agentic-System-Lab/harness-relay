@@ -1494,7 +1494,7 @@ html:not(.js) .theme-toggle {
   color: #ffffff;
 }
 
-/* Open agents: the five, beside the app's Model backends card. Their colour is only their dot in the list,
+/* Open agents: the five, beside the app's Custom models card. Their colour is only their dot in the list,
    as in the app: the headline and the mark keep the demo's three. */
 .open-grid {
   display: grid;
@@ -3306,7 +3306,8 @@ html:has(.doc-toc) {
   font-size: 13.5px;
 }
 
-.doc-toc-toggle {
+.doc-toc-toggle[hidden],
+.doc-toc > ol[hidden] {
   display: none;
 }
 
@@ -3882,9 +3883,6 @@ html:has(.doc-toc) {
     border-radius: 0 0 12px 12px;
     background: var(--bg);
     box-shadow: var(--shadow);
-  }
-  .js .doc-toc:not(.is-open) > ol {
-    display: none;
   }
 
   .js .doc-nav-toggle {

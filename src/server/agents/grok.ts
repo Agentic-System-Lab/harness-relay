@@ -688,8 +688,12 @@ export function writeGrokProfile(
  */
 export const grokEndpointModelId = (endpointId: string, model: string): string => `harness-relay/${endpointId}/${model}`;
 
-const MODELS_BEGIN =
+const LEGACY_MODELS_BEGIN =
   "# >>> harness-relay models: your own endpoints of Harness Relay's Settings → Model backends, written before its Grok runs; changes here are replaced";
+// Keep the marker independent of the display name of the settings section.
+const MODELS_BEGIN = '# >>> harness-relay models';
+const MODELS_SECTION = /^# >>> harness-relay models\r?\n[\s\S]*?^# <<< harness-relay models(?=\r?$)/m;
+const MODELS_NOTE = '# Your endpoints from Harness Relay Settings → Custom models. Relay replaces this block.';
 const MODELS_END = '# <<< harness-relay models';
 
 /**
@@ -713,7 +717,7 @@ export function grokModelsBlock(endpoints: readonly RunEndpoint[]): string {
       ].join('\n'),
     ),
   );
-  return tables.length ? [MODELS_BEGIN, tables.join('\n\n'), MODELS_END].join('\n') : '';
+  return tables.length ? [MODELS_BEGIN, MODELS_NOTE, tables.join('\n\n'), MODELS_END].join('\n') : '';
 }
 
 /** A table of one of Harness Relay's models (`grokEndpointModelId`), whatever is around it. */
@@ -733,6 +737,12 @@ export function withoutStrayGrokModels(existing: string): string {
   let skipping = false;
   for (const line of existing.split('\n')) {
     const text = line.replace(/\r$/, '');
+    // Older files included the settings label in the opening marker itself.
+    if (text === LEGACY_MODELS_BEGIN) {
+      inBlock = true;
+      out.push(line.replace(LEGACY_MODELS_BEGIN, MODELS_BEGIN));
+      continue;
+    }
     if (text === MODELS_BEGIN) inBlock = true;
     if (!inBlock) {
       if (OWN_MODEL_TABLE.test(text)) {
@@ -755,12 +765,12 @@ export function withoutStrayGrokModels(existing: string): string {
  */
 export function withGrokModels(current: string, block: string): string {
   const existing = withoutStrayGrokModels(current);
-  const start = existing.indexOf(MODELS_BEGIN);
-  const end = start < 0 ? -1 : existing.indexOf(MODELS_END, start);
-  if (end >= 0) {
-    if (block) return existing.slice(0, start) + block + existing.slice(end + MODELS_END.length);
-    const before = existing.slice(0, start).trimEnd();
-    const after = existing.slice(end + MODELS_END.length).replace(/^\n+/, '');
+  const section = MODELS_SECTION.exec(existing);
+  if (section) {
+    const end = section.index + section[0].length;
+    if (block) return existing.slice(0, section.index) + block + existing.slice(end);
+    const before = existing.slice(0, section.index).trimEnd();
+    const after = existing.slice(end).replace(/^(?:\r?\n)+/, '');
     return before && after ? `${before}\n\n${after}` : before ? `${before}\n` : after;
   }
   if (!block) return existing;
@@ -780,7 +790,7 @@ export function writeGrokModels(home: string, endpoints: readonly RunEndpoint[],
   const file = existsSync(path) ? realpathSync(path) : path;
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
   // A stray table of Harness Relay's (Grok wrote its config again) is taken out even when no block is added.
-  if (!add && !existing.includes(MODELS_BEGIN) && withoutStrayGrokModels(existing) === existing) return;
+  if (!add && !MODELS_SECTION.test(existing) && withoutStrayGrokModels(existing) === existing) return;
   const next = withGrokModels(existing, grokModelsBlock(endpoints));
   if (next === existing) return;
   mkdirSync(home, { recursive: true });

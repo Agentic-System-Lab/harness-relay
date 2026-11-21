@@ -892,7 +892,7 @@ describe('Pi: events from recorded runs', () => {
     expect(piConnectionDetail('ECONNREFUSED')).toBe('ECONNREFUSED');
     return en(async () => {
       expect(piErrorText(errorOf('xai-bad-key'), backendRunOf('xai/grok-4.3'))).toMatch(
-        /^xAI rejected the API key \(xai API error \(400\).*Settings → Model backends/,
+        /^xAI rejected the API key \(xai API error \(400\).*Settings → Custom models/,
       );
       expect(piErrorText(errorOf('bad-model-flag'), backendRunOf('homelab/no-such-model'))).toMatch(
         /^Homelab has no model "no-such-model"/,

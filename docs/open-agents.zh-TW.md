@@ -18,7 +18,7 @@
 
 ## 模型來源
 
-**設定 → 模型來源** 存放 開源 agent 執行模型用的來源（`src/server/backends.ts` 的 `ModelBackendStore`，透過 `settings.backends` 取得）：
+**設定 → 自定義模型** 存放 開源 agent 執行模型用的來源（`src/server/backends.ts` 的 `ModelBackendStore`，透過 `settings.backends` 取得）：
 
 - **API 來源**：`openai`、`anthropic` 與 `xai`，各一把 API key。
 - **自訂端點**：你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 是你輸入的模型名稱，因為 Harness Relay 從不向任何模型 API 查詢。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。

@@ -544,7 +544,7 @@ function LeadCard({
       />
       {status && accountState(status, lead.account) !== 'ok' && (
         <p className="warn-line">
-          {/* Not installed: its card (the executable path). An open agent without a backend: Model backends. Else: sign in. */}
+          {/* Not installed: its card (the executable path). An open agent without a backend: Custom models. Else: sign in. */}
           {!status.installed ? (
             <>
               {t.settings.leadNotInstalled(PROVIDER_LABEL[lead.provider])}{' '}

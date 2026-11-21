@@ -429,7 +429,7 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
   it('fails a run on a model of an endpoint deleted in Settings, instead of sending it to the CLI’s own service', () => {
     const gone = { ...backends, deletedEndpoints: ['lab2'] };
     expect(() => withLang('en', () => endpointRunModel(gone, ' lab2/x ', 'Claude Code'))).toThrow(
-      'Claude Code is to use the model "lab2/x", but its custom endpoint "lab2" was deleted under Settings → Model backends.',
+      'Claude Code is to use the model "lab2/x", but its custom endpoint "lab2" was deleted under Settings → Custom models.',
     );
     expect(() => endpointRunModel(gone, 'lab2/x', 'Codex')).toThrow(AgentRunError);
     // An endpoint set up runs there; any other model, one with a slash too, goes to the CLI as it is.
@@ -710,7 +710,7 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
           auth: { loggedIn: false, detail: expect.stringMatching(/not implemented yet/) },
         });
         opencodeAcp.implemented = true;
-        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Model backends)' });
+        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Custom models)' });
         await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
         await app.request('/api/backends/xai', json('PUT', { apiKey: 'xai-key-0000' }));
         // A change of backends is seen at once (the status cache is dropped).
@@ -788,7 +788,7 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
   });
 });
 
-describe('the endpoint form (Settings → Model backends)', () => {
+describe('the endpoint form (Settings → Custom models)', () => {
   it('makes an id from the name, reads the models typed, and checks the form as the server does', () => {
     expect(endpointSlug('Homelab vLLM')).toBe('homelab-vllm');
     expect(endpointSlug('  Ollama @ home!!  ')).toBe('ollama-home');

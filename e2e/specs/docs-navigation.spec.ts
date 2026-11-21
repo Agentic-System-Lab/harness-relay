@@ -141,6 +141,72 @@ test('a tablet keeps a single contents row below search, scrolls its list, and s
   await expect(list).toBeHidden();
 });
 
+test('only focus on a disappearing contents control moves when tablet styles take effect before the resize callback', async ({ page }) => {
+  await page.addInitScript(() => {
+    // Hold the site's breakpoint callbacks so Chromium can apply the real media styles and run a paint first.
+    const listen = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type, callback, options) {
+      if (!(this instanceof MediaQueryList) || !this.media.includes('1180px') || type !== 'change' || !callback) {
+        return listen.call(this, type, callback, options);
+      }
+      listen.call(
+        this,
+        type,
+        (event) => {
+          document.documentElement.dataset.pendingDocsLayout = 'true';
+          document.addEventListener(
+            'release-docs-layout',
+            () => {
+              if (typeof callback === 'function') callback.call(this, event);
+              else callback.handleEvent(event);
+            },
+            { once: true },
+          );
+        },
+        options,
+      );
+    };
+  });
+  const resize = async (width: number) => {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.locator('html')).toHaveAttribute('data-pending-docs-layout', 'true');
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      delete document.documentElement.dataset.pendingDocsLayout;
+      document.dispatchEvent(new Event('release-docs-layout'));
+    });
+  };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(SITE_URL + 'docs/tools/#mail');
+  const list = page.locator('.doc-toc > ol');
+  const toggle = page.locator('.doc-toc-toggle');
+  const chosen = list.locator('a[aria-current="true"]');
+  await chosen.focus();
+  await expect(chosen).toBeFocused();
+  await resize(768);
+  await expect(toggle).toBeFocused();
+  await expect(list).toBeHidden();
+  await resize(1440);
+  await expect(list.locator('summary, a').first()).toBeFocused();
+
+  const search = page.getByRole('searchbox');
+  await search.focus();
+  await resize(768);
+  await expect(search).toBeFocused();
+  await resize(1440);
+  const articleLink = page.locator('.doc-body a[href]').first();
+  await articleLink.focus();
+  await resize(768);
+  await expect(articleLink).toBeFocused();
+  await resize(1440);
+  const branch = list.locator(':scope > li > details > summary').first();
+  await branch.focus();
+  await expect(branch).toBeFocused();
+  await branch.evaluate((el) => el.blur());
+  await resize(768);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+});
+
 test('a non-tools guide reveals the active subsection after a fragment jump or ordinary scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 1024 });
   await page.goto(SITE_URL + 'docs/phone/#android');

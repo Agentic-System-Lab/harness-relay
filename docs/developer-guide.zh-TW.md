@@ -142,7 +142,7 @@ src/
     report.ts              用電子郵件回報問題：信件的主旨與內容、一起附上的資訊、截圖的連結、mailto 與 Gmail 連結（報告太長放不進連結時改用剪貼簿）
     sharePage.tsx          從畫面上的聊天室做出分享頁（複製、拿掉不要的、樣式、圖片轉成 data URL 並控制在 10 MB 內、附檔的佔位連結）；要分享的訊息裡的檔案連結
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
-    backends.ts            設定 → 模型來源：端點表單的純邏輯（從名稱產生 id、輸入的模型、表單的問題）
+    backends.ts            設定 → 自定義模型：端點表單的純邏輯（從名稱產生 id、輸入的模型、表單的問題）
     native.ts              NativeSetupPanel 的純邏輯：各 CLI 的分頁與數量、勾選個別項目、執行時不載入幾項、設定是否已變更
     usage.ts               UsagePanel 的純邏輯：額度的名稱、剩下多少、長條的顏色、何時重置、點數，以及帳號沒有額度的原因
     route.ts               前端放在網址 hash 的路由：#/（首頁）、#/new（新對話）、#/schedule、#/c/<id> 與 #/settings/<區塊>
@@ -170,7 +170,7 @@ src/
                            VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → App 與工具，含常用 App 與工具庫兩個分頁）、
                            CliInstall（設定頁 CLI 卡片上的安裝與移除）、
                            SandboxSetup（設定 → 沙箱）、SandboxSetupDialog（新對話的對話框）、
-                           BackendsSettings（設定 → 模型來源）、
+                           BackendsSettings（設定 → 自定義模型）、
                            SessionsSettings（設定 → Agent 的 session）、
                            SharesSettings（設定 → 分享的對話）、ShareDialog（複製或分享對話）、
                            SignIn（登入頁）、BrowsersSettings（已登入的瀏覽器）、HomeScreenGuide 與 PhonePairing（設定 → 連接手機）、
@@ -578,7 +578,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 3. 在 `src/server/agents/index.ts` **註冊**。
 4. **設定**：在 `src/server/settings.ts` 的 `DEFAULT_BIN` 加預設執行檔名稱，在 `AGENT_HOME_ENV` 加移動它家目錄的變數，在 `CREDENTIAL_ENV` 加它讀取登入的變數；若 CLI 從環境變數讀 API key，也加到 `API_KEY_ENV`。
 5. **狀態與登入**：`src/server/providers.ts` 的 `checkAuth()` 與 `LOGIN_METHODS`，以及 `logout()` 中的登出指令；CLI 能不送 prompt 回報帳號方案用了多少時，寫在 `askUsage()`（`src/server/usage.ts`；供應商按用量計費的金鑰變數在 `BILLED_KEY_ENV`），不能時設定頁怎麼說明（兩個語系檔的 `usage.notReported`）。
-6. **模型**：在 `src/server/models.ts` 加探索函式（或固定清單）。也能在使用者自己的端點（設定 → 模型來源）上執行的 CLI（像 Claude Code、Codex、Grok 與 Copilot），要加進 `EndpointCli` 與 `isEndpointCli()`，並在 `ENDPOINT_CLI`（`src/shared/types.ts`）寫上它呼叫的 API 與它的模型在那裡接受的推理強度；它的轉接器用 `endpointRunModel()`（`src/server/backends.ts`）取得成員的端點模型，模型所在的端點已刪除時，這一輪就會失敗。
+6. **模型**：在 `src/server/models.ts` 加探索函式（或固定清單）。也能在使用者自己的端點（設定 → 自定義模型）上執行的 CLI（像 Claude Code、Codex、Grok 與 Copilot），要加進 `EndpointCli` 與 `isEndpointCli()`，並在 `ENDPOINT_CLI`（`src/shared/types.ts`）寫上它呼叫的 API 與它的模型在那裡接受的推理強度；它的轉接器用 `endpointRunModel()`（`src/server/backends.ts`）取得成員的端點模型，模型所在的端點已刪除時，這一輪就會失敗。
 7. **自己載入的內容**：`src/server/native.ts` 的 `PROBES` 加一個 probe，`src/web/native.ts` 加它的分頁，兩個語系檔加上它為什麼不能不載入某一類（`native.offNotes`）。
 8. **介面**：`styles.css` 的顏色變數（`--<name>`）、`src/web/util.ts` 的 `PROVIDER_COLOR` 與 `newAgent()`、`SettingsPage.tsx` 中金鑰的變數與提示文字（`KEY_ENV`、`KEY_PLACEHOLDER`）、兩個語系檔中的 API key 說明文字（`settings.apiKeyHelp`）。
 9. **訊息**：`src/server/i18n.ts` 中登入方式的標籤（`login`），兩種語言都要加。
@@ -897,7 +897,7 @@ npx vitest test/store.test.ts
 - `test/refresh-web.test.ts`：回答的順序錯亂時，聊天介面顯示的 CLI 狀態與模型清單（`src/web/refresh.ts`）：每個 CLI 都以最後一次檢查的狀態為準，不論回答到達的順序（時間相同，或顯示中的沒有時間時採用新的；顯示中的有時間而新的沒有時，保留顯示中的）；模型清單則是比較晚到的舊回答被丟掉、較新的請求失敗時保留較舊的回答，以及強制載入進行中時的一般載入等它完成後才送出（期間的多個一般載入只送出一次，強制載入的回答無法顯示時也一樣會送出）。
 - `test/theme.test.ts`：淺色或深色主題（`src/web/theme.ts`）：讀取存下的選擇（其他值都算跟隨系統）、每種選擇與系統模式下顯示的主題、淺色或深色時設定 `<html data-theme>`，跟隨系統時移除，瀏覽器的頂列顏色（`theme-color`）也跟著改；記在瀏覽器裡，儲存區丟出錯誤時跟隨系統；在頁面裡（替換掉全域物件）：從存下的選擇開始，接著跟隨系統模式、其他分頁的選擇（只看它的 key）與使用者的選擇。也檢查 `styles.css` 裡兩份深色顏色（系統的深色模式與選了深色）相同、沒有其他地方只跟隨 `prefers-color-scheme`、頂列顏色等於頁面背景、`index.html` 在 app 的 module 之前、從同一個 key 設定主題且只設成淺色或深色（包在 `try` 裡），以及每個選擇在兩種語言都有名稱。
 - `test/updates.test.ts`：聊天介面裡的桌面 app 更新：不是桌面 app 啟動的伺服器只有版本；app 最後說的狀態加上這個版本；向 app 要求檢查，檢查完才回答（太久沒回應就給已知的狀態；不會向不更新的 app 要求）；同時要求的檢查在 app 依編號回答後都會得到回答，已經在路上的狀態不算，逾時的不再等待；app 欠聊天介面的回答在沒有檢查進行中時才給（`CheckAnswers`）；伺服器等待的時間比 app 等 GitHub 的長；只在有較新的版本且沒有更新進行中時才要求 app 更新（並說明是哪一種情況）。分辨 app 自己的視窗與其他瀏覽器（手機）；只在那裡為每個版本跳出一次對話框，更新進行中時不跳，只在沒有其他對話框或導覽開著、使用者沒在文字欄位打字、也沒有東西擋住對話框（錄音）時才跳出，跳出後在仍可更新時保留，沒按「稍後再說」就關掉的下次會再提示；檢查、下載或安裝進行中，以及按下「更新」後一段時間內較常詢問（等對話結束時不會）；頁面上的對話框只有最上層的處理按鍵，錄音時擋住會自己跳出的對話框（只釋放一次）；以及設定的「版本」卡片說什麼（先說進行中的更新，接著是檢查中、有新版本、檢查失敗、還沒檢查、已是最新並附上時間）。頁面對伺服器版本的監看：伺服器回答另一個版本時重新載入，定時詢問、視窗回到前景時也詢問，伺服器沒有回應不算改變，重新載入後就不再詢問。
-- `test/route.test.ts`：前端的 hash 路由（`#/` 的首頁，不認得的路由也是；`#/new` 的新對話，以及「新自動任務」頁面），包括設定頁的區塊（「助理總覽」在最前面，再來是「版本」，「通知」在「外觀」之後，接著是「沙箱」），以及正在看哪張設定卡片（在連結列標亮）；連結列一升到左上角按鈕的高度就讓出位置（`makeRoomForCorner()`），不必等到黏在頂端；標亮的連結看得到時連結列不動，看不到時只捲動剛好需要的距離，也不會捲過兩端；所有 agent 的卡片在連結列合成一個項目，也就是 agent 選單，放在第一個 agent 原本的位置（`SETTINGS_NAV`、`navEntryOf()`），每張 agent 卡片仍保有自己的網址，以及方向鍵、Home 與 End 在選單中怎麼移動（`menuMove()`）。模型來源排在外觀之後、所有 CLI 之前。
+- `test/route.test.ts`：前端的 hash 路由（`#/` 的首頁，不認得的路由也是；`#/new` 的新對話，以及「新自動任務」頁面），包括設定頁的區塊（「助理總覽」在最前面，再來是「版本」，「通知」在「外觀」之後，接著是「沙箱」），以及正在看哪張設定卡片（在連結列標亮）；連結列一升到左上角按鈕的高度就讓出位置（`makeRoomForCorner()`），不必等到黏在頂端；標亮的連結看得到時連結列不動，看不到時只捲動剛好需要的距離，也不會捲過兩端；所有 agent 的卡片在連結列合成一個項目，也就是 agent 選單，放在第一個 agent 原本的位置（`SETTINGS_NAV`、`navEntryOf()`），每張 agent 卡片仍保有自己的網址，以及方向鍵、Home 與 End 在選單中怎麼移動（`menuMove()`）。「自定義模型」排在外觀之後、所有 CLI 之前。
 - `test/grok-trust.test.ts`：記錄 Grok 對資料夾的信任：和 `grok --trust` 相同的紀錄、取代標為不信任的紀錄並保留其他內容、Windows 路徑的 TOML 跳脫、寫在暫存 `GROK_HOME` 的檔案（只有擁有者能讀）、還原成原本的內容，從 `grok inspect` 讀出信任狀態與決定信任的資料夾（去掉結尾斜線的專案根目錄，是否在資料夾上層，否則就是資料夾本身），以及等待確認的團隊設計什麼情況會顯示它（有 Grok 成員與資料夾）。
 - `test/util.test.ts`：把成員或首席 agent 切到另一個 CLI 再切回來，會還原每個 CLI 選過的模型、推理強度與帳號；模型選單的「預設」寫出成員接著用哪個模型執行（沒有預設的開源 agent 需要選一個）。agent 的帳號：CLI 還有它時就是它指定的帳號，否則是預設帳號；能不能執行（已登入、無法判斷，或有金鑰）；新成員拿到的帳號（預設帳號可用時用它，否則用第一個可用的）；它在介面上的名稱。逾時訊號會在時間到時中止，和 `AbortSignal.timeout()` 一樣，清除後就不會中止。
 - `test/open-state.test.ts`：每個開源 agent 自己的狀態：兩個對話的執行，彼此都不能讀寫對方的狀態資料夾（Harness Relay 沙箱的規格與它的檔案規則）、key 的資料夾從一輪留到下一輪並在 `freshState` 時清空、沒有 key 的執行用執行後就刪除的資料夾、完全存取以外拒絕在成員資料夾之外的狀態路徑、key 作為資料夾名稱（不尋常的用雜湊）、每個開源 agent 的 private 資料夾不能讀取；五個轉接器各自的配置（一次執行寫入的一切都在狀態資料夾，CLI 也指向那裡）；執行的環境中只有它自己模型來源的金鑰，沒有其他模型供應商繼承來的金鑰，不屬於模型來源的仍會傳入（`allBackendKeys` 時全部）；不論執行對狀態資料夾做了什麼（以 `chmod 000` 鎖住的資料夾、唯讀的檔案）都能清空，且不跟隨連結到資料夾外；刪除的對話的狀態從每個開源 agent 的家目錄移除，啟動時清掉停下的伺服器的執行留下的東西（包括移到一旁的資料夾）；驗證會保留成員對開源 agent 記憶的例外；MCP 工具的核准卡片（它的輸入，唯讀仍是界線）。也測試家目錄先前所在資料夾裡的 private 資料夾，執行讀不到（從它的環境變數得知），那裡也不會建立任何資料夾；以及停下的執行留下的東西可能還在執行時，啟動時的清理不恢復權限。首席 agent 審閱的狀態（`review.<對話>`）也會跟著對話刪除。

@@ -24,7 +24,7 @@ npm start
 
 ### 安裝 agent 的 CLI
 
-不需要全部都裝，任何組合都能用。把想用的裝好、放上 `PATH`，再到「**設定與登入**」分別登入（[2. 分別登入各個 agent](#2-分別登入各個-agent設定與登入)）；開源 agent 沒有登入流程，改在那裡設定[模型來源](#開源-agent-與模型來源)。
+不需要全部都裝，任何組合都能用。把想用的裝好、放上 `PATH`，再到「**設定與登入**」分別登入（[2. 分別登入各個 agent](#2-分別登入各個-agent設定與登入)）；開源 agent 沒有登入流程，改在那裡設定[自定義模型](#開源-agent-與自定義模型)。
 
 要登入的七個：
 
@@ -170,7 +170,7 @@ Harness Relay 更新時開著的聊天頁面，會在一分鐘內（或你回到
 
 點側邊欄的 **⚙ 設定與登入**。**可用的 AI 助理**會列出已可用的助理。若有多個帳號，也會顯示可用帳號的名稱。展開**連接另一個助理**，就能看到哪些需要安裝、登入或設定模型來源。點名稱可前往對應的設定。還沒有可用的助理時，頁面會自動展開**連接助理**。
 
-**模型來源**排在各個 CLI 的卡片之前：五個開源 agent 用它執行，Claude Code、Codex、Grok 與 Copilot 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。每個 CLI 有一張卡片，顯示版本（找不到它時則顯示[安裝它](#從設定頁安裝-cli)的按鈕），並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
+**自定義模型**排在各個 CLI 的卡片之前：五個開源 agent 用它執行，Claude Code、Codex、Grok 與 Copilot 也能用它的自訂端點執行（見[開源 agent 與自定義模型](#開源-agent-與自定義模型)）。每個 CLI 有一張卡片，顯示版本（找不到它時則顯示[安裝它](#從設定頁安裝-cli)的按鈕），並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
 
 ### 登入
 
@@ -215,9 +215,11 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 
 Claude Code、Grok、Cursor、Antigravity 與 Muse Code 的金鑰，以及 Copilot 的 token，由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在資料庫，並以 Harness Relay 為此產生、存在 `data/secrets.key`（[桌面 app](#桌面-app) 則在它自己的資料夾）的金鑰加密，這個檔案只有你的帳號能讀取（設定 `RELAY_SECRETS_KEY_FILE` 可以把這把金鑰放在別處，例如 systemd credential；可用 `openssl rand -base64 32` 產生）。只拿到資料庫、沒有這個檔案，就得不到任何金鑰；這個檔案遺失的話，金鑰得重新設定。若完全不想存在磁碟上，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY` / `GEMINI_API_KEY` / `COPILOT_GITHUB_TOKEN` / `META_API_KEY`。如果你在 macOS 上使用開源 agent，請不要這樣做：在那裡，它們執行的指令讀得到上層每個程序啟動時的環境變數，包括 Harness Relay 的伺服器與啟動它的 shell（見[檔案權限](#對話規則)）。舊版以原文存在資料庫裡的金鑰，會在伺服器下次啟動時搬進金鑰儲存區，或改為加密。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
 
-### 開源 agent 與模型來源
+<a id="開源-agent-與模型來源"></a>
 
-OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型來源** 設定的模型來源執行，從不使用它們自己的登入。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）：請給它們 API key 或你自己的端點。Claude Code 與 Grok 本身的模型照常使用它們的登入。
+### 開源 agent 與自定義模型
+
+OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 自定義模型** 設定的模型來源執行，從不使用它們自己的登入。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）：請給它們 API key 或你自己的端點。Claude Code 與 Grok 本身的模型照常使用它們的登入。
 
 **Claude Code、Codex、Grok 與 Copilot 在你自己的端點上執行。** 它們的模型選單會在自己的模型後面列出每個自訂端點的模型，例如 `homelab/gemma4:e4b`：給成員選其中一個（或在「設定」裡那個 CLI 卡片上、某個帳號區塊的[預設模型與推理強度](#預設模型與推理強度)選一個當作那個帳號的預設，它沒有指定模型的成員就用它；選單會把它們列在「**你自己的端點**」底下），那個 CLI 就在你的伺服器上執行，帶著端點的金鑰（有的話），絕不帶你的 Claude、ChatGPT、Grok 或 GitHub 登入或它們的 API key。伺服器也要提供那個 CLI 用的 API：Claude Code 用 Anthropic Messages API（`/v1/messages`），Codex 用 Responses API（`/v1/responses`），Grok 與 Copilot 用 Chat Completions（`/v1/chat/completions`）；vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供。這時 Claude Code、Codex 與 Copilot 不需要登入；Grok 啟動時仍需要它自己的登入。這些模型只提供這類伺服器都接受的推理強度：Claude Code 是 low 到 high，Codex 是 none 到 high（原本會用的其他值，例如你的 Codex 設定裡的 `xhigh`，改成 medium），Grok 不送，Copilot 是 low 到 high（以 `reasoning_effort` 送出）。Copilot 是用它自己那組「你自己的模型供應商」變數（`COPILOT_PROVIDER_BASE_URL` 等）指向伺服器；以這類伺服器的替身與 Ollama 確認過。Grok 的部分，Harness Relay 會在 Grok 成員第一次用到端點的模型時，把端點的模型加進 Grok 自己的 `config.toml`，放在一段有標記的區塊裡，不出現在 Grok 自己的模型選單（Grok 重寫自己的設定時會丟掉區塊的標記、卻留下這些模型，Harness Relay 寫入區塊前會先把這些殘留拿掉，所以 Grok 不會讀到重複定義的模型）。成員的模型在 CLI 自己的模型與端點的模型之間切換，或換到另一個端點時，會帶著完整的對話開始新的 session。Cursor、Antigravity 與 Muse Code 的模型只透過它們自己的服務執行，所以都不能在端點上執行。（Antigravity 自己的自訂模型只能是 Google 託管的，在 Gemini API 或 Vertex AI 上；它唯一能改的位址 `GOOGLE_GEMINI_BASE_URL` 必須提供 Gemini API（`/v1beta/models/<模型>:streamGenerateContent`），這些伺服器都沒有提供，而且它送過去的只會是它自己清單裡的模型名稱。以 agy 1.5.6 確認。Muse Code 用的是 Responses API，位址也能改，但它每次啟動都會先向那個位址要 Meta API 自己的模型目錄（`/muse-code/models`），而 OpenAI 相容伺服器不提供（Ollama 回 404），這一輪就不會執行；要提供那份清單得在中間架一個代理，而 Harness Relay 從不自己和模型 API 溝通。它的其他模型供應商不在公開版本裡，它的 `local` 只執行 Meta 自己的裝置端模型。以 muse 1.4.18 確認。）
 
@@ -587,7 +589,7 @@ agent 一開始就會知道這些規則。在可以修改檔案的對話裡，�
 - **Claude Code / Codex / Grok / Cursor / Antigravity / Copilot / Muse Code / OpenCode / Goose / Cline / OpenHands / Pi**：由哪個 CLI 執行這個 agent。同一個 CLI 可以有多個 agent（例如兩個不同角色的 Claude）。CLI 尚未就緒的卡片會說明原因（未登入、沒有模型來源、找不到 CLI），並附上前往它設定卡片的連結。
 - **帳號**：由這個 CLI 的哪個帳號執行這個 agent，CLI 有[多個帳號](#多個帳號)時才會出現。例如三位 Codex 成員可以各用一個帳號。
 - **定位 / 角色**：自由描述這個 agent 的定位與職責。這是最重要的欄位：告訴它負責什麼、*不*該做什麼、要交棒給誰。
-- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與模型來源](#開源-agent-與模型來源)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。Claude Code、Codex、Grok 與 Copilot 也會列出你的自訂端點的模型，讓它們在你自己的伺服器上執行。
+- **模型**：CLI 回報的可用模型，或選 **自訂…** 自行輸入模型 ID。「預設」會使用設定頁的預設值，沒有的話用 CLI 自己的預設。開源 agent 的模型寫成「模型來源/模型」（見[開源 agent 與自定義模型](#開源-agent-與自定義模型)）：從你設定好的模型來源中挑一個，或在設定頁指定它的預設模型。Claude Code、Codex、Grok 與 Copilot 也會列出你的自訂端點的模型，讓它們在你自己的伺服器上執行。
 - **推理強度**：只列出所選模型支援的等級（例如 low / medium / high / xhigh）。換成不支援目前等級的模型時，會自動改回預設。
 - **↑ ↓**：調整順序。在圓桌模式中就是發言順序；在接力模式中第一位是**隊長**。
 - **工具**：這位成員從[工具庫](#工具庫mcp-伺服器skill-與記憶)拿到的項目會以標籤列出，按 **調整** 打開清單勾選。預設勾選狀態依成員的 CLI 而定（預設不給這個 CLI 的項目會註明），其他 CLI 的記憶分頁不會列出。伺服器或 skill 改名後選擇仍保留。這些是加在成員的 CLI 自己會載入的內容之外；卡片在工具庫沒有給這個 CLI 的項目時，以及按 **調整** 打開清單後在清單上方，會說明是什麼：有登入的 CLI 也會載入它自己的設定（它的 skill 和 MCP 伺服器，來自它自己的資料夾，這個資料夾會隨 **設定 → Agent 的 session** 或帳號移動；有些 CLI，例如 Cursor、Grok 與 Codex，也會讀你家目錄的部分內容；「設定 → 該 CLI」列出成員所用帳號會載入的 skill、MCP 伺服器與 hook，不含在那裡設成不載入的）；開源 agent 用的是 Harness Relay 自己的設定資料夾，而不是你家目錄裡它自己的那個，所以你在那裡的設定不會被讀取（「設定 → 該 CLI」列出它還會自己載入的，例如專案的 `AGENTS.md`）。設定頁查詢的是預設工作目錄：在其他資料夾的對話，也可能載入那個專案自己的設定。工具庫沒有給這位成員的 CLI 的項目時（工具庫是空的，或只有給其他 CLI 的記憶），卡片會說明，並附上前往工具庫的連結。
@@ -875,9 +877,9 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | --- | --- |
 | agent 顯示「未登入」 | 到設定與登入頁登入，或設定 API key，然後按 **重新檢查狀態**。 |
 | CLI 卡片上的 **安裝** 失敗 | 打開卡片上的「安裝程式的輸出」：那裡是 npm、uv 或官方安裝腳本印出的內容（例如網路擋住了套件庫或官網，或磁碟滿了）。按 **再試一次**，或照它官網的說明自己安裝，再設定它的 **執行檔**。 |
-| 開源 agent 顯示「尚未就緒」或「尚未設定模型來源」 | 在 **設定 → 模型來源** 設定 API key 或端點，並確認它的 CLI 已安裝。 |
+| 開源 agent 顯示「尚未就緒」或「尚未設定自定義模型」 | 在 **設定 → 自定義模型** 設定 API key 或端點，並確認它的 CLI 已安裝。 |
 | 「…沒有指定模型」 | 在團隊設定裡給這位成員一個「模型來源/模型」，或在設定頁該 agent 的卡片設定預設模型。 |
-| 「…還沒有設定 OpenAI / Anthropic / xAI 的 API key」、「沒有 id 為…的自訂端點」或「它的自訂端點…已在『設定 → 模型來源』刪除」 | 在 **設定 → 模型來源** 加上那把金鑰或那個端點，或改選你已有的模型來源的模型。如果那個模型是 CLI 自己的、只是開頭和已刪除的端點一樣，在 **已刪除的端點** 為那個端點按 **忘掉**。 |
+| 「…還沒有設定 OpenAI / Anthropic / xAI 的 API key」、「沒有 id 為…的自訂端點」或「它的自訂端點…已在『設定 → 自定義模型』刪除」 | 在 **設定 → 自定義模型** 加上那把金鑰或那個端點，或改選你已有的模型來源的模型。如果那個模型是 CLI 自己的、只是開頭和已刪除的端點一樣，在 **已刪除的端點** 為那個端點按 **忘掉**。 |
 | 「模型來源…在這台電腦上，卻沒有寫連接埠」 | 在端點的網址加上伺服器的埠號（例如 `http://localhost:11434/v1`）。 |
 | 「Harness Relay 自己的沙箱無法啟動」或「需要…」 | 在 Linux 上安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上再加上[各平台的作業系統沙箱](sandboxing.zh-TW.md#在-linux-上)裡的 AppArmor 設定檔。在 macOS 上，請從一般的終端機啟動 Harness Relay，而不是從另一個沙箱裡。或改用完全存取。 |
 | 開源 agent 在 Windows 上無法執行 | 它的沙箱在原生 Windows 上無法使用：請在 WSL2 中執行 Harness Relay，或改用完全存取。 |
