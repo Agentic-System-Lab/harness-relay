@@ -521,6 +521,58 @@ async function runCodeChecks(want: (n: string) => boolean) {
     check(`run-code (${permission}): none of the server's environment`, o.apiKey === 'OK absent', note);
   }
   rmSync(token, { force: true });
+
+  // RLM mode (`RELAY_RLM`): `state` kept across a turn's runs and `llm_query` answered, both over the
+  // runner's stdio (the sub-model is the server's to ask, never the sandbox's), the network still shut.
+  const asked: string[] = [];
+  const rlm = rc.runCodeTool({
+    ...deps,
+    rlm: {
+      model: 'check/stand-in',
+      ask: async (req) => (
+        asked.push(req.prompt),
+        { text: `ANSWER:${req.prompt.length}`, inputTokens: 1, outputTokens: 1, truncated: false }
+      ),
+    },
+  });
+  const turn = {
+    convId: 'c',
+    agentId: 'a',
+    agentName: 'A',
+    messageId: 'm',
+    cwd: cwdRo,
+    permission: 'read-only' as const,
+    unattended: false,
+    signal: new AbortController().signal,
+  };
+  const first = await rlm.run!({ code: `state.doc = 'q'.repeat(3000); return 'loaded';`, timeout_sec: 120 }, turn, scope);
+  const second = await rlm.run!(
+    {
+      code: `const answers = await Promise.all(state.doc.match(/.{1,1000}/g).map((p) => llm_query(p)));
+let fetched = 'no';
+try { await fetch('https://example.com'); fetched = 'yes'; } catch {}
+return { answers, fetched };`,
+      timeout_sec: 120,
+    },
+    turn,
+    scope,
+  );
+  const v = /<value>\n([\s\S]*)\n<\/value>/.exec(second.text)?.[1];
+  let got: { answers?: string[]; fetched?: string } = {};
+  try {
+    got = JSON.parse(v ?? '{}');
+  } catch {
+    /* reported below */
+  }
+  check(
+    "run-code (RLM): state kept across a turn's runs, and llm_query answered over its stdio, with no network",
+    !first.isError &&
+      !second.isError &&
+      asked.length === 3 &&
+      got.answers?.join(',') === 'ANSWER:1000,ANSWER:1000,ANSWER:1000' &&
+      got.fetched === 'no',
+    v ?? second.text.slice(0, 400),
+  );
 }
 
 /** Each HTTP client kind reaches the allowed host through the proxy. */

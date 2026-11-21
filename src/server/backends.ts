@@ -24,7 +24,8 @@ import { maskSecret, type SecretStore } from './secrets';
  * `harness-relay`), with the same fallback and migration as the CLIs' API keys (settings.ts): without
  * a credential store they are kept encrypted in the database under the same names (secrets.ts); one
  * found in `model_backends.api_key` is moved out of it. Settings can list a custom endpoint's models;
- * the CLIs make all inference requests.
+ * the CLIs make every inference request but RLM mode's sub-model questions (`RELAY_RLM`), which the
+ * server asks itself on one of these connections (`llmQuery.ts`).
  */
 
 /** The variable each CLI reads an API backend's key from. */
