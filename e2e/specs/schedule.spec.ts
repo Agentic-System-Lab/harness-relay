@@ -271,11 +271,11 @@ test.describe('schedules', () => {
     const attach = page.getByRole('button', { name: en.composer.attach });
     const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     await task.press('Tab');
-    await expect(attach).toBeFocused();
-    await attach.press('Tab');
     const apps = page.locator('.first-input-tools').getByRole('button', { name: new RegExp(en.apps.title) });
     await expect(apps).toBeFocused();
     await apps.press('Tab');
+    await expect(attach).toBeFocused();
+    await attach.press('Tab');
     await expect(mic).toBeFocused();
     await mic.press('Tab');
     await expect(goal).toBeFocused();

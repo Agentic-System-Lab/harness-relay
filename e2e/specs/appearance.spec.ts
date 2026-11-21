@@ -117,6 +117,10 @@ test.describe('the guided tour', () => {
     await page.evaluate(() => localStorage.setItem('relay:onboarded', '35'));
     await page.reload();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Start a new chat');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Automations');
     await update.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(update).toHaveCount(0);
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();

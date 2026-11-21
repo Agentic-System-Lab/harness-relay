@@ -163,8 +163,23 @@ for (const name of ['New chat', 'New automation']) {
       const micBox = (await mic.boundingBox())!;
       const appsBox = (await apps.boundingBox())!;
       await expect(apps).toBeInViewport();
-      expect(appsBox.x).toBeGreaterThanOrEqual(attachBox!.x + attachBox!.width);
-      expect(appsBox.x + appsBox.width).toBeLessThanOrEqual(micBox.x);
+      expect(appsBox.x + appsBox.width).toBeLessThanOrEqual(attachBox!.x);
+      expect(attachBox!.x + attachBox!.width).toBeLessThanOrEqual(micBox.x);
+      // Three bare icons of one size, Common apps named by its tooltip.
+      await expect(apps).toHaveText('');
+      await expect(apps).toHaveAttribute('title', en.apps.title);
+      for (const button of [apps, attach, mic]) await expect(button).toHaveCSS('border-top-style', 'none');
+      for (const box of [attachBox!, micBox]) {
+        expect(box.width).toBeCloseTo(appsBox.width, 0);
+        expect(box.height).toBeCloseTo(appsBox.height, 0);
+      }
+      // Each icon in the middle of its button, across and down.
+      for (const button of [apps, attach, mic]) {
+        const outer = (await button.boundingBox())!;
+        const icon = (await button.locator('svg').first().boundingBox())!;
+        expect(icon.x + icon.width / 2).toBeCloseTo(outer.x + outer.width / 2, 1);
+        expect(icon.y + icon.height / 2).toBeCloseTo(outer.y + outer.height / 2, 1);
+      }
       const picker = page.waitForEvent('filechooser');
       await attach.click();
       const files = ['weekly-report.txt', 'release-notes.txt', 'meeting-agenda.txt', 'review-checklist.txt'];

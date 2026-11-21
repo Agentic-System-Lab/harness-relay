@@ -69,7 +69,7 @@ test.describe('the home page', () => {
     const viewport = page.viewportSize()!;
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(apps).toBeInViewport();
-    await page.locator('.first-input-tools .attach-button').press('Tab');
+    await question.press('Tab');
     await expect(apps).toBeFocused();
     const grants = async () => (await relay.api<{ relayTools: unknown }>('/api/tools')).relayTools;
     const previousGrants = await grants();
@@ -197,6 +197,11 @@ test.describe('the home page', () => {
       await expect(hint.locator('svg')).toHaveCSS('animation-name', 'creation-scroll-down');
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await expect(hint.locator('svg')).toHaveCSS('animation-name', 'none');
+      // At rest, the arrow in the middle of its circle, across and down.
+      const circle = (await hint.boundingBox())!;
+      const arrow = (await hint.locator('svg').boundingBox())!;
+      expect(arrow.x + arrow.width / 2).toBeCloseTo(circle.x + circle.width / 2, 1);
+      expect(arrow.y + arrow.height / 2).toBeCloseTo(circle.y + circle.height / 2, 1);
       await expectCenteredButtons();
       const pinned = await footer.boundingBox();
       const frame = (await card.boundingBox())!;

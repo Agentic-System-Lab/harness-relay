@@ -115,8 +115,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 新對話與新自動任務的固定操作區（兩個案例） | 長說明在文字框內捲動。內容少時外框隨內容縮短，送出按鈕固定在框內底部。有無捲動箭頭時，按鈕列的上下留白都相等。組隊選項與首席審閱隨表單捲動，點箭頭會往下捲。最後一個欄位完全可見時箭頭隱藏，包含下方只剩留白的情況，偏好減少動態效果時箭頭靜止。 |
-| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。在手機版可從迴紋針用 Tab 移到常用 App，按 Enter 展開選擇器。勾選與取消勾選會更新隨提問送出的 App 名單，從管理連線返回後，問題、附件與 App 選項仍在，也尚未建立對話或變更任何助理權限。前往首席 agent 設定也會保留標題、資料夾、權限與組隊確認方式。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
+| 新對話與新自動任務的固定操作區（兩個案例） | 長說明在文字框內捲動。內容少時外框隨內容縮短，送出按鈕固定在框內底部。有無捲動箭頭時，按鈕列的上下留白都相等。組隊選項與首席審閱隨表單捲動，點箭頭會往下捲。最後一個欄位完全可見時箭頭隱藏，包含下方只剩留白的情況，偏好減少動態效果時箭頭靜止，並在圓框內水平垂直置中。 |
+| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。在手機版可從問題欄位用 Tab 移到下方第一個按鈕「常用 App」，按 Enter 展開選擇器。勾選與取消勾選會更新隨提問送出的 App 名單，從管理連線返回後，問題、附件與 App 選項仍在，也尚未建立對話或變更任何助理權限。前往首席 agent 設定也會保留標題、資料夾、權限與組隊確認方式。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
 | 新對話與新自動任務的建立請求較慢時（各測一次） | 從設定返回後，失敗訊息、草稿與表單上的審閱選擇都保留。重試成功時仍停留在設定，在手機寬度也能從該頁直接開啟剛建立的對話或自動任務、取得一次性 webhook 權杖。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
@@ -500,7 +500,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工作目錄中出現檔案時啟動的自動任務：第一次檢查記下已經在的檔案，新的檔案以路徑送到團隊，從不送出內容 | Codex | **要等的事** → **工作目錄中的檔案出現或變動**（When something happens → A file appears or changes in the working directory），樣式 `reports/*.csv`；說明寫著只列出檔名、不列內容，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory**。**立即檢查** 記下 `reports/jan.csv`，什麼都不送；新的 `reports/feb.csv`（以及樣式不包含的 `notes.txt`），都在一分鐘前就寫完了，讓下一次 **立即檢查** 送出訊息一次，它的 **The files that appeared or changed** 區塊把 `reports/feb.csv` 列為新檔案，沒有 `jan.csv`、`notes.txt`，也沒有檔案裡的內容；agent 收到的是 `<event source="file">` |
 | 等兩件事的自動任務，任何一件發生都會啟動：每件各自檢查、各一行顯示，各送自己的訊息 | Codex | **當某件事發生時**選**工作目錄中的檔案出現或變動**（A file appears or changes in the working directory），樣式 `reports/*.csv`：只有一件時沒有**移除**（Remove）；**再等一件事**（Add another）加上**要等的第 2 件事**（Thing 2 to wait for），同樣是檔案樣式，樣式還是空的。在那裡填 `./reports/*.csv` 時表單說 **Two of the things to wait for are the same**，**儲存**變灰；改填 `invoices/*.pdf` 就能儲存，說明寫著每件各自檢查，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory, or when a file matching invoices/\*.pdf appears or changes in the working directory**。再打開時抽屜列出兩件，各在自己的群組裡、各有**移除**；**立即檢查**記下已經在的檔案，什麼都不送，狀態裡每件的檢查情況各一行。新的 `reports/feb.csv` 讓下一次**立即檢查**送出訊息一次，它的區塊寫著 `reports/*.csv` 並列出 `reports/feb.csv`；Codex 回覆之後，新的 `invoices/inv-7.pdf` 讓再下一次送出另一則訊息，只列出這張發票（沒有 `feb.csv`，也沒有舊的發票）；Codex 收到的是 `<event source="file">`。關掉之後（取消勾選**啟用**（On）並儲存），狀態寫著兩件事與 **paused**，沒有每件一行；**移除要等的第 1 件事**（Remove thing 1 to wait for）之後只剩 `invoices/*.pdf`，不在群組裡，也沒有**移除**，儲存後狀態只寫著它，仍然是 **paused**。 |
 | GitHub 上開了 pull request 時啟動的自動任務：透過 gh 檢查，第一次檢查記下已經在的，新開的以資料送到團隊 | Codex | **要等的事** → **GitHub 上有新的 pull request 或 CI 失敗**（A pull request or a failed CI run on GitHub）；填 `not a repo` 時表單說 **Give the GitHub repository as owner/name**（和伺服器一樣），`https://github.com/octo/app` 當作 `octo/app`；說明提到你自己的 GitHub CLI，側邊欄的時鐘寫著 **when a pull request is opened in octo/app**。**立即檢查** 執行假的 `gh`（`pr list --repo octo/app --state all …`），記下 #41，什麼都不送；標題含有 `</event>` 的 #42 讓下一次 **立即檢查** 送出訊息一次，它的 **What is new on GitHub** 區塊列出 #42 與它的分支，沒有 #41；Codex 收到的是 `<event source="github">`，標題的 `<` 寫成 `\u003c`。 |
-| 每週自動任務草稿 | Claude Code | 以合成音訊錄音並將轉寫結果插入任務欄位。只加附件時不能建立。用鍵盤開啟附件旁的常用 App，可複選多項。管理連線後返回，訊息、App 選項、附件、目標與每週排程仍保留。確認建立才會把選取的 App 名稱寫入任務。經過首席設定仍保留標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
+| 每週自動任務草稿 | Claude Code | 以合成音訊錄音並將轉寫結果插入任務欄位。只加附件時不能建立。用 Tab 依序經過常用 App、附件與麥克風，再用鍵盤開啟常用 App，可複選多項。管理連線後返回，訊息、App 選項、附件、目標與每週排程仍保留。確認建立才會把選取的 App 名稱寫入任務。經過首席設定仍保留標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
 | 事件草稿 | Claude Code | 從連接帳號設定返回，保留事件草稿，改選檔案事件並儲存。 |
 | 建立 webhook | Claude Code | 從「Webhook 與執行設定」建立 webhook；權杖只顯示一次，外部程式可用它啟動任務。 |
 
@@ -641,7 +641,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。 另外檢查常用 App 入口位於附件與麥克風按鈕之間。 |
+| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。另外檢查常用 App 排在最前面，後面依序是附件與麥克風按鈕：三個同樣大小、沒有外框的圖示，圖示在按鈕內水平垂直置中，常用 App 以提示文字標示名稱。 |
 | 離開新對話後才取得麥克風權限 | 開啟首席設定後才允許使用合成麥克風，音軌會立即關閉。 |
 | 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色；安裝狀態旁有 app 的載入標示，新對話、新自動任務和聊天輸入列的麥克風右上角都有 12px 的安裝標示。 |
 | 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |
