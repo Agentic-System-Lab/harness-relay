@@ -124,8 +124,9 @@ describe('the Teams Graph PowerShell connection', () => {
     expect(await state).toEqual({ status: 'signed-out' });
   });
 
-  // Allow the PowerShell process its full 15 seconds, plus time for shutdown and fixture cleanup.
-  it.skipIf(!pwsh)('rejects changed package bytes before extracting or importing them', { timeout: slow(20_000) }, async () => {
+  // A real pwsh: this ran in under a second on GitHub's Ubuntu runners, and takes 3 to over 5 s on their
+  // image of 2026-11-16, past Vitest's own 5 s. The test waits longer than the process may run.
+  it.skipIf(!pwsh)('rejects changed package bytes before extracting or importing them', { timeout: slow(30_000) }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'relay-graph-digest-'));
     try {
       const stage = join(dir, 'modules');
@@ -147,7 +148,7 @@ describe('the Teams Graph PowerShell connection', () => {
           RELAY_TEAMS_USER_MODULES: stage,
           FIXTURE_PACKAGE: file,
         },
-        timeoutMs: 15_000,
+        timeoutMs: slow(15_000),
       });
       expect(result.code).toBe(22);
       expect(await readdir(stage)).toEqual([]);
