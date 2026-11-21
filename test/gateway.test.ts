@@ -8,8 +8,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalAnswer, OutboxItem } from '../src/shared/types';
 import { removeTree } from '../src/server/fsRemove';
 import {
+  GatewaySocketPathError,
   ToolGateway,
   gatewayDecision,
+  gatewaySocketTooLong,
   gatewayToolNamed,
   outboxTool,
   reservedMcpName,
@@ -322,6 +324,27 @@ describe('the gateway and the MCP server the CLIs start', () => {
     },
     slow(20_000),
   );
+
+  it('refuses a data folder too long for its socket, before it makes anything, rather than listen on a cut path', async () => {
+    // `/gateway/relay.sock` takes 19 bytes: a data folder of 84 fits on macOS (103 in all), of 88 on Linux (107).
+    const folder = (bytes: number) => '/' + 'd'.repeat(bytes - 1);
+    expect(gatewaySocketTooLong(folder(84), 'darwin')).toBeUndefined();
+    expect(gatewaySocketTooLong(folder(85), 'darwin')).toMatch(/104 bytes, longer than the 103 .*RELAY_DATA_DIR .*at most 84 bytes/);
+    expect(gatewaySocketTooLong(folder(85), 'freebsd')).toMatch(/at most 84 bytes/);
+    expect(gatewaySocketTooLong(folder(88), 'linux')).toBeUndefined();
+    expect(gatewaySocketTooLong(folder(89), 'linux')).toMatch(/at most 88 bytes/);
+    // Bytes, not characters: 28 Chinese characters take 84.
+    expect(gatewaySocketTooLong('/' + '資'.repeat(28), 'darwin')).toMatch(/at most 84 bytes/);
+    // A named pipe on Windows: any data folder.
+    expect(gatewaySocketTooLong(folder(500), 'win32')).toBeUndefined();
+
+    const dataDir = join(root, 'd'.repeat(Math.max(1, 120 - root.length)));
+    const long = new ToolGateway(dataDir, join(dataDir, 'tmp'), () => process.execPath, 'darwin');
+    await expect(long.start()).rejects.toThrow(GatewaySocketPathError);
+    expect(long.listening()).toBe(false);
+    expect(long.unavailable()).toBe('not-started');
+    expect(existsSync(dataDir)).toBe(false);
+  });
 
   it(
     "serves each token to one connection where data/tmp cannot be protected (Windows): its file goes once the CLI's shim has shown it",

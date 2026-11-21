@@ -193,6 +193,36 @@ export interface GrantOptions {
 /** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
 export type GatewayUnavailable = 'not-started' | 'no-node' | 'no-node-path';
 
+/**
+ * The longest a Unix socket's path may be, in bytes (UTF-8), its closing NUL left out: 107 on Linux,
+ * 103 on macOS and the BSDs. Node on macOS cuts a longer one instead of failing, so the socket would
+ * land under another name (`relay.so`) or in another folder, outside the private one, and the next
+ * start, which removes it by its full name, would find the cut one in its way (EADDRINUSE).
+ */
+const SOCKET_PATH_MAX: Partial<Record<NodeJS.Platform, number>> = { linux: 107 };
+const SOCKET_PATH_MAX_ELSE = 103;
+
+/** The socket's path, under the data folder. */
+const SOCKET_IN_DATA = ['gateway', 'relay.sock'];
+
+/** The gateway cannot listen: its socket's path does not fit (`gatewaySocketTooLong`), a setting to change, not a fault. */
+export class GatewaySocketPathError extends Error {}
+
+/**
+ * Why the gateway's socket cannot be in this data folder (its path is too long for a Unix socket here),
+ * or undefined when it can; never on Windows, where it is a named pipe.
+ */
+export function gatewaySocketTooLong(dataDir: string, platform: NodeJS.Platform): string | undefined {
+  if (platform === 'win32') return undefined;
+  const max = SOCKET_PATH_MAX[platform] ?? SOCKET_PATH_MAX_ELSE;
+  const path = join(dataDir, ...SOCKET_IN_DATA);
+  // Bytes, not characters: a path in Chinese takes three for each of its characters.
+  const bytes = Buffer.byteLength(path);
+  if (bytes <= max) return undefined;
+  const folderMax = max - (bytes - Buffer.byteLength(dataDir));
+  return `its socket's path (${path}) is ${bytes} bytes, longer than the ${max} a Unix socket's path may have here: set RELAY_DATA_DIR to a folder whose path is at most ${folderMax} bytes (UTF-8: a character outside ASCII takes 2 to 4) and restart Harness Relay`;
+}
+
 /** A line the server and the shim exchange, after the token. */
 type Request =
   | { id: number; method: 'list' }
@@ -261,7 +291,7 @@ export class ToolGateway {
     this.socketPath =
       platform === 'win32'
         ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}`
-        : join(dataDir, 'gateway', 'relay.sock');
+        : join(dataDir, ...SOCKET_IN_DATA);
   }
 
   /** Adds tools (by name; a later one with the same name replaces an earlier one). */
@@ -300,10 +330,15 @@ export class ToolGateway {
     return this.httpAt;
   }
 
-  /** Listens on the socket, in a folder only the owner may enter. */
+  /**
+   * Listens on the socket, in a folder only the owner may enter. Refuses a socket path too long for
+   * this system (`GatewaySocketPathError`) before it makes anything, rather than listen somewhere else.
+   */
   async start(): Promise<void> {
     if (this.server) return;
-    const dir = join(this.dataDir, 'gateway');
+    const tooLong = gatewaySocketTooLong(this.dataDir, this.platform);
+    if (tooLong) throw new GatewaySocketPathError(tooLong);
+    const dir = join(this.dataDir, SOCKET_IN_DATA[0]!);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (process.platform !== 'win32') chmodSync(dir, 0o700);
     mkdirSync(this.tokenDir, { recursive: true, mode: 0o700 });

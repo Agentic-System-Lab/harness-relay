@@ -24,7 +24,7 @@ import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { checkTrigger } from './watch';
 import { IdleWatcher } from './idle';
-import { ToolGateway, outboxTool } from './gateway';
+import { GatewaySocketPathError, ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
@@ -353,7 +353,14 @@ clearOpenRunLeftovers(
 );
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 // The gateway's socket: agents get Harness Relay's own tools only once it listens.
-await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
+await gateway
+  .start()
+  .catch((err: unknown) =>
+    console.error(
+      "[server] could not start the gateway for Harness Relay's own tools:",
+      err instanceof GatewaySocketPathError ? `${err.message}.` : err,
+    ),
+  );
 
 const port = apiPort();
 const host = process.env.HOST ?? DEFAULT_HOST;
