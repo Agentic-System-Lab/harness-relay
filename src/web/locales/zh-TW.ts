@@ -2241,11 +2241,11 @@ export const zhTW = {
     /** Settings → Custom models. */
     backends: {
       title: '自定義模型',
-      hint: 'OpenCode、Goose、Cline、OpenHands 與 Pi 用這裡的模型來源執行：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。Claude Code、Codex 與 Grok 也能用這裡的自訂端點執行（各自需要的 API 寫在它們的卡片上）。每次執行只帶入它用的金鑰，Harness Relay 自己不會呼叫這些 API。',
+      hint: 'OpenCode、Goose、Cline、OpenHands 與 Pi 用這裡的模型來源執行：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。Claude Code、Codex、Grok 與 GitHub Copilot 也能用這裡的自訂端點執行（各自需要的 API 寫在它們的卡片上）。每次執行只帶入它用的金鑰，Harness Relay 自己不會呼叫這些 API。',
       noSubscription:
         'Claude 訂閱帳號與 Grok 的登入不能用在開源 agent（Anthropic 不允許在第三方 agent 中使用它的訂閱）。Claude Code 與 Grok 本身的模型照常使用它們的登入。',
       modelIds:
-        '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。Claude Code、Codex 與 Grok 的模型選單也會列出各端點的模型。',
+        '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。Claude Code、Codex、Grok 與 GitHub Copilot 的模型選單也會列出各端點的模型。',
       apiKeys: 'API key',
       notSet: '未設定',
       keySet: (masked: string) => `已設定 ${masked}`,
@@ -2271,7 +2271,7 @@ export const zhTW = {
       deleted: '已刪除',
       deletedEndpoints: '已刪除的端點',
       deletedEndpointsHint:
-        'Claude Code、Codex 與 Grok 的成員若還指定這些端點的模型（端點 id/…），這一輪會失敗，不會改送到 CLI 自己的服務。如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如你 Codex 設定裡的 qwen/…），忘掉這個端點就能照常使用那個模型。',
+        'Claude Code、Codex、Grok 與 GitHub Copilot 的成員若還指定這些端點的模型（端點 id/…），這一輪會失敗，不會改送到 CLI 自己的服務。如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如你 Codex 設定裡的 qwen/…），忘掉這個端點就能照常使用那個模型。',
       forgetDeleted: '忘掉',
       forgotten: (id: string) => `已忘掉「${id}」`,
       problems: {
@@ -2679,7 +2679,7 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定自定義模型（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定自定義模型（開源 agent 用它，Claude Code、Codex、Grok 與 GitHub Copilot 也能用它的自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',

@@ -141,7 +141,9 @@ test('a tablet keeps a single contents row below search, scrolls its list, and s
   await expect(list).toBeHidden();
 });
 
-test('only focus on a disappearing contents control moves when tablet styles take effect before the resize callback', async ({ page }) => {
+test('only focus on a disappearing documentation control moves when tablet styles take effect before the resize callback', async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     // Hold the site's breakpoint callbacks so Chromium can apply the real media styles and run a paint first.
     const listen = EventTarget.prototype.addEventListener;
@@ -188,6 +190,14 @@ test('only focus on a disappearing contents control moves when tablet styles tak
   await expect(list).toBeHidden();
   await resize(1440);
   await expect(list.locator('summary, a').first()).toBeFocused();
+
+  const currentPage = page.locator('.doc-nav-list [aria-current="page"]');
+  const pagesToggle = page.locator('[data-doc-nav-toggle]');
+  await currentPage.focus();
+  await resize(768);
+  await expect(pagesToggle).toBeFocused();
+  await resize(1440);
+  await expect(currentPage).toBeFocused();
 
   const search = page.getByRole('searchbox');
   await search.focus();

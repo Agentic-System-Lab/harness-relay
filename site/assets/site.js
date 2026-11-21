@@ -367,12 +367,16 @@ if (docNav && docNavToggle) {
     if (opening) docNavToggle.focus({ preventScroll: true });
     setOpen(opening);
   });
-  compactDocs.addEventListener('change', () => {
+  const resize = () => {
     const focus = document.activeElement;
+    // Capture focus before changing which navigation controls are visible.
+    docNav.classList.toggle('is-compact', compactDocs.matches);
     setOpen(false);
     if (compactDocs.matches && focus?.closest('.doc-nav-list')) docNavToggle.focus({ preventScroll: true });
     if (!compactDocs.matches && focus === docNavToggle) docNav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
-  });
+  };
+  resize();
+  compactDocs.addEventListener('change', resize);
   document.addEventListener('focusin', (event) => {
     if (!docNav.contains(event.target) || event.target.closest('[data-doc-search]')) setOpen(false);
   });

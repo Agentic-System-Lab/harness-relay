@@ -71,16 +71,18 @@ export function draftAvailability(
         if (!(await sandboxReady)) return false;
       }
       return configured.some((a) => {
+        const signedIn = a.auth.loggedIn === true || a.usingStoredApiKey;
         if (isEndpointCli(p)) {
           const model = parseBackendModel(settings.defaultModel(p, a.id));
           if (model) {
             const backends = settings.backends.view();
             const endpoint = backends.endpoints.find((e) => e.id === model.backend);
-            if (endpoint) return !endpoint.keyUnreadable;
+            // Grok also needs its own sign-in or API key to start, even when its model runs locally.
+            if (endpoint) return !endpoint.keyUnreadable && (p !== 'grok' || signedIn);
             if (backends.deletedEndpoints.includes(model.backend)) return false;
           }
         }
-        return a.auth.loggedIn === true || a.usingStoredApiKey;
+        return signedIn;
       });
     };
     const assistant = async (list: Provider[]): Promise<DraftAppState> => {

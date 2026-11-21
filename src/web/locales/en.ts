@@ -2248,11 +2248,11 @@ export const en: Messages = {
     },
     backends: {
       title: 'Custom models',
-      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Claude Code, Codex and Grok can run on the custom endpoints too (each card says which API the server must serve). Each run gets only the key it uses; Harness Relay never calls these APIs itself.',
+      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Claude Code, Codex, Grok and GitHub Copilot can run on the custom endpoints too (each card says which API the server must serve). Each run gets only the key it uses; Harness Relay never calls these APIs itself.',
       noSubscription:
         "The Claude subscription and Grok's sign-in cannot be used by the open-source agents (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins for their own models.",
       modelIds:
-        "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4. Claude Code's, Codex's and Grok's model menus list the endpoints' models too.",
+        'Give members a model as "backend/model": openai/…, anthropic/…, xai/…, or an endpoint\'s id and a model name, such as homelab/muse-glimmer-30b-nvfp4. The model menus in Claude Code, Codex, Grok and GitHub Copilot list the endpoints\' models too.',
       apiKeys: 'API keys',
       notSet: 'Not set',
       keySet: (masked) => `Set: ${masked}`,
@@ -2280,7 +2280,7 @@ export const en: Messages = {
       deleted: 'Deleted',
       deletedEndpoints: 'Deleted endpoints',
       deletedEndpointsHint:
-        "Claude Code, Codex and Grok members still on a model of one of these (its id/…) fail their turn instead of reaching the CLI's own service. If a model of a CLI's own starts with the same name (a qwen/… of your Codex config, say), forget the endpoint to use that model again.",
+        "Claude Code, Codex, Grok and GitHub Copilot members still on a model of one of these (its id/…) fail their turn instead of reaching the CLI's own service. If a model of a CLI's own starts with the same name (a qwen/… of your Codex config, say), forget the endpoint to use that model again.",
       forgetDeleted: 'Forget',
       forgotten: (id) => `Forgot "${id}"`,
       problems: {
@@ -2692,7 +2692,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up custom models (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up custom models (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',

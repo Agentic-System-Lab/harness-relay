@@ -12,7 +12,7 @@ import type { HostedAppChecks } from '../src/server/connectors/hostedApps';
 describe('apps that can be selected in a new draft', () => {
   const db = () => openDatabase(':memory:');
   let database: ReturnType<typeof db>, settings: SettingsStore, read: ReturnType<typeof draftAvailability>;
-  let loggedIn: boolean | null, installed: boolean;
+  let loggedIn: boolean | null, installed: boolean, usingStoredApiKey: boolean;
   const status = vi.fn<(provider: Provider) => Promise<ProviderStatus>>();
   const github = vi.fn<() => Promise<GithubConnection>>();
   const teams = vi.fn<() => Promise<TeamsConnection>>();
@@ -26,12 +26,13 @@ describe('apps that can be selected in a new draft', () => {
         bin: provider,
         auth,
         installed,
-        usingStoredApiKey: false,
-        accounts: [{ auth, id: '', label: '', usingStoredApiKey: false }],
+        usingStoredApiKey,
+        accounts: [{ auth, id: '', label: '', usingStoredApiKey }],
       };
     });
     installed = true;
     loggedIn = true;
+    usingStoredApiKey = false;
     database = db();
     settings = new SettingsStore(database);
     settings.tools.gatewayStatus = () => ({ available: true });
@@ -92,6 +93,23 @@ describe('apps that can be selected in a new draft', () => {
     settings.backends.deleteEndpoint('local');
     loggedIn = true;
     expect((await read('read-only', 'browser')).browser).not.toBe('ready');
+  });
+
+  it('requires Grok sign-in or its own API key even with an available custom endpoint', async () => {
+    settings.tools.browserStatus = () => ({ using: 'test-browser' });
+    settings.tools.update({ relayTools: { browser: ['grok'] } });
+    settings.backends.putEndpoint('local', { name: 'Local', baseUrl: 'http://127.0.0.1:8080/v1', models: ['demo'] });
+    settings.updateAccount('grok', '', { defaultModel: 'local/demo' });
+    const check = async () => (await read('full', 'browser')).browser;
+    loggedIn = false;
+    expect(await check()).toBe('needs-assistant');
+    loggedIn = true;
+    expect(await check()).toBe('ready');
+    loggedIn = false;
+    usingStoredApiKey = true;
+    expect(await check()).toBe('ready');
+    settings.backends.deleteEndpoint('local');
+    expect(await check()).toBe('needs-assistant');
   });
 
   it.each(['linux', 'win32'] as const)('respects open-agent sandbox support on %s for both gateway and MCP apps', async (platform) => {

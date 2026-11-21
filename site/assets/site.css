@@ -3155,8 +3155,13 @@ body:has(.cs-dialog[open]) {
   font-size: 14px;
 }
 
-.doc-nav-toggle {
+.doc-nav-toggle,
+.doc-nav.is-compact:not(.is-open) .doc-nav-list {
   display: none;
+}
+
+.doc-nav.is-compact .doc-nav-toggle {
+  display: flex;
 }
 
 .doc-nav-title {
@@ -3886,7 +3891,6 @@ html:has(.doc-toc) {
   }
 
   .js .doc-nav-toggle {
-    display: flex;
     align-items: center;
     gap: 10px;
     flex: 1 1 0;
@@ -3924,10 +3928,6 @@ html:has(.doc-toc) {
 
   .doc-nav.is-open .doc-nav-toggle svg {
     transform: rotate(180deg);
-  }
-
-  .js .doc-nav:not(.is-open) .doc-nav-list {
-    display: none;
   }
 
   .js .doc-nav-list {
