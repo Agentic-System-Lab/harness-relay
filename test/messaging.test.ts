@@ -66,9 +66,10 @@ describe('sending from Relay', () => {
       expect(secrets.size).toBe(0);
       state.scopes = 'chat:write,channels:read';
       expect(await slack.connect(token)).toEqual({ status: 'connected', workspace: 'Work', sender: 'Relay' });
-      const text = '<@UOTHER> & a link https://example.test/\n✓';
+      const lines = ['<@UOTHER> & a link https://example.test/', 'Second line', '✓'];
+      const text = lines.join('\n');
       const proposal = await slackTool.prepare!(
-        { destination: 'https://app.slack.com/client/T123/C123', text: text.replace('\n', '\r\n') },
+        { destination: 'https://app.slack.com/client/T123/C123', text: lines.join('\r\n') },
         {} as GatewayContext,
       );
       expect(slackTool.tier).toBe('send');
