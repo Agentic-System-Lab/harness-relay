@@ -11,6 +11,7 @@ Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒
 | [agent 之間共用的記憶](shared-memory.zh-TW.md) | 尚未開始 | agent 建議要記下的筆記，由使用者決定是否加進工具庫的記憶；依專案分的記憶；匯入各 CLI 自己記住的東西。 |
 | [網站預覽與 Generative UI](preview-and-generative-ui.zh-TW.md) | [應用程式預覽](app-preview-runtime.zh-TW.md)已實作，互動式回覆仍在規劃 | 在聊天旁的面板試用 agent 做的網站，並把錯誤交回給 agent；回覆裡可以有選項、表單、圖表和小型互動頁面。 |
 | [agent CLI 自己的功能](agent-cli-features.zh-TW.md) | 尚未開始 | 十二個 CLI 本身做得到、Harness Relay 還沒用上的：受管理且看得到的 subagent 與 workflow、端點模型的 context window、計畫、提問、引導執行中的回合、結構化回答與預算。 |
+| [每種應用程式都用同一種方式預覽](unified-app-preview.zh-TW.md) | 尚未開始；用到的機制已在真實引擎上試過 | 任何語言都用同一種方式預覽：專案宣告的 `Dockerfile` 或 compose 檔，應用程式提供 HTTP 時顯示網頁、沒有時顯示終端機，資料庫之類的服務放在無法對外連線的網路上。 |
 
 ## 這個資料夾的用法
 

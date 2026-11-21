@@ -11,6 +11,7 @@ Designs for features Harness Relay does not have yet. What is in this folder is 
 | [Shared memory across agents](shared-memory.md) | Not started | Agents suggest notes for the tool library's memory; the user accepts them. Memory per project, and importing what each CLI remembered. |
 | [Website previews and generative UI](preview-and-generative-ui.md) | [App previews](app-preview-runtime.md) implemented, interactive replies proposed | Try a site an agent made in a panel beside the chat, and send its errors back; replies with choices, forms, charts and small interactive pages. |
 | [The agent CLIs' own features](agent-cli-features.md) | Not started | What the twelve CLIs can do by themselves that Harness Relay does not use yet: subagents and workflows governed and shown, context windows for endpoint models, plans, questions, steering a running turn, structured answers and budgets. |
+| [One preview for every app](unified-app-preview.md) | Not started; its mechanisms tried against a real engine | Any language previewed the same way: a `Dockerfile` or compose file the project declares, a page when the app serves HTTP and a terminal when it does not, services such as a database on a network with no way out. |
 
 ## How to use this folder
 
