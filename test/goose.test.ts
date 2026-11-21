@@ -43,6 +43,7 @@ import {
   gooseAfterSession,
   gooseBriefing,
   gooseCallInfo,
+  gooseContextEnv,
   gooseEndpointFile,
   gooseEndpointKeyVar,
   gooseEndpointProvider,
@@ -477,6 +478,47 @@ describe("Goose's settings per run", () => {
     expect(gooseMode('read-only')).toBe('approve');
     expect(gooseMode('edit')).toBe('approve');
     expect(gooseMode('full')).toBe('auto');
+  });
+
+  it("writes each endpoint model's context window in its provider file, and the run's limits and short-window settings in variables", () => {
+    const limited: RunBackends = {
+      ...BACKENDS,
+      endpoints: [
+        {
+          ...BACKENDS.endpoints[0]!,
+          models: ['muse-glimmer-30b-nvfp4', 'big'],
+          limits: { 'muse-glimmer-30b-nvfp4': { context: 32768, output: 4096 }, big: { context: 262144 } },
+        },
+        BACKENDS.endpoints[1]!,
+      ],
+    };
+    expect(gooseEndpointFile(limited.endpoints[0]!, 'typed')).toMatchObject({
+      models: [{ name: 'muse-glimmer-30b-nvfp4', context_limit: 32768 }, { name: 'big', context_limit: 262144 }, { name: 'typed' }],
+    });
+    const ctx = context({ model: 'homelab/muse-glimmer-30b-nvfp4', backends: limited });
+    prepareGoose(ctx, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(ctx.env).toMatchObject({
+      GOOSE_MAX_TOKENS: '4096',
+      GOOSE_MAX_TOOL_RESPONSE_SIZE: '12288',
+      GOOSE_TOOL_PAIR_SUMMARIZATION: 'true',
+    });
+    const file = JSON.parse(readFileSync(join(ctx.home.state, 'config', 'custom_providers', 'relay-homelab.json'), 'utf8'));
+    expect(file.models).toEqual([
+      { name: 'muse-glimmer-30b-nvfp4', context_limit: 32768 },
+      { name: 'big', context_limit: 262144 },
+    ]);
+    // A large window: only the tool response limit, where it is below Goose's own; none without limits.
+    expect(gooseContextEnv({ context: 262144 })).toEqual({ GOOSE_MAX_TOOL_RESPONSE_SIZE: '98304' });
+    expect(gooseContextEnv({ context: 1_000_000 })).toEqual({});
+    expect(gooseContextEnv({ context: 65536 })).toMatchObject({ GOOSE_TOOL_PAIR_SUMMARIZATION: 'true' });
+    expect(gooseContextEnv({ context: 65537 })).not.toHaveProperty('GOOSE_TOOL_PAIR_SUMMARIZATION');
+    expect(gooseContextEnv(undefined)).toEqual({});
+    // An inherited one is taken out, as every GOOSE_ variable is, and a run without limits sets none.
+    const plain = context({ model: 'homelab/muse-glimmer-30b-nvfp4' }, { GOOSE_TOOL_PAIR_SUMMARIZATION: 'true', GOOSE_MAX_TOKENS: '99' });
+    prepareGoose(plain, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(plain.env).not.toHaveProperty('GOOSE_TOOL_PAIR_SUMMARIZATION');
+    expect(plain.env).not.toHaveProperty('GOOSE_MAX_TOKENS');
+    expect(plain.env).not.toHaveProperty('GOOSE_MAX_TOOL_RESPONSE_SIZE');
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.

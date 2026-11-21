@@ -2342,6 +2342,17 @@ export const zhTW = {
         'Claude Code、Codex、Grok 與 GitHub Copilot 的成員若還指定這些端點的模型（端點 id/…），這一輪會失敗，不會改送到 CLI 自己的服務。如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如你 Codex 設定裡的 qwen/…），忘掉這個端點就能照常使用那個模型。',
       forgetDeleted: '忘掉',
       forgotten: (id: string) => `已忘掉「${id}」`,
+      limitsTitle: '上下文長度與輸出上限',
+      limitsHint:
+        '每個模型一次能容納多少 token（上下文長度，回答也算在內），以及一次回答最多幾個 token。儲存時會從伺服器讀取上下文長度（vLLM 與 llama.cpp 會回報）；你填的數字優先。開源助理會依它及早壓縮對話，RLM 子模型的提問也不會超過它。',
+      contextWindow: '上下文長度（token）',
+      outputLimit: '輸出上限（token）',
+      fromServer: (n: string) => `${n}（伺服器回報）`,
+      askedAtSave: '儲存時向伺服器讀取',
+      outputUnset: '未設定：由各助理決定',
+      limitsSummary: (items: string) => `上下文長度：${items}`,
+      limitItem: (model: string, context: string | undefined, fromServer: boolean, output: string | undefined) =>
+        `${model} ${context ? `${context}${fromServer ? '（伺服器回報）' : ''}` : '未知'}${output ? `，輸出上限 ${output}` : ''}`,
       problems: {
         name: '請輸入名稱。',
         nameLong: (n: number) => `名稱最多 ${n} 個字元。`,
@@ -2350,6 +2361,7 @@ export const zhTW = {
         idReserved: 'openai、anthropic、xai 是內建模型來源的名稱。',
         url: '網址需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。',
         models: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元。`,
+        limits: (min: string, max: string) => `上下文長度要是 ${min} 到 ${max} 之間的整數，輸出上限要小於同一個模型的上下文長度。`,
       },
     },
     ownEndpoint: {

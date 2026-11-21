@@ -2352,6 +2352,17 @@ export const en: Messages = {
         "Claude Code, Codex, Grok and GitHub Copilot members still on a model of one of these (its id/…) fail their turn instead of reaching the CLI's own service. If a model of a CLI's own starts with the same name (a qwen/… of your Codex config, say), forget the endpoint to use that model again.",
       forgetDeleted: 'Forget',
       forgotten: (id) => `Forgot "${id}"`,
+      limitsTitle: 'Context windows and output limits',
+      limitsHint:
+        "How many tokens each model can hold at once (its context window, the answer's included), and the most one answer may have. Save reads the context window from the server where it reports one (vLLM and llama.cpp do); a number you type wins. The open-source assistants compact their conversation in time with it, and the RLM sub-model's questions stay within it.",
+      contextWindow: 'Context window (tokens)',
+      outputLimit: 'Output limit (tokens)',
+      fromServer: (n) => `${n} (from the server)`,
+      askedAtSave: 'Read from the server when you save',
+      outputUnset: 'Not set: each assistant picks its own',
+      limitsSummary: (items) => `Context windows: ${items}`,
+      limitItem: (model, context, fromServer, output) =>
+        `${model} ${context ? `${context}${fromServer ? ' (from the server)' : ''}` : 'unknown'}${output ? `, output limit ${output}` : ''}`,
       problems: {
         name: 'Enter a name.',
         nameLong: (n) => `The name may be at most ${n} characters.`,
@@ -2360,6 +2371,8 @@ export const en: Messages = {
         idReserved: 'openai, anthropic and xai are the names of built-in model backends.',
         url: 'The address must start with http:// or https://, without a user name, password, query or #.',
         models: (n, chars) => `At most ${n} model names, each at most ${chars} characters.`,
+        limits: (min, max) =>
+          `A context window is a whole number from ${min} to ${max}, and an output limit less than its model's context window.`,
       },
     },
     ownEndpoint: {

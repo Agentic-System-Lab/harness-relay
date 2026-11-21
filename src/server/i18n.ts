@@ -362,6 +362,10 @@ const zhTW = {
   endpointCatalogInvalid: (mib: number) =>
     `/models 需要回傳含有 data 陣列的 JSON 模型清單，每個模型以 id 標示，回應大小上限為 ${mib} MiB。`,
   endpointModelsInvalid: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元，不能含空白。`,
+  endpointLimitsInvalid: (minContext: number, maxContext: number, minOutput: number, maxOutput: number) =>
+    `上下文長度要是 ${minContext} 到 ${maxContext} 之間的整數（token），輸出上限要是 ${minOutput} 到 ${maxOutput} 之間的整數，並小於同一個模型的上下文長度；只能設定這個端點列出的模型。`,
+  endpointOutputTooLarge: (model: string, output: number, context: number) =>
+    `模型「${model}」的輸出上限（${output} token）要小於它的上下文長度（伺服器回報為 ${context} token）。請調低輸出上限，或填入上下文長度。`,
   backendUnknown: (id: string) => `未知的模型來源：${id}`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
@@ -1399,6 +1403,10 @@ const en: ServerMessages = {
   endpointCatalogHttp: (status) => `The endpoint returned HTTP ${status} for /models. Check the OpenAI-compatible API base URL.`,
   endpointCatalogInvalid: (mib) => `Expected /models to return a JSON object with a data array of model IDs, within ${mib} MiB.`,
   endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
+  endpointLimitsInvalid: (minContext, maxContext, minOutput, maxOutput) =>
+    `A context window is a whole number of tokens from ${minContext} to ${maxContext}, and an output limit one from ${minOutput} to ${maxOutput}, less than its model's context window; only for the models the endpoint lists.`,
+  endpointOutputTooLarge: (model, output, context) =>
+    `The output limit of "${model}" (${output} tokens) must be less than its context window (${context} tokens, as the server reports it). Lower the output limit, or enter a context window.`,
   backendUnknown: (id) => `Unknown model backend: ${id}`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,

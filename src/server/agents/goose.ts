@@ -33,6 +33,8 @@ import {
   type ToolCallKind,
 } from '../../shared/types';
 import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../backends';
+import { runLimits, SHORT_CONTEXT, toolOutputChars } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
@@ -297,9 +299,14 @@ export function cleanGooseEnv(env: NodeJS.ProcessEnv, keep: Record<string, strin
   }
 }
 
-/** A custom endpoint as a Goose provider file (`config/custom_providers/<provider>.json`). */
+/**
+ * A custom endpoint as a Goose provider file (`config/custom_providers/<provider>.json`). Each model with
+ * a context window known in Settings has it as its `context_limit`, which Goose takes before asking the
+ * server (llama.cpp's `meta.n_ctx`), its catalog or its default of 128,000 tokens; only
+ * `GOOSE_CONTEXT_LIMIT` comes first (`ContextLimitResolver`, Goose 1.58.1).
+ */
 export function gooseEndpointFile(
-  endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string },
+  endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string; limits?: Record<string, TokenLimits> },
   extraModel?: string,
 ): Record<string, unknown> {
   const models = [...new Set([...endpoint.models, ...(extraModel ? [extraModel] : [])].filter(Boolean))];
@@ -311,11 +318,42 @@ export function gooseEndpointFile(
     api_key_env: endpoint.apiKey ? gooseEndpointKeyVar(endpoint.id) : '',
     requires_auth: Boolean(endpoint.apiKey),
     base_url: endpoint.baseUrl,
-    models: models.map((name) => ({ name })),
+    models: models.map((name) => {
+      const context = runLimits(endpoint, name)?.context;
+      return { name, ...(context ? { context_limit: context } : {}) };
+    }),
     supports_streaming: true,
     // Its typed models, without asking the endpoint for its list (Goose asks when the list is empty).
     ...(models.length ? { dynamic_models: false } : {}),
   };
+}
+
+/** Goose's own limit of one tool response, in characters, beyond which it goes to a file (`GOOSE_MAX_TOOL_RESPONSE_SIZE`, Goose 1.58.1). */
+export const GOOSE_TOOL_RESPONSE_MAX = 200_000;
+
+/**
+ * The variables a run's model's limits set (Settings → Model connections), none without them:
+ * - `GOOSE_MAX_TOKENS`: its output limit, when known (otherwise Goose sends none, and the server gives
+ *   an answer what the window has left);
+ * - `GOOSE_MAX_TOOL_RESPONSE_SIZE`: one tool response at most `toolOutputChars()` (an eighth of the
+ *   window) where that is less than Goose's 200,000 characters (some 50,000 tokens); a longer one goes
+ *   to a file the agent can read in parts;
+ * - `GOOSE_TOOL_PAIR_SUMMARIZATION` in a short window (`SHORT_CONTEXT`): Goose sums up the oldest tool
+ *   calls and their results, ten at a time, once more than its cutoff (10 tool calls in such a window)
+ *   come before the turn's own, so a full compaction comes later. It costs a model call for each, which
+ *   a small window's server is spared from a compaction meanwhile.
+ * Goose compacts at 80% of the window (`GOOSE_AUTO_COMPACT_THRESHOLD`), left as it is; its persistent
+ * instructions are left out under 32,000 tokens by Goose itself.
+ */
+export function gooseContextEnv(l: TokenLimits | undefined): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (l?.output) env.GOOSE_MAX_TOKENS = String(l.output);
+  if (l?.context) {
+    const chars = toolOutputChars(l.context);
+    if (chars < GOOSE_TOOL_RESPONSE_MAX) env.GOOSE_MAX_TOOL_RESPONSE_SIZE = String(chars);
+    if (l.context <= SHORT_CONTEXT) env.GOOSE_TOOL_PAIR_SUMMARIZATION = 'true';
+  }
+  return env;
 }
 
 /** `config.yaml`: only what never differs between runs (the rest is in variables). */
@@ -471,6 +509,8 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     PLUGINS: goosePluginsEnv(goosePluginDirs(o.cwd, own), o),
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
   });
+  // The run's model's context window and output limit, and what a short window needs.
+  Object.assign(env, gooseContextEnv(run.endpoint ? runLimits(run.endpoint, run.model) : undefined));
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
 }
 

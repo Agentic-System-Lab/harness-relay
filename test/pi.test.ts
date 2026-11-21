@@ -48,6 +48,8 @@ import {
   piModelLevels,
   piModelRef,
   piModels,
+  piCompaction,
+  piModelLimits,
   piModelsJson,
   piNative,
   piProcess,
@@ -335,6 +337,45 @@ describe('Pi: home and config', () => {
           ],
         },
       },
+    });
+  });
+
+  it("writes each endpoint model's context window and output limit, and compaction to fit a short window", async () => {
+    const limited = {
+      ...backendRunOf('homelab/muse-glimmer-30b-nvfp4'),
+      endpoint: {
+        ...backends.endpoints[0]!,
+        models: ['muse-glimmer-30b-nvfp4', 'big', 'out-only', 'none'],
+        limits: { 'muse-glimmer-30b-nvfp4': { context: 32768 }, big: { context: 262144, output: 32000 }, 'out-only': { output: 2048 } },
+      },
+    };
+    expect((piModelsJson(limited) as any).providers['relay-homelab'].models).toEqual([
+      // A quarter of the window for an answer (Pi would take 128,000 and 16,384).
+      { id: 'muse-glimmer-30b-nvfp4', name: 'muse-glimmer-30b-nvfp4', reasoning: false, contextWindow: 32768, maxTokens: 8192 },
+      { id: 'big', name: 'big', reasoning: false, contextWindow: 262144, maxTokens: 32000 },
+      { id: 'out-only', name: 'out-only', reasoning: false, maxTokens: 2048 },
+      { id: 'none', name: 'none', reasoning: false },
+    ]);
+    // Compacting with the next answer's room free, keeping a quarter of the window; Pi's own figures at most.
+    expect(piCompaction(limited)).toEqual({
+      'relay-homelab/muse-glimmer-30b-nvfp4': { reserveTokens: 8192, keepRecentTokens: 8192 },
+      'relay-homelab/big': { reserveTokens: 16384, keepRecentTokens: 20000 },
+    });
+    expect(piCompaction(backendRunOf('openai/gpt-5.4-nano'))).toEqual({});
+    expect(piModelLimits(undefined)).toEqual({});
+    expect(piSettings(piCompaction(limited))).toMatchObject({
+      cacheWarming: 'off',
+      compaction: { modelOverrides: { 'relay-homelab/muse-glimmer-30b-nvfp4': { reserveTokens: 8192, keepRecentTokens: 8192 } } },
+    });
+    expect(piSettings({})).not.toHaveProperty('compaction');
+    const ctx = context({}, 'homelab/muse-glimmer-30b-nvfp4');
+    ctx.run = limited;
+    await preparePi(ctx);
+    const agentDir = join(ctx.tmpDir, 'pi-agent');
+    expect(JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf8'))).toEqual(piSettings(piCompaction(limited)));
+    expect(JSON.parse(readFileSync(join(agentDir, 'models.json'), 'utf8')).providers['relay-homelab'].models[0]).toMatchObject({
+      contextWindow: 32768,
+      maxTokens: 8192,
     });
   });
 

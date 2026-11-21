@@ -578,6 +578,18 @@ describe('codex thread config', () => {
         },
       },
     });
+    expect(onLab.params.config).not.toHaveProperty('model_context_window');
+    // Its context window, when Settings knows it: Codex knows none for a model not of its own catalog.
+    const limited = { ...lab, endpoint: { ...lab.endpoint, limits: { qwen3: { context: 32768 } } } };
+    expect(codexThreadRequest({ ...run, model: 'lab/qwen3' }, user, 'linux', 'harness-relay-1a2b', limited).params.config).toMatchObject({
+      model_context_window: 32768,
+      model_auto_compact_token_limit: 32768 - 8192,
+    });
+    const outputSet = { ...lab, endpoint: { ...lab.endpoint, limits: { qwen3: { context: 131072, output: 4096 } } } };
+    expect(codexThreadRequest({ ...run, model: 'lab/qwen3' }, user, 'linux', 'harness-relay-1a2b', outputSet).params.config).toMatchObject({
+      model_context_window: 131072,
+      model_auto_compact_token_limit: 131072 - 4096,
+    });
     // Full access, or a conversation that refuses automatically, never asks.
     expect(codexThreadRequest({ ...run, permission: 'full' }).params.approvalPolicy).toBe('never');
     expect(codexThreadRequest({ ...run, requestApproval: undefined }).params.approvalPolicy).toBe('never');
