@@ -157,6 +157,16 @@ export function PinIcon({ size, upright = false }: { size?: number; upright?: bo
   );
 }
 
+/** Long-term memory: a bookmark, a note kept for later. */
+export function MemoryIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M6.5 3.5h11v17l-5.5-3.8-5.5 3.8z" />
+      <path d="M9.5 8h5" />
+    </Svg>
+  );
+}
+
 export function FolderPlusIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

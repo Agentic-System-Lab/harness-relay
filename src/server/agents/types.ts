@@ -157,6 +157,8 @@ export const stateKeys = {
   sort: (conversationId: string): string => `sort.${conversationId}`,
   /** The lead agent reviewing the team's replies in a conversation. */
   review: (conversationId: string): string => `review.${conversationId}`,
+  /** The lead agent tidying the long-term memory, which no conversation owns. */
+  memory: (): string => 'memory',
 };
 
 /** The model backends one open-agent run may use, with their secrets (never sent to the client). */

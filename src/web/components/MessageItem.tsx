@@ -15,6 +15,7 @@ import {
 import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { withoutProgressTail } from '../../shared/tracking';
+import { withoutMemoryBlocks } from '../../shared/memory';
 import { api } from '../api';
 import { settingsHref } from '../route';
 import {
@@ -29,6 +30,7 @@ import {
   type ActivityItem,
   type ApprovalPart,
   type ToolPart,
+  type MemoryPart,
   type OutboxPart,
 } from '../chat';
 import { fallbackExplanation, mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
@@ -38,7 +40,7 @@ import { ChangesCard, type ApplyState } from './ChangesCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
+import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
@@ -258,6 +260,81 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
 }
 
 /** What a reply said about the goal its schedule tracks (its `<progress>` block). */
+/**
+ * What a reply saved to long-term memory: each note, where it stands now (the server updates the card
+ * when the note changes), and what the user can do with it here; the rest is in Settings.
+ */
+function MemoryCard({ part }: { part: MemoryPart }) {
+  const t = useT();
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const act = async (id: string, call: () => Promise<unknown>) => {
+    setBusy(id);
+    setError('');
+    try {
+      await call();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+  const c = t.longTerm.card;
+  return (
+    <section className="memory-card" aria-label={c.title}>
+      <header className="memory-card-head">
+        <MemoryIcon size={16} />
+        <strong>{c.title}</strong>
+      </header>
+      <ul className="memory-card-notes">
+        {part.notes.map((n, i) => {
+          const id = n.id;
+          return (
+            <li key={`${id ?? ''}-${i}`} className={`memory-card-note memory-${n.status}`}>
+              <span className="memory-op">{c.op[n.op]}</span>
+              <span className="memory-text">{n.text || id}</span>
+              <span className="memory-status">{n.status === 'skipped' && n.skipped ? c.skipped[n.skipped] : c.status[n.status]}</span>
+              {id && n.status === 'pending' && (
+                <span className="memory-actions">
+                  <button
+                    type="button"
+                    className="small-button"
+                    disabled={busy === id}
+                    onClick={() => void act(id, () => api.editMemoryNote(id, { state: 'active' }))}
+                  >
+                    {t.longTerm.keep}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small-button"
+                    disabled={busy === id}
+                    onClick={() => void act(id, () => api.deleteMemoryNote(id))}
+                  >
+                    {t.longTerm.discard}
+                  </button>
+                </span>
+              )}
+              {id && (n.status === 'active' || n.status === 'archived') && (
+                <span className="memory-actions">
+                  <button
+                    type="button"
+                    className="ghost small-button"
+                    disabled={busy === id}
+                    onClick={() => void act(id, () => api.editMemoryNote(id, { state: n.status === 'active' ? 'archived' : 'active' }))}
+                  >
+                    {n.status === 'active' ? t.longTerm.archive : t.longTerm.restore}
+                  </button>
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {error && <p className="error-line">{error}</p>}
+    </section>
+  );
+}
+
 function ProgressCard({ status, text }: { status: ProgressStatus; text: string }) {
   const t = useT();
   return (
@@ -1288,7 +1365,7 @@ function AgentMessage({
               return (
                 <Markdown
                   key={s.key}
-                  text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
+                  text={live ? withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text)) : s.text}
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}
@@ -1304,6 +1381,8 @@ function AgentMessage({
               return <ProgressCard key={s.key} status={s.status} text={s.text} />;
             case 'outbox':
               return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+            case 'memory':
+              return <MemoryCard key={s.key} part={s.part} />;
             case 'notice':
               return (
                 <p key={s.key} className="warn-line small msg-notice" role="note">

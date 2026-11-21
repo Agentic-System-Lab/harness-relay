@@ -434,6 +434,7 @@ describe('the docs', () => {
       'mcp-servers',
       'skills',
       'memory',
+      'long-term-memory',
       'hooks',
       'default-team-checks',
       'outbox',

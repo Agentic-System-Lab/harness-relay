@@ -216,6 +216,12 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         text: `[Put in the outbox for the user to ${save ? 'save' : 'send'}: ${p.title} — ${save && p.status === 'sent' ? 'saved' : p.status}${p.result ? ` (${p.result})` : ''}]`,
       };
     }
+    case 'memory': {
+      const lines = p.notes
+        .filter((n) => n.status !== 'skipped')
+        .map((n) => (n.op === 'forgotten' ? `set aside ${n.id}` : `${n.op === 'updated' ? 'corrected' : 'saved'} ${n.id}: ${n.text}`));
+      return lines.length ? { type: 'text', text: `[Long-term memory: ${lines.join('; ')}]` } : undefined;
+    }
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
   }

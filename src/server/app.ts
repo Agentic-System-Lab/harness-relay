@@ -132,6 +132,9 @@ import {
   validateChecks,
   validateSettings,
   validateToolLibraryUpdate,
+  validateMemoryNoteCreate,
+  validateMemoryNoteUpdate,
+  validateMemorySettings,
   validConnectorId,
   validOAuthProvider,
   validOAuthUses,
@@ -833,6 +836,27 @@ export function createApp({
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
+
+  // Long-term memory (src/server/memory.ts): every change answers with the whole view, as Settings shows it.
+  const memory = orchestrator.memory;
+  app.get('/api/memory', (c) => c.json(memory.view()));
+  app.put('/api/memory/settings', async (c) => c.json(memory.updateSettings(validateMemorySettings(await body<unknown>(c)))));
+  app.post('/api/memory/notes', async (c) => {
+    memory.add(validateMemoryNoteCreate(await body<unknown>(c)));
+    return c.json(memory.view());
+  });
+  app.patch('/api/memory/notes/:id', async (c) => {
+    memory.edit(c.req.param('id'), validateMemoryNoteUpdate(await body<unknown>(c)));
+    return c.json(memory.view());
+  });
+  app.delete('/api/memory/notes/:id', (c) => {
+    memory.remove(c.req.param('id'));
+    return c.json(memory.view());
+  });
+  app.post('/api/memory/tidy', (c) => {
+    memory.tidyNow();
+    return c.json(memory.view());
+  });
 
   // Read the selected provider account's status. Hosted service credentials are managed by the provider.
   app.post('/api/apps/:app/hosted/:provider', async (c) => {

@@ -311,7 +311,7 @@ The links at the top of Settings stay on one row in every language (where they d
 
 ### Tool library: MCP servers, skills and memory
 
-Open **Settings → Apps and tools** and select the **Tool library** tab. Its five rows start collapsed. Choose from **MCP servers**, **Skills**, **Memory**, **Hooks** and **Default team checks**. Tools you set up here reach the agents you choose in addition to each CLI’s own setup.
+Open **Settings → Apps and tools** and select the **Tool library** tab. Its six rows start collapsed. Choose from **MCP servers**, **Skills**, **Memory**, **Long-term memory** (see [Long-term memory](#long-term-memory)), **Hooks** and **Default team checks**. Tools you set up here reach the agents you choose in addition to each CLI’s own setup.
 
 A CLI with a sign-in keeps the settings in its own folder (your `~/.claude`, `~/.codex/config.toml`, `~/.grok`, `~/.cursor`, `~/.gemini`, `~/.copilot` and `~/.config/muse` for the default account), which moves with [Settings → Agent sessions](#agent-sessions-the-clis-own-folder-and-agentsview) or with another account; but whichever folder or account, some CLIs still read parts of your home folder by themselves (Cursor, Grok and Codex, for example: Cursor its `~/.cursor`, Grok and Codex the skills in `~/.agents/skills`). Settings → that CLI lists the skills, MCP servers and hooks each account loads, and marks what is left out there. The open-source agents run with config folders of Harness Relay's own. Changes reach an agent at its next turn.
 
@@ -323,6 +323,19 @@ A CLI with a sign-in keeps the settings in its own folder (your `~/.claude`, `~/
 Open **Given by default to** in the MCP server editor or on a skill’s row. Select all CLIs (the default), specific CLIs, or none. With none selected, only members you tick in the team settings receive the item. Older items keep the CLI selections they had when you added them. To share an item with a CLI added since then, tick that CLI. To change it for one member, see **Tools** under [Team members](#team-members).
 
 Open **Hooks** to set the hooks for new chats and automations. Open **Default team checks** to edit their protected paths, commit format and check commands. Each row has its own Save button. See [Team checks](#team-checks).
+
+### Long-term memory
+
+Agents keep what they learn in one conversation that later ones can use: your preferences and decisions, how you want things done, a fact they checked, a mistake and what avoids it. Each is a note of its own, saved when you ask an agent to remember something ("remember that I deploy on Fridays") or when the agent judges it worth remembering. Notes are about what a later chat could not find out by itself, not about what it can read again, like your files.
+
+- **In the chat.** A reply that saved, corrected or set aside notes shows them in a **Long-term memory** card under its text, with where each one stands: **In use**, **Waiting for you**, **Set aside**. **Set aside** stops agents getting a note (and **Restore** brings it back); a waiting note has **Keep** and **Discard**. Teammates see what a reply saved.
+- **What agents are given.** **Pinned** notes come with every conversation they hold in. The others are given to an agent when they bear on what you said, once per session, after the chat's messages. Notes are given as background: what you say in the chat comes first, and a note an agent concluded without checking is marked so.
+- **Where a note holds.** In every conversation, or only in conversations with the working directory it was saved in (a project's conventions, its commands).
+- **Settings.** Open **Settings → Apps and tools → Tool library → Long-term memory** to see every note, **In use**, **Waiting** and **Set aside**, with who wrote it, how it is known (**You said it**, **Checked**, **Inferred, not checked**) and the chat it came from. Search them, **Add a note** of your own, **Edit**, **Pin** or **Unpin**, **Set aside**, **Restore** and **Delete**. A note you edit becomes yours. Agents never delete a note: one they forget is set aside, with their reason, and a note you wrote or pinned changes only when you say (an agent's correction of it waits for you to **Keep** it).
+- **Keep notes agents save or correct only once I keep them** makes every new note and correction wait for you. **Let agents read and save long-term memory** turns it all off and on; the notes stay.
+- **Tidying.** Now and then (once five notes were saved or changed, at most every 12 hours), the lead agent checks the new notes against the chats they came from, corrects them, merges duplicates, sets aside what is wrong or no longer worth keeping, and pins the few notes every chat needs; **Tidy up now** does it at once. It runs on the lead agent's account, and never changes notes you wrote. The last tidying's summary shows above the notes. Turn **Let the lead agent tidy the memory now and then** off to tidy only when you ask.
+
+Notes stay when you delete the chat they came from, and stay on this computer, in Harness Relay's database; a shared chat leaves its memory cards out. They are matched to what you say by words, so a pinned note is the way to give one to every chat. This is not the tool library's **Memory** row, which holds notes you write for every agent's briefing.
 
 ### Common apps
 
