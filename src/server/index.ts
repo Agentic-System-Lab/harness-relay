@@ -14,7 +14,7 @@ import { desktopParent } from './parent';
 import { Updates } from './updates';
 import { relayVersion } from './about';
 import { apiPort, DEFAULT_HOST, isDevRun } from './ports';
-import { killAll } from './process';
+import { killAll, runProcess } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
@@ -32,10 +32,19 @@ import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { agentFolderOptions, clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
+import {
+  agentFolderOptions,
+  clearRunTmp,
+  dataDirInTemp,
+  makeCodespaceGhDir,
+  protectedReads,
+  relayTmpDir,
+  voiceDirProblem,
+} from './protect';
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
-import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
+import { RUN_TMP_DIR, clearOpenRunLeftovers, privateRoots } from './agents/open';
+import { runCodeTool, sandboxedRunner } from './runCode';
 import { clearCheckTrees } from './checkCommands';
 import {
   clearRelaySandboxLeftovers,
@@ -164,6 +173,21 @@ gateway.register([
     teams,
   ),
 ]);
+// With RELAY_RUN_CODE=on, code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`).
+if (CONFIG.runCode) {
+  gateway.register([
+    runCodeTool({
+      platform: process.platform,
+      node: () => gatewayNode(),
+      sandbox: sandboxedRunner(() => ({
+        protectedPaths: protectedReads(),
+        privateRoots: privateRoots(settings.openAgentHome('opencode'), undefined, settings.openAgentRoots()),
+      })),
+      runProcess,
+      env: process.env,
+    }),
+  ]);
+}
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;

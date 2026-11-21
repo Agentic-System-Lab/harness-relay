@@ -41,6 +41,12 @@ export interface ServerConfig extends ServerLimits {
    */
   microsoftImap?: MailServer;
   microsoftSmtp?: MailServer;
+  /**
+   * Whether agents get the gateway's `run_code` tool (`RELAY_RUN_CODE=on`): JavaScript that calls the
+   * turn's other Harness Relay tools as functions, run in Harness Relay's own sandbox with no network
+   * (`runCode.ts`). Off by default: agents call those tools one at a time, as before.
+   */
+  runCode: boolean;
 }
 
 /**
@@ -134,6 +140,15 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return { host, port, security: starttls ? 'starttls' : 'tls' };
   };
 
+  // `on` or `off` (any letter case); unset or blank is off. Anything else is refused rather than read as either.
+  const onOff = (name: string): boolean => {
+    const raw = env[name]?.trim();
+    if (!raw || raw.toLowerCase() === 'off') return false;
+    if (raw.toLowerCase() === 'on') return true;
+    problems.push(`${name}=${raw} is neither on nor off.`);
+    return false;
+  };
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
@@ -148,6 +163,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
     microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
+    runCode: onOff('RELAY_RUN_CODE'),
   };
   return { config, problems };
 }
