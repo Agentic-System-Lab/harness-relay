@@ -1399,6 +1399,36 @@ describe('accounts', () => {
     const other = (await (await call('PUT', '/api/settings', { lead: { provider: 'claude', account: id } })).json()) as SettingsView;
     expect(other.lead).toEqual({ provider: 'claude' });
   });
+
+  it("keeps each member's own limit for the CLIs that have one, drops another CLI's, and refuses one out of bounds", async () => {
+    const { call, store: s } = accountsApp();
+    const res = await call('POST', '/api/conversations', {
+      agents: [
+        { name: 'Ann', provider: 'claude', role: '', limits: { usd: 1.5 } },
+        { name: 'Bob', provider: 'opencode', role: '', limits: { steps: 30, usd: 9 } },
+        { name: 'Cy', provider: 'codex', role: '', limits: { usd: 4 } },
+        { name: 'Di', provider: 'claude', role: '', limits: null },
+      ],
+      settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+    });
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    expect(conv.agents.map((a) => a.limits)).toEqual([{ usd: 1.5 }, { steps: 30 }, undefined, undefined]);
+    expect(s.get(conv.id)!.agents[0]!.limits).toEqual({ usd: 1.5 });
+    for (const limits of [{ aiCredits: 10 }, { aiCredits: 30.5 }, { aiCredits: 'many' }]) {
+      const bad = await call('POST', '/api/presets', {
+        name: 'Capped',
+        agents: [{ name: 'Pilot', provider: 'copilot', role: '', limits }],
+      });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toBe('Agent "Pilot" has an invalid limit: it must be from 30 to 1000000');
+    }
+    const saved = await call('POST', '/api/presets', {
+      name: 'Capped',
+      agents: [{ name: 'Pilot', provider: 'copilot', role: '', limits: { aiCredits: 60 } }],
+    });
+    expect(((await saved.json()) as TeamPreset).agents[0]!.limits).toEqual({ aiCredits: 60 });
+  });
 });
 
 describe('default team checks', () => {

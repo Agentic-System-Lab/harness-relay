@@ -41,6 +41,7 @@ import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
+  agentLimitsFor,
   currentPlan,
   cwdsOf,
   isEndpointCli,
@@ -50,6 +51,7 @@ import {
   planSavable,
 } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
+import { withSubModelTokens, type SubModelTokens } from './runCode';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest, type RunOptions } from './agents/types';
 import {
@@ -84,7 +86,9 @@ import {
   keepMemberIds,
   memberAvailable,
   planFollowsTeam,
-  parsePlanReply,
+  leadReply,
+  PLAN_SCHEMA,
+  REVISION_SCHEMA,
   teamSettings,
   type PlanConversation,
   type PlanDecision,
@@ -105,7 +109,7 @@ import {
 import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
 import { checkModel } from './modelCheck';
-import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
+import { REVIEWER_BRIEFING, REVIEW_SCHEMA, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import {
   RunCheck,
   checksResult,
@@ -2633,6 +2637,7 @@ export class Orchestrator {
           ...(run.designFor !== undefined ? { schedule: { newChat: Boolean(conv.schedule?.newChat) } } : {}),
         }),
         systemPrompt: PLANNER_BRIEFING,
+        outputSchema: PLAN_SCHEMA,
         cwd: conv.settings.cwd,
         permission: 'read-only',
         stateKey: stateKeys.lead(conv.id),
@@ -2651,14 +2656,15 @@ export class Orchestrator {
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
-      decision = decidePlan(parsePlanReply(reply), ctx, lead, current);
+      decision = decidePlan(leadReply(reply, result.structured), ctx, lead, current);
     } catch (err) {
       if (!run.abort.signal.aborted) {
         console.warn('[orchestrator] team design failed:', (err as Error).message);
         failure = (err as Error).message;
         if (ctx && !(err instanceof PlanUnavailableError)) {
           try {
-            const raw = reply.trim();
+            // What the lead answered: its text, or the structured answer its CLI gave.
+            const raw = reply.trim() || (result?.structured !== undefined ? JSON.stringify(result.structured) : '');
             const diagnostic = raw && raw !== failure ? `${failure}\n\n${raw}` : failure;
             decision = fallbackPlan(ctx, lead, diagnostic, current);
           } catch (fallbackError) {
@@ -2763,6 +2769,7 @@ export class Orchestrator {
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees),
         systemPrompt: REVIEWER_BRIEFING,
+        outputSchema: REVIEW_SCHEMA,
         cwd: conv.settings.cwd,
         ...(addDirs.length ? { addDirs } : {}),
         permission: 'read-only',
@@ -2777,7 +2784,7 @@ export class Orchestrator {
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
-      review = parseReviewReply(reply, material.replies);
+      review = parseReviewReply(reply, material.replies, result.structured);
     } catch (err) {
       if (!signal.aborted) {
         console.warn('[orchestrator] lead review failed:', (err as Error).message);
@@ -3736,6 +3743,7 @@ export class Orchestrator {
           savedCwd: sameFolder(place.cwd, conv.settings.cwd) ? undefined : conv.settings.cwd,
         }),
         systemPrompt: REVISER_BRIEFING,
+        outputSchema: REVISION_SCHEMA,
         cwd: conv.settings.cwd,
         stateKey: stateKeys.revise(conv.id),
         permission: 'read-only',
@@ -3756,7 +3764,7 @@ export class Orchestrator {
     if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
     if (signal.aborted) throw stopped();
     try {
-      const revised = decideRevision(parsePlanReply(reply), draft, ctx, lead);
+      const revised = decideRevision(leadReply(reply, result.structured), draft, ctx, lead);
       return {
         ...revised,
         meta: {
@@ -4330,6 +4338,8 @@ export class Orchestrator {
       return item;
     };
 
+    // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
+    const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
     const attempt = async (fresh: boolean): Promise<RunResult> => {
       if (fresh) {
         state.sessionId = undefined;
@@ -4376,6 +4386,8 @@ export class Orchestrator {
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
+      // The member's own limit, the one its CLI has.
+      const limits = agentLimitsFor(agent.provider, agent.limits);
       // Over loopback HTTP for the CLIs that keep its token in memory (`GATEWAY_OVER_HTTP`), else the stdio
       // program; below full access, a CLI whose sandbox holds its MCP servers gets no stdio stand-in
       // (`GATEWAY_SANDBOXED_MCP`), and one with no HTTP way at all none (`GATEWAY_FULL_ACCESS_ONLY`).
@@ -4398,6 +4410,10 @@ export class Orchestrator {
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
                 toOutbox,
+                usage: (u) => {
+                  subModel.inputTokens += u.inputTokens;
+                  subModel.outputTokens += u.outputTokens;
+                },
                 signal: turnSignal,
               },
               tools.relayGroups,
@@ -4434,6 +4450,7 @@ export class Orchestrator {
           freshState,
           model,
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
+          ...(limits ? { limits } : {}),
           signal: run.abort.signal,
           onEvent,
           requestApproval: cliApproval(Boolean(relay)),
@@ -4493,8 +4510,7 @@ export class Orchestrator {
         ...msg.meta,
         durationMs: Date.now() - started,
         costUsd: result.costUsd,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
+        ...withSubModelTokens(result, subModel),
       };
       state.seen.push(msg.id);
     } catch (err) {
@@ -4504,7 +4520,13 @@ export class Orchestrator {
       if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
-      msg.meta = { ...msg.meta, durationMs: Date.now() - started };
+      // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
+      const spent = err instanceof AgentRunError ? err.usage : undefined;
+      msg.meta = {
+        ...msg.meta,
+        durationMs: Date.now() - started,
+        ...(spent ? { costUsd: spent.costUsd, ...withSubModelTokens(spent, subModel) } : {}),
+      };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {
       // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.

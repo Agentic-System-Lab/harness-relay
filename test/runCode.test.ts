@@ -27,6 +27,7 @@ import {
   runnerEnv,
   sandboxedRunner,
   type RunCodeDeps,
+  withSubModelTokens,
 } from '../src/server/runCode';
 import { GATEWAY_MAX_CALL } from '../src/server/gatewayShim';
 import type { LlmRequest } from '../src/server/llmQuery';
@@ -749,6 +750,18 @@ return { answers: answers.length, first: answers[0], mail };`,
     );
   });
 
+  it("counts the sub-model's tokens into the turn's reply, each question once it is answered", async () => {
+    const { t } = rlmTool();
+    const spent: { inputTokens: number; outputTokens: number }[] = [];
+    const turn = ctx({ usage: (u) => spent.push(u) });
+    await t.run!({ code: `await llm_query('abc'); try { await llm_query(''); } catch {} return await llm_query('abcdef');` }, turn, scope);
+    // The refused question was never asked: not counted.
+    expect(spent).toEqual([
+      { inputTokens: 3, outputTokens: 5 },
+      { inputTokens: 6, outputTokens: 5 },
+    ]);
+  });
+
   it('asks it at most its questions in a turn, and refuses one too long or with max_tokens out of range', async () => {
     const { t, asked } = rlmTool();
     const turn = ctx();
@@ -1049,5 +1062,14 @@ describe('run_code: whether it can run here', () => {
       text: 'run_code is turned off in Settings → Labs.',
       isError: true,
     });
+  });
+});
+
+describe("a reply's tokens with RLM's sub-model's", () => {
+  it("adds them to the CLI's own, and shows none where the CLI reports none", () => {
+    const sub = { inputTokens: 5, outputTokens: 1 };
+    expect(withSubModelTokens({ inputTokens: 100, outputTokens: 10 }, sub)).toEqual({ inputTokens: 105, outputTokens: 11 });
+    expect(withSubModelTokens({ inputTokens: 100 }, sub)).toEqual({ inputTokens: 105, outputTokens: undefined });
+    expect(withSubModelTokens({}, sub)).toEqual({ inputTokens: undefined, outputTokens: undefined });
   });
 });

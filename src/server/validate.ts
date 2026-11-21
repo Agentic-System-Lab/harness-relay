@@ -6,6 +6,7 @@ import { reservedMcpName } from './gateway';
 import { commitPatternError, hasRules, tidyFolder, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
+  AGENT_LIMITS,
   API_BACKENDS,
   BACKEND_LIMITS,
   CHECK_LIMITS,
@@ -31,6 +32,7 @@ import {
   OAUTH_USES,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
+  agentLimitValid,
   cwdSettings,
   parseBackendModel,
   VOICE_MODELS,
@@ -430,8 +432,22 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
       effort: validEffort(a.effort, name),
       ...validAccount(a.account),
       ...validAgentTools(a.tools),
+      ...validAgentLimits(a.provider!, a.limits, name),
     };
   });
+}
+
+/**
+ * A member's limits: only its CLI's own (`AGENT_LIMITS`), whose value must be one the CLI takes; any
+ * other is dropped (one kept from another CLI the member was on, say). Null or none: no limit.
+ */
+function validAgentLimits(provider: Provider, input: unknown, name: string): Pick<AgentConfig, 'limits'> {
+  const spec = AGENT_LIMITS[provider];
+  if (!spec || !input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const v = (input as Record<string, unknown>)[spec.key];
+  if (v === undefined || v === null) return {};
+  if (!agentLimitValid(spec, v)) bad(t().badLimit(name, spec.min, spec.max));
+  return { limits: { [spec.key]: v } };
 }
 
 /**

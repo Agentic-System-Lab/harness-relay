@@ -51,6 +51,7 @@ import {
   PROVIDERS,
   TOOL_CALL_KINDS,
   TRIGGER_SOURCES,
+  agentLimitsFor,
   cwdSettings,
   pendingPlan,
   type ScheduleTrigger,
@@ -144,6 +145,7 @@ interface AgentRow {
   effort: string | null;
   tools: string | null;
   account: string | null;
+  limits: string | null;
 }
 
 interface MessageRow {
@@ -262,6 +264,8 @@ function toAgent(r: AgentRow): AgentConfig {
   const tools = parseTools(r.tools);
   if (tools) agent.tools = tools;
   if (r.account) agent.account = r.account;
+  const limits = agentLimitsFor(r.provider, parseJson<unknown>(r.limits, undefined));
+  if (limits) agent.limits = limits;
   return agent;
 }
 
@@ -280,6 +284,12 @@ function parseTools(json: string | null): Record<string, boolean> | undefined {
 
 function toolsJson(a: AgentConfig): string | null {
   return a.tools && Object.keys(a.tools).length ? JSON.stringify(a.tools) : null;
+}
+
+/** A member's limits as stored (JSON: `AgentLimits`), only those its CLI has; null when it has none. */
+function limitsJson(a: AgentConfig): string | null {
+  const limits = agentLimitsFor(a.provider, a.limits);
+  return limits ? JSON.stringify(limits) : null;
 }
 
 type ToolData = Pick<Extract<MessagePart, { type: 'tool' }>, 'kind' | 'parentId' | 'agent' | 'model'>;
@@ -888,7 +898,7 @@ export class Store {
     const agents = (
       this.db
         .prepare(
-          'SELECT agent_id, name, provider, role, model, effort, tools, account FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
+          'SELECT agent_id, name, provider, role, model, effort, tools, account, limits FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
         )
         .all(id) as unknown as AgentRow[]
     ).map(toAgent);
@@ -1097,11 +1107,11 @@ export class Store {
   private writeAgents(conv: Conversation): void {
     this.db.prepare('DELETE FROM conversation_agents WHERE conversation_id = ?').run(conv.id);
     const insert = this.db.prepare(
-      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools, account)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools, account, limits)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     conv.agents.forEach((a, i) =>
-      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
+      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null, limitsJson(a)),
     );
   }
 
@@ -1845,7 +1855,7 @@ export class Store {
       checks: string | null;
     }[];
     const agentStmt = this.db.prepare(
-      'SELECT agent_id, name, provider, role, model, effort, tools, account FROM preset_agents WHERE preset_id = ? ORDER BY position',
+      'SELECT agent_id, name, provider, role, model, effort, tools, account, limits FROM preset_agents WHERE preset_id = ? ORDER BY position',
     );
     const user = rows.map<TeamPreset>((r) => ({
       id: r.id,
@@ -1880,11 +1890,11 @@ export class Store {
         );
       this.db.prepare('DELETE FROM preset_agents WHERE preset_id = ?').run(p.id);
       const insert = this.db.prepare(
-        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account, limits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       p.agents.forEach((a, i) =>
-        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
+        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null, limitsJson(a)),
       );
     });
   }

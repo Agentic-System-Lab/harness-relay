@@ -23,7 +23,10 @@ import { writeFileSync } from 'node:fs';
  *   permission request first, then the policy and usage; its dev-tool access writes the paths in
  *   `FAKE_COPILOT_DEV_WRITES` (path-delimited), and its keychain access is `FAKE_COPILOT_KEYCHAIN`
  *   (else off); else a reply, with `stopReason: "cancelled"` for
- *   `FAKE_COPILOT_CANCELLED`, or a failed model call's error line and no usage for `FAKE_COPILOT_MODEL_DOWN`), `session/set_config_option` and `logout` (an error with
+ *   `FAKE_COPILOT_CANCELLED`, or a failed model call's error line and no usage for `FAKE_COPILOT_MODEL_DOWN`; before its
+ *   answer, an `assistant.usage` runtime event (`github.com/copilot/sessionEvent`) for each `{id, data}` of
+ *   `FAKE_COPILOT_USAGE_EVENTS` (JSON) when the client listed that type in `initialize`, and no usage in the
+ *   answer with `FAKE_COPILOT_NO_USAGE`), `session/set_config_option` and `logout` (an error with
  *   `FAKE_COPILOT_LOGOUT_FAIL`). `/work/app`, the recordings' working directory, is played as
  *   `FAKE_COPILOT_CWD` when that is set.
  * - `login --device-code`: prints GitHub's device link and a code, then records the user as signed in
@@ -157,6 +160,8 @@ function signedIn() {
 }
 /** Its own requests (a permission request) waiting for the client's answer: what to do then, by id. */
 const waiting = new Map();
+/** The runtime events the client listed in \`initialize\` (\`_meta["github.com/copilot"].events\`): only those are sent it. */
+let subscribed = [];
 const say = (sid, text) => send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } } });
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
@@ -169,6 +174,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     if (env.FAKE_COPILOT_OWN_POLICY && said === '/sandbox policy' && queue[0] && queue[0].policy) queue.shift();
     const s = env.FAKE_COPILOT_OWN_POLICY && said === '/sandbox policy' ? undefined : queue.shift();
     if (s) { ids.set(s.recordedId, m.id); return play(s); }
+    if (m.method === 'initialize') subscribed = (((m.params || {}).clientCapabilities || {})._meta || {})['github.com/copilot']?.events || [];
     if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: { auth: { logout: {} }, loadSession: true, mcpCapabilities: { http: true, sse: true }, promptCapabilities: { image: true, audio: false, embeddedContext: true }, sessionCapabilities: { close: {}, list: {} } }, agentInfo: { name: 'Copilot', title: 'Copilot', version: '1.0.109' }, authMethods: [] } });
     if (m.method === 'logout') {
       if (env.FAKE_COPILOT_LOGOUT_FAIL) return send({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: 'keychain locked' } });
@@ -213,6 +219,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     if (env.FAKE_COPILOT_CANCELLED) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'cancelled' } });
       if (env.FAKE_COPILOT_MODEL_DOWN) { say(sid, 'Error: Could not connect to local model provider at http://127.0.0.1:9/v1.'); return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } }); }
       say(sid, 'hello');
+      // Its model calls' usage, as copilot 1.0.112 reports it: an \`assistant.usage\` runtime event each.
+      if (subscribed.includes('assistant.usage'))
+        for (const e of JSON.parse(env.FAKE_COPILOT_USAGE_EVENTS || '[]'))
+          send({ jsonrpc: '2.0', method: 'github.com/copilot/sessionEvent', params: { sessionId: sid, id: e.id, type: 'assistant.usage', ephemeral: true, data: e.data } });
+      if (env.FAKE_COPILOT_NO_USAGE) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } });
       return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 1 } } });
     }
     if (m.method.startsWith('session/')) return send({ jsonrpc: '2.0', id: m.id, result: {} });

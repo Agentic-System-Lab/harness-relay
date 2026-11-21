@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
+import { agentLimitsFor, endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
 import { isPublishCommand } from '../commands';
 import { t } from '../i18n';
@@ -46,6 +46,7 @@ import {
   type ApprovalRequest,
   type RunOptions,
   type RunResult,
+  type RunUsage,
 } from './types';
 import { guardGlobs, isGuarded, type WriteGuard } from '../writeGuard';
 
@@ -493,6 +494,8 @@ export function copilotArgs(o: {
   effort?: string;
   /** The team's protected paths, which its own write tools may not write (`copilotGuardArgs`). */
   guard?: WriteGuard;
+  /** The member's own limit: the AI credits its session may use (`--max-ai-credits`, a soft cap, at least 30). */
+  maxAiCredits?: number;
 }): string[] {
   const off = new Set(o.nativeOff ?? []);
   return [
@@ -506,6 +509,7 @@ export function copilotArgs(o: {
     ...(off.has('mcp') ? [] : (o.nativeItems?.mcp ?? []).flatMap((name) => ['--disable-mcp-server', name])),
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--reasoning-effort', o.effort] : []),
+    ...(o.maxAiCredits ? ['--max-ai-credits', String(o.maxAiCredits)] : []),
   ];
 }
 
@@ -1312,6 +1316,61 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
   };
 }
 
+/**
+ * The runtime events the client subscribes to in `initialize` (`clientCapabilities._meta["github.com/copilot"].events`):
+ * Copilot sends a client only those it lists, each as a `COPILOT_SESSION_EVENT` notification
+ * (`copilot help acp`). `assistant.usage`: one for each model call, a subagent's and compaction's too.
+ */
+export const COPILOT_RUNTIME_EVENTS: readonly string[] = ['assistant.usage'];
+export const COPILOT_SESSION_EVENT = 'github.com/copilot/sessionEvent';
+
+/** The nano AI units in one AI credit, as `copilotUsage.totalNanoAiu` counts them (`copilot help billing`). */
+const NANO_AIU = 1e9;
+
+/**
+ * A turn's model calls as its `assistant.usage` events report them (session-events schema, Copilot
+ * 1.0.112), each counted once: the input with the cache reads and writes added, which Copilot keeps
+ * apart (it prices each of them apart: `copilot help billing`), and the output as it is (the reasoning
+ * is part of it); and the AI credits of the calls that report them (`copilotUsage.totalNanoAiu`).
+ */
+export function createCopilotUsage() {
+  const seen = new Set<string>();
+  let calls = 0;
+  let input = 0;
+  let output = 0;
+  let nanoAiu = 0;
+  let credited = false;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+  return {
+    /** A `COPILOT_SESSION_EVENT` notification's params; any other event is not counted. */
+    add(params: Record<string, any>): void {
+      if (params?.type !== 'assistant.usage' || !params.data || typeof params.data !== 'object') return;
+      const d = params.data as Record<string, any>;
+      const id = typeof params.id === 'string' ? params.id : typeof d.accounting?.usageId === 'string' ? d.accounting.usageId : undefined;
+      if (id !== undefined) {
+        if (seen.has(id)) return;
+        seen.add(id);
+      }
+      calls++;
+      input += num(d.inputTokens) + num(d.cacheReadTokens) + num(d.cacheWriteTokens);
+      output += num(d.outputTokens);
+      const aiu = d.copilotUsage?.totalNanoAiu;
+      if (typeof aiu === 'number' && Number.isFinite(aiu) && aiu >= 0) {
+        nanoAiu += aiu;
+        credited = true;
+      }
+    },
+    /** The tokens counted, or none when no call was reported. */
+    get tokens(): Pick<RunUsage, 'inputTokens' | 'outputTokens'> {
+      return calls ? { inputTokens: input, outputTokens: output } : {};
+    },
+    /** The AI credits counted, when a call reported any. */
+    get aiCredits(): number | undefined {
+      return credited ? nanoAiu / NANO_AIU : undefined;
+    },
+  };
+}
+
 // --- The runner --------------------------------------------------------------------------------
 
 /** The label under a call the user declined (Copilot takes no message with a refusal, and ends its turn). */
@@ -1385,6 +1444,7 @@ export const copilotRunner: AgentRunner = {
       teamHooks,
     });
     const effort = endpoint ? endpointEffort('copilot', o.effort) : o.effort?.trim() || undefined;
+    const maxAiCredits = endpoint ? undefined : agentLimitsFor('copilot', o.limits)?.aiCredits;
     const args = (withEffort: boolean) =>
       copilotArgs({
         permission: o.permission,
@@ -1394,6 +1454,8 @@ export const copilotRunner: AgentRunner = {
         model: endpoint ? undefined : o.model?.trim() || undefined,
         effort: withEffort ? effort : undefined,
         ...(o.guard ? { guard: o.guard } : {}),
+        // Its own models only: the user's own endpoint uses no AI credits.
+        ...(maxAiCredits ? { maxAiCredits } : {}),
       });
     const prepare = (prep: () => CopilotRun): CopilotRun => {
       try {
@@ -1485,7 +1547,14 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createCopilotUpdateHandler(o.onEvent);
+  const usage = createCopilotUsage();
+  /** What the turn used so far, kept when it fails or is stopped. */
+  const spent = (): RunUsage | undefined => (usage.tokens.inputTokens === undefined ? undefined : usage.tokens);
   conn.onNotification = (method, params) => {
+    if (method === COPILOT_SESSION_EVENT) {
+      if (!opening && sessionId && params?.sessionId === sessionId) usage.add(params);
+      return;
+    }
     if (method !== 'session/update' || opening) return;
     if (!sessionId || params?.sessionId !== sessionId) return;
     const u = params?.update;
@@ -1561,7 +1630,11 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
   try {
     const init = await conn.request('initialize', {
       protocolVersion: 1,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+        _meta: { 'github.com/copilot': { events: [...COPILOT_RUNTIME_EVENTS] } },
+      },
     });
     const caps = init?.agentCapabilities ?? {};
     const mcpServers = how.policyOnly ? [] : acpMcpServers(o.mcpServers ?? [], Boolean(caps.mcpCapabilities?.http), 'copilot');
@@ -1634,12 +1707,19 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (failed) throw new AgentRunError(failed);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().copilotCancelled);
-    // The turn's: one process per turn, and its count starts when the process opens the session.
-    return { sessionId, ...acpTokens(result?.usage) };
+    // The turn's: one process per turn, and its count starts when the process opens the session. Its
+    // model calls' own events when the answer has none; their AI credits, which it never has.
+    const answered = acpTokens(result?.usage);
+    const tokens = answered.inputTokens === undefined && answered.outputTokens === undefined ? usage.tokens : answered;
+    const aiCredits = usage.aiCredits;
+    return { sessionId, ...tokens, ...(aiCredits !== undefined ? { aiCredits } : {}) };
   } catch (err) {
-    if (userAborted) throw new AgentRunError(t().stopped, true);
-    if (err instanceof AgentRunError) throw err;
-    throw new AgentRunError(err instanceof Error ? err.message : String(err));
+    if (userAborted) throw new AgentRunError(t().stopped, true, spent());
+    if (err instanceof AgentRunError) {
+      err.usage ??= spent();
+      throw err;
+    }
+    throw new AgentRunError(err instanceof Error ? err.message : String(err), false, spent());
   } finally {
     opening = false;
     o.signal.removeEventListener('abort', onAbort);

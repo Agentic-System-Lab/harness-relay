@@ -54,6 +54,7 @@ import {
   claudeHookCall,
   claudeHookOutput,
   claudeHooksConfig,
+  setClaudeStopGrace,
 } from '../src/server/agents/claude';
 import type { TurnHooks } from '../src/server/hooks';
 import { AgentRunError, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
@@ -1534,6 +1535,145 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       );
       expect(unknown.find((l) => l.hook === 'before')?.answer).toEqual({});
       expect(other.seen).toEqual([]);
+    });
+  });
+});
+
+describe("the answer's shape, a budget and a stop", () => {
+  const base = { systemPrompt: 'briefing', ask: false, newSessionId: 'new-id', permission: 'read-only' as const };
+  const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  it('asks for a JSON shape and a budget only when given them', () => {
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const args = claudeArgs({ ...base, jsonSchema: schema, maxBudgetUsd: 2.5 });
+    expect(JSON.parse(after(args, '--json-schema')!)).toEqual(schema);
+    expect(after(args, '--max-budget-usd')).toBe('2.5');
+    const plain = claudeArgs(base);
+    expect(plain).not.toContain('--json-schema');
+    expect(plain).not.toContain('--max-budget-usd');
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-shape-')));
+    afterAll(() => {
+      setClaudeStopGrace();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const endpoint = {
+      backends: { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] }] },
+      model: 'homelab/gemma4:e4b',
+    };
+    let n = 0;
+    const run = (env: Record<string, string>, more: Partial<Parameters<typeof claudeRunner.run>[0]> = {}) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      writeFileSync(log, '');
+      const result = withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: log, ...env },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+          ...more,
+        }),
+      );
+      const lines = () =>
+        readFileSync(log, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => JSON.parse(l) as Record<string, any>);
+      return { result, lines };
+    };
+
+    it('gives back the structured answer in the shape asked for, and none without one or on an endpoint', async () => {
+      const shaped = run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }, { outputSchema: schema });
+      await expect(shaped.result).resolves.toMatchObject({ structured: { group: 2 } });
+      expect(shaped.lines().find((l) => l.jsonSchema)?.jsonSchema).toEqual(schema);
+      // Not asked for: none, even when the CLI would have one.
+      const unasked = await run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }).result;
+      expect(unasked.structured).toBeUndefined();
+      // On the user's own endpoint the shape is not asked for: the caller reads the text.
+      const own = run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }, { outputSchema: schema, ...endpoint });
+      expect((await own.result).structured).toBeUndefined();
+      expect(own.lines()[0]!.args).not.toContain('--json-schema');
+    });
+
+    it('answers in text when Claude Code could not answer in the shape, instead of failing', async () => {
+      const r = run(
+        {
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["no valid output"]}',
+        },
+        { outputSchema: schema },
+      );
+      const result = await r.result;
+      expect(result.structured).toBeUndefined();
+      expect(result.sessionId).toBe('fake-session');
+      // Without a shape asked for, the same result is a failure.
+      await expect(
+        run({
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["no valid output"]}',
+        }).result,
+      ).rejects.toThrow('no valid output');
+    });
+
+    it("gives Claude Code the member's budget, says so when it is reached, and keeps what the turn cost", async () => {
+      const r = run({}, { limits: { usd: 2 } });
+      await r.result;
+      expect(
+        r.lines()[0]!.args.slice(r.lines()[0]!.args.indexOf('--max-budget-usd'), r.lines()[0]!.args.indexOf('--max-budget-usd') + 2),
+      ).toEqual(['--max-budget-usd', '2']);
+      const reached = run(
+        {
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_budget_usd","is_error":true,"result":null,"errors":["Reached maximum budget ($2)"],"total_cost_usd":2.1}',
+        },
+        { limits: { usd: 2 } },
+      );
+      const err = (await reached.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toBeInstanceOf(AgentRunError);
+      expect(err.message).toContain('US$2');
+      expect(err.usage).toMatchObject({ inputTokens: 1, outputTokens: 1 });
+      // Another CLI's limit, or one on the user's own endpoint (priced as Claude Code's own), sets none.
+      const other = run({}, { limits: { steps: 5 } });
+      await other.result;
+      expect(other.lines()[0]!.args).not.toContain('--max-budget-usd');
+      const own = run({}, { limits: { usd: 2 }, ...endpoint });
+      await own.result;
+      expect(own.lines()[0]!.args).not.toContain('--max-budget-usd');
+    });
+
+    it('asks Claude Code to interrupt a stopped turn, keeping the usage its result gives', async () => {
+      const stop = new AbortController();
+      const events: AgentEvent[] = [];
+      const r = run({ FAKE_CLAUDE_WAIT: '1' }, { signal: stop.signal, onEvent: (e) => events.push(e) });
+      await vi.waitFor(() => expect(events).toContainEqual({ type: 'text', text: 'Working' }));
+      stop.abort();
+      const err = (await r.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toMatchObject({ message: 'Stopped', aborted: true });
+      expect(err.usage).toEqual({ costUsd: 0.05, inputTokens: 40, outputTokens: 6 });
+      expect(r.lines().some((l) => l.interrupt)).toBe(true);
+    });
+
+    it('stops the process after a while when the interrupted turn does not end', async () => {
+      setClaudeStopGrace(200);
+      const stop = new AbortController();
+      const events: AgentEvent[] = [];
+      const r = run({ FAKE_CLAUDE_WAIT: 'deaf' }, { signal: stop.signal, onEvent: (e) => events.push(e) });
+      await vi.waitFor(() => expect(events).toContainEqual({ type: 'text', text: 'Working' }));
+      stop.abort();
+      const err = (await r.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toMatchObject({ message: 'Stopped', aborted: true });
+      expect(err.usage).toBeUndefined();
+      expect(r.lines().some((l) => l.interrupt)).toBe(true);
+      setClaudeStopGrace();
     });
   });
 });

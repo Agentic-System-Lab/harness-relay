@@ -288,12 +288,35 @@ export const en: Messages = {
       `The tool library has nothing for this CLI yet, only memory for other CLIs. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
     goToolLibrary: 'Go to Settings → Apps and tools → Tool library',
     toolProblem: 'unavailable right now',
+    limit: {
+      label: {
+        claude: 'Cost limit per turn (US$)',
+        copilot: 'AI credit limit (whole session)',
+        goose: 'Model calls per turn',
+        opencode: 'Steps per turn',
+      },
+      placeholder: 'No limit',
+      change: 'Change',
+      done: 'Done',
+      hint: {
+        claude: (min, max) =>
+          `The most one turn of this member may cost, in US dollars (${min} to ${max}), by Claude Code's own estimate; Claude Code stops the turn when it is reached. Not set on your own model endpoints, where Claude Code would price the endpoint's model as one of its own.`,
+        copilot: (min, max) =>
+          `The AI credits this member's Copilot session may use (${min} to ${max}), the earlier turns' included (from Copilot 1.0.112, its subagents' too). A soft cap: one response can go past it, and the next model call is then refused. Not set on your own model endpoints.`,
+        goose: (min, max) =>
+          `How many model calls Goose may make in one turn (${min} to ${max}; Goose's default is 1,000); then it stops and asks whether to go on.`,
+        opencode: (min, max) =>
+          `How many steps OpenCode's agent may take in one turn (one model call each, ${min} to ${max}); then it must answer in text, with no more tools.`,
+      },
+    },
     problems: {
       needAgent: 'At least one agent is needed',
       badName: (name) => `The name "${name || '(empty)'}" may only use letters, digits, _ or -`,
       duplicate: (name) => `The name @${name} is used twice`,
       tooMany: (max) => `A team may have at most ${max} ${max === 1 ? 'member' : 'members'}`,
       needCwd: 'Enter a working directory',
+      badLimit: (name, min, max, whole) =>
+        `@${name}'s limit must be ${whole ? 'a whole number' : 'a number'} from ${min} to ${max}, or empty for none`,
     },
   },
 

@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import {
+  agentLimitsFor,
   API_BACKENDS,
   isApiBackend,
   parseBackendModel,
@@ -471,6 +472,9 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     PLUGINS: goosePluginsEnv(goosePluginDirs(o.cwd, own), o),
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
   });
+  // The member's own limit: the model calls ("turns") Goose makes for one prompt before it stops to ask.
+  const steps = agentLimitsFor('goose', o.limits)?.steps;
+  if (steps) env.GOOSE_MAX_TURNS = String(steps);
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
 }
 

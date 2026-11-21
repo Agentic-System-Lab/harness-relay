@@ -292,6 +292,27 @@ export interface RunCodeDeps {
   waitMs?: number;
 }
 
+/** The tokens RLM's sub-model spent on a turn's questions (`GatewayContext.usage`). */
+export interface SubModelTokens {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * A reply's tokens: its CLI's, with what RLM's sub-model spent on the turn added (Harness Relay prices
+ * none of it: the cost stays the CLI's). Where the CLI reports none, none are shown: the sub-model's
+ * alone would read as the turn's (its tool's result lists them still).
+ */
+export function withSubModelTokens(
+  cli: { inputTokens?: number; outputTokens?: number },
+  sub: SubModelTokens,
+): { inputTokens?: number; outputTokens?: number } {
+  return {
+    inputTokens: cli.inputTokens === undefined ? undefined : cli.inputTokens + sub.inputTokens,
+    outputTokens: cli.outputTokens === undefined ? undefined : cli.outputTokens + sub.outputTokens,
+  };
+}
+
 /** What RLM mode keeps for one turn, across its runs. */
 export interface RlmTurn {
   /** `state`, as JSON, as the last run that finished left it. */
@@ -764,6 +785,8 @@ export async function runCode(
       const a = await deps.ask(rlm.model, { prompt, ...(system ? { system } : {}), maxTokens }, signal);
       asked.inputTokens += a.inputTokens;
       asked.outputTokens += a.outputTokens;
+      // Spent, whatever becomes of the run: into the turn's reply too.
+      ctx.usage?.({ inputTokens: a.inputTokens, outputTokens: a.outputTokens });
       if (a.truncated) asked.truncated++;
       reply({ type: 'result', id, text: a.text, isError: false });
     } catch (err) {

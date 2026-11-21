@@ -287,6 +287,18 @@ describe("Goose's settings per run", () => {
     }
   });
 
+  it("gives Goose the member's limit of model calls a turn, an inherited one taken out", () => {
+    const limited = context({ limits: { steps: 40 } }, { GOOSE_MAX_TURNS: '5' });
+    prepareGoose(limited, { realHome: '/h', bash: '/bin/bash' });
+    expect(limited.env.GOOSE_MAX_TURNS).toBe('40');
+    // None, or another CLI's: Goose's own default (an inherited one is not passed on).
+    for (const limits of [undefined, { usd: 3 }]) {
+      const ctx = context(limits ? { limits } : {}, { GOOSE_MAX_TURNS: '5' });
+      prepareGoose(ctx, { realHome: '/h', bash: '/bin/bash' });
+      expect(ctx.env).not.toHaveProperty('GOOSE_MAX_TURNS');
+    }
+  });
+
   it("keeps Goose's own shell on Windows, where the POSIX wrapper cannot run", () => {
     const ctx: OpenRunContext = { ...context({ model: 'homelab/muse-glimmer-30b-nvfp4' }), platform: 'win32' };
     ctx.env.GOOSE_SHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';

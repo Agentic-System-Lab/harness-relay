@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { open } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import {
+  agentLimitsFor,
+  endpointEffort,
+  PROVIDER_LABEL,
+  type NativeItemsOff,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+} from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
 import { converse, runProcess, tail } from '../process';
 import {
@@ -19,8 +27,10 @@ import {
   type AgentRunner,
   type ApprovalRequest,
   type McpServerSpec,
+  type OutputSchema,
   type RunOptions,
   type RunResult,
+  type RunUsage,
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
@@ -915,6 +925,10 @@ export function claudeArgs(o: {
   endpointEnv?: Record<string, string>;
   /** The team's protected paths, refused as `Edit` deny rules (`claudeGuardRules`). */
   guard?: WriteGuard;
+  /** The lead agent's turns: the answer's JSON shape (`--json-schema`), which the result carries as `structured_output`. */
+  jsonSchema?: OutputSchema;
+  /** The member's own limit: the US dollars the turn may cost, by Claude Code's own estimate (`--max-budget-usd`). */
+  maxBudgetUsd?: number;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -954,6 +968,9 @@ export function claudeArgs(o: {
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--effort', o.effort] : []),
+    ...(o.jsonSchema ? ['--json-schema', JSON.stringify(o.jsonSchema)] : []),
+    // Claude Code counts it for this process alone, which runs this turn alone.
+    ...(o.maxBudgetUsd ? ['--max-budget-usd', String(o.maxBudgetUsd)] : []),
     ...optional.flatMap((f) => OPTIONAL_FLAGS[f]),
     ...(o.sessionId ? ['--resume', o.sessionId] : ['--session-id', o.newSessionId!]),
   ];
@@ -1330,13 +1347,46 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   const settings = claudeSettingsFile(
     claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv, o.guard),
   );
+  // Its maker's models only: on the user's own endpoint the answer's shape is not asked for, and no
+  // budget is set, since Claude Code would price the endpoint's model as one of its own.
+  const jsonSchema = endpoint ? undefined : o.outputSchema;
+  const maxBudgetUsd = endpoint ? undefined : agentLimitsFor('claude', o.limits)?.usd;
   try {
-    const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
+    const result = await runClaudeTurn(o, {
+      mcpConfig,
+      pluginIds,
+      nativeItems,
+      settingsFile: settings?.file,
+      protectedPaths,
+      endpointEnv,
+      ...(jsonSchema ? { jsonSchema } : {}),
+      ...(maxBudgetUsd ? { maxBudgetUsd } : {}),
+    });
     // Claude Code prices a model it does not know as one of its own: no cost for the user's own endpoint.
     return endpoint ? { ...result, costUsd: undefined } : result;
+  } catch (err) {
+    if (endpoint && err instanceof AgentRunError && err.usage) err.usage = { ...err.usage, costUsd: undefined };
+    throw err;
   } finally {
     settings?.remove();
   }
+}
+
+/** How long Claude Code gets to end a turn the user stopped (its `interrupt`) before its process is stopped. */
+export const CLAUDE_STOP_GRACE_MS = 3000;
+let stopGraceMs = CLAUDE_STOP_GRACE_MS;
+
+/** For tests: another wait before a stopped turn's process is stopped (none: the default again). */
+export function setClaudeStopGrace(ms?: number): void {
+  stopGraceMs = ms ?? CLAUDE_STOP_GRACE_MS;
+}
+
+/**
+ * What a turn's result says it spent, kept when the turn fails or is stopped (`AgentRunError.usage`);
+ * undefined without a result.
+ */
+function resultUsage(r: Record<string, any> | null, before: ClaudeTally | undefined): RunUsage | undefined {
+  return r ? claudeTurnUsage(r, before) : undefined;
 }
 
 async function runClaudeTurn(
@@ -1348,6 +1398,8 @@ async function runClaudeTurn(
     settingsFile?: string;
     protectedPaths: readonly string[];
     endpointEnv?: Record<string, string>;
+    jsonSchema?: OutputSchema;
+    maxBudgetUsd?: number;
   },
 ): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
@@ -1377,6 +1429,8 @@ async function runClaudeTurn(
     protectedPaths: run.protectedPaths,
     endpointEnv: run.endpointEnv,
     ...(o.guard ? { guard: o.guard } : {}),
+    ...(run.jsonSchema ? { jsonSchema: run.jsonSchema } : {}),
+    ...(run.maxBudgetUsd ? { maxBudgetUsd: run.maxBudgetUsd } : {}),
     skip: unsupported,
   });
 
@@ -1436,10 +1490,25 @@ async function runClaudeTurn(
 
   const parser = createClaudeParser(o.onEvent, onControl);
   const initId = `init-${randomUUID()}`;
-  const sendPrompt = () => send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+  // Never once the user stopped the run (the gate below may answer after that).
+  let prompted = false;
+  const sendPrompt = () => {
+    if (o.signal.aborted) return;
+    prompted = true;
+    send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+  };
   // Our own stop as well as the user's, to end the run when its subagents cannot be left out.
   const stop = new AbortController();
-  const relayStop = () => stop.abort();
+  // The user's stop: Claude Code is asked to interrupt the turn first, which ends it with a result that
+  // says what it used (and then the process, its stdin closed); it is stopped all the same after a while.
+  let grace: NodeJS.Timeout | undefined;
+  const relayStop = () => {
+    // No turn under way yet: nothing to interrupt.
+    if (!child || !prompted) return stop.abort();
+    send({ type: 'control_request', request_id: `interrupt-${randomUUID()}`, request: { subtype: 'interrupt' } });
+    grace = setTimeout(() => stop.abort(), stopGraceMs);
+    grace.unref();
+  };
   if (o.signal.aborted) stop.abort();
   else o.signal.addEventListener('abort', relayStop, { once: true });
   let failure: AgentRunError | undefined;
@@ -1478,9 +1547,13 @@ async function runClaudeTurn(
       // One prompt per run: once the turn has its result, let Claude Code exit.
       if (parser.result) child?.stdin?.end();
     },
-  }).finally(() => o.signal.removeEventListener('abort', relayStop));
+  }).finally(() => {
+    o.signal.removeEventListener('abort', relayStop);
+    clearTimeout(grace);
+  });
   if (failure && !o.signal.aborted) throw failure;
-  if (res.aborted) throw new AgentRunError(t().stopped, true);
+  // Stopped: what its result said it used (an interrupted turn has one), else nothing.
+  if (res.aborted || o.signal.aborted) throw new AgentRunError(t().stopped, true, resultUsage(parser.result, before));
   if (res.timedOut) throw new AgentRunError(t().timedOut);
 
   const r = parser.result;
@@ -1492,13 +1565,19 @@ async function runClaudeTurn(
     if (sandboxed && why && /sandbox/i.test(why)) throw new AgentRunError(t().claudeSandbox(why));
     throw new AgentRunError(why || t().exitedWithoutReply('claude', res.code));
   }
-  if (r.is_error) {
+  const usage = claudeTurnUsage(r, before);
+  // A shape it could not answer in after its retries: the turn's text is read instead.
+  const unshaped = Boolean(run.jsonSchema) && r.subtype === 'error_max_structured_output_retries';
+  if (r.is_error && !unshaped) {
+    if (r.subtype === 'error_max_budget_usd' && run.maxBudgetUsd)
+      throw new AgentRunError(t().claudeBudgetReached(run.maxBudgetUsd), false, usage);
     const detail = typeof r.result === 'string' && r.result ? r.result : (r.errors ?? []).join('\n') || r.subtype;
-    throw new AgentRunError(String(detail || t().claudeError));
+    throw new AgentRunError(String(detail || t().claudeError), false, usage);
   }
   return {
     sessionId: parser.sessionId ?? newSessionId ?? o.sessionId,
-    ...claudeTurnUsage(r, before),
+    ...usage,
+    ...(run.jsonSchema && !unshaped && r.structured_output !== undefined ? { structured: r.structured_output } : {}),
   };
 }
 
