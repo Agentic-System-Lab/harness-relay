@@ -7,10 +7,11 @@ import { relativeTime } from '../util';
 
 /**
  * How much of an account's plan is used, as its CLI reports it: each limit as a bar with what is left
- * and when it starts over (or, used up, what pays past it: credits, usage credits…), its credits, or why there is nothing to show (an API key, a CLI that does not
- * report usage). Asked once the box is on screen (each ask starts the CLI) while the account can run
- * (`usable`), again when its sign-in or key changes (`signIn`), and when the user presses Check again;
- * the server keeps an answer for a while. Only the latest ask's answer is shown.
+ * and when it starts over (or, used up, what pays past it: credits, usage credits…), its credits, or
+ * why there is nothing to show (an API key, a CLI that does not report usage). Asked once the box is
+ * on screen (each ask starts the CLI) while the account can run (`usable`), again when its sign-in or
+ * key changes (`signIn`), and when the user presses Check again; the server keeps an answer for a
+ * while. Only the latest ask's answer is shown.
  */
 export function UsagePanel({
   provider,

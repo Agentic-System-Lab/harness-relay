@@ -193,9 +193,12 @@ describe("Codex's account and rate limits", () => {
       'workspace_member_credits_depleted',
       'workspace_owner_usage_limit_reached',
       'workspace_member_usage_limit_reached',
-    ])
-      expect(answer({ ...has('10'), rateLimitReachedType: type })).toMatchObject({ planUsageBlocked: true, limits: [{}, {}] });
-    expect(answer({ ...has('10'), rateLimitReachedType: 'workspace_owner_credits_depleted' })?.payer).toBeUndefined();
+    ]) {
+      const stopped = answer({ ...has('10'), rateLimitReachedType: type });
+      expect(stopped).toMatchObject({ planUsageBlocked: true, limits: [{}, {}] });
+      expect(stopped?.payer).toBeUndefined();
+      expect(stopped?.limits.some((l) => l.paidPast)).toBe(false);
+    }
     // Both windows of the plan's own limit are paid past; a model's own limit is not.
     const spark = {
       limitId: 'spark',
@@ -213,6 +216,20 @@ describe("Codex's account and rate limits", () => {
       ],
     });
     expect(answer(has('10'), spark)?.limits[2]).not.toHaveProperty('paidPast');
+  });
+
+  it("shows the plan's own snapshot's credits, else the first another one has", () => {
+    const snap = (limitId: string, balance: string | null) => ({
+      limitId,
+      limitName: limitId === 'codex' ? null : limitId,
+      normalModelSlug: limitId === 'codex' ? null : `gpt-${limitId}`,
+      primary: { usedPercent: 10, windowDurationMins: 300 },
+      credits: balance === null ? null : { hasCredits: true, unlimited: false, balance },
+    });
+    const answer = (...snaps: ReturnType<typeof snap>[]) =>
+      parseCodexUsage(undefined, { rateLimits: snaps[0], rateLimitsByLimitId: Object.fromEntries(snaps.map((s) => [s.limitId, s])) });
+    expect(answer(snap('spark', '5'), snap('codex', '42'))).toMatchObject({ credits: { balance: 42 }, payer: 'credits' });
+    expect(answer(snap('spark', '5'), snap('codex', null))?.credits).toEqual({ balance: 5 });
   });
 
   it('names each limit when there are several, and gives a window of another length in minutes', () => {

@@ -404,15 +404,20 @@ export async function plannerContext(
   // Keep accounts with at least one usable model, even when their default cannot run.
   const accounts: NonNullable<PlannerContext['accounts']> = {};
   const available = usable.flatMap(({ provider, ids }) => {
-    const kept = staffing
-      ? ids.filter((id) => {
-          const c = catalogFor(catalog, provider, id);
-          const usage = usageFor(staffing, provider, id);
-          return [undefined, ...(c?.models.map((m) => m.id) ?? [])].some(
-            (m) => modelAvailability(provider, c, m, usage, staffing) === 'available',
-          );
-        })
-      : ids;
+    /** How an account runs at best: 'free' on its plan's included usage, 'paid' only past it, or not at all. */
+    const runs = (id: string): 'free' | 'paid' | undefined => {
+      if (!staffing) return 'free';
+      const c = catalogFor(catalog, provider, id);
+      const usage = usageFor(staffing, provider, id);
+      const models = [undefined, ...(c?.models.map((m) => m.id) ?? [])].filter(
+        (m) => modelAvailability(provider, c, m, usage, staffing) === 'available',
+      );
+      if (!models.length) return undefined;
+      return models.some((m) => !paidUsage(provider, c, m, usage, staffing)) ? 'free' : 'paid';
+    };
+    const ranked = ids.map((id) => ({ id, runs: runs(id) })).filter((a) => a.runs);
+    // The accounts that still run on their plan first: new members get one before one billed past it.
+    const kept = [...ranked.filter((a) => a.runs === 'free'), ...ranked.filter((a) => a.runs === 'paid')].map((a) => a.id);
     if (!kept.length) return [];
     accounts[provider] = kept;
     return [provider];
@@ -663,7 +668,7 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
             }
           : catalog;
       if (!defaultAllowed) lines.push('  The default model is unavailable. Choose an explicit model below.');
-      // Models whose plan usage is used up but that run on, billed to the user: all of them in one line.
+      // Models whose plan usage is used up but that run on, billed: all of them in one line.
       const hasDefault = defaultAllowed && (Boolean(c?.defaultModel) || !c?.models.length);
       const paidDefault = hasDefault ? paidFor(ctx, p, account) : undefined;
       const each = [...(hasDefault ? [paidDefault] : []), ...(c?.models ?? []).map((m) => paidFor(ctx, p, account, m.id))];
@@ -672,13 +677,13 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
       const listedPaid = each.slice(hasDefault ? 1 : 0).some(Boolean);
       if (allPaid)
         lines.push(
-          `  Its plan's included usage is used up: it runs on ${PAYER_FOR_LEAD[allPaid]}, billed to the user for each turn. Prefer other coding agents when they fit the role as well.`,
+          `  Its plan's included usage is used up: it runs on ${PAYER_FOR_LEAD[allPaid]}, billed for each turn. Prefer other coding agents when they fit the role as well.`,
         );
       else if (somePaid)
         lines.push(
           listedPaid
-            ? `  Models marked "plan limit reached" run on ${PAYER_FOR_LEAD[somePaid]}, billed to the user for each turn${paidDefault ? ' (the default model too)' : ''}. Prefer its other models, or other coding agents, when they fit the role as well.`
-            : `  The default model's plan limit is reached: it runs on ${PAYER_FOR_LEAD[somePaid]}, billed to the user for each turn. Prefer other models or coding agents when they fit the role as well.`,
+            ? `  Models marked "plan limit reached" run on ${PAYER_FOR_LEAD[somePaid]}, billed for each turn${paidDefault ? ' (the default model too)' : ''}. Prefer its other models, or other coding agents, when they fit the role as well.`
+            : `  The default model's plan limit is reached: it runs on ${PAYER_FOR_LEAD[somePaid]}, billed for each turn. Prefer other models or coding agents when they fit the role as well.`,
         );
       const paid = allPaid ? undefined : (model: string) => paidFor(ctx, p, account, model);
       if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided, paid)}`);
@@ -904,7 +909,10 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 
 /** Keep the requested model if another account offers it, then try that CLI's other models. */
 function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgentSettings, requireListed: boolean): void {
-  if (memberAvailable(ctx, member, requireListed)) return;
+  if (memberAvailable(ctx, member, requireListed)) {
+    if (paidFor(ctx, member.provider, member.account, member.model)) toIncludedUsage(ctx, member);
+    return;
+  }
   const { provider, model, account } = member;
   const effective = assignmentModel(ctx, member);
   const staffing = ctx.staffing!;
@@ -946,6 +954,27 @@ function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgent
     return;
   }
   throw new PlanUnavailableError(endpoint ? t().planEndpointUnavailable(effective!) : t().planNoAvailableModel(false));
+}
+
+/**
+ * A member whose assignment runs billed past its account's plan (`paidFor`) moves to the same model on
+ * another account of its CLI that still runs it on its plan's included usage, when there is one.
+ */
+function toIncludedUsage(ctx: PlannerContext, member: AgentConfig): void {
+  const { provider, model, account = '' } = member;
+  const effective = assignmentModel(ctx, member);
+  const free = (ctx.accounts?.[provider] ?? [])
+    .filter((id) => id !== account)
+    .map((id) => ({
+      provider,
+      account: id,
+      model: !model && effective === catalogFor(ctx.catalog, provider, id)?.defaultModel ? undefined : effective,
+    }))
+    .find((a) => memberAvailable(ctx, a, true) && !paidFor(ctx, provider, a.account, a.model));
+  if (!free) return;
+  member.model = free.model;
+  if (free.account) member.account = free.account;
+  else delete member.account;
 }
 
 /**

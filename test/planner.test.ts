@@ -1495,7 +1495,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(got.available).toEqual(['codex']);
     const prompt = buildPlannerPrompt('q', settings, got);
     expect(prompt).toContain(
-      "  Its plan's included usage is used up: it runs on paid credits, billed to the user for each turn. Prefer other coding agents when they fit the role as well.",
+      "  Its plan's included usage is used up: it runs on paid credits, billed for each turn. Prefer other coding agents when they fit the role as well.",
     );
     expect(prompt).toContain('Models: gpt-6.2 (guide: GPT), gpt-6.1-spark (guide: GPT)');
     // Only a model's own limit is paid past: that model is marked.
@@ -1506,11 +1506,117 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     );
     const marked = buildPlannerPrompt('q', settings, scoped);
     expect(marked).toContain('Models: gpt-6.2 (guide: GPT), gpt-6.1-spark (plan limit reached; guide: GPT)');
-    expect(marked).toContain('Models marked "plan limit reached" run on paid additional usage, billed to the user for each turn.');
+    expect(marked).toContain('Models marked "plan limit reached" run on paid additional usage, billed for each turn.');
     expect(marked).not.toContain("Its plan's included usage is used up");
     // Nothing used up, or nothing paying: no note.
     const plain = buildPlannerPrompt('q', settings, await plannerContext(src({ ...blocked, limits: [], payer: 'credits' }), undefined, 50));
-    expect(plain).not.toContain('billed to the user');
+    expect(plain).not.toContain('billed for each turn');
+  });
+
+  it('staffs an account of the same CLI that still has included usage before one billed past its plan', async () => {
+    const now = Date.now();
+    const later = now + 86_400_000;
+    const codexCatalog: ProviderModels = {
+      provider: 'codex',
+      models: [{ id: 'gpt-6.2' }],
+      efforts: [],
+      defaultModel: 'gpt-6.2',
+      source: 'cli',
+    };
+    const account = (id: string) => ({ id, label: id || 'default', auth: { loggedIn: true }, usingStoredApiKey: false });
+    const paid: AccountUsage = {
+      provider: 'codex',
+      account: '',
+      checkedAt: now,
+      limits: [{ span: 'week', usedPercent: 100, resetsAt: later, paidPast: true }],
+      planUsageBlocked: true,
+      payer: 'credits',
+    };
+    const src = (work: Partial<AccountUsage>): PlannerSources => ({
+      statuses: async () => [
+        {
+          provider: 'codex',
+          installed: true,
+          bin: 'codex',
+          auth: { loggedIn: true },
+          usingStoredApiKey: false,
+          accounts: [account(''), account('work')],
+        },
+      ],
+      catalog: async () => [codexCatalog],
+      usage: async (_p, id) => (id ? { provider: 'codex', account: 'work', checkedAt: now, limits: [], ...work } : paid),
+      presets: () => [],
+      library: () => {
+        throw new Error('no library');
+      },
+      native: async () => ({ skills: [], mcpServers: [] }),
+    });
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
+    const coder = { id: 'x', name: 'Coder', provider: 'codex' as const, role: 'Code' };
+
+    // `work` has room on its plan: it comes first, new members and members who stay on the paid account
+    // move there, and the lead reads it, with no note about billing.
+    const free = await plannerContext(src({ limits: [{ span: 'week', usedPercent: 10, resetsAt: later }] }), undefined, 50);
+    expect(free.accounts?.codex).toEqual(['work', '']);
+    expect(fitAgents([coder], free, { provider: 'codex' })[0]!.account).toBe('work');
+    expect(fitAgents([coder], free, { provider: 'codex' }, [{ ...coder, id: 'old', account: '' }])[0]!.account).toBe('work');
+    expect(fitAgents([{ ...coder, model: 'gpt-6.2' }], free, { provider: 'codex' })[0]).toMatchObject({
+      account: 'work',
+      model: 'gpt-6.2',
+    });
+    expect(buildPlannerPrompt('q', settings, free)).not.toContain('billed for each turn');
+
+    // Both billed past their plans: the order stays, the member stays, the lead is told.
+    const both = await plannerContext(src({ ...paid, account: 'work' }), undefined, 50);
+    expect(both.accounts?.codex).toEqual(['', 'work']);
+    expect(fitAgents([coder], both, { provider: 'codex' })[0]!.account).toBeUndefined();
+    expect(buildPlannerPrompt('q', settings, both)).toContain("Its plan's included usage is used up: it runs on paid credits");
+
+    // `work` used up with nothing paying: only the billed account is left.
+    const out = await plannerContext(src({ limits: [{ span: 'week', usedPercent: 100, resetsAt: later }] }), undefined, 50);
+    expect(out.accounts?.codex).toEqual(['']);
+    expect(fitAgents([coder], out, { provider: 'codex' })[0]!.account).toBeUndefined();
+  });
+
+  it("tells the lead which of an account's models are billed past its plan: the default only, the default and others, or a block", () => {
+    const now = Date.now();
+    const later = now + 86_400_000;
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
+    const prompt = (defaultModel: string, u: Partial<AccountUsage>, models = [{ id: 'gpt-6.2' }, { id: 'gpt-6.1-spark' }]) =>
+      buildPlannerPrompt('q', settings, {
+        ...ctx,
+        available: ['codex'],
+        accounts: { codex: [''] },
+        catalog: [{ provider: 'codex', models, efforts: [], defaultModel, source: 'cli' }],
+        staffing: { now, usage: [{ provider: 'codex', account: '', checkedAt: now, limits: [], payer: 'usageCredits', ...u }] },
+      });
+    const own = (model: string) => ({ span: 'week' as const, model, usedPercent: 100, resetsAt: later, paidPast: true as const });
+
+    // The default model's own limit, the default listed too: it is marked, and the note says so.
+    const listed = prompt('gpt-6.2', { limits: [own('gpt-6.2')] });
+    expect(listed).toContain(
+      'Models marked "plan limit reached" run on paid usage credits (extra usage), billed for each turn (the default model too).',
+    );
+    expect(listed).toContain('Models: gpt-6.2 (plan limit reached; guide: GPT), gpt-6.1-spark (guide: GPT)');
+    // A default the CLI does not list: only the default is billed, and no model is marked.
+    const unlisted = prompt('gpt-6.3', { limits: [own('gpt-6.3')] });
+    expect(unlisted).toContain(
+      "  The default model's plan limit is reached: it runs on paid usage credits (extra usage), billed for each turn.",
+    );
+    expect(unlisted).not.toContain('plan limit reached;');
+    // The plan blocked with no limit used up: every model is billed.
+    expect(prompt('gpt-6.2', { planUsageBlocked: true })).toContain(
+      "  Its plan's included usage is used up: it runs on paid usage credits (extra usage), billed for each turn.",
+    );
+    // A model on an endpoint runs on its own backend: never billed past the plan.
+    const endpoint = prompt('gpt-6.2', { planUsageBlocked: true }, [
+      { id: 'gpt-6.2' },
+      { id: 'local/model', endpoint: 'local' },
+    ] as ProviderModels['models']);
+    expect(endpoint).toContain(
+      'Models marked "plan limit reached" run on paid usage credits (extra usage), billed for each turn (the default model too).',
+    );
+    expect(endpoint).not.toContain('local/model (plan limit reached');
   });
 
   it('applies usage credits to every Claude Code limit, a model’s own included, and Copilot’s overage to its chat', () => {
