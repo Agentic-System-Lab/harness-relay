@@ -35,7 +35,8 @@ async function run() {
     if (!script.includes('Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop')) return 22;
     const stage = process.env.RELAY_TEAMS_MODULE_STAGE;
     if (!stage || !stage.startsWith(privateModules + '-install-') || !script.includes('-Path $env:RELAY_TEAMS_MODULE_STAGE')) return 22;
-    if (!script.includes('https://www.powershellgallery.com/api/v2') || !script.includes('-Repository PSGallery')) return 22;
+    const gallery = /^\s*\$gallery = '([^']+)'\s*$/m.exec(script)?.[1];
+    if (gallery !== 'https://www.powershellgallery.com/api/v2' || !script.includes('-Repository PSGallery')) return 22;
     await waitFor('allow-module-install');
     if (existsSync(marker('bad-staged-module'))) return 22;
     mkdirSync(join(stage, moduleName), { recursive: true });
