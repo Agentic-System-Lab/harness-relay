@@ -2571,7 +2571,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps beside the paperclip to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps (four squares) to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',
@@ -2686,7 +2686,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps beside the paperclip to choose available services for each run. Relay checks them again before creating the automation. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
+        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps (four squares) to choose available services for each run. Relay checks them again before creating the automation. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',

@@ -82,12 +82,14 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
       />
       {!creation && tray}
       <div className="first-input-tools">
-        <AttachmentPicker addFiles={addFiles} />
         {apps && (
           <button
             type="button"
             ref={toggle}
-            className="ghost small-button draft-app-toggle"
+            className="icon-button draft-app-toggle"
+            // An icon like the paperclip and the microphone beside it; the apps chosen are named below the row.
+            aria-label={apps.selected.length ? `${t.apps.title} (${apps.selected.length})` : t.apps.title}
+            title={t.apps.title}
             aria-expanded={choosingApps}
             aria-controls={choicesId}
             onClick={(event) => {
@@ -98,11 +100,10 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
               }
             }}
           >
-            <AppsIcon size={15} />
-            {t.apps.title}
-            {apps.selected.length > 0 && <span>({apps.selected.length})</span>}
+            <AppsIcon />
           </button>
         )}
+        <AttachmentPicker addFiles={addFiles} />
         <VoiceButton fixedButton={creation} onError={setNotice} onText={insertVoice} />
       </div>
       {apps && (

@@ -74,21 +74,17 @@ describe('guided tour', () => {
           'Connect apps to your chats',
         ]);
       }
-      expect(titles(33)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'Start a new chat',
-        'Browse the working directory',
-        'Automations',
-      ]);
-      expect(titles(34)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'Start a new chat',
-        'Browse the working directory',
-        'Automations',
-      ]);
-      expect(titles(35)).toEqual(['API keys and endpoints for open-source agents', 'Browse the working directory']);
-      expect(titles(36)).toEqual(['Browse the working directory']);
-      expect(tourIndices(37)).toEqual([]);
+      for (let version = 33; version <= 35; version++) {
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'Start a new chat',
+          'Browse the working directory',
+          'Automations',
+        ]);
+      }
+      expect(titles(36)).toEqual(['Start a new chat', 'Browse the working directory', 'Automations']);
+      expect(titles(37)).toEqual(['Browse the working directory']);
+      expect(tourIndices(38)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -132,6 +128,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 37, fingerprint: '85e42a4f0032' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 38, fingerprint: '79d5279d569f' });
   });
 });

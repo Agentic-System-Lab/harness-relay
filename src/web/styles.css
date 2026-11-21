@@ -270,9 +270,11 @@ p {
   font-size: 13px;
 }
 
+/* No browser padding: an 18px icon would overflow the 16px it leaves in 28px, a pixel off centre. */
 .icon-button {
   background: transparent;
   border: none;
+  padding: 0;
   width: 28px;
   height: 28px;
   border-radius: 8px;
@@ -2416,11 +2418,12 @@ details.sub .model-picker {
   border: 0;
   padding: var(--task-pad) var(--task-pad) 8px;
 }
+/* 6px above the field, as in New automation, whose question is a field's label. */
 .first-question {
   display: block;
   font-size: 20px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .first-task .task-input {
   width: 100%;
@@ -2444,21 +2447,13 @@ details.sub .model-picker {
 .first-task .first-input-tools {
   align-items: center;
 }
-.draft-app-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
+.draft-app-toggle[aria-expanded='true'] {
+  background: var(--surface-2);
   color: var(--text);
 }
 .draft-app-toggle:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
-}
-@media (pointer: coarse) {
-  .draft-app-toggle {
-    min-height: 44px;
-  }
 }
 .draft-app-choices {
   display: grid;
@@ -2593,6 +2588,7 @@ details.sub .model-picker {
   margin-inline-end: auto;
   display: grid;
   place-items: center;
+  padding: 0;
   width: 32px;
   height: 32px;
   border: 1px solid var(--border);
@@ -2607,9 +2603,14 @@ details.sub .model-picker {
     animation: creation-scroll-down 1.4s ease-in-out infinite;
   }
 }
+/* As far above the middle as below it, so the arrow stays centred in its circle. */
 @keyframes creation-scroll-down {
+  0%,
+  100% {
+    transform: translateY(-1.5px);
+  }
   50% {
-    transform: translateY(3px);
+    transform: translateY(1.5px);
   }
 }
 .creation-team-options {

@@ -283,7 +283,7 @@
               <b>團隊回答後，請首席 agent 審閱回覆</b> 位於組隊確認選項下方，預設勾選。團隊回答完，首席 agent 會讀過回覆，指出該檢查的地方（見<a href="#lead-review">下方</a>）。
             </li>
           </ul>
-          <p>輸入或口述問題後就能按<b>送出問題</b>，也可以附加檔案一起送給團隊。登入 Relay 後會在背景檢查 App 連線。按迴紋針旁的<b>常用 App</b>，勾選想請團隊使用的可用服務。無法勾選的 App 會在名稱下方說明原因。若 Slack 需要確認，按<b>檢查 Slack 連線</b>，讓 Codex 讀取你自己的 Slack 個人檔案。選取的名稱會和問題一起送出，每位助理依現有權限使用。需要連結服務時，按<b>管理 App 連線</b>，再按<b>返回新對話草稿</b>，原來的問題、附件與仍可使用的 App 都會保留。送出按鈕固定在表單框內的底部，點向下箭頭可查看更多設定。</p>
+          <p>輸入或口述問題後就能按<b>送出問題</b>，也可以附加檔案一起送給團隊。登入 Relay 後會在背景檢查 App 連線。按迴紋針前的<b>常用 App</b>（四個方格的圖示），勾選想請團隊使用的可用服務。無法勾選的 App 會在名稱下方說明原因。若 Slack 需要確認，按<b>檢查 Slack 連線</b>，讓 Codex 讀取你自己的 Slack 個人檔案。選取的名稱會和問題一起送出，每位助理依現有權限使用。需要連結服務時，按<b>管理 App 連線</b>，再按<b>返回新對話草稿</b>，原來的問題、附件與仍可使用的 App 都會保留。送出按鈕固定在表單框內的底部，點向下箭頭可查看更多設定。</p>
           <figure class="doc-figure">
             <img
               src="../../../assets/media/docs/first-chat-new-chat-zh-TW.webp"
@@ -301,7 +301,7 @@
         <section id="ask" aria-labelledby="ask-title">
           <h2 id="ask-title">提出問題</h2>
           <h3 id="use-connected-apps">使用已連結的 App</h3>
-          <p>想在第一次聊天時找文件，可按迴紋針旁的<b>常用 App</b>。若 <b>Google Drive</b> 無法勾選，按<a href="../tools/#common-apps">管理 App 連線</a>，在<b>文件與筆記</b>找到 <b>Google Drive</b>，展開 Drive 列，保留預設的搜尋與讀取用途，再按<b>用 Google 登入</b>。如果看到<b>設定 Google 登入</b>，請先依照<a href="../tools/#google-oauth-setup">Google OAuth 設定步驟</a>完成登錄。在<b>選擇助理以啟用工具</b>勾選助理後，返回草稿並勾選 <b>Google Drive</b>，就可以請它依檔名找文件。若要寫入 Google 文件，請在 Drive 列找到已連結的 Google 帳號，按<b>開啟文件新增與編輯</b>。請已選好的助理起草一份文件，核對帳號、標題和內文，再按<b>建立文件</b>或<b>捨棄</b>。<a href="../tools/#google-drive">設定 Google 文件編輯</a></p>
+          <p>想在第一次聊天時找文件，可按迴紋針前的<b>常用 App</b>（四個方格的圖示）。若 <b>Google Drive</b> 無法勾選，按<a href="../tools/#common-apps">管理 App 連線</a>，在<b>文件與筆記</b>找到 <b>Google Drive</b>，展開 Drive 列，保留預設的搜尋與讀取用途，再按<b>用 Google 登入</b>。如果看到<b>設定 Google 登入</b>，請先依照<a href="../tools/#google-oauth-setup">Google OAuth 設定步驟</a>完成登錄。在<b>選擇助理以啟用工具</b>勾選助理後，返回草稿並勾選 <b>Google Drive</b>，就可以請它依檔名找文件。若要寫入 Google 文件，請在 Drive 列找到已連結的 Google 帳號，按<b>開啟文件新增與編輯</b>。請已選好的助理起草一份文件，核對帳號、標題和內文，再按<b>建立文件</b>或<b>捨棄</b>。<a href="../tools/#google-drive">設定 Google 文件編輯</a></p>
           <p>若要使用 <b>Microsoft Teams</b>，請在<b>團隊通訊</b>展開 Teams，依提示安裝 PowerShell 7，再用工作或學校帳號登入。讀取頻道訊息所需的 <code>ChannelMessage.Read.All</code> 權限必須由管理員同意；如果租用戶已授予 Microsoft Graph PowerShell 這項權限，就能沿用。選擇可讀取頻道的助理。若要發文，請另行開啟發送權限，並在 Relay 確認每一則草稿。<a href="../tools/#microsoft-teams">設定 Microsoft Teams</a></p>
           <p>若要使用 Slack，請在<b>團隊通訊 → Slack</b>開啟 Claude 或 Codex 的連結，回到 Relay 即可驗證該帳號，也可以按<b>重新檢查連線</b>。若要透過 Relay 發文，可開啟<b>從 Relay 傳送訊息</b>，再勾選<b>可提議傳送訊息的助理</b>。這些訊息會等你在 Relay 聊天按<b>送出</b>。透過代管連接器發文的權限則由 Claude 或 Codex 管理。<a href="../tools/#common-apps">連結 Slack</a></p>
           <p>在<b>郵件與行事曆</b>展開<b>郵件</b>，從<b>選擇郵件服務</b>選 <b>Gmail</b>、<b>iCloud 郵件</b>、<b>Outlook</b>或<b>其他信箱</b>。若要連結行事曆，請展開<b>行事曆</b>，在<b>選擇行事曆服務</b>中選 <b>Google Calendar</b>、<b>iCloud 行事曆</b>、<b>Outlook</b> 或<b>其他（CalDAV）</b>，即可看到所選服務的設定。若選 Gmail 或 Google Calendar，按<b>用 Google 登入</b>。若看到<b>設定 Google 登入</b>，請先在此設定共用的用戶端。各列的<b>選擇助理以啟用工具</b>可選擇使用的助理。每個 Google 或 Microsoft 帳號在<b>已連結的信箱</b>或<b>已連結的行事曆</b>各顯示一次，可在該處單獨移除一個信箱或行事曆。若要解除該帳號所有服務的連結，請到<b>帳號登入設定（OAuth 2.0）</b>，在 Google 或 Microsoft 下找到該電子郵件地址。<a href="../tools/#accounts">管理信箱與行事曆帳號</a></p>
