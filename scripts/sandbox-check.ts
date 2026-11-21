@@ -438,8 +438,151 @@ async function main() {
   await clientChecks(want);
   await localPortChecks(want);
   await escapeChecks(want);
+  await runCodeChecks(want);
   await concurrencyAndCleanup(want);
   await leftoverChecks(want);
+}
+
+/**
+ * The gateway's `run_code` (`RELAY_RUN_CODE=on`, `runCode.ts`): the runner in its sandbox as the server
+ * starts it (`sandboxedRunner()`), always read-only and with no network, whatever the conversation's
+ * permission: what it can read, write and reach, its environment, and a tool call over its stdio.
+ */
+async function runCodeChecks(want: (n: string) => boolean) {
+  if (!want('run-code')) return;
+  const rc = await import('../src/server/runCode');
+  const deps = {
+    platform: process.platform,
+    node: () => node,
+    sandbox: rc.sandboxedRunner(() => ({
+      protectedPaths: [browser, secret],
+      privateRoots: [rs.relaySandboxRoot(dataDir), rs.relaySandboxHostRoot(dataDir)],
+    })),
+    runProcess,
+    env: { ...env, ANTHROPIC_API_KEY: 'RELAY-KEY-IN-ENV' },
+    mode: () => ({ mode: 'code' as const }),
+  };
+  const scope = {
+    tools: [{ name: 'echo', tier: 'read' as const, description: 'Echo', inputSchema: {}, describe: () => ({ title: 'Echo' }) }],
+    call: async (name: string, args: Record<string, unknown>) => ({ text: `${name}:${String(args.v)}` }),
+  };
+  const token = join(dataDir, 'tmp', `gateway-${uniq()}.token`);
+  writeFileSync(token, 'RELAY-TOKEN-STAND-IN', { mode: 0o600 });
+  const code = `
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const out = {};
+    const t = async (k, f) => { try { out[k] = 'OK ' + String(await f()); } catch (e) { out[k] = 'NO ' + (e.code || e.cause?.code || e.message); } };
+    await t('readCwd', () => fs.readFileSync('README', 'utf8').trim());
+    await t('writeCwd', () => fs.writeFileSync('run-code-probe', 'x'));
+    await t('writeTmp', () => (fs.writeFileSync(os.tmpdir() + '/probe', 'x'), 'written'));
+    await t('secret', () => fs.readFileSync(${JSON.stringify(secret)}, 'utf8'));
+    await t('browser', () => fs.readFileSync(${JSON.stringify(join(browser, 'Cookies'))}, 'utf8'));
+    await t('db', () => fs.readFileSync(${JSON.stringify(join(dataDir, 'relay.db'))}, 'utf8'));
+    await t('token', () => fs.readFileSync(${JSON.stringify(token)}, 'utf8'));
+    await t('fetch', async () => (await fetch('https://example.com')).status);
+    await t('loopback', async () => (await fetch('http://127.0.0.1:${relayPort}/')).text());
+    await t('tcp', () => new Promise((resolve, reject) => {
+      const sock = (globalThis.process.getBuiltinModule('node:net')).connect(${relayPort}, '127.0.0.1');
+      sock.once('connect', () => (sock.destroy(), resolve('connected')));
+      sock.once('error', reject);
+    }));
+    await t('apiKey', () => process.env.ANTHROPIC_API_KEY ?? 'absent');
+    await t('tool', () => relay.echo({ v: 'ping' }));
+    return out;`;
+  for (const permission of ['read-only', 'full'] as const) {
+    const ctx = {
+      convId: 'c',
+      agentId: 'a',
+      agentName: 'A',
+      messageId: 'm',
+      cwd: cwdRo,
+      permission,
+      unattended: false,
+      signal: new AbortController().signal,
+    };
+    const r = await rc.runCode({ code, timeout_sec: 120 }, ctx, scope, deps);
+    const value = /<value>\n([\s\S]*)\n<\/value>/.exec(r.text)?.[1];
+    let o: Record<string, string> = {};
+    try {
+      o = JSON.parse(value ?? '{}');
+    } catch {
+      /* reported below */
+    }
+    const note = value ? JSON.stringify(o) : r.text.slice(0, 400);
+    check(`run-code (${permission}): ran, and called a tool over its stdio`, !r.isError && o.tool === 'OK echo:ping', note);
+    check(
+      `run-code (${permission}): the working directory readable, not writable; only its temporary folder writable`,
+      o.readCwd === 'OK read me' &&
+        Boolean(o.writeCwd?.startsWith('NO')) &&
+        o.writeTmp === 'OK written' &&
+        !existsSync(join(cwdRo, 'run-code-probe')),
+      note,
+    );
+    check(
+      `run-code (${permission}): protected paths, the database and the gateway's token files unreadable`,
+      [o.secret, o.browser, o.db, o.token].every((v) => Boolean(v?.startsWith('NO'))),
+      note,
+    );
+    check(`run-code (${permission}): no network, not even a host other runs may reach`, Boolean(o.fetch?.startsWith('NO')), note);
+    check(
+      `run-code (${permission}): Harness Relay's own port unreachable on loopback, over HTTP or TCP`,
+      Boolean(o.loopback?.startsWith('NO')) && Boolean(o.tcp?.startsWith('NO')) && !note.includes('RELAY-API'),
+      note,
+    );
+    check(`run-code (${permission}): none of the server's environment`, o.apiKey === 'OK absent', note);
+  }
+  rmSync(token, { force: true });
+
+  // RLM mode (`RELAY_RLM`): `state` kept across a turn's runs and `llm_query` answered, both over the
+  // runner's stdio (the sub-model is the server's to ask, never the sandbox's), the network still shut.
+  const asked: string[] = [];
+  const rlm = rc.runCodeTool({
+    ...deps,
+    mode: () => ({ mode: 'rlm' as const, rlmModel: 'check/stand-in' }),
+    ask: async (_model, req) => (
+      asked.push(req.prompt),
+      { text: `ANSWER:${req.prompt.length}`, inputTokens: 1, outputTokens: 1, truncated: false }
+    ),
+  });
+  const turn = {
+    convId: 'c',
+    agentId: 'a',
+    agentName: 'A',
+    messageId: 'm',
+    cwd: cwdRo,
+    permission: 'read-only' as const,
+    unattended: false,
+    signal: new AbortController().signal,
+  };
+  const first = await rlm.run!({ code: `state.doc = 'q'.repeat(3000); return 'loaded';`, timeout_sec: 120 }, turn, scope);
+  const second = await rlm.run!(
+    {
+      code: `const answers = await Promise.all(state.doc.match(/.{1,1000}/g).map((p) => llm_query(p)));
+let fetched = 'no';
+try { await fetch('https://example.com'); fetched = 'yes'; } catch {}
+return { answers, fetched };`,
+      timeout_sec: 120,
+    },
+    turn,
+    scope,
+  );
+  const v = /<value>\n([\s\S]*)\n<\/value>/.exec(second.text)?.[1];
+  let got: { answers?: string[]; fetched?: string } = {};
+  try {
+    got = JSON.parse(v ?? '{}');
+  } catch {
+    /* reported below */
+  }
+  check(
+    "run-code (RLM): state kept across a turn's runs, and llm_query answered over its stdio, with no network",
+    !first.isError &&
+      !second.isError &&
+      asked.length === 3 &&
+      got.answers?.join(',') === 'ANSWER:1000,ANSWER:1000,ANSWER:1000' &&
+      got.fetched === 'no',
+    v ?? second.text.slice(0, 400),
+  );
 }
 
 /** Each HTTP client kind reaches the allowed host through the proxy. */

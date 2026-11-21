@@ -41,6 +41,7 @@ export const SETTINGS_SECTIONS = [
   'browsers',
   'home-screen',
   'tour',
+  'labs',
 ] as const;
 /** The tool library tab and the menu of agent settings each have a direct link. */
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number] | 'tools' | 'agents';

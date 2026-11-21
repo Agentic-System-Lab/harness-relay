@@ -2810,6 +2810,26 @@ export function parseBackendModel(id: string): BackendModel | undefined {
   return { backend, model: text.slice(at + 1) };
 }
 
+/**
+ * Settings → Labs: an experimental way for agents to use Harness Relay's own tools, one at a time
+ * (`runCode.ts`). `code`: `run_code`, code that calls the tools; `rlm`: the same with a `state` kept for
+ * the turn and `llm_query()` to a sub-model (`rlmModel`, `<backend>/<model>`, a model connection).
+ */
+export const LAB_MODES = ['off', 'code', 'rlm'] as const;
+export type LabMode = (typeof LAB_MODES)[number];
+export interface LabSettings {
+  mode: LabMode;
+  /** With `rlm`: the sub-model, as `<backend>/<model>`. */
+  rlmModel?: string;
+}
+/** `GET /api/labs`: the mode on now, and where it comes from. */
+export interface LabsView extends LabSettings {
+  /** Saved in Settings; the environment's (`RELAY_RUN_CODE`, `RELAY_RLM`) until changed there; or neither (off). */
+  source: 'saved' | 'env' | 'default';
+  /** Why the modes cannot run on this computer (no sandbox for the code), in the request's language; undefined when they can. */
+  unavailable?: string;
+}
+
 /** `<backend>/<model>`. */
 export const backendModelId = (backend: string, model: string): string => `${backend}/${model}`;
 

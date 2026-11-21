@@ -12,6 +12,7 @@ import {
   CWD_MISSING,
   ENDPOINT_ID_RE,
   GROUP_LIMITS,
+  LAB_MODES,
   MAX_CWDS,
   MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
@@ -30,6 +31,7 @@ import {
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   cwdSettings,
+  parseBackendModel,
   VOICE_MODELS,
   type AgentConfig,
   type AlertPrefs,
@@ -39,6 +41,7 @@ import {
   type CheckList,
   type ConversationGroup,
   type ConversationSettings,
+  type LabSettings,
   type LeadAgentSettings,
   type McpServerUpdate,
   type MemoryScope,
@@ -274,6 +277,23 @@ export function validateLead(input: unknown): LeadAgentSettings {
     effort: validEffort(optionalString(l.effort, 'lead.effort'), 'lead') ?? '',
     ...validAccount(l.account),
   };
+}
+
+/**
+ * Settings → Labs: one of its modes; with RLM, its sub-model as `<backend>/<model>` on a model connection
+ * set up now (`configured`: the API backends with a key and the endpoints, by id).
+ */
+export function validLabs(input: unknown, configured: readonly string[]): LabSettings {
+  const l = (input ?? {}) as Partial<LabSettings>;
+  if (!(LAB_MODES as readonly unknown[]).includes(l.mode)) bad(t().labsBadMode);
+  if (l.mode !== 'rlm') return { mode: l.mode as LabSettings['mode'] };
+  const id = typeof l.rlmModel === 'string' ? l.rlmModel.trim() : '';
+  if (!id) bad(t().labsNoModel);
+  if (id.length > 300) bad(t().labsBadModel(id.slice(0, 40)));
+  const parsed = parseBackendModel(id);
+  if (!parsed) bad(t().labsBadModel(id));
+  if (!configured.includes(parsed.backend)) bad(t().labsNoConnection(parsed.backend));
+  return { mode: 'rlm', rlmModel: id };
 }
 
 /** An account's name: a string of up to `MAX_ACCOUNT_LABEL` characters, with no line breaks. */

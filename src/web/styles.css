@@ -9985,3 +9985,60 @@ a.share-action {
     margin-bottom: 4px;
   }
 }
+
+/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
+.labs-options {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.labs-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.labs-option.on {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+.labs-option input {
+  margin: 2px 0 0;
+}
+.labs-option-title {
+  font-weight: 600;
+}
+.labs-option-body {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+}
+.labs-tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.labs-tradeoffs ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.labs-model {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.labs-model input {
+  max-width: 420px;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .labs-tradeoffs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

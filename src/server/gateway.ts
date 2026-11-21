@@ -15,7 +15,7 @@ import {
   type Provider,
   type RelayToolGroup,
 } from '../shared/types';
-import { currentLang, withLang } from './i18n';
+import { currentLang, t, withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
 import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
@@ -85,8 +85,21 @@ export interface GatewayTool {
   describe(args: Record<string, unknown>, ctx?: GatewayContext): { title: string; detail?: string; preview?: OutboxPreview };
   /** `send`: prepare the preview and frozen arguments together when they depend on the same snapshot. */
   prepare?(args: Record<string, unknown>, ctx: GatewayContext): PreparedOutboxCall | Promise<PreparedOutboxCall>;
-  /** `read` and `act`: what the call does now. */
-  run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
+  /**
+   * `read` and `act`: what the call does now. A `scoped` tool is given `scope`: the turn's other tools,
+   * which it may call as the turn would.
+   */
+  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope): Promise<GatewayResult>;
+  /**
+   * It calls the turn's other tools (`run_code`, `runCode.ts`), through the `GatewayScope` its `run` is
+   * given. Never one of the tools in a scope, so it cannot call itself or another such tool.
+   */
+  scoped?: boolean;
+  /**
+   * Whether it is offered now (`run_code`: while Settings → Labs has one of its modes on): one that is not
+   * is neither listed nor called. Undefined: always.
+   */
+  offered?(): boolean;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
@@ -103,6 +116,29 @@ export interface GatewayTool {
    */
   asking?(ctx: GatewayContext): () => void;
 }
+
+/**
+ * What a `scoped` tool reaches of its turn's grant: the turn's other tools (never a scoped one), each
+ * call decided as the turn's own call of it would be (`ToolGateway.call()`: its tier, the user asked
+ * below full access, a send put in the outbox), and only while the turn goes on.
+ */
+export interface GatewayScope {
+  tools: GatewayTool[];
+  /** Whether the scoped tool's own caller stopped waiting for it (the CLI's MCP call closed): it may stop then. */
+  gone?: () => boolean;
+  /**
+   * `gone`: whether the scoped tool stopped waiting for it, checked as the gateway checks its own caller's.
+   * `asking`: wraps each question the call asks the user, an act's and one its tool asks itself (the
+   * browser about a new host), every one of them marked on its card as asked by code.
+   */
+  call(name: string, args: Record<string, unknown>, gone?: () => boolean, asking?: GatewayAsking): Promise<GatewayResult>;
+}
+
+/**
+ * Wraps one question a call from a scoped tool asks the user (`GatewayContext.ask`): it may answer it
+ * without asking (`allow: false`, as a limit says), and knows how long the user takes to answer.
+ */
+export type GatewayAsking = (ask: () => Promise<ApprovalAnswer>) => Promise<ApprovalAnswer>;
 
 /** What a call of `tier` does in a turn with `permission`, given whether the turn can ask the user. */
 export function gatewayDecision(tier: GatewayTier, permission: Permission, canAsk: boolean): 'run' | 'ask' | 'refuse' | 'outbox' {
@@ -501,7 +537,7 @@ export class ToolGateway {
 
   /** The tools a grant can call now. */
   private toolsFor(grant: Grant): GatewayTool[] {
-    return [...this.tools.values()].filter((t) => !t.group || grant.groups.has(t.group));
+    return [...this.tools.values()].filter((t) => (!t.group || grant.groups.has(t.group)) && t.offered?.() !== false);
   }
 
   /** One connection from a shim: its token first, then requests, each answered on a line of its own. */
@@ -624,19 +660,56 @@ export class ToolGateway {
           name: t.name,
           description: t.unavailable?.() ? `${t.description} (Not available now: ${t.unavailable()})` : t.description,
           inputSchema: t.inputSchema,
-          annotations: { readOnlyHint: t.tier === 'read', destructiveHint: t.tier !== 'read', openWorldHint: true },
+          // A scoped tool reads nothing itself, but the calls it makes may act or send: never marked read-only.
+          annotations: {
+            readOnlyHint: t.tier === 'read' && !t.scoped,
+            destructiveHint: t.tier !== 'read' || Boolean(t.scoped),
+            openWorldHint: true,
+          },
         })),
       };
     }
     if (req.method !== 'call') throw new Error('Unknown request');
     const tool = typeof req.name === 'string' ? this.tools.get(req.name) : undefined;
-    if (!tool || (tool.group && !grant.groups.has(tool.group)))
+    if (!tool || (tool.group && !grant.groups.has(tool.group)) || tool.offered?.() === false)
       return toolResult({ text: `No such tool: ${String(req.name)}`, isError: true });
     const args =
       req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
     const ctx = grant.ctx;
-    const run = () => this.call(tool, args, ctx, gone);
+    const run = () => this.call(tool, args, ctx, gone, tool.scoped ? { scope: this.scopeOf(grant, gone) } : {});
     return toolResult(await (ctx.lang ? withLang(ctx.lang, run) : run()));
+  }
+
+  /**
+   * What a scoped tool called in `grant`'s turn reaches: its other tools but the scoped ones, each call
+   * as the turn's own (`call()`), its approval card saying that code asked; nothing once the turn is over.
+   */
+  private scopeOf(grant: Grant, gone?: () => boolean): GatewayScope {
+    const tools = this.toolsFor(grant).filter((t) => !t.scoped);
+    return {
+      tools,
+      gone: () => Boolean(gone?.()),
+      call: async (name, args, callGone, asking) => {
+        // Looked up again for each call: a turn that ended takes its tools with it.
+        if (![...this.grants.values()].includes(grant))
+          return { text: 'This turn is over: Harness Relay has no tools for it any more', isError: true };
+        const tool = tools.find((t) => t.name === name);
+        if (!tool) return { text: `No such tool: ${name}`, isError: true };
+        // Every question the call asks goes through the scoped tool (an act's, and one its tool asks
+        // itself, as the browser about a new host does), its card saying that code asked.
+        const ask = grant.ctx.ask;
+        const ctx: GatewayContext = ask
+          ? {
+              ...grant.ctx,
+              ask: (req) => {
+                const asked = () => ask({ ...req, reason: [t().gatewayFromCode, req.reason].filter(Boolean).join(' ') });
+                return asking ? asking(asked) : asked();
+              },
+            }
+          : grant.ctx;
+        return this.call(tool, args, ctx, () => Boolean(gone?.() || callGone?.()));
+      },
+    };
   }
 
   /**
@@ -751,9 +824,16 @@ export class ToolGateway {
 
   /**
    * A call, as its tier and the turn allow. `gone`: whether the client stopped waiting for it (its
-   * connection closed), checked once the user has answered about an act.
+   * connection closed), checked once the user has answered about an act. `scope`: for a scoped tool, the
+   * turn's other tools.
    */
-  async call(tool: GatewayTool, args: Record<string, unknown>, ctx: GatewayContext, gone?: () => boolean): Promise<GatewayResult> {
+  async call(
+    tool: GatewayTool,
+    args: Record<string, unknown>,
+    ctx: GatewayContext,
+    gone?: () => boolean,
+    o: { scope?: GatewayScope } = {},
+  ): Promise<GatewayResult> {
     const missing = tool.unavailable?.();
     if (missing) return { text: `${tool.name} cannot be used now: ${missing}`, isError: true };
     const decision = gatewayDecision(tool.tier, ctx.permission, Boolean(ctx.ask));
@@ -800,11 +880,12 @@ export class ToolGateway {
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
       // no folder lock either: the call writes nothing in the working directory.
       const answered = tool.asking?.(ctx);
+      const reason = described.detail;
       const answer = await ctx.ask!({
         kind: 'other',
         tool: gatewayApprovalTool(tool.name),
         detail: described.title,
-        ...(described.detail ? { reason: described.detail } : {}),
+        ...(reason ? { reason } : {}),
         noLock: true,
       }).finally(() => answered?.());
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
@@ -812,7 +893,7 @@ export class ToolGateway {
     }
     if (ctx.signal.aborted) return { text: 'The turn ended.', isError: true };
     try {
-      return await tool.run!(args, ctx);
+      return await tool.run!(args, ctx, o.scope);
     } catch (err) {
       return { text: `${tool.name} failed: ${(err as Error).message}`, isError: true };
     }

@@ -1202,6 +1202,53 @@ export const zhTW = {
     readFailed: '無法讀取附加的檔案。',
   },
 
+  /** Settings → Labs: experimental ways assistants use Harness Relay's own tools, one at a time (`LabsSettings.tsx`). */
+  labs: {
+    title: '實驗室',
+    hint: '還在試驗中的做法，預設關閉，一次只能開一種。它們只改變助理使用 Harness Relay 自己工具（瀏覽器、郵件、行事曆、文件⋯⋯）的方式：助理要先在「App 與工具」拿到這些工具才用得到。改了以後，從助理的下一個回合開始生效。',
+    fromEnv: (name: string) => `目前的設定來自環境變數 ${name}；在這裡儲存之後，就以這裡為準。`,
+    unavailable: (reason: string) => `這台電腦上不能用：${reason}`,
+    goodFor: '適合',
+    tradeoffs: '要注意的代價',
+    modes: {
+      off: {
+        title: '關閉（預設）',
+        what: '助理照平常的方式，一次呼叫一個工具，每一步都在對話裡看得到。',
+      },
+      code: {
+        title: '讓助理寫程式來用工具（CodeAct）',
+        what: '助理可以寫一小段程式，在程式裡連續呼叫這些工具，例如一口氣看過 50 封信，只把重要的整理給你，而不必一封一封來回問。',
+        good: ['重複、大量的工具工作：比較快，也比較省 token', '對話裡只留下整理好的結果，不會被一大堆原始資料塞滿'],
+        costs: [
+          '程式寫錯就要重跑一次；簡單的事反而可能比較慢',
+          '程式在 Harness Relay 的沙箱裡執行：不能連網、不能修改任何檔案，但讀得到你的帳號讀得到的檔案（受保護的資料夾除外）',
+          '會改變東西的動作仍然會先問你，寄信等仍在待送出匣等你確認；一次執行最多 5 個這類動作',
+          '每次執行預設最多 1 分鐘；只能在 macOS 和 Linux 上使用',
+        ],
+      },
+      rlm: {
+        title: '分段閱讀長文字（RLM）',
+        what: '包含上一個做法的全部，再加上：程式可以把很長的文字（一份長文件、整個信箱、一份 log）在這個回合裡先存起來，一次只拿一段去問你選的模型，最後再把答案組合起來。助理不必自己把整份讀進來。',
+        good: ['長到助理一次讀不完的內容', '需要逐段摘要、分類或找重點的工作'],
+        costs: [
+          '會多花錢：每一個問題都用那個模型的金鑰計費，每個回合最多 100 個問題；這些費用不算進回覆顯示的費用',
+          '比較慢：要問很多次，每次執行預設最多 5 分鐘',
+          '小模型可能漏掉細節，分段處理也可能錯過段落之間的關聯',
+          '文字會送到那個模型的供應商；由 Harness Relay 自己詢問它，不給它任何工具，金鑰也不會進到沙箱',
+          '只能在 macOS 和 Linux 上使用',
+        ],
+        model: '分段閱讀用的模型',
+        modelHint:
+          '從「模型連線」挑一個，寫成「來源/模型」，例如 anthropic/claude-haiku-5-5，或你的端點 id 加上模型名稱。便宜、快速的模型通常就夠了。',
+        noConnections: '還沒有任何模型連線：請先到「設定 → 模型連線」加上一個 API 金鑰或端點。',
+      },
+    },
+    problems: {
+      model: '請寫成「來源/模型」，例如 anthropic/claude-haiku-5-5。',
+      connection: '「模型連線」裡沒有這個來源：請先在「設定 → 模型連線」加上它。',
+    },
+    saved: '已儲存。從助理的下一個回合開始生效。',
+  },
   voice: {
     start: '語音輸入',
     stop: '停止並轉成文字',
@@ -2165,6 +2212,7 @@ export const zhTW = {
       browsers: '已登入的瀏覽器',
       'home-screen': '連接手機',
       tour: '使用導覽',
+      labs: '實驗室',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
       agents: '助理設定',
       agentsAt: (name: string) => `助理設定：${name}`,
@@ -2690,6 +2738,7 @@ export const zhTW = {
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
+          '最後的「實驗室」：還在試驗中的做法，預設關閉，一次只能開一種',
         ],
       },
     ] as { title: string; body: string; points?: string[] }[],
