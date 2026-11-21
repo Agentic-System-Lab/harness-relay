@@ -219,6 +219,12 @@ export interface AcpAgentSpec extends OpenAgentProcess {
     ctx: OpenRunContext,
   ): Promise<void>;
   /**
+   * Sends a message the user wrote into the running turn (steering, `RunOptions.onSteer`), for an agent
+   * that takes one (Goose: `_goose/unstable/session/steer`): true once the agent took it into the turn,
+   * false when it refused or the turn was over (never rejects). Absent: the agent's turns are not steered.
+   */
+  steer?(conn: JsonRpcConnection, turn: { sessionId: string; text: string }, ctx: OpenRunContext): Promise<boolean>;
+  /**
    * The answer to a request of the agent's other than `session/request_permission` (`fs/*`,
    * `terminal/*`…), which some agents send although `initialize` said the client does neither: the
    * turn never does what they ask (that would run outside the relay sandbox). Return `{ result }` for a
@@ -913,7 +919,7 @@ async function acpSession(
     await setSessionOptions(conn, spec, ctx, sessionId, state, o, cli, stopIfStopped);
     stopIfStopped();
 
-    const result = (await conn.request('session/prompt', {
+    const prompting = conn.request('session/prompt', {
       sessionId,
       prompt: acpPrompt(
         o,
@@ -921,7 +927,12 @@ async function acpSession(
         Boolean(caps.promptCapabilities?.image),
         spec.promptText && ((text) => spec.promptText!(text, ctx)),
       ),
-    })) as Record<string, any> | undefined;
+    }) as Promise<Record<string, any> | undefined>;
+    // Steering: while the prompt runs, a message the user sends may go into it (an agent that takes one).
+    const steering = sessionId;
+    if (spec.steer) o.onSteer?.((text) => spec.steer!(conn, { sessionId: steering, text }, ctx).catch(() => false));
+    const result = await prompting;
+    o.onSteer?.(undefined);
     for (const u of spec.heldUpdates?.(ctx) ?? []) updates.handle(u);
     updates.finish();
     const ending = result?.stopReason !== 'cancelled' && !userAborted;
@@ -941,6 +952,7 @@ async function acpSession(
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
+    o.onSteer?.(undefined);
     updates.closeOpen(ended);
     o.signal.removeEventListener('abort', onAbort);
     child?.stdin?.end(); // ACP agents exit when their stdin closes; one that does not is stopped

@@ -26,6 +26,10 @@
  * (`total_cost_usd`, `modelUsage`), counted on from the last `cost-state` record of its file
  * (`<home>/projects/<folder>/<id>.jsonl`), where a new one is written as the run ends; `usage` and
  * `model_usage_since_last_result` are the run's own.
+ *
+ * A user message with a `uuid` that comes while a turn runs goes into it (steering), as Claude Code
+ * 2.1.330 takes one: `command_lifecycle` queued as it comes, started as the turn takes it in (an
+ * `e2e:steer` step waits for one; any other before the result), completed after the result.
  */
 const fs = require('node:fs');
 const { callMcpTool } = require('../lib/mcp.cjs');
@@ -35,7 +39,7 @@ const readline = require('node:readline');
 const { inside, notAWorkingDirectory, ownSkills, targetOf, writeFile } = require('../lib/files.cjs');
 const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record } = require('../lib/log.cjs');
-const { declined, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
+const { declined, heard, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, steerBox, wrote } = require('../lib/plan.cjs');
 const { fail, onLines, out } = require('../lib/rpc.cjs');
 const { args, flag, has, home, newId, sleep, values } = require('../lib/self.cjs');
 
@@ -192,9 +196,11 @@ function claudeStream() {
     // Its Read tool, without asking: in its folders and those of its Read rules, anywhere with full access.
     reads: mode === 'bypassPermissions' ? null : [process.cwd(), ...addDirs, ...claudeReadRules()],
     mcpSpecs: claudeMcpSpecs(),
+    steer: steerBox(),
   };
   const pending = new Map();
   let busy = false;
+  o.lifecycle = (uuid, state) => out({ type: 'command_lifecycle', command_uuid: uuid, state, uuid: newId('life'), session_id: sessionId });
 
   const reply = (m, response) => out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response } });
   const refuse = (m, error) => out({ type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error } });
@@ -307,6 +313,11 @@ function claudeStream() {
           return refuse(m, `Unsupported control request subtype: ${m.request && m.request.subtype}`);
       }
     }
+    // Steering: a message of the user's for the running turn.
+    if (m.type === 'user' && busy && m.uuid) {
+      o.lifecycle(m.uuid, 'queued');
+      return o.steer.take(typeof m.message.content === 'string' ? m.message.content : '', m.uuid);
+    }
     if (m.type !== 'user' || busy) return;
     busy = true;
     const content = m.message && m.message.content;
@@ -414,6 +425,8 @@ function claudeResult(o, r, spent = true) {
 async function claudeTurn(steps, o) {
   let n = 0;
   let full = '';
+  /** Messages sent into the turn (steering) it took in. */
+  const taken = [];
   const tool = async (name, input, run) => {
     const id = `toolu_${++n}_${process.pid}`;
     out({
@@ -605,12 +618,25 @@ async function claudeTurn(steps, o) {
       full += wrote(step, p.ok, p.ok ? '' : noteIn(p.message));
       if (p.ok) full += await hookAfter('Write', input, { filePath: file });
     }
+    if (step.type === 'steer') {
+      const came = await o.steer.wait(step.wait);
+      for (const m of came) o.lifecycle(m.id, 'started');
+      taken.push(...came);
+      if (came.length) await stream('text', heard(came).trim());
+      full += heard(came);
+    }
     if (step.type === 'text') {
       full += step.text;
       await stream('text', full, step.slow);
     }
   }
-  claudeResult(o, { subtype: 'success', is_error: false, result: full });
+  // What came and no step took: taken in before the turn ends.
+  const rest = o.steer.rest();
+  for (const m of rest) o.lifecycle(m.id, 'started');
+  if (rest.length) await stream('text', heard(rest).trim());
+  taken.push(...rest);
+  claudeResult(o, { subtype: 'success', is_error: false, result: full + heard(rest) });
+  for (const m of taken) o.lifecycle(m.id, 'completed');
 }
 
 module.exports = {

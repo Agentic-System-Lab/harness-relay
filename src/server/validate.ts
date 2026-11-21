@@ -617,6 +617,7 @@ export function validateSettings(
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.leadReview === true ? { leadReview: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+    ...(s.steer === true ? { steer: true } : {}),
     ...(s.checks !== undefined && s.checks !== null ? { checks: validateChecks(s.checks) } : {}),
   };
 }

@@ -17,6 +17,8 @@ interface Props {
   locked?: boolean;
   /** The lead agent reviews the team's replies: sending stops the review and sends the message now. */
   reviewing?: boolean;
+  /** Steering is on: while the team replies, what is sent goes into the running turn when it can. */
+  steering?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
   onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
@@ -41,6 +43,7 @@ export function Composer({
   canContinue,
   locked = false,
   reviewing = false,
+  steering = false,
   placeholder,
   onSend,
   onStop,
@@ -182,14 +185,18 @@ export function Composer({
       : reviewing
         ? c.hintReviewTouch
         : running
-          ? c.hintBusyTouch
+          ? steering
+            ? c.hintSteerTouch
+            : c.hintBusyTouch
           : c.hintTouch
     : locked
       ? c.hintConfirm
       : reviewing
         ? c.hintReview
         : running
-          ? c.hintBusy(MOD_KEY)
+          ? steering
+            ? c.hintSteer(MOD_KEY)
+            : c.hintBusy(MOD_KEY)
           : c.hint;
 
   return (

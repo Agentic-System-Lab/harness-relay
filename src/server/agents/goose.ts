@@ -1049,6 +1049,33 @@ export async function gooseAfterRefusal(
   });
 }
 
+/**
+ * Sends a message the user wrote into the running turn (steering, `RunOptions.onSteer`), the way a
+ * refusal's reason goes: `_goose/unstable/session/steer { sessionId, expectedRunId, prompt }`, which Goose
+ * answers with `{ runId, messageId }` once it queued the message for the run's next safe point, and
+ * refuses when no run is active or another one is ("no active run to steer", "expected active run id …";
+ * `SteerSessionRequest` with 3 elements and `SteerSessionResponse` in goose 1.58.1's binary). True only
+ * when it answered so; false before the run's id is known.
+ */
+export async function gooseSteer(
+  conn: JsonRpcConnection,
+  turn: { sessionId: string; text: string },
+  ctx: OpenRunContext,
+): Promise<boolean> {
+  const runId = ctx.state.activeRunId;
+  if (typeof runId !== 'string' || !runId) return false;
+  try {
+    const r = (await conn.request('_goose/unstable/session/steer', {
+      sessionId: turn.sessionId,
+      expectedRunId: runId,
+      prompt: [{ type: 'text', text: turn.text }],
+    })) as { runId?: unknown } | undefined;
+    return typeof r?.runId === 'string' && r.runId !== '';
+  } catch {
+    return false;
+  }
+}
+
 /** Keeps what the updates say about the run: the running turn's id (for steering). */
 export function gooseFilterUpdate(
   params: { sessionId: string; update: Record<string, any> },
@@ -1878,6 +1905,7 @@ export const gooseAcp: AcpAgentSpec = {
   toolName: gooseToolName,
   toolKind: gooseToolKind,
   afterRefusal: gooseAfterRefusal,
+  steer: gooseSteer,
   filterUpdate: gooseFilterUpdate,
   usage: gooseUsage,
 };

@@ -495,6 +495,8 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Steering on or off, at any time (also while the team replies). */
+  setSteer: (id: string, on: boolean) => request<{ steer: boolean }>('PUT', `/api/conversations/${id}/steer`, { on }),
   /** Team checks: the latest result's card. */
   recheckChecks: (id: string, messageId: string, confirm = false) =>
     request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),

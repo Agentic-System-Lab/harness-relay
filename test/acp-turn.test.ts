@@ -497,6 +497,41 @@ describe('the generic ACP turn', () => {
     },
   );
 
+  it.skipIf(process.platform === 'win32')(
+    'gives the orchestrator a way to steer the running prompt through the spec, and takes it back when the turn ends',
+    async () => {
+      const given: (string | undefined)[] = [];
+      let steer: ((text: string) => Promise<boolean>) | undefined;
+      const r = run({ FAKE_ACP_SCENARIO: 'hang' }, { onSteer: (s) => ((steer = s), given.push(s ? 'steer' : undefined)) });
+      const asked: string[] = [];
+      const turn = withLang('en', () =>
+        acpTurn(
+          r.o,
+          spec({
+            steer: async (conn, t) => {
+              asked.push(`${t.sessionId}: ${t.text}`);
+              conn.notify('_fake/steer', { sessionId: t.sessionId, text: t.text });
+              return true;
+            },
+          }),
+          deps(),
+        ),
+      );
+      await vi.waitFor(() => expect(r.events).toContainEqual({ type: 'text', text: 'working' }), { timeout: 5000 });
+      expect(given).toEqual(['steer']);
+      await expect(steer!('also the docs')).resolves.toBe(true);
+      expect(asked).toEqual(['fake-1: also the docs']);
+      await vi.waitFor(() => expect(sent(r, '_fake/steer')).toHaveLength(1));
+      r.abort.abort();
+      await turn.catch(() => undefined);
+      expect(given.at(-1)).toBeUndefined();
+      // An agent without the hook gives none.
+      const plain = run({ FAKE_ACP_SCENARIO: 'basic' }, { onSteer: (s) => given.push(s ? 'plain' : undefined) });
+      await acpTurn(plain.o, spec(), deps());
+      expect(given).not.toContain('plain');
+    },
+  );
+
   it.skipIf(process.platform === 'win32')('ends the rows of tool calls a stopped turn left open, as not finished', async () => {
     const r = run({ FAKE_ACP_SCENARIO: 'hang' });
     const turn = withLang('en', () => acpTurn(r.o, spec(), deps()));

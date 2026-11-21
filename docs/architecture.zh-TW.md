@@ -93,7 +93,7 @@ flowchart LR
 
 ## 對話模型
 
-一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`，有一個以上的工作目錄時另有 `extraCwds`（見[多個工作目錄](#多個工作目錄)）；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`；首席 agent [審閱團隊的回覆](#首席-agent-審閱)時另有 `leadReview`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計，或一份 **review**，也就是首席 agent 對團隊回覆的審閱。
+一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`，有一個以上的工作目錄時另有 `extraCwds`（見[多個工作目錄](#多個工作目錄)）；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`；首席 agent [審閱團隊的回覆](#首席-agent-審閱)時另有 `leadReview`；成員工作時送出的訊息直接送進他們進行中的回合時另有 `steer`，見[發言排程](#發言排程模式)）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計，或一份 **review**，也就是首席 agent 對團隊回覆的審閱。
 
 對話也會為每個 agent 保存 **agent 狀態**：
 
@@ -176,6 +176,8 @@ flowchart LR
 
 **團隊回覆時送出的訊息**（`Orchestrator.send()`）不會開始第二個執行。執行進行中或正在準備、或首席 agent 的團隊設計還在等確認時，訊息會放進對話的佇列（`conversation.queue`，存在 `conversations.queue`，最多 20 則；但首席 agent 審閱團隊的回覆時，訊息會停止審閱並立刻送出：見[首席 agent 審閱](#首席-agent-審閱)），瀏覽器把它顯示在輸入框上方（`queue` 事件）。`deliverQueued()` 會在下一個「該收到它的 agent」發言前，依送出順序貼出等待中的訊息：圓桌在每位發言者之前、接力在每一棒之前、平行在每一輪開始時（讓同一輪的人看到相同的訊息）。只 @ 了其他 agent 的訊息會等到其中一位發言，排在它後面的訊息也一起等，所以對話維持送出的順序。送達的訊息就是一般的使用者訊息，另外標上 `queued`（介面顯示「插話」）；每個 agent 跟其他訊息一樣，從「還沒看過的訊息」收到它，所以當時正在發言的 agent 會在下一次發言時看到。執行結束時若還有訊息在等、而且不是被停止的，`startQueued()` 會為它們再開一次執行，參與者依它們的 @ 決定（每則都有 @：就是那些 agent；否則全員）。按「停止」後它們會繼續等使用者處理（`DELETE /api/conversations/:id/queue/:messageId` 撤回一則）；下一次送出或「繼續」會把它們排在新訊息前面送出。以 `interrupt: true` 送出時，會停止執行、等它結束，再把等待中的訊息與這則新訊息當成新的執行送出。訊息會先存成訊息、才從存好的佇列移除，所以當機後兩邊都有的訊息算已送達。
 
+**直接送進進行中的回合**（`settings.steer`，預設關閉；在「團隊設定」的勾選框切換，`PUT /api/conversations/:id/steer`，隨時都能切換，團隊回覆中也可以）。開啟後，成員工作時送出的訊息不進佇列，而是依模式與成員的 CLI 能否接收（`STEER_PROVIDERS`），直接送進他們進行中的回合（`Orchestrator.steerOrQueue()`、`steerInto()`）：圓桌與接力模式送進正在發言那位成員的回合（之後的成員照常在自己的回合前收到）；平行模式則同時送進這一輪每位成員的回合，但只在他們都還在進行、也都能接收時（`Run.round`），讓同一輪的人看到相同的訊息。CLI 能接收訊息的 runner，會在提示送出後交給協調器一個送訊息的方法（`RunOptions.onSteer`，見 [CLI 轉接器](#cli-轉接器)），並在回合結束時收回。訊息以對話區塊的形式送進去（`buildSteerPrompt()`）；有回合接收後，它會貼在它送進去的那則回覆之後，標上 `queued`（它是在討論進行中加入的）與 `steered`（接收它的成員，`messages.steered`；對話中顯示「**已送進 @X 的回合**」），並在那些成員的回合順利結束時算作他們已看過（失敗的回合會像處理它提示裡的訊息一樣，下次再提供一次）。以下情況照常排隊：沒開啟、附有檔案、佇列裡已有訊息在等（對話維持送出的順序）、只 @ 了其他成員、這次執行不是團隊的回合（首席 agent 在設計或審閱、團隊設計等待確認、修正或沒通過的團隊檢查擋住佇列、檢查的指令在跑），或 CLI 拒絕、回合剛好結束。同一個對話的訊息依送出順序一則一則處理。平行模式下，這一輪中回合剛好在訊息送到前結束的成員，會在下一個回合的訊息裡收到它。排程送出的訊息從不直接送進回合；使用者送進排程所開始的執行的訊息，和排隊的訊息一樣代表使用者在場（會再次詢問核准）。重試訊息送進去的那則回覆，會連同這則訊息一起刪除，就像那則回覆之後的每則訊息一樣。
+
 **向使用者提問。** briefing 會告訴 agent：好答案取決於只有使用者知道的事時，要先問、不要猜，並在這種回覆的最後單獨一行寫 `[ASK_USER]`（`src/shared/ask.ts`；介面在回覆串流時會隱藏這個標記）。回合結束時，`takeAsk()` 會把標記從訊息中移除、標上 `asked`，執行就在這裡停下：`pauseFor()` 記下停在哪裡（`conversation.pause`，一個 `RunPause`，存在 `conversations.pause`，並隨 `conversation` 事件送給瀏覽器）。圓桌會立刻停下並記住這一輪剩下的人；平行會讓這一輪跑完，再記住提問的 agent；接力則記住剩下的佇列與剩餘棒數。團隊等待期間，佇列中的訊息不會開始新的執行。下一次執行（`takePause()`）從那裡接續：提問的 agent 先發言，並在那個回合被告知使用者已經回覆（`TurnInfo.answered`），接著是這一輪剩下的人（或接力佇列）與剩下的輪次。沒有任何訊息的「繼續」會略過提問的 agent。回覆中 @ 了其他人、編輯或重試（`truncateFrom()` 會清除暫停）、重新設計團隊或模式改變時，則重新開始。使用者的回覆是回答、不是新問題，所以[自動組隊](#自動組隊)不會為它設計團隊。對話清單會回報 `asking` 給側邊欄。
 
 **重試 agent 的回覆**（`Orchestrator.retry()`）也是同樣的做法：刪除該則回覆與之後的所有內容，再由該 agent 重新回答；不是接力模式時，同一輪中回覆被一起刪除的 agent 也會接著回答，只跑一輪。
@@ -209,7 +211,7 @@ flowchart LR
 
 ## 首席 agent 審閱
 
-有 `settings.leadReview` 時（任何對話都可以，不論有沒有自動組隊），團隊回答完之後，首席 agent 會讀過團隊說的內容，告訴使用者哪些地方需要特別注意、接下來可以做什麼（協調器中的 `reviewReplies()`，以及 `src/server/reviewer.ts`）。「新對話」與「新自動任務」頁面建立的每個新對話一開始都是開啟的：它們的勾選框每次都預先勾選（`src/web/components/NewChat.tsx` 的 `autoTeam()` 設定 `leadReview: true`；頁面不會記住上次的選擇），透過 API 建立、沒有帶這個設定的對話則是關閉的。排程每次開的新對話（`newChat`）會複製排程所在對話的這個設定，和它複製的其他設定一樣；分支一開始的設定，則是建立分支當下對話的設定，而不是被分支的那則訊息當時的設定。使用者可以在「新對話」頁面、「新自動任務」頁面、團隊設定，或最新一張團隊設計卡片上的勾選框，用「團隊回答後，請首席 agent 審閱回覆」切換；`PUT /api/conversations/:id/lead-review`（`{ on }`，`Orchestrator.setLeadReview()`）隨時可以切換，團隊回覆中也可以，因為要不要審閱是在團隊回答完時才決定。所以團隊回覆中、且沒有團隊設計在等確認時，團隊設定的「儲存」對其他修改仍然停用，但只改了這個勾選框的草稿可以經由這個路由儲存（`src/web/chat.ts` 的 `savesLeadReviewAlone()`），不論草稿其他部分有什麼問題（例如資料夾不存在），因為只送出這個開關，忙碌中的提示也會說明（有設計在等確認時，「儲存」就是一般的 `PATCH`，會確認那個設計）；沒有自動組隊、也就沒有設計卡片的對話，同樣可以為正在回答的問題切換。首席 agent 審閱時關閉它，會停止那次審閱（見**什麼時候。**）。
+有 `settings.leadReview` 時（任何對話都可以，不論有沒有自動組隊），團隊回答完之後，首席 agent 會讀過團隊說的內容，告訴使用者哪些地方需要特別注意、接下來可以做什麼（協調器中的 `reviewReplies()`，以及 `src/server/reviewer.ts`）。「新對話」與「新自動任務」頁面建立的每個新對話一開始都是開啟的：它們的勾選框每次都預先勾選（`src/web/components/NewChat.tsx` 的 `autoTeam()` 設定 `leadReview: true`；頁面不會記住上次的選擇），透過 API 建立、沒有帶這個設定的對話則是關閉的。排程每次開的新對話（`newChat`）會複製排程所在對話的這個設定，和它複製的其他設定一樣；分支一開始的設定，則是建立分支當下對話的設定，而不是被分支的那則訊息當時的設定。使用者可以在「新對話」頁面、「新自動任務」頁面、團隊設定，或最新一張團隊設計卡片上的勾選框，用「團隊回答後，請首席 agent 審閱回覆」切換；`PUT /api/conversations/:id/lead-review`（`{ on }`，`Orchestrator.setLeadReview()`）隨時可以切換，團隊回覆中也可以，因為要不要審閱是在團隊回答完時才決定。所以團隊回覆中、且沒有團隊設計在等確認時，團隊設定的「儲存」對其他修改仍然停用，但只改了這個勾選框（或連同「直接送進進行中的回合」的勾選框，`PUT …/steer`）的草稿可以經由這個路由儲存（`src/web/chat.ts` 的 `savesSwitchesAlone()`），不論草稿其他部分有什麼問題（例如資料夾不存在），因為只送出這些開關，忙碌中的提示也會說明（有設計在等確認時，「儲存」就是一般的 `PATCH`，會確認那個設計）；沒有自動組隊、也就沒有設計卡片的對話，同樣可以為正在回答的問題切換。首席 agent 審閱時關閉它，會停止那次審閱（見**什麼時候。**）。
 
 **只有使用者能切換。** 首席 agent 不參與：設計團隊的 prompt 完全不提它，設計也不會改變它（回覆中提到也不會有任何改變）。切換後，正在回答的問題（如果團隊還沒回答完）與這個對話之後的每個問題都照新的設定，直到使用者再次切換；不會記到之後的新對話（新對話都預設開啟）。
 
@@ -378,6 +380,18 @@ Muse Code 的轉接器（`src/server/agents/muse.ts`）在工作目錄啟動 `mu
 **在 Windows 上啟動 CLI。** 每個 CLI 都直接啟動，從不經過 shell，而 Windows 這樣只能啟動真正的程式（`.exe`、`.com`），不能啟動 `.cmd` 或 `.bat` 腳本。用 npm 安裝的 CLI 在 PATH 上就是這種腳本（npm 的 cmd-shim：`claude.cmd`、`codex.cmd`、`copilot.cmd`、`opencode.cmd`、`cline.cmd`、`pi.cmd`），Cursor 的也是（`cursor-agent.cmd`，它會執行 PowerShell）。所以在 Windows 上，`process.ts` 會問 `src/server/winLaunch.ts` 要啟動什麼（`launchOf()`，用於執行、探測與登入）：照 shell 的方式找 CLI（Node 交給子程序的那個 PATH 上的每個資料夾，依 PATHEXT 的順序，只找程式與 `.cmd`／`.bat` 腳本）；找到程式就直接啟動；找到 npm 包裝檔（每一行都是 npm 的 cmd-shim 會寫的腳本，`npmShimTarget()`；使用者自己先設定變數的腳本就不算）就讀出它執行的東西，也就是它指名的程式（`"%dp0%\node_modules\…\claude.exe" %*`），或用 Node 執行它指名的腳本（`"%_prog%" "%dp0%\…\cli.js" %*`，`_prog` 必須是 Node：用它旁邊的 `node.exe`，否則用 PATH 上的，再否則用執行 Harness Relay 的 Node，但桌面 app 不算，它不是 Node），腳本放在參數的最前面；Cursor 的啟動檔（它會設定 `CURSOR_INVOKED_AS` 並執行 `cursor-agent.ps1`）則照那個腳本的做法，啟動最新且完整的版本資料夾裡的 `node.exe` 與它的 `index.js`（`versions\<YYYY.M.D[-HH-MM-SS]-commit>`，依日期與建置時間），`CURSOR_INVOKED_AS` 設為腳本的名稱，`NODE_COMPILE_CACHE` 也照那個腳本設定。啟動檔的第一步是套用 Cursor 已下載待用的更新，這一步留到 Cursor 下次從 shell 啟動時再做。Muse Code 的安裝程式會在 PATH 上放一個啟動檔 `muse.cmd`，它執行旁邊的 `.muse-launcher.ps1`：照那個腳本的做法，啟動目前使用中的程式，也就是 `.muse-version` 指名的版本的 `muse-bin-<版本>.exe`（例如 `1.4.18-R8587.1`），它的更新檢查留到 Muse 下次從 shell 啟動時再做（以 muse 1.4.18 在 Windows 11 on Arm 上試過）；`.muse-version` 指名的程式不在時，執行會失敗，並說明要重新安裝 Muse。其他腳本不會啟動：執行會失敗，並說明原因，也說明可以在「設定」中改成它執行的程式的路徑；它指名的程式或腳本不在的包裝檔（請重新安裝那個 CLI），或找不到 Node 的 Node 腳本，也不會啟動。完全找不到的 CLI 會以找不到指令失敗，而不是直接用名稱啟動，那樣 Windows 會先在工作目錄（agent 的專案）裡找它。已在 Windows 11 on Arm 上試過以 npm 安裝的 Claude Code、Codex、Copilot、OpenCode、Cline 與 Pi，以及以 Cursor 自己的安裝程式安裝的 Cursor。
 
 **開源 agent。** 除了這七個，還有五個開源 CLI：OpenCode（`opencode acp`）、Goose（`goose acp`）、Cline（`cline --acp`）與 OpenHands（`openhands acp`）透過 ACP，使用同一套共用的 ACP 回合（`src/server/agents/acpTurn.ts`，取自 Grok 轉接器的邏輯，每個 CLI 有自己的 hook），Pi 則透過它的 JSONL RPC（`pi --mode rpc`）。和另外七個一樣，每一輪執行一個程序，事件也是同樣的共通事件。它們使用「設定」裡的模型來源而不是登入，在 Harness Relay 自己的家目錄中執行（每次執行前由它寫入設定），完全存取以外則在 Harness Relay 自己的沙箱中執行。詳見[開源 agent](open-agents.zh-TW.md)：模型來源、家目錄、共用的 ACP 回合、權限對應與 Harness Relay 的沙箱。
+
+**送訊息進進行中的回合**（`RunOptions.onSteer`、`STEER_PROVIDERS`；見[發言排程](#發言排程模式)）。能這樣做的轉接器，會在提示送出後交給協調器一個 `SteerTurn`：CLI 把訊息收進這個回合時回傳 true，拒絕或回合先結束時回傳 false（訊息就照常排隊），並在回合結束時收回：
+
+- **Claude Code**：在它的 stream-json 輸入寫一則使用者訊息，帶 `priority: "next"` 與自己的 `uuid`。Claude Code 會把這個優先度排隊中的訊息，在目前的工具呼叫之後、下一次呼叫模型之前併入進行中的回合；模型已經回答後才讀到的，則在同一個程序裡當成接下來的另一個回合，有自己的 result。它用 `command_lifecycle` 行回報每一則：說 `queued` 或 `started` 就算收下；5 秒內都沒有消息的會撤回（`cancel_async_message`），算作拒絕。輸入本來在第一個 result 就結束，但在我們送的訊息還在等它的回合、那個回合還沒有 result，或 result 的 `queued_turn_count` 說後面還有回合時，會保持開啟（`ClaudeSteering`）。
+- **Codex**：`turn/steer { threadId, input, expectedTurnId }`，帶 `turn/start` 給的 id；那個回合已經不是進行中的回合時，Codex 會拒絕。
+- **Grok**：`_x.ai/interject { sessionId, interjectionId, content }`，Grok 會在下一個安全的時間點，把它當成使用者訊息放進進行中的回合；Grok 回應這個請求或送出 `x.ai/session/interjection` 就算收下，回應錯誤、送出 `x.ai/session/unsent_message`，或提示先回應了，就算拒絕。
+- **Antigravity**：回合進行中再送一個 `session/prompt`，agy 會把它當成引導這個回合。每個提示都回應後回合才算結束（最後回應的那個給出結果，token 是全部加總）；有更晚的提示還沒回應時就先回應的提示，是被取代了，它的 `cancelled` 不算停止。引導用的提示在更早的提示回應後，或 1.5 秒內沒有錯誤，就算收下（`AntigravityPrompts`）。
+- **Goose**：`_goose/unstable/session/steer { sessionId, expectedRunId, prompt }`，和傳遞拒絕原因的方式一樣（共用 ACP 回合的 `steer` hook）；還不知道這次執行的 id 時算拒絕。
+- **Pi**：它的 `steer` 指令，Pi 會排在目前的工具呼叫之後、下一次呼叫模型之前；執行還沒結束、Pi 回答 `disposition: "queued"` 時就算收下。
+- **Cursor** 不能（新的提示會取消進行中的那個）；**OpenCode**、**Cline**、**OpenHands**、**Copilot** 與 **Muse Code** 在實際執行證明可以之前，都算不能。
+
+每種方法都在安裝的 CLI 中讀過（Claude Code 2.1.330 的 bundle 與 SDK schema、codex 0.167.0 的 `codex app-server generate-json-schema`、grok 1.0.92 與 agy 1.5.14 的執行檔與 agy 的 changelog、goose 1.58.1 的執行檔、Pi 1.5.1 的 RPC 文件）；都還沒有搭配模型實際執行過，所以剛好在回合結束時送到 CLI 的訊息，是照各自的協定處理，而不是照實際執行看到的結果。
 
 ### 每則回覆的費用與 token
 
@@ -720,11 +734,11 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 29）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`pinned_at`（使用者把它釘選在側邊欄最上面的時間；NULL 代表沒有釘選；schema 版本 30）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 29）、`steer`（成員工作時送出的訊息直接送進他們進行中的回合；schema 版本 39）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`pinned_at`（使用者把它釘選在側邊欄最上面的時間；NULL 代表沒有釘選；schema 版本 30）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19；`limits`：成員自己的上限，JSON，只存它的 CLI 有的那一種，NULL 表示不設，見[成員自己的上限](#成員自己的上限)，schema 版本 39） |
 | `task_requests` | 建立對話及傳送任務的重試紀錄（schema 版本 37），保存內容摘要、對話和首次送出的佇列狀態，隨對話刪除。 |
-| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 29），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序。webhook 呼叫隨排程訊息送來的內容存在 `event`（schema 版本 32），不是來自 webhook 時，它來自哪裡存在 `event_source`（`mail`：自動任務的觸發條件找到的；schema 版本 35）。 |
+| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 29），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`；直接送進進行中回合的使用者訊息，接收它的成員 id 存成 JSON 放在 `steered`，schema 版本 39），依 `seq` 排序。webhook 呼叫隨排程訊息送來的內容存在 `event`（schema 版本 32），不是來自 webhook 時，它來自哪裡存在 `event_source`（`mail`：自動任務的觸發條件找到的；schema 版本 35）。 |
 | `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON；自動任務的第一件事也存成 `trigger`，給前一個版本讀）、時區、語言、是否啟用、核准與錯過時間的選擇、是否每次開新對話（`new_chat`）、下一次，以及上次結果（含它開的對話 `last_chat_id`）。追蹤的目標（`goal`）、追蹤狀態（`tracking`，JSON：`ScheduleTracking`）、它的 webhook（`hook`，JSON：建立與上次呼叫的時間）與權杖的 SHA-256（`hook_hash`，從不存權杖本身；schema 版本 32）。當某件事發生時才啟動的自動任務，在兩次檢查之間保留的每件事的來源狀態（`watch`，JSON：`ScheduleWatch` 的清單，每件事一個；schema 版本 35，能等好幾件事之前寫下的物件讀成那唯一一件事的狀態）。 |
 | `schedule_attachments` | 自動任務的附件原檔（schema 版本 38）。每列保存檔名、MIME 類型與內容，刪除排程時一併刪除。排程訊息送出或加入佇列時，會在接收對話中建立獨立副本。 |
 | `message_changes` | 每則訊息在它改的第一個 repository 中修改的檔案（路徑、A/M/D、增刪行數）；這一輪在其他 repository 的修改（含檔案）以 JSON 存在 `messages.more_changes` |

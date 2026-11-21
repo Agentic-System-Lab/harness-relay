@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   constants,
@@ -40,6 +40,7 @@ import {
   type RunEndpoint,
   type RunOptions,
   type RunResult,
+  type SteerTurn,
 } from './types';
 import { t } from '../i18n';
 
@@ -1454,6 +1455,62 @@ function aborted(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => (signal.aborted ? resolve() : signal.addEventListener('abort', () => resolve(), { once: true })));
 }
 
+/**
+ * Steering a Grok turn (`RunOptions.onSteer`): `x.ai/interject`, an ACP extension method (`_x.ai/interject`
+ * on the wire, as `_x.ai/session_notification` is), with `{ sessionId, interjectionId, content }`, the
+ * content as ACP content blocks. Grok injects interjections into the running turn as user messages at
+ * its next safe point ("Injected mid-turn interjections as standalone synthetic user messages"; ones
+ * that come as the turn is ending are drained before it completes) and tells the client about each one
+ * by its id: `x.ai/session/interjection` once it took it, `x.ai/session/unsent_message` when it did not.
+ * Read in grok 1.0.92's binary (its `InterjectRequest` with `interjectionId`, its extension methods'
+ * list, those notifications, the TUI's own `x.ai/interject`), not run. So a message counts as taken
+ * once Grok answered the request or said it took it, and as refused when it answered with an error or
+ * said it was not sent, or the prompt ended first.
+ */
+export class GrokInterjections {
+  private waiting = new Map<string, (taken: boolean) => void>();
+  private closed = false;
+
+  constructor(
+    private conn: { request(method: string, params?: unknown): Promise<unknown> },
+    private sessionId: string,
+  ) {}
+
+  readonly steer: SteerTurn = (text) => {
+    if (this.closed) return Promise.resolve(false);
+    const interjectionId = randomUUID();
+    return new Promise<boolean>((resolve) => {
+      this.waiting.set(interjectionId, resolve);
+      this.conn.request('_x.ai/interject', { sessionId: this.sessionId, interjectionId, content: [{ type: 'text', text }] }).then(
+        () => this.answer(interjectionId, true),
+        () => this.answer(interjectionId, false),
+      );
+    });
+  };
+
+  /** A notification of Grok's: true when it was about an interjection (taken, or not sent). */
+  handle(method: string, params: any): boolean {
+    const name = method.replace(/^_/, '');
+    if (name !== 'x.ai/session/interjection' && name !== 'x.ai/session/unsent_message') return false;
+    const id = typeof params?.interjectionId === 'string' ? params.interjectionId : '';
+    if (id) this.answer(id, name === 'x.ai/session/interjection');
+    return true;
+  }
+
+  /** The prompt has ended: what is still waiting was not taken into it. */
+  close(): void {
+    this.closed = true;
+    for (const id of [...this.waiting.keys()]) this.answer(id, false);
+  }
+
+  private answer(id: string, taken: boolean): void {
+    const resolve = this.waiting.get(id);
+    if (!resolve) return;
+    this.waiting.delete(id);
+    resolve(taken);
+  }
+}
+
 /** One Grok turn over ACP, in its sandbox for the permission (`sandbox`, set in `env`). */
 async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefined, env: NodeJS.ProcessEnv): Promise<RunResult> {
   let child: ChildProcess | undefined;
@@ -1466,7 +1523,10 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createGrokUpdateHandler(o.onEvent);
+  /** Messages sent into the running turn (steering), once the prompt is out. */
+  let interjections: GrokInterjections | undefined;
   conn.onNotification = (method, params) => {
+    if (interjections?.handle(method, params)) return;
     // Background tasks have methods of their own besides the session notification (Grok 1.0.92).
     const own = /^_?x\.ai\/task_(backgrounded|completed)$/.test(method);
     if (method !== 'session/update' && method !== '_x.ai/session_notification' && !own) return;
@@ -1551,7 +1611,13 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
       });
     }
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
+    const prompting = conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
+    // From now on a message the user sends may go into the turn (steering), until the prompt answers.
+    interjections = new GrokInterjections(conn, sessionId);
+    o.onSteer?.(interjections.steer);
+    const result = await prompting;
+    o.onSteer?.(undefined);
+    interjections.close();
     updates.answered();
     // Background work it started (subagents, commands) wakes Grok for a turn of its own once it ends:
     // the turn goes on until that is done, what comes meanwhile in the same reply, within the turn's
@@ -1584,6 +1650,8 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
+    o.onSteer?.(undefined);
+    interjections?.close();
     o.signal.removeEventListener('abort', onAbort);
     child?.stdin?.end(); // grok exits when its stdin closes
     stopSoon(3000);

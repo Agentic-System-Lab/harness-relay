@@ -1646,6 +1646,8 @@ export function createApp({
     // Lead review may be switched (on the team design card) while this request is read and its
     // workspace prepared: that switch came after this request, so it stands.
     const reviewBefore = Boolean(conv.settings.leadReview);
+    // So may steering (its own request, while the team replies): that switch stands too.
+    const steerBefore = Boolean(conv.settings.steer);
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const save = () => {
       if (b.title !== undefined) conv.title = String(b.title).trim().slice(0, 200) || conv.title;
@@ -1673,6 +1675,10 @@ export function createApp({
       if (Boolean(conv.settings.leadReview) !== reviewBefore) {
         if (conv.settings.leadReview) next.leadReview = true;
         else delete next.leadReview;
+      }
+      if (Boolean(conv.settings.steer) !== steerBefore) {
+        if (conv.settings.steer) next.steer = true;
+        else delete next.steer;
       }
       conv.agents = agents;
       conv.settings = next;
@@ -2281,6 +2287,14 @@ export function createApp({
     if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
     const conv = orchestrator.setLeadReview(c.req.param('id'), b.on);
     return c.json({ leadReview: Boolean(conv.settings.leadReview) });
+  });
+
+  // Steering on or off, at any time (Team settings' box, also while the team replies): read as each message is sent.
+  app.put('/api/conversations/:id/steer', async (c) => {
+    const b = await body<{ on?: unknown }>(c);
+    if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
+    const conv = orchestrator.setSteer(c.req.param('id'), b.on);
+    return c.json({ steer: Boolean(conv.settings.steer) });
   });
 
   // Decline it: the current team stays, and answers the question.
