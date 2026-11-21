@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import {
   MEMORY_SCOPES,
   PROVIDERS,
@@ -15,6 +15,7 @@ import {
   type McpServerView,
   type McpTransport,
   type MemoryScope,
+  type ObsidianVault,
   type Provider,
   type RelayToolGroup,
   type SkillCandidate,
@@ -22,6 +23,7 @@ import {
   type ToolLibraryUpdate,
   type ToolLibraryView,
 } from '../shared/types';
+import { APP_SERVERS, isSlackMcp } from '../shared/apps';
 import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
@@ -59,6 +61,8 @@ interface StoredServer {
   command: string;
   args: string[];
   url: string;
+  /** A catalog entry is only handed to agents after sign-in. */
+  app?: keyof typeof APP_SERVERS;
   /** Names only; the values are secrets. */
   env: string[];
   headers: string[];
@@ -119,6 +123,7 @@ interface Secrets {
 }
 
 interface Stored {
+  obsidianVaults?: ObsidianVault[];
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
@@ -156,6 +161,12 @@ export interface AgentTools {
   oauthServers?: { name: string; id: string }[];
   /** The servers left out of this turn, their sign-in needing a new one or not renewed now, with the user's note. */
   leftOut?: { name: string; reason: 'reauth' | 'failed'; note: string }[];
+}
+
+/** Both paths are canonical. A disconnected or offline selection still reserves its own subtree. */
+function containsVault(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 const SETTINGS_KEY = 'tool_library';
@@ -305,7 +316,7 @@ export class ToolLibrary {
     const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(SETTINGS_KEY) as { value: string } | undefined;
     if (row) {
       try {
-        const v = JSON.parse(row.value) as Partial<Stored> & { memory?: unknown };
+        const v = JSON.parse(row.value) as Partial<Stored> & { memory?: unknown; obsidianVault?: unknown; obsidianVaultId?: unknown };
         const memory = emptyMemory();
         if (typeof v.memory === 'string') memory.all = v.memory;
         else if (v.memory && typeof v.memory === 'object') {
@@ -322,6 +333,13 @@ export class ToolLibrary {
           })),
           skills: (Array.isArray(v.skills) ? v.skills : []).map((s) => ({ path: s.path, providers: storedProviders(s) })),
           memory,
+          obsidianVaults: Array.isArray(v.obsidianVaults)
+            ? v.obsidianVaults.filter(
+                (entry) => entry && typeof entry.id === 'string' && entry.id && typeof entry.path === 'string' && entry.path,
+              )
+            : typeof v.obsidianVault === 'string' && v.obsidianVault
+              ? [{ id: typeof v.obsidianVaultId === 'string' && v.obsidianVaultId ? v.obsidianVaultId : 'legacy', path: v.obsidianVault }]
+              : [],
           relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
           ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
@@ -374,6 +392,7 @@ export class ToolLibrary {
       skills: this.data.skills,
       memory: this.data.memory,
       relayTools: this.data.relayTools ?? {},
+      obsidianVaults: this.obsidianVaults(),
       ...(this.data.browser ? { browser: this.data.browser } : {}),
     };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
@@ -411,14 +430,35 @@ export class ToolLibrary {
     }
   }
 
+  /** The draft picker only needs default grants. Reading them does not load skills or credentials. */
+  relayProviders(group: RelayToolGroup): Provider[] {
+    return [...(this.data.relayTools?.[group] ?? [])];
+  }
+
+  signedInAppServers(app: keyof typeof APP_SERVERS) {
+    return this.data.mcpServers
+      .filter(
+        (server) =>
+          server.transport === 'http' &&
+          server.oauth?.status === 'signed-in' &&
+          !this.unreadable.has(server.id) &&
+          (server.app === app || sameMcpUrl(server.url, APP_SERVERS[app]) || (app === 'slack' && isSlackMcp(server.url))),
+      )
+      .map((server) => server.providers);
+  }
+
   view(): ToolLibraryView {
     const masked = (names: string[], values: Record<string, string>): MaskedVar[] =>
       names.map((name) => ({ name, masked: mask(values[name] ?? '') }));
+    const obsidianVaults = this.obsidianVaults();
     return {
+      obsidianVaults,
+      ...(obsidianVaults.length === 1 ? { obsidianVault: obsidianVaults[0].path } : {}),
       mcpServers: this.data.mcpServers.map<McpServerView>((s) => {
         const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
         return {
           id: s.id,
+          ...(s.app ? { app: s.app } : {}),
           name: s.name,
           transport: s.transport,
           command: s.command,
@@ -458,8 +498,63 @@ export class ToolLibrary {
     return this.data.browser;
   }
 
+  obsidianVaults(): ObsidianVault[] {
+    return (this.data.obsidianVaults ?? []).map(({ id, path }) => ({ id, path }));
+  }
+
+  private saveObsidianVaults(vaults: ObsidianVault[]): ToolLibraryView {
+    const previous = this.data.obsidianVaults;
+    this.data.obsidianVaults = vaults;
+    try {
+      this.save();
+    } catch (error) {
+      this.data.obsidianVaults = previous;
+      throw error;
+    }
+    return this.view();
+  }
+
+  /** The legacy single-vault operation cannot replace or disconnect a collection. */
+  setObsidianVault(path: string): ToolLibraryView {
+    const current = this.obsidianVaults();
+    if (current.length > 1) throw new HttpError(409, t().obsidianMultiple);
+    if (path === (current[0]?.path ?? '')) return this.view();
+    return this.saveObsidianVaults(path ? [{ id: randomUUID(), path }] : []);
+  }
+
+  /** The route canonicalizes the entire batch before making this one change. */
+  addObsidianVaults(paths: string[]): ToolLibraryView {
+    const current = this.obsidianVaults();
+    const next = [...current];
+    for (const path of paths) {
+      if (next.some((v) => relative(v.path, path) === '')) continue;
+      if (next.some((v) => containsVault(v.path, path) || containsVault(path, v.path))) throw new HttpError(400, t().obsidianOverlap);
+      next.push({ id: randomUUID(), path });
+    }
+    return next.length === current.length ? this.view() : this.saveObsidianVaults(next);
+  }
+
+  removeObsidianVault(id: string): ToolLibraryView {
+    const current = this.obsidianVaults();
+    const next = current.filter((entry) => entry.id !== id);
+    if (next.length === current.length) throw new HttpError(404, t().obsidianVaultMissing);
+    return this.saveObsidianVaults(next);
+  }
+
+  /** Repeated clicks reuse this app, including after a rename. Never overwrite a server the user added. */
+  ensureApp(app: keyof typeof APP_SERVERS): string {
+    const found = this.data.mcpServers.find((s) => s.app === app && s.transport === 'http' && s.url === APP_SERVERS[app]);
+    // An older browser can still call the Slack catalog route. Only renew an existing grant.
+    if (app === 'slack' && !found?.oauth) throw new HttpError(409, t().appsSlackInAssistant);
+    if (found) return found.name;
+    let name: string = app;
+    for (let n = 2; this.data.mcpServers.some((s) => s.name.toLowerCase() === name); n++) name = `${app}-${n}`;
+    this.saveServer(name, { transport: 'http', url: APP_SERVERS[app] }, app);
+    return name;
+  }
+
   /** Adds an MCP server (no `previousName`) or replaces one (renaming it when the names differ). */
-  saveServer(name: string, u: McpServerUpdate): ToolLibraryView {
+  saveServer(name: string, u: McpServerUpdate, app?: keyof typeof APP_SERVERS): ToolLibraryView {
     const servers = this.data.mcpServers;
     const prev = u.previousName;
     const index = prev === undefined ? -1 : servers.findIndex((s) => s.name === prev);
@@ -494,6 +589,8 @@ export class ToolLibrary {
     // or no longer HTTP, is another server: its tokens go.
     const before = index >= 0 ? servers[index]! : undefined;
     const sameServer = Boolean(before && http && before.transport === 'http' && sameMcpUrl(before.url, server.url));
+    if (app) server.app = app;
+    else if (before?.app && http && server.url === APP_SERVERS[before.app]) server.app = before.app;
     if (sameServer && before?.oauth) server.oauth = before.oauth;
 
     // First: when the credential store fails, nothing changes. A rename keeps the same entry.
@@ -704,7 +801,9 @@ export class ToolLibrary {
   forAgent(agent: Pick<AgentConfig, 'tools' | 'provider'>): AgentTools {
     this.readAgain();
     const on = (key: string, providers: Provider[]) => agentHasTool(agent, key, providers.includes(agent.provider));
-    const given = this.data.mcpServers.filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers));
+    const given = this.data.mcpServers.filter(
+      (s) => (!s.app || s.oauth) && !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers),
+    );
     // Not for a CLI that takes no HTTP MCP server (they are left out of its runs): no token, no refresh, no note.
     const oauthServers = NO_HTTP_MCP.includes(agent.provider)
       ? []

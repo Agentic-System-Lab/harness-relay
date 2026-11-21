@@ -781,7 +781,7 @@
             <div class="usecase-shows">
               <h3>用到的功能</h3>
               <ul>
-              <li><b>Harness Relay 的瀏覽器。</b> 每段對話有自己的無頭瀏覽器；沒開過的網站會先問你。 <a href="../docs/tools/#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
+              <li><b>Harness Relay 的瀏覽器。</b> 每段對話有自己的無頭瀏覽器；沒開過的網站會先問你。 <a href="../docs/tools/#browser-mail-calendar">瀏覽器設定</a></li>
               <li><b>圓桌模式。</b> 依序發言，每位都看得到前面說了什麼。 <a href="../docs/teams/#modes">三種對話模式</a></li>
               <li><b>分支對話。</b> 從任一則回覆開一段新對話，往另一個方向走；原本的維持原樣。 <a href="../docs/conversations/#messages">複製、編輯、重試與分支</a></li>
               </ul>
@@ -1062,7 +1062,7 @@
               <h3>用到的功能</h3>
               <ul>
               <li><b>追蹤的目標。</b> 用你的話說怎樣算完成；每次執行都知道之前回報了什麼，達成之後自動任務就停下。 <a href="../docs/automations/#goal">追蹤目標</a></li>
-              <li><b>郵件。</b> Harness Relay 自己的工具，用應用程式密碼連你的帳號，Microsoft 365、Outlook.com 與 Gmail 則改在瀏覽器裡登入；密碼與權杖都留在作業系統的憑證儲存區。 <a href="../docs/tools/#accounts">你的郵件與行事曆帳號</a></li>
+              <li><b>郵件。</b> 可在瀏覽器以 OAuth 登入 Gmail、Microsoft 365 或 Outlook.com，或使用 Apple App 專用密碼加入 iCloud 郵件。Relay 將密碼與權杖保存在作業系統的憑證儲存區。 <a href="../docs/tools/#accounts">你的郵件與行事曆帳號</a></li>
               <li><b>待送出匣。</b> 信件不會在 agent 的回合裡寄出：它以卡片等你按「送出」或「捨棄」。 <a href="../docs/tools/#outbox">沒有你，什麼都不會送到別人那裡</a></li>
               </ul>
             </div>
@@ -1497,7 +1497,7 @@
                   <button class="chapter" type="button" data-t="0">
                     <time>0:00</time>
                     <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
-                    <span class="say">設定 → 模型來源：你自己的 vLLM 伺服器，跑的是 Qwen3.8 27B。</span>
+                    <span class="say">設定 → 模型連線：你自己的 vLLM 伺服器，跑的是 Qwen3.8 27B。</span>
                     <span class="bar" aria-hidden="true"></span>
                   </button>
                 </li>
@@ -1582,7 +1582,7 @@
             <div class="usecase-shows">
               <h3>用到的功能</h3>
               <ul>
-              <li><b>自己的模型伺服器。</b> Claude Code、Codex 和 Grok 都能改用你自己的 OpenAI 相容端點，例如 vLLM、Ollama 或 LM Studio，端點的金鑰只交給它們。 <a href="../docs/agents/#open-agents">開源 agent 與模型來源</a></li>
+              <li><b>自己的模型伺服器。</b> Claude Code、Codex 和 Grok 都能改用你自己的 OpenAI 相容端點，例如 vLLM、Ollama 或 LM Studio，端點的金鑰只交給它們。 <a href="../docs/agents/#open-agents">模型連線</a></li>
               <li><b>接力模式。</b> 一次一位發言：修改、檢查、寫說明，各自用 @ 交棒。 <a href="../docs/teams/#modes">三種對話模式</a></li>
               <li><b>差異。</b> 改了檔案的回覆會列出檔案；它的差異逐處對照修改前的版本。 <a href="../docs/permissions/#changes">檢視與套用修改</a></li>
               </ul>

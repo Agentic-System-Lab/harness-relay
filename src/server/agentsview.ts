@@ -209,11 +209,13 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
       return { type: 'text', text: `[${p.name}]` };
     case 'progress':
       return { type: 'text', text: `[Progress on the tracked goal: ${p.status}${p.text ? ` — ${p.text}` : ''}]` };
-    case 'outbox':
+    case 'outbox': {
+      const save = p.preview.note || p.preview.document;
       return {
         type: 'text',
-        text: `[Put in the outbox for the user to send: ${p.title} — ${p.status}${p.result ? ` (${p.result})` : ''}]`,
+        text: `[Put in the outbox for the user to ${save ? 'save' : 'send'}: ${p.title} — ${save && p.status === 'sent' ? 'saved' : p.status}${p.result ? ` (${p.result})` : ''}]`,
       };
+    }
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
   }

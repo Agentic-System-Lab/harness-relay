@@ -863,7 +863,7 @@ export function validEndpointUrl(input: unknown, relayPort = apiPort(), own: rea
   try {
     url = new URL(raw);
   } catch {
-    bad(t().endpointUrlInvalid(raw));
+    bad(t().endpointUrlInvalid);
   }
   if (
     !['http:', 'https:'].includes(url.protocol) ||
@@ -875,15 +875,31 @@ export function validEndpointUrl(input: unknown, relayPort = apiPort(), own: rea
     raw.includes('#') ||
     raw.includes('?')
   ) {
-    bad(t().endpointUrlInvalid(raw));
+    bad(t().endpointUrlInvalid);
   }
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
   const host = url.hostname.replace(/\.$/, '');
-  if (new Set([relayPort, ...relayPorts()]).has(port) && isLocalHost(host, own)) bad(t().endpointUrlRelay(raw));
+  if (new Set([relayPort, ...relayPorts()]).has(port) && isLocalHost(host, own)) bad(t().endpointUrlRelay);
   return url.href.replace(/\/+$/, '');
 }
 
-/** `PUT /api/backends/endpoints/:id`: a name, a base URL, the model names it serves, and maybe its key. */
+export function validEndpointModelId(id: unknown): id is string {
+  return typeof id === 'string' && id.length > 0 && id.length <= BACKEND_LIMITS.maxModelId && !/[\s\p{Cc}\p{Cs}]/u.test(id);
+}
+
+/** A catalog lookup can use an unsaved URL and key. Only an omitted key may use the saved credential. */
+export function validateEndpointCatalog(input: unknown): { baseUrl: string; endpointId?: string; apiKey?: string | null } {
+  const u = (input ?? {}) as Record<string, unknown>;
+  const baseUrl = validEndpointUrl(u.baseUrl);
+  if (u.endpointId !== undefined && typeof u.endpointId !== 'string') bad(t().invalidField('endpointId'));
+  return {
+    baseUrl,
+    ...(u.endpointId === undefined ? {} : { endpointId: validEndpointId(u.endpointId) }),
+    ...(u.apiKey === undefined ? {} : { apiKey: validateBackendKey(u) }),
+  };
+}
+
+/** `PUT /api/backends/endpoints/:id`: a name, a base URL, the model names to offer, and maybe its key. */
 export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpointUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
   const name = optionalString(u.name, 'name', BACKEND_LIMITS.maxName);
@@ -893,13 +909,18 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
   const { maxModels, maxModelId } = BACKEND_LIMITS;
   if (!Array.isArray(models) || models.length > maxModels) bad(t().endpointModelsInvalid(maxModels, maxModelId));
   const names = models.map((m) => (typeof m === 'string' ? m.trim() : ''));
-  if (names.some((m) => !m || m.length > maxModelId || /\s/.test(m))) bad(t().endpointModelsInvalid(maxModels, maxModelId));
-  const out: ModelEndpointUpdate = { name, baseUrl, models: [...new Set(names)] };
-  if (u.apiKey === null) out.apiKey = null;
-  else if (u.apiKey !== undefined) {
-    const key = optionalString(u.apiKey, 'apiKey', 4096);
-    out.apiKey = key || null;
-  }
+  if (names.some((m) => !validEndpointModelId(m))) bad(t().endpointModelsInvalid(maxModels, maxModelId));
+  if (u.verifyModels !== undefined && typeof u.verifyModels !== 'boolean') bad(t().invalidField('verifyModels'));
+  if (u.allowMissingMetadata !== undefined && (typeof u.allowMissingMetadata !== 'boolean' || u.verifyModels !== true))
+    bad(t().invalidField('allowMissingMetadata'));
+  const out = {
+    name,
+    baseUrl,
+    models: [...new Set(names)],
+    ...(u.apiKey === undefined ? {} : { apiKey: validateBackendKey(u) }),
+    ...(u.verifyModels === true ? { verifyModels: true } : {}),
+    ...(u.allowMissingMetadata === true ? { allowMissingMetadata: true } : {}),
+  };
   return out;
 }
 

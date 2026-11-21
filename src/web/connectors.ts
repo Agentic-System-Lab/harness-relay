@@ -13,12 +13,6 @@ export interface MailPreset {
 /** Providers whose servers take an app password, and their usual settings. */
 export const MAIL_PRESETS: MailPreset[] = [
   {
-    id: 'gmail',
-    label: 'Gmail',
-    imap: { host: 'imap.gmail.com', port: 993, security: 'tls' },
-    smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' },
-  },
-  {
     id: 'icloud',
     label: 'iCloud Mail',
     imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' },
@@ -38,9 +32,11 @@ export const MAIL_PRESETS: MailPreset[] = [
   },
 ];
 
+export const ICLOUD_CALENDAR_URL = 'https://caldav.icloud.com/';
+
 /** Calendar servers that find an account's calendars from their own address. */
 export const CALENDAR_PRESETS = [
-  { id: 'icloud', label: 'iCloud', url: 'https://caldav.icloud.com/' },
+  { id: 'icloud', label: 'iCloud', url: ICLOUD_CALENDAR_URL },
   { id: 'fastmail', label: 'Fastmail', url: 'https://caldav.fastmail.com/dav/' },
 ];
 
@@ -121,15 +117,4 @@ export function calendarUpdate(f: CalendarForm): CalendarAccountUpdate {
   };
 }
 
-/** A new account's id, from its name, not taken by another (`work`, `work-2`…). */
-export function newAccountId(name: string, taken: readonly string[]): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 30) || 'account';
-  let id = base;
-  for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
-  return id;
-}
+export { newAccountId } from '../shared/connectorAccounts';

@@ -601,12 +601,15 @@ function wireSearch() {
     const width = Math.min(Math.max(rect.width, Math.min(360, window.innerWidth - 24)), window.innerWidth - 24);
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - 12 - width));
     panel.style.left = `${left}px`;
-    panel.style.top = `${Math.round(rect.bottom + 6)}px`;
+    const tocToggle = document.querySelector('.doc-toc-toggle');
+    const top = Math.max(rect.bottom, tocToggle?.getBoundingClientRect().bottom ?? 0) + 6;
+    panel.style.top = `${Math.round(top)}px`;
     panel.style.width = `${Math.round(width)}px`;
-    panel.style.maxHeight = `${Math.max(140, Math.round(window.innerHeight - rect.bottom - 16))}px`;
+    panel.style.maxHeight = `${Math.max(0, Math.round(window.innerHeight - top - 10))}px`;
   };
 
   const closePanel = () => {
+    ++seq; // A pending index response must not reopen search over another menu.
     panel.hidden = true;
     panel.replaceChildren();
     input.setAttribute('aria-expanded', 'false');
@@ -801,9 +804,11 @@ function wireSearch() {
     nav.classList.remove('is-open');
     nav.querySelector('[data-doc-nav-toggle]')?.setAttribute('aria-expanded', 'false');
   });
-  document.addEventListener('click', (event) => {
+  const closeOutside = (event) => {
     if (!panel.hidden && !form.contains(event.target) && !panel.contains(event.target)) closePanel();
-  });
+  };
+  document.addEventListener('click', closeOutside);
+  document.addEventListener('focusin', closeOutside);
   window.addEventListener('resize', () => {
     if (!panel.hidden) place();
   });

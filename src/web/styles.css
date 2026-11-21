@@ -2008,37 +2008,18 @@ p {
   color: var(--muted);
 }
 
-.field.inline {
-  flex-direction: row;
+.field-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 4.5rem) minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
 }
 
-.field.inline > span:first-child {
-  flex-shrink: 0;
+.field-with-unit > span:first-child {
+  grid-column: 1 / -1;
 }
-
-.field.inline input {
-  flex: 1;
-}
-
-/* The number box is sized outright, not only by flex, and the unit after it never wraps: on a phone,
-   "rounds / message" could wrap onto three lines. */
-.field.inline input[type='number'] {
-  flex: 0 0 72px;
-  width: 72px;
-}
-
-.field.inline .unit {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* Where even one line of label, box and unit is wider than the screen (English under about 300px),
-   the unit goes onto a line of its own, whole, rather than past the edge. */
-.field.inline:has(> .unit) {
-  flex-wrap: wrap;
-  row-gap: 4px;
+.field-with-unit input {
+  width: 100%;
 }
 
 .field textarea {
@@ -2056,34 +2037,14 @@ p {
   margin-top: 2px;
 }
 
-/* Agent cards are narrow: one row per select, label on the left. */
+/* In narrow member cards, each model field uses its own row. */
 .agent-card .model-picker {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
-.agent-card .model-picker .field {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
-}
-
-.agent-card .model-picker .field input {
-  grid-column: 2;
-  margin-top: 0;
-}
-
 details.sub .model-picker {
   max-width: 560px;
-}
-
-/* The account an agent runs as: in an agent card, a row like the model's and effort's. */
-.agent-card .account-picker {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
 }
 
 .card > .account-picker {
@@ -2482,6 +2443,82 @@ details.sub .model-picker {
 }
 .first-task .first-input-tools {
   align-items: center;
+}
+.draft-app-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text);
+}
+.draft-app-toggle:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .draft-app-toggle {
+    min-height: 44px;
+  }
+}
+.draft-app-choices {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.draft-app-choices[hidden] {
+  display: none;
+}
+.draft-app-choices > a {
+  justify-self: start;
+  font-size: 0.85rem;
+}
+.draft-app-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 145px), 1fr));
+  gap: 4px 8px;
+}
+.draft-app-list label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  cursor: pointer;
+}
+.draft-app-list label:has(input:disabled) {
+  color: var(--muted);
+  cursor: default;
+}
+.draft-app-list small {
+  display: block;
+  font-size: 0.75rem;
+}
+.draft-slack-verify {
+  margin-inline-start: 23px;
+}
+.draft-slack-verify small {
+  color: var(--muted);
+}
+.draft-slack-verify .link-button {
+  text-align: start;
+}
+.draft-app-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.draft-app-list input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.draft-app-selection {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
 }
 .first-input-tools + .attach-tray {
   margin-top: 6px;
@@ -4449,6 +4486,16 @@ video.chat-media {
   overflow-wrap: anywhere;
 }
 
+.document-preview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.document-preview .outbox-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .outbox-card.outbox-sent {
   border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
 }
@@ -4490,31 +4537,75 @@ video.chat-media {
   white-space: pre-wrap;
 }
 
+.note-preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.note-preview summary {
+  cursor: pointer;
+}
+.note-preview dd,
+.outbox-fields dd,
+.outbox-body {
+  overflow-wrap: anywhere;
+}
+.note-diff {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.note-diff pre {
+  padding: 4px 10px;
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-diff strong {
+  font-size: 0.75rem;
+  padding: 4px 10px 0;
+  display: block;
+}
+.note-removed {
+  background: color-mix(in srgb, #cf5555 15%, transparent);
+  border-inline-start: 3px solid #cf5555;
+}
+.note-added {
+  background: color-mix(in srgb, #2b9d71 15%, transparent);
+  border-inline-start: 3px solid #2b9d71;
+}
+
 /* Mail and calendar accounts (Settings → Tool library). */
 .connectors h5 {
-  margin: 14px 0 6px;
+  margin: 0;
   font-size: 0.85rem;
 }
 
 .connector-servers {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 5.5em auto;
-  gap: 6px 8px;
-  align-items: center;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
-
+.connector-servers legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-weight: 650;
+}
+.connector-servers .server-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
 .connector-servers input,
 .connector-servers select {
   min-width: 0;
 }
-
 @media (max-width: 520px) {
-  .connector-servers {
-    grid-template-columns: auto minmax(0, 1fr) 4.5em;
-  }
-
-  .connector-servers select {
-    grid-column: 2 / -1;
+  .connector-servers .server-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -4720,7 +4811,6 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .oauth-accounts .ok-text {
@@ -4740,6 +4830,17 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.oauth-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+
+.oauth-provider > button {
+  align-self: flex-start;
 }
 
 /* A form's or a sign-in's buttons (Cancel and Save; Sign in with …, and the link to its app): side by
@@ -4920,6 +5021,11 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Cards already space their children. Browser heading margins would add a second gap. */
+:where(.card) :where(h4, h5, h6) {
+  margin-block: 0;
 }
 
 /* The entry point to assistant setup. Each row links to the card that can finish the next step. */
@@ -5290,6 +5396,53 @@ details.sub summary {
   margin: 0;
 }
 
+.model-connection + .model-connection {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.model-connection > summary {
+  padding-block: 4px;
+}
+
+.model-connection .connection-title {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.model-connection .connection-access {
+  display: block;
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.model-connection > .sub-body {
+  gap: 12px;
+}
+
+.endpoint-editor {
+  margin: 0;
+  padding-inline: 0;
+  min-width: 0;
+  border: 0;
+}
+
+.endpoint-models {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.endpoint-model-options {
+  display: grid;
+  gap: 6px;
+  max-height: 18rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
 /* Voice input: setup dialog and Settings card */
 .voice-dialog {
   width: min(580px, 100%);
@@ -5418,9 +5571,8 @@ details.sub summary {
 
 .voice-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .voice-label {
@@ -7304,6 +7456,119 @@ summary + .checks-editor-body {
   border-radius: 10px;
 }
 
+.common-apps {
+  display: grid;
+  gap: 20px;
+}
+.app-group {
+  min-width: 0;
+}
+.common-apps .app-group > h4 {
+  margin: 0;
+  padding: 0 4px 5px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.app-group > .lib-list {
+  gap: 0;
+}
+.app-group .app-row {
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+.app-options > summary,
+.app-quick-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 14px;
+  align-items: center;
+  padding: 10px 4px;
+  min-height: 54px;
+}
+.app-options > summary {
+  list-style: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.app-options > summary[hidden] {
+  display: none;
+}
+.app-options > summary::-webkit-details-marker {
+  display: none;
+}
+.app-options > summary:hover,
+.app-options > summary:focus-visible {
+  background: var(--surface);
+}
+.app-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.app-options[open] > summary .app-row-action svg {
+  transform: rotate(90deg);
+}
+.app-row-body {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 4px 14px;
+  overflow-wrap: anywhere;
+}
+.app-row-body > div,
+.app-row-body > details {
+  max-width: 100%;
+}
+.common-apps p {
+  margin: 0;
+}
+.app-row-body .app-row-body {
+  padding: 8px 0 0;
+}
+.app-quick .mcp-signin-row,
+.app-quick .lib-row-actions {
+  display: block;
+}
+.app-quick-action {
+  width: 100%;
+  text-align: start;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+}
+.app-quick-action:disabled {
+  opacity: 1;
+}
+.app-quick-action:disabled .app-row-action {
+  opacity: 0.45;
+}
+.app-quick-action:enabled:hover,
+.app-quick-action:focus-visible {
+  background: var(--surface);
+}
+.app-quick-action:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: -2px;
+}
+.app-quick .mcp-signin > :not(.mcp-signin-row) {
+  margin: 0 4px 8px;
+}
+.hosted-actions a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .lib-row-main {
   flex: 1;
   min-width: 0;
@@ -7372,7 +7637,7 @@ summary + .checks-editor-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: end;
 }
 
 .var-row input {

@@ -393,7 +393,7 @@
             <div class="section-head">
               <h2 id="agents-title"><span class="keep">你裝好的 agent</span>，<span class="keep">原封不動</span></h2>
               <p class="lead">
-                Harness Relay 不會自己呼叫任何模型 API。它啟動你已經安裝的 <code>claude</code>、<code>codex</code>、
+                各 agent 會把提示詞直接送給模型。Harness Relay 啟動你已經安裝的 <code>claude</code>、<code>codex</code>、
                 <code>grok</code>、<code>cursor-agent</code>、<code>agy</code>、<code>copilot</code> 和 <code>muse</code>，保有它們各自的工具、session 與登入狀態，把每個 agent 還沒看過的訊息交給它，再把所有內容串流到同一個對話。OpenCode、Goose、Cline、OpenHands 與 Pi
                 也以同樣的方式啟動，用你設定的模型來源。
               </p>
@@ -475,35 +475,41 @@
           </div>
           <article class="excerpt">
             <div class="ui ui-backends">
-              <div class="ui-title">模型來源</div>
-              <div class="ui-group">API key</div>
-              <div class="ui-field">
-                <span><b>OpenAI</b> · <span class="ui-muted">已設定 ••••3f9a</span></span>
-                <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span><span class="ui-btn">移除</span></span>
-              </div>
-              <div class="ui-field">
-                <span><b>Anthropic</b> · <span class="ui-muted">未設定</span></span>
-                <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span></span>
-              </div>
-              <div class="ui-field">
-                <span><b>xAI</b> · <span class="ui-muted">已設定 ••••7c21</span></span>
-                <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span><span class="ui-btn">移除</span></span>
-              </div>
-              <div class="ui-group">自訂端點</div>
-              <div class="ui-field">
-                <span><b>Homelab vLLM</b> <code>homelab/…</code></span>
-                <span class="ui-muted">http://10.0.0.5:8000/v1 · muse-glimmer-30b-nvfp4</span>
-                <span class="ui-actions"><span class="ui-btn">修改</span><span class="ui-btn">刪除</span></span>
-              </div>
-              <span class="ui-actions"><span class="ui-btn">＋ 新增端點</span></span>
+              <div class="ui-title">模型連線</div>
+              <details>
+                <summary class="ui-group">開源助理的 API Key<br /><small class="ui-muted">以下金鑰供 OpenCode、Goose、Cline、OpenHands 和 Pi 使用。</small></summary>
+                <div class="ui-field">
+                  <span><b>OpenAI</b> · <span class="ui-muted">已設定 ••••3f9a</span></span>
+                  <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span><span class="ui-btn">移除</span></span>
+                </div>
+                <div class="ui-field">
+                  <span><b>Anthropic</b> · <span class="ui-muted">未設定</span></span>
+                  <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span></span>
+                </div>
+                <div class="ui-field">
+                  <span><b>xAI</b> · <span class="ui-muted">已設定 ••••7c21</span></span>
+                  <span class="ui-input-row"><span class="ui-input"></span><span class="ui-btn">儲存</span><span class="ui-btn">移除</span></span>
+                </div>
+              </details>
+              <details>
+                <summary class="ui-group">
+                  自訂端點<br /><small class="ui-muted">除了上述五個開源助理，Claude Code、Codex、Grok 和 GitHub Copilot 也能使用自訂端點。</small>
+                </summary>
+                <div class="ui-field">
+                  <span><b>Homelab vLLM</b> <code>homelab/…</code></span>
+                  <span class="ui-muted">http://10.0.0.5:8000/v1 · muse-glimmer-30b-nvfp4</span>
+                  <span class="ui-actions"><span class="ui-btn">修改</span><span class="ui-btn">刪除</span></span>
+                </div>
+                <span class="ui-actions"><span class="ui-btn">＋ 新增端點</span></span>
+              </details>
             </div>
             <div class="excerpt-text">
               <h3>你的金鑰，或你自己的端點</h3>
               <p>
-                成員的模型寫成 <code>模型來源/模型</code>：<code>openai/gpt-5.4-nano</code>，或端點的 id 加上模型名稱，例如 <code>homelab/muse-glimmer-30b-nvfp4</code>。金鑰存在作業系統的憑證儲存區，每次執行只拿到它自己模型來源的那一把。
+                要連接自己的伺服器，請展開<b>自訂端點</b>，輸入網址與金鑰（選填），按<b>載入模型</b>，勾選需要的模型，再按<b>儲存</b>。Relay 會先向伺服器確認每個勾選或手動輸入的模型 ID。成員的模型寫成 <code>模型來源/模型</code>：<code>openai/gpt-5.4-nano</code>，或端點的 id 加上模型名稱，例如 <code>homelab/muse-glimmer-30b-nvfp4</code>。金鑰存在作業系統的憑證儲存區，每次執行只拿到它自己模型來源的那一把。
               </p>
               <p>
-                這些 agent 只能用 API key：Claude 訂閱帳號與 Grok 的登入不能用在它們身上。Claude Code 與 Grok 本身照常使用自己的登入。
+                Claude Code 與 Grok 使用自己的模型時，仍沿用各自的登入。開源 agent 使用你在這裡設定的服務商金鑰或端點。
               </p>
             </div>
             <p class="excerpt-note">以上畫面依 app 介面重現，內容為示意。</p>
@@ -862,7 +868,8 @@
             <li><b>通知與提示音</b>回覆完或 agent 需要你時，跳出通知並播放提示音；把 Harness Relay 加到手機主畫面後，手機鎖定了也收得到推播。側邊欄的鈴鐺會收著每一則。</li>
             <li><b>在 app 裡登入</b>Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code 都能在 app 裡登入，開源 agent 則設定模型來源；agent 自己載入的工具與設定，它允許時也能關掉。</li>
             <li><b>自動任務</b>在設定的時間、某件事發生時（新郵件、即將開始的行程、新的 pull request 或失敗的 CI、工作目錄中的檔案），或由 webhook 觸發，把訊息傳給團隊。執行時可能沒人看著，所以預設拒絕權限範圍以外的動作。給它一個目標，每次執行都回報進度，達成後自動關閉。</li>
-            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，給所有成員或只給部分成員，加在各 agent 自己的設定之外；新對話一開始的 hook 也在這裡設定。用 OAuth 的 MCP 伺服器直接在工具庫裡登入。還有 Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆；郵件會在待送出匣等你按「送出」。</li>
+            <li><b>在聊天中使用常用 App</b>先在<a href="docs/tools/#common-apps">常用 App 設定</a>連結你想用的服務。開啟新對話或新增自動任務時，點附件旁的「常用 App」，就能勾選這次要用的 App。</li>
+            <li><b>所有成員共用的工具庫</b>加入 MCP 伺服器、skill 與記憶，開放給所有成員或選定的助理。使用 OAuth 的 MCP 伺服器可在這裡登入。新對話和自動任務一開始帶著的 hook 和團隊檢查也在這裡設定。</li>
             <li><b>在 AgentsView 中看每個 session</b>可選擇在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session：工具呼叫、token 與成本。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>
@@ -966,7 +973,7 @@
                 <p>在<b>設定與登入</b>選一個你已有帳號的助理，例如 Codex。若還沒安裝，就在助理卡片內安裝，再登入你的帳號。有一個可用的助理就能開始。<a href="docs/agents/">如何連接助理</a></p>
                 <details class="install-details">
                   <summary>個別套件需求、API key 與自架模型</summary>
-                  <p>使用開源 agent 時，可在<b>設定 → 模型來源</b>選擇 API key 或你自己的端點。 <a href="docs/agents/#open-agents">設定模型來源</a></p>
+                  <p>使用開源 agent 時，可在<b>設定 → 模型連線</b>選擇 API key 或你自己的端點。 <a href="docs/agents/#open-agents">設定 API key 與端點</a></p>
                   <ul>
                     <li>
                       任一 agent：<a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>（<code>claude</code>）、

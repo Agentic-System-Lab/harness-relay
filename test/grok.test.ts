@@ -572,6 +572,18 @@ describe("Grok on the user's own endpoints", () => {
     expect(withGrokModels('', block)).toBe(`${block}\n`);
   });
 
+  it('updates and removes the block made before the settings section was renamed', () => {
+    const legacy =
+      "# >>> harness-relay models: your own endpoints of Harness Relay's Settings → Model backends, written before its Grok runs; changes here are replaced";
+    const current = grokModelsBlock([lab]);
+    const previous = [legacy, ...current.split('\n').slice(2)].join('\r\n');
+    const userSettings = '[ui]\nyolo = false\n';
+    const preface = '# >>> harness-relay models note\n[cli]\nlabel = "# <<< harness-relay models"\n';
+    const config = preface + '\n' + previous + '\r\n' + userSettings;
+    expect(withGrokModels(config, current)).toBe(preface + '\n' + current + '\r\n' + userSettings);
+    expect(withGrokModels(config, '')).toBe(preface + '\n' + userSettings);
+  });
+
   it("takes out the tables Grok kept when it wrote its config again without the block's markers, so none is defined twice", () => {
     // As grok 1.0.77 left it on Windows after `grok login`: its own settings written again, the comments
     // (the markers) dropped, the table kept among its own.

@@ -23,8 +23,8 @@ import { maskSecret, type SecretStore } from './secrets';
  * Keys live in the OS credential store (`backend-<id>-api-key`, `endpoint-<id>-api-key`, service
  * `harness-relay`), with the same fallback and migration as the CLIs' API keys (settings.ts): without
  * a credential store they are kept encrypted in the database under the same names (secrets.ts); one
- * found in `model_backends.api_key` is moved out of it. Harness Relay never calls these APIs itself:
- * it only hands them to the CLIs.
+ * found in `model_backends.api_key` is moved out of it. Settings can list a custom endpoint's models;
+ * the CLIs make all inference requests.
  */
 
 /** The variable each CLI reads an API backend's key from. */
@@ -151,6 +151,8 @@ interface Endpoint extends RunEndpoint {
 export class ModelBackendStore {
   private apis: Partial<Record<ApiBackend, string>> = {};
   private endpoints: Endpoint[] = [];
+  /** Includes deleted IDs so an in-flight verified edit detects a deletion and recreation, too. */
+  private endpointRevisions = new Map<string, number>();
   /** With a keyring: backends whose key is still in the database because moving it failed. */
   private keysLeftInDb = new Set<string>();
   /** With a keyring: backends whose key could not be read at startup. */
@@ -272,12 +274,20 @@ export class ModelBackendStore {
       .run(e.id, e.name, e.baseUrl, JSON.stringify(e.models), key, e.createdAt);
   }
 
+  private clearStoredKey(id: string): void {
+    const name = backendKeyName(id);
+    // The native keyring may be temporarily offline. Keep an encrypted empty value so its
+    // older key is cleared by openSecretStore's migration when the native keyring returns.
+    if (this.keyring?.storage === 'encrypted' && !isApiBackend(id)) this.keyring.set(name, '');
+    else this.keyring?.delete(name);
+  }
+
   /** Stores or removes a key in the keyring; never falls back to the database silently. */
   private storeKey(id: string, key: string): void {
     if (this.keyring) {
       try {
         if (key) this.keyring.set(backendKeyName(id), key);
-        else this.keyring.delete(backendKeyName(id));
+        else this.clearStoredKey(id);
       } catch (err) {
         throw new Error(t().keyringFailed((err as Error).message));
       }
@@ -293,15 +303,47 @@ export class ModelBackendStore {
     this.save(id);
   }
 
-  /** Adds an endpoint, or replaces the one with this id (its key stays unless `apiKey` is given). */
+  /** An omitted key can be reused only for the saved endpoint and its exact normalized base URL. */
+  endpointCatalogKey(id: string | undefined, baseUrl: string): string | undefined {
+    const endpoint = this.endpoints.find((e) => e.id === id && e.baseUrl === baseUrl);
+    if (!endpoint) return undefined;
+    if (this.unreadable.has(endpoint.id)) throw new HttpError(409, t().endpointCatalogKeyUnreadable);
+    return endpoint.apiKey;
+  }
+
+  /** Changing only the display name does not change the connection, even for older chat-only servers. */
+  isEndpointRename(id: string, update: ModelEndpointUpdate): boolean {
+    const current = this.endpoints.find((e) => e.id === id);
+    return Boolean(
+      current &&
+      current.name !== update.name &&
+      current.baseUrl === update.baseUrl &&
+      update.apiKey === undefined &&
+      current.models.length === update.models.length &&
+      current.models.every((model, i) => model === update.models[i]),
+    );
+  }
+
+  endpointRevision(id: string): number {
+    return this.endpointRevisions.get(id) ?? 0;
+  }
+
+  /** Adds or replaces an endpoint. A saved key belongs to the base URL it was given for. */
   putEndpoint(id: string, u: ModelEndpointUpdate): void {
     let e = this.endpoints.find((x) => x.id === id);
     // Added again: its models run on it again, once it is saved (in the same write, so that a failed
     // save leaves it deleted, not neither).
     const readded = this.deleted.has(id);
     const added = !e;
+    const moved = !!e && e.baseUrl !== u.baseUrl;
+    // The keyring and SQLite commit independently. Clear the keyring before publishing a
+    // different URL and install its replacement only after the new URL is durable.
+    // A new ID may also have a credential left behind by an interrupted add from an earlier version.
+    const bindKeyAfterSave = (moved || added) && !!this.keyring;
+    const key = (u.apiKey ?? '').trim();
     if (!e && this.endpoints.length >= BACKEND_LIMITS.maxEndpoints)
       throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
+    this.endpointRevisions.set(id, this.endpointRevision(id) + 1);
     // What to put back when the save fails: nothing of the change is kept, in memory or in the
     // keyring (a key left there would come back for this id at the next start, `loadKeys`).
     const before = e ? { name: e.name, baseUrl: e.baseUrl, models: [...e.models], apiKey: e.apiKey } : undefined;
@@ -327,7 +369,7 @@ export class ModelBackendStore {
         try {
           // The key there was comes back to the keyring (one kept in the database is still there); else none.
           if (before?.apiKey && !flags.leftInDb) this.keyring.set(name, before.apiKey);
-          else this.keyring.delete(name);
+          else this.clearStoredKey(id);
         } catch (err) {
           putBack = false;
           console.warn(`[backends] could not put back the ${id} API key in the credential store: ${(err as Error).message}`);
@@ -360,16 +402,35 @@ export class ModelBackendStore {
       }
       if (readded) this.deleted.delete(id);
     };
-    if (u.apiKey !== undefined) {
+    if (u.apiKey !== undefined || moved || bindKeyAfterSave) {
       try {
-        this.storeKey(id, (u.apiKey ?? '').trim());
+        this.storeKey(id, bindKeyAfterSave ? '' : key);
         keyStored = true;
       } catch (err) {
-        persist(); // the endpoint itself is saved; only its key was refused
+        // A failed key change must never pair the previous key with the new URL.
+        if (bindKeyAfterSave) undo();
+        else persist(); // the endpoint itself is saved; only its key was refused
         throw err;
       }
     }
     persist();
+    if (bindKeyAfterSave && key) {
+      try {
+        this.storeKey(id, key);
+      } catch (err) {
+        // The Settings form can retry a failed creation with the same ID and draft.
+        // Remove this request's new row before clearing any partially written key.
+        if (added && u.verifyModels) {
+          transaction(this.db, () => {
+            this.db.prepare('DELETE FROM model_backends WHERE id = ?').run(id);
+            if (readded) this.db.prepare('INSERT INTO deleted_endpoints (id, deleted_at) VALUES (?, ?)').run(id, Date.now());
+          });
+          if (readded) this.deleted.add(id);
+          undo();
+        }
+        throw err;
+      }
+    }
   }
 
   /**
@@ -380,15 +441,17 @@ export class ModelBackendStore {
     if (!this.deleted.has(id)) throw new HttpError(404, t().deletedEndpointNotFound(id));
     this.db.prepare('DELETE FROM deleted_endpoints WHERE id = ?').run(id);
     this.deleted.delete(id);
+    this.endpointRevisions.set(id, this.endpointRevision(id) + 1);
   }
 
   deleteEndpoint(id: string): void {
     const at = this.endpoints.findIndex((x) => x.id === id);
     if (at < 0) throw new HttpError(404, t().endpointNotFound(id));
+    this.endpointRevisions.set(id, this.endpointRevision(id) + 1);
     // Its key goes first: one left behind would come back for a later endpoint of the same id.
     if (this.keyring) {
       try {
-        this.keyring.delete(backendKeyName(id));
+        this.clearStoredKey(id);
       } catch (err) {
         throw new Error(t().keyringFailed((err as Error).message));
       }

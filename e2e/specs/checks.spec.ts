@@ -9,6 +9,7 @@ import {
   composer,
   finishedReply,
   openNewChat,
+  openToolCategory,
   openTeamChat,
   send,
   settled,
@@ -315,9 +316,9 @@ test.describe('team checks', () => {
 
   test('hooks below Memory and default team checks validate and save independently', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/tools`);
-    const hooks = page.getByRole('region', { name: 'Hooks', exact: true });
-    const checks = page.getByRole('region', { name: 'Default team checks', exact: true });
-    await expect(page.locator('.tools-section:has(.memory-input) + section')).toHaveAccessibleName('Hooks');
+    const hooks = await openToolCategory(page, 'Hooks');
+    const checks = await openToolCategory(page, 'Default team checks');
+    await expect(page.locator('.library-category:has(.memory-input) + details')).toHaveAccessibleName('Hooks');
     await expect(checks.getByLabel('Protected paths')).toBeVisible();
     await expect(checks.locator('details')).toHaveCount(0);
     await expect(checks.getByRole('button', { name: 'Add a hook' })).toHaveCount(0);
@@ -330,6 +331,8 @@ test.describe('team checks', () => {
     await command.fill('echo check');
     await checks.getByLabel(folderLabel, { exact: true }).fill('../outside');
     await expect(saveChecks).toBeDisabled();
+    await checks.locator(':scope > summary').click();
+    await expect(command).toBeHidden();
 
     await hooks.getByRole('button', { name: 'Add a hook' }).click();
     const hook = hooks.getByRole('textbox', { name: 'Hook command' });
@@ -344,6 +347,7 @@ test.describe('team checks', () => {
     await expect(hooks.getByRole('status')).toHaveText('Saved');
     const defaults = async () => (await relay.api<SettingsView>('/api/settings')).checksDefault;
     expect(await defaults()).toEqual({ hooks: [expect.objectContaining({ run: 'echo hook', timeoutSec: 5 })] });
+    await openToolCategory(page, 'Default team checks');
     await expect(command).toHaveValue('echo check');
     await expect(checks.getByLabel(folderLabel, { exact: true })).toHaveValue('../outside');
 
@@ -357,6 +361,8 @@ test.describe('team checks', () => {
     await expect(hook).toHaveValue('unsaved hook');
 
     await page.reload();
+    await openToolCategory(page, 'Hooks');
+    await openToolCategory(page, 'Default team checks');
     await expect(hook).toHaveValue('echo hook');
     await expect(command).toHaveValue('echo check');
     const remove = hooks.getByRole('button', { name: 'Remove this hook' });
@@ -384,7 +390,7 @@ test.describe('team checks', () => {
 
   test('a default set in Settings starts each new chat and automation, which can change or remove it', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/tools`);
-    const section = page.locator('.checks-default');
+    const section = await openToolCategory(page, 'Default team checks');
     await section.getByLabel('Protected paths').fill('.env\n*.pem');
     await section.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(section).toContainText('Saved');
@@ -415,6 +421,7 @@ test.describe('team checks', () => {
     expect(automation.settings.checks).toEqual({});
     // Another default changes none made before.
     await page.goto(`${relay.base}/#/settings/tools`);
+    await openToolCategory(page, 'Default team checks');
     await section.getByLabel('Protected paths').fill('*.key');
     await section.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(section).toContainText('Saved');

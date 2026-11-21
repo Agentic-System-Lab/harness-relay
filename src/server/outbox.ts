@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { OutboxItem, OutboxPreview, OutboxStatus } from '../shared/types';
 import { nul, type Database } from './db';
@@ -30,6 +30,12 @@ interface OutboxRow {
   decided_at: number | null;
 }
 
+export function matchesPreparedDocument(args: Record<string, unknown>, preview: NonNullable<OutboxPreview['document']>): boolean {
+  if ('document' in args) return isDeepStrictEqual(args.document, preview);
+  // Pending drafts from the first desktop build kept a SHA-256 content fingerprint.
+  return typeof args.digest === 'string' && createHash('sha256').update(JSON.stringify(preview)).digest('hex') === args.digest;
+}
+
 function toItem(r: OutboxRow): OutboxItem {
   let preview: OutboxPreview = { fields: [] };
   try {
@@ -54,6 +60,19 @@ function toItem(r: OutboxRow): OutboxItem {
   };
 }
 
+/** The completed action in the conversation, including local saves and external sends. */
+export function outboxAnswerText({ preview, status, title, result = '' }: OutboxItem): string {
+  if (preview.document) {
+    if (status === 'sent') return result;
+    if (status === 'discarded') return t().docsDiscarded(preview.document.title);
+    return t().docsFailed(preview.document.title, result);
+  }
+  const note = preview.note;
+  if (status === 'sent') return note ? t().obsidianSaved(note.path) : t().outboxSentNote(title, result);
+  if (status === 'discarded') return note ? t().obsidianDiscarded(note.path) : t().outboxDiscardedNote(title);
+  return note ? t().obsidianFailed(note.path, result) : t().outboxFailedNote(title, result);
+}
+
 export class Outbox {
   /** Waiting items by conversation, for the sidebar's "needs you" without a query per conversation. */
   private readonly pending = new Map<string, number>();
@@ -64,12 +83,21 @@ export class Outbox {
     private db: Database,
     private now: () => number = Date.now,
   ) {
-    // Sent while the server stopped: whether it went out is not known, so it is not sent again.
-    const cut = (this.db.prepare("SELECT id FROM outbox WHERE status = 'sending'").all() as { id: string }[]).map((r) => r.id);
-    this.db
-      .prepare("UPDATE outbox SET status = 'failed', result = ?, decided_at = ? WHERE status = 'sending'")
-      .run(t().outboxInterrupted, this.now());
-    this.interrupted = cut.map((id) => this.get(id)!).filter(Boolean);
+    // The server stopped during these operations. Report the uncertainty without applying them again.
+    const cut = this.db.prepare("SELECT * FROM outbox WHERE status = 'sending'").all() as unknown as OutboxRow[];
+    this.interrupted = cut
+      .map(toItem)
+      .map((item) =>
+        this.finish(
+          item.id,
+          'failed',
+          item.preview.document
+            ? item.result || t().docsUnknown(item.preview.document.title)
+            : item.preview.note
+              ? t().obsidianInterrupted
+              : t().outboxInterrupted,
+        ),
+      );
     for (const r of this.db
       .prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id")
       .all() as {
@@ -111,7 +139,16 @@ export class Outbox {
         .all(item.convId, item.tool) as unknown as OutboxRow[]
     ).find((r) => {
       try {
-        return isDeepStrictEqual(JSON.parse(r.args), args);
+        const saved = JSON.parse(r.args);
+        // Before document drafts stored a snapshot in args, they stored a fingerprint of the preview.
+        // Recognize the same pending proposal across an upgrade, including its account and revision.
+        if (item.preview.document && saved && !('document' in saved) && typeof saved.digest === 'string') {
+          const existing = toItem(r).preview.document;
+          if (!existing || !matchesPreparedDocument(saved, existing)) return false;
+          delete saved.digest;
+          saved.document = existing;
+        }
+        return isDeepStrictEqual(saved, args);
       } catch {
         return false;
       }
@@ -165,7 +202,10 @@ export class Outbox {
       return this.finish(id, 'failed', t().outboxNoTool(row.tool));
     }
     try {
-      return this.finish(id, 'sent', await sender(args, { ...toItem(row), status: 'sending' }));
+      const progress = (result: string) => {
+        this.db.prepare("UPDATE outbox SET result = ? WHERE id = ? AND status = 'sending'").run(result, id);
+      };
+      return this.finish(id, 'sent', await sender(args, { ...toItem(row), status: 'sending' }, progress));
     } catch (err) {
       return this.finish(id, 'failed', (err as Error).message);
     }
@@ -185,7 +225,15 @@ export class Outbox {
     const ids = new Set(messageIds);
     for (const item of this.list(convId)) {
       if (item.status !== 'pending' || !ids.has(item.messageId)) continue;
-      this.finish(item.id, 'discarded', t().outboxTakenBack);
+      this.finish(
+        item.id,
+        'discarded',
+        item.preview.document
+          ? t().docsDiscarded(item.preview.document.title)
+          : item.preview.note
+            ? t().obsidianDiscarded(item.preview.note.path)
+            : t().outboxTakenBack,
+      );
       this.pending.set(convId, Math.max(0, this.waiting(convId) - 1));
     }
   }

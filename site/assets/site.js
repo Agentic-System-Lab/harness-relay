@@ -349,19 +349,37 @@ if (tabs.length && tabs.length === panels.length) {
 }
 
 // ---------- The docs: their pages behind a button on a narrow screen, and the section on screen ----------
-// At 920px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
+// At 1180px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
 // page's sections in "On this page" mark the one being read: the last whose heading has passed the line
-// under the header (on a narrow screen, under the sticky row of the search field and the docs' button), or the last
+// under the header (on a narrow screen, under the sticky search and contents rows), or the last
 // one once the page is scrolled to its end.
 
 const docNav = document.querySelector('[data-doc-nav]');
+const compactDocs = docNav && window.matchMedia('(max-width: 1180px), (hover: none) and (pointer: coarse)');
 const docNavToggle = docNav?.querySelector('[data-doc-nav-toggle]');
 if (docNav && docNavToggle) {
   const setOpen = (open) => {
     docNav.classList.toggle('is-open', open);
     docNavToggle.setAttribute('aria-expanded', String(open));
   };
-  docNavToggle.addEventListener('click', () => setOpen(!docNav.classList.contains('is-open')));
+  docNavToggle.addEventListener('click', () => {
+    const opening = !docNav.classList.contains('is-open');
+    if (opening) docNavToggle.focus({ preventScroll: true });
+    setOpen(opening);
+  });
+  const resize = () => {
+    const focus = document.activeElement;
+    // Capture focus before changing which navigation controls are visible.
+    docNav.classList.toggle('is-compact', compactDocs.matches);
+    setOpen(false);
+    if (compactDocs.matches && focus?.closest('.doc-nav-list')) docNavToggle.focus({ preventScroll: true });
+    if (!compactDocs.matches && focus === docNavToggle) docNav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
+  };
+  resize();
+  compactDocs.addEventListener('change', resize);
+  document.addEventListener('focusin', (event) => {
+    if (!docNav.contains(event.target) || event.target.closest('[data-doc-search]')) setOpen(false);
+  });
   // The button stays at the top over the page, so the open menu closes on a click or tap beside it, and on Esc.
   document.addEventListener('click', (event) => {
     if (docNav.classList.contains('is-open') && !docNav.contains(event.target)) setOpen(false);
@@ -369,33 +387,164 @@ if (docNav && docNavToggle) {
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !docNav.classList.contains('is-open')) return;
     setOpen(false);
-    docNavToggle.focus();
+    docNavToggle.focus({ preventScroll: true });
   });
 }
 
-const tocLinks = [...document.querySelectorAll('.doc-toc a[href^="#"]')];
-const tocSections = tocLinks.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1))));
-if (tocLinks.length && tocSections.every(Boolean)) {
+// Reading position and deep links use the same static contents as native disclosure and keyboard navigation.
+const toc = document.querySelector('.doc-toc');
+if (toc) {
+  const list = toc.querySelector(':scope > ol');
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'doc-toc-toggle';
+  toggle.textContent = toc.querySelector('.doc-toc-title').textContent;
+  list.id = 'doc-contents';
+  toggle.setAttribute('aria-controls', list.id);
+  toc.prepend(toggle);
+
+  const setOpen = (open) => {
+    toggle.setAttribute('aria-expanded', String(open));
+    list.hidden = !toggle.hidden && !open;
+  };
+  const head = document.querySelector('.doc-head');
+  const resize = () => {
+    // Put the tab stops in visual order. Preserve a usable focus target when a breakpoint hides its control.
+    const focus = document.activeElement;
+    const inside = toc.contains(focus);
+    // A media rule can run before its change event and blur a hidden control. Change visibility only
+    // here, after capturing the actual focus, so an earlier visit to this menu cannot steal it back.
+    toggle.hidden = !compactDocs.matches;
+    setOpen(false);
+    if (compactDocs.matches) head.before(toc);
+    else head.after(toc);
+    if (inside) {
+      const next = compactDocs.matches ? toggle : focus === toggle ? list.querySelector('summary, a') : focus;
+      next?.focus({ preventScroll: true });
+    }
+  };
+  resize();
+  compactDocs.addEventListener('change', resize);
+  toggle.addEventListener('click', () => setOpen(list.hidden));
+  const outside = (event) => {
+    if (!toc.contains(event.target)) setOpen(false);
+  };
+  document.addEventListener('click', outside);
+  document.addEventListener('focusin', outside);
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || toggle.hidden || list.hidden) return;
+    setOpen(false);
+    toggle.focus({ preventScroll: true });
+  });
+
+  const entries = [...toc.querySelectorAll('a[href^="#"]')]
+    .map((link) => ({
+      link,
+      target: document.getElementById(link.hash.slice(1)),
+    }))
+    .filter((entry) => entry.target);
+  let current;
+  let fragment;
   let queued = false;
+  const automatic = new Set();
+  const article = document.querySelector('.doc-body');
+  const readingLine = () => {
+    const pad = compactDocs.matches
+      ? toggle.getBoundingClientRect().bottom + 8
+      : parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+    return (Number.isFinite(pad) ? pad : 96) + 24;
+  };
+  const updateBranches = (reveal) => {
+    const before = article.getBoundingClientRect().top;
+    if (reveal) {
+      for (let branch = current?.link.closest('details'); branch; branch = branch.parentElement.closest('details')) {
+        if (!branch.open) {
+          automatic.add(branch);
+          branch.open = true;
+        }
+      }
+    }
+    // A manually opened descendant must stay reachable, even when its parent was opened by scrolling.
+    const manual = [...toc.querySelectorAll('details[open]')].filter(
+      (branch) => !automatic.has(branch) && !branch.closest('details:not([open])'),
+    );
+    for (const branch of automatic) {
+      if (
+        branch.contains(current?.link ?? null) ||
+        branch.contains(document.activeElement) ||
+        manual.some((pinned) => branch.contains(pinned))
+      )
+        continue;
+      branch.open = false;
+      automatic.delete(branch);
+    }
+    // On narrow screens the contents occupy space above the article. Keep the text under the
+    // reader's eye in place, accounting for any scroll anchoring the browser already performed.
+    if (before <= readingLine()) {
+      const shift = article.getBoundingClientRect().top - before;
+      if (shift) window.scrollBy({ top: shift, behavior: 'instant' });
+    }
+  };
+  toc.addEventListener('click', (event) => {
+    const summary = event.target.closest('summary');
+    if (summary) automatic.delete(summary.parentElement);
+    const link = event.target.closest('a');
+    if (!compactDocs.matches || !link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    setOpen(false);
+    const target = entries.find((entry) => entry.link === link)?.target;
+    // Resume keyboard reading in the article, including when choosing the fragment already in the URL.
+    if (target) {
+      if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+    }
+  });
+  toc.addEventListener('focusout', () => requestAnimationFrame(() => updateBranches(false)));
+  const select = (entry, reveal = false) => {
+    if (current === entry && !reveal) return;
+    current?.link.removeAttribute('aria-current');
+    current = entry;
+    current?.link.setAttribute('aria-current', 'true');
+    updateBranches(true);
+  };
+  const followHash = () => {
+    fragment = undefined;
+    let id;
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return;
+    }
+    const target = document.getElementById(id);
+    const section = target?.closest('.doc-body section');
+    if (!section) return;
+    // Older links also point to section titles, paragraphs and figures. Use their last preceding heading.
+    const entry = entries.findLast(
+      ({ target: heading }) =>
+        heading.closest('section') === section &&
+        (heading === target || heading.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+    if (entry) {
+      fragment = { target, entry };
+      select(entry, true);
+      // Let hash navigation and the reading marker use the same offset below the sticky bars.
+      target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+  };
   const mark = () => {
     queued = false;
     const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-    const narrow = window.matchMedia('(max-width: 920px)').matches;
-    const pad = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
-    // Wide: a heading has passed once it is under the header. Narrow: a jumped-to heading rests at
-    // scroll-padding, below the sticky row, so the line sits under that.
-    const line = narrow ? (Number.isFinite(pad) && pad > 0 ? pad : 126) + 24 : 120;
-    let current = 0;
-    tocSections.forEach((section, i) => {
-      if (section.getBoundingClientRect().top < line) current = i;
-    });
-    if (atEnd) current = tocSections.length - 1;
-    tocLinks.forEach((link, i) => {
-      if (i === current) link.setAttribute('aria-current', 'true');
-      else link.removeAttribute('aria-current');
-    });
+    const line = readingLine();
+    const top = fragment?.target.getBoundingClientRect().top;
+    // The last headings cannot all scroll to the top. Keep a visible deep-link target selected there.
+    if (fragment && top >= 0 && (top <= line || (atEnd && top < window.innerHeight))) select(fragment.entry);
+    else select(atEnd ? entries.at(-1) : entries.findLast(({ target }) => target.getBoundingClientRect().top <= line));
   };
-  mark();
+  followHash();
+  if (!fragment) mark();
+  window.addEventListener('hashchange', () => {
+    followHash();
+    if (!fragment) mark();
+  });
   window.addEventListener(
     'scroll',
     () => {

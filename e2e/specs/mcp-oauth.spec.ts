@@ -1,13 +1,23 @@
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { removeTree } from '../../src/server/fsRemove';
+import { openDatabase } from '../../src/server/db';
+import { ToolLibrary } from '../../src/server/tools';
+import { APP_SERVERS } from '../../src/shared/apps';
+import type { ToolLibraryView } from '../../src/shared/types';
+import { hostedApps, hostedPage, hostConnectorPages, type HostedApp, type HostedProvider } from '../support/hosted-apps';
+import { saveLegacySlackGrant } from '../support/legacy-slack-grant';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { expect, test as base } from '../fixtures';
-import { finishedReply, openTeamChat, send } from '../support/app';
+import { finishedReply, openTeamChat, openToolCategory, send } from '../support/app';
 import { logged } from '../support/clis';
 
 /*
  * A tool library MCP server's own sign-in (MCP's authorization), against a stand-in MCP server and its
  * authorization server on this computer: the server answers 401 and names its protected resource
- * metadata, which names the authorization server; Settings → Tool library's Sign in registers Harness
+ * metadata, which names the authorization server; Settings → Apps and tools → Tool library's Sign in registers Harness
  * Relay there and opens its page in a new tab (opened on the click, navigated once the server answers),
  * whose Allow sends the browser back to the web app's /oauth/callback; the server then says it is signed
  * in, and a fake Claude Code's turn gets its access token in the server's Authorization header. Revoked at
@@ -149,6 +159,310 @@ const test = base.extend<{ auth: FakeAuth }>({
   },
 });
 
+base('Notion and Heptabase connect from the full row and keep sign-in controls and keyboard focus accessible', async ({ page, relay }) => {
+  const library = await relay.api<ToolLibraryView>('/api/tools');
+  const authorizeUrl = 'https://notion.example.test/consent';
+  const challenge = { id: '', provider: 'mcp', expiresAt: Date.now() + 120000, authorizeUrl };
+  let connected = false;
+  await page.context().route(authorizeUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Notion consent</title>' }));
+  const started: string[] = [];
+  let cancelled = 0;
+  await page.route(/\/api\/apps\/(notion|heptabase)\/signin$/, (route) => {
+    started.push(new URL(route.request().url()).pathname.split('/')[3]);
+    challenge.id = randomUUID();
+    return route.fulfill({ json: { ...challenge, status: 'waiting' } });
+  });
+  await page.route('**/api/oauth/signins/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      cancelled++;
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { ...challenge, status: connected ? 'done' : 'waiting' } });
+  });
+  await page.route('**/api/tools', (route) => {
+    const view: ToolLibraryView = connected
+      ? {
+          ...library,
+          mcpServers: [
+            ...library.mcpServers,
+            {
+              app: 'notion',
+              id: 'notion',
+              name: 'notion',
+              transport: 'http',
+              command: '',
+              args: [],
+              url: APP_SERVERS.notion,
+              env: [],
+              headers: [],
+              providers: [],
+              oauth: { status: 'signed-in', signedInAt: Date.now() },
+            },
+          ],
+        }
+      : library;
+    return route.fulfill({ json: view });
+  });
+  await page.route('**/api/tools/mcp/notion/signin', (route) => {
+    expect(route.request().method()).toBe('DELETE');
+    connected = false;
+    return route.fulfill({ json: library });
+  });
+  await page.goto(relay.base + '/#/settings/apps');
+  const row = page.getByRole('listitem', { name: 'Notion', exact: true });
+  const connect = row.getByRole('button', { name: 'Connect Notion', exact: true });
+  const other = page.getByRole('button', { name: 'Connect Heptabase', exact: true });
+  await connect.focus();
+  await page.keyboard.press('Tab');
+  await expect(other).toBeFocused();
+  await expect(other).toHaveCSS('outline-style', 'solid');
+
+  const quickApps = [
+    { name: 'Notion', colorScheme: 'light', button: connect },
+    { name: 'Heptabase', colorScheme: 'dark', button: other },
+  ] as const;
+  const backgrounds: string[] = [];
+  for (const { name, colorScheme, button } of quickApps) {
+    await page.emulateMedia({ colorScheme });
+    const app = page.getByRole('listitem', { name, exact: true });
+    const title = button.getByText(name, { exact: true });
+    await expect(button).toHaveAccessibleDescription(await button.locator('.app-row-copy .small').innerText());
+    await expect(app.getByRole('button')).toHaveCount(1);
+    await app.scrollIntoViewIfNeeded();
+    const box = (await app.boundingBox())!;
+    // The padding above the copy and Connect label is part of the same button as the title.
+    const padding = { x: Math.round(box.width / 2), y: 3 };
+    await app.hover({ position: padding });
+    expect(await button.evaluate((el) => el.matches(':hover'))).toBe(true);
+    const background = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(background).not.toBe('rgba(0, 0, 0, 0)');
+    backgrounds.push(background);
+
+    const [tab] = await Promise.all([page.waitForEvent('popup'), name === 'Notion' ? title.click() : app.click({ position: padding })]);
+    await expect(tab).toHaveURL(authorizeUrl);
+    await tab.close();
+    await expect(button).toBeDisabled();
+    const waiting = app.getByRole('status');
+    const address = waiting.getByRole('textbox');
+    await address.click();
+    await address.fill('A pasted address');
+    await expect(address).toBeFocused();
+    const [reopened] = await Promise.all([page.context().waitForEvent('page'), waiting.getByRole('link').click()]);
+    await expect(reopened).toHaveURL(authorizeUrl);
+    await reopened.close();
+    await waiting.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(button).toBeEnabled();
+    await expect(waiting).toHaveCount(0);
+  }
+  expect(new Set(backgrounds).size).toBe(2);
+  expect(started).toEqual(['notion', 'heptabase']);
+  expect(cancelled).toBe(2);
+  for (const stayInRow of [true, false]) {
+    const [tab] = await Promise.all([page.waitForEvent('popup'), connect.press(stayInRow ? 'Enter' : 'Space')]);
+    await expect(tab).toHaveURL(authorizeUrl);
+    await tab.close();
+    const cancel = row.getByRole('button', { name: 'Cancel', exact: true });
+    await expect(cancel).toBeVisible();
+    await (stayInRow ? cancel : other).focus();
+    connected = true;
+    await expect(row.getByRole('status')).toHaveText('Signed in to Notion.');
+    await expect(row.locator('summary')).toBeVisible();
+    await expect(stayInRow ? row.locator('summary') : other).toBeFocused();
+    page.once('dialog', (dialog) => void dialog.accept());
+    await row.getByRole('button', { name: 'Sign out', exact: true }).press('Enter');
+    await expect(row.getByRole('status')).toHaveText('Signed out of Notion.');
+    await expect(connect).toBeFocused();
+  }
+});
+
+base('Slack checks and disconnects Claude and Codex independently', async ({ page, relay }) => {
+  base.slow();
+  const { set } = await hostConnectorPages(page.context(), relay.home);
+  const providers = ['Claude', 'Codex'] as const;
+  const callsFile = join(relay.home, '.codex', 'e2e-hosted-profile-calls.jsonl');
+  const calls = () =>
+    existsSync(callsFile)
+      ? readFileSync(callsFile, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as string)
+      : [];
+
+  const ready = (provider: HostedProvider) => (provider === 'Claude' ? 'Connected in Claude' : 'Available in Codex');
+  const extra = await Promise.all(
+    providers.map((name) =>
+      relay.api<{ id: string }>('/api/settings/providers/' + name.toLowerCase() + '/accounts', { method: 'POST', body: { label: 'Work' } }),
+    ),
+  );
+  const library = () => relay.api<ToolLibraryView>('/api/tools');
+  const before = await library();
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    const { pathname } = new URL(request.url());
+    if (
+      request.method() !== 'GET' &&
+      /^\/api\/(?:apps|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname) &&
+      !/^\/api\/apps\/slack\/hosted\/(?:claude|codex)$/.test(pathname)
+    )
+      writes.push(pathname);
+  });
+  const row = (app: HostedApp) => page.getByRole('listitem', { name: app.name, exact: true });
+  const group = (app: HostedApp, provider: HostedProvider) => row(app).getByRole('group', { name: provider, exact: true });
+  const check = (app: HostedApp, provider: HostedProvider) =>
+    page.waitForResponse(
+      (res) =>
+        new URL(res.url()).pathname === '/api/apps/' + app.id + '/hosted/' + provider.toLowerCase() && res.request().method() === 'POST',
+    );
+  // Each click checks both providers. Finish the pair before changing the simulated grants
+  // so a response from the previous check cannot satisfy the next one.
+  const checkConnections = async (app: HostedApp) => {
+    const [claude, codex] = await Promise.all([
+      check(app, 'Claude'),
+      check(app, 'Codex'),
+      row(app).getByRole('button', { name: 'Check connections' }).click(),
+    ]);
+    return { claude, codex };
+  };
+  const change = async (
+    app: HostedApp,
+    provider: HostedProvider,
+    action: 'Allow' | 'Disconnect' | 'Cancel' | 'Cancel disconnect',
+    expected: string,
+  ) => {
+    const disconnect = action === 'Disconnect' || action === 'Cancel disconnect';
+    const link = group(app, provider).getByRole('link', { name: (disconnect ? 'Disconnect ' : 'Connect ') + app.name + ' in ' + provider });
+    const url = hostedPage(app, provider, disconnect);
+    await expect(link).toHaveAttribute('href', url);
+    const [tab] = await Promise.all([page.waitForEvent('popup'), link.click()]);
+    await expect(tab).toHaveURL(url);
+    await expect(group(app, provider).getByRole('status')).toContainText(
+      disconnect ? new RegExp('(Connected|Available) in ' + provider) : 'does not list ' + app.name,
+    );
+    if (action === 'Allow' || action === 'Disconnect') {
+      await tab.getByRole('button', { name: action + ' ' + app.name }).click();
+      await expect(tab.getByText('Updated')).toBeVisible();
+    }
+    const fresh = check(app, provider);
+    await tab.close();
+    await page.bringToFront();
+    // Headless tabs can already report focus; send the same return notification the browser sends to the visible page.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    const res = await fresh;
+    expect(await res.json()).toEqual({ status: expected });
+  };
+  await page.goto(relay.base + '/#/settings/apps');
+  for (const app of hostedApps) {
+    await base.step('Verify both connections for ' + app.name, async () => {
+      await row(app).locator('.app-options > summary').click();
+      for (const provider of providers) {
+        const status = group(app, provider).getByRole('status');
+        await expect(status).toContainText('This ' + provider + ' account does not list ' + app.name);
+        await expect(status).toContainText('Default account');
+        if (provider === 'Claude') {
+          await change(app, provider, 'Cancel', 'not-found');
+          await expect(status).toContainText('does not list Slack');
+        }
+        await change(app, provider, 'Allow', 'connected');
+        await expect(status).toHaveText('Connected in ' + provider + ' · Default account');
+      }
+      await expect(row(app).locator('.app-options > summary')).toContainText('Claude');
+      await expect(row(app).locator('.app-options > summary')).toContainText('Codex');
+    });
+  }
+  expect(calls()).toEqual(['slack.slack_read_user_profile']);
+  await page.reload();
+  for (const app of hostedApps) {
+    await base.step('Reload and disconnect ' + app.name + ' in each provider', async () => {
+      await row(app).locator('.app-options > summary').click();
+      for (const provider of providers)
+        await expect(group(app, provider).getByRole('status')).toHaveText(ready(provider) + ' · Default account');
+      for (const [index, provider] of providers.entries()) {
+        const g = group(app, provider);
+        const account = g.getByRole('combobox', { name: provider + ' account' });
+        await account.selectOption(extra[index]!.id);
+        await expect(g.getByRole('status')).toContainText('This ' + provider + ' account does not list Slack · Work');
+        await account.selectOption('');
+        await expect(g.getByRole('status')).toHaveText(ready(provider) + ' · Default account');
+      }
+      await row(app).getByText('Send from Relay', { exact: true }).click();
+      await expect(row(app).getByLabel('Slack OAuth token')).toBeVisible();
+      await expect(row(app).getByText('Assistants who can draft messages', { exact: true })).toHaveCount(0);
+      const previousCalls = calls().length;
+      const { codex: verified } = await checkConnections(app);
+      expect(verified.request().postDataJSON()).toEqual({ verify: true });
+      expect(await verified.json()).toEqual({ status: 'connected' });
+      expect(calls()).toHaveLength(previousCalls + 1);
+      await expect(group(app, 'Codex').getByRole('status')).toHaveText('Connected in Codex · Default account');
+      await expect(group(app, 'Codex')).not.toContainText('e2e-private');
+      await change(app, 'Claude', 'Disconnect', 'not-found');
+      await expect(group(app, 'Claude').getByRole('status')).toContainText('does not list ' + app.name);
+      await expect(group(app, 'Codex').getByRole('status')).toHaveText('Connected in Codex · Default account');
+      // Opening account management cannot confirm a disconnect while the app remains callable.
+      await change(app, 'Codex', 'Cancel disconnect', 'connected');
+      await expect(group(app, 'Codex').getByRole('status')).toContainText('Connected in Codex');
+      await change(app, 'Codex', 'Disconnect', 'not-found');
+      await expect(group(app, 'Codex').getByRole('status')).toContainText('does not list ' + app.name);
+    });
+  }
+  const slack = hostedApps.find((item) => item.id === 'slack')!;
+  // Removing upstream consent can leave the Codex app callable until its read-only profile is checked.
+  set(slack, 'Codex', 'available-without-account');
+  const { codex: revoked } = await checkConnections(slack);
+  expect(await revoked.json()).toEqual({ status: 'needs-auth' });
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('Slack needs authorization in Codex');
+  set(slack, 'Codex', 'not-found');
+  set(slack, 'Claude', 'unknown');
+  const { claude: response } = await checkConnections(slack);
+  expect(await response.json()).toEqual({ status: 'unknown' });
+  await expect(group(slack, 'Claude').getByRole('status')).toContainText('Could not verify the connection in Claude');
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('does not list Slack');
+  set(slack, 'Codex', 'unknown');
+  const { codex } = await checkConnections(slack);
+  expect(await codex.json()).toEqual({ status: 'unknown' });
+  await expect(group(slack, 'Codex').getByRole('status')).toContainText('Could not verify the connection in Codex');
+  for (const internal of ['private-helper', 'e2e-private']) await expect(row(slack)).not.toContainText(internal);
+  const after = await library();
+  expect(after.mcpServers).toEqual(before.mcpServers);
+  expect(after.relayTools).toEqual(before.relayTools);
+  expect(writes).toEqual([]);
+});
+
+const legacySlack = base.extend({
+  serverEnv: async ({}, use) => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-slack-'));
+    try {
+      const db = openDatabase(join(dir, 'relay.db'));
+      try {
+        saveLegacySlackGrant(new ToolLibrary(db));
+      } finally {
+        db.close();
+      }
+      await use({ RELAY_DATA_DIR: dir });
+    } finally {
+      removeTree(dir, { restore: true });
+    }
+  },
+});
+
+legacySlack('a saved Slack grant can reauthorize and sign out without enabling a new shared Slack sign-in', async ({ page, relay }) => {
+  await page.goto(`${relay.base}/#/settings/apps`);
+  const slack = page.getByRole('listitem', { name: 'Slack', exact: true });
+  await slack.locator('.app-options > summary').click();
+  await expect(slack).toContainText('Existing tool library connection · slack-work');
+  await slack.getByRole('button', { name: 'Sign in again' }).click();
+  await expect(slack.getByRole('alert')).toContainText('slack.com');
+  await slack.getByRole('button', { name: 'Cancel', exact: true }).click();
+  page.once('dialog', (d) => void d.accept());
+  await slack.getByRole('button', { name: 'Sign out' }).click();
+  await expect(slack).toContainText('Signed out of Slack.');
+  await expect(slack.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
+  await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
+  const row = page.locator('#settings-tools .lib-row', { hasText: 'slack-work' });
+  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+});
+
 test("a library MCP server signs in in a new tab, comes back to the web app's callback page, and a member's turn gets its token in the server's headers", async ({
   page,
   relay,
@@ -159,6 +473,7 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
     body: { transport: 'http', url: `${auth.url}/mcp`, headers: [], providers: ['claude'] },
   });
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'linear' });
   await expect(row).toContainText(`${auth.url}/mcp`);
 
@@ -191,28 +506,25 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   await send(page, 'And now?');
   const reply = await finishedReply(page, 'Claude');
   await expect(reply.getByRole('note')).toHaveText(
-    'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Tool library.',
+    'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.',
   );
   expect(relay.fakeLog().filter((e) => e.cli === 'claude' && e.mcpEnv?.linear)).toHaveLength(before);
 
-  // Settings says it needs a new sign-in; Sign in again mends it (the kept client: no new registration).
-  auth.refuseRefresh = false;
+  // Reauthorize the custom MCP server against its existing client and revoke both replaced tokens.
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   await expect(row.locator('.badge')).toHaveText('Needs a new sign-in');
   await expect(row).toContainText('Its sign-in no longer works (invalid_grant)');
+  auth.refuseRefresh = false;
   const [again] = await Promise.all([page.waitForEvent('popup'), row.getByRole('button', { name: 'Sign in again' }).click()]);
   await again.getByRole('link', { name: 'Allow' }).click();
   await expect(again.getByRole('status')).toHaveText('Signed in to the MCP server linear.');
   await again.close();
   await expect(row.locator('.badge')).toHaveText('Signed in');
   expect(auth.clients).toHaveLength(1);
-  // The refresh token it replaced is revoked.
   await expect.poll(() => auth.revoked.length).toBe(1);
-
-  // Sign out: its tokens deleted and revoked; Sign in is offered again.
   page.once('dialog', (d) => void d.accept());
   await row.getByRole('button', { name: 'Sign out' }).click();
-  await expect(row).toContainText('Signed out of linear.');
   await expect(row.locator('.badge')).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   expect(auth.revoked).toHaveLength(2);
@@ -229,6 +541,7 @@ test('a library MCP server whose sign-in page is on another host says where firs
     body: { transport: 'http', url: `${auth.url}/mcp`, headers: [], providers: ['claude'] },
   });
   await page.goto(`${relay.base}/#/settings/tools`);
+  await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'linear' });
   const pageHost = new URL(auth.pageUrl).host;
   const issuerHost = new URL(auth.url).host;

@@ -18,7 +18,7 @@ export function isOpenProvider(p: Provider): p is OpenProvider {
 
 /**
  * The CLIs with a sign-in of their own that can also run on one of the user's own endpoints of
- * Settings → Model backends (Claude Code, Codex, Grok, Copilot): a member's model `<endpoint id>/<model>`.
+ * Settings → Model connections (Claude Code, Codex, Grok, Copilot): a member's model `<endpoint id>/<model>`.
  * Cursor, Antigravity and Muse Code have a sign-in too, but their models run only through their own
  * services (Muse Code's needs the Meta API's own model catalog, `/muse-code/models`, which an
  * OpenAI-compatible server does not serve).
@@ -62,6 +62,15 @@ export const CWD_MISSING = 'cwd-missing';
 /** Git needed by a user action is missing on the Harness Relay host. */
 export const GIT_MISSING = 'git-missing';
 export type GitRequirement = 'git' | 'gitBash';
+
+export type AppDependency = 'github' | 'browser';
+
+export interface AppDependencyView {
+  available: boolean;
+  canInstall: boolean;
+  command?: string;
+  job?: CliInstallJobView;
+}
 
 export interface GitInstallView {
   available: boolean;
@@ -160,7 +169,7 @@ export type ToolKind = 'mcp' | 'skill' | 'memory' | 'relay';
  * Harness Relay's own tools, which every agent reaches through one MCP server of Harness Relay's (the
  * gateway, `src/server/gateway.ts`), in groups the user gives to the CLIs they choose.
  */
-export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar'] as const;
+export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar', 'drive', 'obsidian', 'github', 'teams', 'slack'] as const;
 export type RelayToolGroup = (typeof RELAY_TOOL_GROUPS)[number];
 
 /** The name agents see Harness Relay's gateway under (`mcp__relay__browser_open` in Claude Code). */
@@ -168,8 +177,8 @@ export const GATEWAY_SERVER_NAME = 'relay';
 
 /**
  * What a call of one of Harness Relay's tools may do without the user: `read` runs; `act` (it changes
- * something somewhere, as a click on a page does) is asked about below full access; `send` (it reaches
- * other people: a mail, an invitation) never runs in the turn but waits in the outbox for the user.
+ * something somewhere, as a click on a page does) is asked about below full access; `send` (a proposal in
+ * the outbox: mail, invitations and note changes) never runs in the turn but waits for the user.
  */
 export type GatewayTier = 'read' | 'act' | 'send';
 
@@ -226,7 +235,8 @@ export type OAuthProviderId = (typeof OAUTH_PROVIDERS)[number];
  * What an account that signs in with OAuth is used for: each use asks for its own scopes (the
  * calendar tools; the mail tools and the mail trigger, over IMAP and SMTP with XOAUTH2).
  */
-export const OAUTH_USES = ['calendar', 'mail'] as const;
+export const MAIL_CALENDAR_USES = ['calendar', 'mail'] as const;
+export const OAUTH_USES = [...MAIL_CALENDAR_USES, 'drive', 'teams', 'documents'] as const;
 export type OAuthUse = (typeof OAUTH_USES)[number];
 
 /**
@@ -238,6 +248,8 @@ export interface OAuthClientView {
   provider: OAuthProviderId;
   clientId: string;
   builtIn: boolean;
+  /** The registration and grants are kept, but no services can use them until enabled again. */
+  disabled?: boolean;
   /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */
@@ -334,6 +346,10 @@ export interface OutboxPreview {
   fields: { label: string; value: string }[];
   /** The text it sends (a mail's body, an event's description). */
   body?: string;
+  /** A local Markdown change. null is a new note; an empty string is an existing empty note. */
+  note?: { vault: string; path: string; before: string | null; after: string };
+  /** A direct Google Docs creation or literal text edit. A new document has no ID until confirmed. */
+  document?: { account: string; title: string; id?: string; tab?: string; tabId?: string; before: string | null; after: string };
 }
 
 export interface OutboxItem {
@@ -382,6 +398,7 @@ export interface MaskedVar {
 
 /** An MCP server Harness Relay gives its agents, in addition to the ones each CLI is set up with. */
 export interface McpServerView {
+  app?: keyof typeof import('./apps').APP_SERVERS;
   /** Stays when the server is renamed; agents' exceptions use it. */
   id: string;
   name: string;
@@ -447,7 +464,39 @@ export interface SkillCandidate {
   added: boolean;
 }
 
+export type TeamsPostingState = { status: 'signing-in'; code?: string; url?: string } | { status: 'error'; message: string };
+
+export type TeamsConnection =
+  | { status: 'missing-powershell' | 'missing-module' | 'signed-out' | 'installing' }
+  | { status: 'signing-in'; code?: string; url?: string }
+  | { status: 'connected'; account: string; canPost?: true; posting?: TeamsPostingState }
+  | { status: 'error'; message: string; retry?: 'install' };
+
+export type HostedApp = 'slack';
+export type HostedProvider = 'claude' | 'codex';
+/** A passive Codex check reports runtime availability. Only its explicit self-profile check can report connected. */
+export type HostedAppStatus = 'connected' | 'available' | 'needs-auth' | 'not-found' | 'disabled' | 'unknown';
+
+export type SlackPostingConnection = { status: 'signed-out' } | { status: 'connected'; workspace: string; sender: string };
+
+export type GithubTokenVariable = 'GH_TOKEN' | 'GITHUB_TOKEN';
+export type GithubConnection =
+  | { status: 'connected'; login: string; tokenSource?: GithubTokenVariable }
+  | { status: 'signed-out'; tokenSource?: GithubTokenVariable }
+  | { status: 'missing' };
+
+export interface ObsidianVault {
+  /** Stable for the lifetime of this connection, including across restarts. */
+  id: string;
+  /** Canonical absolute path on the server. */
+  path: string;
+}
+
 export interface ToolLibraryView {
+  /** Present for compatibility when exactly one vault is connected. */
+  obsidianVault?: string;
+  /** Older servers only returned obsidianVault. */
+  obsidianVaults?: ObsidianVault[];
   mcpServers: McpServerView[];
   skills: SkillView[];
   /** Harness Relay's own tool groups and the CLIs whose agents get each (none at first). */
@@ -2573,7 +2622,7 @@ export interface ModelOption {
   defaultEffort?: string;
   /**
    * The id of the user's own endpoint this model is on, for Claude Code, Codex and Grok (a model of
-   * Settings → Model backends): it runs only an effort of `efforts`, and another one it would inherit
+   * Settings → Model connections): it runs only an effort of `efforts`, and another one it would inherit
    * becomes `defaultEffort`, or none (`endpointEffort`).
    */
   endpoint?: string;
@@ -2687,7 +2736,7 @@ export interface ProviderSettingsUpdate {
 // --- Model backends: what the open agents run their models on --------------------------------
 
 /**
- * The model APIs the open agents reach with an API key kept in Settings (Settings → Model backends).
+ * The model APIs the open agents reach with an API key kept in Settings (Settings → Model connections).
  * The Claude subscription and Grok's sign-in cannot be used by these CLIs.
  */
 export const API_BACKENDS = ['openai', 'anthropic', 'xai'] as const;
@@ -2724,7 +2773,7 @@ export interface ModelEndpointView {
   name: string;
   /** Its OpenAI-compatible base URL, such as `http://10.0.0.5:8000/v1`. */
   baseUrl: string;
-  /** The model names it serves, as typed by the user (Harness Relay never asks the server). */
+  /** The model IDs the user selected from its catalog or entered in Settings. */
   models: string[];
   /** Masked API key; empty = none (many local servers take none). */
   keyMasked: string;
@@ -2743,8 +2792,14 @@ export interface ModelBackendsView {
   deletedEndpoints: string[];
 }
 
+export const ENDPOINT_METADATA_UNAVAILABLE = 'endpoint-metadata-unavailable';
+
 /** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */
 export interface ModelEndpointUpdate {
+  /** Verify model metadata before saving this endpoint. The Settings form requests this on every save. */
+  verifyModels?: boolean;
+  /** The user accepted a save when neither metadata route was available. Verification still runs. */
+  allowMissingMetadata?: boolean;
   name: string;
   baseUrl: string;
   models: string[];

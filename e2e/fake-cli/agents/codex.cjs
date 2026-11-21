@@ -112,6 +112,10 @@ function codexAppServer() {
   const threads = new Map();
   // Its config: the overrides it started with, and those of the threads started since.
   const conf = codexOverrides();
+  const getHosted = () => {
+    const fixture = path.join(home(), 'e2e-hosted-connectors.json');
+    return fs.existsSync(fixture) ? JSON.parse(fs.readFileSync(fixture, 'utf8')) : { apps: [], profiles: {} };
+  };
   let peer;
   peer = rpcPeer(
     false,
@@ -200,8 +204,54 @@ function codexAppServer() {
           return { data: [] };
         case 'plugin/installed':
           return { marketplaces: [] };
-        case 'mcpServerStatus/list':
-          return { data: [] };
+        case 'app/installed': {
+          if (p.forceRefresh !== true) throw rpcError('The connector check needs a fresh inventory');
+          const inventory = getHosted();
+          if (inventory.error) throw rpcError(inventory.error);
+          return { apps: inventory.apps };
+        }
+        case 'app/read': {
+          const id = p.appIds?.[0];
+          if (!threads.has(p.threadId) || p.includeTools !== true || p.appIds.length !== 1)
+            throw rpcError('Unexpected app policy inspection');
+          const pair = Object.entries(getHosted().profiles || {}).find(([, fixture]) => fixture.connector === id);
+          if (!pair) return { apps: [], missingAppIds: [id] };
+          return {
+            apps: [{ id, toolSummaries: [{ name: pair[0].split('.').at(-1), isEnabled: true, isReadOnly: true }] }],
+            missingAppIds: [],
+          };
+        }
+        case 'mcpServerStatus/list': {
+          if (p.serverName !== 'codex_apps' || !threads.has(p.threadId)) return { data: [] };
+          const tools = Object.fromEntries(
+            Object.entries(getHosted().profiles || {}).map(([name, fixture]) => [
+              name,
+              {
+                name,
+                _meta: { connector_id: fixture.connector, link_id: 'fixture-link' },
+                inputSchema: { type: 'object', properties: {} },
+                annotations: { readOnlyHint: true },
+              },
+            ]),
+          );
+          return { data: [{ name: 'codex_apps', httpOrigin: 'https://chatgpt.com', tools }], nextCursor: null };
+        }
+        case 'mcpServer/tool/call': {
+          const fixture = getHosted().profiles?.[p.tool];
+          if (
+            !threads.has(p.threadId) ||
+            p.server !== 'codex_apps' ||
+            !fixture ||
+            p._meta?.connector_id !== fixture.connector ||
+            p._meta?.link_id !== 'fixture-link' ||
+            !p.arguments ||
+            Object.keys(p.arguments).length
+          )
+            throw rpcError('Unexpected hosted app request');
+          fs.appendFileSync(path.join(home(), 'e2e-hosted-profile-calls.jsonl'), JSON.stringify(p.tool) + '\n');
+          if (!fixture.authorized) return { isError: true, _meta: { 'mcp/www_authenticate': 'Bearer error="invalid_token"' }, content: [] };
+          return { isError: false, structuredContent: fixture.profile, content: [] };
+        }
         // Who it is signed in as, and its plan's limits (Settings shows them in the account's block).
         case 'account/read':
           if (signedOut()) return { account: null, requiresOpenaiAuth: true };

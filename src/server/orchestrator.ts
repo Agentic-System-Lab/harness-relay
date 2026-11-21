@@ -60,7 +60,7 @@ import {
   reservedMcpName,
   type ToolGateway,
 } from './gateway';
-import type { Outbox } from './outbox';
+import { outboxAnswerText, type Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
 import { CONFIG } from './config';
@@ -945,14 +945,7 @@ export class Orchestrator {
     if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
     const item = await this.outbox.answer(convId, itemId, action, (name) => this.gateway?.tool(name));
     this.updateOutboxCard(item);
-    this.systemNote(
-      conv,
-      item.status === 'sent'
-        ? t().outboxSentNote(item.title, item.result ?? '')
-        : item.status === 'discarded'
-          ? t().outboxDiscardedNote(item.title)
-          : t().outboxFailedNote(item.title, item.result ?? ''),
-    );
+    this.systemNote(conv, outboxAnswerText(item));
     this.emitStatus(conv.id);
     return item;
   }
@@ -4399,7 +4392,7 @@ export class Orchestrator {
             conv,
             agent,
             workspace,
-            tools,
+            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined },
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),

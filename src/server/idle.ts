@@ -303,6 +303,8 @@ export class IdleWatcher {
       // The account without its password: nothing is asked of the credential store at every sync.
       const account = this.deps.connectors.mailAccount(w.trigger.account);
       if (!account) continue;
+      const signIn = account.oauth ? this.deps.oauth?.signInState(account.oauth) : undefined;
+      if (signIn === 'disabled') continue;
       const key = JSON.stringify([
         w.trigger.account,
         w.trigger.folder,
@@ -310,7 +312,7 @@ export class IdleWatcher {
         account.username,
         this.deps.connectors.mailSaves(w.trigger.account),
         // Through a sign-in: its state, so that once signed in again it connects at once.
-        account.oauth ? (this.deps.oauth?.signInState(account.oauth) ?? null) : null,
+        signIn ?? null,
       ]);
       const entry = wanted.get(key) ?? { account: w.trigger.account, folder: w.trigger.folder, ids: [] };
       entry.ids.push(w.conversationId);

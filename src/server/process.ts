@@ -1,4 +1,11 @@
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions as ChildOptions,
+  type SpawnSyncOptions,
+  type SpawnSyncReturns,
+} from 'node:child_process';
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { isAbsolute, posix, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -701,15 +708,16 @@ const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(\u0007|\u001b\\)/g;
 export function runSync(
   bin: string,
   args: readonly string[],
-  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean },
+  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean; stdio?: SpawnSyncOptions['stdio']; env?: NodeJS.ProcessEnv },
 ): SpawnSyncReturns<string> {
   return spawnSync(bin, args, {
     encoding: 'utf8',
+    env: o.env,
     timeout: o.timeoutMs,
     killSignal: 'SIGKILL',
     maxBuffer: o.maxBuffer ?? 1 << 22,
     ...(o.input !== undefined ? { input: o.input } : {}),
-    ...(o.quiet ? { stdio: 'ignore' as const } : {}),
+    stdio: o.stdio ?? (o.quiet ? 'ignore' : undefined),
     windowsHide: true,
   });
 }

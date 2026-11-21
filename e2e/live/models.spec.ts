@@ -113,7 +113,7 @@ test.describe("a CLI's default model set to an endpoint's in Settings", () => {
       await defaults.click();
       const select = section.getByRole('combobox', { name: 'Model', exact: true });
       await expect(
-        select.locator('optgroup[label="Your own endpoints (Settings → Model backends)"]').locator(`option[value="${model}"]`),
+        select.locator('optgroup[label="Your own endpoints (Settings → Model connections)"]').locator(`option[value="${model}"]`),
       ).toHaveCount(1, { timeout: 120_000 });
       await select.selectOption(model);
       await section.getByRole('button', { name: 'Save', exact: true }).click();
@@ -163,7 +163,7 @@ test.describe('endpoints that are gone', () => {
   const cases = [
     {
       provider: ENDPOINT_CLIS.find(has),
-      error: /custom endpoint "gone" was deleted under Settings → Model backends\. The turn did not run/,
+      error: /custom endpoint "gone" was deleted under Settings → Model connections\. The turn did not run/,
     },
     { provider: OPEN.find(has), error: /there is no custom endpoint with the id "gone"/ },
   ].flatMap((c) => (c.provider ? [{ provider: c.provider, error: c.error }] : []));

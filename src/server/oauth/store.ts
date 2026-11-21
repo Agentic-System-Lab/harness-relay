@@ -27,12 +27,15 @@ import { BUILT_IN_CLIENTS, type OAuthClient, type OAuthIdentity } from './provid
 interface StoredAccount extends Omit<OAuthAccountView, 'error'> {
   /** Its id at the provider, which never changes: a sign-in of the same account updates it. */
   subject: string;
+  /** Changes only when Drive and Docs are removed locally. Earlier consents and drafts cannot restore that access. */
+  driveRevision?: number;
   /** The scopes it was granted. */
   scopes: string[];
   error?: string;
 }
 
 interface Stored {
+  disabled?: Partial<Record<OAuthProviderId, boolean>>;
   clients: Partial<Record<OAuthProviderId, { clientId: string; tenant?: string }>>;
   accounts: StoredAccount[];
   /** Without a credential store (tests only): the secrets, by entry name. */
@@ -56,6 +59,7 @@ export class OAuthStore {
         this.data = {
           clients: v.clients && typeof v.clients === 'object' ? v.clients : {},
           accounts: Array.isArray(v.accounts) ? v.accounts : [],
+          ...(v.disabled && typeof v.disabled === 'object' ? { disabled: v.disabled } : {}),
         };
         if (!keyring && v.secrets) for (const [k, s] of Object.entries(v.secrets)) this.secrets.set(k, s);
       } catch {
@@ -64,8 +68,8 @@ export class OAuthStore {
     }
   }
 
-  private save(): void {
-    const stored: Stored = { ...this.data, ...(this.keyring ? {} : { secrets: Object.fromEntries(this.secrets) }) };
+  private save(data = this.data): void {
+    const stored: Stored = { ...data, ...(this.keyring ? {} : { secrets: Object.fromEntries(this.secrets) }) };
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(KEY, JSON.stringify(stored));
@@ -103,9 +107,10 @@ export class OAuthStore {
   /** The app a provider is signed in to with: the user's own, else Harness Relay's (none when neither). */
   client(provider: OAuthProviderId): (OAuthClient & { builtIn: boolean }) | undefined {
     const own = this.data.clients[provider];
-    const secret = this.secret(`oauth-client-${provider}`);
-    if (own?.clientId)
+    if (own?.clientId) {
+      const secret = this.secret(`oauth-client-${provider}`);
       return { clientId: own.clientId, ...(own.tenant ? { tenant: own.tenant } : {}), ...(secret ? { secret } : {}), builtIn: false };
+    }
     const builtIn = BUILT_IN_CLIENTS[provider];
     return builtIn ? { clientId: builtIn, builtIn: true } : undefined;
   }
@@ -129,6 +134,19 @@ export class OAuthStore {
     return before?.clientId !== after?.clientId || tenant(before) !== tenant(after);
   }
 
+  clientDisabled(provider: OAuthProviderId): boolean {
+    return this.data.disabled?.[provider] === true;
+  }
+
+  setClientDisabled(provider: OAuthProviderId, disabled: boolean): void {
+    const flags = { ...this.data.disabled };
+    if (disabled) flags[provider] = true;
+    else delete flags[provider];
+    const next = { ...this.data, disabled: flags };
+    this.save(next);
+    this.data = next;
+  }
+
   clientsView(device: (provider: OAuthProviderId) => boolean): OAuthClientView[] {
     return OAUTH_PROVIDERS.map((provider) => {
       const c = this.client(provider);
@@ -136,6 +154,7 @@ export class OAuthStore {
         provider,
         clientId: c?.clientId ?? '',
         builtIn: Boolean(c?.builtIn),
+        ...(this.clientDisabled(provider) ? { disabled: true } : {}),
         ...(c?.tenant ? { tenant: c.tenant } : {}),
         secret: c?.secret ? '••••' : '',
         device: device(provider),
@@ -144,7 +163,7 @@ export class OAuthStore {
   }
 
   accounts(): OAuthAccountView[] {
-    return this.data.accounts.map(({ subject: _s, scopes: _sc, ...view }) => view);
+    return this.data.accounts.map(({ subject: _s, scopes: _sc, driveRevision: _r, ...view }) => view);
   }
 
   account(id: string): StoredAccount | undefined {
@@ -199,8 +218,26 @@ export class OAuthStore {
     account.connectedAt = now;
     delete account.error;
     this.save();
-    const { subject: _s, scopes: _sc, ...view } = account;
+    const { subject: _s, scopes: _sc, driveRevision: _r, ...view } = account;
     return view;
+  }
+
+  /** Keep Google's shared credential and all other services. This counter survives restarts for pending Docs previews. */
+  removeDrive(id: string): string | undefined {
+    const account = this.account(id);
+    if (!account) throw new HttpError(404, t().connectorNotFound(id));
+    if (account.provider !== 'google') throw new HttpError(400, t().invalidField('account'));
+    const uses = account.uses.filter((u) => u !== 'drive' && u !== 'documents');
+    if (uses.length === account.uses.length) return;
+    const updated = {
+      ...account,
+      uses,
+      driveRevision: (account.driveRevision ?? 0) + 1,
+    };
+    const next = { ...this.data, accounts: this.data.accounts.map((a) => (a.id === id ? updated : a)) };
+    this.save(next);
+    this.data = next;
+    return account.subject;
   }
 
   /** Its sign-in no longer works: it needs signing in again (the tools and Settings say so). */

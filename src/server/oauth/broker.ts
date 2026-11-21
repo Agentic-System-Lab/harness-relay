@@ -24,14 +24,20 @@ export interface TokenGrants {
         /** Whose sign-in it is, as the messages name it: an account's address, an MCP server's name. */
         label: string;
         status: 'connected' | 'reauth';
+        /** The registration is paused or incomplete. Its grants and refresh token still belong to this account. */
+        unavailable?: string;
         /** Why it needs a new sign-in. */
         error?: string;
         /** What it was signed in for (an account's uses; none for an MCP server's, whose one token is asked for with no use). */
         uses: readonly OAuthUse[];
+        /** A retained provider account can have no active services. Only an MCP server accepts a request with no use. */
+        requiresUse?: boolean;
         /** Its sign-in brought no refresh token: once its access token runs out, it needs a new sign-in. */
         noRefresh?: boolean;
       }
     | undefined;
+  /** Recheck a service-local grant after asynchronous work, including when a shared refresh serves multiple callers. */
+  guardUse?(id: string, use: OAuthUse | undefined): (() => void) | undefined;
   /** Its refresh token ('' when none can be read). */
   refreshToken(id: string): string;
   /** The provider's new refresh token (it rotates them), in place of the one kept. */
@@ -201,7 +207,7 @@ export function tokenError(status: number, body: { error?: unknown; error_descri
  * A fetch with `token` that goes only to `hosts` (https, or plain http to a stand-in on this computer
  * the environment names), and follows no redirect: a 3xx comes back as it is.
  */
-export function hostOnlyFetch(hosts: readonly string[], token: () => Promise<string>): AuthorizedFetch {
+export function hostOnlyFetch(hosts: readonly string[], token: () => Promise<string>, check?: () => void): AuthorizedFetch {
   return async (url, init = {}) => {
     let u: URL;
     try {
@@ -214,6 +220,7 @@ export function hostOnlyFetch(hosts: readonly string[], token: () => Promise<str
       throw new Error(t().oauthHostRefused(u.host));
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${await token()}`);
+    check?.();
     return fetch(url, { ...init, headers, redirect: 'manual' });
   };
 }
@@ -331,11 +338,23 @@ export class TokenBroker {
    * (Google's serves every use granted), nor a refresh, whose refusal would mark the whole account.
    */
   accessToken(accountId: string, use: OAuthUse | undefined, fresh = false, early: EarlyMargin = EARLY_MS): Promise<string> {
+    const check = this.store.guardUse?.(accountId, use);
+    const token = this.lookupToken(accountId, use, fresh, early);
+    return check
+      ? token.then((value) => {
+          check();
+          return value;
+        })
+      : token;
+  }
+
+  private lookupToken(accountId: string, use: OAuthUse | undefined, fresh: boolean, early: EarlyMargin): Promise<string> {
     const grant = this.store.grant(accountId);
+    if (grant?.unavailable) return Promise.reject(new OAuthSignInError(grant.unavailable));
     if (grant && use && !grant.uses.includes(use)) return Promise.reject(new OAuthSignInError(t().oauthNotFor(grant.label, use)));
     // An account's tokens are each for its uses: asked with none (a caller's mistake), not one of them,
     // nor a refresh with no scope, whose refusal would mark the whole account.
-    if (grant && !use && grant.uses.length) return Promise.reject(new OAuthSignInError(t().oauthNoUse(grant.label)));
+    if (grant && !use && (grant.requiresUse || grant.uses.length)) return Promise.reject(new OAuthSignInError(t().oauthNoUse(grant.label)));
     const slot = this.slot(accountId, use);
     const kept = this.tokens.get(accountId)?.get(slot);
     const margin = kept ? (typeof early === 'function' ? early(kept.lifetimeMs) : early) : 0;
@@ -371,12 +390,12 @@ export class TokenBroker {
   private async refresh(accountId: string, use: OAuthUse | undefined, slot: string): Promise<string> {
     const account = this.store.grant(accountId);
     if (!account) throw new OAuthSignInError(t().oauthAccountGone);
-    if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.label, account.error ?? ''));
+    if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.label, account.error ?? '', use));
     // A sign-in that brought no refresh token, its access token run out (or lost when the server restarted).
     if (account.noRefresh) {
       this.tokens.delete(accountId);
       this.store.needsSignIn(accountId, t().oauthTokenRanOut);
-      throw new OAuthSignInError(t().oauthSignInAgain(account.label, t().oauthTokenRanOut));
+      throw new OAuthSignInError(t().oauthSignInAgain(account.label, t().oauthTokenRanOut, use));
     }
     const provider = this.providerOf(accountId);
     const generation = this.generation(accountId);
@@ -392,10 +411,11 @@ export class TokenBroker {
         // Another refresh before it found the sign-in refused, or a new sign-in came: not asked.
         if (this.generation(accountId) !== generation) return undefined;
         const now = this.store.grant(accountId);
-        if (now?.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(now.label, now.error ?? ''));
+        if (now?.unavailable) throw new OAuthSignInError(now.unavailable);
+        if (now?.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(now.label, now.error ?? '', use));
         // The refresh token as it is now: one another use's refresh rotated is the one sent.
         const refreshToken = this.store.refreshToken(accountId);
-        if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.label));
+        if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.label, use));
         const a = await tokenRequest(provider, {
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
@@ -417,20 +437,23 @@ export class TokenBroker {
       throw new OAuthSignInError(t().oauthRefreshFailed(account.label, (err as Error).message));
     }
     if (!answer || this.generation(accountId) !== generation) return superseded();
+    // An in-flight refresh can rotate the credential. Keep the rotation above, but never release an access token while paused.
+    const unavailable = this.store.grant(accountId)?.unavailable;
+    if (unavailable) throw new OAuthSignInError(unavailable);
     const { status, body } = answer;
     if (!body.access_token) {
       const why = tokenError(status, body);
       // Refused for good: only a new sign-in mends it. Anything else (the network, the provider down) may pass.
-      if (body.error && REFUSED_FOR_GOOD.includes(body.error)) {
+      if (body.error && (REFUSED_FOR_GOOD.includes(body.error) || provider.revokedRefreshErrors?.includes(body.error))) {
         this.tokens.delete(accountId);
         this.store.needsSignIn(accountId, why);
-        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
+        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why, use));
       }
       // Its client refused: a new sign-in, with a client registered again (an MCP server's).
       if (body.error && CLIENT_REFUSED.includes(body.error) && this.store.clientRefused) {
         this.tokens.delete(accountId);
         this.store.clientRefused(accountId, why);
-        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
+        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why, use));
       }
       throw new OAuthSignInError(t().oauthRefreshFailed(account.label, why));
     }
@@ -440,15 +463,32 @@ export class TokenBroker {
 
   /**
    * A fetch with the account's token for a use, only to its provider's hosts, following no redirect. A
-   * token the provider refuses (401) is refreshed once and the request sent again.
+   * token the provider refuses (401) is normally refreshed once. Mutations that cannot be replayed opt out.
    */
-  fetch(accountId: string, use: OAuthUse): AuthorizedFetch {
-    const hosts = () => this.providerOf(accountId).hosts;
+  fetch(accountId: string, use: OAuthUse, { retryUnauthorized = true } = {}): AuthorizedFetch {
+    const check = this.store.guardUse?.(accountId, use);
     return async (url, init) => {
+      const provider = this.providerOf(accountId);
       let fresh = false;
-      const send = hostOnlyFetch(hosts(), () => this.accessToken(accountId, use, fresh));
+      let presented = '';
+      const generation = this.generation(accountId);
+      const send = hostOnlyFetch(
+        provider.useHosts?.[use] ?? provider.hosts,
+        async () => {
+          presented = await this.accessToken(accountId, use, fresh);
+          return presented;
+        },
+        check,
+      );
       const res = await send(url, init);
       if (res.status !== 401) return res;
+      if (!retryUnauthorized) {
+        // A later, independently approved request can refresh. Keep a newer concurrent token intact.
+        const slot = this.slot(accountId, use);
+        const slots = this.tokens.get(accountId);
+        if (generation === this.generation(accountId) && slots?.get(slot)?.token === presented) slots.delete(slot);
+        return res;
+      }
       await res.body?.cancel().catch(() => undefined);
       fresh = true;
       return send(url, init);

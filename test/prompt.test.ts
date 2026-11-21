@@ -165,6 +165,24 @@ describe('isForwardable', () => {
 });
 
 describe('buildBriefing', () => {
+  it('includes the Drive and Teams confirmation rules only for the groups actually granted to this turn', () => {
+    const withGroups = (groups: ('drive' | 'teams')[]) => buildBriefing(conv, team[0]!, undefined, { skills: [], grantedGroups: groups });
+    const neither = withGroups([]);
+    expect(neither).not.toContain('drive_create_document');
+    expect(neither).not.toContain('teams_send_message');
+    const drive = withGroups(['drive']);
+    expect(drive).toContain('drive_create_document or drive_edit_document');
+    expect(drive).not.toContain('teams_send_message');
+    const briefing = withGroups(['teams']);
+    expect(briefing).not.toContain('drive_search');
+    expect(withGroups(['drive', 'teams'])).toContain('drive_create_document');
+    expect(briefing).toContain('teams_list and teams_messages');
+    expect(briefing).toContain('Draft a Teams channel or chat message with teams_send_message');
+    expect(briefing).toContain('selects Send in the chat to post it');
+    expect(briefing).toContain('Never send a Teams message through another connector, the browser or the command line');
+    expect(briefing).toContain('Settings → Apps and tools → Microsoft Teams');
+  });
+
   it("names the snapshot each teammate's worktree started from", () => {
     const briefing = buildBriefing(conv, team[0]!, {
       kind: 'isolated',
@@ -257,7 +275,9 @@ describe('buildBriefing', () => {
       },
     );
     expect(briefing).toContain('# Tool library: left out of this turn');
-    expect(briefing).toContain('- linear: its sign-in no longer works; the user can sign in to it again in Settings → Tool library\n');
+    expect(briefing).toContain(
+      '- linear: its sign-in no longer works; the user can sign in to it again in Settings → Apps and tools → Tool library → MCP servers\n',
+    );
     expect(briefing).toContain('- notion: its sign-in could not be renewed just now');
     // The user's note, in their language, is the reply's; the briefing stays in English.
     expect(briefing).not.toContain('這一輪');

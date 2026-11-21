@@ -278,14 +278,18 @@
               </tr>
               <tr>
                 <th scope="row">An open-source agent shows <b>Not ready</b></th>
-                <td>Add an API key or your own endpoint under <b>Settings → Model backends</b>, and check that the agent is installed.</td>
+                <td>Add an API key or your own endpoint under <b>Settings → Model connections</b>, and check that the agent is installed.</td>
               </tr>
               <tr>
                 <th scope="row">An agent's model list is empty or old</th>
-                <td>Click <b>Check again</b> at the top of Settings. You can always pick <b>Custom…</b> and type a model's name.</td>
+                <td>For a CLI’s own models, click <b>Check again</b> at the top of Settings. For your server, expand <b>Custom endpoints</b> under <b>Settings → Model connections</b>, edit the endpoint, click <b>Load models</b>, select the IDs you need and save.</td>
               </tr>
               <tr>
-                <th scope="row">Saving an API key fails</th>
+                <th scope="row">Saving a custom endpoint fails model verification</th>
+                <td>Read the error in the form. Check the URL and key if the server is unreachable or refuses access. If it cannot confirm an ID, check the exact spelling in the server’s catalog or individual model details. Your edits are still in the form, and your assistants keep their previous settings.</td>
+              </tr>
+              <tr>
+                <th scope="row">Saving a provider API key fails</th>
                 <td>Your system's keychain is locked, or access was refused. Unlock it (or allow access when asked), then save again.</td>
               </tr>
             </tbody>

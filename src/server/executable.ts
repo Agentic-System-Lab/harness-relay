@@ -1,4 +1,5 @@
-import { accessSync, constants, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { accessSync, constants, createReadStream, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 
 /** Where Homebrew puts its commands when the server PATH does not include them. */
@@ -41,4 +42,11 @@ export function isProgram(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** A file's SHA-256 checksum, in hex. */
+export async function sha256Of(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
 }

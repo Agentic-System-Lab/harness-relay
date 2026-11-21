@@ -177,18 +177,30 @@ export function canReadFiles(provider: Provider, off: readonly NativePart[] = []
   return !off.includes('tools') && !['Read', 'Bash'].every((tool) => items.tools?.includes(tool));
 }
 
+type BriefingTools = Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> & {
+  /** Groups actually granted to this turn after applying the CLI's sandbox restrictions. */
+  grantedGroups?: AgentTools['relayGroups'];
+};
+
 /**
  * The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither).
  * `ownSkills`: the agent's CLI still loads its own skills (the user did not leave them out). `reads`:
  * it can read files; skills are read from their SKILL.md, so without that they are not listed.
  */
-function toolSections(tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'>, ownSkills: boolean, reads = true): string {
+function toolSections(tools: BriefingTools, ownSkills: boolean, reads = true): string {
   const out: string[] = [];
+  if (tools.grantedGroups?.includes('drive'))
+    out.push(`- For Google Drive searches and document reading, use the Relay tools drive_search and drive_read_document. If the account or tool is unavailable, direct the user to Settings → Apps and tools → Google Drive to connect their Google account and select this assistant.
+- To create or edit a Google Doc, propose the change with the Relay tool drive_create_document or drive_edit_document. The user reviews and confirms in this chat. If the tool is unavailable, help them enable document editing under Settings → Apps and tools → Google Drive. Never perform that write through another connector or a browser.`);
+  if (tools.grantedGroups?.includes('teams'))
+    out.push(
+      `- For Microsoft Teams, read teams, channels and messages with the Relay tools teams_list and teams_messages. Draft a Teams channel or chat message with teams_send_message. The user reviews the destination, account and exact text and selects Send in the chat to post it. Never send a Teams message through another connector, the browser or the command line. If the Relay tools are unavailable, direct the user to Settings → Apps and tools → Microsoft Teams to sign in, select this assistant and enable sending when needed.`,
+    );
   if (tools.leftOut?.length) {
     const list = tools.leftOut
       .map(
         (l) =>
-          `- ${l.name}: ${l.reason === 'reauth' ? 'its sign-in no longer works; the user can sign in to it again in Settings → Tool library' : 'its sign-in could not be renewed just now'}`,
+          `- ${l.name}: ${l.reason === 'reauth' ? 'its sign-in no longer works; the user can sign in to it again in Settings → Apps and tools → Tool library → MCP servers' : 'its sign-in could not be renewed just now'}`,
       )
       .join('\n');
     out.push(`# Tool library: left out of this turn
@@ -316,7 +328,7 @@ export function buildBriefing(
   conv: Conversation,
   agent: AgentConfig,
   ws: BriefingWorkspace = { kind: 'shared' },
-  tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> = { skills: [] },
+  tools: BriefingTools = { skills: [] },
   /** What the user left out of this agent's CLI in Harness Relay's runs, all of a kind and single items. */
   nativeOff: readonly NativePart[] = [],
   nativeItems: NativeItemsOff = {},

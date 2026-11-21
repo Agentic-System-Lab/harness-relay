@@ -95,10 +95,11 @@ describe("Harness Relay's own tools in a turn", () => {
           const c = conversation({ mode: 'roundtable', permission });
           c.agents = [{ ...agents[0]!, provider }];
           store.saveMeta(c);
-          settings.tools.update({ relayTools: { browser: ['claude', provider], mail: ['claude'] } });
+          settings.tools.update({ relayTools: { browser: ['claude', provider], mail: ['claude'], teams: [provider] } });
           const before = grants.length;
           await orchestrator.send(c.id, 'go');
           await finish(c.id);
+          expect(calls.at(-1)!.systemPrompt!.includes('teams_send_message')).toBe(grants.length > before);
           return grants.length > before ? grants.at(-1)!.o : 'none';
         } finally {
           runners[provider] = saved;

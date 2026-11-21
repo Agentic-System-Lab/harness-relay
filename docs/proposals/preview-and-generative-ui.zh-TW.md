@@ -271,7 +271,7 @@ agent 用資料描述 UI，由 app 用自己的元件畫出來。不會執行任
 - **iframe 直接顯示 dev server 自己的 port。** 在這台電腦上最簡單，但手機上不能用。橋接腳本也加不進去，網路 policy 也套不上。
 - **讓 agent 自己啟動 dev server。** 它們的背景 process 跟著 CLI 回合生滅，Harness Relay 看不到也停不了；唯讀的 agent 也會因此多一個執行程式的管道。
 - **畫出每個 ```` ```html ```` 區塊。** agent 會用這個 fence 展示程式碼，範例就會變成會執行的頁面。用專屬的 fence（`relay-html`）才表示 agent 是刻意要做小工具。
-- **MCP Apps、AG-UI、A2UI。** Harness Relay 不呼叫模型 API，也不是 MCP host；MCP host 是各 CLI，而它們的輸出不會把 MCP App 的 `ui://` 資源交出來，所以 Harness Relay 沒有東西可以承載。AG-UI 則預期 app 是 agent 的後端。在 briefing 裡教的文字約定，三個 CLI 都能一樣使用。`relay-ui` 的元件目錄和 A2UI 的想法相同（一組受信任的元件，不執行 agent 的程式），之後也可以對應過去。
+- **MCP Apps、AG-UI、A2UI。** 各 CLI 負責模型推論，也是 MCP host。它們的輸出不會把 MCP App 的 `ui://` 資源交出來，所以 Harness Relay 沒有東西可以承載。AG-UI 則預期 app 是 agent 的後端。在 briefing 裡教的文字約定，三個 CLI 都能一樣使用。`relay-ui` 的元件目錄和 A2UI 的想法相同（一組受信任的元件，不執行 agent 的程式），之後也可以對應過去。
 - **`relay-ui` 用 YAML。** 模型比較好寫，但需要一個解析套件，也比較容易出現不易察覺的錯。JSON 只需要 `JSON.parse`。
 - **讓小工具自己送出訊息。** 對 agent 比較簡單，但小工具就能不經使用者跟團隊對話，甚至一直來回。只填進輸入框，使用者就始終在中間把關。
 

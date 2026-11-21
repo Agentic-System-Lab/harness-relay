@@ -1,10 +1,68 @@
-import { PROVIDERS, type Provider } from '../../src/shared/types';
+import { PROVIDERS, type ModelBackendsView, type Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, replies, send, startChat, confirmTeam } from '../support/app';
+import { finishedReply, openTeamChat, openToolCategory, replies, send, startChat, confirmTeam } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test('Apps and tools is one section with bookmarkable tabs that preserve drafts', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings');
+  const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+  const entry = nav.getByRole('link', { name: 'Apps and tools', exact: true });
+  await entry.click();
+  const card = page.getByRole('region', { name: 'Apps and tools' });
+  const common = card.getByRole('tab', { name: 'Common apps', exact: true });
+  const tools = card.getByRole('tab', { name: 'Tool library', exact: true });
+  await expect(common).toHaveAttribute('aria-selected', 'true');
+  await expect(card.getByRole('tabpanel')).toHaveCount(1);
+  await common.press('End');
+  await expect(page).toHaveURL(/#\/settings\/tools$/);
+  await expect(tools).toBeFocused();
+  await expect(entry).toHaveAttribute('aria-current', 'location');
+  const memory = await openToolCategory(page, 'Memory');
+  const field = memory.getByRole('textbox', { name: 'Memory: All members' });
+  await field.fill('Unfinished draft');
+  await nav.locator('a[href="#/settings/cwd"]').click();
+  await expect(page).toHaveURL(/#\/settings\/cwd$/);
+  await expect(tools).toHaveAttribute('aria-selected', 'true');
+  await expect(field).toHaveValue('Unfinished draft');
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/settings\/tools$/);
+  await common.click();
+  await expect(field).toBeHidden();
+  await page.goBack();
+  await expect(tools).toBeFocused();
+  await expect(tools).toHaveAttribute('aria-selected', 'true');
+  await expect(field).toHaveValue('Unfinished draft');
+  await page.reload();
+  await expect(card.getByRole('tabpanel', { name: 'Tool library' })).toBeInViewport();
+  await expect(entry).toHaveAttribute('aria-current', 'location');
+  await tools.press('ArrowLeft');
+  await expect(common).toBeFocused();
+  const rows = card.getByRole('tabpanel', { name: 'Common apps' }).locator('.common-apps .app-row');
+  await expect(rows).toHaveCount(10);
+  const groups = card.locator('.common-apps > section');
+  const categories = [
+    ['Mail and calendar', ['Mail', 'Calendar']],
+    ['Team messaging', ['Microsoft Teams', 'Slack']],
+    ['Documents and notes', ['Google Drive', 'Notion', 'Heptabase', 'Obsidian']],
+    ['Development and browsing', ['GitHub', 'Browser']],
+  ] as const;
+  await expect(groups.locator('h4')).toHaveText(categories.map(([name]) => name));
+  for (const [name, apps] of categories) {
+    await expect(card.getByRole('region', { name, exact: true }).locator('.app-row-copy > strong:visible')).toHaveText([...apps]);
+  }
+  // Device and account tools can be selected for a chat from their service row.
+  for (const name of ['Mail', 'Calendar', 'GitHub', 'Obsidian', 'Browser']) {
+    await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(1);
+  }
+  // Hosted apps offer account management. Direct actions need a grant before showing their own assistant selector.
+  for (const name of ['Google Drive', 'Microsoft Teams', 'Slack', 'Notion', 'Heptabase']) {
+    await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(0);
+  }
+  await expect(page.locator('#settings-tools .app-chat-access')).toHaveCount(0);
+});
 
 test.describe('assistant setup on a fresh installation', () => {
   test.use({ missingClis: PROVIDERS, lang: 'zh-TW', signIn: false });
@@ -107,19 +165,19 @@ test.describe('an open agent without a model backend', () => {
     test.skip(!cli, 'no open agent has a fake written yet');
     await expect(page.locator(`.provider-health a[href="#/settings/${cli!.provider}"]`)).toHaveAttribute(
       'title',
-      `${cli!.label} · No model backend yet`,
+      `${cli!.label} · Model access not set up`,
     );
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const overview = page.locator('#settings-overview');
     await overview.getByText('Connect another assistant').click();
-    await overview.getByRole('link', { name: `${cli!.label} Set up a model backend` }).press('Enter');
+    await overview.getByRole('link', { name: `${cli!.label} Set up model connections` }).press('Enter');
     await expect(page.locator('#settings-backends .section-title a')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.locator('#settings-backends :focus')).toHaveCount(1);
     await expect(page.locator('#settings-backends')).toBeInViewport();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
-    await expect(card).toContainText('No model backend set up yet (Settings → Model backends)');
+    await expect(card).toContainText('No model connection set up yet (Settings → Model connections)');
 
     await chatWith(page, relay, cli!);
     await send(page, 'Anyone there?');
@@ -153,7 +211,7 @@ test.describe('settings', () => {
       for (const cli of faked(CLIS)) {
         const dot = page.locator(`.provider-health .health.ok[href="#/settings/${cli.provider}"]`);
         await expect(dot).toBeVisible();
-        if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
+        if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model access set up`);
       }
       for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
         await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute(
@@ -195,6 +253,39 @@ test.describe('settings', () => {
     await expect(card.locator('.provider-head')).toContainText('v1.0.999');
   });
 
+  test('the Tool library links to the agent picker and the selected agent’s own tools', async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/tools');
+    const library = page.getByRole('tabpanel', { name: 'Tool library' });
+    const link = library.getByRole('link', { name: 'Open agent settings' });
+    await expect(link).toHaveAttribute('href', '#/settings/agents');
+    await link.focus();
+    await link.press('Enter');
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    // Return before any deferred work from choosing Codex can run.
+    const now = Date.now();
+    await page.clock.install({ time: now });
+    await page.clock.pauseAt(now + 1000);
+    const codex = menu.getByRole('menuitem', { name: 'Codex', exact: true });
+    await codex.press('Enter');
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    await expect(page.locator('#settings-codex')).toContainText('this CLI loads by itself');
+    await page.goBack();
+    await expect(page).toHaveURL(/#\/settings\/agents$/);
+    await page.clock.runFor(50);
+    await page.clock.resume();
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.reload();
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.goForward();
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    const agents = page.getByRole('button', { name: 'Agents: Codex', exact: true });
+    await agents.click();
+    await codex.press('Enter'); // Selecting the same card has no new hash change.
+    await expect(menu).toBeHidden();
+    await expect(agents).toBeFocused();
+  });
+
   test("the links row gathers the agents in one menu, which leads to each agent's card and names the one being read", async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const nav = page.getByRole('navigation', { name: 'Sections of this page' });
@@ -208,9 +299,9 @@ test.describe('settings', () => {
       'Appearance',
       'Notifications',
       'Sandboxes',
-      'Model backends',
+      'Model connections',
       'Lead agent',
-      'Tools',
+      'Apps and tools',
       'Voice',
       'Default folder',
       'Agent sessions',
@@ -432,8 +523,183 @@ test.describe('settings', () => {
     await expect(page.getByRole('heading', { name: '設定與登入', level: 1 })).toBeVisible();
     await page.reload();
     await expect(page.getByRole('heading', { name: '設定與登入', level: 1 })).toBeVisible();
+    const modelSettings = page.getByRole('navigation').locator('a[href="#/settings/backends"]');
+    await expect(modelSettings).toHaveText('模型連線');
+    await modelSettings.click();
+    await expect(page).toHaveURL(/#\/settings\/backends$/);
+    const title = page.locator('#settings-backends .section-title');
+    await expect(title).toHaveAccessibleName('模型連線');
+    const backends = page.locator('#settings-backends');
+    await expect(backends.locator('.backend-keys > summary', { hasText: '開源助理的 API Key' })).toBeVisible();
+    await expect(backends.locator('summary', { hasText: '自訂端點' })).toBeVisible();
     await languages.getByRole('radio', { name: 'English' }).click();
     await expect(page.getByRole('heading', { name: 'Settings & sign-in', level: 1 })).toBeVisible();
+    await expect(modelSettings).toHaveText('Model connections');
+    await expect(title).toHaveAccessibleName('Model connections');
+    await expect(backends.locator('.backend-keys > summary', { hasText: 'API keys for open-source assistants' })).toBeVisible();
+    await expect(backends.locator('summary', { hasText: 'Custom endpoints' })).toBeVisible();
+  });
+
+  test("an endpoint's selected models appear in the assistant's model menu", async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/backends');
+    const card = page.locator('#settings-backends');
+    const endpoints = card.locator('details', { has: page.locator('summary', { hasText: 'Custom endpoints' }) });
+    const summary = endpoints.locator('summary', { hasText: 'Custom endpoints' });
+    const add = endpoints.getByRole('button', { name: /Add endpoint/ });
+    await expect(card.locator('.backend-keys > summary', { hasText: 'API keys for open-source assistants' })).toBeVisible();
+    await expect(card.getByText(/OpenCode, Goose, Cline, OpenHands and Pi can use/)).toBeVisible();
+    await expect(card.getByText(/plus Claude Code, Codex, Grok and GitHub Copilot/)).toBeVisible();
+    const keys = card.locator('.backend-keys');
+    await expect(keys).not.toHaveAttribute('open', '');
+    await expect(card.getByLabel('OpenAI API keys')).toBeHidden();
+    await keys.locator('summary').press('Enter');
+    await expect(card.getByLabel('OpenAI API keys')).toBeVisible();
+    await keys.locator('summary').press('Space');
+    await expect(card.getByLabel('OpenAI API keys')).toBeHidden();
+    await expect(endpoints).not.toHaveAttribute('open', '');
+    await expect(add).toBeHidden();
+    await summary.press('Enter');
+    await add.click();
+
+    const load = endpoints.getByRole('button', { name: 'Load models' });
+    await expect(load).toBeDisabled();
+    await endpoints.getByLabel('Name', { exact: true }).fill('Lab');
+    const address = endpoints.getByLabel('Base URL');
+    const key = endpoints.getByLabel('API key (optional)');
+    await address.fill(relay.fakeEndpoint.url + '/previous');
+    await key.fill('fixture-key-for-previous-address');
+    await address.fill(relay.fakeEndpoint.url + '/previous/');
+    await expect(key).toHaveValue('fixture-key-for-previous-address');
+    await address.clear();
+    await address.fill(relay.fakeEndpoint.url);
+    await expect(key).toBeEmpty();
+    await load.click();
+    const [first, second] = relay.fakeEndpoint.models;
+    const unlisted = relay.fakeEndpoint.unlistedModel;
+    const pick = (id: string) => endpoints.getByRole('checkbox', { name: id, exact: true });
+    await pick(first).check();
+    await expect(pick(second)).not.toBeChecked();
+    await expect(pick(unlisted)).toHaveCount(0);
+    await endpoints.locator('summary', { hasText: 'Enter model IDs manually' }).click();
+    await endpoints.getByLabel('Model names (one per line)').fill(unlisted);
+    const save = endpoints.getByRole('button', { name: 'Save', exact: true });
+    await save.click();
+
+    const lab = endpoints.locator('.field', { has: page.getByText('lab/…', { exact: true }) });
+    await expect(lab).toContainText(unlisted);
+    await page.reload();
+    await expect(add).toBeHidden();
+    await summary.click();
+    await lab.getByRole('button', { name: 'Edit' }).click();
+    await load.click();
+    await expect(pick(first)).toBeChecked();
+    await expect(pick(unlisted)).toBeChecked();
+    await pick(second).check();
+    await pick(first).uncheck();
+    await save.click();
+    await expect(lab).toContainText(second);
+
+    const claude = page.locator('#settings-claude');
+    await claude.locator('summary', { hasText: 'Default model and reasoning effort' }).click();
+    const models = claude.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(models.locator(`option[value="lab/${second}"]`)).toHaveCount(1);
+    await expect(models.locator(`option[value="lab/${unlisted}"]`)).toHaveCount(1);
+    await expect(models.locator(`option[value="lab/${first}"]`)).toHaveCount(0);
+  });
+
+  test('saving manually entered model IDs checks them before creating or updating an endpoint', async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/backends');
+    const card = page.locator('#settings-backends');
+    await card.locator('summary', { hasText: 'Custom endpoints' }).click();
+    await card.getByRole('button', { name: /Add endpoint/ }).click();
+    const manual = card.locator('summary', { hasText: 'Enter model IDs manually' });
+    const ids = card.getByLabel('Model names (one per line)');
+    const endpointName = card.getByLabel('Name', { exact: true });
+    const save = card.locator('details').getByRole('button', { name: 'Save', exact: true });
+    const savedEndpoint = async () => (await relay.api<ModelBackendsView>('/api/backends')).endpoints.find((e) => e.id === 'manual');
+    const missing = 'missing-model';
+    const { url, unlistedModel, models } = relay.fakeEndpoint;
+    await endpointName.fill('Manual');
+    await card.getByLabel('Base URL').fill(url);
+    await manual.click();
+    await ids.fill(missing);
+    await save.click();
+    const error = card.locator('.error-line');
+    await expect(error).toContainText(missing);
+    await expect(ids).toHaveValue(missing);
+    await expect(endpointName).toHaveValue('Manual');
+    expect(await savedEndpoint()).toBeUndefined();
+
+    // The list omits this model, but GET /models/<id> confirms it.
+    await ids.fill(unlistedModel);
+    await save.click();
+    const row = card.locator('.field', { has: page.getByText('manual/…', { exact: true }) });
+    await expect(row).toContainText(unlistedModel);
+    await row.getByRole('button', { name: 'Edit' }).click();
+    await endpointName.fill('Renamed');
+    await manual.click();
+    await ids.fill(missing);
+    await save.click();
+    await expect(error).toContainText(missing);
+    await expect(endpointName).toHaveValue('Renamed');
+    await expect(ids).toHaveValue(missing);
+    expect(await savedEndpoint()).toMatchObject({ name: 'Manual', models: [unlistedModel] });
+
+    await ids.fill(models[0]);
+    await save.click();
+    await expect(row).toContainText('Renamed');
+    expect(await savedEndpoint()).toMatchObject({ name: 'Renamed', models: [unlistedModel, models[0]] });
+
+    // A server with neither metadata route may still serve chat requests. Keep the old settings
+    // on decline, and save unverified IDs only after a second lookup and explicit consent.
+    await row.getByRole('button', { name: 'Edit' }).click();
+    const chatOnly = url + '/chat-only';
+    await card.getByLabel('Base URL').fill(chatOnly);
+    const confirmSave = async (accept: boolean) => {
+      const dialog = page.waitForEvent('dialog');
+      const clicking = save.click();
+      const confirmation = await dialog;
+      expect(confirmation.type()).toBe('confirm');
+      expect(confirmation.message()).toContain('without verification?');
+      if (accept) await confirmation.accept();
+      else await confirmation.dismiss();
+      await clicking;
+    };
+    await confirmSave(false);
+    await expect(error).toContainText('no catalog');
+    expect((await savedEndpoint())?.baseUrl).toBe(url);
+    await confirmSave(true);
+    await expect(row).toContainText(chatOnly);
+    expect(await savedEndpoint()).toMatchObject({ baseUrl: chatOnly, models: [unlistedModel, models[0]] });
+  });
+
+  test('settings subheadings stay close to the first field or description on desktop and phone', async ({ page, relay }) => {
+    await relay.api('/api/backends/endpoints/e2e', { method: 'DELETE', body: {} });
+    await page.goto(relay.base + '/#/settings/backends');
+    const summary = page.locator('#settings-backends summary', { hasText: 'Custom endpoints' });
+    await expect(page.getByRole('heading', { name: 'Deleted endpoints' })).toBeHidden();
+    await summary.click();
+    const headings = page.locator('#settings-backends h4, #settings-sessions .settings-part > h4');
+    await expect(headings).toHaveCount(3);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      const gaps = await headings.evaluateAll((items) =>
+        items.map((heading) => ({
+          title: heading.textContent,
+          gap: heading.nextElementSibling!.getBoundingClientRect().top - heading.getBoundingClientRect().bottom,
+        })),
+      );
+      gaps.push(
+        await summary.evaluate((el) => ({
+          title: el.textContent,
+          gap: el.nextElementSibling!.firstElementChild!.getBoundingClientRect().top - el.getBoundingClientRect().bottom,
+        })),
+      );
+      for (const { title, gap } of gaps) {
+        expect(gap, title + ' at ' + width).toBeGreaterThanOrEqual(8);
+        expect(gap, title + ' at ' + width).toBeLessThanOrEqual(12);
+      }
+    }
   });
 
   test('another CLI can be the lead agent', async ({ page, relay }) => {
@@ -452,4 +718,63 @@ test.describe('settings', () => {
     // The lead agent's prompt went to the fake codex.
     expect(relay.fakeLog().some((e) => e.cli === 'codex' && e.prompt?.includes('Choose the team that answers it'))).toBe(true);
   });
+});
+
+test('missing GitHub CLI and browser install in their rows and refresh after completion', async ({ page, relay }) => {
+  const states = { github: 'missing', browser: 'missing' };
+  const clicks = { github: 0, browser: 0 };
+  await page.route('**/api/apps/github', (route) =>
+    route.fulfill({ json: { status: states.github === 'ready' ? 'signed-out' : 'missing' } }),
+  );
+  await page.route('**/api/tools', async (route) => {
+    const response = await route.fetch();
+    const tools = await response.json();
+    await route.fulfill({ json: { ...tools, browser: states.browser === 'ready' ? { using: '/installed/browser' } : {} } });
+  });
+  for (const name of ['github', 'browser'] as const) {
+    await page.route('**/api/apps/' + name + '/install', (route) => {
+      if (route.request().method() === 'POST') {
+        clicks[name]++;
+        states[name] = 'running';
+      }
+      const state = states[name];
+      return route.fulfill({
+        json: {
+          available: state === 'ready',
+          canInstall: state === 'missing' || state === 'failed',
+          job:
+            state === 'missing'
+              ? undefined
+              : {
+                  state: state === 'ready' ? 'success' : state,
+                  startedAt: 1,
+                  log: '',
+                  error: state === 'failed' ? 'Download interrupted' : undefined,
+                },
+        },
+      });
+    });
+  }
+  await page.goto(relay.base + '/#/settings/apps');
+  for (const name of ['github', 'browser'] as const) {
+    const row = page.getByRole('listitem', { name: name === 'github' ? 'GitHub' : 'Browser', exact: true });
+    const summary = row.locator('.app-options > summary');
+    await summary.click();
+    expect(clicks[name]).toBe(0);
+    await row.getByRole('button', { name: name === 'github' ? 'Install GitHub CLI' : 'Install a browser', exact: true }).click();
+    await expect(row.getByRole('status')).toContainText('Installing');
+    await page.reload();
+    await summary.click();
+    await expect(row.getByRole('status')).toContainText('Installing');
+    if (name === 'github') {
+      states[name] = 'failed';
+      await expect(row.getByRole('alert')).toHaveText('Download interrupted');
+      await row.getByRole('button', { name: 'Retry installation' }).click();
+      await expect(row.getByRole('status')).toContainText('Installing');
+    }
+    states[name] = 'ready';
+    if (name === 'github') await expect(row.getByRole('button', { name: 'Sign in to GitHub' })).toBeVisible();
+    else await expect(row.getByRole('textbox', { name: 'Browser to start' })).toHaveAttribute('placeholder', '/installed/browser');
+    expect(clicks[name]).toBe(name === 'github' ? 2 : 1);
+  }
 });

@@ -1,3 +1,4 @@
+import type { DraftAppSelection } from '../draftApps';
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   SCHEDULE_KINDS,
@@ -55,7 +56,7 @@ export function ScheduleForm({
   /** The team's names; absent while there is no team yet (the lead agent names its members after the @mentions). */
   team?: string[];
   /** New automation only: Create a webhook too, under optional run settings (the drawer adds one to a saved automation). */
-  creation?: { withHook: boolean; onHook: (on: boolean) => void };
+  creation?: { withHook: boolean; onHook: (on: boolean) => void; apps: DraftAppSelection };
   children?: ReactNode;
   disabled?: boolean;
 }) {
@@ -201,6 +202,7 @@ export function ScheduleForm({
         </label>
         <TaskInput
           creation={Boolean(creation)}
+          apps={creation?.apps}
           id={messageId}
           text={draft.text}
           onText={(text) => onEdit({ text })}
@@ -313,7 +315,7 @@ export function ScheduleForm({
 
         {draft.kind === 'interval' && (
           <>
-            <label className="field inline">
+            <label className="field field-with-unit">
               <span>{t.schedule.every}</span>
               <input
                 type="number"
@@ -470,7 +472,7 @@ function TriggerFields({
           {mailAccounts && !mailAccounts.length ? (
             <p className="small warn-text">
               {w.noAccounts}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
                 {w.openSettings}
               </a>
             </p>
@@ -525,7 +527,7 @@ function TriggerFields({
           {calendars && !calendars.length ? (
             <p className="small warn-text">
               {w.noCalendars}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
                 {w.openSettings}
               </a>
             </p>

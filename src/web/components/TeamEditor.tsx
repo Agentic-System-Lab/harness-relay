@@ -362,7 +362,7 @@ export function TeamEditor({
         <div className="settings-grid">
           {showMembers &&
             (settings.mode === 'relay' ? (
-              <label className="field inline">
+              <label className="field field-with-unit">
                 <span>{t.team.relayLimit}</span>
                 <input
                   type="number"
@@ -374,7 +374,7 @@ export function TeamEditor({
                 <span className="unit muted small">{t.team.hopsUnit}</span>
               </label>
             ) : (
-              <label className="field inline">
+              <label className="field field-with-unit">
                 <span>{t.team.rounds}</span>
                 <input
                   type="number"

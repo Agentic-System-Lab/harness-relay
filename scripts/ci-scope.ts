@@ -61,6 +61,17 @@ const PROSE = [
   'site/DESIGN-GUIDELINES.md',
 ];
 
+// The UI build includes both local OAuth setup guides and the images referenced by their steps.
+const OAUTH_GUIDES = [
+  '!site/docs/tools/index.html',
+  '!site/zh-TW/docs/tools/index.html',
+  '!site/assets/media/docs/google-cloud-client-details.png',
+  '!site/assets/media/docs/microsoft-entra-desktop-platform.png',
+  '!site/assets/media/docs/tools-gmail-setup-*.webp',
+  '!site/assets/media/docs/tools-oauth-settings-*.webp',
+  '!site/assets/media/docs/tools-oauth-microsoft-*.webp',
+];
+
 /** What each scope's jobs never read, build, run or ship. */
 export const IGNORES: Record<Scope, readonly string[]> = {
   // Text the tests read the same way on every system (.gitattributes checks out LF everywhere), and
@@ -70,6 +81,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'LICENSE',
     // The landing page, but for the installers' names, which the desktop app's updates import.
     'site/**',
+    ...OAUTH_GUIDES,
     '!site/assets/downloads.js',
     // The download mirror runs on Cloudflare, the dev container on Linux.
     'mirror/**',
@@ -87,6 +99,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     ...PROSE,
     'test/**',
     'site/**',
+    ...OAUTH_GUIDES,
     '!site/assets/downloads.js',
     'mirror/**',
     '.devcontainer/**',
@@ -116,9 +129,17 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     ...PROSE,
     'LICENSE',
     'test/**',
+    '!test/fake-mail-servers.ts',
+    '!test/fake-mcp-auth-server.ts',
     'desktop/**',
     'site/**',
+    ...OAUTH_GUIDES,
     '!site/share/**',
+    '!site/docs/phone/index.html',
+    '!site/assets/site.css',
+    '!site/assets/site.js',
+    '!site/assets/docs.js',
+    '!site/assets/theme.js',
     '!site/assets/share.js',
     'mirror/**',
     '.devcontainer/**',
@@ -128,6 +149,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'vitest.config.ts',
     'scripts/**',
     '!scripts/sandbox-check.ts',
+    '!scripts/oauth-guides.ts',
     '.github/workflows/ci.yml',
     '.github/workflows/pages.yml',
     '.github/workflows/release.yml',

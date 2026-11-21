@@ -61,12 +61,12 @@ describe("an MCP server's own sign-in in a turn", () => {
     const reply = agentMessages(conv)[1]!;
     expect(reply.parts[0]).toEqual({
       type: 'notice',
-      text: 'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Tool library.',
+      text: 'The MCP server "linear" was left out of this turn: its sign-in no longer works (invalid_grant). Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.',
     });
     expect(reply.status).toBe('done');
     expect(calls[1]!.systemPrompt).toContain('# Tool library: left out of this turn');
     expect(calls[1]!.systemPrompt).toContain(
-      '- linear: its sign-in no longer works; the user can sign in to it again in Settings → Tool library',
+      '- linear: its sign-in no longer works; the user can sign in to it again in Settings → Apps and tools → Tool library → MCP servers',
     );
     // Kept with the reply, as the chat shows it again later.
     store.flushAll();

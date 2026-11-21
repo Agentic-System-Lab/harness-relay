@@ -15,7 +15,7 @@ import { ROOT } from './paths';
 import type { RelayServer } from './relay';
 
 /** The website's address (the viewer is its share/ page). */
-const SITE_URL = new URL('../', SHARE_VIEWER_URL).href;
+export const SITE_URL = new URL('../', SHARE_VIEWER_URL).href;
 const SITE_DIR = join(ROOT, 'site');
 
 /** The owner the fake gh makes its gists as. */
@@ -35,6 +35,12 @@ function siteFile(url: string): string | null {
   if (file !== SITE_DIR && !file.startsWith(SITE_DIR + sep)) return null;
   const page = existsSync(file) && statSync(file).isDirectory() ? join(file, 'index.html') : file;
   return existsSync(page) ? page : null;
+}
+
+export function serveSite(route: Route) {
+  const file = siteFile(route.request().url());
+  if (!file) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not Found' });
+  return route.fulfill({ status: 200, path: file, ...(TYPES[extname(file)] ? { contentType: TYPES[extname(file)] } : {}) });
 }
 
 /** The folder of the fake gh's gists (a `gists/` folder in it), in the test's own folder. */
@@ -94,11 +100,7 @@ export async function openShared(context: BrowserContext, root: string, link: st
   };
   const rawCalls: string[] = [];
   const apiCalls: string[] = [];
-  await route(`${SITE_URL}**`, (route) => {
-    const file = siteFile(route.request().url());
-    if (!file) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not Found' });
-    return route.fulfill({ status: 200, contentType: TYPES[extname(file)] ?? 'application/octet-stream', body: readFileSync(file) });
-  });
+  await route(`${SITE_URL}**`, serveSite);
   await route('https://gist.githubusercontent.com/**', (route) => {
     const url = route.request().url();
     rawCalls.push(url);

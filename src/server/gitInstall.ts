@@ -1,25 +1,16 @@
 import { lstatSync } from 'node:fs';
 import { win32 } from 'node:path';
 import type { GitInstallView, GitRequirement } from '../shared/types';
-import { gitBash, InstallError, InstallJob, installerEnv, runStep, windowsPowerShell, type CliInstaller } from './cliInstall';
+import { gitBash, InstallError, InstallJob, installerEnv, runStep, type CliInstaller } from './cliInstall';
 import { HttpError } from './errors';
 import { captureGit } from './gitProcess';
 import { t } from './i18n';
 import { runProcess, runShellScript } from './process';
 import { linuxPackageCommand, type LinuxPackages } from './sandboxSetup';
-import { findOnPath, isProgram } from './executable';
+import { isProgram } from './executable';
+import { portableInstallEnv } from './portableInstall';
 
 const APPLE = '/usr/bin/xcode-select';
-const WINGET_PACKAGE = ['install', '--exact', '--id', 'Git.Git', '--source', 'winget'];
-const WINGET_ARGS = [...WINGET_PACKAGE, '--accept-source-agreements', '--accept-package-agreements', '--silent', '--disable-interactivity'];
-const WINGET_COMMAND = ['winget', ...WINGET_PACKAGE].join(' ');
-/** PowerShell can start an App Execution Alias which Node cannot stat or launch directly. */
-const WINGET_SCRIPT = [
-  "$ErrorActionPreference = 'Stop'",
-  '& $env:HARNESS_RELAY_WINGET ' + WINGET_ARGS.join(' '),
-  'exit $LASTEXITCODE',
-].join('\n');
-
 function aliasExists(path: string): boolean {
   try {
     return !lstatSync(path).isDirectory();
@@ -36,6 +27,64 @@ interface GitInstallHost {
   run: typeof runProcess;
   runScript: typeof runShellScript;
   hasGit: (requirement: GitRequirement) => Promise<boolean>;
+}
+
+/** PowerShell can start a WinGet App Execution Alias which Node cannot stat or launch directly. */
+export function wingetInstall(
+  id: 'Git.Git' | 'Google.Chrome',
+  host: Pick<GitInstallHost, 'env' | 'hasProgram' | 'run' | 'runScript'> & { hasAlias?: typeof aliasExists },
+): ((job: InstallJob) => Promise<void>) | undefined {
+  const env = Object.fromEntries(Object.entries(host.env).map(([key, value]) => [key.toUpperCase(), value]));
+  const absolute = (dir?: string) => (dir && /^[a-z]:[\\/]/i.test(dir) ? win32.normalize(dir) : undefined);
+  const root = absolute(env.SYSTEMROOT) ?? absolute(env.WINDIR) ?? 'C:\\Windows';
+  const system32 = win32.join(root, 'System32');
+  const profile = absolute(env.USERPROFILE);
+  const local = absolute(env.LOCALAPPDATA) ?? (profile && win32.join(profile, 'AppData', 'Local'));
+  const aliases = local
+    ? [
+        win32.join(local, 'Microsoft', 'WindowsApps', 'winget.exe'),
+        win32.join(local, 'Microsoft', 'WindowsApps', 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe', 'winget.exe'),
+      ]
+    : [];
+  // A server started by npm inherits the project's bin directories. Only accept a PATH entry
+  // for App Installer itself, under the system's protected AppX package directory.
+  const programFiles = absolute(env.PROGRAMW6432) ?? absolute(env.PROGRAMFILES) ?? win32.join(win32.parse(root).root, 'Program Files');
+  const appx = win32.join(programFiles, 'WindowsApps').toLowerCase();
+  const packaged = (env.PATH ?? '')
+    .split(';')
+    .filter(
+      (dir) =>
+        win32.dirname(dir).toLowerCase() === appx &&
+        /^Microsoft\.DesktopAppInstaller_(?:\d+\.){3}\d+_(?:x64|x86|arm64|arm|neutral)__8wekyb3d8bbwe$/i.test(win32.basename(dir)),
+    )
+    .map((dir) => win32.join(dir, 'winget.exe'));
+  const winget = [...aliases, ...packaged].find(host.hasProgram);
+  const alias = winget ? undefined : aliases.find(host.hasAlias ?? aliasExists);
+  const shell = win32.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  if (!winget && (!alias || !host.hasProgram(shell))) return undefined;
+  const pkg = ['install', '--exact', '--id', id, '--source', 'winget'];
+  const args = [...pkg, '--accept-source-agreements', '--accept-package-agreements', '--silent', '--disable-interactivity'];
+  const shown = ['winget', ...pkg].join(' ');
+  return async (job) => {
+    const base = {
+      ...portableInstallEnv(env),
+      SYSTEMROOT: root,
+      WINDIR: root,
+      COMSPEC: win32.join(system32, 'cmd.exe'),
+      PATH: [system32, root].join(';'),
+    };
+    if (winget) await runStep(host, job, shown, { bin: winget, args, env: base, cwd: system32 });
+    else {
+      const script = ["$ErrorActionPreference = 'Stop'", '& $env:HARNESS_RELAY_WINGET ' + args.join(' '), 'exit $LASTEXITCODE'].join('\n');
+      await runStep(
+        host,
+        job,
+        shown,
+        { bin: shell, args: ['-NoProfile', '-NonInteractive'], env: { ...base, HARNESS_RELAY_WINGET: alias }, cwd: system32 },
+        script,
+      );
+    }
+  };
 }
 
 interface InstallPlan {
@@ -81,35 +130,10 @@ export class GitInstall {
       };
     }
     if (platform === 'win32') {
-      const winget = findOnPath('winget', env, platform, [], (path) => path.toLowerCase().endsWith('.exe') && hasProgram(path));
-      const alias = env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'winget.exe');
-      const shell = !winget && alias && this.host.hasAlias(alias) ? windowsPowerShell(env, hasProgram) : undefined;
-      if (winget || shell)
-        return {
-          method: 'winget',
-          install: (job) => {
-            const run = async () => {
-              const base = installerEnv(env);
-              if (winget) {
-                await runStep(this.host, job, WINGET_COMMAND, { bin: winget, args: WINGET_ARGS, env: base });
-              } else {
-                await runStep(
-                  this.host,
-                  job,
-                  WINGET_COMMAND,
-                  {
-                    bin: shell!,
-                    args: ['-NoProfile', '-NonInteractive'],
-                    env: { ...base, HARNESS_RELAY_WINGET: alias },
-                  },
-                  WINGET_SCRIPT,
-                );
-              }
-            };
-            return this.clis ? this.clis.withWindowsUserPath(job, run) : run();
-          },
-        };
-      return {};
+      const install = wingetInstall('Git.Git', this.host);
+      if (!install) return {};
+      const clis = this.clis;
+      return { method: 'winget', install: clis ? (job) => clis.withWindowsUserPath(job, () => install(job)) : install };
     }
     if (platform === 'linux') {
       const pm = this.linux.packageManager();

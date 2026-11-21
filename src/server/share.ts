@@ -32,7 +32,9 @@ import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
 import { DATA_DIR } from './settings';
 import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
-import { BREW_DIRS, findOnPath } from './executable';
+import { findGithubCli, parseGhVersion } from './githubInstall';
+
+export { parseGhVersion } from './githubInstall';
 
 /**
  * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as
@@ -90,11 +92,6 @@ export function ghTooOld(stderr: string): boolean {
   return /unknown (shorthand )?flag|unknown command/i.test(stderr);
 }
 
-/** The version `gh --version` printed ("gh version 2.88.1 (2026-03-12)"). */
-export function parseGhVersion(stdout: string): string | undefined {
-  return /gh version (\d+\.\d+\.\d+)/.exec(stdout)?.[1];
-}
-
 /** What went wrong, in words for the user, when `gh` failed (to create a gist, or with `failed`, to delete one). */
 export function gistError(r: Pick<SpawnResult, 'stderr' | 'timedOut'>, failed: (detail: string) => string = t().shareFailed): string {
   if (r.timedOut) return failed(t().timedOut);
@@ -123,15 +120,14 @@ function failure(r: SpawnResult, failed?: (detail: string) => string): ShareErro
 }
 
 /**
- * Where gh is: on the PATH, or where Homebrew puts it (a server started outside a terminal may not have
- * those folders on its PATH).
+ * The installed gh shared by sign-in, gist uploads, repository tools and watches.
  */
 export function ghBin(
   env: NodeJS.ProcessEnv = process.env,
   platform: string = process.platform,
   isFile?: (path: string) => boolean,
 ): string {
-  return findOnPath('gh', env, platform, platform === 'win32' ? [] : BREW_DIRS, isFile) ?? 'gh';
+  return findGithubCli(env, platform, isFile) ?? 'gh';
 }
 
 /**
@@ -140,9 +136,19 @@ export function ghBin(
  * `gh auth login` keeps, and GitHub refuses it a gist ("Resource not accessible by integration": it
  * covers the codespace's repository alone). A `GH_TOKEN`, the user's own, stays.
  */
-export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function ghEnv(env: NodeJS.ProcessEnv = process.env, platform = process.platform): NodeJS.ProcessEnv {
   const out = { ...env };
-  if (env.CODESPACES === 'true') delete out.GITHUB_TOKEN;
+  if (platform === 'win32') {
+    // Windows passes these names case-insensitively. Normalize them before the plain object is inspected or passed to gh.
+    for (const key of Object.keys(out).sort()) {
+      const upper = key.toUpperCase();
+      if (upper !== key && ['GH_TOKEN', 'GITHUB_TOKEN', 'CODESPACES'].includes(upper)) {
+        out[upper] ??= out[key];
+        delete out[key];
+      }
+    }
+  }
+  if (out.CODESPACES === 'true') delete out.GITHUB_TOKEN;
   return out;
 }
 
@@ -155,7 +161,10 @@ export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
 export const GH_LOGIN_ARGS = ['auth', 'login', '--web', '--hostname', 'github.com'];
 
 /** The variables gh takes a token from before any sign-in it keeps, in its order. */
-const GH_TOKEN_VARS = ['GH_TOKEN', 'GITHUB_TOKEN'];
+export function ghTokenVariable(env: NodeJS.ProcessEnv) {
+  const own = ghEnv(env);
+  return (['GH_TOKEN', 'GITHUB_TOKEN'] as const).find((key) => own[key]);
+}
 
 /**
  * Signs gh in for sharing from the share dialog, with gh's own device sign-in (`CliLogin`): the code
@@ -170,7 +179,7 @@ export class GhLogin {
 
   start(env: NodeJS.ProcessEnv = process.env): CliLoginView {
     const own = ghEnv(env);
-    const token = GH_TOKEN_VARS.find((k) => own[k]);
+    const token = ghTokenVariable(env);
     if (token) throw new HttpError(409, t().ghLoginTokenSet(token));
     this.session?.cancel();
     this.session = new CliLogin(ghBin(own), GH_LOGIN_ARGS, own, undefined, () => {});

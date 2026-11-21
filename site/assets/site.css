@@ -1494,7 +1494,7 @@ html:not(.js) .theme-toggle {
   color: #ffffff;
 }
 
-/* Open agents: the five, beside the app's Model backends card. Their colour is only their dot in the list,
+/* Open agents: the five, beside the app's Model connections card. Their colour is only their dot in the list,
    as in the app: the headline and the mark keep the demo's three. */
 .open-grid {
   display: grid;
@@ -2164,7 +2164,7 @@ html:not(.js) .theme-toggle {
   text-wrap: pretty;
 }
 
-.more li b {
+.more li > b:first-child {
   display: block;
   margin-bottom: 2px;
   color: var(--text);
@@ -2999,9 +2999,8 @@ body:has(.cs-dialog[open]) {
    hairlines at reading scale. The technical details stay in the repository's docs on GitHub, which every
    page names at its end (.doc-more). On a wide screen, three columns: the docs' pages (.doc-nav, a search
    field above them), the page (its title and a button that copies it as Markdown), and its sections
-   (.doc-toc), the menu and the contents sticky; at 1180px and narrower the sections go above the page's text,
-   in a box, and at 920px and narrower the pages fold behind a button that shares one row with the search
-   field, under the header. The field is the narrower of the two until it is opened, when it fills the row
+   (.doc-toc), the menu and the contents sticky. At 1180px and narrower the search and pages share one
+   sticky row. The contents fold into a second row beneath it. The field is the narrower of the two until it is opened, when it fills the row
    (with JavaScript; without it the pages show in full above the page, and the search field and the copy
    button stay hidden). */
 
@@ -3156,8 +3155,13 @@ body:has(.cs-dialog[open]) {
   font-size: 14px;
 }
 
-.doc-nav-toggle {
+.doc-nav-toggle,
+.doc-nav.is-compact:not(.is-open) .doc-nav-list {
   display: none;
+}
+
+.doc-nav.is-compact .doc-nav-toggle {
+  display: flex;
 }
 
 .doc-nav-title {
@@ -3292,6 +3296,10 @@ body:has(.cs-dialog[open]) {
   color: var(--danger);
 }
 
+/* Jump to the chosen heading without opening intermediate branches on the way through a long article. */
+html:has(.doc-toc) {
+  scroll-behavior: auto;
+}
 /* The page's sections, the one on screen marked (site.js). */
 .doc-toc {
   grid-area: toc;
@@ -3303,6 +3311,11 @@ body:has(.cs-dialog[open]) {
   font-size: 13.5px;
 }
 
+.doc-toc-toggle[hidden],
+.doc-toc > ol[hidden] {
+  display: none;
+}
+
 .doc-toc-title {
   margin-bottom: 8px;
   font-size: 12.5px;
@@ -3311,31 +3324,48 @@ body:has(.cs-dialog[open]) {
 }
 
 .doc-toc ol {
+  display: grid;
+  gap: 2px;
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 2px;
+}
+.doc-toc ol ol {
+  margin: 2px 0 5px 7px;
+  padding-left: 9px;
   border-left: 1px solid var(--border);
 }
-
-.doc-toc a {
-  display: block;
-  margin-left: -1px;
-  padding: 4px 0 4px 12px;
-  border-left: 2px solid transparent;
+.doc-toc a,
+.doc-toc summary {
+  padding: 5px 6px;
   color: var(--muted);
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.doc-toc summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.doc-toc summary::marker {
+  font-size: 0.8em;
+}
+.doc-toc a {
+  display: block;
   text-decoration: none;
 }
-
-.doc-toc a:hover {
+.doc-toc a:hover,
+.doc-toc summary:hover,
+.doc-toc details:has(a[aria-current='true']) > summary {
   color: var(--text);
 }
-
 .doc-toc a[aria-current='true'] {
-  border-left-color: var(--text);
   color: var(--text);
+  background: var(--surface);
+  box-shadow: inset 2px 0 currentColor;
+}
+.doc-toc :is(a, summary):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 
 /* The page's text: the body at reading scale, in the page's ink. */
@@ -3580,13 +3610,28 @@ body:has(.cs-dialog[open]) {
    said so under it. */
 .doc-figure {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 10px 0 24px;
 }
 
-.doc-figure > img {
-  width: 100%;
+.doc-body img {
   height: auto;
+}
+
+.doc-body h2 > svg {
+  display: inline-block;
+  vertical-align: -0.06em;
+}
+
+.doc-figure > a:has(> img),
+.doc-figure > img {
+  justify-self: start;
+  max-width: 100%;
+}
+
+.doc-figure > img,
+.doc-figure > a > img {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -3676,16 +3721,7 @@ body:has(.cs-dialog[open]) {
   font-weight: 650;
 }
 
-@media (max-width: 1180px) {
-  .doc-layout {
-    grid-template-columns: 210px minmax(0, 1fr);
-    grid-template-areas:
-      'nav head'
-      'nav toc'
-      'nav body';
-    grid-template-rows: auto auto 1fr;
-  }
-
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .doc-toc {
     position: static;
     max-height: none;
@@ -3696,24 +3732,19 @@ body:has(.cs-dialog[open]) {
     border-radius: var(--radius);
   }
 
-  .doc-toc ol {
+  .doc-toc > ol {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 24px;
-    border-left: 0;
+    align-items: start;
+  }
+  .doc-toc:has(details) > ol {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .doc-toc a,
+  .doc-toc summary {
+    padding-block: 8px;
   }
 
-  .doc-toc a {
-    margin-left: 0;
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .doc-toc a[aria-current='true'] {
-    color: var(--muted);
-  }
-}
-
-@media (max-width: 920px) {
   .doc-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
@@ -3734,6 +3765,10 @@ body:has(.cs-dialog[open]) {
     background: var(--bg);
   }
 
+  .js .doc-layout {
+    grid-template-areas: 'nav' 'toc' 'head' 'body';
+  }
+
   /* With JavaScript, the search field and the docs' button share one row and stay at the top while the page
      scrolls, under the header, on the page's background from edge to edge; the pages, opened, scroll inside
      the screen that is left. (Without it the pages show in full, and scroll away with the page.) The field
@@ -3743,6 +3778,7 @@ body:has(.cs-dialog[open]) {
     flex-wrap: wrap;
     align-items: center;
     column-gap: 8px;
+    margin-bottom: 0;
     position: sticky;
     top: 64px;
     z-index: 40;
@@ -3778,13 +3814,83 @@ body:has(.cs-dialog[open]) {
     border-radius: 12px;
   }
 
-  /* A section a link leads to starts below the header and that one row (padding 8 + the row 46 + padding 8). */
   html.js:has(.doc-nav) {
-    scroll-padding-top: 126px;
+    --doc-search-bottom: 126px; /* header 64 + search row 46 + padding 16 */
+    --doc-contents-height: max(44px, 2.75rem);
+    /* Keep focusing the sticky controls from scrolling the article backwards behind them. */
+    scroll-padding-top: 0;
+  }
+  .js .doc-body [id] {
+    scroll-margin-top: calc(var(--doc-search-bottom) + var(--doc-contents-height) + 8px);
+  }
+
+  .js .doc-toc {
+    position: sticky;
+    top: var(--doc-search-bottom);
+    z-index: 39;
+    margin: 0 calc(-1 * var(--gutter)) 24px;
+    padding: 0 var(--gutter);
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: 0 1px var(--border);
+  }
+
+  .js .doc-toc-title {
+    display: none;
+  }
+
+  .doc-toc-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: var(--doc-contents-height);
+    padding: 0 12px;
+    appearance: none;
+    border: 0;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .doc-toc-toggle::after {
+    content: '';
+    width: 8px;
+    height: 8px;
+    margin-inline-end: 3px;
+    border: solid var(--muted);
+    border-width: 0 1.5px 1.5px 0;
+    transform: translateY(-2px) rotate(45deg);
+  }
+  .doc-toc-toggle[aria-expanded='true']::after {
+    transform: translateY(2px) rotate(225deg);
+  }
+  .doc-toc-toggle:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+  }
+
+  .js .doc-toc > ol {
+    position: absolute;
+    top: 100%;
+    inset-inline: var(--gutter);
+    max-height: calc(100vh - var(--doc-search-bottom) - var(--doc-contents-height) - 12px);
+    max-height: calc(100dvh - var(--doc-search-bottom) - var(--doc-contents-height) - 12px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 0 0 12px 12px;
+    background: var(--bg);
+    box-shadow: var(--shadow);
   }
 
   .js .doc-nav-toggle {
-    display: flex;
     align-items: center;
     gap: 10px;
     flex: 1 1 0;
@@ -3824,22 +3930,24 @@ body:has(.cs-dialog[open]) {
     transform: rotate(180deg);
   }
 
-  .js .doc-nav:not(.is-open) .doc-nav-list {
-    display: none;
-  }
-
   .js .doc-nav-list {
-    flex: 1 0 100%;
-    max-height: calc(100vh - 64px - 70px);
-    max-height: calc(100dvh - 64px - 70px);
-    margin-top: 8px;
-    padding: 14px 16px 16px 26px;
+    position: absolute;
+    top: 100%;
+    inset-inline: 0;
+    max-height: calc(100vh - var(--doc-search-bottom) - 12px);
+    max-height: calc(100dvh - var(--doc-search-bottom) - 12px);
+    padding: 14px var(--gutter) 16px calc(var(--gutter) + 10px);
     overflow-y: auto;
     overscroll-behavior: contain;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 0 0 12px 12px;
     background: var(--bg);
     box-shadow: var(--shadow);
+  }
+
+  /* The pages panel occupies this row. Its hidden controls cannot be tabbed to behind the panel. */
+  .js .doc-nav.is-open ~ .doc-toc {
+    visibility: hidden;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -3867,7 +3975,7 @@ body:has(.cs-dialog[open]) {
 }
 
 @media (max-width: 560px) {
-  .doc-toc ol,
+  .doc-toc > ol,
   .doc-index {
     grid-template-columns: minmax(0, 1fr);
   }

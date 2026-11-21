@@ -34,7 +34,7 @@ const { validateOAuthCalendar } = await import('../src/server/validate');
 const { hostOnlyFetch } = await import('../src/server/oauth/broker');
 const { microsoftProvider, googleProvider } = await import('../src/server/oauth/providers');
 const { OAuthService } = await import('../src/server/oauth/service');
-const { callbackParams, loopbackOrigin } = await import('../src/server/oauth/signin');
+const { callbackParams, loopbackOrigin, redirectAddress } = await import('../src/server/oauth/signin');
 const { OAuthStore } = await import('../src/server/oauth/store');
 const { Orchestrator } = await import('../src/server/orchestrator');
 const { ProviderService } = await import('../src/server/providers');
@@ -129,6 +129,16 @@ function gate(): { until: Promise<void>; open: () => void } {
 }
 
 describe('signing in', () => {
+  it('adds Teams to the existing Microsoft identity and keeps its calendar', async () => {
+    const existing = (await signIn()).account!;
+    const calendars = connectors.view().calendar;
+    const started = await service.startSignIn({ provider: 'microsoft', uses: ['teams'], port: 8787 });
+    const completed = await service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+    expect(completed).toMatchObject({ status: 'done', account: { id: existing.id, uses: expect.arrayContaining(['calendar', 'teams']) } });
+    expect(service.view().accounts).toHaveLength(1);
+    expect(connectors.view().calendar).toEqual(calendars);
+  });
+
   it('asks for an authorization code with PKCE, to the page’s own web app on this computer, and keeps who signed in', async () => {
     const started = await service.startSignIn({
       provider: 'microsoft',
@@ -189,6 +199,8 @@ describe('signing in', () => {
   it('goes back to localhost on this computer for a page elsewhere, whose address is pasted then', async () => {
     expect(loopbackOrigin('https://relay-8787.app.github.dev')).toBeUndefined();
     expect(loopbackOrigin('http://localhost:5173')).toBe('http://localhost:5173');
+    expect(redirectAddress('http://[::1]:8787', 8787, 'microsoft')).toBe('http://localhost:8787/oauth/callback');
+    expect(redirectAddress('http://[::1]:8787', 8787, 'google')).toBe('http://[::1]:8787/oauth/callback');
     expect(loopbackOrigin('http://[::1]:8787')).toBe('http://[::1]:8787');
     const started = await service.startSignIn({
       provider: 'microsoft',
@@ -352,7 +364,7 @@ describe('signing in', () => {
   it('needs an app for the provider first, and keeps a client secret masked', async () => {
     await withLang('en', async () => {
       await expect(service.startSignIn({ provider: 'google', uses: ['calendar'], port: 8787 })).rejects.toThrow(
-        'There is no app to sign in to Google with yet',
+        'Set up your Google OAuth client in Common apps',
       );
     });
     service.saveClient('google', { clientId: '123-abc.apps.googleusercontent.com', secret: 'GOCSPX-secret' });
@@ -392,7 +404,7 @@ describe('signing in', () => {
       service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'contoso.onmicrosoft.com' });
       expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: 'the app it signed in with was changed in Settings' });
       expect(service.problem(id)).toBe(
-        'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (the app it signed in with was changed in Settings)',
+        'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (the app it signed in with was changed in Settings)',
       );
       // No token of the app before is used: the kept one was forgotten.
       await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow('no longer works');
@@ -570,7 +582,7 @@ describe('the token broker', () => {
         now += 61 * MIN;
         fake.refreshAnswer = { status: 400, body: { error, error_description: 'AADSTS65001: The user has not consented.\r\nTrace ID: 1' } };
         await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
-          `no longer works: sign in again in Settings → Tool library (${error}`,
+          `no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (${error}`,
         );
         expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: `${error}: AADSTS65001: The user has not consented.` });
         fake.refreshAnswer = undefined;
@@ -701,6 +713,8 @@ describe('the token broker', () => {
     expect(microsoftProvider({ clientId: 'x', tenant: 'contoso.onmicrosoft.com' }).endpoints.authorize).toContain(
       '/contoso.onmicrosoft.com/',
     );
+    expect(googleProvider({ clientId: 'x' }).useHosts?.documents).toEqual(['docs.googleapis.com']);
+    expect(googleProvider({ clientId: 'x' }).useHosts?.drive).toEqual(['www.googleapis.com']);
     expect(googleProvider({ clientId: 'x' }).hosts).toEqual(['apidata.googleusercontent.com', 'openidconnect.googleapis.com']);
   });
 });
@@ -855,6 +869,136 @@ describe('calendars through a sign-in', () => {
   });
 });
 
+describe('Google Docs write consent', () => {
+  const scope = 'https://www.googleapis.com/auth/documents';
+  const readScope = 'https://www.googleapis.com/auth/drive.readonly';
+  async function start(use: 'drive' | 'documents', account?: string) {
+    return service.startSignIn({ provider: 'google', uses: [use], account, port: 8787, session: 's1' });
+  }
+  const finish = (flow: OAuthSignInView) => service.signIns.callback(callbackParams(fake.allow(flow.authorizeUrl!)));
+  beforeEach(() => service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret }));
+
+  it('does not restore a disconnected account from Docs consent started before its first Drive connection', async () => {
+    const stale = await start('documents');
+    const forAnother = await start('documents');
+    const id = (await finish(await start('drive'))).account!.id;
+    service.removeDrive(id);
+    await service.removeAccount(id);
+    expect(service.store.accounts()).toEqual([]);
+    expect((await finish(stale)).status).toBe('failed');
+    expect(service.store.accounts()).toEqual([]);
+    const original = fake.google.me;
+    fake.google.me = { sub: 'another', email: 'another@example.com', name: 'Another' };
+    expect((await finish(forAnother)).account?.email).toBe('another@example.com');
+    fake.google.me = original;
+    const fresh = (await finish(await start('drive'))).account!;
+    expect(fresh.uses).toEqual(['drive']);
+    expect(fresh.id).not.toBe(id);
+  });
+
+  it('keeps a fresh Drive reconnection valid after a duplicate removal of the already detached Drive', async () => {
+    const id = (await finish(await start('drive'))).account!.id;
+    service.removeDrive(id);
+    const reconnect = await start('drive', id);
+    service.removeDrive(id);
+    expect((await finish(reconnect)).account).toMatchObject({ id, uses: ['drive'] });
+  });
+
+  it('rejects earlier Drive consent for the removed account, even after reconnecting with a fresh read-only grant', async () => {
+    const id = (await finish(await start('drive'))).account!.id;
+    const oldFetch = service.broker.fetch(id, 'drive');
+    const targeted = await start('documents', id);
+    const chooseAccount = await start('documents');
+    const otherSignIn = await start('drive');
+    const originalRefresh = service.store.refreshToken(id);
+    service.removeDrive(id);
+    const detachedFetch = service.broker.fetch(id, 'drive');
+    expect(newService().view().accounts).toMatchObject([{ id, uses: [], status: 'connected' }]);
+    expect(service.store.refreshToken(id)).toBe(originalRefresh);
+    expect(fake.google.revoked).toEqual([]);
+    await expect(service.broker.accessToken(id, undefined)).rejects.toThrow();
+    const me = fake.google.me;
+    fake.google.me = { sub: 'another', email: 'another@example.com', name: 'Another' };
+    const other = (await finish(otherSignIn)).account!;
+    expect(other.email).toBe('another@example.com');
+    fake.google.me = me;
+    const fresh = await finish(await start('drive', id));
+    expect(fresh.account).toMatchObject({ id, uses: ['drive'] });
+    const current = service.store.refreshToken(id);
+    const requestsBefore = fake.requests.length;
+    for (const staleFetch of [oldFetch, detachedFetch]) await expect(staleFetch(fake.google.urls.drive! + '/files')).rejects.toThrow();
+    expect(fake.requests).toHaveLength(requestsBefore);
+    for (const stale of [targeted, chooseAccount]) {
+      expect((await finish(stale)).status).toBe('failed');
+      expect(service.store.refreshToken(id)).toBe(current);
+      expect(service.store.account(id)?.uses).toEqual(['drive']);
+    }
+    expect(service.store.account(other.id)?.uses).toEqual(['drive']);
+    expect((await finish(await start('documents', id))).account?.uses).toEqual(['drive', 'documents']);
+  });
+
+  it('withholds a pending shared token from Drive while an existing Gmail caller receives it', async () => {
+    const flow = await service.startSignIn({ provider: 'google', uses: ['mail', 'drive'], port: 8787 });
+    const id = (await service.signIns.callback(callbackParams(fake.allow(flow.authorizeUrl!)))).account!.id;
+    const pending = gate();
+    fake.hold = { grant: 'refresh_token', until: pending.until };
+    const drive = service.broker.accessToken(id, 'drive', true);
+    const gmail = service.broker.accessToken(id, 'mail', true);
+    try {
+      await vi.waitFor(
+        () =>
+          expect(tokenRequests('/google/token').some((r) => new URLSearchParams(r.body).get('grant_type') === 'refresh_token')).toBe(true),
+        { interval: 10 },
+      );
+      service.removeDrive(id);
+      pending.open();
+      await expect(drive).rejects.toThrow();
+      await expect(gmail).resolves.toBeTruthy();
+      await expect(service.broker.accessToken(id, 'drive')).rejects.toThrow();
+      expect(service.store.account(id)?.status).toBe('connected');
+    } finally {
+      pending.open();
+    }
+  });
+
+  it('adds explicit Docs consent to the same account and keeps its read grant if consent is refused', async () => {
+    const read = await start('drive');
+    expect(new URL(read.authorizeUrl!).searchParams.get('scope')!.split(' ')).not.toContain(scope);
+    const id = (await service.signIns.callback(callbackParams(fake.allow(read.authorizeUrl!)))).account!.id;
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    await expect(service.startSignIn({ provider: 'microsoft', uses: ['documents'], port: 8787 })).rejects.toMatchObject({ status: 400 });
+    fake.grantScope = () => 'openid email profile ' + readScope;
+    const partial = await start('documents', id);
+    expect(new URL(partial.authorizeUrl!).searchParams.get('scope')!.split(' ')).toEqual(expect.arrayContaining([scope, readScope]));
+    expect((await service.signIns.callback(callbackParams(fake.allow(partial.authorizeUrl!)))).status).toBe('failed');
+    expect(service.view().accounts).toMatchObject([{ id, status: 'connected', uses: ['drive'] }]);
+    await expect(service.broker.accessToken(id, 'drive')).resolves.toBeTruthy();
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    fake.grantScope = undefined;
+    const full = await start('documents', id);
+    expect((await service.signIns.callback(callbackParams(fake.allow(full.authorizeUrl!)))).account).toMatchObject({
+      id,
+      status: 'connected',
+      uses: expect.arrayContaining(['drive', 'documents']),
+    });
+  });
+
+  it('sends a non-replayable Docs request once when Google refuses its token', async () => {
+    const auth = await start('documents');
+    expect(new URL(auth.authorizeUrl!).searchParams.get('scope')!.split(' ')).toEqual(['openid', 'email', 'profile', scope]);
+    const id = (await service.signIns.callback(callbackParams(fake.allow(auth.authorizeUrl!)))).account!.id;
+    fake.accessTokens.set(await service.broker.accessToken(id, 'documents'), false);
+    const fetch = service.broker.fetch(id, 'documents', { retryUnauthorized: false });
+    const before = fake.requests.length;
+    await expect(fetch('https://www.googleapis.com/drive/v3/files', { method: 'POST' })).rejects.toThrow();
+    // The protected stand-in resource always refuses an expired token.
+    expect((await fetch(fake.google.urls.userinfo, { method: 'POST' })).status).toBe(401);
+    expect(fake.requests.slice(before).map((r) => [r.method, r.path])).toEqual([['POST', '/google/userinfo']]);
+    expect((await fetch(fake.google.urls.userinfo, { method: 'POST' })).status).toBe(200);
+    expect(fake.requests.slice(before + 1).map((r) => r.path)).toEqual(['/google/token', '/google/userinfo']);
+  });
+});
+
 describe('Google Calendar through a sign-in', () => {
   /** A Google sign-in, all the way, with the app's client secret. */
   async function googleSignIn(secret = fake.google.secret): Promise<OAuthSignInView> {
@@ -990,6 +1134,20 @@ describe('Google Calendar through a sign-in', () => {
     expect(put.ics).toContain('DTSTART:20260107T010000Z');
   });
 
+  it.each([200, 503])('removes a disabled Google connection and attempts revocation once even when Google returns %i', async (status) => {
+    const id = (await googleSignIn()).account!.id;
+    const token = keyring.values.get('oauth-' + id)!;
+    service.setClientDisabled('google', true);
+    if (status !== 200) fake.google.revokeStatus = status;
+    await service.removeAccount(id);
+    const requests = fake.requests.filter((r) => r.path === '/google/revoke');
+    expect(requests.map((r) => new URLSearchParams(r.body).get('token'))).toEqual([token]);
+    expect(fake.google.revoked).toEqual(status === 200 ? [token] : []);
+    expect(keyring.values.has('oauth-' + id)).toBe(false);
+    expect(service.view().accounts).toEqual([]);
+    expect(connectors.view().calendar).toEqual([]);
+  });
+
   it('says the account needs a new sign-in rather than fall back to its primary calendar, and removing it revokes its token', async () => {
     const id = (await googleSignIn()).account!.id;
     now += 61 * MIN;
@@ -1058,6 +1216,120 @@ describe('/api/oauth', () => {
     return { call, HOST, settings, start };
   }
   const error = async (res: Response) => ((await res.json()) as { error: string }).error;
+
+  it('pauses a registration without changing its clients, grants, mail and calendars, and restores access after restart', async () => {
+    const { call, settings } = await signedInApp();
+    const registered = { clientId: fake.google.clientId, secret: fake.google.secret };
+    service.saveClient('google', registered);
+    const start = (provider: 'google' | 'microsoft') => service.startSignIn({ provider, uses: ['calendar', 'mail'], port: 8787 });
+    const google = (await service.signIns.callback(callbackParams(fake.allow((await start('google')).authorizeUrl!)))).account!;
+    const microsoft = (await signIn()).account!;
+    const token = await service.mailToken(google.id);
+    const before = settings.connectors.view();
+    expect(before.mail).toHaveLength(1);
+    expect(before.calendar).toHaveLength(2);
+    const same = new Map(keyring.values);
+    const pending = await start('google');
+    const path = '/api/oauth/clients/google';
+    for (const value of [null, {}, { disabled: 'true' }]) expect((await call('PATCH', path, value)).status).toBe(400);
+    const paused = await call('PATCH', path, { disabled: true });
+    expect(paused.status).toBe(200);
+    const saved = (await paused.json()) as OAuthView;
+    expect(saved.clients.find((c) => c.provider === 'google')).toMatchObject({
+      clientId: registered.clientId,
+      disabled: true,
+      secret: '••••',
+    });
+    expect(saved.accounts).toContainEqual(google);
+    expect(saved.clients.find((c) => c.provider === 'microsoft')?.disabled).toBeUndefined();
+    expect((await newService().view()).clients).toEqual(saved.clients);
+    const requests = fake.requests.length;
+    expect(service.problem(google.id, 'mail')).toBeTruthy();
+    expect(service.signInState(google.id)).toBe('disabled');
+    await expect(service.signIns.callback(callbackParams(fake.allow(pending.authorizeUrl!)))).rejects.toMatchObject({ status: 404 });
+    await expect(start('google')).rejects.toMatchObject({ status: 409 });
+    await expect(service.mailToken(google.id)).rejects.toThrow();
+    await expect(service.mailToken(google.id, true)).rejects.toThrow();
+    await expect(service.calendars(google.id)).rejects.toMatchObject({ status: 409 });
+    expect(fake.requests.length).toBe(requests);
+    expect(await service.broker.accessToken(microsoft.id, 'calendar')).toBeTruthy();
+    expect(keyring.values).toEqual(same);
+    expect(settings.connectors.view()).toEqual(before);
+    expect((await call('PATCH', path, { disabled: false })).status).toBe(200);
+    expect(service.problem(google.id)).toBeUndefined();
+    expect(await service.mailToken(google.id)).toBe(token);
+    expect(await newService().mailToken(google.id)).toBeTruthy();
+  });
+
+  it('blocks a cached token when a Google secret is cleared, and restores the same grants when supplied again', async () => {
+    const client = { clientId: fake.google.clientId, secret: fake.google.secret };
+    service.saveClient('google', client);
+    const start = () => service.startSignIn({ provider: 'google', uses: ['drive', 'mail'], port: 8787 });
+    const id = (await service.signIns.callback(callbackParams(fake.allow((await start()).authorizeUrl!)))).account!.id;
+    const token = await service.mailToken(id);
+    const watching = service.signInState(id);
+    const sync = vi.fn();
+    service.onClientAvailabilityChange = sync;
+    const pending = await start();
+    const requests = fake.requests.length;
+    service.saveClient('google', { ...client, secret: '' });
+    expect(sync).toHaveBeenCalledOnce();
+    expect(service.signInState(id)).not.toBe(watching);
+    await expect(service.mailToken(id)).rejects.toThrow();
+    await expect(service.broker.accessToken(id, 'drive', true)).rejects.toThrow();
+    await expect(start()).rejects.toMatchObject({ status: 400 });
+    await expect(service.signIns.callback(callbackParams(fake.allow(pending.authorizeUrl!)))).rejects.toMatchObject({ status: 404 });
+    expect(fake.requests).toHaveLength(requests);
+    expect(service.store.account(id)).toMatchObject({ status: 'connected', uses: expect.arrayContaining(['drive', 'mail']) });
+    service.saveClient('google', client);
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(await service.mailToken(id)).toBe(token);
+  });
+
+  it('keeps a refresh-token rotation while paused and releases no access token to waiting callers', async () => {
+    const id = (await signIn()).account!.id;
+    const previous = service.store.refreshToken(id);
+    const hold = gate();
+    fake.hold = { grant: 'refresh_token', until: hold.until };
+    const refresh = service.broker.accessToken(id, 'calendar', true);
+    try {
+      await vi.waitFor(() => expect(grants('refresh_token').length).toBeGreaterThan(0), { interval: 10 });
+      service.setClientDisabled('microsoft', true);
+      hold.open();
+      await expect(refresh).rejects.toThrow();
+      expect(service.store.refreshToken(id)).not.toBe(previous);
+      expect(service.store.account(id)?.status).toBe('connected');
+      service.setClientDisabled('microsoft', false);
+      await expect(service.broker.accessToken(id, 'calendar', true)).resolves.toBeTruthy();
+    } finally {
+      hold.open();
+    }
+  });
+
+  it('cancels a device sign-in still requesting its code when the registration is disabled and enabled again', async () => {
+    const hold = gate();
+    const started = gate();
+    const blocked = new OAuthService(service.store, connectors, {
+      provider: (_, client) => ({
+        ...microsoftProvider(client, { login: fake.url, graph: fake.url }),
+        send: async () => {
+          started.open();
+          await hold.until;
+          return Response.json({ device_code: 'fixture', user_code: 'fixture', verification_uri: fake.url, expires_in: 900 });
+        },
+      }),
+    });
+    const pending = blocked.startSignIn({ provider: 'microsoft', uses: ['mail'], device: true, port: 8787 });
+    try {
+      await started.until;
+      blocked.setClientDisabled('microsoft', true);
+      blocked.setClientDisabled('microsoft', false);
+      hold.open();
+      await expect(pending).rejects.toMatchObject({ status: 409 });
+    } finally {
+      hold.open();
+    }
+  });
 
   it('runs a sign-in for a signed-in browser, and takes the callback from any browser with its state alone', async () => {
     const { call, HOST, start } = await signedInApp();
@@ -1138,7 +1410,7 @@ describe('/api/oauth', () => {
     const refused = await call('GET', `/api/oauth/accounts/${id}/calendars`);
     expect(refused.status).toBe(409);
     expect(await error(refused)).toBe(
-      'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (invalid_grant: AADSTS50173: The grant was revoked)',
+      'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Apps and tools → Common apps → Calendar (invalid_grant: AADSTS50173: The grant was revoked)',
     );
     expect(((await (await call('GET', '/api/oauth')).json()) as OAuthView).accounts[0]).toMatchObject({ id, status: 'reauth' });
 

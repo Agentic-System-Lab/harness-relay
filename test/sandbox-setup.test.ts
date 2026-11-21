@@ -419,7 +419,8 @@ describe('installing what the sandboxes need', () => {
       '-c',
       ADMIN_SCRIPT,
     ]);
-    expect(calls[0]!.env).toMatchObject({ KEEP: 'me', NO_COLOR: '1' });
+    expect(calls[0]!.env).toMatchObject({ NO_COLOR: '1' });
+    expect(calls[0]!.env).not.toHaveProperty('KEEP');
     expect(v.job?.log).toContain('$ sudo apt-get install bubblewrap socat ripgrep slirp4netns iproute2 iptables util-linux');
     expect(changed).toHaveBeenCalled();
   });
@@ -441,7 +442,12 @@ describe('installing what the sandboxes need', () => {
   });
 
   it('as root, runs the script itself; with pkexec, asks once for the password, and says so when it was not given', async () => {
-    const root0 = setup({ uid: 0, programs: ['/usr/bin/apt-get', '/usr/sbin/apparmor_parser'], files: { [USERNS_RESTRICTION]: '1' } });
+    const root0 = setup({
+      uid: 0,
+      env: { PATH: '/test/node_modules/.bin:/usr/bin', GH_TOKEN: 'test-token', OPENAI_API_KEY: 'test-key' },
+      programs: ['/usr/bin/apt-get', '/usr/sbin/apparmor_parser'],
+      files: { [USERNS_RESTRICTION]: '1' },
+    });
     root0.s.install();
     expect((await ended(root0.s)).job?.state).toBe('success');
     expect(root0.calls).toHaveLength(1);
@@ -450,14 +456,17 @@ describe('installing what the sandboxes need', () => {
       script: ADMIN_SCRIPT,
       env: { HARNESS_RELAY_PM: 'apt', HARNESS_RELAY_APPARMOR: APPARMOR_PROFILE, HARNESS_RELAY_APPARMOR_FILE: APPARMOR_FILE },
     });
+    expect(root0.calls[0]!.env).not.toHaveProperty('GH_TOKEN');
+    expect(root0.calls[0]!.env).not.toHaveProperty('OPENAI_API_KEY');
     expect(root0.calls[0]!.env.HARNESS_RELAY_PACKAGES).toContain('bubblewrap');
 
-    const env = { PATH: '/usr/bin', DISPLAY: ':0' };
+    const env = { PATH: '/usr/bin', DISPLAY: ':0', GH_TOKEN: 'test-token' };
     const dismissed = setup({ sudo: false, env, programs: ['/usr/bin/apt-get', '/usr/bin/pkexec'], onRun: () => result(126) });
     dismissed.s.install();
     const d = await ended(dismissed.s);
     expect(d.job?.state).toBe('failed');
-    expect(dismissed.calls[0]).toMatchObject({ bin: '/usr/bin/pkexec' });
+    expect(dismissed.calls[0]).toMatchObject({ bin: '/usr/bin/pkexec', env: { DISPLAY: ':0' } });
+    expect(dismissed.calls[0]!.env).not.toHaveProperty('GH_TOKEN');
     expect(dismissed.calls[0]!.args[0]).toBe('/usr/bin/env');
     expect(d.job?.log).toContain('Asking for the administrator password');
     expect(withLang('en', () => dismissed.s.view().job?.error)).toMatch(/^The administrator password was not given/);

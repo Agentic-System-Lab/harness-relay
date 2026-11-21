@@ -16,8 +16,15 @@ import type { AppPreviewRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
+import { commonAppDependencies, type AppDependencies } from './appDependencies';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
+import { APP_SERVERS, DRAFT_APPS, HOSTED_APPS, type DraftApp } from '../shared/apps';
+import { TeamsGraph } from './connectors/teams';
+import { githubSignOut, githubStatus } from './connectors/apps';
+import { draftAvailability } from './connectors/draftAvailability';
+import { HostedAppChecks } from './connectors/hostedApps';
+import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   DEFAULT_ACCOUNT,
@@ -99,6 +106,7 @@ import {
 } from './share';
 import { parseScreenshots, uploadScreenshots } from './screenshots';
 import { Updates } from './updates';
+import { listEndpointModels, verifyEndpointModels } from './endpointModels';
 import type { Store, TaskRequest } from './store';
 import {
   ensureFolder,
@@ -110,6 +118,7 @@ import {
   validEndpointId,
   validateBackendKey,
   validateEndpoint,
+  validateEndpointCatalog,
   validAgentsViewLink,
   validAgentsViewUrl,
   validDirectories,
@@ -163,6 +172,7 @@ export interface AppDeps {
   /** What the agents' sandboxes need that is missing here, and installing it; created when not given. */
   sandboxSetup?: SandboxSetup;
   gitInstall?: GitInstall;
+  appDependencies?: AppDependencies;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -204,6 +214,7 @@ export interface AppDeps {
     remove(id: string): Promise<void>;
   };
   /** Signs gh in for sharing from the share dialog (`GhLogin`: gh's own device sign-in; fakes in tests). */
+  teams?: Pick<TeamsGraph, 'status' | 'install' | 'connect' | 'disconnect' | 'connectPosting' | 'disconnectPosting'>;
   ghLogin?: Pick<GhLogin, 'start' | 'view' | 'cancel'>;
   /** Browsers' push subscriptions and sending to them (`push.ts`); without it, no push notifications. */
   push?: PushService;
@@ -303,6 +314,7 @@ export function createApp({
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
   gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
+  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using)),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -316,6 +328,7 @@ export function createApp({
   },
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
   ghLogin = new GhLogin(),
+  teams = new TeamsGraph(),
   updates = new Updates(undefined, version),
   desktopLang,
   limits = limitsOf(CONFIG),
@@ -327,6 +340,8 @@ export function createApp({
   previews = new AppPreviews('test'),
 }: AppDeps): Hono {
   const app = new Hono();
+  const hostedApps = new HostedAppChecks(settings);
+  const availableDraftApps = draftAvailability(settings, oauth, providers, teams, hostedApps);
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
   const screenshots = new Set<string>();
   /**
@@ -618,6 +633,12 @@ export function createApp({
 
   app.get('/api/backends', (c) => c.json(settings.backends.view()));
 
+  app.post('/api/backends/endpoint-models', async (c) => {
+    const { baseUrl, endpointId, apiKey } = validateEndpointCatalog(await body<unknown>(c));
+    const key = apiKey === undefined ? settings.backends.endpointCatalogKey(endpointId, baseUrl) : apiKey;
+    return c.json({ models: await listEndpointModels(baseUrl, key) });
+  });
+
   // Each change to the backends refreshes the model menus and the agents' status, also one that failed
   // part way (an endpoint saved while the credential store refused its key).
   const changingBackends = <T>(change: () => T): T => {
@@ -636,10 +657,16 @@ export function createApp({
     return c.json(settings.backends.view());
   });
 
-  // Adds a custom endpoint, or replaces the one with this id (its key stays unless `apiKey` is sent).
+  // A saved key stays with its base URL. Changing the base URL clears it unless a replacement is sent.
   app.put('/api/backends/endpoints/:id', async (c) => {
     const id = validEndpointId(c.req.param('id'));
     const endpoint = validateEndpoint(await body<unknown>(c));
+    if (endpoint.verifyModels && !settings.backends.isEndpointRename(id, endpoint)) {
+      const revision = settings.backends.endpointRevision(id);
+      const key = endpoint.apiKey === undefined ? settings.backends.endpointCatalogKey(id, endpoint.baseUrl) : endpoint.apiKey;
+      await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models, endpoint.allowMissingMetadata);
+      if (settings.backends.endpointRevision(id) !== revision) throw new HttpError(409, t().endpointVerifyChanged);
+    }
     changingBackends(() => settings.backends.putEndpoint(id, endpoint));
     return c.json(settings.backends.view());
   });
@@ -663,6 +690,9 @@ export function createApp({
   app.get('/api/connectors', (c) => c.json(settings.connectors.view()));
   app.put('/api/connectors/mail/:id', async (c) =>
     c.json(settings.connectors.saveMail(validConnectorId(c.req.param('id')), validateMailAccount(await body<unknown>(c)))),
+  );
+  app.post('/api/connectors/calendar', async (c) =>
+    c.json(settings.connectors.addDiscoveredCalendar(validateCalendarAccount(await body<unknown>(c)))),
   );
   app.put('/api/connectors/calendar/:id', async (c) =>
     c.json(settings.connectors.saveCalendar(validConnectorId(c.req.param('id')), validateCalendarAccount(await body<unknown>(c)))),
@@ -724,6 +754,12 @@ export function createApp({
   app.put('/api/oauth/clients/:provider', async (c) =>
     c.json(oauth.saveClient(validOAuthProvider(c.req.param('provider')), validateOAuthClient(await body<unknown>(c)))),
   );
+  app.patch('/api/oauth/clients/:provider', async (c) => {
+    const provider = validOAuthProvider(c.req.param('provider'));
+    const input = await body<{ disabled?: unknown }>(c);
+    if (typeof input?.disabled !== 'boolean') throw new HttpError(400, t().invalidField('disabled'));
+    return c.json(oauth.setClientDisabled(provider, input.disabled));
+  });
   // A sign-in for its uses (the calendar, mail), its provider's page to open, which sends the browser back
   // to this page's own web app when it is on this computer (`origin`), or a code to type on another device (`device`).
   // `account`: an account signing in again, or for another use: its uses are asked for too, and its address is the page's login hint.
@@ -807,6 +843,7 @@ export function createApp({
   );
   // Its mail account, for the mail tools: at its provider's own servers, signed in to with its token.
   app.post('/api/oauth/accounts/:id/mail', (c) => c.json(oauth.addMail(c.req.param('id'))));
+  app.delete('/api/oauth/accounts/:id/drive', (c) => c.json(oauth.removeDrive(c.req.param('id'))));
   // Removes the account, its tokens (Google's revoked), its calendars and mail accounts; Microsoft's pages to take the app's access away come back.
   app.delete('/api/oauth/accounts/:id', async (c) => {
     const removed = await oauth.removeAccount(c.req.param('id'));
@@ -816,6 +853,83 @@ export function createApp({
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
+
+  // Read the selected provider account's status. Hosted service credentials are managed by the provider.
+  app.post('/api/apps/:app/hosted/:provider', async (c) => {
+    const app = c.req.param('app');
+    const p = c.req.param('provider');
+    if (!Object.hasOwn(HOSTED_APPS, app)) throw new HttpError(404, t().invalidField('app'));
+    if (p !== 'claude' && p !== 'codex') throw new HttpError(404, t().unknownProvider(p));
+    const id = account(c, p);
+    const { verify } = await body<{ verify?: unknown }>(c);
+    if (verify !== undefined && typeof verify !== 'boolean') throw new HttpError(400, t().invalidField('verify'));
+    return c.json({ status: await hostedApps.check(app as keyof typeof HOSTED_APPS, p, id, verify === true) });
+  });
+  app.get('/api/apps/availability', async (c) => {
+    const permission = c.req.query('permission') ?? 'read-only';
+    const app = c.req.query('app');
+    if (!PERMISSION_ORDER.includes(permission as Permission)) throw new HttpError(400, t().invalidField('permission'));
+    if (app !== undefined && app !== 'local' && !DRAFT_APPS.includes(app as DraftApp)) throw new HttpError(400, t().invalidField('app'));
+    c.header('Cache-Control', 'no-store');
+    return c.json(await availableDraftApps(permission as Permission, app as DraftApp | 'local' | undefined));
+  });
+
+  app.post('/api/apps/availability/slack/verify', async (c) => {
+    const { permission } = await body<{ permission?: Permission }>(c);
+    if (!permission || !PERMISSION_ORDER.includes(permission)) throw new HttpError(400, t().invalidField('permission'));
+    return c.json(await availableDraftApps(permission, 'slack', true));
+  });
+
+  app.get('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.view()));
+  app.put('/api/apps/slack/posting', async (c) => c.json(await settings.slackPosting.connect((await body<{ token?: unknown }>(c))?.token)));
+  app.delete('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.disconnect()));
+
+  app.get('/api/apps/teams', async (c) => c.json(await teams.status()));
+  app.post('/api/apps/teams/install', async (c) => c.json(await teams.install()));
+  app.post('/api/apps/teams/signin', async (c) => c.json(await teams.connect()));
+  app.post('/api/apps/teams/posting', async (c) => c.json(await teams.connectPosting()));
+  app.delete('/api/apps/teams/posting', async (c) => {
+    teams.disconnectPosting();
+    return c.json(await teams.status());
+  });
+  app.delete('/api/apps/teams/signin', async (c) => {
+    teams.disconnect();
+    return c.json(await teams.status());
+  });
+
+  app.post('/api/apps/:app/signin', async (c) => {
+    const app = c.req.param('app');
+    if (!Object.hasOwn(APP_SERVERS, app)) throw new HttpError(404, t().invalidField('app'));
+    const b = await body<{ origin?: unknown }>(c);
+    const name = settings.tools.ensureApp(app as keyof typeof APP_SERVERS);
+    return c.json(
+      await mcpOAuth.startSignIn({
+        name,
+        session: sessions.get(c.req.raw),
+        port: servingPort(),
+        origin: typeof b.origin === 'string' ? b.origin : undefined,
+      }),
+    );
+  });
+
+  app.put('/api/apps/obsidian', async (c) => {
+    const { path } = await body<{ path?: unknown }>(c);
+    if (typeof path !== 'string') throw new HttpError(400, t().appsVault);
+    const vault = path ? checkedVault(path, agentFolderOptions(settings)) : '';
+    return c.json(settings.tools.setObsidianVault(vault));
+  });
+
+  app.post('/api/apps/obsidian', async (c) => {
+    const { paths: requested } = await body<{ paths?: unknown }>(c);
+    if (!Array.isArray(requested) || !requested.length) throw new HttpError(400, t().appsVault);
+    const options = agentFolderOptions(settings);
+    const paths = [...new Set(requested)].map((path) => {
+      if (typeof path !== 'string' || !path) throw new HttpError(400, t().appsVault);
+      return checkedVault(path, options);
+    });
+    return c.json(settings.tools.addObsidianVaults(paths));
+  });
+  app.delete('/api/apps/obsidian/:id', (c) => c.json(settings.tools.removeObsidianVault(c.req.param('id'))));
 
   // Adds a server, or (with `previousName`) replaces or renames one.
   app.put('/api/tools/mcp/:name', async (c) => {
@@ -1111,6 +1225,12 @@ export function createApp({
 
   // Stop the install under way.
   app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
+
+  for (const name of ['github', 'browser'] as const) {
+    const path = '/api/apps/' + name + '/install';
+    app.get(path, (c) => c.json(appDependencies.view(name)));
+    app.post(path, (c) => c.json(appDependencies.install(name)));
+  }
 
   app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
   app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
@@ -1856,6 +1976,11 @@ export function createApp({
   // Signing gh in for sharing, from the share dialog when gh is not signed in: gh's own device sign-in,
   // whose code and link the dialog shows (as Settings does for the CLIs' sign-ins), on this computer.
   app.post('/api/gh/login', (c) => c.json(ghLogin.start()));
+  app.get('/api/apps/github', async (c) => c.json(await githubStatus()));
+  app.post('/api/apps/github/signout', async (c) => {
+    await githubSignOut((await body<{ login?: unknown }>(c)).login);
+    return c.json({ ok: true });
+  });
   app.get('/api/gh/login', (c) => c.json(ghLogin.view()));
   app.delete('/api/gh/login', (c) => {
     ghLogin.cancel();
