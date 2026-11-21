@@ -44,9 +44,11 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
 const zhTW = {
   previewDocker: {
     invalidLock: 'npm 專案或鎖定檔格式無效。',
-    standalone: '預覽需要獨立的 npm 專案。',
+    standalone: '預覽不支援巢狀的 npm 工作區。',
+    workspaceLock: '工作區根目錄的 package-lock.json 沒有列出這個專案。請在工作區根目錄執行 npm install 更新鎖定檔。',
     spec: '預覽的相依套件必須指定公開 npm registry 的版本。',
     lock: '應用程式預覽需要 npm 的 package-lock.json。',
+    lockSync: (name: string) => `package.json 中的 ${name} 不在 package-lock.json 裡。請執行 npm install 更新鎖定檔，再重試預覽。`,
     config: '預覽不支援自訂 npm 設定或 npm-shrinkwrap.json。',
     lockVersion: '預覽需要第 2 或第 3 版的 npm 鎖定檔。',
     manifest: '應用程式預覽需要 package.json。',
@@ -1133,9 +1135,12 @@ export type ServerMessages = typeof zhTW;
 const en: ServerMessages = {
   previewDocker: {
     invalidLock: 'Invalid npm project or lockfile.',
-    standalone: 'Preview requires a standalone npm project.',
+    standalone: 'Preview does not support nested npm workspaces.',
+    workspaceLock: "The workspace root's package-lock.json does not list this project. Run npm install at the workspace root to update it.",
     spec: 'Preview dependencies must use public npm registry versions.',
     lock: 'App preview requires an npm package-lock.json.',
+    lockSync: (name: string) =>
+      `${name} is in package.json but not in package-lock.json. Run npm install to update the lockfile, then retry the preview.`,
     config: 'Custom npm configuration and shrinkwrap are unsupported in preview.',
     lockVersion: 'Preview requires npm lockfile version 2 or 3.',
     manifest: 'App preview requires a package.json.',

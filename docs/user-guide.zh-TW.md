@@ -744,7 +744,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ![手機寬度下，應用程式預覽面板顯示可操作的網頁](media/app-preview-zh-TW.png)
 
-Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。
+npm 工作區裡的專案（上層 `package.json` 的 `workspaces` 列出的資料夾）會使用工作區根目錄的 `package-lock.json`：Relay 會複製整個工作區根目錄，安裝根目錄與這個專案的相依套件，再執行這個專案自己的 script。Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。若 `package.json` 加了相依套件卻沒有執行 `npm install`，錯誤訊息會指出是哪一個：請執行 `npm install` 更新鎖定檔，再重試預覽。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。
 
 ![「設定 Docker」視窗中的「安裝 Docker」、「重新檢查」與「取消」按鈕。](../site/assets/media/docs/app-preview-docker-setup-zh-TW.webp)
 

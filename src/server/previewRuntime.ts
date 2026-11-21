@@ -138,6 +138,8 @@ async function seedCache(
 export async function startPreviewRuntime(opts: {
   files: ReadonlyMap<string, Buffer>;
   mode: 'build' | 'server';
+  /** The selected project's folder inside the npm workspace whose root `files` hold. */
+  workspace?: string;
   beforeDocker?: () => Promise<void>;
   executables?: ReadonlySet<string>;
   signal: AbortSignal;
@@ -149,7 +151,7 @@ export async function startPreviewRuntime(opts: {
   setup.throwIfAborted();
   // Parse and validate once locally, even when Docker is absent. Actual CPU selection follows
   // the verified guest architecture. Only eligible projects need a recovery sweep or an image.
-  const packages = lockedPreviewPackages(files, mode);
+  const packages = lockedPreviewPackages(files, mode, opts.workspace);
   await opts.beforeDocker?.();
   setup.throwIfAborted();
   const docker = await localDocker(setup);
@@ -247,14 +249,31 @@ export async function startPreviewRuntime(opts: {
       new Set(Array.from(opts.executables ?? [], (name) => 'app/' + name)),
     );
     const npm = ['/usr/local/bin/npm', '--prefix', '/work/app'];
+    // A workspace member installs its own dependencies and the root's, and runs its own script.
+    // An absolute path selects it whatever the exec's working directory is.
+    const project = opts.workspace === undefined ? '/work/app' : '/work/app/' + opts.workspace;
+    const member = opts.workspace === undefined ? [] : ['--workspace=' + project];
     checked(
-      await exec([...npm, 'ci', '--offline', '--no-audit', '--no-fund', '--no-progress', '--include=dev'], { timeoutMs: 90000 }),
+      await exec(
+        [
+          ...npm,
+          'ci',
+          ...member,
+          ...(member.length ? ['--include-workspace-root'] : []),
+          '--offline',
+          '--no-audit',
+          '--no-fund',
+          '--no-progress',
+          '--include=dev',
+        ],
+        { timeoutMs: 90000 },
+      ),
       t().previewDocker.ci,
     );
     if (mode === 'build') {
-      checked(await exec([...npm, 'run', 'build'], { timeoutMs: 90000 }), t().previewDocker.build);
+      checked(await exec([...npm, 'run', 'build', ...member], { timeoutMs: 90000 }), t().previewDocker.build);
       const result = checked(
-        await exec([...NODE, EXPORT_DIST], { maxCapture: MAX_DIST, timeoutMs: 15000 }),
+        await exec([...NODE, EXPORT_DIST, project + '/dist'], { maxCapture: MAX_DIST, timeoutMs: 15000 }),
         t().previewDocker.collect,
         false,
       );
@@ -271,7 +290,7 @@ export async function startPreviewRuntime(opts: {
 
     // The server and attached docker exec both end with the container. Never parse its startup logs
     // for an address. Capture failures on the fixed-port readiness probe and on later requests.
-    const exited = exec([...npm, 'start'], { signal: lifetime.signal, timeoutMs: 7200000, maxCapture: 8192 });
+    const exited = exec([...npm, 'start', ...member], { signal: lifetime.signal, timeoutMs: 7200000, maxCapture: 8192 });
     const server = exited.then((result) => {
       checked(result, t().previewDocker.server);
       throw new Error(t().previewDocker.exited);

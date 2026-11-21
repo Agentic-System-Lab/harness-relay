@@ -17,6 +17,9 @@ export interface PreviewTarget {
   entry: string;
   mode: AppPreviewRequest['mode'];
   isPrivate?: (path: string) => boolean;
+  /** For a member of an npm workspace: the workspace root's folder, which holds the lockfile.
+   * The preview copies that folder and runs the member's script there. */
+  npmRoot?: string;
 }
 
 type PreviewLocation = Pick<PreviewTarget, 'root' | 'folder'> & { isPrivate: (path: string) => boolean };
@@ -117,7 +120,67 @@ export function previewTarget(
     throw new HttpError(400, t().previewTarget);
   const entry = mode === 'static' ? (selected === 'package.json' ? 'index.html' : selected) : 'package.json';
   const { location } = locatePreviewEntry(conv, input, [selected], lookup, settings, selected !== entry ? entry : undefined);
-  return { ...location, entry, mode };
+  const npmRoot = mode === 'static' ? undefined : npmWorkspaceRoot(location);
+  return { ...location, entry, mode, ...(npmRoot !== undefined && { npmRoot }) };
+}
+
+/** One segment of a workspace pattern, as npm's globs read it: `*` and `?` within the segment. */
+function segmentPattern(segment: string): RegExp {
+  const escaped = segment
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]');
+  return new RegExp('^' + escaped + '$');
+}
+
+function globMatch(pattern: string[], path: string[]): boolean {
+  if (!pattern.length) return !path.length;
+  if (pattern[0] === '**') return path.some((_, i) => globMatch(pattern.slice(1), path.slice(i))) || globMatch(pattern.slice(1), []);
+  return path.length > 0 && segmentPattern(pattern[0]).test(path[0]) && globMatch(pattern.slice(1), path.slice(1));
+}
+
+/** Whether a package.json's `workspaces` (an array, or `{ packages }`) include the folder, in order,
+ * so that a later `!pattern` leaves one out again as npm does. */
+function inNpmWorkspaces(project: Record<string, unknown>, folder: string): boolean {
+  const declared = project.workspaces;
+  const patterns =
+    declared && typeof declared === 'object' && !Array.isArray(declared) ? (declared as Record<string, unknown>).packages : declared;
+  if (!Array.isArray(patterns)) return false;
+  const path = folder.split('/');
+  let included = false;
+  for (const raw of patterns) {
+    if (typeof raw !== 'string') continue;
+    const negated = raw.startsWith('!');
+    const parts = raw
+      .slice(negated ? 1 : 0)
+      .replace(/^(?:\.\/)+/, '')
+      .split('/')
+      .filter((part) => part && part !== '.');
+    if (!parts.length || parts.includes('..') || !globMatch(parts, path)) continue;
+    included = !negated;
+  }
+  return included;
+}
+
+/** npm keeps one lockfile at a workspace's root. A project without its own lockfile is previewed
+ * from the nearest folder above it, inside the same working directory, whose package.json lists it
+ * among its workspaces, as npm itself finds the workspace root. */
+function npmWorkspaceRoot(location: PreviewLocation): string | undefined {
+  if (hasEntry(location, 'package-lock.json')) return;
+  const parts = location.folder ? location.folder.split('/') : [];
+  for (let n = parts.length - 1; n >= 0; n--) {
+    const parent = { ...location, folder: parts.slice(0, n).join('/') };
+    if (!hasEntry(parent, 'package.json')) continue;
+    const manifest = inspectEntry(parent, 'package.json');
+    if (manifest.truncated || manifest.text === undefined) continue;
+    let project: Record<string, unknown>;
+    try {
+      project = parsePreviewPackage(manifest.text);
+    } catch {
+      continue;
+    }
+    if (inNpmWorkspaces(project, parts.slice(n).join('/'))) return parent.folder;
+  }
 }
 
 function localSourceModule(reference?: string): boolean {
@@ -188,7 +251,11 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
   if (entry === 'package.json' || hasEntry(location, 'package.json')) {
     const mode = projectMode(location);
     if (mode) {
-      const problem = previewNpmFileProblem((name) => hasEntry(location, name));
+      const npmRoot = npmWorkspaceRoot(location);
+      const problem = previewNpmFileProblem(
+        (name) => hasEntry(npmRoot === undefined ? location : { ...location, folder: npmRoot }, name),
+        (name) => hasEntry(location, name),
+      );
       if (problem) throw new HttpError(400, problem);
       return { folder, entry: 'package.json', mode };
     }

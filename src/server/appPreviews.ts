@@ -25,6 +25,13 @@ interface Session {
   live?: () => boolean;
 }
 
+/** The member's folder inside its workspace root, both relative to the same working directory. */
+function workspaceIn(root: string, folder: string): string {
+  const prefix = root ? root + '/' : '';
+  if (!folder.startsWith(prefix) || folder.length === prefix.length) throw new HttpError(400, t().previewTarget);
+  return folder.slice(prefix.length);
+}
+
 const COOKIE = '__Host-relay-preview';
 const OPEN = '/.relay-preview/open/';
 const IDLE = 30 * 60_000;
@@ -120,7 +127,8 @@ export class AppPreviews {
     if (signal.aborted) cancel();
     session.pending = (async () => {
       const lifetime = session.controller.signal;
-      const files = await previewSnapshot(target.root, target.folder, target.mode, lifetime, target.isPrivate);
+      // A workspace member installs and runs from its workspace root's copy, lockfile included.
+      const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, lifetime, target.isPrivate);
       lifetime.throwIfAborted();
       if (target.mode === 'static') {
         if (!files.has(target.entry)) throw new HttpError(404, t().previewTarget);
@@ -131,6 +139,7 @@ export class AppPreviews {
             files,
             executables: files.executables,
             mode: target.mode,
+            ...(target.npmRoot !== undefined && { workspace: workspaceIn(target.npmRoot, target.folder) }),
             signal: lifetime,
             owner: this.owner,
           });

@@ -74,7 +74,8 @@ while (at < input.length) {
 export const EXPORT_DIST = `
 import fs from 'node:fs';
 import path from 'node:path';
-const root = '/work/app/dist';
+// The project's dist folder, an absolute path the runtime passes after the program.
+const root = process.argv[1];
 if (!fs.lstatSync(root).isDirectory() || fs.realpathSync(root) !== root) throw Error('Build must produce a dist folder.');
 let count = 0, size = 0;
 function visit(dir, depth) {

@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -86,6 +86,48 @@ describe('preview lifecycle', () => {
     signedIn = true;
     now += 31 * 60_000;
     expect((await view(service, url, url.pathname)).status).toBe(404);
+    await service.close();
+  });
+});
+
+describe('npm workspaces', () => {
+  it('copies the workspace root with its lockfile and runs the selected member', async () => {
+    for (const [name, text] of Object.entries({
+      'repo/package.json': '{"workspaces":["apps/*"]}',
+      'repo/package-lock.json': '{}',
+      'repo/apps/web/package.json': '{}',
+      'repo/apps/web/main.js': '',
+      'repo/apps/api/package.json': '{}',
+    })) {
+      mkdirSync(join(root, name, '..'), { recursive: true });
+      writeFileSync(join(root, name), text);
+    }
+    const runtime = vi.fn(async (_: { files: ReadonlyMap<string, Buffer>; workspace?: string }) => ({
+      request: async () => new Response(),
+      stop: async () => {},
+    }));
+    const service = new AppPreviews('relay', runtime);
+    const member: PreviewTarget = { root, folder: 'repo/apps/web', entry: 'package.json', mode: 'build', npmRoot: 'repo' };
+    await service.start('chat', member, address(), parent, new AbortController().signal);
+    const [{ files, workspace }] = runtime.mock.calls[0]!;
+    expect(workspace).toBe('apps/web');
+    expect([...files.keys()].sort()).toEqual([
+      'apps/api/package.json',
+      'apps/web/main.js',
+      'apps/web/package.json',
+      'package-lock.json',
+      'package.json',
+    ]);
+    // A standalone project is copied alone and runs without a workspace.
+    await service.start(
+      'chat',
+      { ...member, folder: 'repo/apps/web', npmRoot: undefined },
+      address(),
+      parent,
+      new AbortController().signal,
+    );
+    expect(runtime.mock.calls[1]![0].workspace).toBeUndefined();
+    expect([...runtime.mock.calls[1]![0].files.keys()].sort()).toEqual(['main.js', 'package.json']);
     await service.close();
   });
 });

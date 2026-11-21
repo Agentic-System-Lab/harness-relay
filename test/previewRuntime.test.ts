@@ -68,7 +68,27 @@ it('runs builds on an immutable private Linux container then removes it before s
   expect(create.join(' ')).not.toMatch(/(?:--mount|--publish|--volume)[ =]/);
   expect(commands.findIndex((a) => a.some((arg) => arg.includes('cpu.max')))).toBeLessThan(commands.findIndex((a) => a.includes('ci')));
   expect(commands).toContainEqual(expect.arrayContaining(['ci', '--offline']));
+  expect(commands.some((a) => a.some((arg) => arg.startsWith('--workspace')))).toBe(false);
+  expect(commands).toContainEqual(expect.arrayContaining([expect.stringContaining('readdirSync'), '/work/app/dist']));
   expect(commands.at(-1)).toEqual(expect.arrayContaining(['rm', '-f', id]));
+  expect(await (await runtime.request(new Request('http://preview/'))).text()).toBe('built');
+  await runtime.stop();
+});
+it('installs a workspace member with the root’s dependencies and runs its own script and output', async () => {
+  const files = new Map([
+    ['package.json', Buffer.from('{"workspaces":["apps/*"]}')],
+    [
+      'package-lock.json',
+      Buffer.from('{"lockfileVersion":3,"packages":{"":{},"apps/web":{},"node_modules/web":{"resolved":"apps/web","link":true}}}'),
+    ],
+    ['apps/web/package.json', Buffer.from('{"scripts":{"build":"vite build"}}')],
+  ]);
+  const runtime = await startPreviewRuntime({ ...opts(), files, workspace: 'apps/web' });
+  const commands = command.mock.calls.map(([o]) => o.args);
+  const member = '--workspace=/work/app/apps/web';
+  expect(commands).toContainEqual(expect.arrayContaining(['ci', member, '--include-workspace-root', '--offline']));
+  expect(commands).toContainEqual(expect.arrayContaining(['run', 'build', member]));
+  expect(commands).toContainEqual(expect.arrayContaining([expect.stringContaining('readdirSync'), '/work/app/apps/web/dist']));
   expect(await (await runtime.request(new Request('http://preview/'))).text()).toBe('built');
   await runtime.stop();
 });

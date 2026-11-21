@@ -1,9 +1,9 @@
 /** Opt-in live Docker checks: npx tsx scripts/preview-runtime-check.ts. Linux containers and the public npm registry are required. */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { runProcess } from '../src/server/process';
 import { cleanupPreviewRuntimes, startPreviewRuntime } from '../src/server/previewRuntime';
 
@@ -15,6 +15,11 @@ async function fixture(pkg: object, source: Record<string, string>): Promise<Map
   try {
     const manifest = JSON.stringify(pkg);
     await writeFile(join(dir, 'package.json'), manifest);
+    // A workspace's lockfile records its members, so npm needs their manifests beside the root's.
+    for (const [name, text] of Object.entries(source)) {
+      await mkdir(dirname(join(dir, name)), { recursive: true });
+      await writeFile(join(dir, name), text);
+    }
     // Only this script's fixed test manifests ever go to this setup command. It creates a public
     // lockfile for the architecture matrix without installing or executing third-party code.
     const result = await runProcess({
@@ -122,6 +127,41 @@ try {
     await second.stop();
   }
   console.log('SQLite CRUD, loopback-only network, filtered headers and disposable data passed.');
+
+  // An npm workspace: the lockfile at the root, the selected member found by a glob, its default
+  // `node server.js`, the root's own dependencies installed, a sibling member's left out.
+  const workspaceFiles = await fixture(
+    { name: 'preview-check-workspace', private: true, workspaces: ['apps/*'], devDependencies: { ms: '2.1.3' } },
+    {
+      'apps/api/package.json': JSON.stringify({
+        name: 'preview-check-api',
+        private: true,
+        type: 'module',
+        dependencies: { hono: '4.13.17', '@hono/node-server': '2.1.6' },
+      }),
+      'apps/api/server.js': `
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { existsSync } from 'node:fs';
+import ms from 'ms';
+const app = new Hono();
+app.get('/',ctx=>ctx.json({cwd:process.cwd(),root:ms('1m'),sibling:existsSync('/work/app/node_modules/is-number')}));
+serve({fetch:app.fetch,hostname:process.env.HOST,port:Number(process.env.PORT)});
+`,
+      'apps/other/package.json': JSON.stringify({ name: 'preview-check-other', private: true, dependencies: { 'is-number': '7.0.0' } }),
+    },
+  );
+  const member = await startPreviewRuntime({ files: workspaceFiles, mode: 'server', workspace: 'apps/api', signal, owner });
+  try {
+    assert.deepEqual(await (await member.request(new Request('http://preview/'))).json(), {
+      cwd: '/work/app/apps/api',
+      root: 60000,
+      sibling: false,
+    });
+  } finally {
+    await member.stop();
+  }
+  console.log('npm workspace member with the root lockfile passed.');
 } finally {
   await cleanupPreviewRuntimes(owner);
 }

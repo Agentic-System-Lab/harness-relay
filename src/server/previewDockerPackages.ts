@@ -37,8 +37,9 @@ function checkSpec(spec: unknown): void {
   }
 }
 
-function checkSpecs(pkg: Record<string, unknown>): void {
-  if (pkg.workspaces) throw new Error(t().previewDocker.standalone);
+/** Only the root of an npm workspace may declare workspaces. Nested workspaces are not supported. */
+function checkSpecs(pkg: Record<string, unknown>, root = false): void {
+  if (pkg.workspaces !== undefined && !root) throw new Error(t().previewDocker.standalone);
   for (const field of DEPENDENCIES) {
     if (pkg[field] === undefined) continue;
     Object.values(object(pkg[field])).forEach(checkSpec);
@@ -56,6 +57,27 @@ function checkSpecs(pkg: Record<string, unknown>): void {
   }
 }
 
+/** A dependency added to package.json by hand, without npm install, is missing from the lock's
+ * record of that package. npm ci would then look it up in the registry, which the offline
+ * container cannot reach, and fail with ENOTCACHED. Name the dependency instead. */
+function checkInLock(manifest: Record<string, unknown>, locked: unknown): void {
+  const recorded = new Set(
+    locked && typeof locked === 'object'
+      ? DEPENDENCIES.flatMap((field) => {
+          const deps = (locked as Record<string, unknown>)[field];
+          return deps && typeof deps === 'object' ? Object.keys(deps) : [];
+        })
+      : [],
+  );
+  // Peers are left out: an optional peer is never installed and so never recorded.
+  for (const field of ['dependencies', 'devDependencies', 'optionalDependencies'] as const) {
+    const deps = manifest[field];
+    if (!deps || typeof deps !== 'object') continue;
+    const name = Object.keys(deps).find((dep) => !recorded.has(dep));
+    if (name !== undefined) throw new Error(t().previewDocker.lockSync(name));
+  }
+}
+
 function matches(constraint: unknown, value: string): boolean {
   if (!Array.isArray(constraint)) return true;
   return (
@@ -64,41 +86,81 @@ function matches(constraint: unknown, value: string): boolean {
   );
 }
 
-/** File prerequisites checked before offering Docker setup and again on the actual snapshot. */
-export function previewNpmFileProblem(has: (name: string) => boolean): string | undefined {
+/** File prerequisites checked before offering Docker setup and again on the actual snapshot.
+ * `has` looks in the npm root (the workspace root for a workspace), `inProject` in the selected project. */
+export function previewNpmFileProblem(has: (name: string) => boolean, inProject = has): string | undefined {
   if (!has('package-lock.json')) return t().previewDocker.lock;
-  if (has('npm-shrinkwrap.json') || has('.npmrc')) return t().previewDocker.config;
+  if ([has, inProject].some((there) => there('npm-shrinkwrap.json') || there('.npmrc'))) return t().previewDocker.config;
 }
 
-/** Validate every lock entry before making a network request, including entries for other platforms. */
+/** A workspace folder as npm records it in the lockfile: relative, inside the project, plain names. */
+function workspaceFolder(path: string): boolean {
+  const parts = path.split('/');
+  return parts.length <= 32 && parts.every((part) => /^[\w.@+-]+$/.test(part) && !['.', '..', 'node_modules'].includes(part));
+}
+
+/** Validate every lock entry before making a network request, including entries for other platforms.
+ * `workspace` is the selected project's folder inside an npm workspace whose root the files hold. */
 export function lockedPreviewPackages(
   files: ReadonlyMap<string, Buffer>,
   mode?: 'server' | 'build',
+  workspace?: string,
 ): Record<'arm64' | 'x64', LockedPreviewPackage[]> {
-  const fileProblem = previewNpmFileProblem((name) => files.has(name));
+  const inProject = (name: string) => files.has(workspace === undefined ? name : workspace + '/' + name);
+  const fileProblem = previewNpmFileProblem((name) => files.has(name), inProject);
   if (fileProblem) throw new Error(fileProblem);
   const lock = parsePreviewPackage(files.get('package-lock.json')!);
   if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) throw new Error(t().previewDocker.lockVersion);
   const manifest = files.get('package.json');
   if (!manifest) throw new Error(t().previewDocker.manifest);
-  const project = parsePreviewPackage(manifest);
-  checkSpecs(project);
-  if (mode) {
-    const script = mode === 'build' ? 'build' : 'start';
-    if (!hasPreviewScript(project, script, () => files.has('server.js'))) throw new Error(t().previewDocker.script(script));
-  }
+  const root = parsePreviewPackage(manifest);
+  checkSpecs(root, true);
   const entries = Object.entries(object(lock.packages));
   if (entries.length > 2001) throw new Error(t().previewDocker.count);
+  // Workspace members are the lock's only entries outside node_modules. npm links each one into
+  // node_modules and records it in place, so they have no tarball of their own.
+  const members = new Set(entries.map(([path]) => path).filter((path) => path && !/(?:^|\/)node_modules\//.test(path)));
+  if (members.size && root.workspaces === undefined) throw new Error(t().previewDocker.spec);
+  if (![...members].every(workspaceFolder)) throw new Error(t().previewDocker.spec);
+  if (workspace !== undefined && !members.has(workspace)) throw new Error(t().previewDocker.workspaceLock);
+  const projectManifest = workspace === undefined ? manifest : files.get(workspace + '/package.json');
+  if (!projectManifest) throw new Error(t().previewDocker.manifest);
+  const project = workspace === undefined ? root : parsePreviewPackage(projectManifest);
+  if (workspace !== undefined) checkSpecs(project);
+  const lockPackages = object(lock.packages);
+  checkInLock(root, lockPackages['']);
+  for (const member of members) {
+    const memberManifest = files.get(member + '/package.json');
+    if (memberManifest) checkInLock(parsePreviewPackage(memberManifest), lockPackages[member]);
+  }
+  if (mode) {
+    const script = mode === 'build' ? 'build' : 'start';
+    if (!hasPreviewScript(project, script, () => inProject('server.js'))) throw new Error(t().previewDocker.script(script));
+  }
   const packages = { arm64: new Map<string, LockedPreviewPackage>(), x64: new Map<string, LockedPreviewPackage>() };
   const digests = new Map<string, string>();
   for (const [path, value] of entries) {
     const pkg = object(value);
-    checkSpecs(pkg);
-    if (!path) continue;
-    const names = path.split(/(?:^|\/)node_modules\//);
+    checkSpecs(pkg, !path);
+    if (!path || members.has(path)) continue;
+    // A package installed under a workspace member keeps that member's folder in front of node_modules.
+    const at = /(?:^|\/)node_modules\//.exec(path)!.index;
+    const owner = path.slice(0, at);
+    const names = path.slice(at && at + 1).split(/(?:^|\/)node_modules\//);
     const name = names.at(-1)!;
-    if (names.shift() !== '' || !names.every((n) => NAME.test(n)) || pkg.link || (pkg.name !== undefined && pkg.name !== name)) {
+    if (
+      (owner && !members.has(owner)) ||
+      names.shift() !== '' ||
+      !names.every((n) => NAME.test(n)) ||
+      (pkg.name !== undefined && pkg.name !== name)
+    ) {
       throw new Error(t().previewDocker.spec);
+    }
+    if (pkg.link !== undefined) {
+      // Only npm's own link from node_modules to a workspace member, never to another folder.
+      if (pkg.link !== true || owner || names.length !== 1 || typeof pkg.resolved !== 'string' || !members.has(pkg.resolved))
+        throw new Error(t().previewDocker.spec);
+      continue;
     }
     if (typeof pkg.version !== 'string' || !VERSION.test(pkg.version)) throw new Error(t().previewDocker.invalidLock);
     const url = `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${pkg.version}.tgz`;

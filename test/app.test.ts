@@ -390,6 +390,46 @@ describe('app preview control and content', () => {
     expect((await (await target('package.json')).json()).error).toContain('package-lock.json');
   });
 
+  it('finds an npm workspace member’s lockfile at the workspace root, as npm finds the root', async () => {
+    const conv = await createConversation();
+    const target = () =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: 'apps/web', entry: 'package.json' }));
+    const web = join(project, 'apps', 'web');
+    mkdirSync(web, { recursive: true });
+    writeFileSync(join(web, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    const workspaces = (patterns: unknown) => writeFileSync(join(project, 'package.json'), JSON.stringify({ workspaces: patterns }));
+    const chosen = { folder: web, entry: 'package.json', mode: 'build' };
+    workspaces(['apps/*']);
+    expect((await (await target()).json()).error).toContain('package-lock.json');
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    expect(await (await target()).json()).toEqual(chosen);
+    for (const patterns of [['./apps/web/'], ['**'], { packages: ['apps/**'] }, ['apps/w?b'], ['apps/*', '!apps/api']]) {
+      workspaces(patterns);
+      expect(await (await target()).json()).toEqual(chosen);
+    }
+    for (const patterns of [['packages/*'], ['apps/*', '!apps/web'], ['apps'], ['../*'], 'apps/*']) {
+      workspaces(patterns);
+      expect((await (await target()).json()).error).toContain('package-lock.json');
+    }
+    // A package.json in between that is not a workspace root does not stop the search.
+    workspaces(['apps/*']);
+    writeFileSync(join(project, 'apps', 'package.json'), '{}');
+    expect(await (await target()).json()).toEqual(chosen);
+    for (const [folder, name] of [
+      [project, '.npmrc'],
+      [web, '.npmrc'],
+      [project, 'npm-shrinkwrap.json'],
+    ]) {
+      writeFileSync(join(folder, name), '');
+      expect((await (await target()).json()).error).toContain('shrinkwrap');
+      rmSync(join(folder, name));
+    }
+    // The member's own lockfile makes it a standalone project.
+    rmSync(join(project, 'package-lock.json'));
+    writeFileSync(join(web, 'package-lock.json'), emptyLockfile);
+    expect(await (await target()).json()).toEqual(chosen);
+  });
+
   it('recognizes literal imports of local source in inline modules without running them or reading other script text as imports', async () => {
     const conv = await createConversation();
     const target = async (script: string) => {
