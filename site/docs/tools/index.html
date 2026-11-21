@@ -19,7 +19,7 @@
     <meta property="og:title" content="Tools for the team · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks."
+      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory, long-term memory and hooks."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -230,7 +230,7 @@
           </div>
         </div>
         <p class="lead">
-          Open <b>Settings → Apps and tools</b>. Use <b>Common apps</b> to connect your services and choose which assistants can use each built-in tool. Use <b>Tool library</b> to add MCP servers, skills, memory, hooks and default team checks.
+          Open <b>Settings → Apps and tools</b>. Use <b>Common apps</b> to connect your services and choose which assistants can use each built-in tool. Use <b>Tool library</b> to add MCP servers, skills, memory, hooks and default team checks, and to manage the agents’ long-term memory.
         </p>
       </header>
 
@@ -311,6 +311,7 @@
                 </li>
                 <li><a href="#skills">Skills</a></li>
                 <li><a href="#memory">Memory</a></li>
+                <li><a href="#long-term-memory">Long-term memory</a></li>
                 <li><a href="#hooks">Hooks</a></li>
                 <li><a href="#default-team-checks">Default team checks</a></li>
               </ol>
@@ -573,7 +574,7 @@
           <h2 id="library-title">Tool library</h2>
           <p>At the top of the tab, choose <b>Open agent settings</b> to select an assistant and manage <a href="#own-setup">the tools it loads itself</a>.</p>
           <p>
-            The <b>Tool library</b> tab opens with five collapsed rows. Use <b>MCP servers</b>, <b>Skills</b> or <b>Memory</b> to add something to the agents’ own setup. Use <b>Hooks</b> and <b>Default team checks</b> for rules that new chats and automations start with. Changes reach an agent at its next turn.
+            The <b>Tool library</b> tab opens with six collapsed rows. Use <b>MCP servers</b>, <b>Skills</b> or <b>Memory</b> to add something to the agents’ own setup, and <b>Long-term memory</b> for what they learn across chats. Use <b>Hooks</b> and <b>Default team checks</b> for rules that new chats and automations start with. Changes reach an agent at its next turn.
           </p>
           <p><a href="../../assets/media/docs/tools-library-desktop-en.webp">Tool library on desktop</a> · <a href="../../assets/media/docs/tools-library-phone-en.webp">Tool library on a phone</a></p>
         </section>
@@ -600,6 +601,25 @@
           <h2 id="memory-title">Memory</h2>
           <p>Notes every agent gets in every conversation, such as your preferences and your project's conventions: for
               <b>All members</b>, or in each agent's own tab, only for that agent.</p>
+        </section>
+
+        <section id="long-term-memory" aria-labelledby="long-term-memory-title">
+          <h2 id="long-term-memory-title">Long-term memory</h2>
+          <p>Agents save what they learn in a chat that later chats can use, such as your preferences and decisions or a fact
+              they checked, when you ask them to remember something or when it is clearly worth keeping. Each note shows in a
+              <b>Long-term memory</b> card under the reply that saved it, where you can set it aside or restore it. Pinned notes
+              come with every chat; the others reach an agent when they bear on what you said.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-memory-card-en.webp"><img src="../../assets/media/docs/tools-memory-card-en.webp" width="754" height="78" alt="A Long-term memory card under a reply: Saved, We release on Fridays, never on Mondays, In use, and a Set aside button." loading="lazy" /></a>
+            <figcaption>The card under a reply that saved a note.</figcaption>
+          </figure>
+          <p>Open <b>Long-term memory</b> to search, add, edit, pin, set aside and delete notes, and to choose whether new
+              notes wait for you to keep them. Now and then the lead agent tidies them against the chats they came from, or
+              at once with <b>Tidy up now</b>; it never changes notes you wrote, and agents never delete a note.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-long-term-memory-en.webp"><img src="../../assets/media/docs/tools-long-term-memory-en.webp" width="840" height="799" alt="The Long-term memory row opened: its three switches, Tidy up now, a box to add a note, and three notes in use, one pinned, each with how it is known, who wrote it and its Pin or Unpin, Edit and Set aside buttons." loading="lazy" /></a>
+            <figcaption>Every note, by state, with who wrote it and the chat it came from.</figcaption>
+          </figure>
         </section>
 
         <section id="hooks" aria-labelledby="hooks-title">

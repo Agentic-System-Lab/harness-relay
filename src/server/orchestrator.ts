@@ -23,6 +23,7 @@ import type {
   LeadReview,
   MessageChanges,
   MessagePart,
+  MemoryPartNote,
   OutboxItem,
   ProgressStatus,
   Provider,
@@ -38,6 +39,7 @@ import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/
 import {
   GIT_MISSING,
   HOOK_PROVIDERS,
+  MEMORY_LIMITS,
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
@@ -66,6 +68,8 @@ import { approvalKeys, isAllowed } from './approvals';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
+import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
+import { splitMemory, type MemoryOp } from '../shared/memory';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -694,6 +698,8 @@ export class Orchestrator {
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
+  /** Long-term memory: the notes agents keep across conversations, and the lead agent's tidying of them. */
+  readonly memory: LongTermMemory;
   /**
    * The lead agent changing a team at the user's request (team drawer), by conversation: the latest
    * request, and any it replaced whose lead process has not ended yet. Only the latest one answers.
@@ -744,6 +750,10 @@ export class Orchestrator {
       (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId),
       (p, chosen, account) => this.modelFor(p, chosen, account),
     );
+    this.memory = new LongTermMemory(store, settings, {
+      cardChanged: (note, status) => this.updateMemoryCard(note, status),
+      modelFor: (p, chosen, account) => this.modelFor(p, chosen, account),
+    });
   }
 
   /**
@@ -792,6 +802,8 @@ export class Orchestrator {
       ...this.revisions.keys(),
       ...this.branching.keys(),
       ...this.grouper.sorting(),
+      // The lead agent tidying the long-term memory, which no conversation owns.
+      ...(this.memory.tidying ? ['memory'] : []),
     ]).size;
   }
 
@@ -807,7 +819,7 @@ export class Orchestrator {
 
   /** Some conversation is replying, being set up, or being sorted into a group. */
   anyRunning(): boolean {
-    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy || this.revisions.size > 0;
+    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy || this.revisions.size > 0 || this.memory.tidying;
   }
 
   /** Running, or reserved by a request that will change it. */
@@ -904,6 +916,7 @@ export class Orchestrator {
       ...[...this.branching.values()].flatMap((set) => [...set]),
       ...this.checkWork,
       this.grouper.settled(),
+      this.memory.settled(),
     ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
   }
@@ -932,6 +945,47 @@ export class Orchestrator {
     if (!conv || !msg || !part) return;
     part.status = item.status;
     if (item.result !== undefined) part.result = item.result;
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /**
+   * Takes a finished reply's long-term memory blocks out of its text (see `src/shared/memory.ts`) and
+   * records them, while long-term memory is on: the reply keeps what they did as a `memory` part.
+   */
+  private takeMemory(conv: Conversation, msg: ChatMessage, agent: AgentConfig): void {
+    if (!this.memory.config.enabled) return;
+    const ops: MemoryOp[] = [];
+    for (let i = msg.parts.length - 1; i >= 0; i--) {
+      const part = msg.parts[i]!;
+      if (part.type !== 'text') continue;
+      const split = splitMemory(part.text);
+      if (!split.ops.length) continue;
+      ops.unshift(...split.ops);
+      if (split.text) part.text = split.text;
+      else msg.parts.splice(i, 1);
+    }
+    if (!ops.length) return;
+    const notes = this.memory.apply(conv, msg, agent, ops.slice(0, MEMORY_LIMITS.perReply));
+    if (notes.length) msg.parts.push({ type: 'memory', notes });
+  }
+
+  /** The card of a long-term memory note in the reply that saved it, as the note now is. */
+  private updateMemoryCard(ref: MemoryCardRef, status: MemoryPartNote['status']): void {
+    const conv = ref.conversationId ? this.store.get(ref.conversationId) : undefined;
+    const msg = conv?.messages.find((m) => m.id === ref.messageId);
+    if (!conv || !msg) return;
+    let changed = false;
+    for (const p of msg.parts) {
+      if (p.type !== 'memory') continue;
+      for (const n of p.notes) {
+        if (n.id === ref.id && n.status !== 'skipped' && n.status !== status) {
+          n.status = status;
+          changed = true;
+        }
+      }
+    }
+    if (!changed) return;
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
@@ -1667,8 +1721,12 @@ export class Orchestrator {
       conv.id,
       dropped.map((m) => m.id),
     );
-    // What those replies asked to send goes with them.
+    // What those replies asked to send goes with them, and the notes they saved are set aside.
     this.outbox?.discardFor(
+      conv.id,
+      dropped.map((m) => m.id),
+    );
+    this.memory.dropReplies(
       conv.id,
       dropped.map((m) => m.id),
     );
@@ -1841,6 +1899,8 @@ export class Orchestrator {
           this.runs.delete(convId);
           this.designing.delete(convId);
           if (run.tracking) this.trackedRunEnded(conv, run);
+          // The lead agent tidies the long-term memory now and then, once runs have saved enough notes.
+          if (!this.closing) this.memory.maybeTidy();
           // The team the lead agent just designed answers at once, when it needs no confirmation.
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
@@ -1946,6 +2006,7 @@ export class Orchestrator {
     for (const c of this.checking.values()) c.abort();
     for (const set of this.revisions.values()) for (const r of set) r.abort.abort();
     this.grouper.stopAll();
+    this.memory.stopAll();
   }
 
   emitConversation(conv: Conversation): void {
@@ -4321,13 +4382,15 @@ export class Orchestrator {
       const delta = conv.messages.filter(
         (m) => m.id !== msg.id && isForwardable(m) && (!m.checks || m.id === latest) && (!seen.has(m.id) || m.id === run.fixChecks),
       );
-      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info);
+      // Long-term memory's notes that match what was said, once per session (kept in `seen` with the messages).
+      const recalled = this.memory.recall(conv, delta, seen);
+      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info, recalled);
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
-      state.seen = [...state.seen, ...delta.map((m) => m.id).filter((id) => !seen.has(id))];
+      state.seen = [...state.seen, ...delta.map((m) => m.id).filter((id) => !seen.has(id)), ...recalled.map((n) => memorySeenKey(n.id))];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
       // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
@@ -4392,7 +4455,7 @@ export class Orchestrator {
             conv,
             agent,
             workspace,
-            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined },
+            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined, longTerm: this.memory.forBriefing(conv) },
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),
@@ -4453,6 +4516,9 @@ export class Orchestrator {
           throw freshErr;
         }
       }
+      // Long-term memory's blocks, anywhere in the reply, come out first: the ask marker and a
+      // <progress> block end it.
+      this.takeMemory(conv, msg, agent);
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
       const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
@@ -4461,7 +4527,9 @@ export class Orchestrator {
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
       // A reply that only reported on the goal, or only asked to send something, said something.
-      msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox'));
+      msg.passed =
+        isPass(text) ||
+        (!text && !msg.parts.some((p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox' || p.type === 'memory'));
       msg.status = 'done';
       msg.meta = {
         ...msg.meta,
@@ -4478,6 +4546,12 @@ export class Orchestrator {
       if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
+      // Notes the reply finished writing before it stopped are kept too.
+      try {
+        this.takeMemory(conv, msg, agent);
+      } catch (memoryErr) {
+        console.warn('[orchestrator] could not record memory notes:', (memoryErr as Error).message);
+      }
       msg.meta = { ...msg.meta, durationMs: Date.now() - started };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {

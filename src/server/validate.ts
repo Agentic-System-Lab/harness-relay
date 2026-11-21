@@ -17,6 +17,7 @@ import {
   MCP_NAME_RE,
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
+  MEMORY_LIMITS,
   MEMORY_SCOPES,
   RELAY_TOOL_GROUPS,
   NATIVE_ITEM_KINDS,
@@ -41,7 +42,10 @@ import {
   type ConversationSettings,
   type LeadAgentSettings,
   type McpServerUpdate,
+  type MemoryNoteCreate,
+  type MemoryNoteUpdate,
   type MemoryScope,
+  type MemorySettings,
   type ModelEndpointUpdate,
   type Mode,
   type Permission,
@@ -498,6 +502,61 @@ export function validSkillPath(input: unknown): string {
   const path = String(input ?? '').trim();
   if (!path || path.length > 4000 || path.includes('\0')) bad(t().invalidField('path'));
   return expandPath(path);
+}
+
+/** Long-term memory's settings: any of its switches. */
+export function validateMemorySettings(input: unknown): Partial<MemorySettings> {
+  const b = (input ?? {}) as Record<string, unknown>;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) bad(t().invalidField('settings'));
+  const out: Partial<MemorySettings> = {};
+  for (const key of ['enabled', 'review', 'autoTidy'] as const) {
+    if (b[key] === undefined) continue;
+    if (typeof b[key] !== 'boolean') bad(t().invalidField(key));
+    out[key] = b[key];
+  }
+  return out;
+}
+
+/** A note's text: a string of at most `MEMORY_LIMITS.noteChars` that is not blank. */
+function memoryText(v: unknown): string {
+  if (typeof v !== 'string' || !v.trim()) bad(t().memoryNoteEmpty);
+  if (v.length > MEMORY_LIMITS.noteChars) bad(t().memoryTooLong(MEMORY_LIMITS.noteChars));
+  return v;
+}
+
+/** The working directory a note holds in: an absolute folder, as a conversation's would be written. */
+function memoryCwd(v: unknown): string {
+  if (typeof v !== 'string' || !v.trim() || v.length > 4000 || v.includes('\0')) bad(t().invalidField('cwd'));
+  const raw = v.trim();
+  if (!(raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\') || isAbsolute(raw))) bad(t().invalidField('cwd'));
+  return expandPath(raw);
+}
+
+export function validateMemoryNoteCreate(input: unknown): MemoryNoteCreate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const out: MemoryNoteCreate = { text: memoryText(b.text) };
+  if (b.cwd !== undefined && b.cwd !== null) out.cwd = memoryCwd(b.cwd);
+  if (b.pinned !== undefined) {
+    if (typeof b.pinned !== 'boolean') bad(t().invalidField('pinned'));
+    out.pinned = b.pinned;
+  }
+  return out;
+}
+
+export function validateMemoryNoteUpdate(input: unknown): MemoryNoteUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const out: MemoryNoteUpdate = {};
+  if (b.text !== undefined) out.text = memoryText(b.text);
+  if (b.cwd !== undefined) out.cwd = b.cwd === null ? null : memoryCwd(b.cwd);
+  if (b.pinned !== undefined) {
+    if (typeof b.pinned !== 'boolean') bad(t().invalidField('pinned'));
+    out.pinned = b.pinned;
+  }
+  if (b.state !== undefined) {
+    if (b.state !== 'active' && b.state !== 'archived') bad(t().invalidField('state'));
+    out.state = b.state;
+  }
+  return out;
 }
 
 export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {

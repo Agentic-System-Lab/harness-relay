@@ -45,6 +45,7 @@ export const { stateFolder } = await import('../src/server/agents/open');
 export const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 export const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 export const { REVIEWER_BRIEFING } = await import('../src/server/reviewer');
+export const { TIDY_BRIEFING } = await import('../src/server/memory');
 export const { withLang } = await import('../src/server/i18n');
 export const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 export const { mediaRoots, resolveMedia } = await import('../src/server/media');
@@ -128,6 +129,10 @@ export interface Fake {
   reviewGate: Promise<void> | undefined;
   /** When set, the fake lead agent's CLI fails with this message when asked to review. */
   reviewFail: string | undefined;
+  /** What the fake lead agent replies when asked to tidy the long-term memory. */
+  tidyReply: string;
+  /** When set, the fake lead agent waits for it before tidying (or until it is stopped). */
+  tidyGate: Promise<void> | undefined;
   /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
   during: ((name: string, cwd: string) => void) | undefined;
   /** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
@@ -156,6 +161,8 @@ const fresh = (): Fake => ({
   reviewReply: '{"summary": "All good.", "highlights": [], "nextSteps": []}',
   reviewGate: undefined,
   reviewFail: undefined,
+  tidyReply: '{"changes": []}',
+  tidyGate: undefined,
   during: undefined,
   asking: new Set(),
   fail: undefined,
@@ -214,6 +221,23 @@ beforeAll(() => {
         o.onEvent({ type: 'text', text: fake.reviewReply });
         o.onEvent({ type: 'text_end' });
         return { costUsd: 0.03, sessionId: 'reviewer-session' };
+      }
+      if (o.systemPrompt === TIDY_BRIEFING) {
+        calls.push({
+          name: 'tidier',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          stateKey: o.stateKey,
+          freshState: o.freshState,
+          permission: o.permission,
+        });
+        if (fake.tidyGate && !o.signal?.aborted) {
+          await Promise.race([fake.tidyGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        o.onEvent({ type: 'text', text: fake.tidyReply });
+        o.onEvent({ type: 'text_end' });
+        return { sessionId: 'tidier-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
         calls.push({

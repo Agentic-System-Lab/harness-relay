@@ -521,6 +521,29 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX schedule_files_by_conversation ON schedule_attachments(conversation_id);
   `,
+  // 39: long-term memory (memories): the notes agents and the user keep across conversations, one row
+  // each (MemoryNote; author JSON). A note outlives the conversation it came from: deleting that
+  // conversation clears conversation_id and message_id, nothing else. Its settings and the last
+  // tidying are kept under the `memory` key of app_settings (JSON).
+  `
+  CREATE TABLE memories (
+    id              TEXT PRIMARY KEY,
+    text            TEXT NOT NULL,
+    cwd             TEXT,
+    basis           TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    pinned          TEXT,
+    author          TEXT NOT NULL,
+    replaces        TEXT,
+    conversation_id TEXT,
+    message_id      TEXT,
+    reason          TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    used_at         INTEGER
+  );
+  CREATE INDEX memories_by_conversation ON memories(conversation_id);
+  `,
 ];
 
 /**

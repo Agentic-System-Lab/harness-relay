@@ -34,6 +34,8 @@ export const SHARE_DROP = [
   '.approval-card',
   '.approval-done',
   '.outbox-card',
+  // What the user's long-term memory holds stays out of a shared page.
+  '.memory-card',
   '.event-block',
   '.changes-card',
   '.ask-card',

@@ -330,10 +330,13 @@ export type Segment =
   | { kind: 'approval'; part: ApprovalPart; key: number }
   | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
   | { kind: 'outbox'; part: OutboxPart; key: number }
+  /** What the reply saved to long-term memory. */
+  | { kind: 'memory'; part: MemoryPart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
   | { kind: 'notice'; text: string; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
+export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
 
 /**
  * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
@@ -380,6 +383,9 @@ export function segments(parts: MessagePart[]): Segment[] {
       case 'outbox':
         out.push({ kind: 'outbox', part: p, key: i });
         break;
+      case 'memory':
+        if (p.notes.length) out.push({ kind: 'memory', part: p, key: i });
+        break;
       case 'notice':
         out.push({ kind: 'notice', text: p.text, key: i });
         break;
@@ -392,12 +398,13 @@ export function segments(parts: MessagePart[]): Segment[] {
 
 /**
  * What a reply shows of its segments: all of them, or for a reply whose agent passed only Harness
- * Relay's own notes (an MCP server left out of the turn), which stay shown with the pass. `typing`: the
+ * Relay's own notes (an MCP server left out of the turn) and what it saved to long-term memory, which
+ * stay shown with the pass. `typing`: the
  * agent has shown nothing yet while it streams (a note is not its words).
  */
 export function shownSegments(segs: Segment[], passed: boolean, live: boolean): { shown: Segment[]; typing: boolean } {
   return {
-    shown: passed ? segs.filter((s) => s.kind === 'notice') : segs,
+    shown: passed ? segs.filter((s) => s.kind === 'notice' || s.kind === 'memory') : segs,
     typing: live && segs.every((s) => s.kind === 'notice'),
   };
 }

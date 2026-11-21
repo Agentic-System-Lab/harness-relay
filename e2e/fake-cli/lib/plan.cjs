@@ -35,6 +35,9 @@ const DIRECTIVES = {
   mermaid: 'answer with a Mermaid diagram (a ```mermaid code block)',
   widecode: 'answer with a code block of one line far wider than a phone, which scrolls sideways',
   memory: "say the tool library's memory notes its briefing holds",
+  remember:
+    'end the reply with a <remember> block saving what the user said (without the directives) as a long-term memory note for every conversation',
+  recall: 'say the long-term memory notes its turn was given: the pinned ones its briefing loads and those its prompt recalls',
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
   progress:
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
@@ -216,6 +219,7 @@ function plan(prompt, turn) {
   }
   if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
+  if (/Reply with only this JSON object:\n\{"changes"/.test(prompt)) return [{ type: 'text', text: tidyReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {
     const d = directivesIn(tag(prompt, 'request'));
     return [{ type: 'text', text: reviseReply(prompt), slow: slowMs(d.slowrevise) }];
@@ -270,6 +274,11 @@ function plan(prompt, turn) {
   if (turn.images) text += ` I got ${turn.images} image${turn.images === 1 ? '' : 's'}.`;
   if (turn.mcp && turn.mcp.length) text += ` My tool library's MCP servers: ${turn.mcp.join(', ')}.`;
   if (d.memory) text += memoryIn(turn.briefing) ? ` My memory: “${memoryIn(turn.briefing)}”.` : ' I have no memory notes.';
+  if (d.recall) {
+    // Cursor's briefing comes at the top of its prompt.
+    const notes = longTermIn(`${turn.briefing || ''}\n${prompt}`);
+    text += notes.length ? ` My long-term memory: ${notes.map((n) => `“${n}”`).join(', ')}.` : ' I have no long-term memory notes.';
+  }
   if (d.skills) text += readSkills(turn);
   if (d.long) text += Array.from({ length: 40 }, (_, i) => `\n\nPadding paragraph ${i + 1} of a long reply.`).join('');
   if (d.markdown) {
@@ -287,8 +296,35 @@ function plan(prompt, turn) {
     const goal = /<tracked_goal[^>]*>\n([\s\S]*?)\n<\/tracked_goal>/.exec(turn.briefing || '');
     text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
   }
+  if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   return steps;
+}
+
+/** The long-term memory notes a turn was given (`<memory_notes>` in its briefing, `<recalled_memory>` in its prompt): their texts. */
+function longTermIn(text) {
+  const out = [];
+  for (const block of text.matchAll(/<(memory_notes|recalled_memory)>\n([\s\S]*?)\n<\/\1>/g)) {
+    for (const line of block[2].split('\n')) {
+      const m = /^- \[m_[0-9a-f]+\] .* · \d{4}-\d{2}-\d{2}: (.*)$/.exec(line);
+      if (m) out.push(m[1].trim());
+    }
+  }
+  return out;
+}
+
+/**
+ * The lead agent tidying the long-term memory: it pins the first note an agent wrote that is not pinned
+ * yet (the user's own it may not change), and says how many it read.
+ */
+function tidyReply(prompt) {
+  const lines = tag(prompt, 'notes').split('\n').filter(Boolean);
+  const first = lines.find((l) => !/ · pinned/.test(l) && !/ · the user · /.test(l));
+  const id = first ? (/^- \[(m_[0-9a-f]+)\]/.exec(first) || [])[1] : undefined;
+  return json({
+    changes: id ? [{ op: 'pin', id }] : [],
+    summary: `The fake lead agent read ${lines.length} ${lines.length === 1 ? 'note' : 'notes'}.`,
+  });
 }
 
 /** The tool library's memory a briefing holds (its `<memory>` block), on one line; '' when none. */
