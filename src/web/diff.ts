@@ -3,18 +3,21 @@
  * for the diff dialog's sections: each file's path, status and lines added and removed, and its own
  * lines. Pure, so it can be tested without a DOM.
  */
+import { isTruncatedNote } from '../shared/diff';
 
 /** One file's part of a diff. */
 export interface DiffFile {
   /** Its path, as the diff names it (after the folder's name when the diff spans several working directories). */
   path: string;
-  /** A = added, M = modified (its mode only, too), D = deleted. */
+  /** A = added, M = modified (its mode or type only, too), D = deleted. */
   status: 'A' | 'M' | 'D';
   /** Lines added and removed; null for a binary file. */
   added: number | null;
   deleted: number | null;
   /** Its lines after its `diff --git` line: the header (modes, index, `---`/`+++`) and the hunks. */
   lines: string[];
+  /** Where the server cut the diff short: its lines stop there, and its counts are those shown. */
+  truncated?: boolean;
 }
 
 export interface ParsedDiff {
@@ -27,26 +30,37 @@ export interface ParsedDiff {
 
 const FILE_HEADER = 'diff --git ';
 
-/** The note the server adds where it cut a diff short (`diffText()` in `src/server/workspace.ts`). */
-const TRUNCATED = /^… diff truncated \(.*\)$/;
-
 export function parseDiff(text: string): ParsedDiff {
   const lead: string[] = [];
   const files: DiffFile[] = [];
   const notes: string[] = [];
+  // Each file's `diff --git` line after its prefix, for a path it does not tell otherwise.
+  const headers = new Map<DiffFile, string>();
+  // Files whose type changed (a file that became a link): git writes them as one deleted and one added.
+  const typeChanged = new Set<DiffFile>();
   let file: DiffFile | null = null;
   // Past the file's first hunk header: from there on, `+` and `-` start added and removed lines, not
   // the `---`/`+++` header (a removed line that starts with `--` reads as `---`).
   let inHunks = false;
   for (const line of text.split('\n')) {
     if (line.startsWith(FILE_HEADER)) {
-      file = { path: headerPath(line.slice(FILE_HEADER.length)), status: 'M', added: 0, deleted: 0, lines: [] };
-      files.push(file);
+      const rest = line.slice(FILE_HEADER.length);
+      const path = headerPath(rest);
       inHunks = false;
+      if (file && path && file.path === path) {
+        // The same path again (with renames off, only a change of type does that): one file, both parts.
+        typeChanged.add(file);
+        file.lines.push(line);
+        continue;
+      }
+      file = { path, status: 'M', added: 0, deleted: 0, lines: [] };
+      headers.set(file, rest);
+      files.push(file);
       continue;
     }
-    if (TRUNCATED.test(line)) {
+    if (isTruncatedNote(line)) {
       notes.push(line);
+      if (file) file.truncated = true;
       continue;
     }
     if (!file) {
@@ -63,35 +77,47 @@ export function parseDiff(text: string): ParsedDiff {
     else if (line.startsWith('Binary files ') || line === 'GIT binary patch') {
       file.added = null;
       file.deleted = null;
-    } else if (line.startsWith('+++ ') || line.startsWith('--- ')) {
-      // A path the header line could not tell (git's own prefixes changed): the one on the side the file is on.
-      const side = line.slice(4);
-      if (!file.path && side !== '/dev/null') file.path = stripPrefix(unquote(side));
+    } else if (
+      !file.path &&
+      (line.startsWith('--- a/') || line.startsWith('+++ b/') || line.startsWith('--- "a/') || line.startsWith('+++ "b/'))
+    ) {
+      // A path the header line could not tell: the one on the side the file is on (git ends a name
+      // with a space in a tab there).
+      file.path = unquote(line.slice(4).replace(/\t$/, '')).slice(2);
     }
   }
-  // The text's last newline, and the blank lines before the note of a diff cut short, belong to no file.
-  for (const f of files) while (f.lines.length && f.lines.at(-1) === '') f.lines.pop();
+  for (const f of files) {
+    // The text's last newline, and the blank lines before the note of a diff cut short, belong to no file.
+    while (f.lines.length && f.lines.at(-1) === '') f.lines.pop();
+    if (typeChanged.has(f)) f.status = 'M';
+    // A header line no path could be read from (cut short in its middle): shown as it is.
+    if (!f.path) f.path = headers.get(f) ?? '';
+  }
   while (lead.length && lead.at(-1) === '') lead.pop();
   return { lead, files, notes };
 }
 
 /**
  * The path in a file's `diff --git a/<path> b/<path>` line. With renames off (as the server asks
- * for) both sides name the same path, after a prefix of two characters (`a/` and `b/`, or none with
- * `diff.noprefix`); a path with characters git quotes is quoted on both sides. Empty when the line
- * cannot be read so: the `---`/`+++` lines then tell it.
+ * for) both sides name the same path, after a prefix of two characters (`a/` and `b/`, which the
+ * server always asks for); a path with characters git quotes is quoted on both sides. Empty when
+ * the line cannot be read so: the `---`/`+++` lines then tell it.
  */
 function headerPath(rest: string): string {
+  let a: string;
+  let b: string;
   if (rest.startsWith('"')) {
     const end = quotedEnd(rest);
-    return end < 0 ? '' : stripPrefix(unquote(rest.slice(0, end)));
+    if (end < 0 || rest[end] !== ' ') return '';
+    a = unquote(rest.slice(0, end));
+    b = unquote(rest.slice(end + 1));
+  } else {
+    // Two halves of the same length around one space (a path may hold spaces itself).
+    const half = (rest.length - 1) / 2;
+    if (!Number.isInteger(half) || rest[half] !== ' ') return '';
+    a = rest.slice(0, half);
+    b = rest.slice(half + 1);
   }
-  // Two halves of the same length around one space (a path may hold spaces itself).
-  if (rest.length % 2 === 0) return '';
-  const half = (rest.length - 1) / 2;
-  const a = rest.slice(0, half);
-  const b = rest.slice(half + 1);
-  if (rest[half] !== ' ') return '';
   if (a === b) return a;
   return a[1] === '/' && b[1] === '/' && a.slice(2) === b.slice(2) ? a.slice(2) : '';
 }
@@ -114,11 +140,9 @@ function unquote(s: string): string {
   const encoder = new TextEncoder();
   const body = s.slice(1, -1);
   for (let i = 0; i < body.length; i++) {
-    const c = body[i]!;
-    if (c !== '\\') {
-      // One character, a surrogate pair as one.
-      const code = body.codePointAt(i)!;
-      const char = String.fromCodePoint(code);
+    if (body[i] !== '\\') {
+      // One character, a surrogate pair (an emoji) as one.
+      const char = String.fromCodePoint(body.codePointAt(i)!);
       bytes.push(...encoder.encode(char));
       i += char.length - 1;
       continue;
@@ -134,11 +158,6 @@ function unquote(s: string): string {
     } else bytes.push(92);
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
-}
-
-/** A side's path without git's prefix (`a/`, `b/`). */
-function stripPrefix(p: string): string {
-  return /^[a-z]\//.test(p) ? p.slice(2) : p;
 }
 
 /** Lines added and removed in all the files (binary files count none). */

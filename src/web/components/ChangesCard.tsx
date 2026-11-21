@@ -100,19 +100,27 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
 
 /** Files changed in one repository. */
 function FileList({ files }: { files: FileChange[] }) {
-  const t = useT();
   return (
     <ul className="changes-files">
       {files.map((f) => (
         <li key={f.path}>
-          <span className={`file-status s-${f.status}`} title={t.changes.status[f.status]}>
-            {f.status}
-          </span>
+          <FileStatus status={f.status} />
           <code className="file-path">{f.path}</code>
           <FileStat added={f.added} deleted={f.deleted} />
         </li>
       ))}
     </ul>
+  );
+}
+
+/** A file's status as its letter, read out as its word ("Added"). */
+function FileStatus({ status }: { status: FileChange['status'] }) {
+  const t = useT();
+  return (
+    <span className={`file-status s-${status}`} title={t.changes.status[status]}>
+      <span aria-hidden="true">{status}</span>
+      <span className="visually-hidden">{t.changes.status[status]}</span>
+    </span>
   );
 }
 
@@ -138,7 +146,8 @@ const MAX_LINES = 6000;
 /**
  * A unified diff, one section for each file: its status, path and lines added and removed, folded
  * until opened, so that the files it changed are seen at once and each one's lines only when asked
- * for (`Expand all` opens them all).
+ * for (`Expand all` opens them all). A diff the server cut short says so in its head (its counts
+ * are those of what is shown), and the file it was cut in says so too.
  */
 export function DiffView({ text }: { text: string }) {
   const t = useT();
@@ -159,7 +168,7 @@ export function DiffView({ text }: { text: string }) {
   return (
     <div className="diff-files">
       <div className="diff-files-head">
-        <strong>{t.changes.files(diff.files.length)}</strong>
+        <strong>{diff.notes.length ? t.changes.filesShown(diff.files.length) : t.changes.files(diff.files.length)}</strong>
         <span className="diffstat">
           <span className="plus">+{added}</span> <span className="minus">−{deleted}</span>
         </span>
@@ -186,10 +195,9 @@ export function DiffView({ text }: { text: string }) {
                 <span className={`group-chevron ${isOpen ? 'open' : ''}`}>
                   <ChevronIcon size={14} />
                 </span>
-                <span className={`file-status s-${f.status}`} title={t.changes.status[f.status]}>
-                  {f.status}
-                </span>
+                <FileStatus status={f.status} />
                 <code className="file-path">{f.path}</code>
+                {f.truncated && <span className="diff-cut">{t.changes.cutShort}</span>}
                 <FileStat added={f.added} deleted={f.deleted} />
               </button>
               {isOpen && <DiffLines id={body} lines={f.lines} header />}
@@ -207,8 +215,9 @@ export function DiffView({ text }: { text: string }) {
 }
 
 /**
- * Lines of a diff, coloured: a file's (`header`: its own header first, up to its first hunk), or text
- * that is not one file's, with `+` and `-` lines coloured all the way.
+ * Lines of a diff, coloured: a file's (`header`: its own header first, up to its first hunk, and
+ * again after a second `diff --git` line, as a file whose type changed has), or text that is not one
+ * file's, with `+` and `-` lines coloured all the way.
  */
 function DiffLines({ id, lines, header }: { id?: string; lines: string[]; header: boolean }) {
   const t = useT();
@@ -216,7 +225,8 @@ function DiffLines({ id, lines, header }: { id?: string; lines: string[]; header
   return (
     <pre id={id} className="diff-view">
       {lines.slice(0, MAX_LINES).map((line, i) => {
-        if (line.startsWith('@@')) inHunks = true;
+        if (header && line.startsWith('diff --git ')) inHunks = false;
+        else if (line.startsWith('@@')) inHunks = true;
         return (
           <div key={i} className={diffLineClass(line, inHunks)}>
             {line || ' '}

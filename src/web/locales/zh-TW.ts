@@ -1168,6 +1168,8 @@ export const zhTW = {
     more: (n: number) => `還有 ${n} 個檔案…`,
     expandAll: '全部展開',
     collapseAll: '全部收合',
+    filesShown: (n: number) => `顯示 ${n} 個檔案：diff 太長，已截斷`,
+    cutShort: '已截斷',
     turnDiff: '查看這回合 diff',
     agentResult: (name: string) => `查看 @${name} 的完整結果`,
     applying: '套用中…',

@@ -1157,6 +1157,8 @@ export const en: Messages = {
     more: (n) => `${n} more files…`,
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
+    filesShown: (n) => (n === 1 ? 'Showing 1 file: the diff was cut short' : `Showing ${n} files: the diff was cut short`),
+    cutShort: 'cut short',
     turnDiff: "View this turn's diff",
     agentResult: (name) => `View @${name}'s full result`,
     applying: 'Applying…',
