@@ -189,6 +189,7 @@ const idle = new IdleWatcher({
   watching: () => store.mailWatches(),
   check: (id, key) => scheduler.mailArrived(id, key),
 });
+settings.oauth.onClientAvailabilityChange = () => idle.sync();
 scheduler.listening = (id, trigger) => idle.live(id, trigger);
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.

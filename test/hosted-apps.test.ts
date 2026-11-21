@@ -14,7 +14,7 @@ const settings = {
   nativeOff: () => [],
   nativeItems: () => ({}),
 };
-const names = { drive: 'google_drive.get_profile', teams: 'microsoft_teams.get_profile', slack: 'slack.slack_read_user_profile' };
+const names = { teams: 'microsoft_teams.get_profile', slack: 'slack.slack_read_user_profile' };
 function catalog(app: HostedApp) {
   const name = names[app];
   return {
@@ -54,17 +54,17 @@ function mockCodex(received?: (method: string) => void) {
       const responses: Record<string, unknown> = {
         initialize: {},
         'account/read': { account: { type: 'chatgpt' } },
-        'app/installed': { apps: [{ id: HOSTED_APPS.drive.codexConnector, enabled: true, callable: true }] },
+        'app/installed': { apps: [{ id: HOSTED_APPS.teams.codexConnector, enabled: true, callable: true }] },
         'config/read': { config: { mcp_servers: { project_script: { command: 'unwanted' } } } },
         'thread/start': { thread: { id: 'ephemeral' } },
         'app/read': {
-          apps: [{ id: HOSTED_APPS.drive.codexConnector, toolSummaries: [{ name: 'get_profile', isReadOnly: true, isEnabled: true }] }],
+          apps: [{ id: HOSTED_APPS.teams.codexConnector, toolSummaries: [{ name: 'get_profile', isReadOnly: true, isEnabled: true }] }],
           missingAppIds: [],
         },
-        'mcpServerStatus/list': catalog('drive'),
+        'mcpServerStatus/list': catalog('teams'),
         'mcpServer/tool/call': {
           content: [],
-          structuredContent: { user: { emailAddress: 'fixture@example.test', displayName: 'Private' } },
+          structuredContent: { id: 'example-id', userPrincipalName: 'fixture@example.test' },
         },
       };
       opts.onMessage({ id: m.id, result: responses[m.method] }, write, () => {
@@ -79,7 +79,7 @@ function mockCodex(received?: (method: string) => void) {
 describe('hosted connector checks', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it.each(['slack', 'drive', 'teams'] as const)('requires the exact hosted Claude name and scope for %s', (app) => {
+  it.each(['slack', 'teams'] as const)('requires the exact hosted Claude name and scope for %s', (app) => {
     const name = HOSTED_APPS[app].claudeName;
     const details = (scope: string, status: string) => name + ':\n  Scope: ' + scope + '\n  Status: ' + status;
     for (const [raw, expected] of [
@@ -127,57 +127,55 @@ describe('hosted connector checks', () => {
   });
 
   it('keeps catalog accessibility, blocked tools and an actual OAuth verification distinct', () => {
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.drive.codexConnector, isAccessible: true, isEnabled: true }]).drive).toBe('unknown');
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.drive.codexConnector, enabled: true, callable: true }])).toEqual({
-      drive: 'available',
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, isAccessible: true, isEnabled: true }]).teams).toBe('unknown');
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, enabled: true, callable: true }])).toEqual({
+      teams: 'available',
       slack: 'not-found',
-      teams: 'not-found',
     });
-    expect(codexHostedSnapshot([{ id: HOSTED_APPS.drive.codexConnector, enabled: false, callable: false }]).drive).toBe('disabled');
+    expect(codexHostedSnapshot([{ id: HOSTED_APPS.teams.codexConnector, enabled: false, callable: false }]).teams).toBe('disabled');
     expect(codexHostedSnapshot([{ id: 'third-party-copy', runtimeName: 'Slack', enabled: true, callable: true }]).slack).toBe('not-found');
-    expect(codexHostedSnapshot(null).drive).toBe('unknown');
+    expect(codexHostedSnapshot(null).teams).toBe('unknown');
   });
 
   it('honors policy on the particular profile tool even when other tools in the app are available', () => {
-    const response = (toolSummaries: unknown[]) => ({ apps: [{ id: HOSTED_APPS.drive.codexConnector, toolSummaries }], missingAppIds: [] });
+    const response = (toolSummaries: unknown[]) => ({ apps: [{ id: HOSTED_APPS.teams.codexConnector, toolSummaries }], missingAppIds: [] });
     const tool = { name: 'get_profile', isReadOnly: true, isEnabled: true };
-    expect(profilePermission('drive', response([tool]))).toBe('allowed');
-    expect(profilePermission('drive', response([{ ...tool, isEnabled: false }]))).toBe('disabled');
-    expect(profilePermission('teams', response([tool]))).toBe('unknown');
-    expect(profilePermission('drive', response([{ ...tool, isReadOnly: false }]))).toBe('unknown');
-    expect(profilePermission('drive', response([tool, tool]))).toBe('unknown');
+    expect(profilePermission('teams', response([tool]))).toBe('allowed');
+    expect(profilePermission('teams', response([{ ...tool, isEnabled: false }]))).toBe('disabled');
+    expect(profilePermission('slack', response([tool]))).toBe('unknown');
+    expect(profilePermission('teams', response([{ ...tool, isReadOnly: false }]))).toBe('unknown');
+    expect(profilePermission('teams', response([tool, tool]))).toBe('unknown');
   });
 
   it('enforces the tool origin, app, link, zero arguments and unique target', () => {
-    const match = () => catalog('drive');
-    expect(profileTool('drive', match())).toEqual({ name: names.drive, link: 'link-fixture' });
+    const match = () => catalog('teams');
+    expect(profileTool('teams', match())).toEqual({ name: names.teams, link: 'link-fixture' });
     for (const change of [
       (r: ReturnType<typeof match>) => {
         r.data[0].httpOrigin = 'https://example.test';
       },
       (r: ReturnType<typeof match>) => {
-        r.data[0].tools[names.drive]._meta.connector_id = HOSTED_APPS.teams.codexConnector as typeof HOSTED_APPS.drive.codexConnector;
+        r.data[0].tools[names.teams]._meta.connector_id = HOSTED_APPS.slack.codexConnector as typeof HOSTED_APPS.teams.codexConnector;
       },
       (r: ReturnType<typeof match>) => {
-        r.data[0].tools[names.drive]._meta.link_id = 'synthetic_link::test';
+        r.data[0].tools[names.teams]._meta.link_id = 'synthetic_link::test';
       },
       (r: ReturnType<typeof match>) => {
-        Object.assign(r.data[0].tools[names.drive].inputSchema, { required: ['user_id'] });
+        Object.assign(r.data[0].tools[names.teams].inputSchema, { required: ['user_id'] });
       },
       (r: ReturnType<typeof match>) => {
         const name = 'another_account.get_profile';
-        r.data[0].tools[name] = { ...r.data[0].tools[names.drive], name };
+        r.data[0].tools[name] = { ...r.data[0].tools[names.teams], name };
       },
     ]) {
       const r = match();
       change(r);
-      expect(profileTool('drive', r)).toBeUndefined();
+      expect(profileTool('teams', r)).toBeUndefined();
     }
   });
 
   it.each([
     ['teams', { id: 'guid', userPrincipalName: 'fixture@example.test' }],
-    ['drive', { user: { emailAddress: 'fixture@example.test', permissionId: 'fixture' } }],
     ['slack', { user: { id: 'U12345', profile: { display_name: 'Fixture' } } }],
   ] as const)('checks actual structured %s profile evidence and ignores setup text or failures', (app, data) => {
     const jsonProfile = [{ type: 'text', text: JSON.stringify(data) }];
@@ -244,12 +242,12 @@ describe('hosted connector checks', () => {
           nativeItems: (): NativeItemsOff => {
             if (!changed) return {};
             if (reason === 'server') return { mcp: ['codex_apps'] };
-            if (reason === 'package') return { plugins: [HOSTED_APPS.drive.codexPackage] };
-            if (reason === 'tool') return { mcpTools: [JSON.stringify(['codex_apps', names.drive])] };
+            if (reason === 'package') return { plugins: [HOSTED_APPS.teams.codexPackage] };
+            if (reason === 'tool') return { mcpTools: [JSON.stringify(['codex_apps', names.teams])] };
             return {};
           },
         });
-        expect(await checks.check('drive', 'codex', 'chosen', true)).toBe(
+        expect(await checks.check('teams', 'codex', 'chosen', true)).toBe(
           reason === 'account' || reason === 'home' ? 'unknown' : 'disabled',
         );
         expect(calls.filter((m) => m.method === 'mcpServer/tool/call')).toHaveLength(phase === 'before' ? 0 : 1);
@@ -264,9 +262,9 @@ describe('hosted connector checks', () => {
     vi.stubEnv('CODEX_HOME', '/fixture-inherited-codex');
     try {
       const checks = new HostedAppChecks({ ...settings, accountHome: () => configured });
-      const previous = checks.check('drive', 'codex', '');
+      const previous = checks.check('teams', 'codex', '');
       configured = '/fixture-configured-codex';
-      const fresh = checks.check('drive', 'codex', '');
+      const fresh = checks.check('teams', 'codex', '');
       expect(await fresh).toBe('available');
       expect(await previous).toBe('unknown');
       expect(probe).toHaveBeenCalledTimes(2);
@@ -313,10 +311,10 @@ describe('hosted connector checks', () => {
       return { stderr: '', timedOut: false };
     });
     const checks = new HostedAppChecks({ ...settings, nativeOff: (): NativePart[] => (disabled ? ['mcp'] : []) });
-    const active = checks.check('drive', 'codex', 'account', true);
+    const active = checks.check('teams', 'codex', 'account', true);
     await entered;
     disabled = true;
-    expect(await checks.check('drive', 'codex', 'account')).toBe('disabled');
+    expect(await checks.check('teams', 'codex', 'account')).toBe('disabled');
     expect(signal!.aborted).toBe(true);
     expect(await active).toBe('disabled');
   });
@@ -325,11 +323,11 @@ describe('hosted connector checks', () => {
     const { calls, probe } = mockCodex();
     const checks = new HostedAppChecks(settings);
     expect(
-      await Promise.all([checks.check('drive', 'codex', 'A'), checks.check('teams', 'codex', 'A'), checks.check('slack', 'codex', 'B')]),
+      await Promise.all([checks.check('teams', 'codex', 'A'), checks.check('slack', 'codex', 'A'), checks.check('slack', 'codex', 'B')]),
     ).toEqual(['available', 'not-found', 'not-found']);
     expect(probe).toHaveBeenCalledTimes(2);
     expect(calls.some((m) => m.method === 'thread/start')).toBe(false);
-    expect(await checks.check('drive', 'codex', 'A', true)).toBe('connected');
+    expect(await checks.check('teams', 'codex', 'A', true)).toBe('connected');
     expect(probe).toHaveBeenCalledTimes(3);
     const thread = calls.find((m) => m.method === 'thread/start')!.params;
     expect(probe.mock.calls.at(-1)![0].args.some((arg) => arg.startsWith('sqlite_home='))).toBe(false);
@@ -346,9 +344,9 @@ describe('hosted connector checks', () => {
       {
         params: {
           server: 'codex_apps',
-          tool: names.drive,
+          tool: names.teams,
           arguments: {},
-          _meta: { connector_id: HOSTED_APPS.drive.codexConnector, link_id: 'link-fixture' },
+          _meta: { connector_id: HOSTED_APPS.teams.codexConnector, link_id: 'link-fixture' },
         },
       },
     ]);

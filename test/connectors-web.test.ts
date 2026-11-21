@@ -3,23 +3,24 @@ import { MAIL_PRESETS, calendarForm, calendarUpdate, mailForm, mailUpdate, newAc
 
 describe("the mail and calendar accounts' forms", () => {
   it("fills in a provider's servers, saves what the form says, and keeps the password unless one is typed", () => {
-    const gmail = MAIL_PRESETS.find((p) => p.id === 'gmail')!;
-    const f = { ...withPreset(mailForm(), gmail), address: 'Me <me@gmail.com>' };
+    expect(MAIL_PRESETS.map((p) => p.id)).not.toContain('gmail');
+    const fastmail = MAIL_PRESETS.find((p) => p.id === 'fastmail')!;
+    const f = { ...withPreset(mailForm(), fastmail), address: 'Me <me@fastmail.com>' };
     expect(f).toMatchObject({
-      name: 'Gmail',
-      imapHost: 'imap.gmail.com',
+      name: 'Fastmail',
+      imapHost: 'imap.fastmail.com',
       imapPort: '993',
       imapSecurity: 'tls',
-      smtpHost: 'smtp.gmail.com',
+      smtpHost: 'smtp.fastmail.com',
       smtpPort: '465',
     });
     // The user name is the bare address unless one is given.
     expect(mailUpdate(f)).toEqual({
-      name: 'Gmail',
-      address: 'Me <me@gmail.com>',
-      username: 'me@gmail.com',
-      imap: { host: 'imap.gmail.com', port: 993, security: 'tls' },
-      smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' },
+      name: 'Fastmail',
+      address: 'Me <me@fastmail.com>',
+      username: 'me@fastmail.com',
+      imap: { host: 'imap.fastmail.com', port: 993, security: 'tls' },
+      smtp: { host: 'smtp.fastmail.com', port: 465, security: 'tls' },
     });
     expect(mailUpdate({ ...f, password: 'abcd efgh', username: 'other' })).toMatchObject({ password: 'abcd efgh', username: 'other' });
     const saved = {
@@ -33,7 +34,7 @@ describe("the mail and calendar accounts' forms", () => {
     };
     expect(mailForm(saved)).toMatchObject({ name: 'Work', password: '', imapPort: '1', imapSecurity: 'starttls' });
     // A preset keeps a name already typed.
-    expect(withPreset({ ...mailForm(), name: 'Mine' }, gmail).name).toBe('Mine');
+    expect(withPreset({ ...mailForm(), name: 'Mine' }, fastmail).name).toBe('Mine');
   });
 
   it('saves a calendar without an empty address or password', () => {

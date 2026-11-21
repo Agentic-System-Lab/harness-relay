@@ -27,11 +27,4 @@ export const HOSTED_APPS = {
     codexPlugin: 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644',
     codexConnector: 'connector_246af0940da3457da0e751171dc1ce60',
   },
-  drive: {
-    codexPackage: 'google-drive@openai-curated-remote',
-    claudeName: 'claude.ai Google Drive',
-    claudeDirectory: 'b89f7865-a755-4f86-8062-c3bd651740ce',
-    codexPlugin: 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7',
-    codexConnector: 'connector_5f3c8c41a1e54ad7a76272c89e2554fa',
-  },
 } as const;

@@ -239,6 +239,8 @@ export interface OAuthClientView {
   provider: OAuthProviderId;
   clientId: string;
   builtIn: boolean;
+  /** The registration and grants are kept, but no services can use them until enabled again. */
+  disabled?: boolean;
   /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */
@@ -461,7 +463,7 @@ export type TeamsConnection =
   | { status: 'connected'; account: string; canPost?: true; posting?: TeamsPostingState }
   | { status: 'error'; message: string };
 
-export type HostedApp = 'slack' | 'teams' | 'drive';
+export type HostedApp = 'slack' | 'teams';
 export type HostedProvider = 'claude' | 'codex';
 /** A passive Codex check reports runtime availability. Only its explicit self-profile check can report connected. */
 export type HostedAppStatus = 'connected' | 'available' | 'needs-auth' | 'not-found' | 'disabled' | 'unknown';

@@ -49,6 +49,8 @@ export function AppSignIn({
   button,
   buttonLabel,
   rowDescription,
+  disabled = false,
+  describedBy,
 }: {
   name: string;
   oauth?: McpServerView['oauth'];
@@ -58,6 +60,8 @@ export function AppSignIn({
   button?: ReactNode;
   buttonLabel?: string;
   rowDescription?: string;
+  disabled?: boolean;
+  describedBy?: string;
 }) {
   const { t, lang } = useI18n();
   const descriptionId = useId();
@@ -127,8 +131,8 @@ export function AppSignIn({
               type="button"
               className={rowDescription ? 'app-quick-action' : 'ghost small-button'}
               aria-label={buttonLabel}
-              aria-describedby={rowDescription ? descriptionId : undefined}
-              disabled={busy || under}
+              aria-describedby={describedBy ?? (rowDescription ? descriptionId : undefined)}
+              disabled={disabled || busy || under}
               onClick={() => void withPage(startRequest)}
             >
               {rowDescription && <AppRowCopy name={name} description={rowDescription} descriptionId={descriptionId} />}

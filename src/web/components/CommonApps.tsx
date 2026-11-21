@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   type ConnectorsView,
+  type OAuthAccountView,
   type OAuthView,
   type ObsidianVault,
   type RelayToolGroup,
@@ -9,16 +10,17 @@ import {
 } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { oauthClientStatus } from '../oauth';
 import { AppSignIn } from './McpSignIn';
 import { HostedAppRow, type HostedAccounts } from './HostedAppLinks';
 import { ChevronIcon } from './icons';
+import { OAuthClientSettings, OAuthSetupHint } from './OAuthAccounts';
 import { AppRow } from './AppRow';
 import { GoogleProjectConnection } from './GoogleProjectConnection';
 import { SlackAppRow } from './SlackAppRow';
 import { TeamsSignIn } from './TeamsSignIn';
 import { GithubConnectionRow } from './GithubConnectionRow';
 
-const accounts = { drive: 'Google Drive', teams: 'Microsoft Teams' } as const;
 const remote = { notion: 'Notion', heptabase: 'Heptabase' } as const;
 type Change = (call: () => Promise<ToolLibraryView>, report?: (error: string) => void) => Promise<boolean>;
 
@@ -50,78 +52,36 @@ export function CommonApps({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [teams, setTeams] = useState<TeamsConnection>();
-  const connectedAccountRow = (use: keyof typeof accounts) => {
-    const provider = use === 'teams' ? 'microsoft' : 'google';
-    const linked =
-      oauth?.accounts.filter(
-        (x) => x.provider === provider && (x.uses.includes(use) || (use === 'drive' && x.uses.includes('documents'))),
-      ) ?? [];
-    const nativeTeams = use === 'teams' ? teams : undefined;
-    const pending =
-      nativeTeams?.status === 'signing-in' ||
-      nativeTeams?.status === 'installing' ||
-      (nativeTeams?.status === 'connected' && nativeTeams.posting?.status === 'signing-in');
-    const account = nativeTeams?.status === 'connected' ? nativeTeams.account : linked[0]?.email;
-    const status = linked.some((x) => x.status === 'reauth')
-      ? t.connectors.oauth.reauth
-      : pending
-        ? a.inProgress
-        : account
-          ? (use === 'drive' && !linked[0]?.uses.includes('documents') ? a.driveReadOnly : a.directConnection) +
-            ' · ' +
-            account +
-            ' · ' +
-            t.connectors.oauth.connected
-          : undefined;
-    return (
-      <HostedAppRow active={activeApps} app={use} key={use} accounts={hostedAccounts} directStatus={status} reveal={pending}>
-        {linked.map((x) => (
-          <div key={x.id}>
-            <span>
-              {use === 'drive' && (x.uses.includes('documents') ? a.docsEnabled : a.driveReadOnly) + ' · '}
-              {x.email} · {x.status === 'reauth' ? t.connectors.oauth.reauth : t.connectors.oauth.connected}
-            </span>
-            {x.status === 'reauth' && (
-              <AppSignIn
-                name={accounts[use]}
-                startRequest={() => api.startOAuthSignIn(provider, x.uses, false, x.id)}
-                onDone={refreshAccounts}
-                button={t.connectors.oauth.signInAgain}
-              />
-            )}
-            <button
-              className="link-button"
-              onClick={async () => {
-                if (!confirm(a.confirmAccount(x.email, x.uses.map((u) => t.connectors.oauth.uses[u]).join(t.common.listSeparator)))) return;
-                try {
-                  const removed = await api.removeOAuthAccount(x.id);
-                  setNotice(
-                    removed.permissionsPages?.length
-                      ? t.connectors.oauth.removedMicrosoft(removed.permissionsPages.join(t.common.listSeparator))
-                      : '',
-                  );
-                  await refreshAccounts();
-                } catch (e) {
-                  setError((e as Error).message);
-                }
-              }}
-            >
-              {a.disconnect}
-            </button>
-          </div>
-        ))}
-        {use === 'teams' ? (
-          <TeamsSignIn view={teams} setView={setTeams} />
-        ) : (
-          <GoogleProjectConnection
-            accounts={oauth?.accounts.filter((x) => x.provider === 'google') ?? []}
-            client={oauth?.clients.find((c) => c.provider === 'google')}
-            onDone={refreshAccounts}
-          />
-        )}
-        {(linked.length > 0 || nativeTeams?.status === 'connected') && relayAccess(use)}
-      </HostedAppRow>
-    );
+  const linkedTeams = oauth?.accounts.filter((x) => x.provider === 'microsoft' && x.uses.includes('teams')) ?? [];
+  const microsoftClient = oauth?.clients.find((client) => client.provider === 'microsoft');
+  const microsoftState = oauthClientStatus(microsoftClient);
+  const pendingTeams =
+    teams?.status === 'signing-in' ||
+    teams?.status === 'installing' ||
+    (teams?.status === 'connected' && teams.posting?.status === 'signing-in');
+  const teamsAccount = teams?.status === 'connected' ? teams.account : linkedTeams[0]?.email;
+  const teamsStatus =
+    teams?.status !== 'connected' && linkedTeams.length && microsoftState !== 'ready'
+      ? t.connectors.oauth.clientState[microsoftState]
+      : linkedTeams.some((x) => x.status === 'reauth')
+        ? t.connectors.oauth.reauth
+        : pendingTeams
+          ? a.inProgress
+          : teamsAccount
+            ? [a.directConnection, teamsAccount, t.connectors.oauth.connected].join(' · ')
+            : undefined;
+  const disconnect = async (account: OAuthAccountView) => {
+    const uses = account.uses.map((use) => t.connectors.oauth.uses[use]).join(t.common.listSeparator);
+    if (!confirm(a.confirmAccount(account.email, uses))) return;
+    try {
+      const removed = await api.removeOAuthAccount(account.id);
+      setNotice(
+        removed.permissionsPages?.length ? t.connectors.oauth.removedMicrosoft(removed.permissionsPages.join(t.common.listSeparator)) : '',
+      );
+      await refreshAccounts();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
   return (
     <>
@@ -136,6 +96,7 @@ export function CommonApps({
         </p>
       )}
       <div className="common-apps">
+        <OAuthClientSettings view={oauth} onSaved={refreshAccounts} />
         <AppGroup name={a.categories.schedule}>
           {(['mail', 'calendar'] as const).map((kind) => {
             const count = connectors?.[kind].length ?? 0;
@@ -162,11 +123,45 @@ export function CommonApps({
           })}
         </AppGroup>
         <AppGroup name={a.categories.team}>
-          {connectedAccountRow('teams')}
+          <HostedAppRow active={activeApps} app="teams" accounts={hostedAccounts} directStatus={teamsStatus} reveal={pendingTeams}>
+            {linkedTeams.map((account) => (
+              <div key={account.id}>
+                <span>
+                  {account.email} ·{' '}
+                  {microsoftState !== 'ready'
+                    ? t.connectors.oauth.clientState[microsoftState]
+                    : account.status === 'reauth'
+                      ? t.connectors.oauth.reauth
+                      : t.connectors.oauth.connected}
+                </span>
+                {account.status === 'reauth' && (
+                  <AppSignIn
+                    disabled={microsoftState !== 'ready'}
+                    name="Microsoft Teams"
+                    startRequest={() => api.startOAuthSignIn('microsoft', account.uses, false, account.id)}
+                    onDone={refreshAccounts}
+                    button={t.connectors.oauth.signInAgain}
+                  />
+                )}
+                <button className="link-button" onClick={() => void disconnect(account)}>
+                  {a.disconnect}
+                </button>
+              </div>
+            ))}
+            {linkedTeams.length > 0 && microsoftClient && microsoftState !== 'ready' && <OAuthSetupHint client={microsoftClient} />}
+            <TeamsSignIn view={teams} setView={setTeams} />
+            {(linkedTeams.length > 0 || teams?.status === 'connected') && relayAccess('teams')}
+          </HostedAppRow>
           <SlackAppRow active={activeApps} lib={lib} accounts={hostedAccounts} access={relayAccess('slack')} change={change} />
         </AppGroup>
         <AppGroup name={a.categories.notes}>
-          {connectedAccountRow('drive')}
+          <GoogleProjectConnection
+            accounts={oauth?.accounts.filter((x) => x.provider === 'google') ?? []}
+            client={oauth?.clients.find((c) => c.provider === 'google')}
+            onDone={refreshAccounts}
+            onDisconnect={disconnect}
+            access={relayAccess('drive')}
+          />
           {(Object.keys(remote) as (keyof typeof remote)[]).map((key) => {
             const server = lib.mcpServers.find((s) => s.app === key);
             const signIn = (

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import type { OAuthView, TeamsConnection } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
 
@@ -21,11 +21,42 @@ import { expect, test as base } from '../fixtures';
  * account, then removed with it.
  */
 
-async function openApp(page: Page, name: 'Mail' | 'Calendar') {
+async function openApp(page: Page, name: 'Mail' | 'Calendar' | 'Google Drive') {
   const row = page.locator('.common-apps').getByRole('listitem', { name, exact: true });
   const details = row.locator(':scope > details');
   if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await details.locator(':scope > summary').click();
   return row;
+}
+
+function signInSettings(page: Page) {
+  return page.locator('details#oauth-client-settings');
+}
+
+async function expectSetupNeeded(section: Locator, provider: 'Google' | 'Microsoft', action: string) {
+  const trigger = section.getByRole('button', { name: action, exact: true });
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveJSProperty('disabled', true);
+  await expect(section.getByRole('button', { name: 'Set up ' + provider + ' sign-in', exact: true })).toBeEnabled();
+  await expect(section.getByRole('link', { name: provider + ' OAuth 2.0 setup guide', exact: true })).toHaveAttribute(
+    'href',
+    'https://agentic-system-lab.github.io/harness-relay/docs/tools/#' + provider.toLowerCase() + '-oauth-setup',
+  );
+}
+
+async function selectUnconfigured(section: Locator, provider: 'Google' | 'Microsoft', name: string) {
+  const choice = section.getByRole('button', { name, exact: true });
+  await expect(section.locator('.oauth-setup-hint')).toHaveCount(0);
+  await expect(choice).toBeEnabled();
+  await choice.click();
+  await expect(choice).toHaveAttribute('aria-pressed', 'true');
+  await expectSetupNeeded(section, provider, provider === 'Google' ? 'Sign in with Google' : 'Sign in with Microsoft 365 / Outlook.com');
+  await expect(section.locator('.oauth-setup-hint')).toHaveCount(1);
+}
+
+async function verticalGap(above: Locator, below: Locator) {
+  const a = (await above.boundingBox())!;
+  const b = (await below.boundingBox())!;
+  return b.y - a.y - a.height;
 }
 
 interface FakeMicrosoft {
@@ -213,13 +244,12 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
     }),
 });
 
-base('ten common apps offer provider-owned connections and separate Mail and Calendar account settings', async ({ page, relay }) => {
+base('the common apps keep provider connections for Teams and Slack and use Google OAuth for Drive', async ({ page, relay }) => {
   await page.goto(relay.base + '/#/settings/apps');
   const apps = page.locator('.common-apps');
   await expect(apps.locator('.app-row')).toHaveCount(10);
   for (const name of ['Gmail', 'Google Calendar']) await expect(apps.getByRole('listitem', { name, exact: true })).toHaveCount(0);
   for (const [name, claude, codex] of [
-    ['Google Drive', 'b89f7865-a755-4f86-8062-c3bd651740ce', 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7'],
     ['Microsoft Teams', 'ce0c9cda-5ea5-44c5-9cf2-40810dfa6582', 'plugin_connector_1p_eba8b52fe53881918408d4b46b957644'],
     ['Slack', '597f662f-36de-437e-836e-5a81013cbfbe', 'plugin_asdk_app_69a1d78e929881919bba0dbda1f6436d'],
   ]) {
@@ -237,72 +267,299 @@ base('ten common apps offer provider-owned connections and separate Mail and Cal
       'https://chatgpt.com/plugins/' + codex,
     );
   }
-  const drive = apps.getByRole('listitem', { name: 'Google Drive', exact: true });
+  const drive = await openApp(page, 'Google Drive');
+  await expect(drive.getByRole('link', { name: /in Claude|in Codex/ })).toHaveCount(0);
+  await expect(drive.getByText(/Connected in (Claude|Codex)/)).toHaveCount(0);
   await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
   await expect(drive.getByText(/before Relay writes/)).toBeVisible();
-  await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
-  const plugin = drive.getByRole('link', { name: 'Connect Google Drive in Codex' });
+  const slack = apps.getByRole('listitem', { name: 'Slack', exact: true });
+  const plugin = slack.getByRole('link', { name: 'Connect Slack in Codex' });
   const url = (await plugin.getAttribute('href'))!;
   await page.context().route(url, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Install plugin</title>' }));
   const [tab] = await Promise.all([page.waitForEvent('popup'), plugin.click()]);
   await expect(tab).toHaveURL(url);
   await tab.close();
-  await expect(drive).not.toContainText(/· Connected/);
+  await expect(slack).not.toContainText(/· Connected/);
   await expect(page).toHaveURL(/#\/settings\/apps$/);
-  const driveRow = drive.locator('.app-options > summary');
-  if (!(await drive.locator('.app-options').evaluate((el) => (el as HTMLDetailsElement).open))) await driveRow.click();
+});
+
+base('Mail, Calendar and Drive open the same Google registration and use its saved settings', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings/apps');
+  const panel = signInSettings(page);
+  const summary = panel.locator(':scope > summary');
+  await expect(summary).toHaveText('Account sign-in settings (OAuth 2.0)');
+  await expect(summary).toBeVisible();
+  await expect(panel).toHaveJSProperty('open', false);
+  await summary.click();
+  for (const provider of ['Google', 'Microsoft']) {
+    await expect(panel.getByRole('group', { name: provider, exact: true })).toContainText('Not set up');
+  }
+  await summary.click();
+  const firstApp = page.getByRole('listitem', { name: 'Mail', exact: true });
+  expect((await summary.boundingBox())!.y).toBeLessThan((await firstApp.boundingBox())!.y);
+  await expect(panel.locator('xpath=ancestor::*[@role="listitem" or self::li]')).toHaveCount(0);
+  const google = panel.getByRole('form', { name: 'Google sign-in settings' });
+  const clientId = google.getByRole('textbox', { name: 'Client ID' });
+  const secret = google.getByLabel('Client secret');
   const mail = await openApp(page, 'Mail');
-  await mail.getByRole('button', { name: 'Gmail', exact: true }).click();
-  const google = mail.locator('.oauth-provider').filter({ hasText: 'Google' });
-  await google.getByRole('button', { name: 'Set up the app' }).click();
-  const mailForm = google.getByRole('form');
-  await mailForm.getByLabel('Client ID', { exact: true }).fill('unfinished-account');
-  await drive.getByText('Advanced · Connect with your own Google Cloud project').click();
-  await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toHaveCount(0);
-  await drive.getByRole('button', { name: 'Set up Google Cloud project' }).click();
-  const form = drive.getByRole('form');
-  await form.getByLabel('Client ID', { exact: true }).fill('456-user.apps.googleusercontent.com');
-  await driveRow.click();
-  await expect(form).toBeHidden();
-  await driveRow.click();
-  await expect(form.getByLabel('Client ID', { exact: true })).toHaveValue('456-user.apps.googleusercontent.com');
-  await form.locator('input[type=password]').fill('GOCSPX-sample');
-  await form.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(drive.getByRole('button', { name: 'Connect directly with Google' })).toBeVisible();
-  await expect(mailForm.getByRole('alert')).toContainText('This shared registration was updated elsewhere');
-  await expect(mailForm.getByLabel('Client ID', { exact: true })).toHaveValue('unfinished-account');
-  await expect(mailForm.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await mailForm.getByRole('button', { name: 'Cancel' }).click();
-  await expect(google.getByRole('button', { name: /Sign in with Google/ })).toBeEnabled();
-  // A saved Google registration can finish after Outlook. Its late response must not replace the newer settings.
   const calendar = await openApp(page, 'Calendar');
+  const drive = await openApp(page, 'Google Drive');
+  for (const [row, action] of [
+    [mail, 'Gmail'],
+    [calendar, 'Google Calendar'],
+    [drive, 'Connect Google Drive'],
+  ] as const) {
+    if (row === drive) await expectSetupNeeded(row, 'Google', action);
+    else await selectUnconfigured(row, 'Google', action);
+    const setup = row.getByRole('button', { name: 'Set up Google sign-in', exact: true });
+    await setup.press('Enter');
+    await expect(panel).toHaveJSProperty('open', true);
+    await expect(clientId).toBeFocused();
+    await expect(row.getByRole('form')).toHaveCount(0);
+    await expect(clientId).toHaveValue('');
+    if (row !== drive) {
+      await clientId.fill('cancelled-draft');
+      await google.getByRole('button', { name: 'Cancel' }).click();
+      await expect(google).toBeHidden();
+      await expect(panel).toHaveJSProperty('open', false);
+      await expect(setup).toBeFocused();
+    }
+  }
+  await clientId.fill('first.apps.googleusercontent.com');
+  await secret.fill('fixture-secret');
+  await google.getByRole('button', { name: 'Save' }).click();
+  const signIn = 'Sign in with Google';
+  for (const row of [mail, calendar]) {
+    const actions = row.locator('.oauth-provider');
+    await expect(actions.getByRole('button')).toHaveText([signIn]);
+    await expect(actions.getByRole('link')).toHaveCount(0);
+    await expect(actions.locator('input')).toHaveCount(0);
+  }
+  await expect(drive.getByRole('button', { name: 'Connect Google Drive' })).toBeEnabled();
+  await page.reload();
+
+  // Reopen the saved registration directly and edit it once for all three services.
+  await summary.press('Enter');
+  await panel.getByRole('button', { name: 'Google sign-in settings' }).click();
+  await expect(clientId).toHaveValue('first.apps.googleusercontent.com');
+  await expect(secret).toHaveValue('');
+  const editedId = 'edited.apps.googleusercontent.com';
+  await clientId.fill(editedId);
+  await secret.fill('edited-fixture-secret');
+  await google.getByRole('button', { name: 'Save' }).click();
+  await expect(google).toBeHidden();
+  await openApp(page, 'Mail');
+  await openApp(page, 'Calendar');
+  await mail.getByRole('button', { name: 'Gmail', exact: true }).click();
   await calendar.getByRole('button', { name: 'Google Calendar', exact: true }).click();
-  await calendar.getByRole('button', { name: 'The app to sign in with', exact: true }).click();
-  const googleCalendarForm = calendar.getByRole('form');
-  let resumeGoogle!: () => void;
+  await page.context().route('https://accounts.google.com/o/oauth2/v2/auth*', (route) => route.fulfill({ body: 'Fixture sign-in' }));
+  for (const [row, button, scope] of [
+    [mail, signIn, 'https://mail.google.com/'],
+    [calendar, signIn, 'https://www.googleapis.com/auth/calendar'],
+    [drive, 'Connect Google Drive', 'https://www.googleapis.com/auth/drive.readonly'],
+  ] as const) {
+    const trigger = row.getByRole('button', { name: button, exact: true });
+    const [popup] = await Promise.all([page.waitForEvent('popup'), trigger.click()]);
+    await popup.waitForURL('https://accounts.google.com/o/oauth2/v2/auth*');
+    const params = new URL(popup.url()).searchParams;
+    expect(params.get('client_id')).toBe(editedId);
+    expect(params.get('scope')!.split(' ').sort()).toEqual(['openid', 'email', 'profile', scope].sort());
+    await popup.close();
+    await row.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toBeEnabled();
+  }
+});
+
+base(
+  'an incomplete Google registration disables Google actions while Outlook and manual accounts remain available',
+  async ({ page, relay }) => {
+    const id = 'partial.apps.googleusercontent.com';
+    await relay.api('/api/oauth/clients/google', { method: 'PUT', body: { clientId: id } });
+    await relay.api('/api/oauth/clients/microsoft', { method: 'PUT', body: { clientId: 'ready-microsoft' } });
+    await page.goto(relay.base + '/#/settings/apps');
+    const mail = await openApp(page, 'Mail');
+    const calendar = await openApp(page, 'Calendar');
+    for (const [row, service] of [
+      [mail, 'Gmail'],
+      [calendar, 'Google Calendar'],
+    ] as const) {
+      await selectUnconfigured(row, 'Google', service);
+      await row.getByRole('button', { name: 'Outlook', exact: true }).click();
+      await expect(row.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com', exact: true })).toBeEnabled();
+      await expect(row.getByRole('button', { name: 'Sign in on another device', exact: true })).toBeEnabled();
+      await expect(row.getByRole('button', { name: 'Set up Microsoft sign-in', exact: true })).toHaveCount(0);
+      await expect(row.getByRole('link', { name: 'Microsoft OAuth 2.0 setup guide', exact: true })).toHaveCount(0);
+    }
+    // Both rows currently show Outlook. Clearing its registration also disables the actions already on screen.
+    const settings = signInSettings(page);
+    await settings.locator(':scope > summary').click();
+    await settings.getByRole('button', { name: 'Microsoft sign-in settings' }).click();
+    const microsoft = settings.getByRole('form', { name: 'Microsoft sign-in settings' });
+    await microsoft.getByRole('textbox', { name: 'Client ID' }).fill('');
+    await microsoft.getByRole('button', { name: 'Save' }).click();
+    for (const row of [mail, calendar]) {
+      await expectSetupNeeded(row, 'Microsoft', 'Sign in with Microsoft 365 / Outlook.com');
+      await expect(row.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' })).toHaveJSProperty('disabled', true);
+      await expect(row.getByRole('button', { name: 'Sign in on another device' })).toHaveJSProperty('disabled', true);
+    }
+    await mail.getByRole('button', { name: 'iCloud Mail', exact: true }).click();
+    await expect(mail.getByRole('form', { name: 'iCloud Mail' }).getByLabel('App-specific password')).toBeEditable();
+    await calendar.getByRole('button', { name: 'Other (CalDAV)', exact: true }).click();
+    await expect(calendar.getByRole('form', { name: 'Add a calendar' }).getByLabel('Password', { exact: true })).toBeEditable();
+    const drive = await openApp(page, 'Google Drive');
+    await expectSetupNeeded(drive, 'Google', 'Connect Google Drive');
+    const docsSummary = drive.locator('summary', { hasText: 'Create or edit Google Docs in Relay' });
+    const docs = docsSummary.locator('..');
+    await docsSummary.click();
+    await expectSetupNeeded(docs, 'Google', 'Enable document editing');
+    await docs.getByRole('button', { name: 'Set up Google sign-in', exact: true }).click();
+    const google = signInSettings(page).getByRole('form', { name: 'Google sign-in settings' });
+    await expect(google.getByRole('textbox', { name: 'Client ID' })).toHaveValue(id);
+    await google.getByLabel('Client secret').fill('missing-secret');
+    await google.getByRole('button', { name: 'Save', exact: true }).click();
+    for (const [row, service] of [
+      [mail, 'Gmail'],
+      [calendar, 'Google Calendar'],
+    ] as const) {
+      await row.getByRole('button', { name: service, exact: true }).click();
+      await expect(row.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeEnabled();
+      const outlook = row.getByRole('button', { name: 'Outlook', exact: true });
+      await expect(outlook).toBeEnabled();
+      await expect(row.locator('.oauth-setup-hint')).toHaveCount(0);
+      await outlook.click();
+      await expectSetupNeeded(row, 'Microsoft', 'Sign in with Microsoft 365 / Outlook.com');
+    }
+    await expect(drive.getByRole('button', { name: 'Connect Google Drive', exact: true })).toBeEnabled();
+    await expect(docs.getByRole('button', { name: 'Enable document editing', exact: true })).toBeEnabled();
+    await expect(drive.getByRole('link', { name: /OAuth 2.0 setup guide/ })).toHaveCount(0);
+  },
+);
+
+for (const lang of ['en', 'zh-TW'] as const) {
+  base.describe(lang + ' OAuth setup guides', () => {
+    base.use({ lang });
+    base('links to both providers first and to the selected provider while editing', async ({ page, relay }) => {
+      await page.goto(relay.base + '/#/settings/apps');
+      const panel = signInSettings(page);
+      await panel.locator(':scope > summary').press('Enter');
+      const guide = 'https://agentic-system-lab.github.io/harness-relay/' + (lang === 'en' ? '' : 'zh-TW/') + 'docs/tools/#';
+      const linkName = lang === 'en' ? ' OAuth 2.0 setup guide' : ' OAuth 2.0 設定圖解';
+      const editName = lang === 'en' ? ' sign-in settings' : ' 登入設定';
+      const drive = await openApp(page, 'Google Drive');
+      const inlineGuide = drive.getByRole('link', { name: 'Google' + linkName, exact: true });
+      await expect(inlineGuide).toBeVisible();
+      await expect(inlineGuide).toHaveAttribute('href', guide + 'google-oauth-setup');
+      await expect(panel.getByRole('link')).toHaveCount(2);
+      for (const provider of ['Google', 'Microsoft']) {
+        const link = panel.getByRole('link', { name: provider + linkName, exact: true });
+        await expect(link).toHaveAttribute('href', guide + provider.toLowerCase() + '-oauth-setup');
+      }
+      for (const provider of ['Google', 'Microsoft']) {
+        await panel.getByRole('button', { name: provider + editName, exact: true }).click();
+        await expect(panel.getByRole('link')).toHaveCount(1);
+        await expect(panel.getByRole('link')).toHaveAccessibleName(provider + linkName);
+      }
+    });
+  });
+}
+
+base('a delayed OAuth save preserves a newer draft and a failed save can be retried', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings/apps');
+  const panel = signInSettings(page);
+  await panel.locator(':scope > summary').press('Enter');
+  const googleButton = panel.getByRole('button', { name: 'Google sign-in settings' });
+  const microsoftButton = panel.getByRole('button', { name: 'Microsoft sign-in settings' });
+  const google = panel.getByRole('form', { name: 'Google sign-in settings' });
+  const microsoft = panel.getByRole('form', { name: 'Microsoft sign-in settings' });
+  await googleButton.click();
+  const clientId = google.getByRole('textbox', { name: 'Client ID' });
+  const save = google.getByRole('button', { name: 'Save' });
+  await clientId.fill('saved.apps.googleusercontent.com');
+  await google.getByLabel('Client secret').fill('fixture-secret');
+  let releaseSave!: () => void;
   const resume = new Promise<void>((resolve) => {
-    resumeGoogle = resolve;
+    releaseSave = resolve;
   });
-  let googleSaved = false;
-  await page.route('**/api/oauth/clients/google', async (route) => {
-    const response = await route.fetch();
-    googleSaved = response.ok();
-    await resume;
-    await route.fulfill({ response });
-  });
-  await googleCalendarForm.locator('input[type=password]').fill('GOCSPX-sample-updated');
-  await googleCalendarForm.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => googleSaved).toBe(true);
-  await calendar.getByRole('button', { name: 'Outlook', exact: true }).click();
-  await calendar.getByRole('button', { name: 'Set up the app' }).click();
-  await calendar.getByRole('textbox', { name: 'Client ID', exact: true }).fill('example-outlook');
-  await calendar.getByRole('button', { name: 'Save', exact: true }).click();
-  const outlook = calendar.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' });
-  await expect(outlook).toBeVisible();
-  const reread = page.waitForResponse((r) => r.url().endsWith('/api/oauth') && r.ok());
-  resumeGoogle();
-  await reread;
-  await expect(outlook).toBeVisible();
+  let saved = false;
+  await page.route(
+    '**/api/oauth/clients/google',
+    async (route) => {
+      const response = await route.fetch();
+      saved = response.ok();
+      await resume;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await save.click();
+  await expect.poll(() => saved).toBe(true);
+
+  // While the first editor waits for its save response, open a fresh draft of the same registration.
+  await microsoftButton.click();
+  await expect(microsoft).toBeVisible();
+  await googleButton.click();
+  await clientId.fill('new-draft.apps.googleusercontent.com');
+  releaseSave();
+  await expect(google.getByRole('alert')).toContainText('This shared registration was updated elsewhere');
+  await expect(clientId).toHaveValue('new-draft.apps.googleusercontent.com');
+  await expect(save).toBeDisabled();
+  await google.getByRole('button', { name: 'Cancel' }).click();
+  await googleButton.click();
+  await expect(clientId).toHaveValue('saved.apps.googleusercontent.com');
+
+  await microsoftButton.click();
+  const msId = microsoft.getByRole('textbox', { name: 'Client ID' });
+  const msSave = microsoft.getByRole('button', { name: 'Save' });
+  await msId.fill('outlook-fixture');
+  await page.route(
+    '**/api/oauth/clients/microsoft',
+    (route) => route.fulfill({ status: 503, json: { error: 'Could not save settings' } }),
+    { times: 1 },
+  );
+  await msSave.click();
+  await expect(microsoft).toContainText('Could not save settings');
+  await expect(msId).toHaveValue('outlook-fixture');
+  await msSave.click();
+  await expect(microsoft).toBeHidden();
+  const clients = (await relay.api<OAuthView>('/api/oauth')).clients;
+  expect(clients.find((client) => client.provider === 'microsoft')?.clientId).toBe('outlook-fixture');
+  expect(clients.find((client) => client.provider === 'google')?.clientId).toBe('saved.apps.googleusercontent.com');
+});
+
+base('OAuth setup leaves room between hints, actions and the shared editor on desktop and phones', async ({ page, relay }) => {
+  await page.goto(relay.base + '/#/settings/apps');
+  const mail = await openApp(page, 'Mail');
+  const calendar = await openApp(page, 'Calendar');
+  await selectUnconfigured(mail, 'Google', 'Gmail');
+  await selectUnconfigured(calendar, 'Microsoft', 'Outlook');
+  const panel = signInSettings(page);
+  await panel.locator(':scope > summary').press('Enter');
+  const google = panel.getByRole('button', { name: 'Google sign-in settings' });
+  const microsoft = panel.getByRole('button', { name: 'Microsoft sign-in settings' });
+  await google.click();
+  const form = panel.getByRole('form', { name: 'Google sign-in settings' });
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await verticalGap(panel.locator('p').first(), google)).toBeGreaterThanOrEqual(16);
+    expect(await verticalGap(microsoft, form)).toBeGreaterThanOrEqual(16);
+    const bounds = (await form.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+    for (const row of [mail, calendar]) {
+      const hints = row.locator('.oauth-setup-hint');
+      await expect(hints).toHaveCount(1);
+      for (const hint of await hints.all()) {
+        const guide = hint.getByRole('link');
+        const setup = hint.getByRole('button');
+        expect(await verticalGap(hint.locator('p').first(), setup)).toBeGreaterThanOrEqual(16);
+        for (const action of [guide, setup]) {
+          const box = (await action.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+        }
+      }
+    }
+  }
 });
 
 base('manual mail and calendar settings stay usable if OAuth settings cannot load', async ({ page, relay }) => {
@@ -312,7 +569,7 @@ base('manual mail and calendar settings stay usable if OAuth settings cannot loa
   const mail = await openApp(page, 'Mail');
   await mail.getByRole('button', { name: 'Other mailbox' }).click();
   const mailbox = mail.getByRole('form');
-  await mailbox.getByLabel('Provider').selectOption('gmail');
+  await mailbox.getByLabel('Provider').selectOption('fastmail');
   await mailbox.getByLabel('Name', { exact: true }).fill('Work mail');
   await mailbox.getByLabel('Your address (mail is sent from it)').fill('work@example.com');
   await mailbox.getByLabel('Password', { exact: true }).fill('sample-password');
@@ -460,12 +717,11 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   const app = await openApp(page, 'Calendar');
   const accounts = app.locator('.oauth-accounts');
   await expect(accounts.getByRole('heading', { name: 'Choose your calendar service' })).toBeVisible();
-  await expect(accounts.getByRole('button', { name: 'Set up the app' })).toHaveCount(0);
-  await accounts.getByRole('button', { name: 'Outlook', exact: true }).click();
+  await selectUnconfigured(accounts, 'Microsoft', 'Outlook');
   // No app of Harness Relay's own yet: the user's, with the addresses its registration must allow.
   await expect(accounts.getByRole('form')).toHaveCount(0);
-  await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
-  const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });
+  await accounts.getByRole('button', { name: 'Set up Microsoft sign-in' }).click();
+  const form = signInSettings(page).getByRole('form', { name: 'Microsoft sign-in settings' });
   await expect(form).toContainText('http://127.0.0.1/oauth/callback');
   await form.getByRole('textbox', { name: 'Client ID' }).fill('e2e-client');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
@@ -547,10 +803,10 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
 }) => {
   await page.goto(`${relay.base}/#/settings/apps`);
   const app = await openApp(page, 'Mail');
-  await app.getByRole('button', { name: 'Outlook', exact: true }).click();
   const accounts = app.locator('.oauth-accounts');
-  await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
-  const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });
+  await selectUnconfigured(accounts, 'Microsoft', 'Outlook');
+  await accounts.getByRole('button', { name: 'Set up Microsoft sign-in' }).click();
+  const form = signInSettings(page).getByRole('form', { name: 'Microsoft sign-in settings' });
   await form.getByRole('textbox', { name: 'Client ID' }).fill('e2e-client');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
 
@@ -601,14 +857,21 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   // Adding calendar access explicitly preserves the Mail grant on the same account.
   const calendar = await openApp(page, 'Calendar');
   const calendarAccounts = calendar.locator('.oauth-accounts');
-  await calendarAccounts.getByText('Use an existing sign-in', { exact: true }).click();
-  const [consent] = await Promise.all([page.waitForEvent('popup'), calendar.getByRole('button', { name: 'Use for calendars' }).click()]);
+  await calendarAccounts.getByRole('button', { name: 'Outlook', exact: true }).click();
+  await expect(calendarAccounts.getByText('Use an existing sign-in', { exact: true })).toHaveCount(0);
+  await expect(calendarAccounts.getByRole('button', { name: 'Use for calendars' })).toHaveCount(0);
+  const [consent] = await Promise.all([
+    page.waitForEvent('popup'),
+    calendarAccounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' }).click(),
+  ]);
   await expect(accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' })).toBeDisabled();
   await expect(accounts.getByRole('status')).toContainText('Finish or cancel the sign-in in Calendar first.');
   await expect(consent.getByRole('link', { name: 'Allow' })).toBeVisible();
-  const scopes = new URL(consent.url()).searchParams.get('scope');
+  const consentParams = new URL(consent.url()).searchParams;
+  expect(consentParams.has('login_hint')).toBe(false);
+  const scopes = consentParams.get('scope');
   expect(scopes).toContain('Calendars.ReadWrite');
-  expect(scopes).toContain('IMAP.AccessAsUser.All');
+  expect(scopes).not.toContain('IMAP.AccessAsUser.All');
   expect(scopes).not.toContain('Channel.Read');
   await consent.getByRole('link', { name: 'Allow' }).click();
   await expect(consent.getByRole('link', { name: "Back to Harness Relay's Settings" })).toHaveAttribute('href', '/#/settings/apps');
@@ -619,6 +882,13 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   expect(shared[0]?.uses).toEqual(['calendar', 'mail']);
   const calendars = calendar.getByRole('list', { name: 'Calendars', exact: true });
   await expect(calendars).toContainText('Outlook · ming@contoso.com');
+
+  await own.getByRole('button', { name: 'Test' }).click();
+  await expect.poll(() => mail.signIns.length).toBe(4);
+  expect(mail.signIns.slice(2)).toEqual([
+    { server: 'imap', user: 'ming@contoso.com', ok: true },
+    { server: 'smtp', user: 'ming@contoso.com', ok: true },
+  ]);
 
   // The sign-in can expire even after its mailbox was removed. Warn on the collapsed row,
   // then reauthorize all existing uses without silently adding the mailbox back.
@@ -645,6 +915,39 @@ test('an account signed in with Microsoft for mail adds its mail account, whose 
   await expect(mailList).toHaveCount(0);
   await row.getByRole('button', { name: 'Use for mail' }).click();
   await expect(own).toBeVisible();
+
+  // The mailbox Test re-reads the account state. A late reply must preserve a newer central settings change.
+  const panel = signInSettings(page);
+  if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) await panel.locator(':scope > summary').click();
+  const ms = panel.getByRole('group', { name: 'Microsoft', exact: true });
+  await expect(ms).toContainText('Configured');
+  let releaseRead!: () => void;
+  const holdRead = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let snapshotTaken = false;
+  await page.route(
+    '**/api/oauth',
+    async (route) => {
+      const response = await route.fetch();
+      expect(((await response.json()) as OAuthView).clients.find((c) => c.provider === 'microsoft')?.disabled).toBeFalsy();
+      snapshotTaken = true;
+      await holdRead;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await own.getByRole('button', { name: 'Test' }).click();
+  await expect.poll(() => snapshotTaken).toBe(true);
+  page.once('dialog', (d) => d.accept());
+  await ms.getByRole('button', { name: 'Turn off', exact: true }).click();
+  await expect(ms).toContainText('Turned off');
+  const oldReply = page.waitForResponse('**/api/oauth');
+  releaseRead();
+  await (await oldReply).finished();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(ms).toContainText('Turned off');
+  await expect(accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' })).toBeDisabled();
 
   // Removing this shared sign-in identifies both services before either is disconnected.
   const removing = page.waitForEvent('dialog');

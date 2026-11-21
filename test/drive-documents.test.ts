@@ -57,7 +57,7 @@ describe('direct Google Docs proposals', () => {
       agentState: {},
       worktrees: {},
     } as Conversation);
-    store.saveClient('google', { clientId: 'desk' });
+    store.saveClient('google', { clientId: 'desk', secret: 'fixture-secret' });
     id = signIn();
     base = docs;
     oauth = new OAuthService(store, new ConnectorStore(db), { provider: (_id, client) => ({ ...googleProvider(client), docsApi: base }) });
@@ -275,7 +275,7 @@ describe('direct Google Docs proposals', () => {
     signIn(['drive', 'documents'], [scope], 'editor@example.test');
     expect((await propose('create', preview)).isError).toBe(true);
     const original = store.account(id)!;
-    for (const reason of ['subject', 'scope', 'status', 'email', 'project', 'origin']) {
+    for (const reason of ['subject', 'scope', 'status', 'email', 'project', 'origin', 'disabled', 'incomplete']) {
       await propose('create', { ...preview, account: email });
       const item = outbox.list('c').at(-1)!;
       const saved = { ...original, scopes: [...original.scopes] };
@@ -283,11 +283,14 @@ describe('direct Google Docs proposals', () => {
       if (reason === 'scope') original.scopes = [];
       if (reason === 'status') original.status = 'reauth';
       if (reason === 'email') original.email = 'different@example.test';
-      if (reason === 'project') store.saveClient('google', { clientId: 'other' });
+      if (reason === 'project') store.saveClient('google', { clientId: 'other', secret: 'other-secret' });
       if (reason === 'origin') base = docs + '/different';
+      if (reason === 'disabled') oauth.setClientDisabled('google', true);
+      if (reason === 'incomplete') oauth.saveClient('google', { clientId: 'desk', secret: '' });
       expect((await answer(item.id)).status).toBe('failed');
       Object.assign(original, saved);
-      store.saveClient('google', { clientId: 'desk' });
+      oauth.setClientDisabled('google', false);
+      store.saveClient('google', { clientId: 'desk', secret: 'fixture-secret' });
       base = docs;
     }
     expect(calls).toEqual([]);

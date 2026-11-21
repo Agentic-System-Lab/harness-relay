@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import '../toolLibrary.css';
 import {
   type CheckList,
@@ -61,11 +61,11 @@ export function ToolsCard({
   const [oauthError, setOauthError] = useState('');
   const [connectorError, setConnectorError] = useState('');
   const oauthRead = useRef(0);
-  const reloadOAuth = async () => {
+  const reloadOAuth = useCallback(async () => {
     const id = ++oauthRead.current;
     const current = await api.oauth();
     if (id === oauthRead.current) setOauth(current);
-  };
+  }, []);
   const refreshAccounts = async () => {
     setOauthError('');
     setConnectorError('');
@@ -150,14 +150,7 @@ export function ToolsCard({
               }}
               connectors={connectors}
               accountSettings={(kind) => (
-                <ConnectorsSettings
-                  kind={kind}
-                  view={connectors}
-                  setView={setConnectors}
-                  oauth={oauth}
-                  setOauth={setOauth}
-                  reloadOAuth={reloadOAuth}
-                />
+                <ConnectorsSettings kind={kind} view={connectors} setView={setConnectors} oauth={oauth} reloadOAuth={reloadOAuth} />
               )}
               relayAccess={(group) => <RelayAccess group={group} lib={lib} change={(call) => change(call, setAppError)} />}
               browserSettings={<BrowserPath lib={lib} change={(call) => change(call, setAppError)} />}

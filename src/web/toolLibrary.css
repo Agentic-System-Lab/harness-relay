@@ -105,7 +105,7 @@
 }
 /* Keep supporting text and its next action apart in all common app panels. */
 .common-apps .app-row-body {
-  gap: 12px;
+  gap: 16px;
 }
 .common-apps .app-secondary > .app-row-body {
   padding-inline: 0;
@@ -136,9 +136,35 @@
   }
 }
 
+.oauth-settings {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.oauth-settings-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+
+.oauth-client-list,
+.oauth-setup-hint {
+  display: grid;
+  gap: 16px;
+}
+.oauth-client-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.oauth-setup-hint > .form-actions {
+  margin: 0;
+}
 .service-setup {
   display: grid;
-  gap: 8px;
+  gap: 16px;
   min-width: 0;
 }
 .library-connectors > .oauth-accounts {

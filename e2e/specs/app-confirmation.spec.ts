@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Locator, Page } from '@playwright/test';
+import type { OAuthView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { checkToolOff, openCommonApp, selectAssistant } from '../support/app-access';
 import { finishedReply, openTeamChat, send } from '../support/app';
@@ -121,9 +123,12 @@ test.describe('Slack workspace posting', () => {
 });
 
 test('common app disclosure typography matches and setup labels stay above fields on desktop and phone', async ({ page, relay }) => {
+  await relay.api('/api/oauth/clients/google', {
+    method: 'PUT',
+    body: { clientId: 'layout.apps.googleusercontent.com', secret: 'layout' },
+  });
   await page.goto(relay.base + '/#/settings/apps');
   const row = page.getByRole('listitem', { name: 'Google Drive', exact: true });
-  await row.locator('.app-options > summary').click();
   const mailStyle = page.getByRole('listitem', { name: 'Mail', exact: true });
   await mailStyle.locator('.app-options > summary').click();
   const typography = (e: Element) => {
@@ -137,28 +142,18 @@ test('common app disclosure typography matches and setup labels stay above field
     await expect(row.getByText('Choose assistants to enable this tool')).toHaveCount(0);
   }
   const docs = row.locator('.app-secondary').filter({ has: page.getByText('Create or edit Google Docs in Relay', { exact: true }) });
-  const project = row
-    .locator('.app-secondary')
-    .filter({ has: page.getByText('Advanced · Connect with your own Google Cloud project', { exact: true }) });
   await docs.locator('summary').click();
-  for (const panel of [docs, project]) {
-    if (panel === project) await panel.locator('summary').click();
-    for (const width of [1280, 390, 320]) {
-      await page.setViewportSize({ width, height: 900 });
-      const setup = row.getByRole('button', { name: 'Set up Google Cloud project', exact: true });
-      await expect(setup).toHaveCount(1);
-      const text = await panel.locator('p').first().boundingBox();
-      const button = await setup.boundingBox();
-      expect(button!.y - text!.y - text!.height).toBeGreaterThanOrEqual(11);
-    }
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const help = (await docs.locator('p').first().boundingBox())!;
+    const action = (await docs.getByRole('button', { name: 'Enable document editing', exact: true }).boundingBox())!;
+    expect(action.y - help.y - help.height).toBeGreaterThanOrEqual(16);
   }
-  await project.locator('summary').click();
-  await docs.locator('summary').click();
-  await mailStyle.locator('.app-options > summary').click();
+  const teams = page.getByRole('listitem', { name: 'Microsoft Teams', exact: true });
+  await teams.locator('.app-options > summary').click();
   const calendar = page.getByRole('listitem', { name: 'Calendar', exact: true });
   await calendar.locator('.app-options > summary').click();
-  const mail = page.getByRole('listitem', { name: 'Mail', exact: true });
-  await mail.locator('.app-options > summary').click();
+  const mail = mailStyle;
   const firstContentGap = async (row: typeof calendar, first: typeof calendar) => {
     const summary = await row.locator('.app-options > summary').boundingBox();
     const content = await first.boundingBox();
@@ -166,7 +161,7 @@ test('common app disclosure typography matches and setup labels stay above field
   };
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    const baseline = await firstContentGap(row, row.locator('.app-row-body > p').first());
+    const baseline = await firstContentGap(teams, teams.locator('.app-row-body > p').first());
     expect(await firstContentGap(calendar, calendar.getByRole('heading', { name: 'Choose your calendar service' }))).toBeCloseTo(
       baseline,
       0,
@@ -220,15 +215,14 @@ test('Apple Calendar starts from its own button and saves only a selected iCloud
   await row.locator('.app-options > summary').press('Enter');
   const trigger = row.getByRole('button', { name: 'iCloud Calendar' });
   const choices = row.getByRole('group', { name: 'Choose your calendar service' });
-  await expect(choices.getByRole('button')).toHaveText(['iCloud Calendar', 'Google Calendar', 'Outlook', 'Other (CalDAV)']);
+  await expect(choices.getByRole('button')).toHaveText(['Google Calendar', 'iCloud Calendar', 'Outlook', 'Other (CalDAV)']);
   await expect(row.getByRole('form')).toHaveCount(0);
-  await expect(row.getByRole('button', { name: 'Set up the app' })).toHaveCount(0);
+  await expect(row.locator('.oauth-setup-hint')).toHaveCount(0);
   await choices.getByRole('button', { name: 'Google Calendar' }).click();
-  await expect(row.getByRole('button', { name: 'Set up the app' })).toHaveCount(1);
-  await expect(row.getByText('To sign in with Google', { exact: false })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Sign in with Google' })).toBeDisabled();
+  await expect(row.getByRole('button', { name: 'Set up Google sign-in', exact: true })).toBeEnabled();
   await choices.getByRole('button', { name: 'Other (CalDAV)' }).click();
   await expect(row.getByRole('form', { name: 'Add a calendar' })).toBeVisible();
-  await expect(row.getByRole('button', { name: 'Set up the app' })).toHaveCount(0);
   await trigger.press('Enter');
   const form = row.getByRole('form', { name: 'Connect Apple Calendar (iCloud)' });
   const email = form.getByRole('textbox', { name: 'Apple Account email' });
@@ -322,7 +316,7 @@ test('GitHub sign-out confirms the shared CLI account and permits signing back i
   await expect(signOut).toBeVisible();
 });
 
-test('Mail shows one service at a time and saves Gmail and iCloud mailboxes without server fields', async ({ page, relay }) => {
+test('Mail keeps Google sign-in separate from manual mailboxes and saves iCloud without server fields', async ({ page, relay }) => {
   let releaseOAuth!: () => void;
   const oauthReply = new Promise<void>((resolve) => {
     releaseOAuth = resolve;
@@ -335,44 +329,34 @@ test('Mail shows one service at a time and saves Gmail and iCloud mailboxes with
   const mail = page.getByRole('listitem', { name: 'Mail', exact: true });
   await mail.locator('.app-options > summary').press('Enter');
   const choices = mail.getByRole('group', { name: 'Choose your mail service' });
-  await expect(choices.getByRole('button')).toHaveText(['Gmail', 'Outlook', 'iCloud Mail', 'Other mailbox']);
+  await expect(choices.getByRole('button')).toHaveText(['Gmail', 'iCloud Mail', 'Outlook', 'Other mailbox']);
   await expect(mail.getByRole('form')).toHaveCount(0);
-  await expect(mail.getByRole('button', { name: 'Set up the app' })).toHaveCount(0);
-  await choices.getByRole('button', { name: 'Gmail' }).click();
-  const gmail = mail.getByRole('form', { name: 'Use a Gmail app password' });
-  await gmail.getByLabel('Email address').fill('discard@example.test');
-  await gmail.getByLabel('App-specific password').fill('discard-me');
+  await expect(mail.getByRole('button', { name: 'Set up Google sign-in', exact: true })).toHaveCount(0);
+  const gmail = choices.getByRole('button', { name: 'Gmail', exact: true });
+  const service = choices.getByRole('button', { name: 'iCloud Mail', exact: true });
+  await service.press('Enter');
+  const form = mail.getByRole('form', { name: 'iCloud Mail' });
+  const address = 'icloud.finance.approvals@example-industries.test';
+  await form.getByLabel('Email address').fill(address);
+  await form.getByLabel('App-specific password').fill('demo-only');
   releaseOAuth();
-  await expect(choices.getByRole('button', { name: 'Outlook' })).toBeEnabled();
-  await expect(gmail.getByLabel('App-specific password')).toBeFocused();
-  await expect(gmail.getByLabel('App-specific password')).toHaveValue('discard-me');
-  await choices.getByRole('button', { name: 'Outlook' }).click();
-  await expect(gmail).toHaveCount(0);
-  await expect(mail.locator('.oauth-provider')).toContainText('Microsoft');
-  const stored = () => relay.api<import('../../src/shared/types').ConnectorsView>('/api/connectors');
-  for (const [button, provider, host] of [
-    ['iCloud Mail', 'icloud', 'imap.mail.me.com'],
-    ['Gmail', 'gmail', 'imap.gmail.com'],
-  ]) {
-    const service = choices.getByRole('button', { name: button, exact: true });
-    await service.press('Enter');
-    const form = mail.getByRole('form', { name: provider === 'icloud' ? 'iCloud Mail' : 'Use a Gmail app password' });
-    await expect(form.getByLabel('App-specific password')).toHaveValue('');
-    await expect(form.locator('input')).toHaveCount(2);
-    const address = provider + '.finance.approvals@example-industries.test';
-    await form.getByLabel('Email address').fill(address);
-    await form.getByLabel('App-specific password').fill('demo-only');
-    await form.getByRole('button', { name: 'Save' }).click();
-    await expect(mail.getByRole('list', { name: 'Mail accounts' })).toContainText(address);
-    await expect(service).toBeFocused();
-    const saved = (await stored()).mail.find((m) => m.address === address);
-    expect(saved).toMatchObject({
-      username: address,
-      imap: { host },
-      smtp: { host: provider === 'gmail' ? 'smtp.gmail.com' : 'smtp.mail.me.com' },
-    });
-    expect(JSON.stringify(saved)).not.toContain('demo-only');
-  }
+  await expect(mail.getByRole('button', { name: 'Set up Google sign-in', exact: true })).toHaveCount(0);
+  await expect(gmail).toBeEnabled();
+  await expect(form.getByLabel('App-specific password')).toBeFocused();
+  await expect(form.getByLabel('App-specific password')).toHaveValue('demo-only');
+  await expect(form.locator('input')).toHaveCount(2);
+  await form.getByRole('button', { name: 'Save' }).click();
+  await expect(mail.getByRole('list', { name: 'Mail accounts' })).toContainText(address);
+  await expect(service).toBeFocused();
+  const stored = await relay.api<import('../../src/shared/types').ConnectorsView>('/api/connectors');
+  expect(stored.mail[0]).toMatchObject({ username: address, imap: { host: 'imap.mail.me.com' }, smtp: { host: 'smtp.mail.me.com' } });
+  expect(JSON.stringify(stored)).not.toContain('demo-only');
+  await expect(mail.locator('.oauth-setup-hint')).toHaveCount(0);
+  await gmail.click();
+  await expect(mail.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeDisabled();
+  await expect(mail.getByRole('button', { name: 'Set up Google sign-in', exact: true })).toBeVisible();
+  await expect(mail.getByRole('form')).toHaveCount(0);
+  await expect(mail.locator('input[type=password]')).toHaveCount(0);
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     const panel = (await mail.boundingBox())!;
@@ -385,6 +369,7 @@ test('Mail shows one service at a time and saves Gmail and iCloud mailboxes with
   }
   await choices.getByRole('button', { name: 'Other mailbox' }).click();
   const manual = mail.getByRole('form', { name: 'Add a mail account' });
+  await expect(manual.getByRole('option', { name: 'Gmail', exact: true })).toHaveCount(0);
   await manual.getByLabel('Provider').selectOption('fastmail');
   await expect(manual.getByLabel('IMAP server', { exact: true })).toHaveValue('imap.fastmail.com');
   await manual.getByLabel('Password', { exact: true }).fill('old-fastmail-pass');
@@ -393,15 +378,46 @@ test('Mail shows one service at a time and saves Gmail and iCloud mailboxes with
   await expect(manual.getByLabel('IMAP server', { exact: true })).toHaveValue('imap.mail.yahoo.com');
 });
 
+test('a saved Gmail password mailbox can still be edited', async ({ page, relay }) => {
+  const address = 'previous@gmail.com';
+  await relay.api('/api/connectors/mail/previous-gmail', {
+    method: 'PUT',
+    body: {
+      name: 'Previous Gmail',
+      address,
+      username: address,
+      password: 'fixture-app-password',
+      imap: { host: 'imap.gmail.com', port: 993, security: 'tls' },
+      smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' },
+    },
+  });
+  const row = await openCommonApp(page, relay, 'Mail');
+  await row.getByRole('listitem').filter({ hasText: 'Previous Gmail' }).getByRole('button', { name: 'Edit' }).click();
+  const edit = row.getByRole('form', { name: 'Edit Previous Gmail' });
+  await expect(edit.getByLabel('IMAP server', { exact: true })).toHaveValue('imap.gmail.com');
+  await expect(edit.getByLabel('SMTP server', { exact: true })).toHaveValue('smtp.gmail.com');
+  await edit.getByRole('textbox', { name: 'Name', exact: true }).fill('Renamed Gmail');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(row.getByRole('listitem').filter({ hasText: 'Renamed Gmail' })).toBeVisible();
+  const view = await relay.api<import('../../src/shared/types').ConnectorsView>('/api/connectors');
+  expect(view.mail[0]).toMatchObject({
+    id: 'previous-gmail',
+    address,
+    name: 'Renamed Gmail',
+    imap: { host: 'imap.gmail.com' },
+    smtp: { host: 'smtp.gmail.com' },
+  });
+  expect(view.mail[0]!.password).toBeTruthy();
+});
+
 test.describe('Google Docs editing with Relay confirmation', () => {
   test.use({ serverEnv: { NODE_OPTIONS: '--import=' + new URL('../support/google-documents.mjs', import.meta.url).href } });
 
-  test('the Google Docs write grant allows exact create and edit previews that wait for confirmation', async ({ page, relay }) => {
-    const stateFile = join(relay.dataDir, 'google-docs-state.json');
-    const state = (): { id: string; title: string; content: string; revision: number; creates: number; updates: number } =>
-      JSON.parse(readFileSync(stateFile, 'utf8'));
-    const email = 'editor@example.test';
-    const docsScope = 'https://www.googleapis.com/auth/documents';
+  const email = 'editor@example.test';
+  const docsScope = 'https://www.googleapis.com/auth/documents';
+  const driveScope = 'https://www.googleapis.com/auth/drive.readonly';
+
+  test.beforeEach(async ({ page, relay }) => {
     await relay.api('/api/oauth/clients/google', {
       method: 'PUT',
       body: { clientId: 'fixture.apps.googleusercontent.com', secret: 'fake' },
@@ -411,29 +427,182 @@ test.describe('Google Docs editing with Relay confirmation', () => {
       if (url.origin + url.pathname !== 'https://accounts.google.com/o/oauth2/v2/auth') return route.abort();
       const q = url.searchParams;
       expect(q.get('client_id')).toBe('fixture.apps.googleusercontent.com');
-      expect(q.get('scope')!.split(' ').sort()).toEqual(['openid', 'email', 'profile', docsScope].sort());
       expect(q.get('code_challenge_method')).toBe('S256');
       const redirect = q.get('redirect_uri')!;
       expect(redirect).toBe(relay.base + '/oauth/callback');
       expect(q.get('state')).toBeTruthy();
-      writeFileSync(join(relay.dataDir, 'google-docs-consent.json'), JSON.stringify({ challenge: q.get('code_challenge'), redirect }));
+      writeFileSync(
+        join(relay.dataDir, 'google-docs-consent.json'),
+        JSON.stringify({ challenge: q.get('code_challenge'), redirect, scopes: q.get('scope')!.split(' ') }),
+      );
       const back = new URL(redirect);
       back.searchParams.set('state', q.get('state')!);
       back.searchParams.set('code', 'fixture-docs-code');
       await route.fulfill({
         contentType: 'text/html',
-        body: '<a href="' + back.href.replaceAll('&', '&amp;') + '">Allow Google Docs editing</a>',
+        body: '<a href="' + back.href.replaceAll('&', '&amp;') + '">Allow Google access</a>',
       });
     });
+  });
+
+  async function authorize(page: Page, trigger: Locator, scopes: string[], loginHint: string | null = null) {
+    const [tab] = await Promise.all([page.waitForEvent('popup'), trigger.click()]);
+    const allow = tab.getByRole('link', { name: 'Allow Google access' });
+    await expect(allow).toBeVisible();
+    const q = new URL(tab.url()).searchParams;
+    expect(q.get('scope')!.split(' ').sort()).toEqual(['openid', 'email', 'profile', ...scopes].sort());
+    expect(q.get('login_hint')).toBe(loginHint);
+    await allow.click();
+    await expect(tab.getByRole('status')).toHaveText('Signed in as ' + email + '.');
+    await tab.close();
+  }
+
+  async function manageDrive(drive: Locator) {
+    const details = drive.locator('.app-options');
+    const summary = details.locator(':scope > summary');
+    await expect(summary).toContainText('Manage');
+    if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await summary.click();
+  }
+
+  test('Drive starts with read-only access, adds Docs editing to the same account and disconnects both grants', async ({ page, relay }) => {
     await page.goto(relay.base + '/#/settings/apps');
     const drive = page.getByRole('listitem', { name: 'Google Drive', exact: true });
-    await drive.locator('.app-options > summary').click();
+    const connect = drive.getByRole('button', { name: 'Connect Google Drive', exact: true });
+    const summary = drive.locator('.app-options > summary');
+    await expect(summary).toBeHidden();
+    await authorize(page, connect, [driveScope]);
+    await expect(summary).toContainText('Drive file search and reading');
+    await expect(summary).not.toContainText('Google Docs editing enabled');
+    const accounts = async () => (await relay.api<OAuthView>('/api/oauth')).accounts;
+    const [readOnly] = await accounts();
+    expect(readOnly).toMatchObject({ email, uses: ['drive'], status: 'connected' });
+
+    await page.reload();
+    await manageDrive(drive);
     await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
-    const [auth] = await Promise.all([page.waitForEvent('popup'), drive.getByRole('button', { name: 'Enable document editing' }).click()]);
-    await auth.getByRole('link', { name: 'Allow Google Docs editing' }).click();
-    await expect(auth.getByRole('status')).toHaveText('Signed in as ' + email + '.');
-    await auth.close();
-    await expect(drive).toContainText(email);
+    await authorize(page, drive.getByRole('button', { name: 'Enable editing for ' + email, exact: true }), [driveScope, docsScope], email);
+    await expect(summary).toContainText('Google Docs editing enabled');
+    await expect(summary).toContainText('Drive file search and reading');
+    const updated = await accounts();
+    expect(updated).toHaveLength(1);
+    expect(updated[0]!.id).toBe(readOnly!.id);
+    expect([...updated[0]!.uses].sort()).toEqual(['documents', 'drive']);
+    await selectAssistant(drive, true);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Drive search');
+    await send(page, '{"query":"Planning"} e2e:mcp=drive_search');
+    await expect(await finishedReply(page, 'Claude')).toContainText('Planning notes');
+    const chat = page.url();
+    await page.goto(relay.base + '/#/settings/apps');
+    await manageDrive(drive);
+    const disconnect = drive.getByRole('button', { name: 'Disconnect', exact: true });
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain(email);
+      expect(dialog.message()).toContain('Google Docs editing');
+      expect(dialog.message()).toContain('Google Drive');
+      await dialog.dismiss();
+    });
+    await disconnect.click();
+    await expect(disconnect).toBeEnabled();
+    expect(await accounts()).toHaveLength(1);
+    page.once('dialog', (dialog) => dialog.accept());
+    await disconnect.click();
+    await expect(connect).toBeVisible();
+    await expect(summary).toBeHidden();
+    await expect(drive.locator('.app-chat-access')).toHaveCount(0);
+    expect(await accounts()).toEqual([]);
+    expect(JSON.parse(readFileSync(join(relay.dataDir, 'google-docs-consent.json'), 'utf8')).revoked).toBe(true);
+    await page.goto(chat);
+    await send(page, 'Search again: {"query":"Planning"} e2e:mcp=drive_search');
+    await expect(await finishedReply(page, 'Claude')).toContainText('drive_search cannot be used now: Connect an account');
+  });
+
+  test('turning off Google pauses its connected account across reloads and turning it on restores access', async ({ page, relay }) => {
+    await relay.api('/api/oauth/clients/microsoft', { method: 'PUT', body: { clientId: 'fixture-microsoft' } });
+    await page.goto(relay.base + '/#/settings/apps');
+    const drive = page.getByRole('listitem', { name: 'Google Drive', exact: true });
+    const connect = drive.getByRole('button', { name: 'Connect Google Drive', exact: true });
+    await authorize(page, connect, [driveScope]);
+    await expect(drive.locator('.app-options > summary')).toContainText(email);
+    await selectAssistant(drive, true);
+    const mail = page.getByRole('listitem', { name: 'Mail', exact: true });
+    const calendar = page.getByRole('listitem', { name: 'Calendar', exact: true });
+    await mail.locator('.app-options > summary').click();
+    await calendar.locator('.app-options > summary').click();
+    await mail.getByRole('button', { name: 'Gmail', exact: true }).click();
+    await calendar.getByRole('button', { name: 'Outlook', exact: true }).click();
+    const gmail = mail.getByRole('button', { name: 'Sign in with Google', exact: true });
+    const outlook = calendar.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com', exact: true });
+    const panel = page.locator('#oauth-client-settings');
+    await panel.locator(':scope > summary').click();
+    const google = panel.getByRole('group', { name: 'Google', exact: true });
+    const microsoft = panel.getByRole('group', { name: 'Microsoft', exact: true });
+    await expect(google).toContainText('Configured');
+    await expect(microsoft).toContainText('Configured');
+    const turnOff = google.getByRole('button', { name: 'Turn off', exact: true });
+    page.once('dialog', async (dialog) => {
+      for (const app of ['Gmail', 'Google Calendar', 'Google Drive']) expect(dialog.message()).toContain(app);
+      await dialog.dismiss();
+    });
+    await turnOff.click();
+    await expect(gmail).toBeEnabled();
+    await expect(google).toContainText('Configured');
+    const accounts = async () => (await relay.api<OAuthView>('/api/oauth')).accounts;
+    const before = await accounts();
+    expect(before).toHaveLength(1);
+    page.once('dialog', (dialog) => dialog.accept());
+    await turnOff.click();
+    await expect(google).toContainText('Turned off');
+    const gmailChoice = mail.getByRole('button', { name: 'Gmail', exact: true });
+    await expect(gmailChoice).toBeEnabled();
+    await expect(gmailChoice).toHaveAttribute('aria-pressed', 'true');
+    await expect(mail.locator('.oauth-setup-hint')).toContainText(/Google sign-in is turned off/i);
+    await expect(mail.getByRole('button', { name: 'Google sign-in settings' })).toBeEnabled();
+    await expect(mail.getByRole('link', { name: 'Google OAuth 2.0 setup guide' })).toBeVisible();
+    await expect(gmail).toHaveJSProperty('disabled', true);
+    await expect(connect).toHaveJSProperty('disabled', true);
+    await expect(outlook).toBeEnabled();
+    await expect(microsoft).toContainText('Configured');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Drive access');
+    const chat = page.url();
+    const search = '{"query":"Planning"} e2e:mcp=drive_search';
+    await send(page, search);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Google sign-in is disabled');
+
+    await page.goto(relay.base + '/#/settings/apps');
+    await page.reload();
+    await panel.locator(':scope > summary').click();
+    await expect(google).toContainText('Turned off');
+    await expect(microsoft).toContainText('Configured');
+    await manageDrive(drive);
+    const account = drive.getByRole('group', { name: email, exact: true });
+    await expect(account.getByRole('button', { name: 'Sign in again' })).toHaveJSProperty('disabled', true);
+    await expect(account.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    await google.getByRole('button', { name: 'Turn on', exact: true }).click();
+    await expect(google).toContainText('Configured');
+    await expect(connect).toBeEnabled();
+    await expect(account.getByRole('button', { name: 'Sign in again' })).toBeEnabled();
+    const after = await relay.api<OAuthView>('/api/oauth');
+    expect(after.accounts).toEqual(before);
+    expect(after.clients.find((item) => item.provider === 'google')).toMatchObject({
+      clientId: 'fixture.apps.googleusercontent.com',
+      secret: '••••',
+    });
+    await page.goto(chat);
+    await send(page, search);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Planning notes');
+  });
+
+  test('the Google Docs write grant allows exact create and edit previews that wait for confirmation', async ({ page, relay }) => {
+    const stateFile = join(relay.dataDir, 'google-docs-state.json');
+    const state = (): { id: string; title: string; content: string; revision: number; creates: number; updates: number } =>
+      JSON.parse(readFileSync(stateFile, 'utf8'));
+    await page.goto(relay.base + '/#/settings/apps');
+    const drive = page.getByRole('listitem', { name: 'Google Drive', exact: true });
+    await drive.getByText('Create or edit Google Docs in Relay', { exact: true }).click();
+    await authorize(page, drive.getByRole('button', { name: 'Enable document editing' }), [docsScope]);
+    await expect(drive.locator('.app-options > summary')).toContainText('Google Docs editing enabled');
+    await expect(drive.locator('.app-options > summary')).not.toContainText('Drive file search and reading');
+    await expect(drive.getByRole('button', { name: 'Enable Drive reading for ' + email })).toBeVisible();
     await drive.getByText('Choose assistants to enable this tool', { exact: true }).click();
     await drive.getByRole('button', { name: 'Claude Code', exact: true }).click();
     await expect(drive).toContainText('Assistants using this tool · 1');
@@ -493,9 +662,19 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(card).toContainText('Request a fresh preview.');
     expect(state()).toEqual(external);
     const chat = page.url();
-    const settings = await openCommonApp(page, relay, 'Google Drive');
-    await selectAssistant(settings, false);
+    await page.goto(relay.base + '/#/settings/apps');
+    await manageDrive(drive);
+    await selectAssistant(drive, false);
     await checkToolOff(page, chat, 'drive_edit_document', edit);
     expect(state()).toEqual(external);
+
+    // This account still exists if its installation loses the client secret later.
+    await relay.api('/api/oauth/clients/google', { method: 'PUT', body: { clientId: 'fixture.apps.googleusercontent.com', secret: '' } });
+    await page.goto(relay.base + '/#/settings/apps');
+    await manageDrive(drive);
+    const account = drive.getByRole('group', { name: email, exact: true });
+    await expect(account.getByRole('button', { name: 'Sign in again' })).toHaveJSProperty('disabled', true);
+    await expect(drive.getByRole('button', { name: 'Enable Drive reading for ' + email })).toHaveJSProperty('disabled', true);
+    await expect(account.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
   });
 });

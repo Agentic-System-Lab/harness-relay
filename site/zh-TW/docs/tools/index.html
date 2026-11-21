@@ -238,6 +238,8 @@
           <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
           <li><a href="#outbox">檢閱待送訊息、文件與筆記變更</a></li>
           <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
+          <li><a href="#google-oauth-setup">設定 Google OAuth 2.0</a></li>
+          <li><a href="#microsoft-oauth-setup">設定 Microsoft OAuth 2.0</a></li>
           <li><a href="#library">你的 MCP 伺服器、skill、記憶與 hook</a></li>
           <li><a href="#per-member">給單一成員的工具</a></li>
           <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
@@ -248,23 +250,23 @@
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">連結常用 App</h2>
           <p><b>常用 App</b> 在同一頁顯示四組服務。<b>郵件與行事曆</b>包含郵件和行事曆，<b>團隊通訊</b>包含 Microsoft Teams 和 Slack，<b>文件與筆記</b>包含 Google Drive、Notion、Heptabase 和 Obsidian，<b>開發與瀏覽</b>包含 GitHub 和瀏覽器。</p>
-          <p>在<b>常用 App</b> 分頁按 Drive、Teams 或 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。回到 Relay 後，「已在 Claude 連結」表示 Claude Code 回報連線成功；Codex 顯示可使用則表示該 App 已啟用且可呼叫。要核對授權的帳號或工作區，請在 Codex 的<b>設定 → 外掛（Plugins）</b>開啟該 App，查看已連結帳號。移除帳號後，App 仍可能顯示為可使用。按<b>重新檢查連線</b>或從供應商頁回來時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示<b>已在 Codex 連結</b>表示查詢成功，Relay 只顯示結果，不顯示個人資料。要解除連結，請在該供應商的管理頁移除連線，再回來確認狀態。各供應商與 Relay 的直接工具分別使用各自的授權。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
+          <p>在<b>常用 App</b> 分頁按 Teams 或 Slack 旁的<b>連結</b>，再選擇 Claude 或 Codex。使用 Claude Code 時，請用與 Relay 相同的 Claude 訂閱帳號授權。使用 Codex 時，請在自己的 ChatGPT 工作區安裝外掛、授權，再到 Relay 開啟新對話。回到 Relay 後，「已在 Claude 連結」表示 Claude Code 回報連線成功；Codex 顯示可使用則表示該 App 已啟用且可呼叫。要核對授權的帳號或工作區，請在 Codex 的<b>設定 → 外掛（Plugins）</b>開啟該 App，查看已連結帳號。移除帳號後，App 仍可能顯示為可使用。按<b>重新檢查連線</b>或從供應商頁回來時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示<b>已在 Codex 連結</b>表示查詢成功，Relay 只顯示結果，不顯示個人資料。要解除連結，請在該供應商的管理頁移除連線，再回來確認狀態。各供應商與 Relay 的直接工具分別使用各自的授權。所選服務會收到你請它讀取的內容，適用你的方案與組織規則。</p>
           <ul>
             <li><b>Microsoft Teams</b> 可開啟 Codex 的 Teams 外掛或 Claude 的 Microsoft 365 連接器。請使用工作或學校帳號。Claude 需要組織的 Microsoft Entra 管理員同意。若要透過 Relay 唯讀查閱頻道，請展開<b>在 Relay 讀取與傳送 Teams 訊息</b>、安裝 Microsoft Graph PowerShell，再到 Microsoft 頁面輸入登入代碼。</li>
             <li><b>Slack</b> 可在 Claude 或 Codex 授權工作區。請檢查要求的權限，包括是否可傳送訊息。你的工作區可能需要管理員核准。選擇要使用的 Claude 或 Codex 帳號。Relay 可分別檢查兩個連接器的狀態，不會讀取 Slack 訊息。 <a href="../../../assets/media/docs/tools-hosted-slack-zh-TW.webp">查看 Slack 連線狀態畫面</a></li>
-            <li id="google-drive"><b>Google Drive。</b>連結 Claude 或 Codex 可尋找檔案，Relay 的直接連線也可依檔名搜尋，並以純文字讀取 Google 文件。若要透過 Relay 寫入文件，請先設定自己的 Google Cloud 桌面 OAuth 用戶端，並啟用 Google Docs API。若也要透過 Relay 搜尋或讀取檔案，再啟用 Drive API。展開<b>在 Relay 新增或編輯 Google 文件</b>，按<b>開啟文件編輯</b>，授予獨立的 Google 文件權限，再到<b>選擇助理以啟用工具</b>勾選可提議修改的助理。Claude 與 Codex 代管工具的權限各自管理。若希望每次寫入都先在 Relay 檢閱，請將這些工具的編輯權限維持關閉。<a href="#outbox">檢閱文件提案</a> · <a href="https://developers.google.com/workspace/docs/api/auth?hl=zh-tw">Google 文件 API 權限說明</a> · <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp">查看文件編輯設定</a></li>
+            <li id="google-drive"><b>Google Drive。</b>按<b>連結 Google Drive</b>並授予唯讀權限，即可依檔名搜尋，並以純文字讀取 Google 文件。若看到<b>設定 Google 登入</b>，請先設定桌面用戶端。要寫入文件，展開<b>在 Relay 新增或編輯 Google 文件</b>，按<b>開啟文件編輯</b>，另外授予 Google 文件權限。到<b>選擇助理以啟用工具</b>勾選可使用這些工具的助理。每次寫入都會在待送出匣等你確認。<a href="#google-oauth-setup">設定 Google OAuth</a> · <a href="#outbox">檢閱文件提案</a> · <a href="https://developers.google.com/workspace/docs/api/auth?hl=zh-tw">Google 文件 API 權限說明</a> · <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp">查看文件編輯設定</a></li>
             <li>使用 <b>Notion</b> 或 <b>Heptabase</b> 時，按該服務那一列即可開始登入，在服務的授權頁面確認存取範圍，再授權要開放給助理的工作區。</li>
             <li>在 <b>Obsidian</b> 首次連結時按<b>選擇筆記庫</b>，之後按<b>加入筆記庫</b>可繼續加入。執行 Relay 的電腦上，每個選取的資料夾都必須含有實際的 <code>.obsidian</code> 目錄。若使用遠端瀏覽器，請每行輸入一個完整路徑。Relay 會先確認所有選取的資料夾都有效，再一次加入。在<b>選擇助理以啟用工具</b>中勾選的助理可存取所有已連結的筆記庫。請助理讀取、新增或編輯筆記時，可指定目標筆記庫。若要解除其中一個筆記庫的連結，請使用該完整路徑旁的按鈕。筆記會留在磁碟上。 <a href="../../../assets/media/docs/tools-obsidian-settings-zh-TW.webp">查看筆記庫設定畫面</a></li>
             <li id="github"><b>GitHub</b> 使用執行 Relay 那台電腦的 GitHub CLI 帳號。在<b>開發與瀏覽</b>展開 GitHub 即可登入。要登出時，請按<b>登出 GitHub</b>並確認畫面上的帳號。分享對話與 GitHub 自動任務也使用這套 CLI，其他帳號可能仍保持登入。如果畫面顯示提供權杖的環境變數名稱，請從啟動 Relay 的環境移除該變數，再重新啟動 Relay。</li>
           </ul>
           <p>在<b>郵件與行事曆</b>展開<b>郵件</b>或<b>行事曆</b>，選擇使用的服務，即可看到該服務的設定。先前加入的帳號會另外列在<b>已連結的信箱</b>或<b>已連結的行事曆</b>。</p>
           <ul>
-            <li><b>選擇郵件服務</b>提供 <b>Gmail</b>、<b>Outlook</b>、<b>iCloud 郵件</b>和<b>其他信箱</b>。<a href="../../../assets/media/docs/tools-mail-services-zh-TW.webp">查看四種郵件服務選項</a></li>
-            <li><b>選擇行事曆服務</b>提供 <b>iCloud 行事曆</b>、<b>Google Calendar</b>、<b>Outlook</b> 和<b>其他（CalDAV）</b>。<a href="../../../assets/media/docs/tools-calendar-services-zh-TW.webp">查看四種行事曆服務選項</a></li>
+            <li><b>選擇郵件服務</b>提供 <b>Gmail</b>、<b>iCloud 郵件</b>、<b>Outlook</b>和<b>其他信箱</b>。<a href="../../../assets/media/docs/tools-mail-services-zh-TW.webp">查看四種郵件服務選項</a></li>
+            <li><b>選擇行事曆服務</b>提供 <b>Google Calendar</b>、<b>iCloud 行事曆</b>、<b>Outlook</b> 和<b>其他（CalDAV）</b>。<a href="../../../assets/media/docs/tools-calendar-services-zh-TW.webp">查看四種行事曆服務選項</a></li>
           </ul>
           <p>連結 <b>Apple 行事曆（iCloud）</b> 時，輸入 Apple 帳號的電子郵件地址和 App 專用密碼。若要產生密碼，請先為 Apple 帳號啟用雙重認證，再從表單開啟 Apple 帳號，選<b>登入與安全 → App 專用密碼</b>。Relay 會自動填入 iCloud 伺服器位址。按<b>尋找行事曆</b>，選取想使用的 iCloud 行事曆，再按<b>儲存</b>。列在「我的 Mac」的行事曆只存在該台 Mac，要在 Relay 使用，請先在 Apple 行事曆中把它移到 iCloud。</p>
           <figure class="doc-figure">
-            <a href="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp"><img src="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp" width="842" height="444" alt="行事曆服務已選取「iCloud 行事曆」，下方有 Apple 帳號電子郵件與 App 專用密碼兩個欄位，以及「尋找行事曆」按鈕。" loading="lazy" /></a>
+            <a href="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp"><img src="../../../assets/media/docs/tools-icloud-setup-zh-TW.webp" width="842" height="460" alt="行事曆服務已選取「iCloud 行事曆」，下方有 Apple 帳號電子郵件與 App 專用密碼兩個欄位，以及「尋找行事曆」按鈕。" loading="lazy" /></a>
           </figure>
           <p>若要在 Relay 發送訊息，請在 <b>Slack</b> 列選<b>從 Relay 傳送訊息</b>。在工作區安裝 Slack App，授予 <code>chat:write</code> 及目的地所需的讀取權限（<code>channels:read</code>、<code>groups:read</code>、<code>im:read</code> 或 <code>mpim:read</code>），再填入機器人或使用者 OAuth 權杖。若使用機器人，請先邀請它加入頻道。若要在 <b>Microsoft Teams</b> 發文，請先登入 Microsoft Graph，再按<b>開啟發送權限</b>，並用同一個工作或學校帳號完成第二次裝置登入。Slack 開啟傳送後，可在<b>從 Relay 傳送訊息</b>中的<b>可提議傳送訊息的助理</b>勾選助理。Teams 則在<b>選擇助理以啟用工具</b>勾選助理。Claude 與 Codex 代管的 Slack 連線各有自己的權限。</p>
           <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a> · <a href="../../../assets/media/docs/tools-mail-access-desktop-zh-TW.webp">郵件帳號與助理選擇的桌面版畫面</a></p>
@@ -370,16 +372,65 @@
           <h2 id="accounts-title">你的郵件與行事曆帳號</h2>
           <p>在<b>常用 App</b> 展開<b>郵件</b>可新增信箱，展開<b>行事曆</b>可加入行事曆。</p>
           <ul>
-            <li>選 <b>Gmail</b> 後，可用 Google 登入或選<b>使用 Gmail 應用程式密碼</b>。Google 帳戶須開啟兩步驟驗證才能產生應用程式密碼。選 <b>Outlook</b> 可用 Microsoft 365 或 Outlook.com 登入。</li>
+            <li>選 <b>Gmail</b>，按<b>用 Google 登入</b>並授予郵件存取權。新增 Gmail 信箱請從 Gmail 服務登入。先前以密碼手動加入的 Gmail 帳號仍可在<b>已連結的信箱</b>管理。<a href="../../../assets/media/docs/tools-gmail-setup-zh-TW.webp">查看 Gmail 登入畫面</a>。選 <b>Outlook</b> 可用 Microsoft 365 或 Outlook.com 登入。</li>
             <li>若使用 <b>iCloud 郵件</b>，輸入 iCloud 郵件地址和 Apple App 專用密碼，Relay 會填入郵件伺服器。選<b>其他信箱</b>可套用 Fastmail 或 Yahoo Mail 的預設值，或自行輸入服務提供的 IMAP 和 SMTP 設定。</li>
             <li>若使用其他行事曆，選<b>其他（CalDAV）</b>，選 Fastmail 或輸入 CalDAV 伺服器網址，再按<b>尋找行事曆</b>。</li>
           </ul>
           <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
-          <h3>Microsoft 365、Outlook.com 與 Google</h3>
-          <p>
-            在<b>郵件</b>選 <b>Gmail</b> 或 <b>Outlook</b> 登入會要求郵件存取權。在<b>行事曆</b>選 <b>Google Calendar</b> 或 <b>Outlook</b> 登入則會要求行事曆存取權。要讓同一帳號也能使用另一項服務，請展開該服務，再選<b>使用已登入的帳號</b>。Harness Relay 目前還沒有在 Microsoft 或 Google
-            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>，再按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
-          </p>
+          <p>在<b>行事曆</b>選 <b>Google Calendar</b> 或 <b>Outlook</b>，即可授予行事曆存取權。若要用同一個帳號連結郵件與行事曆，請展開另一項服務並按登入，再於 Google 或 Microsoft 的授權頁選取相同帳號。權杖會保存在憑證儲存區。</p>
+          <p><b>帳號登入設定（OAuth 2.0）</b>會分別列出 Google 和 Microsoft 的狀態：<b>未設定</b>、<b>已設定</b>或<b>已停用</b>。選擇其中一家的<b>停用</b>，核對受影響的服務並確認後，Relay 會暫停該服務提供者的直接連線。用戶端設定與原有授權會保留，之後可按<b>啟用</b>恢復。</p>
+          <p>發行版未內建 OAuth 用戶端。選 <b>Gmail</b>、<b>Google Calendar</b> 或 <b>Outlook</b> 可開啟該服務。若該服務的 OAuth 設定不完整或已停用，選取後會顯示停用的登入按鈕，旁邊會說明原因並提供該服務的設定入口與圖解教學連結。初次設定時，按<b>設定 Google 登入</b>或<b>設定 Microsoft 登入</b>即可開啟<b>設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）</b>中對應服務的設定。<a href="#google-oauth-setup">Google 設定步驟</a> · <a href="#microsoft-oauth-setup">Microsoft 設定步驟</a></p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-oauth-required-zh-TW.webp"><img src="../../../assets/media/docs/tools-oauth-required-zh-TW.webp" width="842" height="333" alt="郵件服務已選擇 Gmail。下方「用 Google 登入」按鈕停用，旁邊提供 Google 的設定入口與圖解教學連結。" loading="lazy" /></a>
+            <figcaption>選取 <b>Gmail</b> 後，按<b>設定 Google 登入</b>可設定桌面用戶端。iCloud 郵件和手動信箱可獨立使用。</figcaption>
+          </figure>
+        </section>
+
+        <section id="google-oauth-setup" aria-labelledby="google-oauth-setup-title">
+          <h2 id="google-oauth-setup-title">設定 Google OAuth 2.0</h2>
+          <p>為這套 Relay 註冊一個桌面用戶端。Gmail、Google Calendar 和 Google Drive 都使用同一個用戶端，個別服務的存取權則在連結帳號時分別授予。</p>
+          <ol>
+            <li><b>選擇專案和使用對象。</b>在 Google Cloud 控制台選取或建立專案，開啟 <b>Google Auth Platform → 品牌宣傳（Branding）→ 開始使用</b>。填寫應用程式名稱、使用者支援信箱與聯絡信箱。若要用個人 Gmail 帳號進行測試，在「目標對象」選<b>外部（External）</b>。若只給自己 Workspace 機構內的帳號使用，選<b>內部（Internal）</b>。閱讀政策後建立應用程式。<a href="https://console.cloud.google.com/auth/overview?hl=zh-tw">開啟 Google Auth Platform</a> · <a href="https://developers.google.com/workspace/guides/configure-oauth-consent?hl=zh-tw">Google 同意畫面設定指南</a></li>
+            <li><b>新增測試使用者。</b>若外部應用程式的發布狀態為<b>測試中</b>，到<b>目標對象（Audience）→ 測試使用者 → 新增使用者</b>，填入要在 Relay 登入的信箱並儲存。在測試狀態下，下列服務的更新權杖七天後會失效。如果只有建立專案的 Google 帳號要登入，Google 也為新專案提供<b>個人模式（Personal mode）</b>，無須列出測試使用者，也沒有七天期限。<a href="https://support.google.com/cloud/answer/15544987?hl=zh-Hant">Google 的目標對象與個人模式設定說明</a></li>
+            <li><b>設定要連結的服務。</b>到 <b>API 和服務 → 程式庫</b>啟用對應的 API。在 <b>Google Auth Platform → 資料存取權（Data Access）→ 新增或移除範圍</b>中，選取或手動加入所需範圍並儲存。
+              <ul>
+                <li><b>Gmail</b> 透過 IMAP 與 SMTP 收發郵件，請加入 <code>https://mail.google.com/</code>。<a href="https://developers.google.com/workspace/gmail/imap/xoauth2-protocol?hl=zh-tw#oauth_20_scopes">Google 的 IMAP 與 SMTP 權限說明</a></li>
+                <li>如需 <b>Google Calendar</b>，請啟用 <b>Google Calendar API</b> 與 <b>CalDAV API</b> 並加入 <code>https://www.googleapis.com/auth/<wbr />calendar</code>。<a href="https://developers.google.com/workspace/calendar/caldav/v2/guide?hl=zh-tw">Google 的 CalDAV 設定說明</a></li>
+                <li><b>Drive 檔案搜尋與讀取</b>使用 <b>Google Drive API</b> 和 <code>https://www.googleapis.com/auth/<wbr />drive.readonly</code>。<b>新增或編輯 Google 文件</b>使用 <b>Google Docs API</b> 和 <code>https://www.googleapis.com/auth/<wbr />documents</code>。想使用哪一項 Drive 功能，再設定該項即可。<a href="#google-drive">在 Relay 設定 Drive 與文件權限</a></li>
+              </ul>
+            </li>
+            <li><b>建立桌面用戶端。</b>到 <b>Google Auth Platform → 用戶端（Clients）→ 建立用戶端</b>，應用程式類型選<b>電腦版應用程式（Desktop app）</b>，命名後建立。在建立結果的對話框中複製用戶端 ID 與用戶端密碼。桌面用戶端會自動接受 Relay 的本機回呼。<a href="https://developers.google.com/workspace/guides/create-credentials?hl=zh-tw#desktop-app">建立桌面用戶端憑證</a> · <a href="https://developers.googleblog.com/en/usability-and-safety-updates-to-google-auth-platform/">Google 官方控制台畫面</a></li>
+            <li><b>在 Relay 儲存用戶端。</b>到<b>設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）</b>，選 <b>Google</b>。填入用戶端 ID 與用戶端密碼，再按<b>儲存</b>。也可以從服務列的<b>設定 Google 登入</b>開啟同一個表單。</li>
+            <li><b>連結帳號。</b>在<b>郵件 → Gmail</b> 或<b>行事曆 → Google Calendar</b>，按<b>用 Google 登入</b>並授予所選服務的存取權。要讀取 Drive，請在 <b>Google Drive</b> 按<b>連結 Google Drive</b>。若想讓助理提議修改 Google 文件，再按<b>開啟文件編輯</b>授權。<a href="../../../assets/media/docs/tools-gmail-setup-zh-TW.webp">查看 Gmail 登入按鈕</a></li>
+          </ol>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/google-cloud-client-details.png"><img src="../../../assets/media/docs/google-cloud-client-details.png" width="809" height="384" alt="Google Cloud 用戶端詳細資料頁面，建立後只顯示遮蔽的用戶端密碼，以及新增密碼的選項。" loading="lazy" /></a>
+            <figcaption>Google Cloud 在用戶端建立後會遮蔽密碼。若遺失，請按<b>新增密碼（Add secret）</b>，再將新的密碼存到 Relay。<a href="https://developers.googleblog.com/en/usability-and-safety-updates-to-google-auth-platform/">畫面來源：Google</a>。</figcaption>
+          </figure>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-oauth-settings-zh-TW.webp"><img src="../../../assets/media/docs/tools-oauth-settings-zh-TW.webp" width="842" height="596" alt="Relay 的帳號登入設定已選取 Google，顯示桌面應用程式的用戶端 ID 與用戶端密碼欄位。" loading="lazy" /></a>
+            <figcaption>在這裡儲存一次 Google 桌面用戶端，之後從要使用的服務登入即可。</figcaption>
+          </figure>
+        </section>
+
+        <section id="microsoft-oauth-setup" aria-labelledby="microsoft-oauth-setup-title">
+          <h2 id="microsoft-oauth-setup-title">設定 Microsoft OAuth 2.0</h2>
+          <p>為 Outlook 郵件或行事曆註冊公用桌面應用程式。即使要連結的是個人 Outlook.com 帳號，仍需要能在 Microsoft Entra 租用戶中註冊應用程式的權限。</p>
+          <ol>
+            <li><b>註冊應用程式。</b>在 Microsoft Entra 開啟<b>應用程式註冊 → 新增註冊</b>並命名。若需同時支援公司、學校與 Outlook.com 帳號，請選擇「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，再按<b>註冊</b>。在<b>概觀</b>複製<b>應用程式（用戶端）識別碼</b>。若註冊為單一租用戶，也請複製<b>目錄（租用戶）識別碼</b>。<a href="https://entra.microsoft.com/">開啟 Microsoft Entra</a> · <a href="https://learn.microsoft.com/zh-tw/graph/auth-register-app-v2">Microsoft 註冊步驟與控制台畫面</a></li>
+            <li><b>設定回呼網址。</b>在 Relay 開啟<b>設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）→ Microsoft</b>。回到 Entra，選<b>驗證 → 新增平台 → 行動與桌面應用程式</b>，加入 Relay 顯示的重新導向 URI（包含 <code>/oauth/callback</code> 路徑）並儲存。要在本機登入，請用 <code>localhost</code> 或 <code>127.0.0.1</code> 開啟 Relay。如果用 IPv6 回送位址 <code>[::1]</code> 開啟 Relay，因為 Microsoft Entra 不接受 IPv6 回呼，Relay 會改用 <code>localhost</code>。使用 localhost 時，回呼網址通常為 <code>http://localhost/oauth/callback</code>。若入口網站拒絕使用 <code>127.0.0.1</code> 的 HTTP 網址，請依 Microsoft 的回送位址說明修改應用程式資訊清單。要使用 Relay 的<b>在另一台裝置上登入</b>時，也請開啟<b>允許公用用戶端流程</b>。<a href="https://learn.microsoft.com/zh-tw/entra/identity-platform/reply-url#localhost-exceptions">本機重新導向網址說明</a> · <a href="https://learn.microsoft.com/zh-tw/entra/identity-platform/scenario-desktop-app-registration">桌面與裝置登入設定</a></li>
+            <li><b>新增委派權限。</b>在 <b>API 權限 → 新增權限 → Microsoft Graph → 委派的權限</b>中，加入 <code>User.Read</code> 以識別登入的使用者，以及 <code>offline_access</code> 讓 Relay 能更新權杖。行事曆另需 <code>Calendars.ReadWrite</code>。若要使用郵件，到<b>新增權限 → 我的組織使用的 API → Office 365 Exchange Online → 委派的權限</b>，選取 <code>IMAP.AccessAsUser.All</code> 與 <code>SMTP.Send</code>，再按<b>新增權限</b>。若租用戶要求系統管理員同意，請由管理員授權。<a href="https://learn.microsoft.com/zh-tw/graph/permissions-reference#calendarsreadwrite">Graph 行事曆權限</a> · <a href="https://learn.microsoft.com/zh-tw/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth">Exchange 郵件權限範圍</a></li>
+            <li><b>使用 Microsoft 365 郵件時，檢查 SMTP AUTH。</b>寄件需要該信箱允許驗證的 SMTP。Exchange 系統管理員可以在 Microsoft 365 系統管理中心開啟<b>使用者 → 使用中的使用者</b>，選取信箱，查看<b>郵件 → 管理電子郵件應用程式 → 驗證的 SMTP</b>。<a href="https://learn.microsoft.com/zh-tw/exchange/clients-and-mobile-in-exchange-online/authenticated-client-smtp-submission">Microsoft 的信箱設定說明</a></li>
+            <li><b>儲存並登入。</b>在 Relay 的 Microsoft 設定填入所註冊的用戶端 ID。要同時支援公司、學校及個人帳號，租用戶填 <code>common</code>；若是單一租用戶應用程式則填該租用戶的識別碼。按<b>儲存</b>後，前往<b>郵件 → Outlook</b> 或<b>行事曆 → Outlook</b>，按<b>用 Microsoft 365 / Outlook.com 登入</b>並授權。已連結的信箱或行事曆會出現在對應的服務列。</li>
+          </ol>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/microsoft-entra-desktop-platform.png"><img src="../../../assets/media/docs/microsoft-entra-desktop-platform.png" width="565" height="580" alt="Microsoft Entra 系統管理中心的平台選單，左下角是行動與桌面應用程式選項。" loading="lazy" /></a>
+            <figcaption>在 Microsoft Entra 系統管理中心選左下方的<b>行動與桌面應用程式（Mobile and desktop applications）</b>。Used with permission from Microsoft. <a href="https://learn.microsoft.com/zh-tw/graph/auth-register-app-v2#configure-platform-settings">Microsoft 的平台設定圖解</a>。</figcaption>
+          </figure>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-oauth-microsoft-zh-TW.webp"><img src="../../../assets/media/docs/tools-oauth-microsoft-zh-TW.webp" width="842" height="658" alt="Relay 的 Microsoft 帳號登入設定，顯示用戶端 ID、租用戶欄位與需在 Entra 登記的重新導向網址。" loading="lazy" /></a>
+            <figcaption>在 Microsoft 設定桌面應用程式時，請填入這套 Relay 顯示的重新導向網址。</figcaption>
+          </figure>
         </section>
 
         <section id="library" aria-labelledby="library-title">

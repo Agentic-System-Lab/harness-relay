@@ -31,6 +31,9 @@ import type { OAuthStore } from './store';
 export class OAuthService implements CalendarOAuth, MailOAuth {
   readonly broker: TokenBroker;
   readonly signIns: SignIns;
+  private clientRevision = { google: 0, microsoft: 0 };
+  /** Reconcile existing IMAP IDLE connections immediately when a registration is toggled. */
+  onClientAvailabilityChange?: () => void;
 
   constructor(
     readonly store: OAuthStore,
@@ -46,7 +49,15 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const grants: TokenGrants = {
       grant: (id) => {
         const a = store.account(id);
-        return a && { label: a.email, status: a.status, ...(a.error ? { error: a.error } : {}), uses: a.uses };
+        return (
+          a && {
+            label: a.email,
+            status: a.status,
+            ...(a.error ? { error: a.error } : {}),
+            uses: a.uses,
+            unavailable: this.clientProblem(a.provider),
+          }
+        );
       },
       refreshToken: (id) => store.refreshToken(id),
       setRefreshToken: (id, token) => store.setRefreshToken(id, token),
@@ -59,6 +70,19 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
   /** A provider, with the app Settings has for it; none set up is a 400 that says so. */
   provider(id: OAuthProviderId): AccountProvider {
     const client = this.store.client(id);
+    const problem = this.clientProblem(id, client);
+    if (problem) throw new HttpError(this.store.clientDisabled(id) ? 409 : 400, problem);
+    return this.configuredProvider(id, client);
+  }
+
+  clientProblem(id: OAuthProviderId, client = this.store.client(id)): string | undefined {
+    const label = id === 'google' ? 'Google' : 'Microsoft';
+    if (this.store.clientDisabled(id)) return t().oauthClientDisabled(label);
+    if (!client?.clientId || (id === 'google' && !client.secret)) return t().oauthNoClient(label);
+    return undefined;
+  }
+
+  private configuredProvider(id: OAuthProviderId, client = this.store.client(id)): AccountProvider {
     if (!client) throw new HttpError(400, t().oauthNoClient(id === 'microsoft' ? 'Microsoft' : 'Google'));
     return (this.opts.provider ?? oauthProvider)(id, client);
   }
@@ -67,6 +91,15 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const a = this.store.account(accountId);
     if (!a) throw new Error(t().oauthAccountGone);
     return this.provider(a.provider);
+  }
+
+  setClientDisabled(provider: OAuthProviderId, disabled: boolean): OAuthView {
+    if (this.store.clientDisabled(provider) !== disabled) {
+      this.store.setClientDisabled(provider, disabled);
+      if (disabled) this.signIns.cancelProvider(provider);
+      this.onClientAvailabilityChange?.();
+    }
+    return this.view();
   }
 
   view(): OAuthView {
@@ -87,14 +120,21 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     // Another app: its accounts' tokens were given to the one before, which this one cannot refresh.
     // They need a new sign-in, and say so, rather than look connected until their next request fails.
     // The sign-ins still waiting would finish with the app before: they end.
-    if (this.store.saveClient(provider, u)) {
+    const previousSecret = provider === 'google' && u.secret !== undefined ? this.store.client(provider)?.secret : undefined;
+    const changed = this.store.saveClient(provider, u);
+    const changedSecret = provider === 'google' && u.secret !== undefined && u.secret !== (previousSecret ?? '');
+    if (changed || changedSecret) {
       this.signIns.cancelProvider(provider);
+      this.clientRevision[provider]++;
+    }
+    if (changed) {
       for (const a of this.store.accounts())
         if (a.provider === provider) {
           this.broker.forget(a.id);
           this.store.needsSignIn(a.id, t().oauthAppChanged);
         }
     }
+    if (changed || changedSecret) this.onClientAvailabilityChange?.();
     return this.view();
   }
 
@@ -274,7 +314,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const a = this.account(accountId);
     let provider: AccountProvider | undefined;
     try {
-      provider = this.provider(a.provider);
+      provider = this.configuredProvider(a.provider);
     } catch {
       provider = undefined;
     }
@@ -327,12 +367,18 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
 
   signInState(oauthAccount: string): string {
     const a = this.store.account(oauthAccount);
-    return a ? `${a.status} ${a.connectedAt}` : 'gone';
+    return !a
+      ? 'gone'
+      : this.store.clientDisabled(a.provider)
+        ? 'disabled'
+        : `${a.status} ${a.connectedAt} ${this.clientRevision[a.provider]}`;
   }
 
   problem(oauthAccount: string, use?: OAuthUse): string | undefined {
     const a = this.store.account(oauthAccount);
     if (!a) return t().oauthAccountGone;
+    const problem = this.clientProblem(a.provider);
+    if (problem) return problem;
     if (a.status === 'reauth') return t().oauthSignInAgain(a.email, a.error ?? '', use ?? a.uses[0]);
     return undefined;
   }

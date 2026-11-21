@@ -115,8 +115,11 @@ const KEPT_MS = 5 * 60_000;
  * The redirect address of a sign-in started from a page at `origin`: that page's own web app when it is
  * on this computer, else this computer's port on localhost (the address it then shows is pasted back).
  */
-export function redirectAddress(origin: string | undefined, port: number): string {
-  return `${loopbackOrigin(origin) ?? `http://localhost:${port}`}/oauth/callback`;
+export function redirectAddress(origin: string | undefined, port: number, provider?: OAuthProviderId | 'mcp'): string {
+  let local = loopbackOrigin(origin);
+  // Entra desktop registrations accept localhost and 127.0.0.1, but reject IPv6 loopback redirect URIs.
+  if (provider === 'microsoft' && local && new URL(local).hostname === '[::1]') local = undefined;
+  return `${local ?? `http://localhost:${port}`}/oauth/callback`;
 }
 
 /** Whether an origin is this computer's own (`http://localhost:5173`, `http://127.0.0.1:8787`): its page can be a redirect address. */
@@ -246,42 +249,50 @@ export class SignIns {
     };
     if (o.device) {
       if (!provider.flows.includes('device') || !provider.endpoints.device) throw new HttpError(400, t().oauthNoDevice(provider.label));
-      const res = await (provider.send ?? plainSend)(provider.endpoints.device, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-        body: new URLSearchParams({ client_id: provider.clientId, ...(scopes.length ? { scope: scopes.join(' ') } : {}) }).toString(),
-        timeoutMs: 30_000,
-      });
-      const raw = (await jsonObject(res)) ?? {};
-      const text = (v: unknown, max: number) => (typeof v === 'string' && v && v.length <= max ? v : undefined);
-      const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
-      const body = {
-        device_code: text(raw.device_code, 4096),
-        user_code: text(raw.user_code, 100),
-        verification_uri: text(raw.verification_uri, 2000),
-        expires_in: number(raw.expires_in),
-        interval: number(raw.interval),
-      };
-      if (!body.device_code || !body.user_code || !body.verification_uri)
-        throw new HttpError(502, t().oauthStartFailed(provider.label, tokenError(res.status, raw)));
-      const p: Pending = {
-        ...base,
-        expiresAt: Math.min(expiresAt, this.now() + (body.expires_in ?? 900) * 1000),
-        // At least a second between two asks, whatever the provider says.
-        device: {
-          code: body.device_code,
-          userCode: body.user_code,
-          verificationUri: body.verification_uri,
-          interval: Math.max(1, body.interval ?? 5),
-        },
-      };
-      this.pending.set(id, p);
-      void this.poll(p, scopes);
-      return this.view(p);
+      // A registration can be disabled or changed while its device-code request is still in flight.
+      this.pending.set(id, base);
+      try {
+        const res = await (provider.send ?? plainSend)(provider.endpoints.device, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+          body: new URLSearchParams({ client_id: provider.clientId, ...(scopes.length ? { scope: scopes.join(' ') } : {}) }).toString(),
+          timeoutMs: 30_000,
+        });
+        const raw = (await jsonObject(res)) ?? {};
+        if (!this.live(base)) throw new HttpError(409, t().oauthSignInCancelled);
+        const text = (v: unknown, max: number) => (typeof v === 'string' && v && v.length <= max ? v : undefined);
+        const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+        const body = {
+          device_code: text(raw.device_code, 4096),
+          user_code: text(raw.user_code, 100),
+          verification_uri: text(raw.verification_uri, 2000),
+          expires_in: number(raw.expires_in),
+          interval: number(raw.interval),
+        };
+        if (!body.device_code || !body.user_code || !body.verification_uri)
+          throw new HttpError(502, t().oauthStartFailed(provider.label, tokenError(res.status, raw)));
+        const p: Pending = {
+          ...base,
+          expiresAt: Math.min(expiresAt, this.now() + (body.expires_in ?? 900) * 1000),
+          // At least a second between two asks, whatever the provider says.
+          device: {
+            code: body.device_code,
+            userCode: body.user_code,
+            verificationUri: body.verification_uri,
+            interval: Math.max(1, body.interval ?? 5),
+          },
+        };
+        this.pending.set(id, p);
+        void this.poll(p, scopes);
+        return this.view(p);
+      } catch (error) {
+        this.pending.delete(id);
+        throw error;
+      }
     }
     const state = b64url(randomBytes(32));
     const verifier = b64url(randomBytes(48));
-    const redirectUri = redirectAddress(o.origin, o.port);
+    const redirectUri = redirectAddress(o.origin, o.port, provider.id);
     const url = new URL(provider.endpoints.authorize);
     for (const [k, v] of Object.entries({
       client_id: provider.clientId,

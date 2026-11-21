@@ -5,7 +5,7 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { AppRow } from './AppRow';
 
-const services: Record<App, string> = { drive: 'Google Drive', teams: 'Microsoft Teams', slack: 'Slack' };
+const services: Record<App, string> = { teams: 'Microsoft Teams', slack: 'Slack' };
 const names = { claude: 'Claude', codex: 'Codex' } as const;
 export type HostedAccounts = Record<Provider, ProviderAccountView[]>;
 
@@ -182,7 +182,7 @@ export function HostedAppRow({
       status={lines.join(' · ')}
       reveal={reveal}
     >
-      <p className="muted small">{app === 'drive' ? a.hostedDriveRead : app === 'teams' ? a.hostedTeamsNote : a.hostedSlackHint}</p>
+      <p className="muted small">{app === 'teams' ? a.hostedTeamsNote : a.hostedSlackHint}</p>
       <div className="hosted-connections">
         <Connection app={app} connection={claude} />
         <Connection app={app} connection={codex} />

@@ -16,9 +16,11 @@ import {
 } from '../connectors';
 import { useT } from '../i18n';
 import { ICloudCalendar } from './ICloudCalendar';
+import { oauthClientStatus } from '../oauth';
 import { OAuthAccounts } from './OAuthAccounts';
 
-type Service = 'apple' | 'google' | 'microsoft' | 'other';
+const serviceOrder = ['google', 'apple', 'microsoft', 'other'] as const;
+type Service = (typeof serviceOrder)[number];
 
 /**
  * Settings → Apps and tools → Common apps → Mail or Calendar: the accounts Harness Relay's mail and calendar tools
@@ -31,14 +33,12 @@ export function ConnectorsSettings({
   view,
   setView,
   oauth,
-  setOauth,
   reloadOAuth,
 }: {
   kind: 'mail' | 'calendar';
   view: ConnectorsView | null;
   setView: (v: ConnectorsView) => void;
   oauth: OAuthView | null;
-  setOauth: (v: OAuthView) => void;
   reloadOAuth: () => Promise<void>;
 }) {
   const t = useT();
@@ -87,6 +87,12 @@ export function ConnectorsSettings({
   };
 
   if (!view) return error ? <p className="error-line">{error}</p> : null;
+  const clientFor = (provider: Service) => oauth?.clients.find((c) => c.provider === provider);
+  const accountUnavailable = (id: string | undefined) => {
+    if (!id) return false;
+    const account = oauth?.accounts.find((a) => a.id === id);
+    return !account || oauthClientStatus(clientFor(account.provider)) !== 'ready';
+  };
   const row = (a: MailAccountView | CalendarAccountView, detail: string) => (
     <li key={a.id} className="lib-row relay-group">
       <div className="lib-row-main">
@@ -95,7 +101,7 @@ export function ConnectorsSettings({
       </div>
       {tested[a.id] && <p className="small muted">{tested[a.id]}</p>}
       <div className="lib-row-actions">
-        <button type="button" className="ghost small-button" onClick={() => test(a.id)}>
+        <button type="button" className="ghost small-button" disabled={accountUnavailable(a.oauth)} onClick={() => test(a.id)}>
           {t.connectors.test}
         </button>
         {/* One reached through a sign-in has no password nor servers to edit: removed and added again from its account. */}
@@ -154,13 +160,13 @@ export function ConnectorsSettings({
     <div className="service-setup">
       <div className="service-choices" ref={choices} role="group" aria-label={choose}>
         <h5>{choose}</h5>
-        {(Object.keys(serviceNames) as Service[]).map((key) => (
+        {serviceOrder.map((key) => (
           <button
             key={key}
             type="button"
             className="ghost service-choice"
             aria-pressed={service === key}
-            disabled={savingAccount || (!oauth && (key === 'microsoft' || (!mail && key === 'google')))}
+            disabled={savingAccount || (!oauth && (key === 'google' || key === 'microsoft'))}
             onClick={() => setService(service === key ? undefined : key)}
           >
             {serviceNames[key]}
@@ -169,7 +175,7 @@ export function ConnectorsSettings({
       </div>
       {service === 'apple' &&
         (mail ? (
-          <PresetMailbox provider="icloud" taken={taken} change={saveNew} onDone={closeService} />
+          <ICloudMailbox taken={taken} change={saveNew} onDone={closeService} />
         ) : (
           <ICloudCalendar accounts={view.calendar} onSaved={setView} onClose={closeService} onSaving={setSavingAccount} />
         ))}
@@ -180,15 +186,6 @@ export function ConnectorsSettings({
           <CalendarEditor taken={taken} change={saveNew} onDone={closeService} />
         ))}
     </div>
-  );
-  const passwordOption = mail && service === 'google' && (
-    <PresetMailbox
-      provider="gmail"
-      taken={taken}
-      change={saveNew}
-      onDone={closeService}
-      showPassword={!oauth?.clients.find((c) => c.provider === 'google')?.clientId}
-    />
   );
   return (
     <div className="connectors library-connectors" ref={panel}>
@@ -224,13 +221,11 @@ export function ConnectorsSettings({
       <OAuthAccounts
         kind={kind}
         view={oauth}
-        setView={setOauth}
         reloadOAuth={reloadOAuth}
         connectors={view}
         onConnectors={setView}
         refresh={oauthTested}
         servicePicker={servicePicker}
-        passwordOption={passwordOption}
         provider={service === 'google' || service === 'microsoft' ? service : undefined}
       />
     </div>
@@ -250,36 +245,23 @@ function SecuritySelect({ value, onChange, label }: { value: MailSecurity; onCha
   );
 }
 
-function PresetMailbox({
-  provider,
-  showPassword = false,
-  taken,
-  change,
-  onDone,
-}: {
-  provider: 'gmail' | 'icloud';
-  showPassword?: boolean;
-  taken: string[];
-  change: Change;
-  onDone: () => void;
-}) {
+function ICloudMailbox({ taken, change, onDone }: { taken: string[]; change: Change; onDone: () => void }) {
   const t = useT();
-  const initiallyOpen = useRef(showPassword).current;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const save = async () => {
     if (saving || !email.trim() || !password) return;
     setSaving(true);
-    const preset = MAIL_PRESETS.find((p) => p.id === provider)!;
+    const preset = MAIL_PRESETS.find((p) => p.id === 'icloud')!;
     const account = mailUpdate({ ...withPreset(mailForm(), preset), name: email, address: email, password });
     if (await change(() => api.saveMailAccount(newAccountId(email, taken), account))) onDone();
     setSaving(false);
   };
-  const form = (
+  return (
     <form
       className="mcp-form connector-form"
-      aria-label={provider === 'icloud' ? t.apps.iCloudMail : t.apps.gmailPassword}
+      aria-label={t.apps.iCloudMail}
       onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -300,12 +282,7 @@ function PresetMailbox({
           onChange={(e) => setPassword(e.target.value)}
         />
       </label>
-      <a
-        className="small"
-        href={provider === 'icloud' ? 'https://account.apple.com/' : 'https://myaccount.google.com/apppasswords'}
-        target="_blank"
-        rel="noreferrer"
-      >
+      <a className="small" href="https://account.apple.com/" target="_blank" rel="noreferrer">
         {t.apps.appleHelp}
       </a>
       <div className="form-actions">
@@ -323,14 +300,6 @@ function PresetMailbox({
         </button>
       </div>
     </form>
-  );
-  return provider === 'gmail' ? (
-    <details className="sub mailbox-password" open={initiallyOpen}>
-      <summary>{t.apps.gmailPassword}</summary>
-      {form}
-    </details>
-  ) : (
-    form
   );
 }
 

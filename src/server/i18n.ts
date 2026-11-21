@@ -588,8 +588,8 @@ const zhTW = {
   trackingRestartNote: (when: string) => `自動任務 ${when} 的執行在 Harness Relay 停止時中斷，馬上重試。`,
   trackingRunFailed: '這次執行的回覆全都失敗了',
   hookNotFound: '找不到這個 webhook',
-  oauthNoClient: (provider: string) =>
-    `還沒有登入 ${provider} 用的 app：請到「設定 → App 與工具 → 常用 App」的「郵件」或「行事曆」填入你在 ${provider} 註冊的 app 的用戶端 ID`,
+  oauthClientDisabled: (provider: string) => `${provider} 登入已停用。請在「常用 App → 帳號登入設定」重新啟用。`,
+  oauthNoClient: (provider: string) => `請先在「常用 App → 帳號登入設定」設定 ${provider} 的 OAuth 用戶端。`,
   oauthTokenNotSaved: (why: string) => `無法把登入的權杖存進憑證儲存區：${why}`,
   oauthHostRefused: (host: string) => `登入的權杖不會送到「${host}」：它只送到這個帳號的服務`,
   oauthAccountGone: '找不到這個登入的帳號：它可能已經被移除了',
@@ -683,7 +683,7 @@ const zhTW = {
         ? `請為 ${email} 連結 Teams`
         : use === 'drive'
           ? `請為 ${email} 連結 Google Drive`
-          : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+          : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」選擇服務並登入同一個帳號`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
@@ -1600,8 +1600,8 @@ const en: ServerMessages = {
   trackingRestartNote: (when) => `The automation run of ${when} was cut off when Harness Relay stopped; trying again now.`,
   trackingRunFailed: 'every reply of the run failed',
   hookNotFound: 'No such webhook',
-  oauthNoClient: (provider) =>
-    `There is no app to sign in to ${provider} with yet: give the client ID of the app you registered with ${provider} under Mail or Calendar in Settings → Apps and tools → Common apps`,
+  oauthClientDisabled: (provider) => `${provider} sign-in is disabled. Enable it in Common apps → Account sign-in settings.`,
+  oauthNoClient: (provider) => `Set up your ${provider} OAuth client in Common apps → Account sign-in settings.`,
   oauthTokenNotSaved: (why) => `The sign-in's token could not be saved in the credential store: ${why}`,
   oauthHostRefused: (host) => `The sign-in's token is not sent to "${host}": it goes only to the account's own service`,
   oauthAccountGone: 'The account that signed in is not there any more: it may have been removed',
@@ -1700,7 +1700,7 @@ const en: ServerMessages = {
         ? `Connect Teams for ${email}`
         : use === 'drive'
           ? `Connect Google Drive for ${email}`
-          : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in ${signInSettings('en', use)} first`,
+          : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: select your service in ${signInSettings('en', use)} and sign in with the same account`,
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',

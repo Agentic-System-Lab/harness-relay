@@ -276,7 +276,7 @@ export function driveDocumentTools(oauth: OAuthService): GatewayTool[] {
         required: create ? ['title', 'content'] : ['id', 'before', 'after'],
         additionalProperties: false,
       },
-      unavailable: () => (granted().length ? undefined : t().docsGrant),
+      unavailable: () => oauth.clientProblem('google') ?? (granted().length ? undefined : t().docsGrant),
       describe: () => ({ title: 'Google Docs' }),
       async prepare(input) {
         const candidates = granted().filter((a) => input.account === undefined || input.account === a.email);

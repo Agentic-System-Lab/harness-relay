@@ -189,6 +189,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `assets/media/poster-zh-TW.webp` | Frame at 0:31.5 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
 | `assets/media/docs/<page>-<what>-<lang>.webp` | The docs' pictures: frames of the use cases' recordings (`assets/media/use-cases/`), cut with ffmpeg and encoded with `cwebp -q 80`, each frame's origin in a `.webp.json` sidecar |
+| `assets/media/docs/google-cloud-client-details.png`, `microsoft-entra-desktop-platform.png` | Official [Google Cloud](https://developers.googleblog.com/en/usability-and-safety-updates-to-google-auth-platform/) and [Microsoft Entra](https://learn.microsoft.com/en-us/graph/auth-register-app-v2#configure-platform-settings) console screenshots used in the OAuth setup guides. Both retain their original image data and credit their source in the caption and PNG metadata. |
 | `assets/media/use-cases/<case>-<lang>.mp4`, `.webp` | Each use case's recording and its poster, written by `npm run use-cases` (the poster from the frame its use case names, its origin in a `.webp.json` sidecar); the use-cases pages share the landing page's social cards |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |

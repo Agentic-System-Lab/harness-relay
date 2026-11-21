@@ -24,6 +24,8 @@ export interface TokenGrants {
         /** Whose sign-in it is, as the messages name it: an account's address, an MCP server's name. */
         label: string;
         status: 'connected' | 'reauth';
+        /** The registration is paused or incomplete. Its grants and refresh token still belong to this account. */
+        unavailable?: string;
         /** Why it needs a new sign-in. */
         error?: string;
         /** What it was signed in for (an account's uses; none for an MCP server's, whose one token is asked for with no use). */
@@ -332,6 +334,7 @@ export class TokenBroker {
    */
   accessToken(accountId: string, use: OAuthUse | undefined, fresh = false, early: EarlyMargin = EARLY_MS): Promise<string> {
     const grant = this.store.grant(accountId);
+    if (grant?.unavailable) return Promise.reject(new OAuthSignInError(grant.unavailable));
     if (grant && use && !grant.uses.includes(use)) return Promise.reject(new OAuthSignInError(t().oauthNotFor(grant.label, use)));
     // An account's tokens are each for its uses: asked with none (a caller's mistake), not one of them,
     // nor a refresh with no scope, whose refusal would mark the whole account.
@@ -392,6 +395,7 @@ export class TokenBroker {
         // Another refresh before it found the sign-in refused, or a new sign-in came: not asked.
         if (this.generation(accountId) !== generation) return undefined;
         const now = this.store.grant(accountId);
+        if (now?.unavailable) throw new OAuthSignInError(now.unavailable);
         if (now?.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(now.label, now.error ?? '', use));
         // The refresh token as it is now: one another use's refresh rotated is the one sent.
         const refreshToken = this.store.refreshToken(accountId);
@@ -417,6 +421,9 @@ export class TokenBroker {
       throw new OAuthSignInError(t().oauthRefreshFailed(account.label, (err as Error).message));
     }
     if (!answer || this.generation(accountId) !== generation) return superseded();
+    // An in-flight refresh can rotate the credential. Keep the rotation above, but never release an access token while paused.
+    const unavailable = this.store.grant(accountId)?.unavailable;
+    if (unavailable) throw new OAuthSignInError(unavailable);
     const { status, body } = answer;
     if (!body.access_token) {
       const why = tokenError(status, body);

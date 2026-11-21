@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import type { BrowserContext } from '@playwright/test';
 
 const profileFixtures = {
-  drive: { tool: 'google_drive.get_profile', profile: { user: { permissionId: 'e2e-user', emailAddress: 'e2e-private@example.test' } } },
   teams: {
     tool: 'microsoft_teams.get_profile',
     profile: { id: '2c731042-2503-4405-a567-cc352ba5b909', userPrincipalName: 'e2e-private@example.test' },
@@ -15,14 +14,6 @@ const profileFixtures = {
 } as const;
 
 export const hostedApps = [
-  {
-    id: 'drive',
-    runtimeId: 'connector_5f3c8c41a1e54ad7a76272c89e2554fa',
-    name: 'Google Drive',
-    claudeName: 'claude.ai Google Drive',
-    directory: 'b89f7865-a755-4f86-8062-c3bd651740ce',
-    plugin: 'plugin_connector_1p_ab21a553bfbc81919ea8fd1858e3ffa7',
-  },
   {
     id: 'teams',
     runtimeId: 'connector_246af0940da3457da0e751171dc1ce60',

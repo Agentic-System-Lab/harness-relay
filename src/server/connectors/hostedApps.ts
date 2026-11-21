@@ -11,7 +11,7 @@ import { profilePermission, profileStatus, profileTool } from './codexHostedProf
 import { AGENT_HOME_ENV, type SettingsStore } from '../settings';
 
 type Snapshot = Record<HostedApp, HostedAppStatus>;
-const snapshot = (status: HostedAppStatus): Snapshot => ({ drive: status, slack: status, teams: status });
+const snapshot = (status: HostedAppStatus): Snapshot => ({ slack: status, teams: status });
 
 /** The CLI can also find local MCP servers with the same name. Only a named claude.ai scope is evidence. */
 export function claudeHostedStatus(app: HostedApp, code: number | null, stdout: string, stderr: string): HostedAppStatus {

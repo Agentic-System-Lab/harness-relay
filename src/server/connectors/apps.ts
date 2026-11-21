@@ -101,7 +101,8 @@ export function appTools(
       throw new Error(t().invalidField('id'));
     return encodeURIComponent(v);
   };
-  const none = (use: 'drive' | 'teams') => () => (accounts(use).length ? undefined : t().appsConnectFirst);
+  const none = (use: 'drive' | 'teams') => () =>
+    oauth.clientProblem(use === 'drive' ? 'google' : 'microsoft') ?? (accounts(use).length ? undefined : t().appsConnectFirst);
   // Existing Microsoft OAuth accounts keep their identity, even if PowerShell signs in with
   // the same email (the two sessions may belong to different tenants).
   const teamsAccount = {

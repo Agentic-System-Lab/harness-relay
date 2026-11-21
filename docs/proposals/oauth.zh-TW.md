@@ -2,18 +2,18 @@
 
 # 用 OAuth 登入的帳號
 
-> **狀態：核心與它的用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆、用帳號的權杖透過 CalDAV 使用 Google 日曆、透過它們自己的 IMAP 與 SMTP 加上 SASL XOAUTH2 收發 Microsoft 365、Outlook.com 與 Gmail 的郵件（給郵件工具、郵件觸發與它的 IMAP IDLE 使用），以及工具庫中遠端 MCP 伺服器自己的登入（Microsoft 的登入、Graph 與郵件伺服器，Google 的登入、CalDAV 與 Gmail，以及 MCP 的授權，都只對替身試過，沒有對真正的服務試過）。把 MCP 伺服器的工具透過 gateway 轉接，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
+> **狀態：核心與它的用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆、用帳號的權杖透過 CalDAV 使用 Google 日曆、透過它們自己的 IMAP 與 SMTP 加上 SASL XOAUTH2 收發 Microsoft 365、Outlook.com 與 Gmail 的郵件（給郵件工具、郵件觸發與它的 IMAP IDLE 使用），以及工具庫中遠端 MCP 伺服器自己的登入（自動測試使用替身，Google 與 MCP 的手動驗證見[架構文件](../architecture.zh-TW.md#已知限制)）。把 MCP 伺服器的工具透過 gateway 轉接，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
 
 ## 為什麼
 
-郵件與行事曆工具用應用程式專用密碼登入，所以不需要註冊 OAuth 用戶端，也沒有東西要送審。但這樣會漏掉：
+撰寫本提案時，郵件與行事曆工具只支援用密碼登入，因此無法連結下列服務。
 
 - **Google 日曆。** 它的 CalDAV 端點只接受 OAuth 2.0。
 - **Microsoft 365 與 Outlook.com 的行事曆。** 它們完全沒有 CalDAV，只有 Microsoft Graph。
 - **Microsoft 365 的郵件。** Exchange Online 的 IMAP 已經不接受基本驗證，SMTP AUTH 的基本驗證也正在停用。
 - **用 OAuth 登入的遠端 MCP 伺服器**（MCP 的授權規格）。工具庫目前只能手動把它們的權杖填成標頭。
 
-應用程式專用密碼會保留：OAuth 是並列的另一種方式，每個帳號各自選擇。連接器支援的服務各有某種 OAuth 途徑，但每一種都要先由該服務註冊或核准 app，而任意的 IMAP 或 CalDAV 伺服器根本沒有這條路（有一份 IETF 草案想用動態用戶端註冊加上 PKCE 補上它）。
+實作保留 iCloud 與手動設定伺服器的密碼登入。從 Gmail 或 Google Calendar 的服務選單新增連線時會使用 Google OAuth。連接器支援的服務各有某種 OAuth 途徑，但每一種都要先由該服務註冊或核准 app，而任意的 IMAP 或 CalDAV 伺服器根本沒有這條路（有一份 IETF 草案想用動態用戶端註冊加上 PKCE 補上它）。
 
 ## 一個介面
 
@@ -49,14 +49,14 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 
 ## 回答待決問題
 
-- **用誰的 OAuth 用戶端？** 兩者都要，以使用者自己的為先。常用 App 中的「郵件」和「行事曆」可以填用戶端 ID（加上 Microsoft 的租用戶，以及 Google 的用戶端密碼；桌面 app 的這個密碼其實不是秘密，但仍然需要）。`BUILT_IN_CLIENTS` 會放 Harness Relay 自己註冊一次、隨程式碼發布的 app，目前還沒有註冊任何一個。在 Microsoft Entra 上，那會是一個同時支援公司、學校與個人帳號的公用用戶端。Google 要求 app 為日曆的敏感權限範圍通過驗證（Gmail 的受限權限範圍還要安全評估）；使用者自己的 Google app 若還在「測試」階段，更新權杖 7 天就會失效。不管用哪一種，公司或學校的租用戶都可能需要系統管理員同意。
+- **用誰的 OAuth 用戶端？** 兩者都要，以使用者自己的為先。在**常用 App → 帳號登入設定（OAuth 2.0）**可填用戶端 ID（加上 Microsoft 的租用戶，以及 Google 的用戶端密碼；桌面 app 的這個密碼其實不是秘密，但仍然需要）。`BUILT_IN_CLIENTS` 會放 Harness Relay 自己註冊一次、隨程式碼發布的 app，目前發行版未內建預設用戶端。在 Microsoft Entra 上，那會是一個同時支援公司、學校與個人帳號的公用用戶端。Google 要求 app 為日曆的敏感權限範圍通過驗證（Gmail 的受限權限範圍還要安全評估）；使用者自己的 Google app 若還在「測試」階段，更新權杖 7 天就會失效。不管用哪一種，公司或學校的租用戶都可能需要系統管理員同意。
 - **回呼的路由。** #90 列的兩個選項都不行，因為重新導向是從服務的網站發起的頂層瀏覽：工作階段的 cookie 是 `SameSite=Strict`，不會跟著來（選項 B，`BROWSER_LOADS`，行不通）；桌面版裡它還會在系統瀏覽器開啟，而系統瀏覽器從來沒有登入過（選項 A，帶金鑰回傳的頁面，也行不通）。實作的做法是：`/oauth/callback` 是 web app 的一個頁面（和所有頁面一樣在 `/api/` 之外），它把授權碼和 state 以 JSON 傳給 `POST /api/oauth/callback`。這個路由保留 Host、Origin 與 JSON 檢查，並以 state 作為證明，就像 webhook 以它的權杖作為證明：256 位元的亂數，只有服務和瀏覽器看得到，以雜湊在固定時間內比對，只屬於一次登入，只能用一次，10 分鐘內有效；沒有 PKCE 的驗證碼，授權碼毫無用處，而驗證碼從不離開伺服器。10 分鐘內有 20 次回呼都找不到對應的登入時，這個路由會暫時拒絕找不到登入的回呼（429）；帶著某次登入自己的 state 的回呼一定會通過。頁面只回傳一次（React 的 StrictMode 下也一樣），等這裡的某次登入回答後，才把授權碼和 state 從網址拿掉；這裡沒有那次登入時（是另一台電腦上的 Harness Relay 開始的），頁面會顯示網址，讓人貼到那裡。
 - **一次登入給多個群組用？** 每次登入一個帳號，記下用在哪裡（`uses`：`calendar`、`mail`）。之後新增的用途會在自己的那次登入要它的權限範圍（漸進式同意），並更新同一個帳號（以它在服務那邊的 ID 找到），保留的用途成為兩者的聯集。Microsoft 會保留已同意的內容，所以為郵件登入時，行事曆的同意仍在；Google 則帶著 `include_granted_scopes=true` 要求，所以它的回答會列出所有給予的權限範圍，並與帳號之前和現在的用途一起檢查：為郵件登入卻會讓行事曆失去存取權（期間在 Google 那邊被移除了）時，這次登入會被拒絕，帳號維持原樣。郵件帳號與行事曆仍然分開（`ConnectorStore`）；透過帳號使用的會記下是哪個帳號（`oauth`），為行事曆登入時會自動加入帳號自己的行事曆（其他的則在「設定」裡列出、加入），為郵件登入時會加入它的郵件帳號，用該服務自己的伺服器，以帳號的地址作為寄件人與使用者名稱。這些伺服器與登入方式是固定的（用密碼或其他伺服器儲存它會得到 409）；要改的話就移除它，再從它的帳號重新加入。
 - **移除帳號。** 它的更新權杖、它的行事曆與郵件帳號都會刪除。Google 的權杖會被撤銷；Microsoft 不能撤銷單一個權杖，所以「設定」會列出使用者移除 app 存取權的頁面（公司與學校帳號在 `myapps.microsoft.com`，個人帳號在 `account.live.com/consent/Manage`）。
 
 ## 設定與環境變數
 
-- 在**設定 → App 與工具 → 常用 App** 的**郵件**選 **Gmail** 或 **Outlook**，或在**行事曆**選 **Google Calendar** 或 **Outlook**。帳號設定包含每個服務要用的 app（以及 Microsoft 的 app 必須允許的重新導向網址）、從哪一列開始就為該用途登入、「用 … 登入」、「在另一台裝置上登入」（Microsoft）、各帳號與它的狀態和用途、它可以加入的行事曆、**使用已登入的帳號**裡的**用於行事曆**與**用於郵件**（還沒有給予該用途時是一次為它的登入，也要求帳號的其他用途，並以它的地址作為 `login_hint`；郵件已經給予之後，就直接加入郵件帳號）、帳號需要重新登入時只有**重新登入**，以及「移除」。登入只在帳號第一次為某種用途登入時，自動加入它的行事曆或郵件帳號。
+- 在**設定 → App 與工具 → 常用 App** 的**郵件**選 **Gmail** 或 **Outlook**，或在**行事曆**選 **Google Calendar** 或 **Outlook**。**帳號登入設定（OAuth 2.0）**儲存各服務提供者的桌面用戶端，也列出 Microsoft 要登記的重新導向網址。每個服務列提供該用途的登入、「用 … 登入」、「在另一台裝置上登入」（Microsoft）、各帳號與它的狀態和用途、它可以加入的行事曆，以及加回先前已授權信箱的操作。要讓同一帳號連結另一項服務，請在該服務按登入，並到提供者的授權頁選取相同帳號。帳號需要重新登入時只有**重新登入**，以及「移除」。登入只在帳號第一次為某種用途登入時，自動加入它的行事曆或郵件帳號。
 - **「設定 → App 與工具 → 工具庫 → MCP 伺服器」：** 每台 HTTP 伺服器都有「登入」（會先查它是否要求登入），之後顯示它的狀態，以及「重新登入」與「登出」；進行中的登入和帳號一樣可以貼上網址。
 - **`RELAY_MICROSOFT_LOGIN_URL` 與 `RELAY_MICROSOFT_GRAPH_URL`** 把 Microsoft 的登入與 Graph 指向全球雲以外的雲（例如國家雲 `https://login.microsoftonline.us` 與 `https://graph.microsoft.us`），或端對端測試中這台電腦上的替身：必須是 https，純 http 只限這台電腦。
 - **`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP`**（`host:port`）把 Microsoft 帳號的郵件指向端對端測試中這台電腦上的替身，而不是 `outlook.office365.com:993` 與 `smtp.office365.com:587`：TLS，或在 IMAP 的 143 埠與 SMTP 的 587、25 埠用 STARTTLS；純 TCP 只限這台電腦。它們不是給國家雲用的：國家雲的郵件還不支援，因為 Exchange Online 的權限範圍仍是全球雲的（`https://outlook.office.com/…`）。
@@ -66,6 +66,7 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 | 方法與路徑 | 用途 |
 | --- | --- |
 | `GET /api/oauth` | 各服務的 app（遮蔽後）與各帳號 |
+| `PATCH /api/oauth/clients/:provider` | 以 `{ disabled }` 暫停或恢復該服務提供者的直接 OAuth 連線，保留用戶端設定與已連結帳號 |
 | `PUT /api/oauth/clients/:provider` | 服務的 app：用戶端 ID、租用戶、密碼 |
 | `POST /api/oauth/signins` | 開始登入（`provider`、它的 `uses`：`calendar`、`mail` 或兩者，沒有時為行事曆；頁面的 `origin`、`device`） |
 | `GET /api/oauth/signins/:id` | 登入的進度，只給開始它的瀏覽器 |
@@ -89,7 +90,7 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 
 1. **把已登入的 MCP 伺服器的工具透過 gateway 轉接**，讓它的權杖永遠不離開伺服器：目前每一回合是把一個很快就到期的權杖放在伺服器的標頭交給 CLI。另外，MCP 伺服器還缺：給沒有動態註冊的授權伺服器用的手動註冊用戶端（在「設定」填用戶端 ID）、2025-03-26 版規格那種沒有受保護資源中繼資料的伺服器（把它自己的來源當成授權伺服器），以及在另一台裝置上登入。
 2. **Harness Relay 自己的 app**（`BUILT_IN_CLIENTS`），等有人負責這些註冊與 Google 的驗證之後（Gmail 的權限範圍是受限的，另外還需要安全評估）。
-3. **其他適合的用途**，例如 Google Drive 或 OneDrive 的檔案、待辦事項，各自有自己的工具群組與層級。
+3. **其他適合的用途**，例如 OneDrive 的檔案、待辦事項，各自有自己的工具群組與層級。
 
 透過 OAuth 收發郵件走的是郵件工具原本就有的 IMAP 與 SMTP 用戶端，加上 SASL XOAUTH2，而不是 Graph 與 Gmail API：工具、郵件觸發與 IDLE 對每個服務都是同一條程式路徑。那裡仍待處理的：Microsoft 國家雲的郵件，還不支援（Exchange Online 的權限範圍是全球雲的；得由設定指名每個雲的資源），以及為信箱關掉 SMTP AUTH 的 Microsoft 365 租用戶（這時「送出」會被拒絕；Graph 的 `sendMail` 則不會）。
 

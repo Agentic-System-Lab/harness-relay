@@ -712,6 +712,12 @@ export function createApp({
   app.put('/api/oauth/clients/:provider', async (c) =>
     c.json(oauth.saveClient(validOAuthProvider(c.req.param('provider')), validateOAuthClient(await body<unknown>(c)))),
   );
+  app.patch('/api/oauth/clients/:provider', async (c) => {
+    const provider = validOAuthProvider(c.req.param('provider'));
+    const input = await body<{ disabled?: unknown }>(c);
+    if (typeof input?.disabled !== 'boolean') throw new HttpError(400, t().invalidField('disabled'));
+    return c.json(oauth.setClientDisabled(provider, input.disabled));
+  });
   // A sign-in for its uses (the calendar, mail), its provider's page to open, which sends the browser back
   // to this page's own web app when it is on this computer (`origin`), or a code to type on another device (`device`).
   // `account`: an account signing in again, or for another use: its uses are asked for too, and its address is the page's login hint.

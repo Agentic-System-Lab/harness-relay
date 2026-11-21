@@ -13,12 +13,6 @@ export interface MailPreset {
 /** Providers whose servers take an app password, and their usual settings. */
 export const MAIL_PRESETS: MailPreset[] = [
   {
-    id: 'gmail',
-    label: 'Gmail',
-    imap: { host: 'imap.gmail.com', port: 993, security: 'tls' },
-    smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' },
-  },
-  {
     id: 'icloud',
     label: 'iCloud Mail',
     imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' },

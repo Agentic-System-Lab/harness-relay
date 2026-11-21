@@ -447,6 +447,8 @@ export const api = {
     ),
   /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
   oauth: () => request<OAuthView>('GET', '/api/oauth'),
+  setOAuthClientDisabled: (provider: OAuthProviderId, disabled: boolean) =>
+    request<OAuthView>('PATCH', `/api/oauth/clients/${provider}`, { disabled }),
   saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
   /** A sign-in for its uses: the provider's page sends the browser back to this page's own origin when it is on this computer. */
   /** `account`: the account signing in again, or for another use (its uses are asked for too, its address is the page's hint). */

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   type ConnectorsView,
   type OAuthAccountView,
@@ -10,20 +10,46 @@ import {
   type OAuthView,
 } from '../../shared/types';
 import { ApiError, api } from '../api';
-import { useT } from '../i18n';
-import { accountActions, calendarName, redirectAddresses, sayPopupBlocked, waiting } from '../oauth';
+import { useI18n, useT } from '../i18n';
+import { HARNESS_RELAY_URL } from '../share';
+import { accountActions, calendarName, oauthClientStatus, redirectAddresses, sayPopupBlocked, waiting } from '../oauth';
 import { isAppWindow } from '../update';
 
 type AccountUse = 'mail' | 'calendar';
 
 const AccountSignInContext = createContext<{
   owner?: AccountUse;
+  setupPanel: React.RefObject<HTMLDetailsElement | null>;
+  editor?: { provider: OAuthProviderId; kind?: AccountUse };
+  configure: (provider: OAuthProviderId, kind?: AccountUse) => void;
+  closeEditor: () => void;
   begin: (kind: AccountUse) => boolean;
   finish: () => void;
 } | null>(null);
 
 /** Only one Mail or Calendar sign-in can start, including while the first start request is in flight. */
 export function AccountSignInProvider({ children }: { children: ReactNode }) {
+  const setupPanel = useRef<HTMLDetailsElement>(null);
+  const trigger = useRef<HTMLElement | null>(null);
+  const originGroup = useRef<Element | null>(null);
+  const [editor, setEditor] = useState<{ provider: OAuthProviderId; kind?: AccountUse }>();
+  const configure = (provider: OAuthProviderId, kind?: AccountUse) => {
+    trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    originGroup.current = trigger.current?.closest('.oauth-provider, .drive-editing, .app-row') ?? null;
+    if (setupPanel.current) setupPanel.current.open = true;
+    setEditor({ provider, kind });
+  };
+  const closeEditor = () => {
+    setEditor(undefined);
+    const panel = setupPanel.current;
+    if (!panel) return;
+    const opener = trigger.current;
+    if (opener && !panel.contains(opener)) panel.open = false;
+    requestAnimationFrame(() => {
+      if (opener?.isConnected && opener.getClientRects().length) opener.focus();
+      else (originGroup.current?.querySelector<HTMLElement>('button:not(:disabled)') ?? panel.querySelector('summary'))?.focus();
+    });
+  };
   const active = useRef(false);
   const [owner, setOwner] = useState<AccountUse>();
   const begin = (kind: AccountUse) => {
@@ -36,7 +62,140 @@ export function AccountSignInProvider({ children }: { children: ReactNode }) {
     active.current = false;
     setOwner(undefined);
   };
-  return <AccountSignInContext.Provider value={{ owner, begin, finish }}>{children}</AccountSignInContext.Provider>;
+  return (
+    <AccountSignInContext.Provider value={{ owner, begin, finish, editor, configure, closeEditor, setupPanel }}>
+      {children}
+    </AccountSignInContext.Provider>
+  );
+}
+
+function useConfigureOAuth() {
+  return useContext(AccountSignInContext)!.configure;
+}
+
+function OAuthGuideLink({ provider }: { provider: OAuthProviderId }) {
+  const { lang, t } = useI18n();
+  const path = (lang === 'zh-TW' ? 'zh-TW/' : '') + 'docs/tools/#' + provider + '-oauth-setup';
+  return (
+    <a href={HARNESS_RELAY_URL + path} target="_blank" rel="noreferrer">
+      {t.connectors.oauth.setupGuide[provider]}
+    </a>
+  );
+}
+
+/** Keep the explanation and the two ways to continue available beside disabled service actions. */
+export function OAuthSetupHint({ client, kind, id }: { client: OAuthClientView; kind?: AccountUse; id?: string }) {
+  const o = useT().connectors.oauth;
+  const configure = useConfigureOAuth();
+  const { provider, disabled } = client;
+  const name = provider === 'microsoft' ? 'Microsoft' : 'Google';
+  return (
+    <div className="oauth-setup-hint">
+      <p className="muted small" id={id}>
+        {disabled ? o.disabledSetup(name) : o.missingSetup(name)}
+      </p>
+      <div className="form-actions small">
+        <button type="button" className="link-button" aria-controls="oauth-client-settings" onClick={() => configure(provider, kind)}>
+          {disabled ? o.settingsFor[provider] : o.configure[provider]}
+        </button>
+        <OAuthGuideLink provider={provider} />
+      </div>
+    </div>
+  );
+}
+
+export function OAuthClientSettings({ view, onSaved }: { view: OAuthView | null; onSaved: () => Promise<void> }) {
+  const { editor, configure, closeEditor, setupPanel, owner } = useContext(AccountSignInContext)!;
+  const o = useT().connectors.oauth;
+  const [changing, setChanging] = useState(false);
+  const [error, setError] = useState('');
+  const toggle = async (entry: OAuthClientView) => {
+    if (!entry.disabled && !window.confirm(o.confirmTurnOff[entry.provider])) return;
+    setChanging(true);
+    setError('');
+    try {
+      await api.setOAuthClientDisabled(entry.provider, !entry.disabled);
+      await onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChanging(false);
+    }
+  };
+  const client = view?.clients.find((item) => item.provider === editor?.provider);
+  const form = useRef<HTMLDivElement>(null);
+  const enableButton = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (editor) (enableButton.current ?? form.current?.querySelector('input'))?.focus();
+  }, [editor, client?.provider]);
+  return (
+    <details ref={setupPanel} className="library-category oauth-settings" id="oauth-client-settings">
+      <summary>
+        <h4>{o.settingsTitle}</h4>
+      </summary>
+      <div className="library-category-body oauth-settings-body">
+        <p className="small muted">{o.settingsHint}</p>
+        <div className="oauth-client-list">
+          {(['google', 'microsoft'] as const).map((p) => {
+            const entry = view?.clients.find((c) => c.provider === p);
+            const name = p === 'google' ? 'Google' : 'Microsoft';
+            const state = oauthClientStatus(entry);
+            return (
+              <div className="oauth-client-row" key={p} role="group" aria-label={name}>
+                <button
+                  type="button"
+                  className="ghost"
+                  aria-pressed={editor?.provider === p}
+                  aria-label={o.settingsFor[p]}
+                  disabled={!!owner || !view || changing}
+                  onClick={() => configure(p)}
+                >
+                  {name}
+                </button>
+                {entry && <span className="small muted">{o.clientState[state]}</span>}
+                {entry && state !== 'missing' && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    ref={editor?.provider === p && entry.disabled ? enableButton : undefined}
+                    disabled={changing}
+                    onClick={() => toggle(entry)}
+                  >
+                    {entry.disabled ? o.turnOn : o.turnOff}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {error && (
+          <p role="alert" className="error-line">
+            {error}
+          </p>
+        )}
+        {client && (
+          <div ref={form}>
+            <ClientForm
+              key={client.provider}
+              client={client}
+              label={o.providers[client.provider]}
+              kind={editor?.kind}
+              disabled={!!owner || changing}
+              onSaved={onSaved}
+              onCancel={closeEditor}
+            />
+          </div>
+        )}
+        <div className="form-actions small">
+          {(['google', 'microsoft'] as const)
+            .filter((p) => !editor || editor.provider === p)
+            .map((p) => (
+              <OAuthGuideLink key={p} provider={p} />
+            ))}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 /**
@@ -52,24 +211,20 @@ export function AccountSignInProvider({ children }: { children: ReactNode }) {
 export function OAuthAccounts({
   kind,
   view,
-  setView,
   reloadOAuth,
   connectors,
   onConnectors,
   refresh = 0,
   servicePicker,
-  passwordOption,
   provider,
 }: {
   kind: AccountUse;
   view: OAuthView | null;
-  setView: (v: OAuthView) => void;
   reloadOAuth: () => Promise<void>;
   connectors: ConnectorsView;
   onConnectors: (v: ConnectorsView) => void;
   refresh?: number;
   servicePicker: ReactNode;
-  passwordOption: ReactNode;
   provider?: OAuthProviderId;
 }) {
   const t = useT();
@@ -78,9 +233,9 @@ export function OAuthAccounts({
   const [error, setError] = useState('');
   const [info, setInfo] = useState<{ text: string; account?: string }>();
   const [signIn, setSignIn] = useState<OAuthSignInView>();
-  const [settingUp, setSettingUp] = useState<OAuthProviderId>();
   const [calendarsOf, setCalendarsOf] = useState<string>();
   const shared = useContext(AccountSignInContext)!;
+  const reasonId = useId();
   const busy = Boolean(shared.owner);
   const updateSignIn = (v: OAuthSignInView | undefined) => {
     setSignIn(v);
@@ -88,8 +243,8 @@ export function OAuthAccounts({
   };
 
   useEffect(() => {
-    if (refresh) api.oauth().then(setView, (e: Error) => setError(e.message));
-  }, [refresh, setView]);
+    if (refresh) reloadOAuth().catch((e: Error) => setError(e.message));
+  }, [refresh, reloadOAuth]);
 
   // Follow a sign-in while it waits; once done, the account (and its calendar) are shown.
   useFollowSignIn(signIn, updateSignIn, setError);
@@ -100,7 +255,7 @@ export function OAuthAccounts({
     shown.current = ended.id;
     if (ended.status === 'done') {
       setInfo({ text: o.done(ended.account?.email ?? ''), account: ended.account?.id });
-      void Promise.allSettled([api.oauth().then(setView), api.connectors().then(onConnectors)]).then((responses) => {
+      void Promise.allSettled([reloadOAuth(), api.connectors().then(onConnectors)]).then((responses) => {
         const failed = responses.find((result) => result.status === 'rejected');
         if (failed) setError((failed.reason as Error).message);
         updateSignIn(undefined);
@@ -109,7 +264,7 @@ export function OAuthAccounts({
       setError(ended.error ?? '');
       updateSignIn(undefined);
     }
-  }, [ended, o, onConnectors]);
+  }, [ended, o, onConnectors, reloadOAuth]);
 
   /** A sign-in for these uses; `account`: the account it signs in again, or for another use. */
   const start = async (provider: OAuthProviderId, uses: OAuthUse[], device = false, account?: string) => {
@@ -130,7 +285,7 @@ export function OAuthAccounts({
   };
 
   // The accounts read again: a calendar list that failed may have found a sign-in no longer works, which its account then says.
-  const reread = () => void api.oauth().then(setView, () => undefined);
+  const reread = () => void reloadOAuth().catch(() => undefined);
 
   /** Adds the mail account of an account signed in for mail. */
   const addMail = async (a: OAuthAccountView) => {
@@ -148,7 +303,7 @@ export function OAuthAccounts({
     if (!confirm(o.confirmRemove(a.email, a.uses.map((u) => o.uses[u]).join(t.common.listSeparator)))) return;
     try {
       const r = await api.removeOAuthAccount(a.id);
-      setView(r);
+      await reloadOAuth();
       onConnectors(r.connectors);
       setInfo(r.permissionsPages?.length ? { text: o.removedMicrosoft(r.permissionsPages.join(t.common.listSeparator)) } : undefined);
     } catch (e) {
@@ -156,10 +311,9 @@ export function OAuthAccounts({
     }
   };
 
+  const available = (p: OAuthProviderId) => oauthClientStatus(view?.clients.find((client) => client.provider === p)) === 'ready';
   const accounts = view?.accounts ?? [];
   const label = (p: OAuthProviderId) => o.providers[p];
-  // Incremental consent names the existing account so the server preserves its current grants.
-  const otherAccounts = accounts.filter((a) => !a.uses.includes(kind));
   return (
     <div className="oauth-accounts">
       {accounts.some((a) => a.uses.includes(kind)) && <h5>{o.title}</h5>}
@@ -179,7 +333,13 @@ export function OAuthAccounts({
                 <div className="lib-row-main">
                   <span className="lib-name">{label(a.provider)}</span>
                   <code className="lib-detail">{a.email}</code>
-                  <span className={`badge ${a.status === 'reauth' ? 'warn' : ''}`}>{a.status === 'reauth' ? o.reauth : o.connected}</span>
+                  <span className={`badge ${a.status === 'reauth' ? 'warn' : ''}`}>
+                    {!available(a.provider)
+                      ? o.clientState[oauthClientStatus(view?.clients.find((c) => c.provider === a.provider))]
+                      : a.status === 'reauth'
+                        ? o.reauth
+                        : o.connected}
+                  </span>
                 </div>
                 <p className="small muted">{o.usedFor(a.uses.map((u) => o.uses[u]).join(t.common.listSeparator))}</p>
                 {a.status === 'reauth' && a.error && <p className="small warn-text">{a.error}</p>}
@@ -188,7 +348,7 @@ export function OAuthAccounts({
                     <button
                       type="button"
                       className="ghost small-button"
-                      disabled={busy}
+                      disabled={busy || !available(a.provider)}
                       onClick={() => start(a.provider, can.signInAgain!, false, a.id)}
                     >
                       {o.signInAgain}
@@ -198,6 +358,7 @@ export function OAuthAccounts({
                     <button
                       type="button"
                       className="ghost small-button"
+                      disabled={!available(a.provider)}
                       aria-expanded={calendarsOf === a.id}
                       onClick={() => setCalendarsOf((x) => (x === a.id ? undefined : a.id))}
                     >
@@ -205,8 +366,8 @@ export function OAuthAccounts({
                     </button>
                   )}
                   {kind === 'mail' && can.addMail && (
-                    <button type="button" className="ghost small-button" onClick={() => addMail(a)}>
-                      {o.useFor.mail}
+                    <button type="button" className="ghost small-button" disabled={!available(a.provider)} onClick={() => addMail(a)}>
+                      {o.restoreMail}
                     </button>
                   )}
                   <button
@@ -219,7 +380,9 @@ export function OAuthAccounts({
                     {t.common.remove}
                   </button>
                 </div>
-                {calendarsOf === a.id && <AccountCalendars account={a} onConnectors={onConnectors} onFailed={reread} />}
+                {available(a.provider) && calendarsOf === a.id && (
+                  <AccountCalendars account={a} onConnectors={onConnectors} onFailed={reread} />
+                )}
               </li>
             );
           })}
@@ -229,22 +392,6 @@ export function OAuthAccounts({
         <SignInWaiting signIn={signIn} label={label(signIn.provider)} onChange={updateSignIn} onError={setError} />
       )}
 
-      {otherAccounts.length > 0 && (
-        <details className="sub">
-          <summary>{o.existing}</summary>
-          <ul className="lib-list">
-            {otherAccounts.map((a) => (
-              <li key={a.id} className="lib-row relay-group">
-                <strong>{a.email}</strong>
-                <span className="small muted">{o.usedFor(a.uses.map((u) => o.uses[u]).join(t.common.listSeparator))}</span>
-                <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(a.provider, [kind], false, a.id)}>
-                  {o.useFor[kind]}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
       {shared.owner && shared.owner !== kind && (
         <p className="small muted" role="status">
           {o.finishIn[shared.owner]}
@@ -258,53 +405,33 @@ export function OAuthAccounts({
             const p = client.provider;
             return (
               <div key={p} className="oauth-provider">
-                {client.clientId ? (
-                  <div className="form-actions">
-                    <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind])}>
-                      {o.signIn(label(p))}
-                    </button>
-                    {client.device && (
-                      <button type="button" className="ghost small-button" disabled={busy} onClick={() => start(p, [kind], true)}>
-                        {o.onAnotherDevice}
-                      </button>
-                    )}
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="ghost small-button"
+                    disabled={busy || !available(p)}
+                    aria-describedby={available(p) ? undefined : reasonId}
+                    onClick={() => start(p, [kind])}
+                  >
+                    {o.signIn(label(p))}
+                  </button>
+                  {client.device && (
                     <button
                       type="button"
-                      className="link-button"
-                      disabled={busy}
-                      onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
+                      className="ghost small-button"
+                      disabled={busy || !available(p)}
+                      aria-describedby={available(p) ? undefined : reasonId}
+                      onClick={() => start(p, [kind], true)}
                     >
-                      {o.app}
+                      {o.onAnotherDevice}
                     </button>
-                  </div>
-                ) : (
-                  <p className="small muted">
-                    {t.apps.accountSetup(label(p))}{' '}
-                    <button
-                      type="button"
-                      className="link-button"
-                      disabled={busy}
-                      onClick={() => setSettingUp((x) => (x === p ? undefined : p))}
-                    >
-                      {o.setUp}
-                    </button>
-                  </p>
-                )}
-                {settingUp === p && (
-                  <ClientForm
-                    client={client}
-                    label={label(p)}
-                    kind={kind}
-                    disabled={busy}
-                    onSaved={reloadOAuth}
-                    onCancel={() => setSettingUp(undefined)}
-                  />
-                )}
+                  )}
+                </div>
+                {!available(p) && <OAuthSetupHint id={reasonId} client={client} kind={kind} />}
               </div>
             );
           })}
       </div>
-      {passwordOption}
     </div>
   );
 }
@@ -444,7 +571,7 @@ export function SignInWaiting({
 }
 
 /** A provider's app: the user's own client id (Microsoft's tenant, Google's secret), and the redirect addresses it must allow. */
-export function ClientForm({
+function ClientForm({
   client,
   label,
   kind,
@@ -503,7 +630,7 @@ export function ClientForm({
   return (
     <form
       className="mcp-form connector-form"
-      aria-label={`${o.app} · ${label}`}
+      aria-label={o.settingsFor[client.provider]}
       onSubmit={(e) => {
         e.preventDefault();
         void save();

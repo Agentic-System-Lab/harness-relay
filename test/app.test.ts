@@ -128,12 +128,19 @@ describe('hosted account status', () => {
     const probe = vi.spyOn(HostedAppChecks.prototype, 'check').mockResolvedValue('available');
     try {
       const post = (path: string, input: unknown) => app.request('/api/apps/' + path, json('POST', input));
-      expect(await (await post('drive/hosted/codex', {})).json()).toEqual({ status: 'available' });
-      expect(probe).toHaveBeenLastCalledWith('drive', 'codex', '', false);
+      expect(await (await post('slack/hosted/codex', {})).json()).toEqual({ status: 'available' });
+      expect(probe).toHaveBeenLastCalledWith('slack', 'codex', '', false);
       expect((await post('teams/hosted/claude?account=default', { verify: true })).status).toBe(200);
       expect(probe).toHaveBeenLastCalledWith('teams', 'claude', '', true);
       expect((await post('slack/hosted/codex', { verify: 'true' })).status).toBe(400);
-      for (const path of ['drive/hosted/codex?account=missing', 'unknown/hosted/codex', 'slack/hosted/grok', 'constructor/hosted/claude']) {
+      for (const path of [
+        'drive/hosted/codex',
+        'drive/hosted/claude',
+        'slack/hosted/codex?account=missing',
+        'unknown/hosted/codex',
+        'slack/hosted/grok',
+        'constructor/hosted/claude',
+      ]) {
         expect((await post(path, {})).status).toBe(404);
       }
       expect(probe).toHaveBeenCalledTimes(2);

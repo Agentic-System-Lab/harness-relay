@@ -30,6 +30,7 @@ describe('signing in with OAuth, in the page', () => {
       'http://127.0.0.1/oauth/callback',
       'http://localhost/oauth/callback',
     ]);
+    expect(redirectAddresses('microsoft', 'http://[::1]:8787')).toEqual(['http://localhost/oauth/callback']);
     expect(redirectAddresses('microsoft', 'http://localhost:5173')).toEqual(['http://localhost/oauth/callback']);
     // A page on another computer comes back to localhost here, its address pasted then.
     expect(redirectAddresses('microsoft', 'https://relay-8787.app.github.dev')).toEqual(['http://localhost/oauth/callback']);

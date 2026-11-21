@@ -4756,6 +4756,17 @@ video.chat-media {
   gap: 6px;
 }
 
+.oauth-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+
+.oauth-provider > button {
+  align-self: flex-start;
+}
+
 /* A form's or a sign-in's buttons (Cancel and Save; Sign in with …, and the link to its app): side by
    side, apart, wrapping on a narrow screen. */
 .form-actions {

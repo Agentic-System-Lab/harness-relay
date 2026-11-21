@@ -1,4 +1,4 @@
-// Google OAuth and Docs for the document-confirmation browser test. Every Google host stays offline.
+// Google OAuth, Drive and Docs for the Common apps browser tests. Every Google host stays offline.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,9 +6,12 @@ import { join } from 'node:path';
 const originalFetch = globalThis.fetch;
 const authFile = () => join(process.env.RELAY_DATA_DIR, 'google-docs-consent.json');
 const docFile = () => join(process.env.RELAY_DATA_DIR, 'google-docs-state.json');
-const scope = 'https://www.googleapis.com/auth/documents';
+const docsScope = 'https://www.googleapis.com/auth/documents';
+const driveScope = 'https://www.googleapis.com/auth/drive.readonly';
 const tabId = 't.decision';
-const accessToken = 'fixture-docs-access';
+const accessScopes = new Map();
+let refreshScopes;
+let serial = 0;
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, data) => writeFileSync(file, JSON.stringify(data));
 const error = (status, message) => Response.json({ error: { message } }, { status });
@@ -31,16 +34,19 @@ async function tokens(request) {
     ) {
       return Response.json({ error: 'invalid_grant' }, { status: 400 });
     }
+    refreshScopes = grant.scopes;
     save(authFile(), { ...grant, used: true });
-  } else if (form.get('grant_type') !== 'refresh_token' || form.get('refresh_token') !== 'fixture-docs-refresh' || !grant.used) {
+  } else if (form.get('grant_type') !== 'refresh_token' || form.get('refresh_token') !== 'fixture-docs-refresh' || !refreshScopes) {
     return Response.json({ error: 'invalid_grant' }, { status: 400 });
   }
+  const accessToken = 'fixture-google-token-' + ++serial;
+  accessScopes.set(accessToken, refreshScopes);
   return Response.json({
     access_token: accessToken,
     refresh_token: 'fixture-docs-refresh',
     token_type: 'Bearer',
     expires_in: 3600,
-    scope: 'openid email profile ' + scope,
+    scope: refreshScopes.join(' '),
   });
 }
 
@@ -94,10 +100,23 @@ globalThis.fetch = async (input, init) => {
   if (!/(^|\.)(googleapis\.com|googleusercontent\.com|google\.com)$/.test(url.hostname)) return originalFetch(input, init);
   const request = new Request(input, init);
   if (url.origin === 'https://oauth2.googleapis.com' && url.pathname === '/token' && request.method === 'POST') return tokens(request);
-  if (request.headers.get('authorization') !== 'Bearer ' + accessToken) return error(401, 'Unknown fixture token');
+  if (url.href === 'https://oauth2.googleapis.com/revoke' && request.method === 'POST') {
+    if (new URLSearchParams(await request.text()).get('token') !== 'fixture-docs-refresh') return error(400, 'Invalid refresh token');
+    accessScopes.clear();
+    refreshScopes = undefined;
+    save(authFile(), { ...read(authFile()), revoked: true });
+    return Response.json({});
+  }
+  const scopes = accessScopes.get(request.headers.get('authorization')?.replace(/^Bearer /, ''));
+  if (!scopes) return error(401, 'Unknown fixture token');
   if (url.href === 'https://openidconnect.googleapis.com/v1/userinfo')
     return Response.json({ sub: 'docs-test-user', email: 'editor@example.test', name: 'Test Editor' });
-  if (url.origin !== 'https://docs.googleapis.com') return error(403, 'Only the Docs API is authorized in this test');
+  if (url.href.startsWith('https://www.googleapis.com/drive/v3/files?') && request.method === 'GET') {
+    return scopes.includes(driveScope)
+      ? Response.json({ files: [{ id: 'planning', name: 'Planning notes' }] })
+      : error(403, 'Missing Drive read permission');
+  }
+  if (url.origin !== 'https://docs.googleapis.com' || !scopes.includes(docsScope)) return error(403, 'Missing Docs permission');
   const state = existsSync(docFile()) ? read(docFile()) : null;
   if (url.pathname === '/v1/documents' && request.method === 'POST') {
     const { title } = await request.json();

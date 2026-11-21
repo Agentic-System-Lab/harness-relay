@@ -275,7 +275,7 @@ base('Notion and Heptabase connect from the full row and keep sign-in controls a
   }
 });
 
-base('Drive, Teams and Slack check and disconnect Claude and Codex independently', async ({ page, relay }) => {
+base('Teams and Slack check and disconnect Claude and Codex independently', async ({ page, relay }) => {
   base.slow();
   const { set } = await hostConnectorPages(page.context(), relay.home);
   const providers = ['Claude', 'Codex'] as const;
@@ -302,7 +302,7 @@ base('Drive, Teams and Slack check and disconnect Claude and Codex independently
     if (
       request.method() !== 'GET' &&
       /^\/api\/(?:apps|tools|conversations|settings|oauth)(?:\/|$)/.test(pathname) &&
-      !/^\/api\/apps\/(?:drive|teams|slack)\/hosted\/(?:claude|codex)$/.test(pathname)
+      !/^\/api\/apps\/(?:teams|slack)\/hosted\/(?:claude|codex)$/.test(pathname)
     )
       writes.push(pathname);
   });
@@ -359,7 +359,7 @@ base('Drive, Teams and Slack check and disconnect Claude and Codex independently
       await expect(row(app).locator('.app-options > summary')).toContainText('Codex');
     });
   }
-  expect(calls()).toEqual(['google_drive.get_profile', 'microsoft_teams.get_profile', 'slack.slack_read_user_profile']);
+  expect(calls()).toEqual(['microsoft_teams.get_profile', 'slack.slack_read_user_profile']);
   await page.reload();
   for (const app of hostedApps) {
     await base.step('Reload and disconnect ' + app.name + ' in each provider', async () => {

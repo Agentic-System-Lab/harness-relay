@@ -5,7 +5,7 @@ type Data = Record<string, unknown>;
 const object = (v: unknown): v is Data => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !!v.trim();
 const email = (v: unknown) => typeof v === 'string' && /^[^\s@]+@[^\s@]+$/.test(v);
-const leaves = { drive: 'get_profile', teams: 'get_profile', slack: 'slack_read_user_profile' } as const;
+const leaves = { teams: 'get_profile', slack: 'slack_read_user_profile' } as const;
 
 export function profilePermission(app: HostedApp, reply: unknown): 'allowed' | 'disabled' | 'unknown' {
   if (
@@ -84,9 +84,7 @@ function profile(app: HostedApp, raw: unknown): boolean {
       [p.real_name, p.display_name, p.email].some(text)
     );
   }
-  if (app === 'teams') return text(raw.id) && (email(raw.userPrincipalName) || email(raw.mail) || email(raw.email));
-  const user = object(raw.user) ? raw.user : raw;
-  return (email(user.emailAddress) || email(user.email)) && [user.permissionId, user.displayName, user.id, user.sub, user.name].some(text);
+  return text(raw.id) && (email(raw.userPrincipalName) || email(raw.mail) || email(raw.email));
 }
 
 /** Require recognizable self-profile fields in structured output or a JSON MCP text result.

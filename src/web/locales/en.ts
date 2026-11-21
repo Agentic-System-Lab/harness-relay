@@ -821,7 +821,6 @@ export const en: Messages = {
     oauth: {
       title: 'Accounts you sign in to',
       hint: { mail: 'Sign in to Google or Microsoft to use your mail.', calendar: 'Sign in to Google or Microsoft to use your calendars.' },
-      existing: 'Use an existing sign-in',
       finishIn: { mail: 'Finish or cancel the sign-in in Mail first.', calendar: 'Finish or cancel the sign-in in Calendar first.' },
       sharedClient: {
         google: 'Mail, Calendar and directly connected Google Drive accounts share this Google app registration.',
@@ -846,13 +845,7 @@ export const en: Messages = {
       providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' },
       uses: { documents: 'Google Docs editing', drive: 'Google Drive', teams: 'Microsoft Teams', calendar: 'Calendars', mail: 'Mail' },
       usedFor: (uses) => `Used for: ${uses}`,
-      useFor: {
-        documents: 'Google Docs editing',
-        drive: 'Google Drive',
-        teams: 'Microsoft Teams',
-        calendar: 'Use for calendars',
-        mail: 'Use for mail',
-      },
+      restoreMail: 'Use for mail',
       mailAdded: (email) => `The mail of ${email} was added to the mail tools.`,
       signIn: (provider) => `Sign in with ${provider}`,
       onAnotherDevice: 'Sign in on another device',
@@ -868,10 +861,23 @@ export const en: Messages = {
         `Remove the sign-in for ${email}? This disconnects ${uses} for this account and removes its linked mail accounts and calendars from Harness Relay.`,
       removedMicrosoft: (pages) =>
         `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
-      app: 'The app to sign in with',
-      setUp: 'Set up the app',
-      needsApp: (provider) =>
-        `Signing in with ${provider} needs an app registered with ${provider} first. This installation does not include one. You can enter your registered app’s client ID here.`,
+      clientState: { ready: 'Configured', disabled: 'Turned off', missing: 'Not set up' },
+      turnOff: 'Turn off',
+      turnOn: 'Turn on',
+      missingSetup: (provider) => `${provider} sign-in is unavailable until OAuth 2.0 is set up.`,
+      disabledSetup: (provider) => `${provider} sign-in is turned off. Turn it on in account sign-in settings to use this service.`,
+      confirmTurnOff: {
+        google:
+          'Turn off Google access in Relay? Gmail, Google Calendar and Google Drive connections, including their tools and automations, will pause. You can turn access back on using the saved settings.',
+        microsoft:
+          'Turn off Microsoft access in Relay? Outlook mail and calendar and any Teams account using this registration will pause. You can turn access back on using the saved settings.',
+      },
+      setupGuide: { google: 'Google OAuth 2.0 setup guide', microsoft: 'Microsoft OAuth 2.0 setup guide' },
+      settingsTitle: 'Account sign-in settings (OAuth 2.0)',
+      settingsHint:
+        'Choose the provider whose app registration you want to set up or change. Gmail, Google Calendar and Google Drive share one Google registration.',
+      settingsFor: { google: 'Google sign-in settings', microsoft: 'Microsoft sign-in settings' },
+      configure: { google: 'Set up Google sign-in', microsoft: 'Set up Microsoft sign-in' },
       clientId: 'Client ID',
       tenant: 'Tenant',
       tenantHint: 'common (work, school and personal accounts), organizations, consumers, or your tenant’s ID or domain.',
@@ -1636,12 +1642,10 @@ export const en: Messages = {
     iCloudMail: 'iCloud Mail',
     otherMail: 'Other mailbox',
     mailAddress: 'Email address',
-    gmailPassword: 'Use a Gmail app password',
     chooseCalendar: 'Choose your calendar service',
     iCloudCalendar: 'iCloud Calendar',
     linkedCalendars: 'Connected calendars',
     otherCalendar: 'Other (CalDAV)',
-    accountSetup: (provider: string) => `To sign in with ${provider}, first connect your app.`,
     connectApple: 'Connect Apple Calendar (iCloud)',
     appleEmail: 'Apple Account email',
     applePassword: 'App-specific password',
@@ -1652,21 +1656,15 @@ export const en: Messages = {
     appleHelp: 'Create an app-specific password',
     slackInApps: 'Set up Slack in Common apps',
     slackExisting: (name) => `Existing tool library connection · ${name}`,
-    googleAdvanced: 'Advanced · Connect with your own Google Cloud project',
     driveEditHelp: 'Create or edit Google Docs in Relay',
     driveEditHint:
       'Authorize Relay to edit Google documents you can edit. Choose an assistant below. Its draft will show the account, document and exact changes for you to approve before Relay writes.',
-    hostedDriveRead:
-      'To search Drive with your assistant, use its connection below. For changes you want to preview in Relay, use the Relay document editing option.',
     enableDocs: 'Enable document editing',
     anotherDocsAccount: 'Authorize another Google account',
     enableDocsFor: (email: string) => `Enable editing for ${email}`,
     docsEnabled: 'Google Docs editing enabled',
-    driveReadOnly: 'Relay connection (read-only)',
-    ownGoogleProject:
-      'Enable the Drive API for file search and reading, and the Google Docs API for creating or editing documents. This connection uses your Google Cloud project and its quotas. Use this option to share Drive with other assistants. Changing the Google client also requires existing direct Gmail and Calendar accounts to sign in again.',
-    configureGoogle: 'Set up Google Cloud project',
-    connectDirect: 'Connect directly with Google',
+    driveReading: 'Drive file search and reading',
+    enableDriveFor: (email: string) => `Enable Drive reading for ${email}`,
     directConnection: 'Direct Relay connection',
     teamsDirectHint:
       'This connection lets Relay show a message preview and send it after you confirm. The Claude and Codex connections above use their own permissions.',
@@ -2636,10 +2634,10 @@ export const en: Messages = {
       },
       {
         title: 'Connect apps to your chats',
-        body: 'Open Settings → Apps and tools → Common apps and choose a service. For Drive, Teams or Slack, select Connect and choose the assistant you use in Relay.',
+        body: 'Open Settings → Apps and tools → Common apps and choose a service. For Teams or Slack, select Connect and choose the assistant you use in Relay.',
         points: [
-          'Open Mail for Gmail or Calendar for Google Calendar. For Obsidian, choose your notes folder.',
-          'Choose assistants on the tool’s row. For Slack, open Send from Relay to choose who can draft messages. Posts sent through Relay and Obsidian note changes wait for your confirmation in the chat.',
+          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. If this is your first setup, open Account sign-in settings (OAuth 2.0) for the Google setup guide. Drive asks separately for permission to create or edit Google documents.',
+          'Choose assistants on the tool’s row. For Slack, open Send from Relay to choose who can draft messages. Relay shows a preview before posting a message, changing an Obsidian note or writing a Google document.',
           'To add a custom tool, skill or shared instruction, switch to the Tool library tab.',
         ],
       },
