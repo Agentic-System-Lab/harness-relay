@@ -279,6 +279,32 @@ test('Apple Calendar starts from its own button and saves only a selected iCloud
   await trigger.click();
   await expect(email).toHaveValue('');
   await expect(password).toHaveValue('');
+  let collection = address + 'family';
+  await page.route('**/api/connectors/calendar/discover', (route) =>
+    route.fulfill({ json: { ok: true, calendars: [{ name: 'Family', url: collection }] } }),
+  );
+  await email.fill('SAMPLE@example.test');
+  await password.fill('sample-password');
+  await find.click();
+  await expect(selection.getByRole('option', { name: 'Family · Already connected' })).toBeDisabled();
+  await expect(save).toBeDisabled();
+  await expect(form.getByRole('status')).toHaveText('All calendars found for this account are already connected.');
+  await email.fill('other@example.test');
+  await find.click();
+  await expect(selection.getByRole('option', { name: 'Family · other@example.test' })).toBeEnabled();
+  await save.click();
+  await expect(form).toBeHidden();
+  await trigger.click();
+  collection = address + 'second/';
+  await email.fill('other@example.test');
+  await password.fill('sample-password');
+  await find.click();
+  await expect(selection.getByRole('option', { name: 'Family · other@example.test (2)' })).toBeEnabled();
+  await save.click();
+  await expect(form).toBeHidden();
+  const names = (await relay.api<import('../../src/shared/types').ConnectorsView>('/api/connectors')).calendar.map((c) => c.name);
+  expect(names).toEqual(['Family', 'Family · other@example.test', 'Family · other@example.test (2)']);
+  await trigger.click();
   await form.getByRole('button', { name: 'Cancel' }).click();
   await expect(trigger).toBeFocused();
 });

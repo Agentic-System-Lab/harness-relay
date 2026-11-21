@@ -96,7 +96,13 @@ async function installMacChrome(host: BrowserInstallHost, job: InstallJob): Prom
       });
       const source = join(volume, CHROME_APP);
       if (!lstatSync(source).isDirectory()) throw new Error('Missing Google Chrome application in the disk image.');
-      await runStep(host, job, 'Copy Google Chrome', { bin: '/usr/bin/ditto', args: [source, stagedApp], env });
+      // The vendor HFS image carries FinderInfo on its helpers. Omit resource forks and Finder
+      // metadata so strict seal verification can run; preserve quarantine on the staged bundle.
+      await runStep(host, job, 'Copy Google Chrome', {
+        bin: '/usr/bin/ditto',
+        args: ['--norsrc', '--qtn', '--acl', source, stagedApp],
+        env,
+      });
       await runStep(host, job, 'Verify the Google Chrome signature', {
         bin: '/usr/bin/codesign',
         args: ['--verify', '--deep', '--strict', '--all-architectures', '-R', GOOGLE_SIGNATURE, stagedApp],

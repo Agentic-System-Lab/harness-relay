@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -11,6 +13,15 @@ import { profilePermission, profileStatus, profileTool } from './codexHostedProf
 import { AGENT_HOME_ENV, type SettingsStore } from '../settings';
 
 type Snapshot = Record<HostedApp, HostedAppStatus>;
+type CodexSnapshot = Snapshot & { accountKey?: string };
+function codexAccountKey(
+  account: { type?: string; id?: string; email?: string; workspaceName?: string; planType?: string } | null,
+): string | undefined {
+  if (account?.type !== 'chatgpt' || (!account.id && !account.email)) return;
+  return createHash('sha256')
+    .update(JSON.stringify([account.id, account.email, account.workspaceName, account.planType]))
+    .digest('hex');
+}
 const snapshot = (status: HostedAppStatus): Snapshot => ({ slack: status });
 
 /** The CLI can also find local MCP servers with the same name. Only a named claude.ai scope is evidence. */
@@ -77,8 +88,9 @@ async function checkCodex(
   env: NodeJS.ProcessEnv,
   overrides: string[],
   verify?: { app: HostedApp; signal: AbortSignal; blocked: (wire?: string) => HostedAppStatus | undefined },
-): Promise<Snapshot> {
+): Promise<CodexSnapshot> {
   let result = snapshot('unknown');
+  let accountKey: string | undefined;
   let expected = 1;
   let thread: string;
   let folder: string | undefined;
@@ -131,6 +143,7 @@ async function checkCodex(
             return ask('account/read', { refreshToken: false });
           case 2:
             if (m.result.account?.type !== 'chatgpt') return finish();
+            accountKey = codexAccountKey(m.result.account);
             return ask('app/installed', { forceRefresh: true });
           case 3: {
             result = codexHostedSnapshot(m.result.apps);
@@ -189,11 +202,19 @@ async function checkCodex(
           }
           case 8:
             if (verify) result[verify.app] = profileStatus(m.result);
+            if (verify && result[verify.app] === 'connected') {
+              result[verify.app] = 'unknown';
+              return ask('account/read', { refreshToken: false });
+            }
+            return finish();
+          case 9:
+            if (verify && m.result.account?.type === 'chatgpt' && codexAccountKey(m.result.account) === accountKey)
+              result[verify.app] = 'connected';
             return finish();
         }
       },
     });
-    return timedOut || verify?.signal.aborted ? snapshot('unknown') : result;
+    return timedOut || verify?.signal.aborted ? snapshot('unknown') : { ...result, accountKey };
   } catch {
     return snapshot('unknown');
   } finally {
@@ -202,9 +223,12 @@ async function checkCodex(
 }
 
 export class HostedAppChecks {
-  private readonly codex = new Map<string, Promise<Snapshot>>();
+  private readonly codex = new Map<string, Promise<CodexSnapshot>>();
 
   private readonly verifying = new Map<string, AbortController>();
+
+  // A picker may reuse a recent explicit self-profile check while the same account and plugin remain available.
+  private readonly verified = new Map<string, { identity: string; tool?: string; time: number }>();
 
   constructor(private readonly settings: Pick<SettingsStore, 'bin' | 'env' | 'accountHome' | 'hasAccount' | 'nativeOff' | 'nativeItems'>) {}
 
@@ -224,7 +248,8 @@ export class HostedAppChecks {
       return 'disabled';
   }
 
-  async check(app: HostedApp, provider: HostedProvider, account: string, verify = false): Promise<HostedAppStatus> {
+  async check(app: HostedApp, provider: HostedProvider, account: string, mode: boolean | 'draft' = false): Promise<HostedAppStatus> {
+    const verify = mode === true;
     const target = JSON.stringify([provider, account, app]);
     // Match settings.env(): the account's selected home, the inherited default override, or the CLI default.
     // This reads only the folder setting while an RPC is pending, never the keyring.
@@ -232,6 +257,18 @@ export class HostedAppChecks {
       resolve(this.settings.accountHome(provider, account) || process.env[AGENT_HOME_ENV[provider]] || join(homedir(), '.' + provider));
     const home = currentHome();
     const bin = this.settings.bin(provider);
+    // File metadata also distinguishes sign-ins changed outside Relay without reading any credentials.
+    const identity = () => {
+      let authFile = '';
+      try {
+        const stat = statSync(join(home, 'auth.json'), { bigint: true, throwIfNoEntry: false });
+        if (stat) authFile = [stat.ino, stat.size, stat.mtimeNs].join('/');
+      } catch {
+        /* Codex can also keep its credentials in the system keyring. */
+      }
+      return JSON.stringify([home, bin, authFile]);
+    };
+    const before = provider === 'codex' && verify ? identity() : '';
     let wire: string | undefined;
     const blocked = (name?: string) => {
       if (name) wire = name;
@@ -242,6 +279,7 @@ export class HostedAppChecks {
     };
     const initial = blocked();
     if (initial) {
+      this.verified.delete(target);
       this.verifying.get(target)?.abort();
       return initial;
     }
@@ -253,6 +291,7 @@ export class HostedAppChecks {
     }
     try {
       let status: HostedAppStatus;
+      let accountKey: string | undefined;
       if (provider === 'claude') {
         // Each mcp get, including Verify or returning from the provider, is a new live process.
         status = await checkClaude(app, bin, env, active?.signal);
@@ -261,7 +300,9 @@ export class HostedAppChecks {
           codexNativeConfig(this.settings.nativeOff(provider, account), this.settings.nativeItems(provider, account)),
         );
         if (active) {
-          status = (await checkCodex(bin, env, args, { app, signal: active.signal, blocked }))[app];
+          const result = await checkCodex(bin, env, args, { app, signal: active.signal, blocked });
+          status = result[app];
+          accountKey = result.accountKey;
         } else {
           const key = JSON.stringify([account, home, bin, args]);
           let running = this.codex.get(key);
@@ -269,10 +310,38 @@ export class HostedAppChecks {
             running = checkCodex(bin, env, args).finally(() => this.codex.delete(key));
             this.codex.set(key, running);
           }
-          status = (await running)[app];
+          const result = await running;
+          status = result[app];
+          accountKey = result.accountKey;
         }
       }
-      return blocked() ?? (active?.signal.aborted ? 'unknown' : status);
+      if (active?.signal.aborted) return blocked() ?? 'unknown';
+      const state = blocked() ?? status;
+      if (provider === 'codex') {
+        const current = identity();
+        if (verify && before !== current) {
+          this.verified.delete(target);
+          return 'unknown';
+        }
+        if (verify && state === 'connected' && accountKey) {
+          this.verified.set(target, { identity: JSON.stringify([current, accountKey]), tool: wire, time: Date.now() });
+        } else if (state !== 'available' || verify) {
+          this.verified.delete(target);
+        }
+        if (mode === 'draft' && state === 'available') {
+          const last = this.verified.get(target);
+          if (
+            last &&
+            Date.now() - last.time < 5 * 60_000 &&
+            accountKey &&
+            last.identity === JSON.stringify([current, accountKey]) &&
+            !blocked(last.tool)
+          )
+            return 'connected';
+          this.verified.delete(target);
+        }
+      }
+      return state;
     } finally {
       if (active && this.verifying.get(target) === active) this.verifying.delete(target);
     }

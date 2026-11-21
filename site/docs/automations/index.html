@@ -298,7 +298,7 @@
         <section id="create" aria-labelledby="create-title">
           <h2 id="create-title">Create one</h2>
           <ol class="doc-steps">
-            <li>Click <b>New automation</b> in the sidebar and type or dictate what the team should do. Attach any files to send with each run. Select <b>Common apps</b> next to the paperclip to choose the services to mention in every run’s message. To set up a connection, select <b>Manage app connections</b>, then <b>Return to automation draft</b>. Your message, attachments, apps and schedule stay in place. The create button stays at the bottom of the form card while you scroll through the form. You can address individual members with <code>@mentions</code>.</li>
+            <li>Click <b>New automation</b> in the sidebar and type or dictate what the team should do. Attach any files to send with each run. Select <b>Common apps</b> next to the paperclip to choose available services to mention in every run’s message. Each disabled option shows its status. If Slack needs verification, select <b>Check Slack connection</b> to let Codex read your own Slack profile. Relay checks your choices again before creating the automation. To set up a connection, select <b>Manage app connections</b>, then <b>Return to automation draft</b>. Your message, attachments, schedule and apps you can still use stay in place. The create button stays at the bottom of the form card while you scroll through the form. You can address individual members with <code>@mentions</code>.</li>
             <li>Optionally fill in <b>Goal to track</b>, then choose a trigger under <b>When</b>.</li>
             <li>Open <b>Workspace and chat settings</b> to change the folders, file permission or title. The next section, <b>Webhooks and run settings</b>, lets you start a new chat for each run.</li>
             <li>Choose <b>Wait for my confirmation</b> or <b>Accept the team automatically</b>, then choose whether the lead agent should review replies and click <b>Create automation</b>. Its chat opens for team design. The task runs when triggered.</li>
@@ -309,7 +309,7 @@
               src="../../assets/media/docs/automations-new-en.webp"
               width="1280"
               height="1050"
-              alt="The new automation draft shows the ten Common apps, Mail and Calendar selected, a link to manage connections and the request that will be sent."
+              alt="The new automation draft shows the ten Common apps, Mail and Calendar selected, and disabled choices with their status."
               loading="lazy"
             />
             <figcaption>
@@ -439,8 +439,7 @@
         <section id="goal" aria-labelledby="goal-title">
           <h2 id="goal-title">Track a goal</h2>
           <p>
-            A <b>Goal to track</b> says, in your words, what done means: for example “CI on main passes and issue #42 is
-            closed”. The automation then follows the task across runs and days:
+            A <b>Goal to track</b> says, in your words, what done means: for example “everyone has confirmed a time and place for dinner”. The automation then follows the task across runs and days:
           </p>
           <ul>
             <li>

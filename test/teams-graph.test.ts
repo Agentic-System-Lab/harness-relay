@@ -127,6 +127,28 @@ describe('the Teams Graph PowerShell connection', () => {
     await expect.poll(() => teams.status()).toMatchObject({ status: 'error', retry: 'install' });
   });
 
+  it('keeps the desktop busy until cancelled runtime installation finishes cleaning up', async () => {
+    let finish!: () => void;
+    let signal!: AbortSignal;
+    const runtime = vi.fn((s: AbortSignal) => {
+      signal = s;
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const graph = new TeamsGraph(async () => 20, runtime);
+    expect(graph.running()).toBe(0);
+    await graph.install();
+    await vi.waitFor(() => expect(runtime).toHaveBeenCalledOnce());
+    expect(graph.running()).toBe(1);
+    const stopping = graph.shutdown();
+    expect(signal.aborted).toBe(true);
+    expect(graph.running()).toBe(1);
+    finish();
+    await stopping;
+    expect(graph.running()).toBe(0);
+  });
+
   it('a diagnostic that started before installation returns the newly verified state', async () => {
     let oldProbe!: (code: number) => void;
     let first = true;

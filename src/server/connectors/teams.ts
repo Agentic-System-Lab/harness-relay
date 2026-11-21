@@ -99,6 +99,7 @@ class TeamsSession {
   private view?: TeamsConnection;
   private probe?: Promise<TeamsConnection>;
   private installation = 0;
+  installTask?: Promise<void>;
   private controller?: AbortController;
   private stdin?: Writable;
   private signInTimer?: NodeJS.Timeout;
@@ -161,7 +162,7 @@ class TeamsSession {
       signal.throwIfAborted();
       if ((await this.run(PROBE_TEAMS, { signal, timeoutMs: 15000 })) !== 0) throw new Error(t().teamsSetupFailed);
     };
-    void prepare().then(
+    const task = prepare().then(
       () => this.end(controller),
       (err) =>
         this.end(
@@ -175,6 +176,10 @@ class TeamsSession {
               },
         ),
     );
+    this.installTask = task;
+    void task.finally(() => {
+      if (this.installTask === task) this.installTask = undefined;
+    });
     return this.view;
   }
 
@@ -397,6 +402,13 @@ export class TeamsGraph {
   }
   install(): Promise<TeamsConnection> {
     return this.read.install(this.installRuntime);
+  }
+  running(): number {
+    return this.read.installTask ? 1 : 0;
+  }
+  async shutdown(): Promise<void> {
+    this.disconnect();
+    await this.read.installTask;
   }
   async connect(): Promise<TeamsConnection> {
     await this.read.connect();

@@ -1,3 +1,4 @@
+import { availableDraftApps } from '../support/draft-apps';
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
@@ -245,6 +246,7 @@ test.describe('schedules', () => {
     page,
     relay,
   }) => {
+    await availableDraftApps(page, { calendar: 'ready', github: 'ready', slack: 'needs-assistant' });
     await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
     await page.route('**/api/voice/transcribe', async (route) => {
       const audio = Buffer.from(route.request().postDataJSON().audio, 'base64');
@@ -254,6 +256,8 @@ test.describe('schedules', () => {
     });
     await page.getByRole('button', { name: 'New automation' }).click();
     const task = page.getByRole('textbox', { name: en.newSchedule.task });
+    await expect(task).toHaveAttribute('placeholder', 'For example, list today’s plans with the time and place for each.');
+    await expect(task).toBeEmpty();
     const when = page.getByRole('combobox', { name: en.schedule.repeat });
     const extras = page.getByText(en.newSchedule.runOptions, { exact: true });
     const goal = page.getByPlaceholder(en.schedule.goalPlaceholder);
@@ -262,6 +266,8 @@ test.describe('schedules', () => {
     const create = page.getByRole('button', { name: en.newSchedule.create });
     await expect(create).toBeDisabled();
     await expect(goal).toBeVisible();
+    await expect(goal).toHaveAttribute('placeholder', 'For example, finish when everyone has confirmed a time and place for dinner.');
+    await expect(goal).toBeEmpty();
     const attach = page.getByRole('button', { name: en.composer.attach });
     const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     await task.press('Tab');

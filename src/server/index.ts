@@ -379,9 +379,14 @@ async function shutdown(code = 0): Promise<void> {
   browser.closeAll();
   providers.shutdown();
   voice.shutdown();
-  teams.disconnect();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
-  const installsStopped = Promise.all([clis.shutdown(), sandboxSetup.shutdown(), gitInstall.shutdown(), appDependencies.shutdown()]);
+  const installsStopped = Promise.all([
+    clis.shutdown(),
+    sandboxSetup.shutdown(),
+    gitInstall.shutdown(),
+    appDependencies.shutdown(),
+    teams.shutdown(),
+  ]);
   // Let stopped runs write their final state while the database is still open.
   await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);
   // And give AgentsView the last turns (each request times out on its own).
@@ -397,4 +402,6 @@ process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
 // Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
-parent?.onBusy(() => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running() + appDependencies.running());
+parent?.onBusy(
+  () => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running() + appDependencies.running() + teams.running(),
+);

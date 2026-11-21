@@ -8,6 +8,7 @@ import {
   type MailAccountView,
   type MailServer,
 } from '../../shared/types';
+import { discoveredCalendar, newAccountId } from '../../shared/connectorAccounts';
 import type { Database } from '../db';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -143,6 +144,13 @@ export class ConnectorStore {
     else list[i] = account;
     this.save();
     return this.view();
+  }
+
+  /** Resolve identity and name inside the same synchronous create, even when two browsers save together. */
+  addDiscoveredCalendar(u: CalendarAccountUpdate): ConnectorsView {
+    const choice = discoveredCalendar(this.data.calendar, u, u.username);
+    if (choice.added) return this.view();
+    return this.saveCalendar(newAccountId(choice.name, this.calendarIds()), { ...u, name: choice.name });
   }
 
   /**

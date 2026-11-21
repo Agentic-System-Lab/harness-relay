@@ -701,10 +701,11 @@ const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*(\u0007|\u001b\\)/g;
 export function runSync(
   bin: string,
   args: readonly string[],
-  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean },
+  o: { timeoutMs: number; input?: string; maxBuffer?: number; quiet?: boolean; env?: NodeJS.ProcessEnv },
 ): SpawnSyncReturns<string> {
   return spawnSync(bin, args, {
     encoding: 'utf8',
+    env: o.env,
     timeout: o.timeoutMs,
     killSignal: 'SIGKILL',
     maxBuffer: o.maxBuffer ?? 1 << 22,

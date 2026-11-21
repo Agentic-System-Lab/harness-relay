@@ -2164,7 +2164,7 @@ html:not(.js) .theme-toggle {
   text-wrap: pretty;
 }
 
-.more li b {
+.more li > b:first-child {
   display: block;
   margin-bottom: 2px;
   color: var(--text);

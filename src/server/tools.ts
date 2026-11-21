@@ -23,7 +23,7 @@ import {
   type ToolLibraryUpdate,
   type ToolLibraryView,
 } from '../shared/types';
-import { APP_SERVERS } from '../shared/apps';
+import { APP_SERVERS, isSlackMcp } from '../shared/apps';
 import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
@@ -428,6 +428,23 @@ export class ToolLibrary {
     } catch {
       /* nothing stored */
     }
+  }
+
+  /** The draft picker only needs default grants. Reading them does not load skills or credentials. */
+  relayProviders(group: RelayToolGroup): Provider[] {
+    return [...(this.data.relayTools?.[group] ?? [])];
+  }
+
+  signedInAppServers(app: keyof typeof APP_SERVERS) {
+    return this.data.mcpServers
+      .filter(
+        (server) =>
+          server.transport === 'http' &&
+          server.oauth?.status === 'signed-in' &&
+          !this.unreadable.has(server.id) &&
+          (server.app === app || sameMcpUrl(server.url, APP_SERVERS[app]) || (app === 'slack' && isSlackMcp(server.url))),
+      )
+      .map((server) => server.providers);
   }
 
   view(): ToolLibraryView {

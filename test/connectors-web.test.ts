@@ -1,3 +1,4 @@
+import { collectionName, discoveredCalendar } from '../src/shared/connectorAccounts';
 import { describe, expect, it } from 'vitest';
 import { MAIL_PRESETS, calendarForm, calendarUpdate, mailForm, mailUpdate, newAccountId, withPreset } from '../src/web/connectors';
 
@@ -35,6 +36,25 @@ describe("the mail and calendar accounts' forms", () => {
     expect(mailForm(saved)).toMatchObject({ name: 'Work', password: '', imapPort: '1', imapSecurity: 'starttls' });
     // A preset keeps a name already typed.
     expect(withPreset({ ...mailForm(), name: 'Mine' }, fastmail).name).toBe('Mine');
+  });
+
+  it('fits long discovered names and their account and number into the display limit without splitting Unicode characters', () => {
+    const name = '筆記📅'.repeat(20) + '業務';
+    const username = 'a'.repeat(80) + '@example.test';
+    const item = { name, url: 'https://p42-caldav.icloud.com/calendar/' };
+    const base = collectionName(name);
+    expect(base.length).toBeLessThanOrEqual(60);
+    const accounts = [{ name: base, username: 'other@example.test', url: item.url }];
+    const qualified = discoveredCalendar(accounts, item, username);
+    expect(qualified).toMatchObject({ added: false });
+    expect(qualified.name).toContain(' · a');
+    expect(qualified.name.length).toBeLessThanOrEqual(60);
+    accounts.push({ name: qualified.name, username, url: item.url + 'elsewhere/' });
+    const numbered = discoveredCalendar(accounts, item, username);
+    expect(numbered.name).toMatch(/ \(2\)$/);
+    expect(numbered.name.length).toBeLessThanOrEqual(60);
+    for (const value of [base, qualified.name, numbered.name])
+      expect(Array.from(value).some((c) => c.length === 1 && /[\uD800-\uDFFF]/.test(c))).toBe(false);
   });
 
   it('saves a calendar without an empty address or password', () => {

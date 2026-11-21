@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ConnectorsView } from '../../shared/types';
 import { api } from '../api';
-import { ICLOUD_CALENDAR_URL, newAccountId } from '../connectors';
+import { ICLOUD_CALENDAR_URL } from '../connectors';
+import { collectionName, discoveredCalendar } from '../../shared/connectorAccounts';
 import { useT } from '../i18n';
 
 /** CalDAV discovery and storage are the same as the manual form. Apple users only supply their own credentials. */
@@ -60,7 +61,7 @@ export function ICloudCalendar({
       const found = result.calendars ?? [];
       setCalendars(found);
       if (!found.length) setStatus(t.connectors.noneFound);
-      if (found.length === 1) setChosen(found[0]!.url);
+      if (found.length === 1 && !discoveredCalendar(accounts, found[0]!, email).added) setChosen(found[0]!.url);
     } catch (e) {
       if (!controller.signal.aborted) setStatus((e as Error).message);
     } finally {
@@ -70,18 +71,25 @@ export function ICloudCalendar({
       }
     }
   };
+  const options = calendars.map((calendar) => {
+    const { name, added } = discoveredCalendar(accounts, calendar, email);
+    const repeated = calendars.some((other) => other !== calendar && other.name.toLowerCase() === calendar.name.toLowerCase());
+    return { ...calendar, label: added ? a.appleAlreadyAdded(name) : repeated ? name + ' · ' + calendar.url : name, added };
+  });
+  const item = options.find((c) => c.url === chosen && !c.added);
   const save = async () => {
-    const item = calendars.find((c) => c.url === chosen);
     if (!item || saving) return;
     setStatus('');
     setSaving(true);
     onSaving(true);
     try {
-      const id = newAccountId(
-        item.name,
-        accounts.map((c) => c.id),
-      );
-      await api.saveCalendarAccount(id, { name: item.name, url: item.url, username: email.trim(), password, address: email.trim() });
+      await api.addDiscoveredCalendar({
+        name: collectionName(item.name),
+        url: item.url,
+        username: email.trim(),
+        password,
+        address: email.trim(),
+      });
       await onSaved();
       onClose();
     } catch (e) {
@@ -142,13 +150,18 @@ export function ICloudCalendar({
             <option value="" disabled>
               {a.appleChoose}
             </option>
-            {calendars.map((c) => (
-              <option key={c.url} value={c.url}>
-                {c.name}
+            {options.map((c) => (
+              <option key={c.url} value={c.url} disabled={c.added}>
+                {c.label}
               </option>
             ))}
           </select>
         </label>
+      )}
+      {options.length > 0 && options.every((c) => c.added) && (
+        <p className="small muted" role="status">
+          {a.appleAllAdded}
+        </p>
       )}
       {status && (
         <p role="status" className="small">
@@ -162,7 +175,7 @@ export function ICloudCalendar({
           className="primary small-button"
           aria-busy={saving || looking}
           aria-disabled={saving || undefined}
-          disabled={looking || !email.trim() || !password || (!!calendars.length && !chosen)}
+          disabled={looking || !email.trim() || !password || (!!calendars.length && !item)}
         >
           {calendars.length ? t.common.save : looking ? t.connectors.finding : t.connectors.find}
         </button>

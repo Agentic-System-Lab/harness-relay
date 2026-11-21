@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 43 個 spec 檔、562 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 44 個 spec 檔、566 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -53,6 +53,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 4 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
@@ -340,6 +341,17 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 完全存取以下，Copilot 透過本機 HTTP 使用 Harness Relay 自己的工具，權杖只在 header 裡，它的郵件在待送出匣等待 | Copilot | 在可編輯模式下，把**郵件**給 Copilot：假 Copilot（和真的一樣只接受 HTTP 與 SSE 的 MCP server）在 `session/new` 拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `Authorization` header；它在那裡呼叫 `mail_send`，沒有卡片：回覆說郵件在待送出匣等待，並附上它的卡片。啟動 Copilot 的參數中都沒有這個權杖。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動、時間與加進哪個行事曆，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
 
+## 草稿中可用的 App
+
+[`draft-apps.spec.ts`](specs/draft-apps.spec.ts)
+
+| 情境 | 檢查的內容 |
+| --- | --- |
+| 在新對話選取可用的 App | 確認可用前無法勾選。遠端檢查較慢或失敗時，已確認的本機項目仍可選取。重新檢查、重開選單、返回視窗或更改檔案權限會更新可用狀態。 |
+| 建立自動任務前再次檢查 | 從設定返回會移除已失去權限的選項。若剩下的 App 在建立前也失去連線，訊息和附件仍保留在草稿中，系統不會建立任務。 |
+| 主動確認 Slack 連線 | 展開或返回草稿不會查詢個人檔案。按下確認後可選擇 Slack。送出前若失去連線，系統會保留草稿。 |
+| Obsidian 實際可用狀態 | 新增測試 Vault 並授權已登入的測試助理後可以勾選。移除 Vault 後，選項再次停用並取消勾選。 |
+
 ## App 設定與確認
 
 [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts)
@@ -355,7 +367,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在完全存取對話中建立及編輯 Google 文件 | Claude Code | 使用本機 Google OAuth 與 Docs 替身，驗證另外授予的文件編輯權限。建立文件或替換唯一符合的原文前，都要核對帳號、目標與文字並確認。捨棄不會寫入，重新整理後仍可檢閱待建立的文件；即使標題含另一份文件的網址，儲存結果仍連到實際建立的文件。文件版本變更後則無法套用舊提案。 |
 | 在完全存取對話中傳送 Slack 訊息 | Claude Code | 工作區權杖啟用發文後，才會在**從 Relay 傳送訊息**中顯示助理選擇。開放 Claude Code 使用這項工具後，它的代管 Slack 連線仍可維持未設定。預覽顯示傳送者、目的地與純文字訊息。**捨棄**會取消提案，第二則草稿在重新整理後仍保留，按**送出**才會依預覽內容發送一次。 |
 | 桌面與手機上的常用 App 與設定表單 | — | 檢查 Google Drive、郵件與行事曆控制項的字型及間距、服務按鈕在桌面與手機寬度下是否貼合單行標籤、**其他（CalDAV）**表單中 iCloud 預設的密碼說明，以及 OpenHands 執行檔標籤在 1280、390 與 320 像素寬度下的位置。 |
-| 選擇行事曆服務並連結 Apple 行事曆 | — | 檢查四個服務選項、Google 設定按鈕及 CalDAV 表單。選 Apple 後只會開啟 Apple 的設定。表單要求 Apple 帳號電子郵件和 App 專用密碼，並提供 Apple 帳號網站連結。尋找行事曆時會使用 iCloud 伺服器，變更憑證後會捨棄舊的查詢結果。選取行事曆後才能按**儲存**，只儲存選取的行事曆，回應中也不會出現密碼。再次開啟時會清空表單，儲存或取消後鍵盤焦點會回到 **iCloud 行事曆**。 |
+| 選擇行事曆服務並連結 Apple 行事曆 | — | 檢查四個服務選項、Google 設定按鈕及 CalDAV 表單。選 Apple 後只會開啟 Apple 的設定。表單要求 Apple 帳號電子郵件和 App 專用密碼，並提供 Apple 帳號網站連結。尋找行事曆時會使用 iCloud 伺服器，變更憑證後會捨棄舊的查詢結果。已加入的行事曆無法重複選擇；同名的其他行事曆以帳號電子郵件和必要的編號區分。選取行事曆後才能按**儲存**，只儲存選取的行事曆，回應中也不會出現密碼。再次開啟時會清空表單，儲存或取消後鍵盤焦點會回到 **iCloud 行事曆**。 |
 | 區分 Gmail 登入與手動信箱，並儲存 iCloud 郵件 | — | 選取 Gmail 後會顯示 Google OAuth 登入按鈕與相關說明。手動新增信箱使用其他服務的預設值。iCloud 郵件接受地址與 App 專用密碼，儲存時使用預設的 IMAP 與 SMTP 主機，回應中不含密碼。鍵盤焦點回到服務按鈕。Fastmail 和 Yahoo Mail 的預設值互相切換時會清空之前的密碼。 |
 | 從常用 App 登出 GitHub | — | 確認視窗顯示共用的 GitHub CLI 帳號，並說明登出會影響哪些其他應用程式。取消會保留登入；確認後會登出，重新整理後仍能再次登入。 |
 
@@ -494,7 +506,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 在 GitHub 和瀏覽器列安裝缺少的工具 | 缺少時顯示安裝按鈕，重新整理保留進度，失敗可重試。完成後顯示 GitHub 登入或瀏覽器路徑。 |
+| 在 GitHub 和瀏覽器列安裝缺少的工具 | — | 缺少時顯示安裝按鈕，重新整理保留進度，失敗可重試。完成後顯示 GitHub 登入或瀏覽器路徑。 |
 | 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
 | 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |

@@ -1,3 +1,4 @@
+import { availableDraftApps } from '../support/draft-apps';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { countPages, finishedReply, homePage, openNewChat, openTeamChat, send } from '../support/app';
@@ -41,9 +42,12 @@ test.describe('the home page', () => {
   });
 
   test('a first question and its workspace survive a trip to lead settings and are submitted once', async ({ page, relay }) => {
+    await availableDraftApps(page, { drive: 'ready', browser: 'ready', mail: 'needs-connection' });
     await page.getByRole('button', { name: 'Collapse sidebar' }).click();
     await page.getByRole('link', { name: 'Start a new chat' }).click();
     const question = page.getByRole('textbox', { name: 'What would you like to accomplish?' });
+    await expect(question).toHaveAttribute('placeholder', 'For example, what should I buy for a picnic this weekend?');
+    await expect(question).toBeEmpty();
     const options = page.locator('.chat-options > summary');
     const wait = page.getByRole('radio', { name: 'Wait for my confirmation' });
     const direct = page.getByRole('radio', { name: 'Start answering right away' });
@@ -71,7 +75,9 @@ test.describe('the home page', () => {
     const previousGrants = await grants();
     await apps.press('Enter');
     const choices = page.getByRole('group', { name: 'Common apps', exact: true });
-    await expect(choices.getByRole('checkbox', { name: 'Mail', exact: true })).toBeFocused();
+    await expect(choices.getByRole('checkbox', { name: 'Google Drive', exact: true })).toBeFocused();
+    await expect(choices.getByRole('checkbox', { name: 'Mail', exact: true })).toBeDisabled();
+    await expect(choices.getByRole('checkbox', { name: 'Mail', exact: true })).toHaveAccessibleDescription('Connection required');
     await expect(choices.getByRole('checkbox')).toHaveCount(10);
     await expect(choices.locator('input:checked')).toHaveCount(0);
     const drive = choices.getByRole('checkbox', { name: 'Google Drive' });

@@ -1,3 +1,4 @@
+import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
@@ -436,6 +437,7 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
   saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
+  addDiscoveredCalendar: (b: CalendarAccountUpdate) => request<ConnectorsView>('POST', '/api/connectors/calendar', b),
   saveCalendarAccount: (id: string, b: CalendarAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/calendar/${id}`, b),
   deleteConnector: (kind: 'mail' | 'calendar', id: string) => request<ConnectorsView>('DELETE', `/api/connectors/${kind}/${id}`),
   testConnector: (kind: 'mail' | 'calendar', id: string) =>
@@ -556,6 +558,13 @@ export const api = {
   teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),
   teamsDisconnect: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/signin'),
   githubSignOut: (login: string) => request<{ ok: true }>('POST', '/api/apps/github/signout', { login }),
+  verifyDraftSlack: (permission: Permission, signal?: AbortSignal) =>
+    request<DraftAppAvailability>('POST', '/api/apps/availability/slack/verify', { permission }, signal),
+  draftAppAvailability: (signal?: AbortSignal, permission: Permission = 'read-only', app?: DraftApp | 'local') => {
+    const query = new URLSearchParams({ permission });
+    if (app) query.set('app', app);
+    return request<DraftAppAvailability>('GET', '/api/apps/availability?' + query, undefined, signal);
+  },
   appDependency: (name: AppDependency, signal?: AbortSignal) =>
     request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
   installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),

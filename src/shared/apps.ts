@@ -21,3 +21,18 @@ export const HOSTED_APPS = {
     codexConnector: 'asdk_app_69a1d78e929881919bba0dbda1f6436d',
   },
 } as const;
+
+export const DRAFT_APPS = ['mail', 'calendar', 'teams', 'slack', 'drive', 'notion', 'heptabase', 'obsidian', 'github', 'browser'] as const;
+export type DraftApp = (typeof DRAFT_APPS)[number];
+export type DraftAppState = 'ready' | 'needs-connection' | 'needs-assistant' | 'needs-install' | 'needs-verification' | 'unavailable';
+export type DraftAppAvailability = Record<DraftApp, DraftAppState>;
+
+export const LOCAL_DRAFT_APPS = [
+  'mail',
+  'calendar',
+  'drive',
+  'notion',
+  'heptabase',
+  'obsidian',
+  'browser',
+] as const satisfies readonly DraftApp[];

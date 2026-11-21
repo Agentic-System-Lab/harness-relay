@@ -439,6 +439,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/conversations/:id/outbox/:itemId` | `{ action: 'send' | 'discard' }` → `OutboxItem`：回答待送出匣的卡片。核准送出訊息、Google 文件變更或 Obsidian 筆記變更都會傳送 `send`，伺服器只執行一次獲准的動作。未知的項目是 `404`，已回答過的是 `409` |
 | `GET /api/connectors` | → `ConnectorsView`：郵件與行事曆工具的郵件帳號與行事曆，密碼遮蔽 |
 | `PUT /api/connectors/mail/:id` | `{ name, address, username, password?, imap, smtp }` → `ConnectorsView`：新增或取代一個郵件帳號（`id` 是 slug；新帳號需要密碼；沒有給密碼時保留原本的）。伺服器：TLS 或 STARTTLS，只有這台電腦上的可以不加密，絕不能是 Harness Relay 自己的連接埠。透過用 OAuth 登入的帳號使用的郵件帳號回 `409`，它的伺服器與登入方式是固定的 |
+| `POST /api/connectors/calendar` | 用 `{ name, url, username, address?, password }` 新增搜尋到的行事曆。同一帳號與網址已存在時傳回原項目，新行事曆則分配尚未使用的 ID 和顯示名稱。回傳 `ConnectorsView`。 |
 | `PUT /api/connectors/calendar/:id` | `{ name, url, username, address?, password? }` → `ConnectorsView`：新增或取代一個行事曆（https；只有這台電腦上的可以用 http）。透過用 OAuth 登入的帳號使用的行事曆不接受密碼，回 `409` |
 | `DELETE /api/connectors/:kind/:id` | → `ConnectorsView`：移除郵件帳號（`mail`）或行事曆，以及它的密碼（透過登入的帳號使用的，可以再從那個帳號加入） |
 | `POST /api/connectors/:kind/:id/test` | → `{ ok, message?, error? }`：以儲存的帳號登入（IMAP 與 SMTP，或查詢一次行事曆；透過 OAuth 帳號使用的就透過那個帳號：以 XOAUTH2 登入它服務的郵件伺服器），不送出任何東西；需要重新登入的帳號回 `ok: false` 並說明原因 |
@@ -479,7 +480,9 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/apps/teams/install` | 準備 Teams 登入環境。若缺少 PowerShell 7，則下載對應平台的 Microsoft 可攜式套件，以預先固定的 SHA-256 雜湊值驗證後安裝到 Relay 的資料夾。先以獨立的 PowerShell 程序匯入現有的 Graph 驗證模組，能成功匯入時直接沿用。缺少模組時，從 PowerShell Gallery 下載到暫存目錄，確認能匯入後再放入 Relay 資料夾下的 `clis/teams-modules`。從狀態 API 可查詢進度。 |
 | `POST /api/apps/teams/signin`、`DELETE /api/apps/teams/signin` | 開始 Microsoft 裝置登入，或取消登入並解除連結。這個連線只在目前的 Relay 伺服器程序運作期間有效。 |
 | `POST /api/apps/teams/posting`、`DELETE /api/apps/teams/posting` | 開始、取消或中斷獨立的發文登入。讀取用的連線會繼續運作。輪詢 Teams 狀態可取得裝置代碼、錯誤或 `canPost`。 |
-| `POST /api/apps/:app/signin` | Notion、Heptabase 或 Slack（小寫 ID）。使用官方伺服器啟動授權，回傳既有的登入進度。 |
+| `GET /api/apps/availability` | 查詢目前對話權限可選的 App。可用 app 參數查本機連線、Slack、Teams 或 GitHub。只回傳可用狀態。被動檢查不會讀取 Slack 個人檔案。 |
+| `POST /api/apps/availability/slack/verify` | 依指定權限驗證 Slack。需要查驗 Codex 連線時，只讀取登入者自己的 Slack 個人檔案，回應僅含可用狀態。 |
+| `POST /api/apps/:app/signin` | 使用小寫 ID 啟動 Notion 或 Heptabase 官方登入。Slack 只接受先前已授權的官方 MCP 連線重新登入。 |
 | `POST /api/apps/obsidian` | 傳入 `{ paths: string[] }` 加入筆記庫，回傳更新後的工具庫。儲存前會驗證整批路徑，每個筆記庫都須含有實際的 `.obsidian` 目錄。重複路徑沿用原本的 ID。路徑清單為空、路徑無效或筆記庫彼此巢狀時回 400。 |
 | `DELETE /api/apps/obsidian/:id` | 解除指定筆記庫的連結，回傳更新後的工具庫。其他筆記庫和磁碟上的筆記都會保留。找不到 ID 時回 404。 |
 | `PUT /api/apps/obsidian` | 相容單一筆記庫的舊介面。目前連結零或一個筆記庫時，傳入 `{ path }` 可選擇或替換筆記庫，空字串會解除連結，回傳工具庫。已連結多個筆記庫時回 409。 |

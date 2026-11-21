@@ -165,6 +165,7 @@ export const zhTW = {
     intro: (lead: string, auto: boolean) =>
       auto ? `${lead} 會為你的問題組隊，團隊隨即開始回答。` : `${lead} 會為你的問題組隊，等你確認後才開始回答。`,
     question: '你想完成什麼？',
+    example: '例如，週末想去野餐，能幫我列一份採買清單嗎？',
     scrollDown: '向下捲動以查看更多內容',
     sendQuestion: '送出問題',
     options: '工作目錄與對話設定',
@@ -465,7 +466,7 @@ export const zhTW = {
         ? `建立時由 ${lead} 組隊並自動採用；任務會在你設定的條件觸發時執行。`
         : `建立時由 ${lead} 組隊。等你確認後，任務才會在觸發時執行。`,
     task: '你想讓團隊做什麼？',
-    example: '例如：整理昨天合併的 PR，列出需要追蹤的問題。',
+    example: '例如，整理我今天的行程，把時間和地點列成清單。',
     goalHint: '每次執行都會回報進度。有成員回報達標時，自動任務就會關閉。',
     runOptions: 'Webhook 與執行設定',
     returnToDraft: '返回自動任務草稿',
@@ -692,7 +693,7 @@ export const zhTW = {
         `在這個對話的工作目錄中，每 ${minutes} 分鐘看一次符合樣式的檔案（* 是一層資料夾裡的任何字，** 是任何幾層資料夾，? 是一個字元；不分大小寫；不看 .git，樣式沒寫出來時也不看 node_modules 這類套件與建置資料夾）。第一次只記下現有的；之後新出現或大小、修改時間變了的檔案，停止變動 ${seconds} 秒後才會啟動它，訊息裡只有檔名、大小與時間，沒有內容。團隊在這個資料夾工作時變動的檔案算是團隊自己的，不會再啟動它。`,
     },
     goal: '追蹤的目標（選填）',
-    goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',
+    goalPlaceholder: '例如，大家都確認聚餐的時間和地點，就算完成。',
     goalHint:
       '寫下「怎樣算完成」。每次執行時 agent 都會看到目標和前幾次的進度紀錄（每次開新對話也一樣），回報進度；有人回報完成時自動任務會關閉。執行全部失敗時會在 5、30、120 分鐘後重試。',
     goalTooLong: (max: number) => `目標最多 ${max} 個字`,
@@ -1600,7 +1601,23 @@ export const zhTW = {
 
   apps: {
     title: '常用 App',
-    draftHint: '勾選的 App 名稱會加在任務訊息中。每位助理會依現有連線與權限使用。',
+    draftUnknown: '無法確認',
+    draftVerifySlack: '檢查 Slack 連線',
+    draftSlackProfile: 'Codex 會讀取你自己的 Slack 個人檔案來確認連線。',
+    draftStates: {
+      'needs-verification': '需要確認連線',
+      'needs-connection': '需要連線',
+      'needs-assistant': '需要為助理啟用',
+      'needs-install': '需要安裝',
+      unavailable: '目前無法使用',
+    },
+    draftChecking: '正在確認 App 是否可用…',
+    draftCheckFailed: '無法確認 App 是否可用，請再試一次。',
+    draftRetry: '重新檢查',
+    clearDraftApps: '清除已選 App',
+    draftRemoved: (names: string[]) => `已從草稿移除無法使用的 ${new Intl.ListFormat('zh-TW').format(names)}。`,
+    draftReview: 'App 的可用狀態已變更，請檢查草稿再送出。',
+    draftHint: '可勾選的 App 會依目前權限及連線顯示，名稱會加在任務訊息中。',
     manageConnections: '管理 App 連線',
     requestApps: (names: string[]) => `請使用 ${new Intl.ListFormat('zh-TW').format(names)} 完成這項任務。`,
     options: '連結',
@@ -1664,6 +1681,8 @@ export const zhTW = {
     appleEmail: 'Apple 帳號電子郵件',
     applePassword: 'App 專用密碼',
     appleSteps: '啟用雙重認證後，到 Apple 帳號的「登入與安全 → App 專用密碼」產生密碼，再貼到上方。',
+    appleAllAdded: '這個帳號找到的行事曆都已連結。',
+    appleAlreadyAdded: (name: string) => name + ' · 已連結',
     appleChoose: '選擇 iCloud 行事曆',
     appleCalendar: 'Apple 行事曆（iCloud）',
     appleHint: '使用 Apple 帳號的電子郵件與 App 專用密碼，就能尋找 iCloud 行事曆。',
@@ -2509,7 +2528,7 @@ export const zhTW = {
       },
       {
         title: '建立新對話',
-        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述。點迴紋針旁的「常用 App」，勾選想在問題中指定的服務。需要設定時，點「管理 App 連線」。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」。',
+        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述。點迴紋針旁的「常用 App」，勾選要在問題中指定的可用服務。無法勾選的項目會顯示原因。需要設定時，點「管理 App 連線」。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」。',
       },
       {
         title: '每個問題自動組隊',
@@ -2619,7 +2638,7 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入或口述訊息，再選擇啟動方式。點迴紋針旁的「常用 App」，勾選每次執行想在任務中指定的服務。首席 agent 會為任務組隊，每次執行都會送出訊息和附件。在現有對話裡，可點上方的「自動任務」（手機上在 ⋯ 裡）。',
+        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入或口述訊息，再選擇啟動方式。點迴紋針旁的「常用 App」，勾選每次執行要使用的可用服務。建立前會再次確認這些選項。首席 agent 會為任務組隊，每次執行都會送出訊息和附件。在現有對話裡，可點上方的「自動任務」（手機上在 ⋯ 裡）。',
         points: [
           '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、某件事發生時（新郵件、行程、pull request 或失敗的 CI、檔案），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',

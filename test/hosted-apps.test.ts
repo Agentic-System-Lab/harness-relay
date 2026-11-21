@@ -36,7 +36,10 @@ function catalog(app: HostedApp) {
   };
 }
 
-function mockCodex(received?: (method: string) => void) {
+function mockCodex(
+  received?: (method: string) => void,
+  account: () => { type: string; email: string; workspaceName?: string } = () => ({ type: 'chatgpt', email: 'fixture@example.test' }),
+) {
   const calls: { method: string; params?: any }[] = [];
   const probe = vi.spyOn(processes, 'converse').mockImplementation(async (opts) => {
     await Promise.resolve();
@@ -53,7 +56,7 @@ function mockCodex(received?: (method: string) => void) {
       if (m.id === undefined) continue;
       const responses: Record<string, unknown> = {
         initialize: {},
-        'account/read': { account: { type: 'chatgpt' } },
+        'account/read': { account: account() },
         'app/installed': { apps: [{ id: HOSTED_APPS.slack.codexConnector, enabled: true, callable: true }] },
         'config/read': { config: { mcp_servers: { project_script: { command: 'unwanted' } } } },
         'thread/start': { thread: { id: 'ephemeral' } },
@@ -318,6 +321,36 @@ describe('hosted connector checks', () => {
     expect(await checks.check('slack', 'codex', 'account')).toBe('disabled');
     expect(signal!.aborted).toBe(true);
     expect(await active).toBe('disabled');
+  });
+
+  it('only reuses explicit profile checks for the same Codex identity, and rechecks identity before returning a positive result', async () => {
+    let email = 'first@example.test';
+    let switchDuringCheck = false;
+    let workspaceName = 'one';
+    const { calls } = mockCodex(
+      (method) => {
+        if (switchDuringCheck && method === 'mcpServer/tool/call') workspaceName = 'changed';
+      },
+      () => ({ type: 'chatgpt', email, workspaceName }),
+    );
+    const checks = new HostedAppChecks(settings);
+    const picker = () => checks.check('slack', 'codex', 'profile', 'draft');
+    expect(await picker()).toBe('available');
+    expect(await checks.check('slack', 'codex', 'profile', true)).toBe('connected');
+    expect(await picker()).toBe('connected');
+    workspaceName = 'another';
+    expect(await picker()).toBe('available');
+    expect(await checks.check('slack', 'codex', 'profile', true)).toBe('connected');
+    email = 'another@example.test';
+    expect(await picker()).toBe('available');
+    expect(calls.filter((call) => call.method === 'mcpServer/tool/call')).toHaveLength(2);
+    switchDuringCheck = true;
+    expect(await checks.check('slack', 'codex', 'profile', true)).toBe('unknown');
+    expect(await picker()).toBe('available');
+    switchDuringCheck = false;
+    email = '';
+    expect(await checks.check('slack', 'codex', 'profile', true)).toBe('connected');
+    expect(await picker()).toBe('available');
   });
 
   it('shares concurrent passive probes per account, and explicitly verifies only in an isolated ephemeral thread', async () => {

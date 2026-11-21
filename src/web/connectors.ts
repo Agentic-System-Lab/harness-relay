@@ -117,15 +117,4 @@ export function calendarUpdate(f: CalendarForm): CalendarAccountUpdate {
   };
 }
 
-/** A new account's id, from its name, not taken by another (`work`, `work-2`…). */
-export function newAccountId(name: string, taken: readonly string[]): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 30) || 'account';
-  let id = base;
-  for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
-  return id;
-}
+export { newAccountId } from '../shared/connectorAccounts';

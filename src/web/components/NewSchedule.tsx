@@ -17,7 +17,9 @@ import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
-import { taskWithApps, type DraftApp } from '../draftApps';
+import type { DraftApp } from '../../shared/apps';
+import { taskWithApps } from '../draftApps';
+import { useDraftApps } from '../useDraftApps';
 import { settingsHref } from '../route';
 import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
@@ -57,6 +59,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
   const current = savedDraft ?? initial;
   const { form: draft, title, withHook } = current;
   const team = current.team ?? defaults;
+  const appChoices = useDraftApps(current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -100,14 +103,16 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       if (withHook) await loadPart(() => import('./ScheduleDrawer'));
       const attachments = await readUploads(draft.files, t.composer.readFailed);
       const { newHook, ...conv } = await orCreateCwd(
-        (createCwd) =>
-          api.createSchedule({
+        async (createCwd) => {
+          await appChoices.verify();
+          return api.createSchedule({
             title: title.trim() || undefined,
             settings: team.settings,
             createCwd,
             schedule: { ...toUpdate(task), ...(attachments.length ? { attachments } : {}) },
             ...(withHook ? { hook: true } : {}),
-          }),
+          });
+        },
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -134,7 +139,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       automation
       onSubmit={create}
       submitLabel={busy ? t.newSchedule.creating : t.newSchedule.create}
-      disabled={problems.length > 0}
+      disabled={problems.length > 0 || appChoices.checkingSelection}
     >
       <ScheduleForm
         draft={draft}
@@ -142,7 +147,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
         onEdit={edit}
         settings={team.settings}
         creation={{
-          apps: { selected: current.apps ?? [], onChange: (apps) => onDraft({ ...current, apps }) },
+          apps: appChoices.selection,
           withHook,
           onHook: (checked) => onDraft({ ...current, withHook: checked }),
         }}

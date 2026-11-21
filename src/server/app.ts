@@ -15,9 +15,10 @@ import { SandboxSetup } from './sandboxSetup';
 import { commonAppDependencies, type AppDependencies } from './appDependencies';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
-import { APP_SERVERS, HOSTED_APPS } from '../shared/apps';
+import { APP_SERVERS, DRAFT_APPS, HOSTED_APPS, type DraftApp } from '../shared/apps';
 import { TeamsGraph } from './connectors/teams';
 import { githubSignOut, githubStatus } from './connectors/apps';
+import { draftAvailability } from './connectors/draftAvailability';
 import { HostedAppChecks } from './connectors/hostedApps';
 import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
@@ -332,6 +333,7 @@ export function createApp({
 }: AppDeps): Hono {
   const app = new Hono();
   const hostedApps = new HostedAppChecks(settings);
+  const availableDraftApps = draftAvailability(settings, oauth, providers, teams, hostedApps);
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
   const screenshots = new Set<string>();
   /**
@@ -655,6 +657,9 @@ export function createApp({
   app.put('/api/connectors/mail/:id', async (c) =>
     c.json(settings.connectors.saveMail(validConnectorId(c.req.param('id')), validateMailAccount(await body<unknown>(c)))),
   );
+  app.post('/api/connectors/calendar', async (c) =>
+    c.json(settings.connectors.addDiscoveredCalendar(validateCalendarAccount(await body<unknown>(c)))),
+  );
   app.put('/api/connectors/calendar/:id', async (c) =>
     c.json(settings.connectors.saveCalendar(validConnectorId(c.req.param('id')), validateCalendarAccount(await body<unknown>(c)))),
   );
@@ -826,6 +831,21 @@ export function createApp({
     if (verify !== undefined && typeof verify !== 'boolean') throw new HttpError(400, t().invalidField('verify'));
     return c.json({ status: await hostedApps.check(app as keyof typeof HOSTED_APPS, p, id, verify === true) });
   });
+  app.get('/api/apps/availability', async (c) => {
+    const permission = c.req.query('permission') ?? 'read-only';
+    const app = c.req.query('app');
+    if (!PERMISSION_ORDER.includes(permission as Permission)) throw new HttpError(400, t().invalidField('permission'));
+    if (app !== undefined && app !== 'local' && !DRAFT_APPS.includes(app as DraftApp)) throw new HttpError(400, t().invalidField('app'));
+    c.header('Cache-Control', 'no-store');
+    return c.json(await availableDraftApps(permission as Permission, app as DraftApp | 'local' | undefined));
+  });
+
+  app.post('/api/apps/availability/slack/verify', async (c) => {
+    const { permission } = await body<{ permission?: Permission }>(c);
+    if (!permission || !PERMISSION_ORDER.includes(permission)) throw new HttpError(400, t().invalidField('permission'));
+    return c.json(await availableDraftApps(permission, 'slack', true));
+  });
+
   app.get('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.view()));
   app.put('/api/apps/slack/posting', async (c) => c.json(await settings.slackPosting.connect((await body<{ token?: unknown }>(c))?.token)));
   app.delete('/api/apps/slack/posting', (c) => c.json(settings.slackPosting.disconnect()));

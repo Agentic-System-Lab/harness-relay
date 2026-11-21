@@ -159,6 +159,7 @@ export const en: Messages = {
         ? `${lead} will choose a team for your question. The team will answer right away.`
         : `${lead} will choose a team for your question and wait for your confirmation before it answers.`,
     question: 'What would you like to accomplish?',
+    example: 'For example, what should I buy for a picnic this weekend?',
     scrollDown: 'Scroll down to see more',
     sendQuestion: 'Send question',
     options: 'Workspace and chat settings',
@@ -452,7 +453,7 @@ export const en: Messages = {
         ? `${lead} designs the team when you create the automation. It is accepted automatically and runs when triggered.`
         : `${lead} designs the team when you create the automation. Once you confirm the team, it runs when triggered.`,
     task: 'What should the team do?',
-    example: 'For example, summarize yesterday’s merged pull requests and list anything that needs follow-up.',
+    example: 'For example, list today’s plans with the time and place for each.',
     goalHint: 'Each run reports progress. The automation turns off when an agent reports that the goal is met.',
     runOptions: 'Webhooks and run settings',
     returnToDraft: 'Return to automation draft',
@@ -684,7 +685,7 @@ export const en: Messages = {
         `Every ${minutes} minutes, Harness Relay looks at the files matching the pattern in this conversation's working directory (* is anything within a folder, ** any folders, ? one character; any case; .git is left out, and so are package and build folders such as node_modules unless the pattern names them). The first look only notes what is there; a file that appears after it, or whose size or time changes, starts the automation once it has not changed for ${seconds} seconds, with its name, size and time, never its contents. Files changed while the team works in the folder count as the team's own, and do not start it again.`,
     },
     goal: 'Goal to track (optional)',
-    goalPlaceholder: 'For example: CI on main passes and issue #42 is closed.',
+    goalPlaceholder: 'For example, finish when everyone has confirmed a time and place for dinner.',
     goalHint:
       'Say what done means. Each run, the agents see the goal and what earlier runs reported (also in a new chat each time), and report where it stands; once one says it is done, the automation switches off. A run whose replies all fail is tried again after 5, 30 and 120 minutes.',
     goalTooLong: (max) => `A goal can be at most ${max} characters`,
@@ -1592,7 +1593,23 @@ export const en: Messages = {
 
   apps: {
     title: 'Common apps',
-    draftHint: 'Choose apps to mention in your request. Each assistant uses its existing connections and permissions.',
+    draftUnknown: 'Could not verify',
+    draftVerifySlack: 'Check Slack connection',
+    draftSlackProfile: 'Codex checks your own Slack profile.',
+    draftStates: {
+      'needs-verification': 'Check connection',
+      'needs-connection': 'Connection required',
+      'needs-assistant': 'Enable for an assistant',
+      'needs-install': 'Installation required',
+      unavailable: 'Unavailable',
+    },
+    draftChecking: 'Checking app availability…',
+    draftCheckFailed: 'App availability could not be checked. Try again.',
+    draftRetry: 'Check again',
+    clearDraftApps: 'Clear app choices',
+    draftRemoved: (names: string[]) => `Removed ${new Intl.ListFormat('en').format(names)} from this draft because access is unavailable.`,
+    draftReview: 'App availability changed. Review your draft before sending.',
+    draftHint: 'Choose available apps to mention in your request. Each assistant uses its existing connections and permissions.',
     manageConnections: 'Manage app connections',
     requestApps: (names: string[]) => `Please use ${new Intl.ListFormat('en').format(names)} for this task.`,
     options: 'Connect',
@@ -1659,6 +1676,8 @@ export const en: Messages = {
     appleEmail: 'Apple Account email',
     applePassword: 'App-specific password',
     appleSteps: 'With two-factor authentication enabled, open your Apple Account and choose Sign-In and Security → App-Specific Passwords.',
+    appleAllAdded: 'All calendars found for this account are already connected.',
+    appleAlreadyAdded: (name: string) => name + ' · Already connected',
     appleChoose: 'Choose an iCloud calendar',
     appleCalendar: 'Apple Calendar (iCloud)',
     appleHint: 'Use your Apple Account email and an app-specific password to find your iCloud calendars.',
@@ -2518,7 +2537,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. Select Common apps beside the paperclip to choose apps to mention in your question. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. Select Common apps beside the paperclip to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',
@@ -2632,7 +2651,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps beside the paperclip to name the services to use in each run. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
+        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps beside the paperclip to choose available services for each run. Relay checks them again before creating the automation. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',

@@ -110,6 +110,21 @@ const json = (method: string, body: unknown, headers: Record<string, string> = {
 });
 const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { ...HOST, ...headers } });
 
+it('validates common app picker queries and returns only non-cacheable readiness states', async () => {
+  expect((await get('/api/apps/availability?app=other')).status).toBe(400);
+  expect((await get('/api/apps/availability?app=local&permission=other')).status).toBe(400);
+  expect((await app.request('/api/apps/availability/slack/verify', json('POST', { permission: 'other' }))).status).toBe(400);
+  const result = await get('/api/apps/availability?app=local');
+  expect(result.status).toBe(200);
+  expect(result.headers.get('cache-control')).toBe('no-store');
+  expect(await result.json()).toMatchObject({
+    mail: 'needs-connection',
+    calendar: 'needs-connection',
+    teams: 'unavailable',
+    slack: 'unavailable',
+  });
+});
+
 async function createConversation(settings: Record<string, unknown> = {}): Promise<Conversation> {
   const res = await app.request(
     '/api/conversations',

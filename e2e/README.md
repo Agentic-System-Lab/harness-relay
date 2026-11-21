@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 562 tests in 43 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 566 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -53,6 +53,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [Available apps in drafts](#available-apps-in-drafts) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 4 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App setup and confirmations](#app-setup-and-confirmations) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App access through a chat](#app-access-through-a-chat) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [Accounts that sign in with OAuth](#accounts-that-sign-in-with-oauth) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [User guide → Harness Relay's tools](../docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar), [Proposals → OAuth](../docs/proposals/oauth.md) |
@@ -338,6 +339,17 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Below full access, Copilot reaches Harness Relay's own tools over loopback HTTP, the token in a header alone, and its mail waits in the outbox | Copilot | In edit mode, with **Mail** given to Copilot, the fake Copilot (which, as the real one, takes HTTP and SSE MCP servers only) gets the gateway in `session/new` as an HTTP server on `127.0.0.1` with the turn's token in its `Authorization` header, and calls `mail_send` there, with no card: the reply says the mail waits in the outbox, with its card. The token is in no argument Copilot was started with. |
 | Below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do | Claude Code | In edit mode, with a calendar on this computer (a stand-in that takes what is put to it) and **Calendar** given to Claude Code, the fake calls `calendar_create`: its own question about `mcp__relay__calendar_create` gets no card; the gateway's card ("wants to use a tool relay:calendar_create") says which event it adds, when, and to which calendar, and nothing is added before **Allow**; allowed, the stand-in gets the event and the reply says it was added. |
 
+## Available apps in drafts
+
+[`draft-apps.spec.ts`](specs/draft-apps.spec.ts)
+
+| Scenario | What is checked |
+| --- | --- |
+| Choose available apps in New chat | Checkboxes stay disabled until their service answers. A slow or failed remote check leaves verified local choices available. Retrying, reopening the picker, returning to the window and changing file permission refresh the choices. |
+| Recheck before creating an automation | Returning from Settings drops an app that lost access. If the remaining app becomes unavailable before creation, Relay keeps the message and attachment in the draft and creates no automation. |
+| Verify Slack on request | Opening or focusing a draft makes no profile request. Confirming the check enables Slack. A failed check on submission keeps the draft. |
+| Actual Obsidian availability | A real test vault and a signed-in test assistant make the option available. Removing the vault clears the selection. |
+
 ## App setup and confirmations
 
 [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts)
@@ -353,7 +365,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Create and edit a Google Doc in full access | Claude Code | A local Google OAuth and Docs stand-in verifies the separate document-editing grant. Creating a document and replacing a unique passage each wait for confirmation of the account, target and text. Discard leaves the service untouched. A pending create survives reload. The receipt links to the created document even when the title contains another document’s URL. An intervening change prevents a stale edit from being applied. |
 | Send a Slack post in full access | Claude Code | The workspace token enables posting and reveals the assistant selector inside **Send from Relay**. Granting Claude Code that tool leaves its hosted Slack connection unconfigured. A draft shows the sender, destination and plain text. **Discard** drops it. A second draft survives reload and **Send** posts its exact content once. |
 | Common apps and setup fields on desktop and phone | — | Checks the typography and spacing of the Google Drive, Mail and Calendar controls, the service buttons fitting their single-line labels at desktop and phone widths, the iCloud preset’s password help under **Other (CalDAV)**, and the position of the OpenHands executable label at 1280, 390 and 320 pixels. |
-| Choose a calendar service and connect Apple Calendar | — | Checks all four service choices, the Google setup action and the CalDAV form. Selecting Apple opens only its setup. The form asks for Apple Account email and an app-specific password and links to the Apple Account site. Discovery uses the iCloud server. Changing credentials drops stale results. Choosing a calendar enables **Save**, which stores only the selected calendar and keeps the password out of the response. Reopening clears the form. Saving or cancelling returns keyboard focus to **iCloud Calendar**. |
+| Choose a calendar service and connect Apple Calendar | — | Checks all four service choices, the Google setup action and the CalDAV form. Selecting Apple opens only its setup. The form asks for Apple Account email and an app-specific password and links to the Apple Account site. Discovery uses the iCloud server. Changing credentials drops stale results. A previously added collection is disabled, while names shared between distinct collections get the account email and, if needed, a number. Choosing a calendar enables **Save**, which stores only the selected calendar and keeps the password out of the response. Reopening clears the form. Saving or cancelling returns keyboard focus to **iCloud Calendar**. |
 | Separate Gmail sign-in from manual mailboxes and save iCloud Mail | — | Selecting Gmail reveals its Google OAuth action and contextual help. New manual mailboxes use the other providers’ presets. iCloud Mail accepts an address and an app-specific password, stores the preset IMAP and SMTP hosts and keeps the password out of the response. Keyboard focus returns to its service button. Switching between Fastmail and Yahoo Mail presets clears the previous password. |
 | Sign out of GitHub from Common apps | — | The confirmation names the shared GitHub CLI account and explains which other apps it affects. Cancel keeps the account signed in. Confirm signs it out, and the user can sign back in after reloading. |
 
@@ -492,7 +504,7 @@ The Tool library links to the agent picker. Following the link, choosing Codex, 
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Install a missing GitHub CLI or browser in its app row | Offers installation, resumes its status after reload, retries a failed download, and updates the row to show GitHub sign-in or the detected browser. |
+| Install a missing GitHub CLI or browser in its app row | — | Offers installation, resumes its status after reload, retries a failed download, and updates the row to show GitHub sign-in or the detected browser. |
 | Assistant setup on a fresh installation | — | The Chinese overview shows a pending check until status arrives. With every CLI missing, setup choices open automatically and Codex links to its card. |
 | Each CLI is found, with its version, and signed in | each, in one test | Each card shows the CLI's version, and **Signed in** (Claude Code with its account) or, for an open agent on the fake endpoint, **Ready**; the sidebar's twelve dots are OK ("12/12 ready", an open agent's titled "Model backends set up"); their names show when asked for, and stay after a reload. |
 | A CLI that is not installed shows so in Settings and the sidebar | Cursor, Antigravity | Left not installed (`missingClis`): their dots and cards say **Not installed**. The overview shows Claude Code as ready, keeps Cursor under **Connect another assistant**, and links to its setup. |

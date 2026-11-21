@@ -1,4 +1,4 @@
 {
-  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the built Harness Relay UI. New automation with a sample invoice reminder. The Common apps chooser beside the paperclip is open with Mail and Calendar selected. Language zh-TW, viewport 1280 × 1050, isolated local Relay server. Encoded with cwebp -q 86.",
-  "createdAt": "2026-11-21T03:11:10.116Z"
+  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the built Harness Relay UI. New automation with a sample invoice reminder and Mail and Calendar selected. The Common apps picker shows connected choices and the reasons other apps are disabled. Sample app connections on an isolated local server. Language zh-TW, viewport 1280 × 1050. Encoded with cwebp -q 86.",
+  "createdAt": "2026-11-21T03:32:32.745Z"
 }

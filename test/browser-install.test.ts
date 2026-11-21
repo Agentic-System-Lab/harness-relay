@@ -1,10 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { browserInstallPlan } from '../src/server/browser/install';
 import { InstallJob } from '../src/server/cliInstall';
-import type { SpawnOptions, SpawnResult } from '../src/server/process';
+import type { runShellScript, SpawnOptions, SpawnResult } from '../src/server/process';
 import type { LinuxPackages, PackageManager } from '../src/server/sandboxSetup';
 
 const result = (code = 0): SpawnResult => ({
@@ -51,7 +52,7 @@ function macFixture(intercept?: (request: SpawnOptions, job: InstallJob) => Spaw
     const override = intercept?.(request, job);
     if (override) return override;
     if (bin === '/usr/bin/curl') writeFileSync(args[args.indexOf('--output') + 1]!, 'disk image');
-    else if (bin === '/usr/bin/ditto') cpSync(args[0]!, args[1]!, { recursive: true });
+    else if (bin === '/usr/bin/ditto') cpSync(args.at(-2)!, args.at(-1)!, { recursive: true });
     else if (bin === '/usr/bin/hdiutil' && args[0] === 'detach') rmSync(join(mount, app), { recursive: true });
     return result();
   });
@@ -85,16 +86,32 @@ describe('installing the browser on the Relay computer', () => {
     expect(calls.map((o) => [o.bin, o.args[0]])).toEqual([
       ['/usr/bin/curl', '-q'],
       ['/usr/bin/hdiutil', 'attach'],
-      ['/usr/bin/ditto', expect.any(String)],
+      ['/usr/bin/ditto', '--norsrc'],
       ['/usr/bin/codesign', '--verify'],
       ['/usr/bin/hdiutil', 'detach'],
     ]);
     expect(calls[0]!.args).toContain('https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg');
     expect(calls[1]!.args).toContain('-readonly');
+    expect(calls[2]!.args.slice(0, 3)).toEqual(['--norsrc', '--qtn', '--acl']);
     const signature = calls[3]!.args;
-    expect(signature).toEqual(['--verify', '--deep', '--strict', '--all-architectures', '-R', expect.any(String), calls[2]!.args[1]]);
+    expect(signature).toEqual(['--verify', '--deep', '--strict', '--all-architectures', '-R', expect.any(String), calls[2]!.args.at(-1)]);
     expect(signature[5]).toContain('anchor apple generic and identifier "com.google.Chrome"');
     expect(signature[5]).toContain('certificate leaf[subject.OU] = "EQHXZ8M8AV"');
+  });
+
+  it.runIf(process.platform === 'darwin')('copies an HFS application without FinderInfo and retains its quarantine flag', async () => {
+    const fixture = macFixture((o) => {
+      if (o.bin !== '/usr/bin/ditto') return undefined;
+      const source = o.args.at(-2)!;
+      execFileSync('/usr/bin/xattr', ['-wx', 'com.apple.FinderInfo', '54455854' + '00'.repeat(28), join(source, 'contents')]);
+      execFileSync('/usr/bin/xattr', ['-w', 'com.apple.quarantine', '0081;66000000;Harness Relay;', source]);
+      execFileSync(o.bin, o.args);
+      return result();
+    });
+    await fixture.install();
+    const attrs = (path: string) => execFileSync('/usr/bin/xattr', [path], { encoding: 'utf8' }).split('\n');
+    expect(attrs(join(fixture.dest, 'contents'))).not.toContain('com.apple.FinderInfo');
+    expect(attrs(fixture.dest)).toContain('com.apple.quarantine');
   });
 
   it.each(['/usr/bin/curl', '/usr/bin/ditto', '/usr/bin/codesign'])('cleans up without publishing on failure of %s', async (bin) => {
@@ -159,18 +176,95 @@ describe('installing the browser on the Relay computer', () => {
     expect(readdirSync(fixture.temp)).toEqual([]);
   });
 
-  it('asks WinGet for Google.Chrome from the fixed source; a missing WinGet offers no install', async () => {
-    const run = vi.fn(async () => result());
-    const host = { platform: 'win32' as const, env: { Path: 'C:\\bin' }, run };
-    const plan = browserInstallPlan(linuxHost(), { ...host, hasProgram: (p) => p.toLowerCase() === 'c:\\bin\\winget.exe' });
+  const profile = 'C:\\Users\\reader';
+  const local = profile + '\\AppData\\Local';
+  const alias = local + '\\Microsoft\\WindowsApps\\winget.exe';
+  const system32 = 'C:\\Windows\\System32';
+  const shell = system32 + '\\WindowsPowerShell\\v1.0\\powershell.exe';
+  const projectBin = 'D:\\workspace\\node_modules\\.bin';
+  const projectPrograms = [projectBin + '\\winget.exe', projectBin + '\\powershell.exe', 'relative\\winget.exe'];
+  const windowsHas = (paths: string[]) => (candidate: string) => paths.some((p) => p.toLowerCase() === candidate.toLowerCase());
+  const winEnv = {
+    UserProfile: profile,
+    LocalAppData: local,
+    Path: ['relative', projectBin, 'D:\\workspace'].join(';'),
+    ComSpec: projectBin + '\\cmd.exe',
+    GH_TOKEN: 'fixture-github-token',
+    OPENAI_API_KEY: 'fixture-api-key',
+    PSModulePath: projectBin,
+    NODE_OPTIONS: '--require=fixture-project-module',
+  };
+
+  it.each(['direct', 'PowerShell alias'] as const)(
+    'launches only the registered WinGet with an isolated environment (%s)',
+    async (launch) => {
+      const run = vi.fn(async (_o: SpawnOptions) => result());
+      const runScript = vi.fn<typeof runShellScript>(async () => result());
+      const programs = [...projectPrograms, launch === 'direct' ? alias : shell];
+      const plan = browserInstallPlan(linuxHost(), {
+        platform: 'win32',
+        env: winEnv,
+        hasProgram: windowsHas(programs),
+        hasAlias: (p) => p === alias,
+        run,
+        runScript,
+      });
+      await plan.install!(new InstallJob());
+      const options = launch === 'direct' ? run.mock.calls[0]![0] : runScript.mock.calls[0]![3];
+      expect(options.cwd).toBe(system32);
+      expect(options.env).toEqual({
+        USERPROFILE: profile,
+        LOCALAPPDATA: local,
+        SYSTEMROOT: 'C:\\Windows',
+        WINDIR: 'C:\\Windows',
+        COMSPEC: system32 + '\\cmd.exe',
+        PATH: system32 + ';C:\\Windows',
+        PATHEXT: '.EXE',
+        ...(launch === 'direct' ? {} : { HARNESS_RELAY_WINGET: alias }),
+      });
+      if (launch === 'direct') {
+        expect(run).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ bin: alias, args: expect.arrayContaining(['--exact', '--id', 'Google.Chrome', '--source', 'winget']) }),
+        );
+        expect(runScript).not.toHaveBeenCalled();
+      } else {
+        expect(runScript).toHaveBeenCalledExactlyOnceWith(
+          shell,
+          ['-NoProfile', '-NonInteractive'],
+          expect.stringContaining('install --exact --id Google.Chrome --source winget'),
+          options,
+        );
+        expect(run).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('rejects standalone WinGet copies and a project-local PowerShell masquerading as the alias launcher', () => {
+    const packageName = 'Microsoft.DesktopAppInstaller_1.29.160.0_x64__8wekyb3d8bbwe';
+    const fake = 'D:\\workspace\\WindowsApps\\' + packageName;
+    const wrongPublisher = 'C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.29.160.0_x64__otherpublisher';
+    const programs = [...projectPrograms, fake + '\\winget.exe', wrongPublisher + '\\winget.exe'];
+    const host = {
+      platform: 'win32' as const,
+      env: { ...winEnv, Path: winEnv.Path + ';' + fake + ';' + wrongPublisher },
+      hasProgram: windowsHas(programs),
+    };
+    expect(browserInstallPlan(linuxHost(), { ...host, hasAlias: () => false })).toEqual({});
+    expect(browserInstallPlan(linuxHost(), { ...host, hasAlias: (p) => p === alias })).toEqual({});
+  });
+
+  it('supports the protected Microsoft App Installer package when no per-user alias exists', async () => {
+    const dir = 'D:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.29.160.0_arm64__8wekyb3d8bbwe';
+    const run = vi.fn(async (_o: SpawnOptions) => result());
+    const plan = browserInstallPlan(linuxHost(), {
+      platform: 'win32',
+      env: { ...winEnv, ProgramFiles: 'D:\\Program Files', Path: winEnv.Path + ';' + dir },
+      hasProgram: windowsHas([...projectPrograms, dir + '\\winget.exe']),
+      hasAlias: () => false,
+      run,
+    });
     await plan.install!(new InstallJob());
-    expect(run).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        bin: 'C:\\bin\\winget.EXE',
-        args: expect.arrayContaining(['--exact', '--id', 'Google.Chrome', '--source', 'winget']),
-      }),
-    );
-    expect(browserInstallPlan(linuxHost(), { ...host, hasProgram: () => false })).toEqual({});
+    expect(run.mock.calls[0]![0].bin).toBe(dir + '\\winget.exe');
   });
 
   it.each([

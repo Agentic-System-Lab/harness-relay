@@ -17,7 +17,7 @@ const fileId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-
 const tabId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_.-]{1,256}$/.test(v) && !/\s/.test(v);
 const revision = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 2048 && !/[\s\x00-\x1f\x7f]/.test(v);
 const link = (id: string) => `https://docs.google.com/document/d/${id}/edit`;
-function hasDocsScope(scopes: unknown): boolean {
+export function hasDocsScope(scopes: unknown): boolean {
   return Array.isArray(scopes) && scopes.some((scope) => scope === SCOPE);
 }
 

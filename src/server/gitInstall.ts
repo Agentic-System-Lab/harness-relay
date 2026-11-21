@@ -1,13 +1,14 @@
 import { lstatSync } from 'node:fs';
 import { win32 } from 'node:path';
 import type { GitInstallView, GitRequirement } from '../shared/types';
-import { gitBash, InstallError, InstallJob, installerEnv, runStep, windowsPowerShell, type CliInstaller } from './cliInstall';
+import { gitBash, InstallError, InstallJob, installerEnv, runStep, type CliInstaller } from './cliInstall';
 import { HttpError } from './errors';
 import { captureGit } from './gitProcess';
 import { t } from './i18n';
 import { runProcess, runShellScript } from './process';
 import { linuxPackageCommand, type LinuxPackages } from './sandboxSetup';
-import { findOnPath, isProgram } from './executable';
+import { isProgram } from './executable';
+import { portableInstallEnv } from './portableInstall';
 
 const APPLE = '/usr/bin/xcode-select';
 function aliasExists(path: string): boolean {
@@ -33,24 +34,53 @@ export function wingetInstall(
   id: 'Git.Git' | 'Google.Chrome',
   host: Pick<GitInstallHost, 'env' | 'hasProgram' | 'run' | 'runScript'> & { hasAlias?: typeof aliasExists },
 ): ((job: InstallJob) => Promise<void>) | undefined {
-  const { env, hasProgram } = host;
-  const winget = findOnPath('winget', env, 'win32', [], (path) => path.toLowerCase().endsWith('.exe') && hasProgram(path));
-  const alias = env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'winget.exe');
-  const shell = !winget && alias && (host.hasAlias ?? aliasExists)(alias) ? windowsPowerShell(env, hasProgram) : undefined;
-  if (!winget && !shell) return undefined;
+  const env = Object.fromEntries(Object.entries(host.env).map(([key, value]) => [key.toUpperCase(), value]));
+  const absolute = (dir?: string) => (dir && /^[a-z]:[\\/]/i.test(dir) ? win32.normalize(dir) : undefined);
+  const root = absolute(env.SYSTEMROOT) ?? absolute(env.WINDIR) ?? 'C:\\Windows';
+  const system32 = win32.join(root, 'System32');
+  const profile = absolute(env.USERPROFILE);
+  const local = absolute(env.LOCALAPPDATA) ?? (profile && win32.join(profile, 'AppData', 'Local'));
+  const aliases = local
+    ? [
+        win32.join(local, 'Microsoft', 'WindowsApps', 'winget.exe'),
+        win32.join(local, 'Microsoft', 'WindowsApps', 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe', 'winget.exe'),
+      ]
+    : [];
+  // A server started by npm inherits the project's bin directories. Only accept a PATH entry
+  // for App Installer itself, under the system's protected AppX package directory.
+  const programFiles = absolute(env.PROGRAMW6432) ?? absolute(env.PROGRAMFILES) ?? win32.join(win32.parse(root).root, 'Program Files');
+  const appx = win32.join(programFiles, 'WindowsApps').toLowerCase();
+  const packaged = (env.PATH ?? '')
+    .split(';')
+    .filter(
+      (dir) =>
+        win32.dirname(dir).toLowerCase() === appx &&
+        /^Microsoft\.DesktopAppInstaller_(?:\d+\.){3}\d+_(?:x64|x86|arm64|arm|neutral)__8wekyb3d8bbwe$/i.test(win32.basename(dir)),
+    )
+    .map((dir) => win32.join(dir, 'winget.exe'));
+  const winget = [...aliases, ...packaged].find(host.hasProgram);
+  const alias = winget ? undefined : aliases.find(host.hasAlias ?? aliasExists);
+  const shell = win32.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  if (!winget && (!alias || !host.hasProgram(shell))) return undefined;
   const pkg = ['install', '--exact', '--id', id, '--source', 'winget'];
   const args = [...pkg, '--accept-source-agreements', '--accept-package-agreements', '--silent', '--disable-interactivity'];
   const shown = ['winget', ...pkg].join(' ');
   return async (job) => {
-    const base = installerEnv(env);
-    if (winget) await runStep(host, job, shown, { bin: winget, args, env: base });
+    const base = {
+      ...portableInstallEnv(env),
+      SYSTEMROOT: root,
+      WINDIR: root,
+      COMSPEC: win32.join(system32, 'cmd.exe'),
+      PATH: [system32, root].join(';'),
+    };
+    if (winget) await runStep(host, job, shown, { bin: winget, args, env: base, cwd: system32 });
     else {
       const script = ["$ErrorActionPreference = 'Stop'", '& $env:HARNESS_RELAY_WINGET ' + args.join(' '), 'exit $LASTEXITCODE'].join('\n');
       await runStep(
         host,
         job,
         shown,
-        { bin: shell!, args: ['-NoProfile', '-NonInteractive'], env: { ...base, HARNESS_RELAY_WINGET: alias } },
+        { bin: shell, args: ['-NoProfile', '-NonInteractive'], env: { ...base, HARNESS_RELAY_WINGET: alias }, cwd: system32 },
         script,
       );
     }

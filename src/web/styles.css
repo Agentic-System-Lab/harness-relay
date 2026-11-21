@@ -2488,6 +2488,29 @@ details.sub .model-picker {
   min-height: 30px;
   cursor: pointer;
 }
+.draft-app-list label:has(input:disabled) {
+  color: var(--muted);
+  cursor: default;
+}
+.draft-app-list small {
+  display: block;
+  font-size: 0.75rem;
+}
+.draft-slack-verify {
+  margin-inline-start: 23px;
+}
+.draft-slack-verify small {
+  color: var(--muted);
+}
+.draft-slack-verify .link-button {
+  text-align: start;
+}
+.draft-app-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .draft-app-list input[type='checkbox'] {
   width: 16px;
   height: 16px;

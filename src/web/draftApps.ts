@@ -1,10 +1,14 @@
+import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import type { Messages } from './i18n';
-
-export const DRAFT_APPS = ['mail', 'calendar', 'teams', 'slack', 'drive', 'notion', 'heptabase', 'obsidian', 'github', 'browser'] as const;
-export type DraftApp = (typeof DRAFT_APPS)[number];
 
 export interface DraftAppSelection {
   selected: DraftApp[];
+  states: Partial<DraftAppAvailability>;
+  removed: DraftApp[];
+  failed: DraftApp[];
+  open: () => void;
+  verifySlack: () => Promise<boolean>;
+  retry: () => void;
   onChange: (apps: DraftApp[]) => void;
 }
 
