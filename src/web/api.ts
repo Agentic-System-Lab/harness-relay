@@ -12,6 +12,8 @@ import type {
   AlertPrefs,
   ApiBackend,
   ModelBackendsView,
+  LabSettings,
+  LabsView,
   ModelEndpointUpdate,
   AgentConfig,
   ApprovalAnswer,
@@ -595,6 +597,9 @@ export const api = {
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  // Settings → Labs
+  labs: () => request<LabsView>('GET', '/api/labs'),
+  updateLabs: (b: LabSettings) => request<LabsView>('PUT', '/api/labs', b),
   endpointModels: (b: { baseUrl: string; endpointId?: string; apiKey?: string | null }, signal?: AbortSignal) =>
     request<{ models: string[] }>('POST', '/api/backends/endpoint-models', b, signal),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),

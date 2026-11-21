@@ -57,6 +57,7 @@ import { useCliInstalls } from '../useCliInstalls';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { BackendsCard } from './BackendsSettings';
+import { LabsCard } from './LabsSettings';
 import { CliInstall } from './CliInstall';
 import { CwdInput } from './CwdInput';
 import { LoginLinks, LoginOutput } from './LoginLinks';
@@ -389,6 +390,8 @@ export function SettingsPage({
             </button>
           </div>
         </section>
+
+        <LabsCard />
       </div>
     </div>
   );

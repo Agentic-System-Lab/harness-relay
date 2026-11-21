@@ -1,6 +1,6 @@
 // This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
 const DONE_KEY = 'relay:onboarded';
-export const TOUR_VERSION = 37;
+export const TOUR_VERSION = 38;
 
 /** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
 export const TOUR_STEPS: { target?: string; revision: number }[] = [
@@ -24,7 +24,7 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { target: 'organize', revision: 17 },
   { target: 'settings', revision: 33 }, // common apps and the tool library
   { target: 'settings', revision: 4 }, // agent sessions
-  { target: 'settings', revision: 20 }, // settings
+  { target: 'settings', revision: 38 }, // settings (Labs)
 ];
 
 export function tourIndices(since: number): number[] {

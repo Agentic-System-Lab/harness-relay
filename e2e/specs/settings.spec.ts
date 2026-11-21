@@ -309,6 +309,7 @@ test.describe('settings', () => {
       'Browsers',
       'Connect your phone',
       'Tour',
+      'Labs',
     ]);
     await expect(agents).toHaveAccessibleName('Agents');
     await expect(agents).toHaveAttribute('aria-expanded', 'false');
@@ -777,4 +778,40 @@ test('missing GitHub CLI and browser install in their rows and refresh after com
     else await expect(row.getByRole('textbox', { name: 'Browser to start' })).toHaveAttribute('placeholder', '/installed/browser');
     expect(clicks[name]).toBe(name === 'github' ? 2 : 1);
   }
+});
+
+test('Labs: off by default, one mode at a time, reading in parts only with a model on a connection, kept after a reload', async ({
+  page,
+  relay,
+}) => {
+  await page.goto(relay.base + '/#/settings/labs');
+  const card = page.getByRole('region', { name: 'Labs' });
+  const off = card.getByRole('radio', { name: 'Off (default)' });
+  const code = card.getByRole('radio', { name: 'Let assistants script the tools (CodeAct)' });
+  const rlm = card.getByRole('radio', { name: 'Read long texts in parts (RLM)' });
+  const save = card.getByRole('button', { name: 'Save' });
+  await expect(off).toBeChecked();
+  await expect(save).toBeDisabled();
+  // Each mode says what it costs.
+  await expect(code).toHaveAccessibleDescription(/no network, and it cannot change any file/);
+  await expect(rlm).toHaveAccessibleDescription(/billed on that model's key/);
+
+  // Reading in parts needs a model on a connection of Model connections: none is set up here.
+  await rlm.check();
+  await expect(off).not.toBeChecked();
+  const model = card.getByLabel('Model for reading in parts');
+  await model.fill('claude-haiku-5-5');
+  await expect(card.getByText('Write it as "backend/model"')).toBeVisible();
+  await model.fill('anthropic/claude-haiku-5-5');
+  await expect(card.getByText('That backend is not in Model connections')).toBeVisible();
+  await expect(save).toBeDisabled();
+
+  await code.check();
+  await expect(model).toBeHidden();
+  await save.click();
+  await expect(card.getByText("Saved. It applies from the assistant's next turn.")).toBeVisible();
+  await expect(save).toBeDisabled();
+  await page.reload();
+  await expect(code).toBeChecked();
+  await expect(off).not.toBeChecked();
 });

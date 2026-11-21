@@ -11,7 +11,8 @@ import {
 import { GATEWAY_MAX_CALL } from './gatewayShim';
 import type { LlmAnswer, LlmRequest } from './llmQuery';
 import { runProcess, type SpawnOptions, type SpawnResult } from './process';
-import { makeRunDirs, removeRunDirs, sandboxCommand, type RelaySandboxRunDirs } from './relaySandbox';
+import { makeRunDirs, removeRunDirs, sandboxCommand, type RelaySandboxRunDirs, type SandboxAvailability } from './relaySandbox';
+import type { LabSettings } from '../shared/types';
 
 /*
  * `run_code` (`RELAY_RUN_CODE=on`, `config.ts`; off by default): JavaScript an agent writes that calls
@@ -64,11 +65,13 @@ export const RUN_CODE_LIMITS = {
   memoryMb: 512,
   /** Runs going on at once, over every conversation. */
   concurrent: 4,
+  /** Seconds a run may wait for the user's answers in all, which do not count against its own time: its code still runs meanwhile. */
+  waitSec: 600,
 } as const;
 
-/** RLM mode's own limits (`RELAY_RLM`); the others are `RUN_CODE_LIMITS`. */
+/** RLM mode's own limits (Settings → Labs); the others are `RUN_CODE_LIMITS`. */
 export const RLM_LIMITS = {
-  /** Characters of `state` as JSON kept between runs. */
+  /** Bytes of `state` as JSON (UTF-8) kept between runs. */
   state: 16 * 1024 * 1024,
   /** Questions to the sub-model in one turn. */
   calls: 100,
@@ -275,8 +278,17 @@ export interface RunCodeDeps {
   runProcess: typeof runProcess;
   /** The server's environment, which the runner takes only its locale and time zone from. */
   env: NodeJS.ProcessEnv;
-  /** RLM mode (`RELAY_RLM`): the sub-model, and how the server asks it (`llmQuery.ts`); undefined = off. */
-  rlm?: { model: string; ask(req: LlmRequest, signal: AbortSignal): Promise<LlmAnswer> };
+  /**
+   * Which of Settings → Labs' modes is on now (`SettingsStore.labs()`), read each time the tool is listed
+   * or run: `off`, the tool is not offered; `code`; `rlm`, with its sub-model.
+   */
+  mode(): LabSettings;
+  /** RLM mode: asks the sub-model (`llmQuery.ts`); without it, every question fails. */
+  ask?(model: string, req: LlmRequest, signal: AbortSignal): Promise<LlmAnswer>;
+  /** Whether Harness Relay's own sandbox can start here (`sandboxAvailable()`, kept a while): the tool is offered as not available when it cannot. */
+  available?(): Promise<SandboxAvailability>;
+  /** How long a run may wait for the user's answers in all (`RUN_CODE_LIMITS.waitSec`; shorter in tests). */
+  waitMs?: number;
 }
 
 /** What RLM mode keeps for one turn, across its runs. */
@@ -345,23 +357,34 @@ export function runnerArgs(): string[] {
   return [`--max-old-space-size=${RUN_CODE_LIMITS.memoryMb}`, '--input-type=module', '-e', RUN_CODE_RUNNER_SOURCE];
 }
 
-/** Why run_code cannot be used here, for the agent; undefined when it can (whether the sandbox starts is found out when it runs). */
-export function runCodeUnavailable(deps: Pick<RunCodeDeps, 'platform' | 'node'>): string | undefined {
+/**
+ * Why run_code cannot be used here, for the agent and Settings → Labs; undefined when it can. `sandbox`:
+ * the last check of whether Harness Relay's own sandbox starts here, when there was one.
+ */
+export function runCodeUnavailable(deps: Pick<RunCodeDeps, 'platform' | 'node'>, sandbox?: SandboxAvailability): string | undefined {
   if (deps.platform === 'win32') return 'Harness Relay has no sandbox on native Windows to run code in';
   if (!deps.node()) return 'there is no Node.js to run code with';
+  if (sandbox && !sandbox.ok) return `Harness Relay's sandbox cannot start here: ${sandbox.reason}`;
   return undefined;
 }
 
-/** A run's time limit, which stands still while the user is asked about a call. */
+/**
+ * A run's time limit, which stands still while the user is asked about a call (its runner still runs, so
+ * that time is capped too: `maxWaitMs` in all, after which the run ends as one that waited too long).
+ */
 class Clock {
   private timer?: NodeJS.Timeout;
   private left: number;
   private since = 0;
   private stopped = false;
+  private waitTimer?: NodeJS.Timeout;
+  private waited = 0;
+  private waitSince = 0;
 
   constructor(
     ms: number,
-    private onEnd: () => void,
+    private maxWaitMs: number,
+    private onEnd: (why: 'time' | 'wait') => void,
   ) {
     this.left = ms;
     this.resume();
@@ -372,19 +395,28 @@ class Clock {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.left -= Date.now() - this.since;
+    this.waitSince = Date.now();
+    this.waitTimer = setTimeout(() => this.onEnd('wait'), Math.max(0, this.maxWaitMs - this.waited));
+    this.waitTimer.unref();
   }
 
   resume(): void {
+    if (this.waitTimer) {
+      clearTimeout(this.waitTimer);
+      this.waitTimer = undefined;
+      this.waited += Date.now() - this.waitSince;
+    }
     if (this.stopped || this.timer) return;
     this.since = Date.now();
-    this.timer = setTimeout(() => this.onEnd(), Math.max(0, this.left));
+    this.timer = setTimeout(() => this.onEnd('time'), Math.max(0, this.left));
     this.timer.unref();
   }
 
   stop(): void {
     this.stopped = true;
-    if (this.timer) clearTimeout(this.timer);
+    for (const t of [this.timer, this.waitTimer]) if (t) clearTimeout(t);
     this.timer = undefined;
+    this.waitTimer = undefined;
   }
 }
 
@@ -395,6 +427,10 @@ interface CallRecord {
   /** Why it failed, or was not made. */
   note?: string;
 }
+
+/** The most characters of a call's name, and of its note, a result keeps. */
+const NAME_MAX = 100;
+const NOTE_MAX = 200;
 
 /** A line of the runner's, read as the protocol's, or undefined when it is not one. */
 function parseLine(line: string): Record<string, unknown> | undefined {
@@ -417,12 +453,17 @@ function cut(text: string, max: number = RUN_CODE_LIMITS.output): string {
 /** The tags of a result's block: text inside it cannot end it or start another. */
 const RESULT_TAGS = ['run_code_result', 'calls', 'output', 'value', 'error', 'state'];
 
+/** A short text in one of a result's lines (a call's name or note, a key of `state`): on one line, at most `max` characters, unable to end the block. */
+const inLine = (text: string, max: number) => dataBody(dataLine(text.length > max ? `${text.slice(0, max)}…` : text), RESULT_TAGS);
+
 /** What a run in RLM mode did with the sub-model and its `state`, as its result says it. */
 export interface RlmReport {
   /** Questions asked in this run, and of those, how many failed or were cut at max_tokens. */
   asked: number;
   failed: number;
   truncated: number;
+  /** Questions not asked: over a limit, or not valid. */
+  refused: number;
   inputTokens: number;
   outputTokens: number;
   /** Questions left for the rest of the turn. */
@@ -437,7 +478,8 @@ export interface RlmReport {
 export function stateKeys(state: string | undefined): { key: string; size: number }[] {
   if (!state) return [];
   try {
-    const o = JSON.parse(state) as Record<string, unknown>;
+    const o = JSON.parse(state) as unknown;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return [];
     return Object.entries(o)
       .slice(0, 50)
       .map(([key, v]) => ({ key, size: JSON.stringify(v)?.length ?? 0 }));
@@ -450,6 +492,8 @@ export function stateKeys(state: string | undefined): { key: string; size: numbe
 export function runCodeResult(r: {
   status: 'ok' | 'error' | 'timeout' | 'stopped';
   calls: readonly CallRecord[];
+  /** Calls the code made past the most a run makes, not made and not listed one by one. */
+  notListed?: number;
   seconds: number;
   output: string;
   value?: string;
@@ -460,11 +504,14 @@ export function runCodeResult(r: {
   const llm = r.rlm
     ? ` llm_calls="${r.rlm.asked}" llm_calls_left="${r.rlm.left}" input_tokens="${r.rlm.inputTokens}" output_tokens="${r.rlm.outputTokens}"`
     : '';
-  const lines = [`<run_code_result status="${r.status}" calls="${r.calls.length}"${llm} seconds="${r.seconds}">`];
-  if (r.calls.length) {
+  const total = r.calls.length + (r.notListed ?? 0);
+  const lines = [`<run_code_result status="${r.status}" calls="${total}"${llm} seconds="${r.seconds}">`];
+  if (total) {
     lines.push('<calls>');
     for (const c of r.calls)
-      lines.push(`- ${dataLine(c.name)}: ${c.ok ? 'ok' : `failed${c.note ? `: ${dataLine(c.note).slice(0, 200)}` : ''}`}`);
+      lines.push(`- ${inLine(c.name, NAME_MAX)}: ${c.ok ? 'ok' : `failed${c.note ? `: ${inLine(c.note, NOTE_MAX)}` : ''}`}`);
+    if (r.notListed)
+      lines.push(`- and ${r.notListed} more, not made: ${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.calls} tool calls in one run.`);
     lines.push('</calls>');
   }
   if (r.output.trim()) lines.push('<output>', body(r.output), '</output>');
@@ -473,13 +520,14 @@ export function runCodeResult(r: {
   if (r.rlm) {
     const notes = [
       ...(r.rlm.failed ? [`${r.rlm.failed} of the sub-model's questions failed.`] : []),
+      ...(r.rlm.refused ? [`${r.rlm.refused} questions were not asked (over a limit, or not valid).`] : []),
       ...(r.rlm.truncated ? [`${r.rlm.truncated} of its answers were cut at max_tokens.`] : []),
       ...(r.rlm.note ? [r.rlm.note] : []),
     ];
     lines.push('<state>');
-    if (r.rlm.keys.length) for (const k of r.rlm.keys) lines.push(`- ${dataLine(k.key).slice(0, 200)}: ${k.size} characters`);
+    if (r.rlm.keys.length) for (const k of r.rlm.keys) lines.push(`- ${inLine(k.key, NAME_MAX)}: ${k.size} characters`);
     else lines.push('(empty)');
-    for (const n of notes) lines.push(dataLine(n));
+    for (const n of notes) lines.push(inLine(n, NOTE_MAX * 2));
     lines.push('</state>');
   }
   lines.push('</run_code_result>');
@@ -496,17 +544,21 @@ function stderrTail(stderr: string): string {
   return text.length > 2000 ? `…${text.slice(-2000)}` : text;
 }
 
-/** One run of `code` in `ctx`'s turn, its calls through `scope`. Never throws: what kept it from running is its result. */
+/** How often a run checks that its caller (the CLI's MCP call) still waits for it. */
+const CALLER_CHECK_MS = 500;
+
+/**
+ * One run of `code` in `ctx`'s turn, its calls through `scope`. `rlm`: RLM mode's sub-model and what the
+ * turn has kept. Never throws: what kept it from running is its result.
+ */
 export async function runCode(
   args: Record<string, unknown>,
   ctx: GatewayContext,
   scope: GatewayScope | undefined,
   deps: RunCodeDeps,
-  /** RLM mode: what the turn has kept (`deps.rlm` set). */
-  turn?: RlmTurn,
+  rlm?: { model: string; turn: RlmTurn },
 ): Promise<GatewayResult> {
   const refuse = (text: string): GatewayResult => ({ text, isError: true });
-  const rlm = deps.rlm && turn ? { ...deps.rlm, turn } : undefined;
   const limits = rlm ? RLM_LIMITS : RUN_CODE_LIMITS;
   if (!scope) return refuse(`${RUN_CODE_TOOL} runs only as one of the tools of a turn.`);
   const code = args.code;
@@ -517,6 +569,7 @@ export async function runCode(
     return refuse(`timeout_sec must be a whole number of seconds from 1 to ${limits.maxTimeoutSec}.`);
   const missing = runCodeUnavailable(deps);
   if (missing) return refuse(`${RUN_CODE_TOOL} cannot be used now: ${missing}`);
+  if (ctx.signal.aborted || scope.gone?.()) return refuse('The turn ended before the code started.');
   const node = deps.node()!;
 
   let runner: RunCodeRunner;
@@ -527,27 +580,35 @@ export async function runCode(
   }
 
   const started = Date.now();
+  // Ends the runner and every question to the sub-model still being answered.
   const stop = new AbortController();
   const signal = AbortSignal.any([ctx.signal, stop.signal]);
   const calls: CallRecord[] = [];
+  let attempts = 0;
+  let notListed = 0;
   let output = '';
   let outputOver = false;
   let done: { value?: string; error?: string } | undefined;
-  let timedOut = false;
-  let flooded = false;
+  let ended: 'time' | 'wait' | 'flood' | 'caller' | undefined;
   let confirmations = 0;
-  const asked = { count: 0, failed: 0, truncated: 0, inputTokens: 0, outputTokens: 0 };
+  const asked = { count: 0, failed: 0, truncated: 0, refused: 0, inputTokens: 0, outputTokens: 0 };
   let stateNote: string | undefined;
-  /** The run is over (done, stopped or ended): no call is made any more, and one in flight is not done once the user answers. */
-  let over = false;
-  let child: ChildProcess | undefined;
-  const clock = new Clock(timeout * 1000, () => {
-    timedOut = true;
+  /**
+   * The run ended without its code finishing (time, too much written, its caller or turn gone, its process
+   * gone): no call is made any more, and one in flight is not done once the user answers. Once the code
+   * finished, the calls it made before are still made, and listed.
+   */
+  let abandoned = false;
+  const abandon = (why?: typeof ended) => {
+    if (why && !ended) ended = why;
+    abandoned = true;
     stop.abort();
-  });
+  };
+  let child: ChildProcess | undefined;
+  const clock = new Clock(timeout * 1000, deps.waitMs ?? RUN_CODE_LIMITS.waitSec * 1000, (why) => abandon(why));
   const reply = (msg: unknown) => {
     const stdin = child?.stdin;
-    if (!over && stdin && !stdin.destroyed && stdin.writable) stdin.write(JSON.stringify(msg) + '\n');
+    if (stdin && !stdin.destroyed && stdin.writable) stdin.write(JSON.stringify(msg) + '\n');
   };
   const addOutput = (text: string) => {
     if (outputOver) return;
@@ -557,7 +618,7 @@ export async function runCode(
 
   const callOf = async (msg: Record<string, unknown>, size: number) => {
     const id = msg.id;
-    if (typeof id !== 'number' || over) return;
+    if (typeof id !== 'number' || abandoned) return;
     const name = typeof msg.name === 'string' ? msg.name : '';
     const raw = msg.arguments;
     const callArgs = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
@@ -567,30 +628,38 @@ export async function runCode(
         : '';
       reply({ type: 'result', id, text: r.text + left, isError: Boolean(r.isError) });
     };
+    const record = (r: CallRecord) =>
+      calls.push({ ...r, name: r.name.slice(0, NAME_MAX), ...(r.note ? { note: r.note.slice(0, NOTE_MAX) } : {}) });
     const notMade = (note: string) => {
-      calls.push({ name, ok: false, note });
+      record({ name, ok: false, note });
       answer({ text: note, isError: true });
     };
-    if (calls.length >= RUN_CODE_LIMITS.calls)
-      return notMade(`${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.calls} tool calls in one run; this one was not made.`);
+    // Past the most a run makes: counted, not listed one by one, so that a loop cannot make the result grow.
+    if (++attempts > RUN_CODE_LIMITS.calls) {
+      notListed++;
+      return answer({
+        text: `${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.calls} tool calls in one run; this one was not made.`,
+        isError: true,
+      });
+    }
     if (size > GATEWAY_MAX_CALL) return notMade(`The call's arguments are longer than ${GATEWAY_MAX_CALL} characters; it was not made.`);
     const tool = scope.tools.find((t) => t.name === name);
     const decision = tool && gatewayDecision(tool.tier, ctx.permission, Boolean(ctx.ask));
     if ((decision === 'ask' || decision === 'outbox') && ++confirmations > RUN_CODE_LIMITS.confirmations)
       return notMade(
-        `${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.confirmations} calls that ask the user or use the outbox in one run; this one was not made. Call ${name} directly instead.`,
+        `${RUN_CODE_TOOL} makes at most ${RUN_CODE_LIMITS.confirmations} calls that ask the user or use the outbox in one run; this one was not made. Call ${name.slice(0, NAME_MAX)} directly instead.`,
       );
-    // The time the user takes to answer does not count against the run's.
+    // The time the user takes to answer does not count against the run's (up to the wait's own limit).
     if (decision === 'ask') clock.pause();
     let result: GatewayResult;
     try {
-      result = await scope.call(name, callArgs, () => over);
+      result = await scope.call(name, callArgs, () => abandoned);
     } catch (err) {
       result = { text: `${name} failed: ${(err as Error).message}`, isError: true };
     } finally {
       if (decision === 'ask') clock.resume();
     }
-    calls.push({ name, ok: !result.isError, ...(result.isError ? { note: result.text } : {}) });
+    record({ name, ok: !result.isError, ...(result.isError ? { note: result.text } : {}) });
     answer(result);
   };
 
@@ -599,43 +668,50 @@ export async function runCode(
   const waitingTurn: (() => void)[] = [];
   const llmOf = async (msg: Record<string, unknown>) => {
     const id = msg.id;
-    if (typeof id !== 'number' || over) return;
-    const fail = (text: string) => {
-      asked.failed++;
+    if (typeof id !== 'number' || abandoned || done) return;
+    const refused = (text: string) => {
+      asked.refused++;
       reply({ type: 'result', id, text, isError: true });
     };
-    if (!rlm) return fail('llm_query is not available: RLM mode is off.');
+    if (!rlm) return refused('llm_query is not available: RLM mode is off.');
     const prompt = msg.prompt;
     const system = typeof msg.system === 'string' && msg.system ? msg.system : undefined;
-    if (typeof prompt !== 'string' || !prompt.trim()) return fail('llm_query needs a prompt, as a string.');
+    if (typeof prompt !== 'string' || !prompt.trim()) return refused('llm_query needs a prompt, as a string.');
     const size = prompt.length + (system?.length ?? 0);
     if (size > RLM_LIMITS.prompt)
-      return fail(
+      return refused(
         `llm_query takes at most ${RLM_LIMITS.prompt} characters, the prompt and system prompt together; this one has ${size}: split it.`,
       );
     const maxTokens = msg.max_tokens ?? RLM_LIMITS.maxTokens;
     if (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > RLM_LIMITS.maxMaxTokens)
-      return fail(`llm_query's max_tokens must be a whole number from 1 to ${RLM_LIMITS.maxMaxTokens}.`);
+      return refused(`llm_query's max_tokens must be a whole number from 1 to ${RLM_LIMITS.maxMaxTokens}.`);
     if (rlm.turn.llmCalls >= RLM_LIMITS.calls)
-      return fail(`The sub-model is asked at most ${RLM_LIMITS.calls} questions in a turn; this one was not asked.`);
+      return refused(`The sub-model is asked at most ${RLM_LIMITS.calls} questions in a turn; this one was not asked.`);
+    // Taken from the turn's budget now (others may be waiting too), and given back if it is never asked.
     rlm.turn.llmCalls++;
-    asked.count++;
-    while (answering >= RLM_LIMITS.concurrent) await new Promise<void>((resolve) => waitingTurn.push(resolve));
-    if (over) return;
+    while (answering >= RLM_LIMITS.concurrent && !signal.aborted) await new Promise<void>((resolve) => waitingTurn.push(resolve));
+    if (signal.aborted || !deps.ask) {
+      rlm.turn.llmCalls--;
+      return deps.ask ? undefined : refused('llm_query is not available: no sub-model can be asked.');
+    }
     answering++;
+    asked.count++;
     try {
-      const a = await rlm.ask({ prompt, ...(system ? { system } : {}), maxTokens }, signal);
+      const a = await deps.ask(rlm.model, { prompt, ...(system ? { system } : {}), maxTokens }, signal);
       asked.inputTokens += a.inputTokens;
       asked.outputTokens += a.outputTokens;
       if (a.truncated) asked.truncated++;
       reply({ type: 'result', id, text: a.text, isError: false });
     } catch (err) {
-      fail(`llm_query failed: ${(err as Error).message}`);
+      asked.failed++;
+      reply({ type: 'result', id, text: `llm_query failed: ${(err as Error).message}`, isError: true });
     } finally {
       answering--;
       waitingTurn.shift()?.();
     }
   };
+  // Those waiting for a turn to be answered give up when the run ends.
+  signal.addEventListener('abort', () => waitingTurn.splice(0).forEach((go) => go()), { once: true });
 
   // One call at a time, in the order the code made them: the user is asked about one at a time too.
   let queue = Promise.resolve();
@@ -644,7 +720,7 @@ export async function runCode(
     if (!msg) return addOutput(`${line}\n`);
     if (msg.type === 'output') return addOutput(typeof msg.text === 'string' ? msg.text : '');
     if (msg.type === 'call') {
-      queue = queue.then(() => callOf(msg, line.length));
+      if (!done) queue = queue.then(() => callOf(msg, line.length));
       return;
     }
     if (msg.type === 'llm') return void llmOf(msg);
@@ -655,17 +731,20 @@ export async function runCode(
       };
       // RLM mode: the state the run left, kept for the turn's next run (also after an error, as a REPL keeps it).
       if (rlm) {
-        if (typeof msg.state === 'string' && msg.state.length > RLM_LIMITS.state)
+        if (typeof msg.state === 'string' && Buffer.byteLength(msg.state) > RLM_LIMITS.state)
           stateNote = `state was not kept: it is larger than ${RLM_LIMITS.state / (1024 * 1024)} MB as JSON, so it is as it was before this run.`;
         else if (typeof msg.state === 'string') rlm.turn.state = msg.state;
         else
           stateNote = `state was not kept: ${typeof msg.stateError === 'string' ? msg.stateError : 'it could not be written as JSON'}; it is as it was before this run.`;
       }
-      over = true;
       clock.stop();
       setTimeout(() => stop.abort(), EXIT_GRACE_MS).unref();
     }
   };
+
+  // Its caller gone (the CLI stopped waiting for the call, its own time limit): the run is not needed any more.
+  const caller = setInterval(() => scope.gone?.() && abandon('caller'), CALLER_CHECK_MS);
+  caller.unref();
 
   let res: SpawnResult | undefined;
   let spawnError: Error | undefined;
@@ -676,16 +755,32 @@ export async function runCode(
       signal,
       keepStdinOpen: true,
       maxCapture: 4096,
-      onLine,
       onSpawn: (c) => {
         child = c;
+        // Its lines, split here rather than by readline, whose buffer has no limit: a line is never longer
+        // than the run may write in all, and once it has written that much nothing more is read.
         let written = 0;
+        let pending: Buffer[] = [];
+        const take = (text: string) => onLine(text.endsWith('\r') ? text.slice(0, -1) : text);
         c.stdout?.on('data', (chunk: Buffer) => {
+          if (ended === 'flood') return;
           written += chunk.length;
-          if (written > limits.stdoutBytes && !flooded) {
-            flooded = true;
-            stop.abort();
+          if (written > limits.stdoutBytes) {
+            abandon('flood');
+            c.stdout?.destroy();
+            return;
           }
+          let from = 0;
+          for (let at = chunk.indexOf(10); at >= 0; at = chunk.indexOf(10, from)) {
+            take(Buffer.concat([...pending, chunk.subarray(from, at)]).toString('utf8'));
+            pending = [];
+            from = at + 1;
+          }
+          if (from < chunk.length) pending.push(chunk.subarray(from));
+        });
+        c.stdout?.on('end', () => {
+          if (pending.length && ended !== 'flood') take(Buffer.concat(pending).toString('utf8'));
+          pending = [];
         });
         const tools = scope.tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
         c.stdin?.write(JSON.stringify({ type: 'start', code, tools, ...(rlm ? { rlm: { state: rlm.turn.state ?? null } } : {}) }) + '\n');
@@ -694,11 +789,16 @@ export async function runCode(
   } catch (err) {
     spawnError = err as Error;
   } finally {
-    over = true;
+    clearInterval(caller);
     clock.stop();
+    // The runner is gone: so are the answers it waited for, and any question still being asked.
+    stop.abort();
     child?.stdin?.end();
     await runner.dispose();
   }
+  if (!done) abandoned = true;
+  // The calls the code made before it finished, also those it did not wait for: made, and listed.
+  if (done) await queue;
 
   const seconds = Math.round((Date.now() - started) / 100) / 10;
   if (rlm && !done) stateNote = 'state is as it was before this run: the code did not finish.';
@@ -706,18 +806,33 @@ export async function runCode(
     asked: asked.count,
     failed: asked.failed,
     truncated: asked.truncated,
+    refused: asked.refused,
     inputTokens: asked.inputTokens,
     outputTokens: asked.outputTokens,
     left: Math.max(0, RLM_LIMITS.calls - rlm.turn.llmCalls),
     keys: stateKeys(rlm.turn.state),
     ...(stateNote ? { note: stateNote } : {}),
   };
-  const base = { calls, seconds, output: outputOver ? `${output}\n… (more output left out)` : output, ...(report ? { rlm: report } : {}) };
+  const base = {
+    calls,
+    ...(notListed ? { notListed } : {}),
+    seconds,
+    output: outputOver ? `${output}\n… (more output left out)` : output,
+    ...(report ? { rlm: report } : {}),
+  };
   if (done) return runCodeResult({ ...base, status: done.error ? 'error' : 'ok', ...done });
   if (ctx.signal.aborted) return runCodeResult({ ...base, status: 'stopped', error: 'The turn ended before the code finished.' });
-  if (timedOut)
+  if (ended === 'caller')
+    return runCodeResult({ ...base, status: 'stopped', error: 'Its caller stopped waiting before the code finished.' });
+  if (ended === 'time')
     return runCodeResult({ ...base, status: 'timeout', error: `The code had not finished after ${timeout} seconds, and was stopped.` });
-  if (flooded)
+  if (ended === 'wait')
+    return runCodeResult({
+      ...base,
+      status: 'timeout',
+      error: `The code waited more than ${Math.round((deps.waitMs ?? RUN_CODE_LIMITS.waitSec * 1000) / 1000)} seconds in all for the user's answers, and was stopped.`,
+    });
+  if (ended === 'flood')
     return runCodeResult({
       ...base,
       status: 'error',
@@ -735,14 +850,30 @@ export async function runCode(
   });
 }
 
-/** The `run_code` tool: one of the gateway's own, given with any group, as the outbox's is. */
+/**
+ * The `run_code` tool: one of the gateway's own, given with any group, as the outbox's is, and offered
+ * only while Settings → Labs has one of its modes on (`deps.mode()`, read each time): its description and
+ * schema follow the mode.
+ */
 export function runCodeTool(deps: RunCodeDeps): GatewayTool {
   let running = 0;
-  const limits = deps.rlm ? RLM_LIMITS : RUN_CODE_LIMITS;
+  // Whether the sandbox starts here, checked in the background and kept (the check is kept a while itself).
+  let sandbox: SandboxAvailability | undefined;
+  const check = () =>
+    void deps.available?.().then(
+      (a) => (sandbox = a),
+      () => undefined,
+    );
+  check();
   // RLM mode: each turn's state, by its context (the same object for every call of a turn's grant), and
   // the run going on in it, so that one run at a time reads and writes it. Gone with the turn.
   const turns = new WeakMap<GatewayContext, { kept: RlmTurn; queue: Promise<void> }>();
-  const once = async (args: Record<string, unknown>, ctx: GatewayContext, scope: GatewayScope | undefined, turn?: RlmTurn) => {
+  const once = async (
+    args: Record<string, unknown>,
+    ctx: GatewayContext,
+    scope: GatewayScope | undefined,
+    rlm?: { model: string; turn: RlmTurn },
+  ) => {
     if (running >= RUN_CODE_LIMITS.concurrent)
       return {
         text: `${RUN_CODE_TOOL} is running ${RUN_CODE_LIMITS.concurrent} programs already; try again once one has finished.`,
@@ -750,37 +881,52 @@ export function runCodeTool(deps: RunCodeDeps): GatewayTool {
       };
     running++;
     try {
-      return await runCode(args, ctx, scope, deps, turn);
+      return await runCode(args, ctx, scope, deps, rlm);
     } finally {
       running--;
+      check();
     }
+  };
+  const rlmModel = () => {
+    const m = deps.mode();
+    return m.mode === 'rlm' && m.rlmModel ? m.rlmModel : undefined;
   };
   return {
     name: RUN_CODE_TOOL,
     tier: 'read',
     scoped: true,
-    description: runCodeDescription(deps.rlm?.model),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        code: {
-          type: 'string',
-          description: `The body of an async JavaScript function; \`relay\`${deps.rlm ? ', `state` and `llm_query`' : ''} ${deps.rlm ? 'are' : 'is'} in scope.`,
+    offered: () => deps.mode().mode !== 'off',
+    get description() {
+      return runCodeDescription(rlmModel());
+    },
+    get inputSchema() {
+      const rlm = Boolean(rlmModel());
+      const limits = rlm ? RLM_LIMITS : RUN_CODE_LIMITS;
+      return {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: `The body of an async JavaScript function; \`relay\`${rlm ? ', `state` and `llm_query`' : ''} ${rlm ? 'are' : 'is'} in scope.`,
+          },
+          timeout_sec: {
+            type: 'integer',
+            minimum: 1,
+            maximum: limits.maxTimeoutSec,
+            description: `Seconds it may take (default ${limits.timeoutSec}).`,
+          },
         },
-        timeout_sec: {
-          type: 'integer',
-          minimum: 1,
-          maximum: limits.maxTimeoutSec,
-          description: `Seconds it may take (default ${limits.timeoutSec}).`,
-        },
-      },
-      required: ['code'],
-      additionalProperties: false,
+        required: ['code'],
+        additionalProperties: false,
+      };
     },
     describe: (args) => ({ title: `Run code (${typeof args.code === 'string' ? args.code.split('\n').length : 0} lines)` }),
-    unavailable: () => runCodeUnavailable(deps),
+    unavailable: () => runCodeUnavailable(deps, sandbox),
     run: async (args, ctx, scope) => {
-      if (!deps.rlm) return once(args, ctx, scope);
+      const mode = deps.mode();
+      if (mode.mode === 'off') return { text: `${RUN_CODE_TOOL} is turned off in Settings → Labs.`, isError: true };
+      const model = mode.mode === 'rlm' ? mode.rlmModel : undefined;
+      if (!model) return once(args, ctx, scope);
       let turn = turns.get(ctx);
       if (!turn) turns.set(ctx, (turn = { kept: { llmCalls: 0 }, queue: Promise.resolve() }));
       const before = turn.queue;
@@ -788,7 +934,7 @@ export function runCodeTool(deps: RunCodeDeps): GatewayTool {
       turn.queue = new Promise<void>((resolve) => (release = resolve));
       try {
         await before;
-        return await once(args, ctx, scope, turn.kept);
+        return await once(args, ctx, scope, { model, turn: turn.kept });
       } finally {
         release();
       }

@@ -1190,6 +1190,52 @@ export const en: Messages = {
     readFailed: 'Could not read an attached file.',
   },
 
+  labs: {
+    title: 'Labs',
+    hint: "Ways of working that are still experimental. Off by default, and only one at a time. They change only how assistants use Harness Relay's own tools (browser, mail, calendar, documents…): an assistant needs those tools from Apps and tools first. A change applies from the assistant's next turn.",
+    fromEnv: (name) => `This comes from the environment variable ${name} for now; once you save here, this setting is used instead.`,
+    unavailable: (reason) => `Not available on this computer: ${reason}`,
+    goodFor: 'Good for',
+    tradeoffs: 'Trade-offs',
+    modes: {
+      off: {
+        title: 'Off (default)',
+        what: 'Assistants call one tool at a time, as usual, and every step shows in the chat.',
+      },
+      code: {
+        title: 'Let assistants script the tools (CodeAct)',
+        what: 'An assistant can write a short program that calls these tools one after another, such as going through 50 mails and giving you only what matters, instead of asking for them one by one.',
+        good: ['Repetitive, large tool work: faster, and fewer tokens', 'The chat keeps the summary, not piles of raw data'],
+        costs: [
+          'A program with a mistake has to run again; simple tasks can take longer',
+          "The program runs in Harness Relay's sandbox: no network, and it cannot change any file, but it can read what your account can read (except protected folders)",
+          'Actions that change something still ask you first, and mails still wait in the outbox for you; at most 5 such actions per run',
+          'A run takes at most a minute by default; macOS and Linux only',
+        ],
+      },
+      rlm: {
+        title: 'Read long texts in parts (RLM)',
+        what: 'Everything above, and the program can keep a long text (a long document, a whole mailbox, a log) for the rest of the turn, ask a model you choose about one part at a time, and put the answers together. The assistant does not have to read all of it itself.',
+        good: ['Content too long for the assistant to read at once', 'Summarizing, sorting or finding key points part by part'],
+        costs: [
+          "It costs more: each question is billed on that model's key, up to 100 questions per turn, and they are not in the reply's cost",
+          'Slower: many questions, and a run takes at most 5 minutes by default',
+          'A small model may miss details, and reading in parts can miss links between them',
+          "The text goes to that model's provider; Harness Relay asks it itself, with no tools, and its key never enters the sandbox",
+          'macOS and Linux only',
+        ],
+        model: 'Model for reading in parts',
+        modelHint:
+          'Pick one from Model connections, as "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint\'s id and a model name. A cheap, fast model is usually enough.',
+        noConnections: 'No model connections yet: add an API key or endpoint under Settings → Model connections first.',
+      },
+    },
+    problems: {
+      model: 'Write it as "backend/model", such as anthropic/claude-haiku-5-5.',
+      connection: 'That backend is not in Model connections: add it under Settings → Model connections first.',
+    },
+    saved: "Saved. It applies from the assistant's next turn.",
+  },
   voice: {
     start: 'Voice input',
     stop: 'Stop and transcribe',
@@ -2177,6 +2223,7 @@ export const en: Messages = {
       browsers: 'Browsers',
       'home-screen': 'Connect your phone',
       tour: 'Tour',
+      labs: 'Labs',
       agents: 'Agents',
       agentsAt: (name) => `Agents: ${name}`,
       openAgents: 'Open-source agents',
@@ -2702,6 +2749,7 @@ export const en: Messages = {
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
+          'Labs, the last card: experimental ways of working, off by default, one at a time',
         ],
       },
     ],

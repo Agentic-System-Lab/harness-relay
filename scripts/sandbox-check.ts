@@ -460,6 +460,7 @@ async function runCodeChecks(want: (n: string) => boolean) {
     })),
     runProcess,
     env: { ...env, ANTHROPIC_API_KEY: 'RELAY-KEY-IN-ENV' },
+    mode: () => ({ mode: 'code' as const }),
   };
   const scope = {
     tools: [{ name: 'echo', tier: 'read' as const, description: 'Echo', inputSchema: {}, describe: () => ({ title: 'Echo' }) }],
@@ -480,6 +481,12 @@ async function runCodeChecks(want: (n: string) => boolean) {
     await t('db', () => fs.readFileSync(${JSON.stringify(join(dataDir, 'relay.db'))}, 'utf8'));
     await t('token', () => fs.readFileSync(${JSON.stringify(token)}, 'utf8'));
     await t('fetch', async () => (await fetch('https://example.com')).status);
+    await t('loopback', async () => (await fetch('http://127.0.0.1:${relayPort}/')).text());
+    await t('tcp', () => new Promise((resolve, reject) => {
+      const sock = (globalThis.process.getBuiltinModule('node:net')).connect(${relayPort}, '127.0.0.1');
+      sock.once('connect', () => (sock.destroy(), resolve('connected')));
+      sock.once('error', reject);
+    }));
     await t('apiKey', () => process.env.ANTHROPIC_API_KEY ?? 'absent');
     await t('tool', () => relay.echo({ v: 'ping' }));
     return out;`;
@@ -518,6 +525,11 @@ async function runCodeChecks(want: (n: string) => boolean) {
       note,
     );
     check(`run-code (${permission}): no network, not even a host other runs may reach`, Boolean(o.fetch?.startsWith('NO')), note);
+    check(
+      `run-code (${permission}): Harness Relay's own port unreachable on loopback, over HTTP or TCP`,
+      Boolean(o.loopback?.startsWith('NO')) && Boolean(o.tcp?.startsWith('NO')) && !note.includes('RELAY-API'),
+      note,
+    );
     check(`run-code (${permission}): none of the server's environment`, o.apiKey === 'OK absent', note);
   }
   rmSync(token, { force: true });
@@ -527,13 +539,11 @@ async function runCodeChecks(want: (n: string) => boolean) {
   const asked: string[] = [];
   const rlm = rc.runCodeTool({
     ...deps,
-    rlm: {
-      model: 'check/stand-in',
-      ask: async (req) => (
-        asked.push(req.prompt),
-        { text: `ANSWER:${req.prompt.length}`, inputTokens: 1, outputTokens: 1, truncated: false }
-      ),
-    },
+    mode: () => ({ mode: 'rlm' as const, rlmModel: 'check/stand-in' }),
+    ask: async (_model, req) => (
+      asked.push(req.prompt),
+      { text: `ANSWER:${req.prompt.length}`, inputTokens: 1, outputTokens: 1, truncated: false }
+    ),
   });
   const turn = {
     convId: 'c',

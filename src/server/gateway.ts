@@ -95,6 +95,11 @@ export interface GatewayTool {
    * given. Never one of the tools in a scope, so it cannot call itself or another such tool.
    */
   scoped?: boolean;
+  /**
+   * Whether it is offered now (`run_code`: while Settings → Labs has one of its modes on): one that is not
+   * is neither listed nor called. Undefined: always.
+   */
+  offered?(): boolean;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
@@ -119,6 +124,8 @@ export interface GatewayTool {
  */
 export interface GatewayScope {
   tools: GatewayTool[];
+  /** Whether the scoped tool's own caller stopped waiting for it (the CLI's MCP call closed): it may stop then. */
+  gone?: () => boolean;
   /** `gone`: whether the scoped tool stopped waiting for it, checked as the gateway checks its own caller's. */
   call(name: string, args: Record<string, unknown>, gone?: () => boolean): Promise<GatewayResult>;
 }
@@ -520,7 +527,7 @@ export class ToolGateway {
 
   /** The tools a grant can call now. */
   private toolsFor(grant: Grant): GatewayTool[] {
-    return [...this.tools.values()].filter((t) => !t.group || grant.groups.has(t.group));
+    return [...this.tools.values()].filter((t) => (!t.group || grant.groups.has(t.group)) && t.offered?.() !== false);
   }
 
   /** One connection from a shim: its token first, then requests, each answered on a line of its own. */
@@ -643,13 +650,18 @@ export class ToolGateway {
           name: t.name,
           description: t.unavailable?.() ? `${t.description} (Not available now: ${t.unavailable()})` : t.description,
           inputSchema: t.inputSchema,
-          annotations: { readOnlyHint: t.tier === 'read', destructiveHint: t.tier !== 'read', openWorldHint: true },
+          // A scoped tool reads nothing itself, but the calls it makes may act or send: never marked read-only.
+          annotations: {
+            readOnlyHint: t.tier === 'read' && !t.scoped,
+            destructiveHint: t.tier !== 'read' || Boolean(t.scoped),
+            openWorldHint: true,
+          },
         })),
       };
     }
     if (req.method !== 'call') throw new Error('Unknown request');
     const tool = typeof req.name === 'string' ? this.tools.get(req.name) : undefined;
-    if (!tool || (tool.group && !grant.groups.has(tool.group)))
+    if (!tool || (tool.group && !grant.groups.has(tool.group)) || tool.offered?.() === false)
       return toolResult({ text: `No such tool: ${String(req.name)}`, isError: true });
     const args =
       req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
@@ -666,6 +678,7 @@ export class ToolGateway {
     const tools = this.toolsFor(grant).filter((t) => !t.scoped);
     return {
       tools,
+      gone: () => Boolean(gone?.()),
       call: async (name, args, callGone) => {
         // Looked up again for each call: a turn that ended takes its tools with it.
         if (![...this.grants.values()].includes(grant))

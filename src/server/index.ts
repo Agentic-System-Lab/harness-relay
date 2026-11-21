@@ -50,6 +50,7 @@ import { clearCheckTrees } from './checkCommands';
 import {
   clearRelaySandboxLeftovers,
   gatewayNode,
+  sandboxAvailable,
   localAddresses,
   noteListeningPort,
   servingPort,
@@ -174,8 +175,10 @@ gateway.register([
     teams,
   ),
 ]);
-// With RELAY_RUN_CODE=on (or RELAY_RLM set), code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`).
-if (CONFIG.runCode) {
+// Settings → Labs: code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`), offered
+// only while one of its modes is on (off unless chosen there, or RELAY_RUN_CODE / RELAY_RLM until then).
+// Not on native Windows, where that sandbox does not exist.
+if (process.platform !== 'win32') {
   gateway.register([
     runCodeTool({
       platform: process.platform,
@@ -186,15 +189,10 @@ if (CONFIG.runCode) {
       })),
       runProcess,
       env: process.env,
-      // RELAY_RLM: the sub-model `llm_query()` asks, on a model connection of Settings, looked up at each question.
-      ...(CONFIG.rlmModel
-        ? {
-            rlm: {
-              model: CONFIG.rlmModel,
-              ask: async (req, signal) => llmComplete(llmTarget(settings.backends.forRun(), CONFIG.rlmModel!), req, signal),
-            },
-          }
-        : {}),
+      mode: () => settings.labs(),
+      // RLM mode's sub-model, on a model connection of Settings, looked up at each question.
+      ask: async (model, req, signal) => llmComplete(llmTarget(settings.backends.forRun(), model), req, signal),
+      available: () => sandboxAvailable(),
     }),
   ]);
 }

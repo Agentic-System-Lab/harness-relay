@@ -78,6 +78,7 @@ describe('client routes', () => {
       'browsers',
       'home-screen',
       'tour',
+      'labs',
     ]);
   });
 });
@@ -106,6 +107,7 @@ describe("the settings links row's agents' menu", () => {
       'browsers',
       'home-screen',
       'tour',
+      'labs',
     ]);
   });
 
