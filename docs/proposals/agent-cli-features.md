@@ -2,7 +2,7 @@
 
 # The agent CLIs' own features
 
-> **Status: proposal, not implemented.** See [Proposals](README.md).
+> **Status: steps 1–8 built, step 9 and the live tests open.** What was built is described in the [architecture](../architecture.md#subagents-and-workflows), [open agents](../open-agents.md#context-windows) and [user guide](../user-guide.md#subagents-and-workflows); it follows the shapes the CLIs' own schemas, bundles and binaries give, and the findings marked *to confirm* below still need a live run. Where it went another way: Cline's subagents are off below full access too (its `spawn_agent` gives them no approval); step 3 waits for Grok's background work only (Antigravity and Muse Code report no end of theirs over ACP); Copilot's AI credits are counted but not shown. See [Proposals](README.md).
 
 What the twelve agent CLIs can do by themselves that Harness Relay does not use yet, or uses in a way that does not work, and which of it would make the agents do better work: subagents and workflows (Claude Code's agent teams and dynamic workflows among them), context limits on the user's own endpoints, plans, questions, steering a running turn, structured answers and budgets.
 

@@ -358,9 +358,23 @@
             <dd>
               從這個 agent 的模型中挑一個，或選<b>自訂…</b>自己輸入。<i>預設</i>會用設定裡的預設值，或 agent 自己的預設。
             </dd>
+            <dt>上限</dt>
+            <dd>
+              Claude Code（每一輪的費用，以美元計）、Copilot（整個 session 的 AI credits）、Goose（每一輪的模型呼叫次數）與 OpenCode（每一輪的步數）：這位成員最多可以用多少，由它的 agent 自己遵守。留空就是不設上限。
+            </dd>
             <dt>工具</dt>
             <dd>這位成員可以用工具庫裡的哪些項目。<a href="../tools/">工具</a></dd>
           </dl>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/teams-limit-zh-TW.webp"
+              width="349"
+              height="172"
+              alt="正在把 Claude Code 成員的「每一輪的費用上限」改成 2 美元，並說明這個上限的意思。"
+              loading="lazy"
+            />
+            <figcaption>上限欄會寫明它的 agent 用什麼單位計算。</figcaption>
+          </figure>
           <p>
             用箭頭把成員往前或往後移：順序就是發言順序，接力模式中由第一位帶頭。要新增成員，按標著各個 coding agent 名稱的按鈕；一個團隊最多八位成員。
           </p>

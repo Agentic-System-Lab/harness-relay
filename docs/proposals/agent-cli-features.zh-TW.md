@@ -2,7 +2,7 @@
 
 # agent CLI 自己的功能
 
-> **狀態：提案，尚未實作。** 見[提案](README.zh-TW.md)。
+> **狀態：第 1 到 8 步已完成，第 9 步與實際測試仍待完成。** 完成的部分寫在[架構](../architecture.zh-TW.md#subagent-與-workflow)、[開源 agent](../open-agents.zh-TW.md#上下文長度)與[使用者說明](../user-guide.zh-TW.md#subagent-與-workflow)；它依各 CLI 自己的 schema、隨附程式碼與執行檔實作，下面標為*待確認*的發現仍需要實際執行一次。和設計不同的地方：Cline 的 subagent 在完全存取以外也關閉（它的 `spawn_agent` 不讓它們詢問）；第 3 步只等 Grok 的背景工作（Antigravity 與 Muse Code 在 ACP 下不回報何時結束）；Copilot 的 AI credits 有計入但沒有顯示。見[提案](README.zh-TW.md)。
 
 十二個 agent CLI 本身做得到、Harness Relay 卻還沒用上（或用的方式行不通）的功能，以及其中哪些能讓 agent 做得更好：subagent 與 workflow（包括 Claude Code 的 agent teams 與 dynamic workflows）、使用者自己端點上的 context 長度、計畫、提問、引導執行中的回合、結構化回答與預算。
 
