@@ -2668,6 +2668,7 @@ export const en: Messages = {
         body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Model connections:',
         points: [
           'Enter a provider key, or open Custom endpoints, enter your server URL and choose Load models. Choose models to show your assistants. Save verifies the selected and manually entered IDs with the server.',
+          'Open Context windows and output limits: Save reads each model\'s context window from vLLM or llama.cpp, and you can type one in for another server, so agents on a small model compact in time',
           'A member\'s model is "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4',
           "The Claude subscription and Grok's sign-in cannot be used by these CLIs: use an API key or your own endpoint",
           "Below full access they run in Harness Relay's own sandbox: in read-only they cannot write in the working directory, and other hosts than the model backend are asked about first (a few are refused without asking)",
@@ -2709,9 +2710,10 @@ export const en: Messages = {
       },
       {
         title: 'While the team replies',
-        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, and the images, videos and Mermaid diagrams it makes are shown right in the chat.",
+        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, the work it hands to its own subagents folded under the step that started them, and the images, videos and Mermaid diagrams it makes right in the chat.",
         points: [
           'The message box stays open: Enter adds your message to the discussion, delivered before the next turn; until then you can edit or withdraw it',
+          'Turn on Send messages into running turns while the team works in Team settings: where its CLI can take one, your message goes straight into the speaking member\'s turn, marked "Sent into …\'s turn"',
           '⌘/Ctrl+Enter stops the team and asks your message instead',
           '■ Stop interrupts at any time; "Continue" lets the team keep going',
         ],
@@ -2830,7 +2832,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, turn each CLI\'s own subagents and Claude Code\'s workflows on or off, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
