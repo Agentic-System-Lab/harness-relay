@@ -2753,6 +2753,16 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Long-term memory',
+        body: 'Agents keep what they learn in one chat that later chats can use: your preferences and decisions, facts they checked, mistakes to avoid. Ask an agent to remember something, or let it judge what is worth keeping.',
+        points: [
+          'A reply that saved a note shows it in a Long-term memory card under its text: Set aside stops agents getting it, and Restore brings it back',
+          'Pinned notes come with every chat; the others reach an agent when they bear on what you said',
+          'Settings → Apps and tools → Tool library → Long-term memory lists every note to search, edit, pin, set aside or delete, and can hold new notes until you keep them',
+          'Now and then the lead agent tidies the notes against the chats they came from; it never changes notes you wrote',
+        ],
+      },
+      {
         title: 'Agent sessions and AgentsView',
         body: 'Want a close look at what each agent did? In Settings → Agent sessions:',
         points: [
