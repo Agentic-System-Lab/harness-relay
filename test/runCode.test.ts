@@ -8,6 +8,8 @@ import { ToolGateway, type GatewayContext, type GatewayResult, type GatewayScope
 import { runProcess } from '../src/server/process';
 import type { RelaySandboxCommand, RelaySandboxRunDirs, RelaySandboxSpec } from '../src/server/relaySandbox';
 import {
+  RLM_LIMITS,
+  RUN_CODE_DESCRIPTION,
   RUN_CODE_LIMITS,
   RUN_CODE_TOOL,
   runCode,
@@ -19,6 +21,7 @@ import {
   sandboxedRunner,
   type RunCodeDeps,
 } from '../src/server/runCode';
+import type { LlmRequest } from '../src/server/llmQuery';
 import type { OutboxItem } from '../src/shared/types';
 import { slow } from './timeouts';
 
@@ -550,5 +553,172 @@ return out;`,
     release();
     const r = await running;
     expect(JSON.parse(valueOf(r)!)).toEqual(['Clicked A', 'This turn is over: Harness Relay has no tools for it any more']);
+  });
+});
+
+describe('run_code in RLM mode (RELAY_RLM)', () => {
+  const { scope } = fakeScope([tool('mail_read', 'read')], (_name, args) => ({ text: `Mail ${String(args.id)}` }));
+
+  /** RLM mode's tool on a sub-model that answers with `answer`, recording each question. */
+  function rlmTool(answer: (req: LlmRequest) => Promise<string> | string = (req) => `answer to ${req.prompt.length} characters`) {
+    const asked: LlmRequest[] = [];
+    let at = 0;
+    let most = 0;
+    const t = runCodeTool(
+      deps({
+        rlm: {
+          model: 'homelab/tiny',
+          ask: async (req) => {
+            asked.push(req);
+            most = Math.max(most, ++at);
+            try {
+              return { text: await answer(req), inputTokens: req.prompt.length, outputTokens: 5, truncated: req.maxTokens < 10 };
+            } finally {
+              at--;
+            }
+          },
+        },
+      }),
+    );
+    return { t, asked, most: () => most };
+  }
+
+  it("keeps state for the rest of the turn, across its runs, and starts a new turn's empty", async () => {
+    const { t } = rlmTool();
+    const turn = ctx();
+    const first = await t.run!({ code: `state.doc = 'x'.repeat(5000); state.seen = [1]; return 'loaded';` }, turn, scope);
+    expect(first.text).toContain('<state>\n- doc: 5002 characters\n- seen: 3 characters\n</state>');
+    const second = await t.run!({ code: `state.seen.push(2); return [state.doc.length, state.seen];` }, turn, scope);
+    expect(JSON.parse(valueOf(second)!)).toEqual([5000, [1, 2]]);
+    // Kept also after an error, as a REPL keeps it.
+    const failed = await t.run!({ code: `state.more = true; throw new Error('oops');` }, turn, scope);
+    expect(failed.isError).toBe(true);
+    expect(valueOf(await t.run!({ code: `return state.more`, timeout_sec: 5 }, turn, scope))).toBe('true');
+    // Another turn: another context.
+    expect(valueOf(await t.run!({ code: `return Object.keys(state).length` }, ctx(), scope))).toBe('0');
+  });
+
+  it('keeps the state as it was when a run does not finish, or leaves one it cannot keep', async () => {
+    const { t } = rlmTool();
+    const turn = ctx();
+    await t.run!({ code: `state.n = 1;` }, turn, scope);
+    const timedOut = await t.run!({ code: `state.n = 2; await new Promise(() => {});`, timeout_sec: 1 }, turn, scope);
+    expect(timedOut.text).toContain('state is as it was before this run: the code did not finish.');
+    const cyclic = await t.run!({ code: `state.n = 3; state.self = state;` }, turn, scope);
+    expect(cyclic.text).toMatch(/state was not kept: .*circular.*; it is as it was before this run\./i);
+    expect(valueOf(await t.run!({ code: `return state.n` }, turn, scope))).toBe('1');
+  });
+
+  it(
+    'refuses to keep a state larger than it may',
+    async () => {
+      const { t } = rlmTool();
+      const turn = ctx();
+      const big = await t.run!({ code: `state.big = 'x'.repeat(${RLM_LIMITS.state + 1}); return 1;` }, turn, scope);
+      expect(big.text).toContain(`state was not kept: it is larger than ${RLM_LIMITS.state / (1024 * 1024)} MB as JSON`);
+      expect(valueOf(await t.run!({ code: `return 'big' in state` }, turn, scope))).toBe('false');
+    },
+    slow(20_000),
+  );
+
+  it('asks the sub-model with the prompt, system prompt and max_tokens the code gives, a few at once, and says what it cost', async () => {
+    const { t, asked, most } = rlmTool(async (req) => {
+      await new Promise((r) => setTimeout(r, 50));
+      return `summary of ${req.prompt.length}`;
+    });
+    const r = await t.run!(
+      {
+        code: `const parts = 'y'.repeat(10000).match(/.{1,1000}/g);
+const answers = await Promise.all(parts.map((p) => llm_query(p, { system: 'Summarize.', max_tokens: 200 })));
+const mail = await relay.mail_read({ id: 7 });
+return { answers: answers.length, first: answers[0], mail };`,
+      },
+      ctx(),
+      scope,
+    );
+    expect(JSON.parse(valueOf(r)!)).toEqual({ answers: 10, first: 'summary of 1000', mail: 'Mail 7' });
+    expect(asked).toHaveLength(10);
+    expect(asked[0]).toEqual({ prompt: 'y'.repeat(1000), system: 'Summarize.', maxTokens: 200 });
+    expect(most()).toBe(RLM_LIMITS.concurrent);
+    expect(r.text).toMatch(
+      /^<run_code_result status="ok" calls="1" llm_calls="10" llm_calls_left="90" input_tokens="10000" output_tokens="50"/,
+    );
+  });
+
+  it('asks it at most its questions in a turn, and refuses one too long or with max_tokens out of range', async () => {
+    const { t, asked } = rlmTool();
+    const turn = ctx();
+    const ask = (n: number) =>
+      `let ok = 0, refused = ''; for (let i = 0; i < ${n}; i++) { try { await llm_query('q' + i); ok++; } catch (e) { refused = e.message; } } return { ok, refused };`;
+    expect(JSON.parse(valueOf(await t.run!({ code: ask(60) }, turn, scope))!)).toEqual({ ok: 60, refused: '' });
+    const second = await t.run!({ code: ask(60) }, turn, scope);
+    expect(JSON.parse(valueOf(second)!)).toEqual({
+      ok: RLM_LIMITS.calls - 60,
+      refused: `The sub-model is asked at most ${RLM_LIMITS.calls} questions in a turn; this one was not asked.`,
+    });
+    expect(second.text).toContain('llm_calls_left="0"');
+    expect(asked).toHaveLength(RLM_LIMITS.calls);
+
+    const fresh = ctx();
+    const tooLong = await t.run!(
+      { code: `try { await llm_query('z'.repeat(${RLM_LIMITS.prompt}), { system: 'S' }); } catch (e) { return e.message; }` },
+      fresh,
+      scope,
+    );
+    expect(valueOf(tooLong)).toBe(
+      `llm_query takes at most ${RLM_LIMITS.prompt} characters, the prompt and system prompt together; this one has ${RLM_LIMITS.prompt + 1}: split it.`,
+    );
+    for (const max_tokens of [0, 1.5, RLM_LIMITS.maxMaxTokens + 1, '100'])
+      expect(
+        valueOf(
+          await t.run!(
+            { code: `try { await llm_query('q', { max_tokens: ${JSON.stringify(max_tokens)} }); } catch (e) { return e.message; }` },
+            fresh,
+            scope,
+          ),
+        ),
+      ).toBe(`llm_query's max_tokens must be a whole number from 1 to ${RLM_LIMITS.maxMaxTokens}.`);
+    // A cut answer is still given, and counted.
+    expect((await t.run!({ code: `return await llm_query('q', { max_tokens: 5 })` }, fresh, scope)).text).toContain(
+      '1 of its answers were cut at max_tokens.',
+    );
+  });
+
+  it("throws the sub-model's failure in the code, and counts it", async () => {
+    const { t } = rlmTool(() => Promise.reject(new Error('homelab/tiny answered 503: overloaded')));
+    const r = await t.run!({ code: `try { await llm_query('q'); } catch (e) { return e.message; }` }, ctx(), scope);
+    expect(valueOf(r)).toBe('llm_query failed: homelab/tiny answered 503: overloaded');
+    expect(r.text).toContain("1 of the sub-model's questions failed.");
+  });
+
+  it('runs one call at a time in a turn, so a run reads the state the one before it left', async () => {
+    const { t } = rlmTool();
+    const turn = ctx();
+    const [a, b] = await Promise.all([
+      t.run!({ code: `await new Promise((r) => setTimeout(r, 300)); state.first = 'done'; return 1;` }, turn, scope),
+      t.run!({ code: `return state.first ?? 'not yet'` }, turn, scope),
+    ]);
+    expect(valueOf(a)).toBe('1');
+    expect(valueOf(b)).toBe('done');
+  });
+
+  it('tells the agent about state and llm_query only in RLM mode, with its longer time limits', async () => {
+    const off = runCodeTool(deps());
+    expect(off.description).toBe(RUN_CODE_DESCRIPTION);
+    expect(valueOf(await off.run!({ code: `return [typeof state, typeof llm_query].join(' ')` }, ctx(), scope))).toBe(
+      'undefined undefined',
+    );
+    const { t } = rlmTool();
+    expect(t.description).toContain('nothing but `state` kept between runs');
+    expect(t.description).toContain(
+      `${RLM_LIMITS.timeoutSec} seconds unless timeout_sec says otherwise (up to ${RLM_LIMITS.maxTimeoutSec};`,
+    );
+    expect(t.description).toContain('asks a sub-model (homelab/tiny) one question, with no tools');
+    expect((t.inputSchema as { properties: { timeout_sec: { maximum: number } } }).properties.timeout_sec.maximum).toBe(
+      RLM_LIMITS.maxTimeoutSec,
+    );
+    expect(valueOf(await t.run!({ code: `return [typeof state, typeof llm_query].join(' ')` }, ctx(), scope))).toBe('object function');
+    // Its own limit: longer than run_code's.
+    expect((await t.run!({ code: 'return 1', timeout_sec: RUN_CODE_LIMITS.maxTimeoutSec + 1 }, ctx(), scope)).isError).toBeUndefined();
   });
 });

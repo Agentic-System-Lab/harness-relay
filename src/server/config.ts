@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, type MailServer, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, parseBackendModel, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -47,6 +47,12 @@ export interface ServerConfig extends ServerLimits {
    * (`runCode.ts`). Off by default: agents call those tools one at a time, as before.
    */
   runCode: boolean;
+  /**
+   * RLM mode (`RELAY_RLM=<backend>/<model>`, a model connection of Settings): `run_code` keeps a `state`
+   * for the rest of the agent's turn and gives the code `llm_query()`, a question to this sub-model, which
+   * the server asks with no tools (`llmQuery.ts`). It turns `run_code` on. undefined = off.
+   */
+  rlmModel?: string;
 }
 
 /**
@@ -149,6 +155,22 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return false;
   };
 
+  // RLM mode: off, or the sub-model as `<backend>/<model>`. Whether that connection is set up is found
+  // out when the code asks it (Settings can change it meanwhile).
+  const rlm = (): string | undefined => {
+    const raw = env.RELAY_RLM?.trim();
+    if (!raw || raw.toLowerCase() === 'off') return undefined;
+    if (parseBackendModel(raw)) return raw;
+    problems.push(
+      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+    );
+    return undefined;
+  };
+  const rlmModel = rlm();
+  const runCode = onOff('RELAY_RUN_CODE');
+  if (rlmModel && env.RELAY_RUN_CODE?.trim().toLowerCase() === 'off')
+    problems.push('RELAY_RLM needs run_code: leave RELAY_RUN_CODE unset, or set it to on.');
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
@@ -163,7 +185,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
     microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
-    runCode: onOff('RELAY_RUN_CODE'),
+    runCode: runCode || Boolean(rlmModel),
+    ...(rlmModel ? { rlmModel } : {}),
   };
   return { config, problems };
 }

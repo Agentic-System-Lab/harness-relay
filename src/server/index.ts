@@ -45,6 +45,7 @@ import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers, privateRoots } from './agents/open';
 import { runCodeTool, sandboxedRunner } from './runCode';
+import { llmComplete, llmTarget } from './llmQuery';
 import { clearCheckTrees } from './checkCommands';
 import {
   clearRelaySandboxLeftovers,
@@ -173,7 +174,7 @@ gateway.register([
     teams,
   ),
 ]);
-// With RELAY_RUN_CODE=on, code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`).
+// With RELAY_RUN_CODE=on (or RELAY_RLM set), code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`).
 if (CONFIG.runCode) {
   gateway.register([
     runCodeTool({
@@ -185,6 +186,15 @@ if (CONFIG.runCode) {
       })),
       runProcess,
       env: process.env,
+      // RELAY_RLM: the sub-model `llm_query()` asks, on a model connection of Settings, looked up at each question.
+      ...(CONFIG.rlmModel
+        ? {
+            rlm: {
+              model: CONFIG.rlmModel,
+              ask: async (req, signal) => llmComplete(llmTarget(settings.backends.forRun(), CONFIG.rlmModel!), req, signal),
+            },
+          }
+        : {}),
     }),
   ]);
 }
