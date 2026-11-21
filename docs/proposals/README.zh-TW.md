@@ -10,6 +10,7 @@ Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒
 | [用 OAuth 登入的帳號](oauth.zh-TW.md) | 核心已完成，含 Microsoft 365 與 Outlook.com 的行事曆（Graph）、Google 日曆（用權杖的 CalDAV）、Microsoft 365、Outlook.com 與 Gmail 的郵件（IMAP 與 SMTP 加上 XOAUTH2），以及工具庫中遠端 MCP 伺服器自己的登入 | 給不接受應用程式專用密碼的服務，以及需要登入的 MCP 伺服器，一個共用的登入介面：權杖會自動更新並存在憑證儲存區，由行事曆與郵件工具以及郵件觸發使用，並交給每一回合的 MCP 伺服器。 |
 | [agent 之間共用的記憶](shared-memory.zh-TW.md) | 尚未開始 | agent 建議要記下的筆記，由使用者決定是否加進工具庫的記憶；依專案分的記憶；匯入各 CLI 自己記住的東西。 |
 | [網站預覽與 Generative UI](preview-and-generative-ui.zh-TW.md) | 尚未開始 | 在聊天旁的面板試用 agent 做的網站，並把錯誤交回給 agent；回覆裡可以有選項、表單、圖表和小型互動頁面。 |
+| [agent CLI 自己的功能](agent-cli-features.zh-TW.md) | 尚未開始 | 十二個 CLI 本身做得到、Harness Relay 還沒用上的：受管理且看得到的 subagent 與 workflow、端點模型的 context window、計畫、提問、引導執行中的回合、結構化回答與預算。 |
 
 ## 這個資料夾的用法
 
