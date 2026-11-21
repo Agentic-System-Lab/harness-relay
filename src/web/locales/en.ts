@@ -2102,7 +2102,8 @@ export const en: Messages = {
         hooks: "Cline has no setting that leaves out hooks: those in the project's .clinerules/hooks and .cline/hooks still run",
         agents: 'Cline has no setting that leaves out custom agents',
         plugins: 'Cline leaves out plugins only one by one, by path; pick them one by one',
-        subagents: 'its spawn_agent tool',
+        subagents:
+          'its spawn_agent tool; always off below full access, since its subagents run every tool without asking (Cline gives them no approval)',
       },
       opencode: {
         skills:

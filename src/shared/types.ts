@@ -596,10 +596,12 @@ export function nativeOffFor(provider: Provider, parts: readonly string[]): Nati
  * The CLIs whose subagents Harness Relay turns off below full access whatever Settings says
  * (`subagents` left out): Codex's lose the sandbox's `read` entries before 0.170.0 and its approval
  * check sees no path for them; Grok's run in the background, and its turn ends before they wake it;
- * OpenCode's would wait on a question no one is asked; OpenHands' act without asking. Settings' switch
+ * OpenCode's would wait on a question no one is asked; OpenHands' act without asking, and so do
+ * Cline's: its `spawn_agent` gives the subagent no tool policy and no approval callback, so its
+ * policy check asks about nothing (`@cline/core` and `@cline/agents` in Cline 3.0.75). Settings' switch
  * then reaches their runs at full access only.
  */
-export const SUBAGENTS_FULL_ACCESS_ONLY: readonly Provider[] = ['codex', 'grok', 'opencode', 'openhands'];
+export const SUBAGENTS_FULL_ACCESS_ONLY: readonly Provider[] = ['codex', 'grok', 'opencode', 'openhands', 'cline'];
 
 /** The parts a run of `provider` leaves out at `permission`: the account's, and its subagents where they are full access only. */
 export function runNativeOff(provider: Provider, permission: Permission, off: readonly NativePart[]): NativePart[] {

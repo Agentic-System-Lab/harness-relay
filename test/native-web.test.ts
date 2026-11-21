@@ -191,6 +191,8 @@ describe('the subagents and workflows box', () => {
     expect(hasSubagents('pi')).toBe(false);
     expect(hasSubagents('cursor')).toBe(true);
     expect(subagentsFullAccessOnly('codex')).toBe(true);
+    // Cline's spawn_agent gives its subagent no approval: off below full access too.
+    expect(subagentsFullAccessOnly('cline')).toBe(true);
     expect(subagentsFullAccessOnly('claude')).toBe(false);
   });
 

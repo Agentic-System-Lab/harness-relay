@@ -2093,7 +2093,7 @@ export const zhTW = {
         hooks: 'Cline 沒有略過 hook 的設定：專案 .clinerules/hooks 與 .cline/hooks 裡的 hook 照常執行',
         agents: 'Cline 沒有略過自訂 agent 的設定',
         plugins: 'Cline 只能依路徑個別略過 plugin；請個別勾選',
-        subagents: '它的 spawn_agent 工具',
+        subagents: '它的 spawn_agent 工具；完全存取以外一律關閉，因為它的 subagent 不經詢問就執行每個工具（Cline 沒有讓它們詢問）',
       },
       opencode: {
         skills: '它從 .claude/skills 與 .agents/skills 找到的 skill，以及內建的 customize-opencode（skill 工具整個關掉）',

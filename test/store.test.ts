@@ -1516,6 +1516,9 @@ describe('SettingsStore accounts', () => {
       expect(again.runNative('codex', second, 'full').nativeOff).toEqual(['subagents']);
       again.updateAccount('codex', second, { nativeOff: [] });
       expect(again.runNative('claude', work, 'read-only')).toEqual({ nativeOff: [], nativeItems: {}, nativeOn: [] });
+      // Cline's subagents run every tool unasked: off below full access too.
+      expect(again.runNative('cline', undefined, 'edit').nativeOff).toEqual(['subagents']);
+      expect(again.runNative('cline', undefined, 'full').nativeOff).toEqual([]);
 
       const claude = again.view().providers.find((p) => p.provider === 'claude')!;
       const run = { defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] };
