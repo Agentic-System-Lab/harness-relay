@@ -72,6 +72,12 @@ export interface AppDependencyView {
   job?: CliInstallJobView;
 }
 
+export interface PreviewDockerView extends AppDependencyView {
+  state: 'missing' | 'unavailable' | 'ready';
+  detail?: string;
+  help?: 'linux-access';
+}
+
 export interface GitInstallView {
   available: boolean;
   method?: 'apple' | 'winget' | 'linux';
@@ -792,7 +798,7 @@ export interface NativeSetup {
 /** An app preview starts only when the user asks. Files paths are relative to the selected root;
  * a reply's local link is resolved on the server against the worktrees that reply used. */
 export interface AppPreviewRequest {
-  /** Canonical folder the user reviewed before starting this preview. */
+  /** Canonical folder pinned from Files or from resolving a reply's target. */
   expectedFolder?: string;
   mode: 'static' | 'build' | 'server';
   folder: string;

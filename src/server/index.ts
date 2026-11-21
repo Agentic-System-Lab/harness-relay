@@ -241,7 +241,7 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
-const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using));
+const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using), clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
 // An installation that only previews static sites never needs to contact Docker. The marker

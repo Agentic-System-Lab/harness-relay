@@ -2,7 +2,7 @@
 
 # Runtime for app previews
 
-**Implementation status.** Local app previews include static sites, npm frontend builds and Node.js backends with one HTTP entry point. The original design and platform acceptance criteria follow. Current behaviour and limits are in the [user guide](../user-guide.md#previewing-an-app), [architecture](../architecture.md#app-previews) and [developer guide](../developer-guide.md#app-preview-runtime).
+**Implementation status.** Choosing Preview in a reply or Files opens static HTML, builds an npm frontend or starts a Node.js backend with one HTTP entry point. Relay detects which one to run and offers Docker setup when needed. The original design and platform acceptance criteria follow. Current behaviour and limits are in the [user guide](../user-guide.md#previewing-an-app), [architecture](../architecture.md#app-previews) and [developer guide](../developer-guide.md#app-preview-runtime).
 
 The packaged Electron app and an OrbStack Linux Docker engine were exercised on Apple Silicon macOS. A browser check uses a synthetic HTTPS setup for remote mode. Linux CI exercises a real build, a SQLite backend and the chat panel. Windows Docker Desktop and wildcard HTTPS on physical phones still require their own acceptance runs. The interactive reply formats remain in the [generative UI proposal](preview-and-generative-ui.md).
 

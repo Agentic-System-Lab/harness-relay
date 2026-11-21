@@ -1,16 +1,13 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InstallError, runStep, type CliInstallHost, type InstallJob } from '../cliInstall';
+import { type CliInstallHost, type InstallJob } from '../cliInstall';
 import { isProgram } from '../executable';
 import { wingetInstall } from '../gitInstall';
-import { t } from '../i18n';
-import { portableInstallEnv } from '../portableInstall';
-import { runProcess, runShellScript, runSync } from '../process';
+import { installMacApp, publishMacApp } from '../macAppInstall';
+import { runProcess, runShellScript } from '../process';
 import { linuxPackageCommand, type LinuxPackages } from '../sandboxSetup';
 
-const CHROME_APP = 'Google Chrome.app';
 const CHROME_DMG = 'https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg';
 const GOOGLE_SIGNATURE =
   '=anchor apple generic and identifier "com.google.Chrome" and certificate leaf[subject.OU] = "EQHXZ8M8AV"' +
@@ -24,26 +21,7 @@ interface BrowserInstallHost extends Pick<CliInstallHost, 'platform' | 'env' | '
   publish: typeof publishMacApp;
 }
 
-// Node's rename() replaces an existing empty directory. Darwin's exclusive rename atomically
-// publishes the whole bundle or leaves whoever owns the destination alone, even in that race.
-function publishMacApp(source: string, destination: string, env: NodeJS.ProcessEnv): void {
-  const script = [
-    "ObjC.bindFunction('renamex_np', ['int', ['char *', 'char *', 'unsigned int']]);",
-    'function run(paths) {',
-    '  if ($.renamex_np(paths[0], paths[1], 4) !== 0) throw Error("renamex_np");',
-    '}',
-  ].join('\n');
-  const result = runSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script, source, destination], {
-    env,
-    timeoutMs: 10000,
-  });
-  if (result.error || result.status !== 0) {
-    const detail = result.error?.message || result.stderr?.trim();
-    throw new InstallError(() => [t().chromePublishFailed(destination), detail].filter(Boolean).join('\n'), result.status);
-  }
-}
-
-function readOsRelease(): string {
+export function readOsRelease(): string {
   for (const path of ['/etc/os-release', '/usr/lib/os-release']) {
     try {
       return readFileSync(path, 'utf8');
@@ -52,86 +30,6 @@ function readOsRelease(): string {
     }
   }
   return '';
-}
-
-async function installMacChrome(host: BrowserInstallHost, job: InstallJob): Promise<void> {
-  const env = portableInstallEnv(host.env);
-  const apps = join(host.home, 'Applications');
-  const dest = join(apps, CHROME_APP);
-  job.abort.signal.throwIfAborted();
-  if (lstatSync(dest, { throwIfNoEntry: false })) throw new InstallError(() => t().chromeDestinationExists(dest));
-
-  mkdirSync(apps, { recursive: true });
-  const stage = mkdtempSync(join(apps, '.relay-chrome-'));
-  const stagedApp = join(stage, CHROME_APP);
-  try {
-    const scratch = mkdtempSync(join(host.temp, 'relay-chrome-'));
-    const image = join(scratch, 'googlechrome.dmg');
-    const volume = join(scratch, 'volume');
-    let attemptedMount = false;
-    try {
-      await runStep(host, job, 'Download Google Chrome', {
-        bin: '/usr/bin/curl',
-        args: [
-          '-q',
-          '--fail',
-          '--silent',
-          '--show-error',
-          '--location',
-          '--proto',
-          '=https',
-          '--proto-redir',
-          '=https',
-          '--output',
-          image,
-          CHROME_DMG,
-        ],
-        env,
-      });
-      mkdirSync(volume);
-      attemptedMount = true;
-      await runStep(host, job, 'hdiutil attach', {
-        bin: '/usr/bin/hdiutil',
-        args: ['attach', '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', volume, image],
-        env,
-      });
-      const source = join(volume, CHROME_APP);
-      if (!lstatSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new InstallError(() => t().chromeMissingBundle);
-      // The vendor HFS image carries FinderInfo on its helpers. Omit resource forks and Finder
-      // metadata so strict seal verification can run; preserve quarantine on the staged bundle.
-      await runStep(host, job, 'Copy Google Chrome', {
-        bin: '/usr/bin/ditto',
-        args: ['--norsrc', '--qtn', '--acl', source, stagedApp],
-        env,
-      });
-      await runStep(host, job, 'Verify the Google Chrome signature', {
-        bin: '/usr/bin/codesign',
-        args: ['--verify', '--deep', '--strict', '--all-architectures', '-R', GOOGLE_SIGNATURE, stagedApp],
-        env,
-      });
-    } finally {
-      if (attemptedMount) {
-        // hdiutil may have mounted the image before it reported a failure or was cancelled.
-        // Cleanup uses its own timeout and never inherits the cancelled job's signal.
-        for (const args of [
-          ['detach', volume],
-          ['detach', '-force', volume],
-        ]) {
-          const detached = await host.run({ bin: '/usr/bin/hdiutil', args, env, timeoutMs: 15000 }).catch(() => undefined);
-          if (detached?.code === 0) break;
-        }
-      }
-      // A still-mounted volume cannot be removed by rmdir. Leave it and its backing image for
-      // ejection in that case; nothing ever recursively removes the mount point or its parent.
-      if (lstatSync(volume, { throwIfNoEntry: false })) rmdirSync(volume);
-      await rm(image, { force: true });
-      rmdirSync(scratch);
-    }
-    job.abort.signal.throwIfAborted();
-    host.publish(stagedApp, dest, env);
-  } finally {
-    await rm(stage, { recursive: true, force: true, maxRetries: 3 });
-  }
 }
 
 export function browserInstallPlan(
@@ -150,7 +48,16 @@ export function browserInstallPlan(
     publish: publishMacApp,
     ...overrides,
   };
-  if (host.platform === 'darwin') return { install: (job) => installMacChrome(host, job) };
+  if (host.platform === 'darwin')
+    return {
+      install: (job) =>
+        installMacApp(host, job, {
+          name: 'Google Chrome',
+          apps: join(host.home, 'Applications'),
+          url: CHROME_DMG,
+          signature: GOOGLE_SIGNATURE,
+        }),
+    };
   if (host.platform === 'win32') {
     const install = wingetInstall('Google.Chrome', host);
     return install ? { install } : {};

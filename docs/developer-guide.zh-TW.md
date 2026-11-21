@@ -508,8 +508,10 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/apps/github/signout` | `{ login }` → `{ ok: true }`。再次確認目前登入名稱，將該帳號從本機 GitHub CLI 的 github.com 登出。登入名稱無效回 400；目前帳號已變更或由環境變數提供登入權杖時回 409。成功後重新查詢狀態，即可得知是否有其他使用中的帳號。 |
 | `GET /api/gh/login` | → `CliLoginView` 或 `null`：執行中的那個登入（`running`，之後是 `success`、`failed` 或 `cancelled`） |
 | `DELETE /api/gh/login` | → `{ ok }`：停止它 |
-| `POST /api/conversations/:id/preview/target` | `AppPreviewRequest` → `{ folder }`；核對來源，回傳完整路徑供執行前確認。輸入為 `{ mode, folder, entry?, root?, messageId? }`。從「檔案」用 `root`，從回覆用該成員的 `messageId`。 |
-| `POST /api/conversations/:id/preview` | 同樣的輸入 → `{ id, url, origin }`。將畫面上確認的完整路徑放在 `expectedFolder`。若工作目錄已變更則回傳 409。建立預覽後回傳只可使用一次的啟動網址。模式為 `static`、`build` 或 `server`。 |
+| `GET /api/apps/docker/install` | → `PreviewDockerView`。`state` 表示缺少 CLI、引擎無法使用，或本機的 Linux 引擎已就緒。另有 `available`、`canInstall`，以及視情況提供的原因、手動安裝指令和安裝工作狀態。 |
+| `POST /api/apps/docker/install` | 啟動或沿用 Relay 主機上的 Docker 背景安裝工作，回傳同樣的狀態。使用者按 **安裝 Docker** 時，面板才送出安裝請求。 |
+| `POST /api/conversations/:id/preview/target` | `{ folder, entry?, root?, messageId?, expectedFolder? }` → `{ folder, mode, entry }`。解析來源資料夾的完整路徑，並辨識預覽模式和入口。從「檔案」用 `root`，從回覆用該成員的 `messageId`。路徑與 `expectedFolder` 不符時回傳 409。 |
+| `POST /api/conversations/:id/preview` | `AppPreviewRequest` → `{ id, url, origin }`。傳入辨識出的 `mode` 和 `entry`，並將解析出的完整路徑放在 `expectedFolder`。若工作目錄已變更則回傳 409。建立預覽後回傳只可使用一次的啟動網址。模式為 `static`、`build` 或 `server`。 |
 | `DELETE /api/conversations/:id/preview/:previewId` | → `{ ok: true }`；停止指定預覽並撤銷其憑證。 |
 | `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），所選根目錄的完整實際路徑 `canonicalRoot`，以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
 | `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`：檔案的文字（前 512 KB），或標示它是圖片、影片或二進位檔 |
@@ -585,7 +587,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 
 ### 應用程式預覽執行環境
 
-`appPreviews.ts` 管理預覽的權限與生命週期。`previewTarget.ts` 先從對話及回覆成員決定檔案根目錄。`previewFiles.ts` 讀取快照。靜態預覽直接使用它的 HTTP 回應；`previewRuntime.ts` 負責兩種 Docker 模式。
+`appPreviews.ts` 管理預覽的權限與生命週期。`previewTarget.ts` 依對話與回覆成員決定檔案根目錄，再辨識起始頁面或 npm 指令。專案若含有 start 指令或預設的 `server.js` 就會執行後端，只有 build 指令則建置前端。HTML 首頁若載入尚未編譯的模組，會使用同資料夾的 npm 專案。獨立的 HTML 頁面或已建置的網站可以直接開啟。`previewFiles.ts` 讀取快照。靜態預覽直接使用它的 HTTP 回應；`previewRuntime.ts` 負責兩種 Docker 模式。
 
 引擎需要本機 Docker CLI 和可在 Linux x64 或 arm64 執行的容器，透過 Unix socket 或 Windows 具名管道連線。Relay 必要時會下載以 digest 固定的 Node 22 映像。它在交付專案程式前，檢查 cgroup v2 的 CPU（1 顆）、記憶體（768 MiB，禁用 swap）及程序數（96）上限，以及非 root、seccomp、禁止提升權限等條件。容器根檔案系統唯讀，工作區（384 MiB）和 `/tmp`（32 MiB）使用 tmpfs。
 

@@ -462,7 +462,7 @@
           </p>
           <h3 id="app-preview">Try an app the team made</h3>
           <p>Select an HTML page or a Node project’s <code>package.json</code> and choose <b>Preview app</b>. The same button appears beside a file link in a reply. For a folder, choose <b>Preview this folder</b>. In parallel mode a reply opens the member’s own files.</p>
-          <p>Check the source folder, choose <b>Static site</b>, <b>Build frontend</b> or <b>Run backend</b>, then <b>Start preview</b>. For a static site, select the public output folder. The other modes need local Docker, an npm lockfile and the project’s build or start script.</p>
+          <p>Relay detects how to start the app. A static HTML page opens directly, including from a folder with <code>index.html</code>. For an npm project with a lockfile, Relay runs <code>npm start</code> if the project has a start script or a default <code>server.js</code>, or <code>npm run build</code> for a build-only frontend. If Docker is missing from the computer running Relay, the panel offers <b>Install Docker</b> on supported systems. If Docker is installed and stopped, start the local Linux container engine. The preview continues when Docker is ready.</p>
           <p>Choose <b>Add errors to message</b> and describe what you clicked before sending. Use <b>Reload page</b> to refresh the app within its current run. After an edit, <b>Rebuild preview</b> loads a fresh copy. Reloading the Relay chat closes the preview. <b>Stop preview</b> closes the run and discards temporary backend data. Phones also need a <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md#app-previews">dedicated HTTPS preview domain</a>.</p>
         </section>
 

@@ -2,9 +2,11 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { SpawnOptions, SpawnResult } from '../src/server/process';
 import { cleanupPreviewRuntimes, startPreviewRuntime } from '../src/server/previewRuntime';
 import { runProcess } from '../src/server/process';
+import { isProgram } from '../src/server/executable';
 import { decodePreviewFiles, encodePreviewFiles } from '../src/server/previewDockerWire';
 
 vi.mock('../src/server/process', async (load) => ({ ...(await load<typeof import('../src/server/process')>()), runProcess: vi.fn() }));
+vi.mock('../src/server/executable', async (load) => ({ ...(await load<typeof import('../src/server/executable')>()), isProgram: vi.fn() }));
 const command = vi.mocked(runProcess);
 const id = 'a'.repeat(64);
 const owner = 'b'.repeat(32);
@@ -33,7 +35,7 @@ function result(stdout: string | Buffer = '', code = 0, stderr = ''): SpawnResul
 }
 function docker(o: SpawnOptions): SpawnResult {
   const a = o.args;
-  if (a.includes('context')) return result('unix:///var/run/docker.sock');
+  if (a.includes('context')) return result(process.platform === 'win32' ? 'npipe:////./pipe/docker_engine' : 'unix:///var/run/docker.sock');
   if (a.includes('info')) return result('linux arm64');
   if (a.includes('create')) return result(id);
   if (a.some((arg) => arg.includes('cpu.max'))) return result('arm64');
@@ -43,6 +45,7 @@ function docker(o: SpawnOptions): SpawnResult {
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.stubEnv('DOCKER_HOST', '');
+  vi.mocked(isProgram).mockReturnValue(true);
   command.mockReset().mockImplementation(async (o) => docker(o));
 });
 it('runs builds on an immutable private Linux container then removes it before serving the public output', async () => {
@@ -88,13 +91,13 @@ it('waits for a racing create to finish and then removes that exact container', 
 it('rejects remote engines before transferring a snapshot or creating a container', async () => {
   vi.stubEnv('DOCKER_HOST', 'tcp://example.org:2376');
   vi.stubEnv('DOCKER_CONTEXT', '');
-  await expect(startPreviewRuntime(opts())).rejects.toThrow(/local Docker|本機 Docker/);
+  await expect(startPreviewRuntime(opts())).rejects.toThrow(/local Docker|本機通訊端/);
   expect(command.mock.calls.some(([o]) => o.args.includes('create'))).toBe(false);
 });
 it('explains a missing Docker engine and never executes npm on the host', async () => {
-  command.mockRejectedValue(new Error('binary missing'));
+  vi.mocked(isProgram).mockReturnValue(false);
   await expect(startPreviewRuntime(opts())).rejects.toThrow(/Docker/);
-  expect(command.mock.calls.map(([o]) => o.bin)).toEqual(['docker']);
+  expect(command).not.toHaveBeenCalled();
 });
 it('sweeps only IDs returned by the persistent installation owner label', async () => {
   command.mockImplementation(async (o) => (o.args.includes('ps') ? result(id + '\n') : docker(o)));

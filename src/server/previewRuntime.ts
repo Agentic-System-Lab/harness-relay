@@ -1,6 +1,7 @@
 import { t } from './i18n';
+import { tail } from './process';
 import { randomUUID } from 'node:crypto';
-import { runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
+import { checked, localDocker, checkDockerEngine, type Docker, type DockerOptions } from './previewDocker';
 import { lockedPreviewPackages, fetchPreviewPackage, type LockedPreviewPackage } from './previewDockerPackages';
 import {
   APP_PORT,
@@ -73,41 +74,6 @@ while (true) {
   await sleep(150);
 }
 `;
-
-// The CLI as configured for Relay's user discovers the local socket. Pin it for all later calls,
-// including cleanup, so changing Docker contexts cannot send files to another daemon.
-type DockerOptions = Pick<SpawnOptions, 'signal' | 'stdin' | 'timeoutMs' | 'maxCapture'>;
-type Docker = (args: string[], options?: DockerOptions) => Promise<SpawnResult>;
-
-async function localDocker(): Promise<Docker> {
-  const cli: Docker = (args, options) => runProcess({ bin: 'docker', args, env: process.env, timeoutMs: 15000, ...options });
-  let host = process.env.DOCKER_CONTEXT ? undefined : process.env.DOCKER_HOST;
-  if (!host) {
-    try {
-      const result = await cli(['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}']);
-      host = checked(result, t().previewDocker.context).stdout.trim();
-    } catch (e) {
-      throw new Error(t().previewDocker.unavailable + ' ' + (e instanceof Error ? e.message : ''));
-    }
-  }
-  if (!/^unix:\/\/\/[^\r\n]+$/.test(host) && !/^npipe:\/\/\/\/\.\/pipe\/[a-zA-Z0-9._-]+$/.test(host)) {
-    throw new Error(t().previewDocker.local);
-  }
-  const env = { ...process.env };
-  delete env.DOCKER_HOST;
-  delete env.DOCKER_CONTEXT;
-  return (args, options) => runProcess({ bin: 'docker', args: ['--host', host, ...args], env, timeoutMs: 15000, ...options });
-}
-
-function checked(result: SpawnResult, step: string, withLog = true): SpawnResult {
-  if (result.aborted) throw new Error(t().stopped);
-  if (result.timedOut) throw new Error(t().previewDocker.timeout(step));
-  if (result.code !== 0) {
-    const detail = tail(result.stderr + '\n' + (withLog ? result.stdout : ''), 2048);
-    throw new Error(t().previewDocker.failed(step) + (detail ? ' ' + detail : ''));
-  }
-  return result;
-}
 
 function ownerLabel(owner: string): string {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(owner)) throw new Error(t().previewDocker.invalidOwner);
@@ -186,7 +152,7 @@ export async function startPreviewRuntime(opts: {
   const packages = lockedPreviewPackages(files, mode);
   await opts.beforeDocker?.();
   setup.throwIfAborted();
-  const docker = await localDocker();
+  const docker = await localDocker(setup);
   const name = 'harness-relay-preview-' + randomUUID();
   let id = '';
   let createSent = false;
@@ -215,8 +181,7 @@ export async function startPreviewRuntime(opts: {
   const exec = (args: string[], options: DockerOptions = {}) =>
     docker(['exec', ...(options.stdin ? ['-i'] : []), id, ...args], { signal: setup, ...options });
   try {
-    const info = checked(await docker(['info', '--format', '{{.OSType}} {{.Architecture}}'], { signal: setup }), t().previewDocker.engine);
-    if (!/^linux (?:arm64|aarch64|x86_64|amd64)\s*$/.test(info.stdout)) throw new Error(t().previewDocker.arch);
+    await checkDockerEngine(docker, setup);
     const image = await docker(['image', 'inspect', '--format', '{{.Id}}', IMAGE], { signal: setup });
     if (image.code !== 0) checked(await docker(['pull', IMAGE], { signal: setup, timeoutMs: 120000 }), t().previewDocker.pull);
     setup.throwIfAborted();

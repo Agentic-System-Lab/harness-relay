@@ -11,7 +11,7 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews } from './appPreviews';
-import { previewAddress, previewParent, previewTarget } from './previewTarget';
+import { detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import type { AppPreviewRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
@@ -314,7 +314,7 @@ export function createApp({
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
   gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
-  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using)),
+  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using), clis),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -1232,6 +1232,9 @@ export function createApp({
     app.post(path, (c) => c.json(appDependencies.install(name)));
   }
 
+  app.get('/api/apps/docker/install', async (c) => c.json(await appDependencies.dockerView()));
+  app.post('/api/apps/docker/install', async (c) => c.json(await appDependencies.installDocker()));
+
   app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
   app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
 
@@ -2090,8 +2093,8 @@ export function createApp({
   // App previews use the same working directories and reply worktrees as Files and media.
   app.post('/api/conversations/:id/preview/target', async (c) => {
     previewParent(c.req.header('host') ?? '', c.req.header('origin'));
-    const target = previewTarget(getConv(c.req.param('id')), await body<Partial<AppPreviewRequest>>(c), (id) => store.get(id), settings);
-    return c.json({ folder: resolve(target.root, target.folder) });
+    const input = await body<Partial<AppPreviewRequest>>(c);
+    return c.json(detectPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
   });
   app.post('/api/conversations/:id/preview', async (c) => {
     const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));

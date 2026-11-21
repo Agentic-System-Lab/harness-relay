@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, send } from '../support/app';
@@ -7,26 +7,23 @@ test.skip(process.env.E2E_PREVIEW_DOCKER !== '1', 'Requires a local Docker engin
 
 test('a built frontend and a SQLite backend run through the signed-in preview panel', async ({ page, relay }) => {
   test.setTimeout(240_000);
-  const save = (name: string, content: string) => writeFileSync(join(relay.workDir, name), content);
-  save(
-    'package.json',
-    JSON.stringify({ name: 'preview-acceptance', version: '1.0.0', scripts: { build: 'node build.cjs', start: 'node server.cjs' } }),
-  );
-  save(
-    'package-lock.json',
-    JSON.stringify({
-      name: 'preview-acceptance',
-      version: '1.0.0',
-      lockfileVersion: 3,
-      packages: { '': { name: 'preview-acceptance', version: '1.0.0' } },
-    }),
-  );
-  save(
+  function project(name: string, scripts: Record<string, string>) {
+    const folder = join(relay.workDir, name);
+    mkdirSync(folder);
+    const save = (file: string, content: string) => writeFileSync(join(folder, file), content);
+    const pkg = { name, version: '1.0.0' };
+    save('package.json', JSON.stringify({ ...pkg, scripts }));
+    save('package-lock.json', JSON.stringify({ ...pkg, lockfileVersion: 3, packages: { '': pkg } }));
+    return save;
+  }
+  const frontend = project('frontend', { build: 'node build.cjs' });
+  frontend(
     'build.cjs',
     "const fs=require('node:fs'); fs.mkdirSync('dist'); fs.writeFileSync('dist/index.html','<h1>Built inside Docker</h1>')",
   );
-  save('page.html', '<!doctype html><button>Save entry</button><output></output><script src="/client.js"></script>');
-  save(
+  const backend = project('backend', { build: 'node build.cjs', start: 'node server.cjs' });
+  backend('page.html', '<!doctype html><button>Save entry</button><output></output><script src="/client.js"></script>');
+  backend(
     'client.js',
     `async function load() {
     const entries=await (await fetch('/api/entries')).json();
@@ -34,7 +31,7 @@ test('a built frontend and a SQLite backend run through the signed-in preview pa
   }
   document.querySelector('button').onclick=async()=>{ await fetch('/api/entries',{method:'POST'}); await load() }; load();`,
   );
-  save(
+  backend(
     'server.cjs',
     `const {createServer}=require('node:http');
   const {DatabaseSync}=require('node:sqlite'); const {readFileSync}=require('node:fs');
@@ -52,16 +49,17 @@ test('a built frontend and a SQLite backend run through the signed-in preview pa
   }).listen(Number(process.env.PORT),process.env.HOST);`,
   );
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-  await send(page, 'Here is the preview.\n[Project](package.json)');
+  await send(page, 'Try these projects.\n[Frontend](frontend/package.json)\n[Backend](backend/package.json)');
   const reply = await finishedReply(page, 'Claude');
-  await reply.getByRole('button', { name: 'Preview app' }).click();
+  const previews = reply.getByRole('button', { name: 'Preview app' });
+  await expect(previews).toHaveCount(2);
+  await previews.nth(0).click();
   const panel = page.getByLabel('App preview', { exact: true });
   const frame = panel.frameLocator('iframe');
-  await panel.getByRole('button', { name: 'Start preview' }).click();
   await expect(frame.getByRole('heading')).toHaveText('Built inside Docker', { timeout: 150_000 });
   await panel.getByRole('button', { name: 'Stop preview' }).click();
-  await panel.getByLabel('Preview mode').selectOption('server');
-  await panel.getByRole('button', { name: 'Start preview' }).click();
+  await panel.getByRole('button', { name: 'Close' }).click();
+  await previews.nth(1).click();
   await expect(frame.locator('output')).toHaveText('0 entries', { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Save entry' }).click();
   await expect(frame.locator('output')).toHaveText('1 entries');

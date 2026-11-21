@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 580 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 582 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -50,7 +50,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 4 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
+| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 6 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
@@ -286,10 +286,12 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 
 | Scenario | CLI | What it checks |
 | --- | --- | --- |
-| Static site from Files | Claude Code | The page loads a JavaScript module. Rebuild shows the edited page. Error feedback preserves the existing draft and the running preview can be reopened on a phone. Stop removes the frame. |
+| Static site from Files | Claude Code | The folder opens directly, loads a JavaScript module and skips Docker setup. Rebuild shows the edited page. Error feedback preserves the existing draft and the running preview can be reopened on a phone. Stop removes the frame. |
 | Identical filenames in parallel replies | Claude Code, Codex | Both reply links still download. Each preview opens the author’s own file and fits the phone viewport. |
-| npm project from a reply | Claude Code | Switching between build and backend displays the matching npm command. Startup failure can be added to a draft addressed to the member, and cancellation cleans up a late response. |
-| Build and SQLite backend through the signed-in panel | Claude Code | With `E2E_PREVIEW_DOCKER=1` and local Docker running Linux containers, shows built HTML, writes an entry through the backend API, keeps it on refresh, starts empty after a rebuild and closes the frame on Stop. |
+| npm project from a reply | Claude Code | The backend starts automatically. Relay reports a missing lockfile before checking Docker and can put the error in a draft addressed to the member. Closing a pending preview cleans up a late response. |
+| Missing Docker for a build | Claude Code | Canceling the setup dialog leaves the preview stopped. Install Docker starts one installation when selected. Once a simulated engine is ready, the build starts exactly once. |
+| Installed engine unavailable | Claude Code | A stopped engine can be checked again. Once it is ready, a project with both npm scripts opens its backend exactly once. |
+| Build and SQLite backend through the signed-in panel | Claude Code | With `E2E_PREVIEW_DOCKER=1` and local Docker running Linux containers, opens two project links directly, shows built HTML, writes an entry through the backend API, keeps it on refresh, starts empty after a rebuild and closes the frame on Stop. |
 
 ## Working directories and other folders
 

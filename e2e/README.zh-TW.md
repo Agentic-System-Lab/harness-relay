@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 46 個 spec 檔、580 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 46 個 spec 檔、582 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 4 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 6 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -288,10 +288,12 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 驗證內容 |
 | --- | --- | --- |
-| 從「檔案」試用靜態網站 | Claude Code | 頁面載入 JavaScript 模組。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
+| 從「檔案」試用靜態網站 | Claude Code | 資料夾會直接開啟並載入 JavaScript 模組，全程不需設定 Docker。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
 | 平行成員回覆中的同名檔案 | Claude Code、Codex | 每個連結可繼續下載，預覽則開啟該成員自己的版本。手機寬度下可操作整個面板。 |
-| 從回覆開啟 npm 專案 | Claude Code | 切換建置和後端會顯示對應的 npm 指令；啟動失敗可將錯誤放入草稿並標註該成員，取消啟動後會清除遲到的結果。 |
-| 從登入後的面板建置前端與執行 SQLite 後端 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1` 且本機有能執行 Linux 容器的 Docker 時，先檢查建置的 HTML，再用後端 API 儲存資料。重新整理後資料仍在，重建後變回空白，停止後關閉 frame。 |
+| 從回覆開啟 npm 專案 | Claude Code | 自動啟動後端。Relay 在檢查 Docker 前就會指出缺少的 lockfile，可將錯誤放入草稿並標註該成員。關閉正在啟動的預覽會清除遲到的結果。 |
+| 建置時缺少 Docker | Claude Code | 取消設定後預覽仍為停止狀態。選擇安裝 Docker 才會啟動安裝。模擬的引擎就緒後，預覽只會啟動一次建置。 |
+| 已安裝的引擎尚未就緒 | Claude Code | 可重新檢查已停止的引擎。引擎就緒後，同時有兩種 npm 指令的專案只會啟動後端一次。 |
+| 從登入後的面板建置前端與執行 SQLite 後端 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1` 且本機有能執行 Linux 容器的 Docker 時，從兩個專案連結直接預覽，先檢查前端建置的 HTML，再用另一個專案的後端 API 儲存資料。重新整理後資料仍在，重建後變回空白，停止後關閉 frame。 |
 
 ## 工作目錄與其他資料夾
 

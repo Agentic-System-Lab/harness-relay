@@ -31,7 +31,7 @@ interface GitInstallHost {
 
 /** PowerShell can start a WinGet App Execution Alias which Node cannot stat or launch directly. */
 export function wingetInstall(
-  id: 'Git.Git' | 'Google.Chrome',
+  id: 'Git.Git' | 'Google.Chrome' | 'Docker.DockerDesktop',
   host: Pick<GitInstallHost, 'env' | 'hasProgram' | 'run' | 'runScript'> & { hasAlias?: typeof aliasExists },
 ): ((job: InstallJob) => Promise<void>) | undefined {
   const env = Object.fromEntries(Object.entries(host.env).map(([key, value]) => [key.toUpperCase(), value]));
@@ -63,7 +63,16 @@ export function wingetInstall(
   const shell = win32.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   if (!winget && (!alias || !host.hasProgram(shell))) return undefined;
   const pkg = ['install', '--exact', '--id', id, '--source', 'winget'];
-  const args = [...pkg, '--accept-source-agreements', '--accept-package-agreements', '--silent', '--disable-interactivity'];
+  // The WinGet manifest for Docker Desktop supplies --accept-license. Replace its installer
+  // switches so Docker itself asks the host user about its subscription terms on first launch.
+  const args = [
+    ...pkg,
+    '--accept-source-agreements',
+    ...(id === 'Docker.DockerDesktop' ? [] : ['--accept-package-agreements']),
+    '--silent',
+    '--disable-interactivity',
+    ...(id === 'Docker.DockerDesktop' ? ['--override', 'install --quiet --backend=wsl-2'] : []),
+  ];
   const shown = ['winget', ...pkg].join(' ');
   return async (job) => {
     const base = {
@@ -75,7 +84,11 @@ export function wingetInstall(
     };
     if (winget) await runStep(host, job, shown, { bin: winget, args, env: base, cwd: system32 });
     else {
-      const script = ["$ErrorActionPreference = 'Stop'", '& $env:HARNESS_RELAY_WINGET ' + args.join(' '), 'exit $LASTEXITCODE'].join('\n');
+      const script = [
+        "$ErrorActionPreference = 'Stop'",
+        '& $env:HARNESS_RELAY_WINGET ' + args.map((arg) => (arg.includes(' ') ? "'" + arg + "'" : arg)).join(' '),
+        'exit $LASTEXITCODE',
+      ].join('\n');
       await runStep(
         host,
         job,

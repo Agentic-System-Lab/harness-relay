@@ -6,6 +6,7 @@ import type {
   AboutInfo,
   AppDependency,
   AppDependencyView,
+  PreviewDockerView,
   HostedApp,
   HostedProvider,
   HostedAppStatus,
@@ -571,6 +572,8 @@ export const api = {
   appDependency: (name: AppDependency, signal?: AbortSignal) =>
     request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
   installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),
+  previewDocker: (signal?: AbortSignal) => request<PreviewDockerView>('GET', '/api/apps/docker/install', undefined, signal),
+  installPreviewDocker: () => request<PreviewDockerView>('POST', '/api/apps/docker/install'),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
@@ -582,7 +585,12 @@ export const api = {
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
 
   appPreviewTarget: (id: string, target: AppPreviewRequest, signal?: AbortSignal) =>
-    request<{ folder: string }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/target`, target, signal),
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/target`,
+      target,
+      signal,
+    ),
   startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
     request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
   stopAppPreview: (id: string, session: string) =>

@@ -217,19 +217,7 @@ export function FileBrowser({
               </button>
             </div>
             {!loading && !listError && (
-              <button
-                className="ghost small-button folder-preview-button"
-                onClick={() =>
-                  previewApp({
-                    folder: dir,
-                    mode:
-                      listing.entries.some((e) => e.name === 'package.json' && !e.link) &&
-                      !listing.entries.some((e) => e.name === 'index.html')
-                        ? 'build'
-                        : 'static',
-                  })
-                }
-              >
+              <button className="ghost small-button folder-preview-button" onClick={() => previewApp({ folder: dir, mode: 'static' })}>
                 {t.appPreview.openFolder}
               </button>
             )}

@@ -510,8 +510,10 @@ Every request but `GET /api/auth`, `POST /api/auth/login`, `POST /api/oauth/call
 | `POST /api/apps/github/signout` | `{ login }` → `{ ok: true }`. Rechecks the active login and signs that account out of the local GitHub CLI on github.com. Returns 400 for an invalid login or 409 if the active account changed or an environment token supplies the sign-in. Refresh status after success to see any other active account. |
 | `GET /api/gh/login` | → `CliLoginView` or `null`: that sign-in as it runs (`running`, then `success`, `failed` or `cancelled`) |
 | `DELETE /api/gh/login` | → `{ ok }`: stops it |
-| `POST /api/conversations/:id/preview/target` | `AppPreviewRequest` → `{ folder }` with the resolved folder for confirmation. Input is `{ mode, folder, entry?, root?, messageId? }`. Use a Files `root` or the author’s `messageId` for a reply. |
-| `POST /api/conversations/:id/preview` | Same input → `{ id, url, origin }`. Pass the displayed canonical directory in `expectedFolder` to bind Start to that selection. A changed directory returns 409. Starts `static`, `build` or `server` mode and returns a single-use bootstrap URL. |
+| `GET /api/apps/docker/install` | → `PreviewDockerView`. Reports a missing CLI, an unavailable engine or a ready local Linux engine (`state`). Includes `available`, `canInstall` and, when relevant, the diagnostic, manual command and installation job. |
+| `POST /api/apps/docker/install` | Starts or reuses a background Docker installation on the Relay host and returns the same view. The panel requests installation when the user chooses **Install Docker**. |
+| `POST /api/conversations/:id/preview/target` | `{ folder, entry?, root?, messageId?, expectedFolder? }` → `{ folder, mode, entry }`. Resolves the canonical folder and detects the preview entry and mode. Use a Files `root` or the author’s `messageId` for a reply. A changed `expectedFolder` returns 409. |
+| `POST /api/conversations/:id/preview` | `AppPreviewRequest` → `{ id, url, origin }`. Send the resolved `mode` and `entry` with the canonical directory in `expectedFolder` to bind the start to that selection. A changed directory returns 409. Starts `static`, `build` or `server` mode and returns a single-use bootstrap URL. |
 | `DELETE /api/conversations/:id/preview/:previewId` | → `{ ok: true }`. Stops the named session and revokes its credential. |
 | `GET /api/conversations/:id/files?root=&path=` | → `FileListing`: the folders that can be browsed (`roots`: `cwd`, `cwd:1`… for the other working directories, plus each agent's worktree of each in parallel mode, `<agent>`, `<agent>:1`…), the selected root’s absolute `canonicalRoot`, and the entries of `path` in `root` (folders first; `.git` and links leading outside left out; at most 2,000). 404 for anything outside the folder |
 | `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`: the text of a file (the first 512 KB), or that it is an image, a video or binary |
@@ -587,7 +589,7 @@ Types are in `src/shared/types.ts`.
 
 ### App preview runtime
 
-`appPreviews.ts` owns the session and its credentials. `previewTarget.ts` selects a root using the conversation and reply author. `previewFiles.ts` reads the snapshot and serves static previews. `previewRuntime.ts` manages the two Docker modes.
+`appPreviews.ts` owns the session and its credentials. `previewTarget.ts` selects a root using the conversation and reply author and detects the entry page or npm script. For a selected project it checks for a start script or default `server.js` before a build script. An HTML index linking to uncompiled modules uses its adjacent npm project. Standalone HTML and bundled assets open directly. `previewFiles.ts` reads the snapshot and serves static previews. `previewRuntime.ts` manages the two Docker modes.
 
 Use a local Docker CLI with a Linux x64 or arm64 engine on a Unix socket or Windows named pipe. Relay pulls the digest-pinned Node 22 image when needed. Before handing it project code, Relay checks cgroup v2 limits of one CPU, 768 MiB of memory with swap disabled and 96 processes, a non-root user, seccomp and restricted privileges. The container root is read-only. Its workspace (384 MiB) and `/tmp` (32 MiB) are tmpfs mounts.
 

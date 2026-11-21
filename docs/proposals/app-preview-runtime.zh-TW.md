@@ -2,7 +2,7 @@
 
 # App 預覽的執行環境
 
-**實作狀態。** 本機的應用程式預覽已提供靜態網站、npm 前端建置和具單一 HTTP 入口的 Node.js 後端。下方保留設計時評估的平台和驗收項目。實際操作方式與限制請見[使用者說明](../user-guide.zh-TW.md#預覽應用程式)、[架構](../architecture.zh-TW.md#應用程式預覽)和[開發者說明](../developer-guide.zh-TW.md#應用程式預覽執行環境)。
+**實作狀態。** 在回覆或「檔案」按一下預覽，Relay 就會辨識專案類型並開啟靜態 HTML、建置 npm 前端或執行具單一 HTTP 入口的 Node.js 後端。需要 Docker 時，面板會協助設定。下方保留設計時評估的平台和驗收項目。實際操作方式與限制請見[使用者說明](../user-guide.zh-TW.md#預覽應用程式)、[架構](../architecture.zh-TW.md#應用程式預覽)和[開發者說明](../developer-guide.zh-TW.md#應用程式預覽執行環境)。
 
 已在 Apple Silicon 的 macOS 主機上測試打包版 Electron，以及 OrbStack 的 Linux Docker 引擎。瀏覽器測試使用測試用的 HTTPS 設定。Linux CI 會測試實際的前端建置、SQLite 後端和聊天面板。Windows Docker Desktop 與實機手機使用萬用字元 TLS 的驗收仍待各自測試。原先規劃的 generative UI 則見[互動式回覆提案](preview-and-generative-ui.zh-TW.md)。
 

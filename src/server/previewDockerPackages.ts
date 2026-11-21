@@ -15,12 +15,19 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function parseFile(bytes: Buffer): Record<string, unknown> {
+export function parsePreviewPackage(bytes: Buffer | string): Record<string, unknown> {
   try {
     return object(JSON.parse(bytes.toString()));
   } catch {
     throw new Error(t().previewDocker.invalidLock);
   }
+}
+
+/** npm start also defaults to node server.js when the project has no explicit start script. */
+export function hasPreviewScript(project: Record<string, unknown>, name: 'start' | 'build', hasServerFile: () => boolean): boolean {
+  const scripts = project.scripts === undefined ? {} : object(project.scripts);
+  const command = scripts[name];
+  return (typeof command === 'string' && Boolean(command.trim())) || (name === 'start' && command === undefined && hasServerFile());
 }
 
 function checkSpec(spec: unknown): void {
@@ -57,28 +64,28 @@ function matches(constraint: unknown, value: string): boolean {
   );
 }
 
+/** File prerequisites checked before offering Docker setup and again on the actual snapshot. */
+export function previewNpmFileProblem(has: (name: string) => boolean): string | undefined {
+  if (!has('package-lock.json')) return t().previewDocker.lock;
+  if (has('npm-shrinkwrap.json') || has('.npmrc')) return t().previewDocker.config;
+}
+
 /** Validate every lock entry before making a network request, including entries for other platforms. */
 export function lockedPreviewPackages(
   files: ReadonlyMap<string, Buffer>,
   mode?: 'server' | 'build',
 ): Record<'arm64' | 'x64', LockedPreviewPackage[]> {
-  const lockBytes = files.get('package-lock.json');
-  if (!lockBytes) throw new Error(t().previewDocker.lock);
-  if (files.has('npm-shrinkwrap.json') || files.has('.npmrc')) throw new Error(t().previewDocker.config);
-  const lock = parseFile(lockBytes);
+  const fileProblem = previewNpmFileProblem((name) => files.has(name));
+  if (fileProblem) throw new Error(fileProblem);
+  const lock = parsePreviewPackage(files.get('package-lock.json')!);
   if (lock.lockfileVersion !== 2 && lock.lockfileVersion !== 3) throw new Error(t().previewDocker.lockVersion);
   const manifest = files.get('package.json');
   if (!manifest) throw new Error(t().previewDocker.manifest);
-  const project = parseFile(manifest);
+  const project = parsePreviewPackage(manifest);
   checkSpecs(project);
   if (mode) {
     const script = mode === 'build' ? 'build' : 'start';
-    const scripts = project.scripts === undefined ? {} : object(project.scripts);
-    const command = scripts[script];
-    // npm start defaults to node server.js for a package without a start script.
-    if (!(typeof command === 'string' && command.trim()) && !(script === 'start' && command === undefined && files.has('server.js'))) {
-      throw new Error(t().previewDocker.script(script));
-    }
+    if (!hasPreviewScript(project, script, () => files.has('server.js'))) throw new Error(t().previewDocker.script(script));
   }
   const entries = Object.entries(object(lock.packages));
   if (entries.length > 2001) throw new Error(t().previewDocker.count);

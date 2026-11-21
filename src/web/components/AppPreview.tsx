@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { AppPreviewRequest, AppPreviewSession } from '../../shared/types';
+import type { AppPreviewRequest, AppPreviewSession, PreviewDockerView } from '../../shared/types';
 import { api } from '../api';
 import { previewErrorDraft, previewFrameError, recordPreviewError, safePreviewSession, type PreviewSelection } from '../appPreview';
 import { useT } from '../i18n';
 import { useDialog } from './useDialog';
+import { PreviewDockerDialog } from './PreviewDockerDialog';
 
 export function AppPreview({
   convId,
@@ -34,52 +35,18 @@ export function AppPreview({
     return () => media.removeEventListener('change', changed);
   }, []);
 
-  const [mode, setMode] = useState(target.request.mode);
+  const [mode, setMode] = useState<AppPreviewRequest['mode']>();
   const [folder, setFolder] = useState(target.folder);
-  const [targetError, setTargetError] = useState('');
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    if (target.folder !== undefined) return;
-    const lookup = new AbortController();
-    setTargetError('');
-    api.appPreviewTarget(convId, target.request, lookup.signal).then(
-      (result) => {
-        if (!lookup.signal.aborted) setFolder(result.folder);
-      },
-      (error: Error) => {
-        if (!lookup.signal.aborted) setTargetError(error.message);
-      },
-    );
-    return () => lookup.abort();
-  }, [convId, target, retry]);
-
+  const pinnedFolder = useRef(target.folder);
+  const [docker, setDocker] = useState<PreviewDockerView>();
+  const [setupOpen, setSetupOpen] = useState(false);
   const [session, setSession] = useState<AppPreviewSession>();
-  const [phase, setPhase] = useState<'idle' | 'starting' | 'stopping' | 'stopped'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'starting' | 'stopping' | 'stopped'>('starting');
   const [loaded, setLoaded] = useState(false);
   const [failure, setFailure] = useState('');
   const [problems, setProblems] = useState<string[]>([]);
   const pending = useRef<AbortController | null>(null);
   const active = useRef<AppPreviewSession | undefined>(undefined);
-
-  useEffect(() => {
-    const release = () => {
-      pending.current?.abort();
-      pending.current = null;
-      const owned = active.current;
-      active.current = undefined;
-      if (owned) void api.stopAppPreview(convId, owned.id).catch(() => {});
-    };
-    const leave = () => {
-      release();
-      setSession(undefined);
-      setPhase('stopped');
-    };
-    window.addEventListener('pagehide', leave);
-    return () => {
-      window.removeEventListener('pagehide', leave);
-      release();
-    };
-  }, [convId]);
 
   useLayoutEffect(() => {
     if (!session) return;
@@ -92,26 +59,46 @@ export function AppPreview({
   }, [session]);
 
   const change = async (start: boolean) => {
-    if (start && (pending.current || !folder)) return;
+    if (start && pending.current) return;
     pending.current?.abort();
     const operation = new AbortController();
     pending.current = operation;
     setPhase(start ? 'starting' : 'stopping');
     setFailure('');
     try {
+      let request: AppPreviewRequest | undefined;
+      if (start) {
+        const selection = { ...target.request, expectedFolder: pinnedFolder.current };
+        if (selection.messageId && pinnedFolder.current !== undefined) selection.folder = pinnedFolder.current;
+        const resolved = await api.appPreviewTarget(convId, selection, operation.signal);
+        if (operation.signal.aborted) return;
+        pinnedFolder.current = resolved.folder;
+        setFolder(resolved.folder);
+        setMode(resolved.mode);
+        if (resolved.mode !== 'static') {
+          const status = await api.previewDocker(operation.signal);
+          if (operation.signal.aborted) return;
+          if (status.state !== 'ready') {
+            setDocker(status);
+            setSetupOpen(true);
+            setPhase('idle');
+            return;
+          }
+        }
+        setDocker(undefined);
+        setSetupOpen(false);
+        request = { ...selection, entry: resolved.entry, mode: resolved.mode, expectedFolder: resolved.folder };
+        if (request.messageId) request.folder = resolved.folder;
+      }
       if (active.current) {
         await api.stopAppPreview(convId, active.current.id);
         if (operation.signal.aborted) return;
         active.current = undefined;
         setSession(undefined);
       }
-      if (start) {
+      if (request) {
         setProblems([]);
         setLoaded(false);
-        const request: AppPreviewRequest = { ...target.request, mode, expectedFolder: folder };
-        // Start in exactly the folder the user reviewed, even if another matching reply file appeared meanwhile.
-        if (request.messageId) request.folder = folder!;
-        else if (mode !== 'static' || request.entry === 'package.json') delete request.entry;
         const next = await api.startAppPreview(convId, request, operation.signal);
         if (operation.signal.aborted || !safePreviewSession(next, location.origin)) {
           if (next.id) await api.stopAppPreview(convId, next.id);
@@ -132,10 +119,40 @@ export function AppPreview({
     }
   };
 
+  // Reopening the same reply is a fresh preview. StrictMode cancels the first target lookup
+  // before it can create a session. An aborted start that still returns is deleted by its own ID.
+  const startSelected = useRef(change);
+  startSelected.current = change;
+  useEffect(() => {
+    pinnedFolder.current = target.folder;
+    setFolder(target.folder);
+    setMode(undefined);
+    setDocker(undefined);
+    setSetupOpen(false);
+    setSession(undefined);
+    void startSelected.current(true);
+    const release = () => {
+      pending.current?.abort();
+      pending.current = null;
+      const owned = active.current;
+      active.current = undefined;
+      if (owned) void api.stopAppPreview(convId, owned.id).catch(() => {});
+    };
+    const leave = () => {
+      release();
+      setSession(undefined);
+      setSetupOpen(false);
+      setPhase('stopped');
+    };
+    window.addEventListener('pagehide', leave);
+    return () => {
+      window.removeEventListener('pagehide', leave);
+      release();
+    };
+  }, [convId, target]);
+
   const busy = phase === 'starting' || phase === 'stopping';
-  const entry = target.request.entry;
-  const entryPage = entry && /\.html?$/i.test(entry) ? entry : 'index.html';
-  const issues = [targetError, failure, ...problems].filter(Boolean);
+  const issues = [failure, ...problems].filter(Boolean);
   return (
     <>
       {hidden && (
@@ -163,36 +180,18 @@ export function AppPreview({
             <span className="muted small">
               {p.folder} · {target.label}
             </span>
-            <code dir="auto">{folder ?? (targetError ? target.request.folder || '.' : t.common.loading)}</code>
+            <code dir="auto">{folder ?? (failure ? target.request.folder || '.' : t.common.loading)}</code>
           </div>
-          <label className="app-preview-mode">
-            {p.mode}
-            <select
-              value={mode}
-              onChange={(e) => {
-                setMode(e.target.value as AppPreviewRequest['mode']);
-                setFailure('');
-              }}
-              disabled={busy || !!session}
-            >
-              <option value="static">{p.static}</option>
-              <option value="build">{p.build}</option>
-              <option value="server">{p.server}</option>
-            </select>
-          </label>
-          <div className="app-preview-run">
-            <span className="muted small">{mode === 'static' ? p.page : p.command}</span>
-            <code>{mode === 'static' ? entryPage : mode === 'build' ? 'npm run build' : 'npm start'}</code>
-          </div>
-          {mode !== 'static' && <p className="muted small">{mode === 'build' ? p.buildHint : p.serverHint}</p>}
+          {mode === 'server' && <p className="muted small">{p.serverHint}</p>}
           <div className="app-preview-actions">
-            {targetError ? (
-              <button type="button" className="ghost small-button" onClick={() => setRetry((n) => n + 1)}>
-                {p.retry}
+            {(!busy || session) && (
+              <button type="button" className="primary small-button" disabled={busy || !!docker} onClick={() => void change(true)}>
+                {session ? p.rebuild : failure ? p.retry : p.start}
               </button>
-            ) : (
-              <button type="button" className="primary small-button" disabled={busy || !folder} onClick={() => void change(true)}>
-                {session ? p.rebuild : p.start}
+            )}
+            {docker && !setupOpen && (
+              <button type="button" className="ghost small-button" onClick={() => setSetupOpen(true)}>
+                {p.dockerTitle}
               </button>
             )}
             {session && (
@@ -217,9 +216,9 @@ export function AppPreview({
             {phase === 'starting' ? p.starting : phase === 'stopping' ? p.stopping : phase === 'stopped' ? p.stopped : p.loading}
           </p>
         )}
-        {(targetError || failure) && (
+        {failure && (
           <pre className="error-line app-preview-error" role="alert">
-            {targetError || failure}
+            {failure}
           </pre>
         )}
         {session && (
@@ -259,6 +258,17 @@ export function AppPreview({
           </div>
         )}
       </aside>
+      {setupOpen && docker && (
+        <PreviewDockerDialog
+          initial={docker}
+          onClose={() => setSetupOpen(false)}
+          onReady={() => {
+            setSetupOpen(false);
+            setDocker(undefined);
+            void change(true);
+          }}
+        />
+      )}
     </>
   );
 }

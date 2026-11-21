@@ -169,6 +169,13 @@ export function previewPrivatePath(
     privatePaths.some((base) => inside(base, path)) || (inside(dataRoot, path) && !allowedTrees.some((tree) => inside(tree, path)));
 }
 
+/** Only folders that may be copied into a preview may be inspected during project detection. */
+export function previewFolderParts(folder: string): string[] {
+  const parts = !folder || folder === '.' ? [] : folder.split('/');
+  if (!parts.every(safeName) || parts.length > limits.depth) throw missing();
+  return parts;
+}
+
 export async function previewSnapshot(
   root: string,
   folder: string,
@@ -177,8 +184,7 @@ export async function previewSnapshot(
   isPrivate = previewPrivatePath(),
 ): Promise<PreviewSnapshot> {
   signal?.throwIfAborted();
-  const parts = !folder || folder === '.' ? [] : folder.split('/');
-  if (!parts.every(safeName) || parts.length > limits.depth) throw missing();
+  const parts = previewFolderParts(folder);
   const output = new PreviewSnapshot();
   const withheld = withheldFileKeys();
   let items = 0;

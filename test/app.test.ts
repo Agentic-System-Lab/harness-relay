@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -48,7 +49,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { createApp, hookHash } = await import('../src/server/app');
-const { openDatabase } = await import('../src/server/db');
+const { openDatabase, withholdFile } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
 const { ProviderService } = await import('../src/server/providers');
@@ -298,6 +299,8 @@ describe("Harness Relay's own folder as a working directory", () => {
 });
 
 describe('app preview control and content', () => {
+  const emptyLockfile = JSON.stringify({ lockfileVersion: 3, packages: { '': {} } });
+
   it('refuses to run a different project when the Files root changes after the user picked a folder', async () => {
     const conv = await createConversation();
     const route = '/api/conversations/' + conv.id;
@@ -312,6 +315,172 @@ describe('app preview control and content', () => {
     );
     expect(result.status).toBe(409);
   });
+  it('chooses the npm script for a folder or package link, including npm’s server.js default', async () => {
+    const conv = await createConversation();
+    const target = (entry?: string) =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', entry, mode: 'static' }));
+    const pkg = (scripts: object) => writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts }));
+    const choice = (mode: string) => ({ folder: project, entry: 'package.json', mode });
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    pkg({ build: 'vite build' });
+    writeFileSync(join(project, 'index.html'), '<h1>Front page</h1>');
+    expect(await (await target()).json()).toEqual(choice('build'));
+    pkg({ start: 'node app.js' });
+    expect(await (await target('package.json')).json()).toEqual(choice('server'));
+    pkg({ build: 'vite build', start: 'node app.js' });
+    expect(await (await target()).json()).toEqual(choice('server'));
+    pkg({});
+    expect(await (await target()).json()).toEqual({ folder: project, mode: 'static', entry: 'index.html' });
+    writeFileSync(join(project, 'server.js'), '');
+    expect(await (await target()).json()).toEqual(choice('server'));
+  });
+
+  it('uses an adjacent npm project for a source index and serves ordinary and built HTML directly', async () => {
+    const conv = await createConversation();
+    const target = (folder: string, entry?: string) =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder, entry, mode: 'server' }));
+    const source = "<script src='/src/main.tsx?x' type=module></script>";
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    writeFileSync(join(project, 'index.html'), source);
+    expect(await (await target('', 'index.html')).json()).toEqual({ folder: project, mode: 'build', entry: 'package.json' });
+    writeFileSync(
+      join(project, 'index.html'),
+      '<!--' + source + '--><script>const example = ' + JSON.stringify(source) + '</script><script type="module" src="./app.js"></script>',
+    );
+    expect(await (await target('', 'index.html')).json()).toEqual({ folder: project, mode: 'static', entry: 'index.html' });
+    writeFileSync(join(project, 'demo.htm'), '<h1>Demo</h1>');
+    expect(await (await target('', 'demo.htm')).json()).toEqual({ folder: project, mode: 'static', entry: 'demo.htm' });
+    mkdirSync(join(project, 'dist'));
+    writeFileSync(join(project, 'dist', 'index.html'), '<script type="module" src="/assets/bundle.js"></script>');
+    expect(await (await target('dist')).json()).toEqual({ folder: join(project, 'dist'), mode: 'static', entry: 'index.html' });
+    writeFileSync(join(project, 'index.html'), source);
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }));
+    const unsupported = await target('', 'index.html');
+    expect(unsupported.status).toBe(400);
+    expect((await unsupported.json()).error).toContain('package.json');
+  });
+
+  it('checks npm file prerequisites before choosing Docker while ordinary HTML stays usable', async () => {
+    const conv = await createConversation();
+    const target = (entry: string) => app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', entry }));
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { start: 'node app.js' } }));
+    writeFileSync(join(project, 'index.html'), '<h1>Hello</h1>');
+    const lock = join(project, 'package-lock.json');
+    const missing = await target('package.json');
+    expect(missing.status).toBe(400);
+    expect((await missing.json()).error).toContain('package-lock.json');
+    expect(await (await target('index.html')).json()).toEqual({ folder: project, entry: 'index.html', mode: 'static' });
+    const outside = join(root, 'lock-' + n);
+    writeFileSync(outside, emptyLockfile);
+    linkSync(outside, lock);
+    expect((await (await target('package.json')).json()).error).toContain('package-lock.json');
+    rmSync(lock);
+    writeFileSync(lock, emptyLockfile);
+    for (const name of ['.npmrc', 'npm-shrinkwrap.json']) {
+      writeFileSync(join(project, name), '');
+      const unsupported = await target('package.json');
+      expect(unsupported.status).toBe(400);
+      expect((await unsupported.json()).error).toContain('shrinkwrap');
+      expect((await target('index.html')).status).toBe(200);
+      rmSync(join(project, name));
+    }
+    expect((await target('package.json')).status).toBe(200);
+    withholdFile(lock);
+    expect((await (await target('package.json')).json()).error).toContain('package-lock.json');
+  });
+
+  it('recognizes literal imports of local source in inline modules without running them or reading other script text as imports', async () => {
+    const conv = await createConversation();
+    const target = async (script: string) => {
+      writeFileSync(join(project, 'index.html'), '<script type="module">' + script + '</script>');
+      return (
+        await app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', entry: 'index.html' }))
+      ).json();
+    };
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    for (const script of ["import './src/main.ts'", "import { render } from './src/main.tsx'; render()", "import('/src/page.js')"]) {
+      expect(await target(script)).toEqual({ folder: project, entry: 'package.json', mode: 'build' });
+    }
+    for (const script of [
+      "import { render } from './assets/app.js'; render()",
+      "import('https://example.test/src/main.ts')",
+      `/* import './src/main.ts' */ const label = "import './src/main.ts'"`,
+      'const invalid = import(',
+    ])
+      expect(await target(script)).toEqual({ folder: project, entry: 'index.html', mode: 'static' });
+  });
+
+  it('opens a large standalone index directly and uses the adjacent npm project when source detection is inconclusive', async () => {
+    const conv = await createConversation();
+    const target = () =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', entry: 'index.html' }));
+    writeFileSync(
+      join(project, 'index.html'),
+      '<h1>Gallery</h1><img src="data:image/png;base64,' + 'A'.repeat(FILE_LIMITS.maxPreviewBytes) + '">',
+    );
+    expect(await (await target()).json()).toEqual({ folder: project, entry: 'index.html', mode: 'static' });
+    writeFileSync(join(project, 'package.json'), '{}');
+    const folder = await app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '' }));
+    expect(await folder.json()).toEqual({ folder: project, entry: 'index.html', mode: 'static' });
+    writeFileSync(
+      join(project, 'index.html'),
+      ' '.repeat(FILE_LIMITS.maxPreviewBytes) + "<script type=module>import './src/app.ts'</script>",
+    );
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    expect(await (await target()).json()).toEqual({ folder: project, entry: 'package.json', mode: 'build' });
+  });
+
+  it('inspects only bounded, unlinked entries in previewable folders and honors the Files pin', async () => {
+    const conv = await createConversation();
+    const target = (input: object) =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', ...input }));
+    const outside = join(root, 'private-pkg-' + n);
+    writeFileSync(outside, JSON.stringify({ scripts: { start: 'node app.js' } }));
+    linkSync(outside, join(project, 'package.json'));
+    expect((await target({ entry: 'package.json' })).status).toBe(404);
+    rmSync(join(project, 'package.json'));
+    writeFileSync(join(project, 'package.json'), '{}');
+    expect((await target({ expectedFolder: root })).status).toBe(409);
+    writeFileSync(join(project, 'package.json'), ' '.repeat(FILE_LIMITS.maxPreviewBytes) + '{}');
+    expect((await target({ entry: 'package.json' })).status).toBe(413);
+    for (const name of ['.hidden', 'credentials', 'node_modules']) {
+      mkdirSync(join(project, name));
+      writeFileSync(join(project, name, 'package.json'), '{}');
+      expect((await target({ folder: name, entry: 'package.json' })).status).toBe(404);
+    }
+    symlinkSync(root, join(project, 'alias'), 'junction');
+    expect((await target({ folder: join('alias', basename(project)), entry: 'package.json' })).status).toBe(404);
+  });
+
+  it('inspects the same selected worktree for reply links and Files even when the chat root has another project', async () => {
+    const conv = await createConversation();
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const worktree = join(root, 'preview-worktree-' + n);
+    mkdirSync(worktree);
+    live.worktrees[agentId] = [{ root: project, path: worktree, branch: 'relay/test', base: 'b', needsReset: false }];
+    live.messages.push({
+      id: 'isolated',
+      author: { kind: 'agent', agentId },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'done',
+      changes: [{ root: project, base: 'b', head: 'h', files: [], isolated: true }],
+    });
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { start: 'node app.js' } }));
+    writeFileSync(join(worktree, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    for (const folder of [project, worktree]) writeFileSync(join(folder, 'package-lock.json'), emptyLockfile);
+    const target = (input: object) =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', ...input }));
+    const chosen = { folder: worktree, entry: 'package.json', mode: 'build' };
+    expect(await (await target({ messageId: 'isolated', entry: 'package.json' })).json()).toEqual(chosen);
+    expect(await (await target({ root: agentId })).json()).toEqual(chosen);
+    writeFileSync(join(worktree, 'package.json'), '{}');
+    expect((await target({ messageId: 'isolated', entry: 'package.json' })).status).toBe(400);
+  });
   it('serves only the selected snapshot at its preview origin and revokes it when the conversation is deleted', async () => {
     const conv = await createConversation();
     writeFileSync(join(project, 'index.html'), '<h1>my preview</h1>');
@@ -319,7 +488,11 @@ describe('app preview control and content', () => {
     const input = { mode: 'static', folder: '', entry: 'index.html' };
     const start = (extra = {}) => app.request(route, json('POST', input, extra));
     expect((await start({ origin: 'http://localhost:5555' })).status).toBe(403);
-    expect(await (await app.request(route + '/target', json('POST', input))).json()).toEqual({ folder: project });
+    expect(await (await app.request(route + '/target', json('POST', input))).json()).toEqual({
+      folder: project,
+      entry: 'index.html',
+      mode: 'static',
+    });
     expect((await app.request(route, json('POST', { ...input, root: 'unrelated' }))).status).toBe(404);
     expect((await app.request(route, json('POST', { ...input, folder: '../' }))).status).toBe(400);
     const res = await start();
@@ -4147,7 +4320,11 @@ describe('sharing conversations', () => {
         },
       }),
     });
-    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser') });
+    const docker = {
+      ...dep('docker'),
+      probe: async () => ({ state: installed.has('docker') ? ('unavailable' as const) : ('missing' as const) }),
+    };
+    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser') }, docker);
     const s = new SettingsStore(openDatabase(':memory:'));
     const own = createApp({
       auth: null,
@@ -4169,6 +4346,27 @@ describe('sharing conversations', () => {
       expect(accepted.ok).toBe(true);
       expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: true, job: { state: 'success' } });
     }
+    const dockerPath = '/api/apps/docker/install';
+    expect(await (await own.request(dockerPath, { headers: HOST })).json()).toMatchObject({
+      available: false,
+      canInstall: true,
+      state: 'missing',
+    });
+    const rejected = await own.request(dockerPath, { method: 'POST', headers: { ...HOST, origin: 'https://unrelated.example' } });
+    expect(rejected.ok).toBe(false);
+    expect(installed.has('docker')).toBe(false);
+    const accepted = await own.request(dockerPath, {
+      method: 'POST',
+      headers: { ...HOST, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(accepted.ok).toBe(true);
+    expect(await (await own.request(dockerPath, { headers: HOST })).json()).toMatchObject({
+      available: false,
+      canInstall: false,
+      state: 'unavailable',
+      job: { state: 'success' },
+    });
     expect(
       (
         await own.request('/api/apps/arbitrary/install', {

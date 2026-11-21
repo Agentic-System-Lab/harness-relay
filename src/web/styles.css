@@ -10044,21 +10044,11 @@ a.share-action {
   gap: 4px;
 }
 
-.app-preview-mode,
-.app-preview-run,
 .app-preview-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-.app-preview-mode {
-  font-size: 13px;
-}
-
-.app-preview-mode select {
-  width: auto;
 }
 
 .app-preview-settings p {

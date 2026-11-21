@@ -50,3 +50,41 @@ describe('common app prerequisites', () => {
     expect(() => deps.install('github')).toThrow();
   });
 });
+
+it('reserves one host Docker install for simultaneous requests and checks engine readiness independently', async () => {
+  let present = false;
+  let ready = false;
+  let finish!: () => void;
+  const install = vi.fn(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    present = true;
+  });
+  const dep = { available: () => present, plan: () => ({ install }) };
+  const docker = {
+    ...dep,
+    probe: vi.fn(async () => ({ state: ready ? ('ready' as const) : present ? ('unavailable' as const) : ('missing' as const) })),
+  };
+  const deps = new AppDependencies({ github: dep, browser: dep }, docker);
+  expect(await deps.dockerView()).toMatchObject({ state: 'missing', canInstall: true, available: false });
+  expect(install).not.toHaveBeenCalled();
+  const clicks = await Promise.all([deps.installDocker(), deps.installDocker()]);
+  for (const click of clicks) expect(click).toMatchObject({ canInstall: false, job: { state: 'running' } });
+  expect(deps.running()).toBe(1);
+  finish();
+  await vi.waitFor(async () =>
+    expect(await deps.dockerView()).toMatchObject({
+      state: 'unavailable',
+      available: false,
+      canInstall: false,
+      job: { state: 'success' },
+    }),
+  );
+  await deps.installDocker();
+  ready = true;
+  expect(await deps.installDocker()).toMatchObject({ state: 'ready', available: true, canInstall: false });
+  expect(install).toHaveBeenCalledOnce();
+  await deps.shutdown();
+  await expect(deps.installDocker()).rejects.toThrow();
+});

@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { lstatSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
 import { HttpError } from './errors';
-import { fileRoots, resolveInRoot } from './files';
+import { fileRoots, readPreview, resolveInRoot } from './files';
 import { mediaRoots, replyWorktrees } from './media';
-import { previewPrivatePath } from './previewFiles';
+import { hasPreviewScript, parsePreviewPackage, previewNpmFileProblem } from './previewDockerPackages';
+import { isPreviewAsset, previewFolderParts, previewPrivatePath } from './previewFiles';
 import type { SettingsStore } from './settings';
 import { t } from './i18n';
 
@@ -17,28 +19,58 @@ export interface PreviewTarget {
   isPrivate?: (path: string) => boolean;
 }
 
-export function previewTarget(
+type PreviewLocation = Pick<PreviewTarget, 'root' | 'folder'> & { isPrivate: (path: string) => boolean };
+type Lookup = (id: string) => Conversation | undefined;
+const missing = () => new HttpError(404, t().previewTarget);
+
+function entryStat(location: PreviewLocation, name: string) {
+  const rel = join(location.folder, name);
+  const path = join(location.root, rel);
+  if (location.isPrivate(path) || relative(path, resolveInRoot(location.root, rel).real)) throw missing();
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.nlink !== 1) throw missing();
+  return stat;
+}
+
+function hasEntry(location: PreviewLocation, name: string): boolean {
+  try {
+    entryStat(location, name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The bounded Files reader rechecks this exact, public file while holding its open descriptor. */
+function inspectEntry(location: PreviewLocation, name: string) {
+  return readPreview(join(location.root, location.folder, name), name, t().previewTarget, () => entryStat(location, name));
+}
+
+function locatePreviewEntry(
   conv: Conversation,
   input: Partial<AppPreviewRequest>,
-  lookup: (id: string) => Conversation | undefined,
+  entries: string[],
+  lookup: Lookup,
   settings?: SettingsStore,
-): PreviewTarget {
-  const { folder, mode, root, messageId } = input;
+  required?: string,
+) {
+  const { folder, root, messageId } = input;
   if (
     typeof folder !== 'string' ||
     folder.length > 4096 ||
-    (mode !== 'static' && mode !== 'build' && mode !== 'server') ||
     /[\x00-\x1f]/.test(folder) ||
     folder.split(/[\\/]/).some((p) => p === '..') ||
     (messageId !== undefined && (typeof messageId !== 'string' || root !== undefined))
   )
     throw new HttpError(400, t().previewTarget);
-  const entry = input.entry ?? (mode === 'static' ? 'index.html' : 'package.json');
-  if (typeof entry !== 'string' || entry.length > 255 || /[\\/:\x00-\x1f]/.test(entry) || entry.startsWith('.'))
-    throw new HttpError(400, t().previewTarget);
-  const html = /\.html?$/i.test(entry);
-  const manifest = entry === 'package.json';
-  if ((!html && !manifest) || (messageId === undefined && (mode === 'static' ? !html : !manifest)))
+  if (
+    entries.some(
+      (entry) =>
+        typeof entry !== 'string' ||
+        entry.length > 255 ||
+        (entry !== 'package.json' && (!/\.html?$/i.test(entry) || entry.includes('/') || !isPreviewAsset(entry))),
+    )
+  )
     throw new HttpError(400, t().previewTarget);
   let roots: string[];
   let worktrees: string[] = [];
@@ -58,21 +90,115 @@ export function previewTarget(
   for (const dir of roots) {
     try {
       const base = realpathSync.native(dir);
-      const sub = isAbsolute(folder) ? relative(base, folder) : folder;
-      if (isAbsolute(sub) || /^[a-z]:|^[\\/]/i.test(sub) || sub.split(/[\\/]/).some((p) => p === '..' || (p !== '.' && p.startsWith('.'))))
-        continue;
-      if (isPrivate(base) || isPrivate(join(base, sub, entry))) continue;
-      const inside = resolveInRoot(base, join(sub, entry));
-      // A link must never turn a preview of one public directory into a snapshot of another.
-      if (relative(join(base, sub, entry), inside.real) || !statSync(inside.real).isFile()) continue;
-      const effective = mode === 'static' ? (entry === 'package.json' ? 'index.html' : entry) : 'package.json';
-      if (effective !== entry && !statSync(resolveInRoot(base, join(sub, effective)).real).isFile()) continue;
-      return { root: base, folder: sub.split(sep).join('/'), entry: effective, mode, isPrivate };
+      const sub = relative(base, resolve(base, folder));
+      if (isAbsolute(sub) || /^[a-z]:|^[\\/]/i.test(sub) || isPrivate(base)) continue;
+      const selectedFolder = sub.split(sep).join('/');
+      previewFolderParts(selectedFolder);
+      const location = { root: base, folder: selectedFolder, isPrivate };
+      const entry = entries.find((name) => hasEntry(location, name));
+      if (entry && (!required || hasEntry(location, required))) return { location, entry };
     } catch {
       /* A relative reply link can belong to another of the member's working directories. */
     }
   }
-  throw new HttpError(404, t().previewTarget);
+  throw new HttpError(404, entries.length > 1 ? t().previewFolderEntry : t().previewTarget);
+}
+
+export function previewTarget(
+  conv: Conversation,
+  input: Partial<AppPreviewRequest>,
+  lookup: Lookup,
+  settings?: SettingsStore,
+): PreviewTarget {
+  const { mode } = input;
+  if (mode !== 'static' && mode !== 'build' && mode !== 'server') throw new HttpError(400, t().previewTarget);
+  const selected = input.entry ?? (mode === 'static' ? 'index.html' : 'package.json');
+  if (input.messageId === undefined && (mode === 'static' ? selected === 'package.json' : selected !== 'package.json'))
+    throw new HttpError(400, t().previewTarget);
+  const entry = mode === 'static' ? (selected === 'package.json' ? 'index.html' : selected) : 'package.json';
+  const { location } = locatePreviewEntry(conv, input, [selected], lookup, settings, selected !== entry ? entry : undefined);
+  return { ...location, entry, mode };
+}
+
+function localSourceModule(reference?: string): boolean {
+  const path = reference?.trim().split(/[?#]/)[0];
+  if (!path || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(path)) return false;
+  return /^(?:\.?\/)?(?:src\/|@vite\/client$)/.test(path) || /\.(?:[cm]?tsx?|jsx|vue|svelte)$/i.test(path);
+}
+
+/** Inspect only the selected index. The module lexer reads literal import specifiers without
+ * executing the script, resolving imports, or mistaking strings and comments for imports. */
+function indexKind(location: PreviewLocation, entry: string): 'static' | 'source' | 'truncated' {
+  if (!/^index\.html?$/i.test(entry)) return 'static';
+  const file = inspectEntry(location, entry);
+  if (file.text === undefined) throw missing();
+  const tags = /<!--[\s\S]*?(?:-->|$)|<script\b([^<>]*)>([\s\S]*?)(?:<\/script\s*>|$)/gi;
+  for (const [, tag, script] of file.text.matchAll(tags)) {
+    if (!tag) continue;
+    const attributes = new Map<string, string>();
+    for (const [, name, double, single, bare] of tag.matchAll(/([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+)))?/g)) {
+      if (name) attributes.set(name.toLowerCase(), double ?? single ?? bare ?? '');
+    }
+    if (attributes.get('type')?.toLowerCase() !== 'module') continue;
+    if (attributes.has('src')) {
+      if (localSourceModule(attributes.get('src'))) return 'source';
+    } else if (script?.includes('import') || script?.includes('export')) {
+      try {
+        if (parseModule(script)[0].some((specifier) => localSourceModule(specifier.n))) return 'source';
+      } catch {
+        // An incomplete or invalid inline module can still show the browser's diagnostic in a static preview.
+      }
+    }
+  }
+  return file.truncated ? 'truncated' : 'static';
+}
+
+function projectMode(location: PreviewLocation): 'server' | 'build' | undefined {
+  const manifest = inspectEntry(location, 'package.json');
+  if (manifest.truncated) throw new HttpError(413, t().previewManifestLimit);
+  if (manifest.text === undefined) throw new HttpError(400, t().previewDocker.invalidLock);
+  try {
+    const project = parsePreviewPackage(manifest.text);
+    const hasServerFile = () => hasEntry(location, 'server.js');
+    if (hasPreviewScript(project, 'start', hasServerFile)) return 'server';
+    if (hasPreviewScript(project, 'build', hasServerFile)) return 'build';
+  } catch {
+    throw new HttpError(400, t().previewDocker.invalidLock);
+  }
+}
+
+/** Resolve once in reply-root order before inspecting adjacent files. Never choose a different
+ * worktree just because its project has a build or start script. */
+export function detectPreviewTarget(conv: Conversation, input: Partial<AppPreviewRequest>, lookup: Lookup, settings?: SettingsStore) {
+  const { location, entry } = locatePreviewEntry(
+    conv,
+    input,
+    input.entry === undefined ? ['package.json', 'index.html'] : [input.entry],
+    lookup,
+    settings,
+  );
+  const folder = join(location.root, location.folder);
+  if (
+    input.expectedFolder !== undefined &&
+    (typeof input.expectedFolder !== 'string' || !isAbsolute(input.expectedFolder) || relative(input.expectedFolder, folder))
+  )
+    throw new HttpError(409, t().previewFolderChanged);
+  let kind = entry === 'package.json' ? undefined : indexKind(location, entry);
+  if (kind === 'static') return { folder, entry, mode: 'static' as const };
+  if (entry === 'package.json' || hasEntry(location, 'package.json')) {
+    const mode = projectMode(location);
+    if (mode) {
+      const problem = previewNpmFileProblem((name) => hasEntry(location, name));
+      if (problem) throw new HttpError(400, problem);
+      return { folder, entry: 'package.json', mode };
+    }
+  }
+  if (entry === 'package.json' && hasEntry(location, 'index.html')) {
+    kind = indexKind(location, 'index.html');
+    if (kind !== 'source') return { folder, entry: 'index.html', mode: 'static' as const };
+  }
+  if (kind === 'truncated') return { folder, entry, mode: 'static' as const };
+  throw new HttpError(400, t().previewProjectEntry);
 }
 
 /** Browser writes show their own Origin. Proxies (including Vite's) preserve the UI Host. */
