@@ -10,6 +10,7 @@ import { findOnPath } from '../src/server/executable';
 import { portableInstallEnv } from '../src/server/portableInstall';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, runProcess } from '../src/server/process';
+import { slow } from './timeouts';
 
 const pwsh = findOnPath('pwsh', process.env, process.platform);
 
@@ -123,7 +124,8 @@ describe('the Teams Graph PowerShell connection', () => {
     expect(await state).toEqual({ status: 'signed-out' });
   });
 
-  it.skipIf(!pwsh)('rejects changed package bytes before extracting or importing them', async () => {
+  // Allow the PowerShell process its full 15 seconds, plus time for shutdown and fixture cleanup.
+  it.skipIf(!pwsh)('rejects changed package bytes before extracting or importing them', { timeout: slow(20_000) }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'relay-graph-digest-'));
     try {
       const stage = join(dir, 'modules');
@@ -145,7 +147,7 @@ describe('the Teams Graph PowerShell connection', () => {
           RELAY_TEAMS_USER_MODULES: stage,
           FIXTURE_PACKAGE: file,
         },
-        timeoutMs: 15000,
+        timeoutMs: 15_000,
       });
       expect(result.code).toBe(22);
       expect(await readdir(stage)).toEqual([]);
