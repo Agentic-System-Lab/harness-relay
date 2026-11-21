@@ -1166,6 +1166,8 @@ export const zhTW = {
     written: '已寫入工作目錄',
     collapse: '收合',
     more: (n: number) => `還有 ${n} 個檔案…`,
+    expandAll: '全部展開',
+    collapseAll: '全部收合',
     turnDiff: '查看這回合 diff',
     agentResult: (name: string) => `查看 @${name} 的完整結果`,
     applying: '套用中…',

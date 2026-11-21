@@ -693,6 +693,8 @@ When an agent changes files, its reply ends with a card listing the files (A add
   - **View @name's full result** — everything this agent changed since the round started;
   - **Apply to working directory** — copies that result into your working directory (with several, into each one it changed: all of them or, when one conflicts, none; a folder you took off the list since is left out). Nothing is committed: review the changes with your usual tools and commit them yourself. While the lead agent reviews the replies, **Apply** waits until the review ends, or until you stop it (see [Lead review](#lead-review)).
 
+A diff lists each file it changed in a section of its own, folded: its status, its path (after its folder's name when the chat has several working directories) and the lines added and removed, so you can see at once which files changed. Click a file to open its changes, and again to fold it; with several files, **Expand all** opens them all and **Collapse all** folds them again. While you scroll through an open file, its name stays at the top.
+
 After you apply one result, the other agents' results are marked as out of date, and the next parallel round starts every agent from the updated directory. If your working directory changed in a way that conflicts with the result, nothing is applied and you get an explanation; ask an agent to redo the work on top of the current state.
 
 ### Editing the team mid-chat

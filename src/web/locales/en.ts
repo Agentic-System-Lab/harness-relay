@@ -1155,6 +1155,8 @@ export const en: Messages = {
     written: 'Written to the working directory',
     collapse: 'Collapse',
     more: (n) => `${n} more files…`,
+    expandAll: 'Expand all',
+    collapseAll: 'Collapse all',
     turnDiff: "View this turn's diff",
     agentResult: (name) => `View @${name}'s full result`,
     applying: 'Applying…',
