@@ -39,6 +39,7 @@ describe('guided tour', () => {
       const titles = (since: number) => tourIndices(since).map((i) => en.tour.steps[i]!.title);
       expect(titles(20)).toEqual([
         'Connect your phone',
+        'API keys and endpoints for open-source agents',
         'Start a new chat',
         'Notifications and sound',
         'Team checks',
@@ -47,6 +48,7 @@ describe('guided tour', () => {
       ]);
       expect(titles(21)).toEqual([
         'Connect your phone',
+        'API keys and endpoints for open-source agents',
         'Start a new chat',
         'Notifications and sound',
         'Automations',
@@ -54,17 +56,24 @@ describe('guided tour', () => {
       ]);
       expect(titles(22)).toEqual([
         'Connect your phone',
+        'API keys and endpoints for open-source agents',
         'Start a new chat',
         'Notifications and sound',
         'Automations',
         'Connect apps to your chats',
       ]);
       for (let version = 23; version <= 32; version++) {
-        expect(titles(version)).toEqual(['Start a new chat', 'Automations', 'Connect apps to your chats']);
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'Start a new chat',
+          'Automations',
+          'Connect apps to your chats',
+        ]);
       }
-      expect(titles(33)).toEqual(['Start a new chat', 'Automations']);
-      expect(titles(34)).toEqual(['Start a new chat', 'Automations']);
-      expect(tourIndices(35)).toEqual([]);
+      expect(titles(33)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations']);
+      expect(titles(34)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations']);
+      expect(titles(35)).toEqual(['API keys and endpoints for open-source agents']);
+      expect(tourIndices(36)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -108,6 +117,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 35, fingerprint: '66c11355d646' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 36, fingerprint: 'f7d052aed011' });
   });
 });

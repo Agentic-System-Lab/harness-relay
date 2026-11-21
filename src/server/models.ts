@@ -352,8 +352,7 @@ export interface ConfiguredBackends {
 
 /**
  * An open agent's models: those of its CLI's own catalog (adapter's `models` hook) whose backend is set
- * up, then each endpoint's typed models (`<endpoint id>/<model>`). Harness Relay never asks a model
- * API for its list.
+ * up, then each endpoint's saved models (`<endpoint id>/<model>`). The chat reads the selection saved in Settings.
  */
 /**
  * Asks Copilot for its models the way Harness Relay runs it (a session opened over ACP in a home and
@@ -412,7 +411,7 @@ export async function discoverOpenModels(
 }
 
 /**
- * Claude Code's, Codex's or Grok's models with each endpoint's typed models after them
+ * Claude Code's, Codex's or Grok's models with each endpoint's saved models after them
  * (`<endpoint id>/<model>`, marked with the endpoint and the efforts the CLI may send there:
  * `ENDPOINT_CLI`). An id the CLI already lists stays its own.
  */

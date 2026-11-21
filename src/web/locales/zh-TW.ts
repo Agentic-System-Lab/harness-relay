@@ -154,8 +154,8 @@ export const zhTW = {
       notLoggedIn: '未登入',
       loggedIn: (account?: string) => `已登入${account ? `：${account}` : ''}`,
       unknown: '狀態未知',
-      openReady: '已設定自定義模型',
-      openNotReady: '尚未設定自定義模型',
+      openReady: '已設定模型連線',
+      openNotReady: '尚未設定模型連線',
       accounts: (usable: number, total: number) => `（預設帳號；${total} 個帳號中 ${usable} 個可用）`,
     },
   },
@@ -237,7 +237,7 @@ export const zhTW = {
     role: '定位 / 角色',
     rolePlaceholder: '例如：你是資深後端工程師，負責 API 設計與實作。\n完成後 @Reviewer 請他審查。',
     notLoggedIn: (p: string) => `${p} 尚未登入。`,
-    noBackend: (p: string) => `${p} 還不能使用：請先到「設定 → 自定義模型」加入 API 金鑰或端點。`,
+    noBackend: (p: string) => `${p} 還不能使用：請先到「設定 → 模型連線」加入 API 金鑰或端點。`,
     cliMissing: (p: string) => `找不到 ${p} CLI。`,
     goSettings: '前往設定 →',
     addMember: '新增成員',
@@ -382,7 +382,7 @@ export const zhTW = {
     modelIdPlaceholder: '輸入模型 ID',
     effort: '推理強度',
     latest: '最新',
-    endpointModels: '你自己的端點（設定 → 自定義模型）',
+    endpointModels: '你自己的端點（設定 → 模型連線）',
   },
 
   chat: {
@@ -2108,7 +2108,7 @@ export const zhTW = {
       readyAccount: (name: string) => `已可用 · ${name}`,
       signIn: '需要登入',
       install: '需要安裝',
-      backend: '設定自定義模型',
+      backend: '設定模型連線',
       requirements: '查看安裝需求',
       executable: '檢查執行檔',
       installing: '安裝中…',
@@ -2142,7 +2142,7 @@ export const zhTW = {
     leadHint: '收到新問題時，首席助理會參考先前的對話，決定要沿用目前的團隊、使用或調整範本，還是組建新團隊。',
     leadSaved: '已儲存首席助理',
     leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他助理。`,
-    leadNoBackend: (p: string) => `${p} 需要模型才能執行：請到「設定 → 自定義模型」設定，或改選其他助理。`,
+    leadNoBackend: (p: string) => `${p} 需要模型才能執行：請到「設定 → 模型連線」設定，或改選其他助理。`,
     leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他助理。`,
     goCard: (p: string) => `前往 ${p} →`,
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
@@ -2155,7 +2155,7 @@ export const zhTW = {
       appearance: '外觀',
       notifications: '通知',
       sandboxes: '沙箱',
-      backends: '自定義模型',
+      backends: '模型連線',
       lead: '首席助理',
       apps: 'App 與工具',
       voice: '語音輸入',
@@ -2212,10 +2212,10 @@ export const zhTW = {
     /** An open agent's card (OpenCode, Goose, Cline, OpenHands, Pi). */
     open: {
       intro: (p: string) =>
-        `${p} 不需要登入：它使用上方「自定義模型」裡的 API key 與端點。成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4。`,
+        `${p} 不需要登入：它使用上方「模型連線」裡的 API key 與端點。成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4。`,
       noSubscription:
         'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱），請改用 API key 或自己的端點。',
-      goBackends: '前往自定義模型 →',
+      goBackends: '前往模型連線 →',
       noCliDefault: 'CLI 預設：沒有（成員需要選一個模型）',
       /** The switch that lets a CLI use a terminal in the sandbox (SANDBOX_TERMINAL_SUPPORT). */
       sandboxTerminal: {
@@ -2238,20 +2238,26 @@ export const zhTW = {
         pi: 'Pi 自己不會詢問權限：完全存取以外，Harness Relay 的 gate 擴充功能會在它的每個工具呼叫（包括 MCP 工具）執行前詢問，拒絕的原因與你的留言會交給模型。唯讀時它只有讀取的工具（再加上工具庫的 MCP 工具）。它會載入工作目錄往上每一層的 AGENTS.md / CLAUDE.md；它自己的 skill、擴充功能與專案的 .pi 資料夾都不會載入。',
       } as Record<OpenProvider, string>,
     },
-    /** Settings → Custom models. */
+    /** Settings → Model connections. */
     backends: {
-      title: '自定義模型',
-      hint: 'OpenCode、Goose、Cline、OpenHands 與 Pi 用這裡的模型來源執行：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。Claude Code、Codex、Grok 與 GitHub Copilot 也能用這裡的自訂端點執行（各自需要的 API 寫在它們的卡片上）。每次執行只帶入它用的金鑰，Harness Relay 自己不會呼叫這些 API。',
-      noSubscription:
-        'Claude 訂閱帳號與 Grok 的登入不能用在開源 agent（Anthropic 不允許在第三方 agent 中使用它的訂閱）。Claude Code 與 Grok 本身的模型照常使用它們的登入。',
-      modelIds:
-        '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。Claude Code、Codex、Grok 與 GitHub Copilot 的模型選單也會列出各端點的模型。',
+      title: '模型連線',
+      hint: '以下金鑰供 OpenCode、Goose、Cline、OpenHands 和 Pi 使用。',
       apiKeys: 'API key',
+      providerKeys: '開源助理的 API Key',
       notSet: '未設定',
       keySet: (masked: string) => `已設定 ${masked}`,
       keyUnreadable: '無法從金鑰儲存區讀取（可能已鎖定，或加密它的金鑰檔不見了）；重新輸入即可取代。',
       endpoints: '自訂端點',
-      endpointsHint: '你自己的 OpenAI 相容伺服器。Harness Relay 不會向它查詢模型清單，請自己輸入它提供的模型名稱。',
+      endpointAccess: '除了上述五個開源助理，Claude Code、Codex、Grok 和 GitHub Copilot 也能使用自訂端點。',
+      endpointsHint: '連結 OpenAI 相容的伺服器，選擇要顯示在助理選單裡的模型。',
+      loadModels: '載入模型',
+      checkingBeforeSave: '正在檢查模型…',
+      loadingModels: '正在載入模型…',
+      chooseModels: '助理可用的模型',
+      noModelsFound: '這個端點回傳的模型清單是空的。',
+      manualModels: '手動輸入模型 ID',
+      keyAtNewUrl: '如果新網址需要金鑰，請輸入這個網址專用的金鑰。',
+      selectionLimit: (n: number) => `最多可選 ${n} 個模型。`,
       noEndpoints: '還沒有自訂端點。',
       addEndpoint: '新增端點',
       editEndpoint: '修改',
@@ -2286,12 +2292,12 @@ export const zhTW = {
     },
     ownEndpoint: {
       claude:
-        'Claude Code 也能在你自己的端點上執行（設定 → 自定義模型）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Anthropic Messages API（/v1/messages）；這時 Claude Code 不需要登入，你的登入也不會送到那裡。',
+        'Claude Code 也能在你自己的端點上執行（設定 → 模型連線）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Anthropic Messages API（/v1/messages）；這時 Claude Code 不需要登入，你的登入也不會送到那裡。',
       codex:
-        'Codex 也能在你自己的端點上執行（設定 → 自定義模型）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
-      grok: 'Grok 也能在你自己的端點上執行（設定 → 自定義模型）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
+        'Codex 也能在你自己的端點上執行（設定 → 模型連線）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
+      grok: 'Grok 也能在你自己的端點上執行（設定 → 模型連線）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
       copilot:
-        'Copilot 也能在你自己的端點上執行（設定 → 自定義模型）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）；Harness Relay 用 Copilot 自己的 BYOK 變數（COPILOT_PROVIDER_*）指向它，這時 Copilot 不需要 GitHub 登入，你的登入也不會送到那裡。推理強度只送端點都接受的 low、medium、high。',
+        'Copilot 也能在你自己的端點上執行（設定 → 模型連線）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）；Harness Relay 用 Copilot 自己的 BYOK 變數（COPILOT_PROVIDER_*）指向它，這時 Copilot 不需要 GitHub 登入，你的登入也不會送到那裡。推理強度只送端點都接受的 low、medium、high。',
     },
     apiKeyHelp: {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
@@ -2517,10 +2523,10 @@ export const zhTW = {
         ],
       },
       {
-        title: '開源 agent 與自定義模型',
-        body: 'OpenCode、Goose、Cline、OpenHands 與 Pi 不用登入，而是用你在「設定 → 自定義模型」設定的模型：',
+        title: '開源 agent 的 API Key 與端點',
+        body: 'OpenCode、Goose、Cline、OpenHands 與 Pi 不用登入，而是用你在「設定 → 模型連線」設定的模型：',
         points: [
-          'OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）',
+          '輸入服務商金鑰，或展開「自訂端點」，輸入伺服器網址後點「載入模型」。勾選助理要用的模型。按「儲存」時會向伺服器核對勾選和手動輸入的模型 ID。',
           '成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4',
           'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI：請用 API key 或你自己的端點',
           '完全存取以外，它們在 Harness Relay 自己的沙箱中執行：唯讀時寫不進工作目錄，模型來源以外的主機會先問你（少數會直接拒絕）',
@@ -2679,7 +2685,7 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定自定義模型（開源 agent 用它，Claude Code、Codex、Grok 與 GitHub Copilot 也能用它的自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型連線（開源助理可用服務商金鑰或自訂端點，Claude Code、Codex、Grok 與 GitHub Copilot 也能使用自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',

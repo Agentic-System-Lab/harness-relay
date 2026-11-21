@@ -6,7 +6,7 @@
  * says what the CLI now says differently (`test/fixtures/cli-check/<cli>/run.json`).
  *
  * The CLI is put on the scripted model the way Harness Relay puts it on a model of the user's own:
- * Claude Code, Codex, Copilot and the open agents on an endpoint (Settings → Custom models);
+ * Claude Code, Codex, Copilot and the open agents on an endpoint (Settings → Model connections);
  * Antigravity on the Gemini API's address with a key of its own (`GOOGLE_GEMINI_BASE_URL`), and Muse
  * Code on the Meta API's (`endpoint_transport` in its settings), which only a stand-in like this one
  * serves. Cursor runs only on its own service, and Grok needs its own sign-in even on an endpoint:

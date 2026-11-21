@@ -146,8 +146,8 @@ export const en: Messages = {
       notLoggedIn: 'Not signed in',
       loggedIn: (account) => `Signed in${account ? `: ${account}` : ''}`,
       unknown: 'Status unknown',
-      openReady: 'Custom models set up',
-      openNotReady: 'Custom models not set up',
+      openReady: 'Model access set up',
+      openNotReady: 'Model access not set up',
       accounts: (usable, total) => ` (default account; ${usable} of ${total} accounts ready)`,
     },
   },
@@ -232,7 +232,7 @@ export const en: Messages = {
     rolePlaceholder:
       'e.g. You are a senior backend engineer responsible for API design and implementation.\nWhen done, ask @Reviewer for a review.',
     notLoggedIn: (p) => `${p} is not signed in.`,
-    noBackend: (p) => `${p} cannot run yet: add an API key or endpoint under Settings → Custom models.`,
+    noBackend: (p) => `${p} cannot run yet: add an API key or endpoint under Settings → Model connections.`,
     cliMissing: (p) => `${p} CLI not found.`,
     goSettings: 'Go to Settings →',
     addMember: 'Add member',
@@ -369,7 +369,7 @@ export const en: Messages = {
     modelIdPlaceholder: 'Model ID',
     effort: 'Reasoning effort',
     latest: 'latest',
-    endpointModels: 'Your own endpoints (Settings → Custom models)',
+    endpointModels: 'Your own endpoints (Settings → Model connections)',
   },
 
   chat: {
@@ -2118,7 +2118,7 @@ export const en: Messages = {
       readyAccount: (name) => `Ready · ${name}`,
       signIn: 'Sign in',
       install: 'Needs installation',
-      backend: 'Set up custom models',
+      backend: 'Set up model connections',
       requirements: 'View install requirements',
       executable: 'Check executable',
       installing: 'Installing…',
@@ -2155,7 +2155,7 @@ export const en: Messages = {
       'For each new question, this agent reads the question and the conversation so far, then keeps the current team, picks a template, adapts one, or designs a new team.',
     leadSaved: 'Lead agent saved',
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
-    leadNoBackend: (p) => `${p} needs a model. Set one up under Settings → Custom models or pick another agent.`,
+    leadNoBackend: (p) => `${p} needs a model. Set one up under Settings → Model connections or pick another agent.`,
     leadNotInstalled: (p) => `${p} was not found on this computer: install it (or set its executable on its card), or pick another agent.`,
     goCard: (p) => `Go to ${p} →`,
     goSignIn: (p) => `Sign in to ${p} →`,
@@ -2167,7 +2167,7 @@ export const en: Messages = {
       appearance: 'Appearance',
       notifications: 'Notifications',
       sandboxes: 'Sandboxes',
-      backends: 'Custom models',
+      backends: 'Model connections',
       lead: 'Lead agent',
       apps: 'Apps and tools',
       voice: 'Voice',
@@ -2222,10 +2222,10 @@ export const en: Messages = {
     },
     open: {
       intro: (p) =>
-        `${p} needs no sign-in: it uses the API keys and endpoints under Custom models above. Give members a model as "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4.`,
+        `${p} needs no sign-in: it uses the API keys and endpoints under Model connections above. Give members a model as "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4.`,
       noSubscription:
         "The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents): use an API key or your own endpoint.",
-      goBackends: 'Go to Custom models →',
+      goBackends: 'Go to Model connections →',
       noCliDefault: 'CLI default: none (members need a model)',
       sandboxTerminal: {
         label: 'Let OpenHands use a terminal in the sandbox: its commands can then read and write your other terminal windows',
@@ -2247,20 +2247,25 @@ export const en: Messages = {
       },
     },
     backends: {
-      title: 'Custom models',
-      hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Claude Code, Codex, Grok and GitHub Copilot can run on the custom endpoints too (each card says which API the server must serve). Each run gets only the key it uses; Harness Relay never calls these APIs itself.',
-      noSubscription:
-        "The Claude subscription and Grok's sign-in cannot be used by the open-source agents (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins for their own models.",
-      modelIds:
-        'Give members a model as "backend/model": openai/…, anthropic/…, xai/…, or an endpoint\'s id and a model name, such as homelab/muse-glimmer-30b-nvfp4. The model menus in Claude Code, Codex, Grok and GitHub Copilot list the endpoints\' models too.',
+      title: 'Model connections',
+      hint: 'OpenCode, Goose, Cline, OpenHands and Pi can use the provider keys below.',
       apiKeys: 'API keys',
+      providerKeys: 'API keys for open-source assistants',
       notSet: 'Not set',
       keySet: (masked) => `Set: ${masked}`,
       keyUnreadable:
         'Could not be read from the credential store (it may be locked, or the key it was encrypted with is gone); enter it again to replace it.',
       endpoints: 'Custom endpoints',
-      endpointsHint:
-        'Your own OpenAI-compatible servers. Harness Relay never asks them for their models: type the model names each one serves.',
+      endpointAccess: 'Works with the five open-source assistants above, plus Claude Code, Codex, Grok and GitHub Copilot.',
+      endpointsHint: 'Add an OpenAI-compatible server and choose which models appear in your assistants’ model menus.',
+      loadModels: 'Load models',
+      checkingBeforeSave: 'Checking models…',
+      loadingModels: 'Loading models…',
+      chooseModels: 'Models for your assistants',
+      noModelsFound: 'This endpoint returned an empty model list.',
+      manualModels: 'Enter model IDs manually',
+      keyAtNewUrl: 'Enter a key for this address if the server requires one.',
+      selectionLimit: (n: number) => `Select up to ${n} models.`,
       noEndpoints: 'No custom endpoints yet.',
       addEndpoint: 'Add endpoint',
       editEndpoint: 'Edit',
@@ -2295,12 +2300,12 @@ export const en: Messages = {
     },
     ownEndpoint: {
       claude:
-        'Claude Code can also run on your own endpoint (Custom models): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Anthropic Messages API (/v1/messages); Claude Code then needs no sign-in, and yours is not sent there.',
+        'Claude Code can also run on your own endpoint (Model connections): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Anthropic Messages API (/v1/messages); Claude Code then needs no sign-in, and yours is not sent there.',
       codex:
-        'Codex can also run on your own endpoint (Custom models): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Responses API (/v1/responses); Codex then needs no sign-in, and yours is not sent there. It sends only an effort every endpoint takes (none, low, medium, high), medium in place of another.',
-      grok: "Grok can also run on your own endpoint (Custom models): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions). Grok still needs its sign-in (or an API key) to start, but does not send it there; Harness Relay adds the endpoints' models to Grok's config.toml, hidden from Grok's own model picker. These models run without an effort.",
+        'Codex can also run on your own endpoint (Model connections): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must also serve the Responses API (/v1/responses); Codex then needs no sign-in, and yours is not sent there. It sends only an effort every endpoint takes (none, low, medium, high), medium in place of another.',
+      grok: "Grok can also run on your own endpoint (Model connections): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions). Grok still needs its sign-in (or an API key) to start, but does not send it there; Harness Relay adds the endpoints' models to Grok's config.toml, hidden from Grok's own model picker. These models run without an effort.",
       copilot:
-        "Copilot can also run on your own endpoint (Custom models): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions); Harness Relay points Copilot at it with Copilot's own BYOK variables (COPILOT_PROVIDER_*), so Copilot then needs no GitHub sign-in, and yours is not sent there. It sends only an effort every endpoint takes (low, medium, high).",
+        "Copilot can also run on your own endpoint (Model connections): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions); Harness Relay points Copilot at it with Copilot's own BYOK variables (COPILOT_PROVIDER_*), so Copilot then needs no GitHub sign-in, and yours is not sent there. It sends only an effort every endpoint takes (low, medium, high).",
     },
     apiKeyHelp: {
       claude:
@@ -2526,10 +2531,10 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'Open-source agents and custom models',
-        body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Custom models:',
+        title: 'API keys and endpoints for open-source agents',
+        body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Model connections:',
         points: [
-          'API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoint (vLLM, Ollama, LM Studio, llama.cpp)',
+          'Enter a provider key, or open Custom endpoints, enter your server URL and choose Load models. Choose models to show your assistants. Save verifies the selected and manually entered IDs with the server.',
           'A member\'s model is "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4',
           "The Claude subscription and Grok's sign-in cannot be used by these CLIs: use an API key or your own endpoint",
           "Below full access they run in Harness Relay's own sandbox: in read-only they cannot write in the working directory, and other hosts than the model backend are asked about first (a few are refused without asking)",
@@ -2692,7 +2697,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up custom models (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: 'In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',

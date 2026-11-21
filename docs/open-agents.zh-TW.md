@@ -18,10 +18,10 @@
 
 ## 模型來源
 
-**設定 → 自定義模型** 存放 開源 agent 執行模型用的來源（`src/server/backends.ts` 的 `ModelBackendStore`，透過 `settings.backends` 取得）：
+**設定 → 模型連線** 管理開源 agent 使用的模型來源（`src/server/backends.ts` 的 `ModelBackendStore`，透過 `settings.backends` 取得）：
 
-- **API 來源**：`openai`、`anthropic` 與 `xai`，各一把 API key。
-- **自訂端點**：你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 是你輸入的模型名稱，因為 Harness Relay 從不向任何模型 API 查詢。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。
+- **開源助理的 API Key**：為 OpenCode、Goose、Cline、OpenHands 與 Pi 設定 `openai`、`anthropic` 與 `xai` 的金鑰，各一把。
+- **自訂端點**即使收合也會列出支援的助理，包括上述五個開源助理，以及 Claude Code、Codex、Grok 與 GitHub Copilot。端點是你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 存放你為該端點儲存的模型 ID。在設定中展開「自訂端點」，輸入網址和金鑰（選填），按「載入模型」，Relay 就會向端點送出 `GET <baseUrl>/models`。勾選所需的模型，也可以手動輸入其他 ID。既有端點會預先勾選已儲存的 ID。按「儲存」時，Relay 會重新讀取清單，驗證勾選與手動輸入的每個 ID。如果清單裡找不到該 ID，或伺服器不支援列出模型，就會向 `GET <baseUrl>/models/<編碼後的 ID>` 查詢並確認回傳的 ID 相符。驗證失敗時，表單會保留草稿，既有端點則沿用原設定。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。
 
 **金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時以相同名稱加密存在資料庫（`secrets`，金鑰在 `secrets.key`），「設定」會註明；在 `model_backends` 欄位找到的金鑰（舊版以原文存的）會搬進儲存區、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema 版本 22），API 來源的金鑰只有在無法從這裡搬出時才留在這裡。
 
@@ -35,13 +35,13 @@
 
 orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.backends`，來自 `SettingsStore.backendsFor()`），首席 agent 與側邊欄分組的執行也一樣。
 
-**模型選單**列出 CLI 自己模型清單中、模型來源已設定的模型（轉接器的 `models` hook，CLI 有清單時），再加上每個端點輸入的模型；也隨時可以自己輸入 id。成員留在「預設」時，就用選單顯示為預設的模型執行，和其他 CLI 一樣：先用「設定」裡這個 CLI 的預設，否則用它的清單預設（該模型的來源已設定時；`Orchestrator.modelFor`，取自 `ProviderService.models`）。兩者都沒有時，選單會說需要選一個模型，執行時也會請你選一個。
+**模型選單**列出 CLI 自己模型清單中、模型來源已設定的模型（轉接器的 `models` hook，CLI 有清單時），再加上每個端點已儲存的模型；也隨時可以自己輸入 id。成員留在「預設」時，就用選單顯示為預設的模型執行，和其他 CLI 一樣：先用「設定」裡這個 CLI 的預設，否則用它的清單預設（該模型的來源已設定時；`Orchestrator.modelFor`，取自 `ProviderService.models`）。兩者都沒有時，選單會說需要選一個模型，執行時也會請你選一個。
 
 **狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。找不到的 CLI 可以在設定頁從它的卡片安裝，裝進專屬的資料夾，版本就是驗證過的那個（[使用者說明 → 從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)）。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身的模型照常使用它們自己的登入。
 
 ### Claude Code、Codex、Grok 與 Copilot 在端點上執行
 
-自訂端點不只給開源 agent 用：Claude Code、Codex、Grok 與 Copilot（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema 版本 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema 版本 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 與 Antigravity 的選單，它們沒有端點的模型）。它們的狀態仍然是自己的登入。
+自訂端點不只給開源 agent 用：Claude Code、Codex、Grok 與 Copilot（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema 版本 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema 版本 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點已儲存的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 與 Antigravity 的選單，它們沒有端點的模型）。它們的狀態仍然是自己的登入。
 
 每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供，Grok 與 Copilot 都用 Chat Completions）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
 
@@ -156,7 +156,7 @@ Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會
 
 `statePaths`：`data`、`state`，都在成員自己的狀態資料夾（`XDG_DATA_HOME`、`XDG_STATE_HOME`）。`configPaths`：`config`、取代家目錄的資料夾、`cache`（執行會讀的模型目錄），在共用的家目錄（舊版用來記每個 session 花費的 `relay` 資料夾會被刪除）。
 
-**模型來源**：OpenAI、Anthropic、xAI 用它們內建的 provider，key 來自 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`；自訂端點寫成 `@ai-sdk/openai-compatible` 的 provider，id 是 `relay-<端點 id>`（這樣叫 lmstudio、ollama、groq 之類名稱的端點不會和 OpenCode 已知的 provider 混在一起），`baseURL` 是端點網址，key 透過 provider 的 `env`（變數 `HARNESS_RELAY_ENDPOINT_KEY`）傳入，從不寫進檔案；模型清單是端點輸入的模型加上這次的模型。設定裡的 `{env:…}`、`{file:…}` 與網址裡的 `${…}` 會被 OpenCode 代換，所以 Harness Relay 寫入時會跳脫。1.19.5 讀的是 `provider` / `npm` 的設定格式（較新的 `providers` / `package` 在這版只會被忽略）。
+**模型來源**：OpenAI、Anthropic、xAI 用它們內建的 provider，key 來自 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`；自訂端點寫成 `@ai-sdk/openai-compatible` 的 provider，id 是 `relay-<端點 id>`（這樣叫 lmstudio、ollama、groq 之類名稱的端點不會和 OpenCode 已知的 provider 混在一起），`baseURL` 是端點網址，key 透過 provider 的 `env`（變數 `HARNESS_RELAY_ENDPOINT_KEY`）傳入，從不寫進檔案；模型清單是端點已儲存的模型加上這次的模型。設定裡的 `{env:…}`、`{file:…}` 與網址裡的 `${…}` 會被 OpenCode 代換，所以 Harness Relay 寫入時會跳脫。1.19.5 讀的是 `provider` / `npm` 的設定格式（較新的 `providers` / `package` 在這版只會被忽略）。
 
 **模型與推理強度**：session 開始後，依 OpenCode 自己的順序以 `session/set_config_option` 設定：模式 `build`（接續的 session 會保留原本的模式）、模型（`<provider>/<model>`）、推理強度（模型的 variant；換模型會重設它，所以放在最後）。沒有指定推理強度時，由 OpenCode 決定（新 session 用模型的第一個 variant）。端點的模型沒有推理強度。模型選單來自 `opencode models --verbose`（只用假的 key 列出 API 模型來源的模型，不呼叫任何 API）：會呼叫工具、以文字回答、沒有棄用的模型，以及每個模型的推理強度。
 
@@ -208,7 +208,7 @@ Pi 自己沒有權限詢問：Harness Relay 的一個小型 gate 擴充功能會
 
 Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同名的大寫環境變數，所以每次執行決定的事都放在環境變數裡，不寫進共用的檔案（平行執行會互相覆蓋）：`GOOSE_PROVIDER`、`GOOSE_MODEL`、`GOOSE_MODE`、`EXTENSIONS`、`PLUGINS`、`CONTEXT_FILE_NAMES`。伺服器繼承來、會改變 Goose 行為的變數（所有 `GOOSE_*`、`OPENAI_HOST`、`ANTHROPIC_HOST`、`XAI_HOST`、`EXTENSIONS`…）會先拿掉；Goose 會讀的追蹤變數（`OTEL_*`，例如 `OTEL_EXPORTER_OTLP_ENDPOINT`，以及 `LANGFUSE_*`）也會拿掉，否則它會把這一輪的提示與回覆送到別處。`config.yaml` 只放每次都一樣的設定。
 
-**模型來源。** `openai`、`anthropic`、`xai` 是 Goose 自己的 provider，金鑰來自 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`（OpenAI 走它的 Responses API）。每個自訂端點寫成 provider 檔 `config/custom_providers/relay-<id>.json`（`engine: openai`、它的 base URL、輸入的模型），金鑰放在 `HARNESS_RELAY_ENDPOINT_<ID>_API_KEY`，從不寫進檔案。新 session 從環境變數取 provider 與模型；接續的 session 保留它原本的，所以每次 `session/load` 之後，Harness Relay 用 `session/set_config_option` 依 Goose 的順序重新設定：`provider`（會把模型重設為該 provider 的預設）、`model`、`thinking_effort`（`off`、`low`、`medium`、`high`、`max`；自訂端點只有 `off`，就照它執行），最後是模式。模型選單來自 Goose 自己的目錄（`_goose/unstable/providers/list`，不需要金鑰），只留已設定的模型來源，再加上各端點的模型。金鑰錯誤、模型不存在、端點連不上，這一輪會以清楚的訊息結束並說明是哪一個。
+**模型來源。** `openai`、`anthropic`、`xai` 是 Goose 自己的 provider，金鑰來自 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`（OpenAI 走它的 Responses API）。每個自訂端點寫成 provider 檔 `config/custom_providers/relay-<id>.json`（`engine: openai`、它的 base URL、已儲存的模型），金鑰放在 `HARNESS_RELAY_ENDPOINT_<ID>_API_KEY`，從不寫進檔案。新 session 從環境變數取 provider 與模型；接續的 session 保留它原本的，所以每次 `session/load` 之後，Harness Relay 用 `session/set_config_option` 依 Goose 的順序重新設定：`provider`（會把模型重設為該 provider 的預設）、`model`、`thinking_effort`（`off`、`low`、`medium`、`high`、`max`；自訂端點只有 `off`，就照它執行），最後是模式。模型選單來自 Goose 自己的目錄（`_goose/unstable/providers/list`，不需要金鑰），只留已設定的模型來源，再加上各端點的模型。金鑰錯誤、模型不存在、端點連不上，這一輪會以清楚的訊息結束並說明是哪一個。
 
 **權限。**
 
@@ -345,7 +345,7 @@ Goose 每次存取都會重讀 `config.yaml`，而且任何設定鍵都先看同
 
 **用它的參數堵住的漏洞。** `--no-skills`：不論家目錄設在哪裡，Pi 都會讀 `$HOME/.agents/skills`（工具庫的 skill 透過角色說明交給它）。`--no-approve`：專案的 `.pi/` 資料夾（設定、MCP 伺服器、擴充功能、skill、`SYSTEM.md`）與 `.agents/skills` 都不會載入；session 資料夾一律指定，因為 Pi 在判斷信任之前就會讀專案的 `sessionDir`。另外還有 `--no-extensions`、`--no-prompt-templates`、`--no-themes`。
 
-**模型來源。** OpenAI、Anthropic、xAI 透過它們的金鑰變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`）；Pi 離線目錄裡沒有的模型（例如 xAI 的新模型）會連同它 API 的位址加進 `models.json`，否則 Pi 會沿用它預設模型的設定。端點是 `models.json` 裡一個 `openai-completions` 的 provider `relay-<id>`，指向它的 base URL，帶上手動輸入的模型，金鑰透過變數提供（`$HARNESS_RELAY_ENDPOINT_API_KEY`，不會寫進檔案；沒有金鑰的端點會得到一個佔位值）。啟動後會檢查模型（`get_state`；Pi 比對 `--model` 時很寬鬆，接續的 session 也會保留它自己的模型），不同時用 `set_model` 重設。**推理強度**對應 Pi 的 thinking level（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`），設定前先用 `get_available_thinking_levels` 確認，因為 Pi 會默默把不支援的強度調整掉（不認得的會變成 `off`）。模型選單來自 Pi 的目錄（離線的 `get_available_models`），附上每個模型可用的強度。
+**模型來源。** OpenAI、Anthropic、xAI 透過它們的金鑰變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`XAI_API_KEY`）；Pi 離線目錄裡沒有的模型（例如 xAI 的新模型）會連同它 API 的位址加進 `models.json`，否則 Pi 會沿用它預設模型的設定。端點是 `models.json` 裡一個 `openai-completions` 的 provider `relay-<id>`，指向它的 base URL，帶上已儲存的模型，金鑰透過變數提供（`$HARNESS_RELAY_ENDPOINT_API_KEY`，不會寫進檔案；沒有金鑰的端點會得到一個佔位值）。啟動後會檢查模型（`get_state`；Pi 比對 `--model` 時很寬鬆，接續的 session 也會保留它自己的模型），不同時用 `set_model` 重設。**推理強度**對應 Pi 的 thinking level（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`），設定前先用 `get_available_thinking_levels` 確認，因為 Pi 會默默把不支援的強度調整掉（不認得的會變成 `off`）。模型選單來自 Pi 的目錄（離線的 `get_available_models`），附上每個模型可用的強度。
 
 **接續。** Pi 啟動前就在 sessions 資料夾裡依 id 找到 session，並以它的檔案接續（`--session <檔案>`，會在它自己的資料夾執行）。檔案不見了（Pi 會默默開新的 session），或 session 屬於另一個工作目錄，都算接續失敗，orchestrator 會帶著完整歷史重新開始；不使用 `--session <id>`，因為遇到另一個資料夾的 session 時，Pi 會在 stdin 上詢問要不要 fork。啟動後，`get_state` 必須是同一個 session。
 

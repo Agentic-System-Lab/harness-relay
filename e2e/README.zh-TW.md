@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 44 個 spec 檔、573 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 44 個 spec 檔、575 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -23,7 +23,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 ## 每個測試一開始有什麼
 
 - **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
-- **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 自定義模型**，Settings → Custom models），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。那裡沒有模型會回答：它只列出自己的模型，並收下在 Harness Relay 自己的沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
+- **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型連線**），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。伺服器列出這兩個模型，另外提供只能按 ID 查到的 `unlisted-model`，並收下在沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
 - **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`，或給伺服器更多環境變數（`serverEnv`）。
 - **假的 CLI**（[`fake-cli/`](fake-cli/)），十二個 CLI 各一個。測試的伺服器裝了 Claude Code、Codex 與 Grok，以及測試要用的 CLI（每個 CLI 各一的測試裝它自己，兩個團隊的測試裝它那一隊的，其他的用 [`support/clis.ts`](support/clis.ts) 的 `withClis()`）：其餘的在那裡都未安裝，因為每次開啟頁面時，伺服器會向每個已安裝的 CLI 詢問版本、登入、模型與它自己會載入的東西，每個大約啟動六次。它們說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
@@ -63,7 +63,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 22 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 24 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -512,17 +512,19 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 在 GitHub 和瀏覽器列安裝缺少的工具 | — | 缺少時顯示安裝按鈕，重新整理保留進度，失敗可重試。完成後顯示 GitHub 登入或瀏覽器路徑。 |
 | 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
-| 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Custom models set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
+| 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model access set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
-| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**自定義模型**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「Custom models not set up」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Custom models)」，回答的錯誤說 OpenCode 沒有模型。 |
+| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型連線**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「Model access not set up」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model connections)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
 | 常用 App 與工具庫共用一張設定卡片 | — | 設定導覽列只有一個 **App 與工具**連結。開啟 `#/settings/apps` 會選到**常用 App**，`#/settings/tools` 則會選到**工具庫**。只會顯示選定分頁的內容。End 與向左鍵可在分頁間移動焦點。重新載入後同一個導覽連結仍會標亮；用瀏覽器的上一頁回到工具庫時，尚未儲存的記憶草稿會保留。常用 App 的十列中，八個內建工具各有一組聊天存取選項，連線前即可設定。 十個服務也依順序列在正確的四個具名區域中。 |
-| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（兩個分頁共用一個 **App 與工具**連結），自定義模型與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
+| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（兩個分頁共用一個 **App 與工具**連結），模型連線與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
 | 在矮的視窗裡，agent 選單留在視窗內，按鍵會顯示移到的項目 | — | 在 1280×480 下，從設定頁頂端（連結列比固定後低）打開時，選單底部在視窗內；End 讓 **Pi** 取得焦點並捲進選單的可見範圍，Home 回到第一個。 |
 | 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**助理設定：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
 | 連結列在收合的側邊欄按鈕旁固定時，agent 選單跟著按鈕移動 | — | 在 900×900 下收合側邊欄，在設定頁頂端打開選單；用滾輪捲動頁面後連結列固定並往右移，選單跟著按鈕移動。 |
-| 桌面與手機的設定小標題間距 | — | 檢查 API key、自訂與已刪除的端點，以及 session 設定的標題與第一個欄位或說明之間的距離。 |
-| 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。「自定義模型」與「Custom models」都開啟同一張設定卡片。 |
+| 選擇自訂端點提供給助理的模型 | Claude Code | 開啟頁面時可直接看到開源助理的 API Key。展開**自訂端點**，從測試伺服器載入模型，勾選一個，再手動輸入一個只能在端點按 ID 查到的模型。重新載入頁面、編輯端點並改選另一個模型後，Claude Code 的預設模型選單會列出新選的模型與手動輸入的 ID，並移除取消勾選的模型。 |
+| 儲存手動輸入的模型 ID | — | 在編輯器中直接輸入不存在的模型 ID 並儲存，會顯示該 ID 並保留草稿。新增失敗時不會建立端點，編輯失敗時已儲存的名稱與模型維持原值。分別改成只能按 ID 查到的模型與清單上的模型後，兩次都能成功儲存。 |
+| 桌面與手機的設定小標題間距 | — | 檢查**開源助理的 API Key**、**自訂端點**、**已刪除的端點**及 session 設定的小標題與第一個欄位或說明之間的距離。展開自訂端點後才會看到已刪除的端點。 |
+| 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。翻譯後的「模型連線」連結都開啟同一張卡片，開源助理的 API Key與自訂端點的標籤也會跟著切換。 |
 | 選另一個 CLI 擔任首席 agent | Codex 當首席 agent | 新對話頁寫出它，團隊卡片寫著「Lead agent: Codex」，首席 agent 的 prompt 交給了 Codex。 |
 | 未登入的 CLI 顯示未登入，它的回答說明原因 | 有登入的各一 | `E2E_FAKE_SIGNED_OUT=<cli>`：狀態點與卡片顯示**未登入**（不含 CLI 自己的說法），並有**登入**按鈕，另一個 CLI 則仍然登入；它的回答帶著 CLI 的錯誤。 |
 

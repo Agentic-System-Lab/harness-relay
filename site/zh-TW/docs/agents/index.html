@@ -239,9 +239,9 @@
           <li><a href="#api-keys">或使用 API key</a></li>
           <li>
             <details>
-              <summary>開源 agent 與自定義模型</summary>
+              <summary>模型連線</summary>
               <ol>
-                <li><a href="#open-agents" aria-label="開源 agent 與自定義模型概覽">概覽</a></li>
+                <li><a href="#open-agents" aria-label="模型連線概覽">概覽</a></li>
                 <li><a href="#agents-on-your-server">其他 agent 也能用你自己的模型</a></li>
               </ol>
             </details>
@@ -273,7 +273,7 @@
         <section id="settings" aria-labelledby="settings-title">
           <h2 id="settings-title">設定與登入</h2>
           <p>
-            點側邊欄底部的<b>設定與登入</b>。<b>可用的 AI 助理</b>會列出已可用的助理。展開<b>連接另一個助理</b>，即可看到哪些需要安裝、登入或設定模型來源。點助理名稱可前往對應的設定。<b>自定義模型</b>排在各個 agent 之前，接著每個 agent 都有一張卡片。卡片會顯示 agent 的版本；Harness Relay
+            點側邊欄底部的<b>設定與登入</b>。<b>可用的 AI 助理</b>會列出已可用的助理。展開<b>連接另一個助理</b>，即可看到哪些需要安裝、登入或設定模型來源。點助理名稱可前往對應的設定。<b>模型連線</b>排在各個 agent 之前，接著每個 agent 都有一張卡片。卡片會顯示 agent 的版本；Harness Relay
             在你電腦上找不到它時，則顯示<a href="../install/#what-else">安裝它</a>的按鈕。它的每個帳號都有自己的框，裡面是那個帳號的登入、API key 與預設模型。
           </p>
           <p>側邊欄底部的圓點，讓你一眼看出哪些 agent 可以使用：</p>
@@ -373,15 +373,17 @@
         </section>
 
         <section id="open-agents" aria-labelledby="open-agents-title">
-          <h2 id="open-agents-title">開源 agent 與自定義模型</h2>
-          <p>OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程。它們只用你在<b>設定 → 自定義模型</b>設定的模型來源執行：</p>
+          <h2 id="open-agents-title">模型連線</h2>
+          <p>OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程。它們會使用你在<b>設定 → 模型連線</b>設定的模型來源。</p>
           <ul>
             <li>
-              <b>API key</b>：<b>OpenAI</b>、<b>Anthropic</b>、<b>xAI</b> 各一把。貼上後按<b>儲存</b>。這裡不能用你的 Claude 訂閱或 Grok 登入：Anthropic 不允許在其他 agent 中使用它的訂閱。
+              展開<b>開源助理的 API Key</b>，即可為上述五個助理設定金鑰。<b>OpenAI</b>、<b>Anthropic</b>、<b>xAI</b> 各一把。貼上後按<b>儲存</b>。這裡不能用你的 Claude 訂閱或 Grok 登入：Anthropic 不允許在其他 agent 中使用它的訂閱。
             </li>
             <li>
-              <b>自訂端點</b>：你自己的、提供 OpenAI API 的模型伺服器，例如 vLLM、Ollama、LM Studio 或 llama.cpp。<b>新增端點</b>會請你填名稱、一個簡短的 id（例如
-              <code>homelab</code>）、它的網址（這台電腦上的 Ollama 是 <code>http://localhost:11434/v1</code>）與模型名稱（一行一個），伺服器需要的話再加上它的 API key。
+              <b>自訂端點</b>即使收合也會列出支援的助理。上述五個開源助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，都能使用自己的伺服器。展開後即可連接 vLLM、Ollama、LM Studio、llama.cpp 等 OpenAI 相容伺服器。
+              按<b>新增端點</b>，填寫名稱、簡短的 ID（例如 <code>homelab</code>）、端點網址（本機的 Ollama 是 <code>http://localhost:11434/v1</code>）與金鑰（選填）。
+              按<b>載入模型</b>，勾選要在助理選單中顯示的模型 ID，也可以展開<b>手動輸入模型 ID</b> 來新增 ID。先前已儲存的 ID 會保持勾選。
+              按<b>儲存</b>時，Relay 會重新讀取清單，驗證勾選或手動輸入的每個 ID。如果清單沒有該 ID，或伺服器不支援列出模型，則會查詢個別模型資料。手動輸入的 ID 也必須通過其中一種查詢。如果連線失敗、金鑰遭拒或無法確認某個 ID，表單會顯示原因並保留你剛填的內容，助理繼續使用上次儲存的設定。
             </li>
           </ul>
           <figure class="doc-figure">
@@ -389,10 +391,20 @@
               src="../../../assets/media/docs/agents-backends-zh-TW.webp"
               width="1280"
               height="800"
-              alt="設定與登入的「自定義模型」頁。OpenAI、Anthropic 與 xAI 的 API key 都尚未設定，下方列出「自家 vLLM」自訂端點。"
+              alt="「模型連線」中的「開源助理的 API Key」和「自訂端點」均已收合。兩列都列出適用的助理。"
               loading="lazy"
             />
-            <figcaption>在「自定義模型」加入自己的模型伺服器。<a href="../../use-cases/#contract-review">在自己的模型伺服器上修訂合約</a>示範如何在對話中使用這類端點。</figcaption>
+            <figcaption>在「設定 → 模型連線」連接自己的模型伺服器。<a href="../../use-cases/#contract-review">在自己的模型伺服器上修訂合約</a>示範如何在對話中使用這類端點。</figcaption>
+          </figure>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/agents-endpoint-models-zh-TW.webp"
+              width="910"
+              height="574"
+              alt="端點表單中已勾選 muse-glimmer-30b-nvfp4 和 qwen3:8b，gemma3:4b 未勾選。"
+              loading="lazy"
+            />
+            <figcaption>載入清單後，勾選要在助理選單中顯示的模型。</figcaption>
           </figure>
           <p>
             開源 agent 的成員，模型寫成「模型來源/模型」：<code>openai/…</code>、<code>anthropic/…</code>、<code>xai/…</code>，或你的端點 id 加上模型，例如
@@ -452,7 +464,7 @@
             <p>使用者說明有更多細節：每個 agent 的登入與它特別的地方、每個 agent 需要你的伺服器提供哪種 API、各帳號分開保存了什麼，以及每個 agent 自己會載入哪些東西。</p>
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入">分別登入各個 agent</a></li>
-              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#開源-agent-與自定義模型">開源 agent 與自定義模型</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#模型連線">模型連線</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#多個帳號">多個帳號</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.zh-TW.md">開源 agent</a></li>
             </ul>

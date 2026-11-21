@@ -1,13 +1,13 @@
 import { BACKEND_LIMITS, ENDPOINT_ID_RE, isApiBackend, type ModelEndpointUpdate, type ModelEndpointView } from '../shared/types';
 
-/** Settings → Custom models: the endpoint form's logic, kept out of the component so it can be tested without a DOM. */
+/** Settings → Model connections: the endpoint form's logic, kept out of the component so it can be tested without a DOM. */
 
-/** The endpoint form as typed: the models one per line (or separated by commas or spaces). */
+/** The endpoint form as typed: the selected model IDs are kept intact. */
 export interface EndpointDraft {
   id: string;
   name: string;
   baseUrl: string;
-  models: string;
+  models: string[];
   /** A new key; empty keeps the current one (or none for a new endpoint). */
   apiKey: string;
   /** Remove the current key. */
@@ -38,22 +38,26 @@ export function endpointDraft(e?: ModelEndpointView): EndpointDraft {
     id: e?.id ?? '',
     name: e?.name ?? '',
     baseUrl: e?.baseUrl ?? '',
-    models: (e?.models ?? []).join('\n'),
+    models: [...(e?.models ?? [])],
     apiKey: '',
     removeKey: false,
   };
 }
 
 /** Whether the base URL is one the server takes: http(s), with no user name, password, query or fragment. */
-export function validBaseUrl(text: string): boolean {
+export function normalizedBaseUrl(text: string): string | undefined {
   const raw = text.trim();
-  if (!raw || raw.length > BACKEND_LIMITS.maxUrl || raw.includes('?') || raw.includes('#')) return false;
+  if (!raw || raw.length > BACKEND_LIMITS.maxUrl || raw.includes('?') || raw.includes('#')) return;
   try {
-    const u = new URL(raw);
-    return (u.protocol === 'http:' || u.protocol === 'https:') && Boolean(u.hostname) && !u.username && !u.password;
+    const url = new URL(raw);
+    if (['http:', 'https:'].includes(url.protocol) && url.hostname && !url.username && !url.password) return url.href.replace(/\/+$/, '');
   } catch {
-    return false;
+    // The user may still be entering the address.
   }
+}
+
+export function validBaseUrl(text: string): boolean {
+  return normalizedBaseUrl(text) !== undefined;
 }
 
 /**
@@ -71,7 +75,7 @@ export function endpointProblems(d: EndpointDraft, existing: Pick<ModelEndpointV
     else if (existing.some((e) => e.id === id)) out.push('idTaken');
   }
   if (!validBaseUrl(d.baseUrl)) out.push('url');
-  const models = parseModelList(d.models);
+  const models = d.models;
   if (models.length > BACKEND_LIMITS.maxModels || models.some((m) => m.length > BACKEND_LIMITS.maxModelId)) out.push('models');
   return out;
 }
@@ -82,7 +86,7 @@ export function endpointUpdate(d: EndpointDraft): ModelEndpointUpdate {
   return {
     name: d.name.trim(),
     baseUrl: d.baseUrl.trim(),
-    models: parseModelList(d.models),
+    models: [...new Set(d.models)],
     ...(key ? { apiKey: key } : d.removeKey ? { apiKey: null } : {}),
   };
 }

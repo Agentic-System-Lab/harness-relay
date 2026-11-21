@@ -1,7 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { API_BACKEND_LABEL, BACKEND_LIMITS, type ApiBackend, type ModelBackendsView, type ModelEndpointView } from '../../shared/types';
 import { api } from '../api';
-import { endpointDraft, endpointProblems, endpointSlug, endpointUpdate, type EndpointDraft, type EndpointProblem } from '../backends';
+import {
+  endpointDraft,
+  endpointProblems,
+  endpointSlug,
+  endpointUpdate,
+  normalizedBaseUrl,
+  parseModelList,
+  validBaseUrl,
+  type EndpointDraft,
+  type EndpointProblem,
+} from '../backends';
 import { useT } from '../i18n';
 import { sectionId } from '../route';
 import { SectionTitle } from './SectionTitle';
@@ -9,7 +19,7 @@ import { SectionTitle } from './SectionTitle';
 type Note = { text: string; error?: boolean };
 
 /**
- * Settings → Custom models: what the open agents (OpenCode, Goose, Cline, OpenHands, Pi) run their
+ * Settings → Model connections: what the open agents (OpenCode, Goose, Cline, OpenHands, Pi) run their
  * models on. An API key for OpenAI, Anthropic and xAI each, and the user's own OpenAI-compatible
  * endpoints. Keys are only ever shown masked.
  */
@@ -39,47 +49,73 @@ export function BackendsCard({ onChanged }: { onChanged: () => void }) {
   };
 
   const b = t.settings.backends;
+  const firstStorage = view?.apis[0]?.keyStorage;
+  const sharedStorage = view?.apis.every((a) => a.keyStorage === firstStorage) && firstStorage;
   return (
     <section className="card" id={sectionId('backends')}>
       <SectionTitle section="backends">{b.title}</SectionTitle>
-      <p className="muted small">{b.hint}</p>
-      <p className="muted small">{b.noSubscription}</p>
-      <p className="muted small">{b.modelIds}</p>
-
-      <h4>{b.apiKeys}</h4>
-      {view?.apis.map((a) => (
-        <ApiKeyRow
-          key={a.id}
-          id={a.id}
-          view={a}
-          onSave={(key) => apply(() => api.setBackendKey(a.id, key), key ? t.settings.keySaved : t.settings.keyRemoved)}
-        />
-      ))}
-
-      <h4>{b.endpoints}</h4>
-      <p className="muted small">{b.endpointsHint}</p>
-      {view && <Endpoints endpoints={view.endpoints} apply={apply} />}
-
-      {view && view.deletedEndpoints.length > 0 && (
-        <>
-          <h4>{b.deletedEndpoints}</h4>
-          <p className="muted small">{b.deletedEndpointsHint}</p>
-          {view.deletedEndpoints.map((id) => (
-            <div key={id} className="field">
-              <span>
-                <code>{id}/…</code>
-              </span>
-              <div className="button-row">
-                <button className="ghost" onClick={() => void apply(() => api.forgetDeletedEndpoint(id), b.forgotten(id))}>
-                  {b.forgetDeleted}
-                </button>
-              </div>
-            </div>
+      <details className="sub model-connection backend-keys">
+        <summary aria-labelledby="model-keys-title" aria-describedby="model-keys-access">
+          <span className="connection-title" id="model-keys-title">
+            {b.providerKeys}
+          </span>
+          <span className="connection-access muted small" id="model-keys-access">
+            {b.hint}
+          </span>
+        </summary>
+        <div className="sub-body">
+          {view?.apis.map((a) => (
+            <ApiKeyRow
+              key={a.id}
+              id={a.id}
+              view={a}
+              showStorage={!sharedStorage}
+              onSave={(key) => apply(() => api.setBackendKey(a.id, key), key ? t.settings.keySaved : t.settings.keyRemoved)}
+            />
           ))}
-        </>
-      )}
 
-      {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
+          {sharedStorage && <p className="muted small">{t.settings.keyStorage(t.settings.keyStorageName[sharedStorage])}</p>}
+        </div>
+      </details>
+      <details className="sub model-connection backend-endpoints">
+        <summary aria-labelledby="model-endpoint-title" aria-describedby="model-endpoint-access">
+          <span className="connection-title" id="model-endpoint-title">
+            {b.endpoints}
+          </span>
+          <span id="model-endpoint-access" className="connection-access muted small">
+            {b.endpointAccess}
+          </span>
+        </summary>
+        <div className="sub-body">
+          <p className="muted small">{b.endpointsHint}</p>
+          {view && <Endpoints endpoints={view.endpoints} apply={apply} />}
+
+          {view && view.deletedEndpoints.length > 0 && (
+            <>
+              <h4>{b.deletedEndpoints}</h4>
+              <p className="muted small">{b.deletedEndpointsHint}</p>
+              {view.deletedEndpoints.map((id) => (
+                <div key={id} className="field">
+                  <span>
+                    <code>{id}/…</code>
+                  </span>
+                  <div className="button-row">
+                    <button className="ghost" onClick={() => void apply(() => api.forgetDeletedEndpoint(id), b.forgotten(id))}>
+                      {b.forgetDeleted}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </details>
+
+      {note.text && (
+        <p role={note.error ? 'alert' : 'status'} className={note.error ? 'error-line' : 'muted small'}>
+          {note.text}
+        </p>
+      )}
     </section>
   );
 }
@@ -87,10 +123,12 @@ export function BackendsCard({ onChanged }: { onChanged: () => void }) {
 function ApiKeyRow({
   id,
   view,
+  showStorage,
   onSave,
 }: {
   id: ApiBackend;
   view: ModelBackendsView['apis'][number];
+  showStorage: boolean;
   onSave: (key: string | null) => Promise<boolean>;
 }) {
   const t = useT();
@@ -107,10 +145,8 @@ function ApiKeyRow({
       <span>
         {API_BACKEND_LABEL[id]} · <span className="muted small">{view.keyMasked ? b.keySet(view.keyMasked) : b.notSet}</span>
       </span>
-      <p className="muted small">
-        {t.settings.keyStorage(t.settings.keyStorageName[view.keyStorage])}
-        {view.keyUnreadable && ` ${b.keyUnreadable}`}
-      </p>
+      {showStorage && <p className="muted small">{t.settings.keyStorage(t.settings.keyStorageName[view.keyStorage])}</p>}
+      {view.keyUnreadable && <p className="warn-line">{b.keyUnreadable}</p>}
       <div className="input-row">
         <input
           type="password"
@@ -141,22 +177,23 @@ function Endpoints({
 }) {
   const t = useT();
   const b = t.settings.backends;
-  /** The endpoint being edited: its id, '' for a new one, undefined for none. */
-  const [editing, setEditing] = useState<string | undefined>();
-  const current = endpoints.find((e) => e.id === editing);
+  /** Each edit has a distinct identity, even when a user returns to the same endpoint during a save. */
+  const [editing, setEditing] = useState<{ id: string }>();
+  const current = endpoints.find((e) => e.id === editing?.id);
 
   return (
     <>
       {!endpoints.length && <p className="muted small">{b.noEndpoints}</p>}
       {endpoints.map((e) =>
-        editing === e.id ? (
+        editing?.id === e.id ? (
           <EndpointForm
             key={e.id}
             endpoint={e}
             endpoints={endpoints}
             onCancel={() => setEditing(undefined)}
             onSave={async (d) => {
-              if (await apply(() => api.saveEndpoint(e.id, endpointUpdate(d)), b.saved)) setEditing(undefined);
+              if (await apply(() => api.saveEndpoint(e.id, endpointUpdate(d)), b.saved))
+                setEditing((open) => (open === editing ? undefined : open));
             }}
           />
         ) : (
@@ -171,7 +208,7 @@ function Endpoints({
               {e.keyUnreadable && ` · ${b.keyUnreadable}`}
             </p>
             <div className="button-row">
-              <button className="ghost" onClick={() => setEditing(e.id)}>
+              <button className="ghost" onClick={() => setEditing({ id: e.id })}>
                 {b.editEndpoint}
               </button>
               <button
@@ -186,17 +223,18 @@ function Endpoints({
           </div>
         ),
       )}
-      {editing === '' && !current ? (
+      {editing?.id === '' && !current ? (
         <EndpointForm
           endpoints={endpoints}
           onCancel={() => setEditing(undefined)}
           onSave={async (d) => {
-            if (await apply(() => api.saveEndpoint(d.id.trim(), endpointUpdate(d)), b.saved)) setEditing(undefined);
+            if (await apply(() => api.saveEndpoint(d.id.trim(), endpointUpdate(d)), b.saved))
+              setEditing((open) => (open === editing ? undefined : open));
           }}
         />
       ) : (
         <div className="button-row">
-          <button className="ghost" onClick={() => setEditing('')} disabled={editing !== undefined}>
+          <button className="ghost" onClick={() => setEditing({ id: '' })} disabled={editing !== undefined}>
             ＋ {b.addEndpoint}
           </button>
         </div>
@@ -223,17 +261,60 @@ function EndpointForm({
   /** A new endpoint's id follows its name until the id is typed. */
   const [idTyped, setIdTyped] = useState(false);
   const [busy, setBusy] = useState(false);
-  const problems = endpointProblems(d, endpoints, endpoint?.id);
+  const [extraModels, setExtraModels] = useState('');
+  const [catalog, setCatalog] = useState<string[]>();
+  const [catalogError, setCatalogError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+
+  const selected = new Set([...d.models, ...parseModelList(extraModels)]);
+  const saveDraft = { ...d, models: [...selected] };
+  const problems = endpointProblems(saveDraft, endpoints, endpoint?.id);
+  const choices = [...new Set([...(catalog ?? []), ...(endpoint?.models ?? []), ...d.models])];
+  const changedUrl = endpoint && normalizedBaseUrl(d.baseUrl) !== endpoint.baseUrl;
+  const resetCatalog = () => {
+    request.current?.abort();
+    setLoading(false);
+    setCatalog(undefined);
+    setCatalogError('');
+  };
+  const loadModels = async () => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    setCatalogError('');
+    try {
+      const { apiKey, baseUrl } = endpointUpdate(d);
+      const result = await api.endpointModels({ baseUrl, endpointId: endpoint?.id, apiKey }, controller.signal);
+      if (!controller.signal.aborted) setCatalog(result.models);
+    } catch (error) {
+      if (!controller.signal.aborted) setCatalogError((error as Error).message);
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  };
   const problemText = (p: EndpointProblem): string =>
     p === 'models'
       ? b.problems.models(BACKEND_LIMITS.maxModels, BACKEND_LIMITS.maxModelId)
       : p === 'nameLong'
         ? b.problems.nameLong(BACKEND_LIMITS.maxName)
         : b.problems[p];
-  const set = (patch: Partial<EndpointDraft>) => setD((cur) => ({ ...cur, ...patch }));
+  const set = (patch: Partial<EndpointDraft>) => {
+    if ('baseUrl' in patch || 'apiKey' in patch || 'removeKey' in patch) resetCatalog();
+    setD((cur) => {
+      const next = { ...cur, ...patch };
+      if (patch.baseUrl !== undefined && cur.apiKey) {
+        const before = normalizedBaseUrl(cur.baseUrl);
+        if (before && before !== normalizedBaseUrl(patch.baseUrl)) next.apiKey = '';
+      }
+      return next;
+    });
+  };
 
   return (
-    <div className="sub-body">
+    <fieldset className="endpoint-editor sub-body" disabled={busy}>
       <label className="field">
         <span>{b.name}</span>
         <input
@@ -259,31 +340,79 @@ function EndpointForm({
         <input value={d.baseUrl} placeholder={b.baseUrlPlaceholder} spellCheck={false} onChange={(e) => set({ baseUrl: e.target.value })} />
       </label>
       <label className="field">
-        <span>{b.models}</span>
-        <textarea
-          rows={3}
-          value={d.models}
-          placeholder={b.modelsPlaceholder}
-          spellCheck={false}
-          onChange={(e) => set({ models: e.target.value })}
-        />
-      </label>
-      <label className="field">
         <span>{b.endpointKey}</span>
         <input
           type="password"
           value={d.apiKey}
           autoComplete="off"
-          placeholder={endpoint?.keyMasked ? b.endpointKeyKeep : ''}
+          placeholder={endpoint?.keyMasked && !changedUrl ? b.endpointKeyKeep : ''}
           onChange={(e) => set({ apiKey: e.target.value, removeKey: false })}
         />
       </label>
-      {endpoint?.keyMasked && (
+      {changedUrl && endpoint?.keyMasked && <p className="muted small">{b.keyAtNewUrl}</p>}
+      {endpoint?.keyMasked && !changedUrl && (
         <label className="check-row">
           <input type="checkbox" checked={d.removeKey} onChange={(e) => set({ removeKey: e.target.checked, apiKey: '' })} />
           <span>{b.removeKey}</span>
         </label>
       )}
+      <div className="button-row">
+        <button type="button" className="ghost" disabled={!validBaseUrl(d.baseUrl) || loading || busy} onClick={() => void loadModels()}>
+          {loading ? b.loadingModels : b.loadModels}
+        </button>
+      </div>
+      {catalogError && (
+        <p role="alert" className="error-line">
+          {catalogError}
+        </p>
+      )}
+      {catalog?.length === 0 && (
+        <p role="status" className="muted small">
+          {b.noModelsFound}
+        </p>
+      )}
+      {choices.length > 0 && (
+        <fieldset className="endpoint-models">
+          <legend>{b.chooseModels}</legend>
+          {choices.length > BACKEND_LIMITS.maxModels && <p className="muted small">{b.selectionLimit(BACKEND_LIMITS.maxModels)}</p>}
+          <div className="endpoint-model-options">
+            {choices.map((model) => (
+              <label className="check-row" key={model}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(model)}
+                  disabled={!selected.has(model) && selected.size >= BACKEND_LIMITS.maxModels}
+                  onChange={(event) => {
+                    if (event.target.checked) set({ models: [...d.models, model] });
+                    else {
+                      set({ models: d.models.filter((id) => id !== model) });
+                      setExtraModels(
+                        parseModelList(extraModels)
+                          .filter((id) => id !== model)
+                          .join('\n'),
+                      );
+                    }
+                  }}
+                />
+                <span>{model}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <details className="sub">
+        <summary>{b.manualModels}</summary>
+        <label className="field sub-body">
+          <span>{b.models}</span>
+          <textarea
+            rows={3}
+            value={extraModels}
+            placeholder={b.modelsPlaceholder}
+            spellCheck={false}
+            onChange={(event) => setExtraModels(event.target.value)}
+          />
+        </label>
+      </details>
       {problems.map((p) => (
         <p key={p} className="warn-line">
           {problemText(p)}
@@ -292,19 +421,19 @@ function EndpointForm({
       <div className="button-row">
         <button
           className="primary"
-          disabled={busy || problems.length > 0}
+          disabled={busy || loading || problems.length > 0}
           onClick={async () => {
             setBusy(true);
-            await onSave(d);
+            await onSave(saveDraft);
             setBusy(false);
           }}
         >
-          {t.common.save}
+          {busy ? b.checkingBeforeSave : t.common.save}
         </button>
         <button className="ghost" onClick={onCancel} disabled={busy}>
           {t.common.cancel}
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }

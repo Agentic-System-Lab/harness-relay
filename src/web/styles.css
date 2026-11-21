@@ -5396,6 +5396,53 @@ details.sub summary {
   margin: 0;
 }
 
+.model-connection + .model-connection {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.model-connection > summary {
+  padding-block: 4px;
+}
+
+.model-connection .connection-title {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.model-connection .connection-access {
+  display: block;
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.model-connection > .sub-body {
+  gap: 12px;
+}
+
+.endpoint-editor {
+  margin: 0;
+  padding-inline: 0;
+  min-width: 0;
+  border: 0;
+}
+
+.endpoint-models {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.endpoint-model-options {
+  display: grid;
+  gap: 6px;
+  max-height: 18rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
 /* Voice input: setup dialog and Settings card */
 .voice-dialog {
   width: min(580px, 100%);

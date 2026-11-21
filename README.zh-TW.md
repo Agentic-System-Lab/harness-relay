@@ -22,7 +22,7 @@
 - [功能](#功能)
 - [需求](#需求)
 - [快速開始](#快速開始)
-  - [開源 agent 與自定義模型](#開源-agent-與自定義模型)
+  - [模型連線](#模型連線)
 - [桌面 app](#桌面-app)
 - [安全性](#安全性)
 - [指令](#指令)
@@ -49,7 +49,7 @@
 
 ## 功能
 
-- **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[自定義模型](docs/user-guide.zh-TW.md#開源-agent-與自定義模型)）
+- **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#模型連線)）
 - **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），你確認後才開始；團隊回答完，它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)）
@@ -89,12 +89,14 @@ npm start
 - 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
 
 <a id="開源-agent-與模型來源"></a>
+<a id="開源-agent-與自定義模型"></a>
+<a id="開源-agent-的-api-key-與端點"></a>
 
-### 開源 agent 與自定義模型
+### 模型連線
 
-OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你在 **設定 → 自定義模型** 設定的模型來源：OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI。Claude Code、Codex、Grok 與 Copilot 也能在你自己的端點上執行。
+在 **設定 → 模型連線** 中，**開源助理的 API Key** 可為 OpenCode、Goose、Cline、OpenHands 與 Pi 設定 OpenAI、Anthropic 或 xAI 的金鑰。這五個助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，也能使用 **自訂端點**。展開後即可連接自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio 或 llama.cpp）。輸入端點網址與金鑰（選填），按 **載入模型**，勾選需要的模型，再按 **儲存**。Relay 會先向伺服器確認每個勾選或手動輸入的模型 ID，確認成功才儲存。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。這五個開源助理需要 API key 或自訂端點，不能使用 Claude 訂閱帳號或 Grok 的登入。
 
-怎麼設定，以及每個 agent 要注意的地方：使用者說明的[開源 agent 與自定義模型](docs/user-guide.zh-TW.md#開源-agent-與自定義模型)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
+怎麼設定，以及每個 agent 要注意的地方：使用者說明的[模型連線](docs/user-guide.zh-TW.md#模型連線)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
 
 ## 桌面 app
 

@@ -102,6 +102,7 @@ import {
 } from './share';
 import { parseScreenshots, uploadScreenshots } from './screenshots';
 import { Updates } from './updates';
+import { listEndpointModels, verifyEndpointModels } from './endpointModels';
 import type { Store, TaskRequest } from './store';
 import {
   ensureFolder,
@@ -113,6 +114,7 @@ import {
   validEndpointId,
   validateBackendKey,
   validateEndpoint,
+  validateEndpointCatalog,
   validAgentsViewLink,
   validAgentsViewUrl,
   validDirectories,
@@ -611,6 +613,12 @@ export function createApp({
 
   app.get('/api/backends', (c) => c.json(settings.backends.view()));
 
+  app.post('/api/backends/endpoint-models', async (c) => {
+    const { baseUrl, endpointId, apiKey } = validateEndpointCatalog(await body<unknown>(c));
+    const key = apiKey === undefined ? settings.backends.endpointCatalogKey(endpointId, baseUrl) : apiKey;
+    return c.json({ models: await listEndpointModels(baseUrl, key) });
+  });
+
   // Each change to the backends refreshes the model menus and the agents' status, also one that failed
   // part way (an endpoint saved while the credential store refused its key).
   const changingBackends = <T>(change: () => T): T => {
@@ -629,10 +637,16 @@ export function createApp({
     return c.json(settings.backends.view());
   });
 
-  // Adds a custom endpoint, or replaces the one with this id (its key stays unless `apiKey` is sent).
+  // A saved key stays with its base URL. Changing the base URL clears it unless a replacement is sent.
   app.put('/api/backends/endpoints/:id', async (c) => {
     const id = validEndpointId(c.req.param('id'));
     const endpoint = validateEndpoint(await body<unknown>(c));
+    if (endpoint.verifyModels) {
+      const revision = settings.backends.endpointRevision(id);
+      const key = endpoint.apiKey === undefined ? settings.backends.endpointCatalogKey(id, endpoint.baseUrl) : endpoint.apiKey;
+      await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models);
+      if (settings.backends.endpointRevision(id) !== revision) throw new HttpError(409, t().endpointVerifyChanged);
+    }
     changingBackends(() => settings.backends.putEndpoint(id, endpoint));
     return c.json(settings.backends.view());
   });

@@ -86,8 +86,8 @@ export interface FakeLogEntry {
 
 /**
  * The test's fake model endpoint, a small HTTP server of its own: Harness Relay's endpoint `e2e`
- * (Settings → Custom models) with its models, unless the test asks for none (`openBackend: false`).
- * No model answers there: it lists its models (`GET /v1/models`), and takes the log lines of fakes
+ * (Settings → Model connections) with its models, unless the test asks for none (`openBackend: false`).
+ * It lists two models (`GET /v1/models`), serves one more by ID, and takes the log lines of fakes
  * that run in Harness Relay's own sandbox (`POST /e2e-log`), the run's backend being the one host
  * the sandbox lets a run reach.
  */
@@ -96,8 +96,10 @@ export interface FakeEndpoint {
   url: string;
   /** The endpoint's id in Harness Relay, its models' prefix (`e2e/e2e-model`). */
   id: 'e2e';
-  /** Its models, the first the open agents' default. */
+  /** Its listed models, the first the open agents' default. */
   models: string[];
+  /** A model the endpoint serves by ID but omits from its list. */
+  unlistedModel: string;
 }
 
 export interface RelayServer {
@@ -186,6 +188,7 @@ function testRootBase(): string {
 
 /** The fake endpoint's models (`FakeEndpoint`). */
 const FAKE_MODELS = ['e2e-model', 'e2e-model-mini'];
+const UNLISTED_MODEL = 'unlisted-model';
 
 /** Starts the fake endpoint, which adds the log lines it is sent to `log`. */
 async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint; logUrl: string; close(): Promise<void> }> {
@@ -211,6 +214,10 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
       const data = FAKE_MODELS.map((id) => ({ id, object: 'model', created: 0, owned_by: 'e2e' }));
       return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ object: 'list', data }));
     }
+    if (req.method === 'GET' && path.startsWith('/v1/models/')) {
+      const id = [...FAKE_MODELS, UNLISTED_MODEL].find((model) => path === '/v1/models/' + encodeURIComponent(model));
+      if (id) return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id, object: 'model' }));
+    }
     res.writeHead(404).end();
   });
   await new Promise<void>((resolve, reject) => {
@@ -219,7 +226,7 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
   });
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
-    endpoint: { url: `${origin}/v1`, id: 'e2e', models: [...FAKE_MODELS] },
+    endpoint: { url: `${origin}/v1`, id: 'e2e', models: [...FAKE_MODELS], unlistedModel: UNLISTED_MODEL },
     logUrl: `${origin}/e2e-log`,
     close: () =>
       new Promise<void>((resolve) => {

@@ -244,9 +244,9 @@
           <li><a href="#api-keys">Or use an API key</a></li>
           <li>
             <details>
-              <summary>Open-source agents and custom models</summary>
+              <summary>Model connections</summary>
               <ol>
-                <li><a href="#open-agents" aria-label="Open-source agents and custom models overview">Overview</a></li>
+                <li><a href="#open-agents" aria-label="Model connections overview">Overview</a></li>
                 <li><a href="#agents-on-your-server">Other agents can use your own models</a></li>
               </ol>
             </details>
@@ -280,7 +280,7 @@
           <p>
             Click <b>Settings &amp; sign-in</b> at the foot of the sidebar. <b>Available AI assistants</b> lists the assistants ready to use.
             Open <b>Connect another assistant</b> to see who needs installation, sign-in or a model backend. Choose an assistant to open its setup.
-            <b>Custom models</b> comes before the agents, then each agent has a card. A card shows the agent's version, or, when Harness
+            <b>Model connections</b> comes before the agents, then each agent has a card. A card shows the agent's version, or, when Harness
             Relay does not find it on your computer, a button that <a href="../install/#what-else">installs it</a>. Each of its
             accounts has a box of its own, with its sign-in, its API key and its default model.
           </p>
@@ -396,22 +396,26 @@
         </section>
 
         <section id="open-agents" aria-labelledby="open-agents-title">
-          <h2 id="open-agents-title">Open-source agents and custom models</h2>
+          <h2 id="open-agents-title">Model connections</h2>
           <p>
             OpenCode, Goose, Cline, OpenHands and Pi have no sign-in. They run on the model backends you set up under
-            <b>Settings → Custom models</b>, and on nothing else:
+            <b>Settings → Model connections</b>.
           </p>
           <ul>
             <li>
-              <b>API keys</b>: one each for <b>OpenAI</b>, <b>Anthropic</b> and <b>xAI</b>. Paste it and click <b>Save</b>.
+              Expand <b>API keys for open-source assistants</b> to give these five assistants an <b>OpenAI</b>, <b>Anthropic</b> or <b>xAI</b> key. Paste the key and click <b>Save</b>.
               Your Claude subscription and Grok sign-in cannot be used here: Anthropic does not allow its subscription in other
               agents.
             </li>
             <li>
-              <b>Custom endpoints</b>: a model server of your own that speaks OpenAI's API, such as vLLM, Ollama, LM Studio or
-              llama.cpp. <b>Add endpoint</b> asks for a name, a short id (such as <code>homelab</code>), its address (for
-              Ollama on this computer, <code>http://localhost:11434/v1</code>) and the names of its models, one per line, plus
-              its API key if it needs one.
+              <b>Custom endpoints</b> lists its supported assistants even when collapsed. The five open-source assistants, plus Claude Code, Codex, Grok and GitHub Copilot, can use your own server. Expand this section to connect vLLM, Ollama, LM Studio or another OpenAI-compatible server such as llama.cpp.
+              Choose <b>Add endpoint</b>, give it a name and short ID (such as <code>homelab</code>), and enter its base URL
+              (for local Ollama, <code>http://localhost:11434/v1</code>) and optional key. Click <b>Load models</b>,
+              select the IDs you want in the assistants’ menus, or use <b>Enter model IDs manually</b> to add an ID. Previously saved IDs stay selected.
+              Click <b>Save</b> to verify every selected or manually entered ID. Relay reads the catalog again and checks
+              individual model details for IDs missing from the list or when the server does not support listing models.
+              A manually entered ID must appear in one of these responses. If the server is unreachable, the key is rejected
+              or a model ID cannot be verified, the form shows the reason and keeps your edits. The previous settings stay in effect.
             </li>
           </ul>
           <figure class="doc-figure">
@@ -419,10 +423,20 @@
               src="../../assets/media/docs/agents-backends-en.webp"
               width="1280"
               height="800"
-              alt="Custom models in Settings &amp; sign-in, showing empty API key fields for OpenAI, Anthropic and xAI and the Homelab vLLM custom endpoint."
+              alt="Model connections shows two collapsed sections, each listing the assistants it supports."
               loading="lazy"
             />
-            <figcaption>Add your own model server under Custom models. The <a href="../../use-cases/#contract-review">contract review example</a> shows how to use an endpoint like this in a chat.</figcaption>
+            <figcaption>Connect your own model server in Settings → Model connections. The <a href="../../use-cases/#contract-review">contract review example</a> shows how to use an endpoint like this in a chat.</figcaption>
+          </figure>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/agents-endpoint-models-en.webp"
+              width="910"
+              height="574"
+              alt="In the endpoint form, muse-glimmer-30b-nvfp4 and qwen3:8b are selected, and gemma3:4b is unchecked."
+              loading="lazy"
+            />
+            <figcaption>After loading the catalog, check the models you want to appear in your assistants’ menus.</figcaption>
           </figure>
           <p>
             A member of an open-source agent then gets a model written as backend and name: <code>openai/…</code>,
@@ -498,7 +512,7 @@
             <p>The user guide has the details: each agent's sign-in and its quirks, which APIs each agent needs from your server, what each account keeps apart, and what each agent loads by itself.</p>
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in">Sign in to each agent</a></li>
-              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#open-source-agents-and-custom-models">Open-source agents and custom models</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#model-connections">Model connections</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#more-than-one-account">More than one account</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.md">Open agents</a></li>
             </ul>

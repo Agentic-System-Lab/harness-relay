@@ -693,7 +693,7 @@ const LEGACY_MODELS_BEGIN =
 // Keep the marker independent of the display name of the settings section.
 const MODELS_BEGIN = '# >>> harness-relay models';
 const MODELS_SECTION = /^# >>> harness-relay models\r?\n[\s\S]*?^# <<< harness-relay models(?=\r?$)/m;
-const MODELS_NOTE = '# Your endpoints from Harness Relay Settings → Custom models. Relay replaces this block.';
+const MODELS_NOTE = '# Your endpoints from Harness Relay Settings → Model connections. Relay replaces this block.';
 const MODELS_END = '# <<< harness-relay models';
 
 /**

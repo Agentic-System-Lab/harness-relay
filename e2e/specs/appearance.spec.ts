@@ -86,8 +86,10 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 6');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 7');
     await expect(update.locator('.tour-art')).toHaveCount(0);
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Start a new chat');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -95,7 +97,9 @@ test.describe('the guided tour', () => {
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 6');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 7');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Start a new chat');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -109,6 +113,11 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Done', exact: true }).click();
     await page.reload();
     await appShown(page);
+    await expect(update).toHaveCount(0);
+    await page.evaluate(() => localStorage.setItem('relay:onboarded', '35'));
+    await page.reload();
+    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
+    await update.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(update).toHaveCount(0);
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();

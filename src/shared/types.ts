@@ -18,7 +18,7 @@ export function isOpenProvider(p: Provider): p is OpenProvider {
 
 /**
  * The CLIs with a sign-in of their own that can also run on one of the user's own endpoints of
- * Settings → Custom models (Claude Code, Codex, Grok, Copilot): a member's model `<endpoint id>/<model>`.
+ * Settings → Model connections (Claude Code, Codex, Grok, Copilot): a member's model `<endpoint id>/<model>`.
  * Cursor, Antigravity and Muse Code have a sign-in too, but their models run only through their own
  * services (Muse Code's needs the Meta API's own model catalog, `/muse-code/models`, which an
  * OpenAI-compatible server does not serve).
@@ -2603,7 +2603,7 @@ export interface ModelOption {
   defaultEffort?: string;
   /**
    * The id of the user's own endpoint this model is on, for Claude Code, Codex and Grok (a model of
-   * Settings → Custom models): it runs only an effort of `efforts`, and another one it would inherit
+   * Settings → Model connections): it runs only an effort of `efforts`, and another one it would inherit
    * becomes `defaultEffort`, or none (`endpointEffort`).
    */
   endpoint?: string;
@@ -2717,7 +2717,7 @@ export interface ProviderSettingsUpdate {
 // --- Model backends: what the open agents run their models on --------------------------------
 
 /**
- * The model APIs the open agents reach with an API key kept in Settings (Settings → Custom models).
+ * The model APIs the open agents reach with an API key kept in Settings (Settings → Model connections).
  * The Claude subscription and Grok's sign-in cannot be used by these CLIs.
  */
 export const API_BACKENDS = ['openai', 'anthropic', 'xai'] as const;
@@ -2754,7 +2754,7 @@ export interface ModelEndpointView {
   name: string;
   /** Its OpenAI-compatible base URL, such as `http://10.0.0.5:8000/v1`. */
   baseUrl: string;
-  /** The model names it serves, as typed by the user (Harness Relay never asks the server). */
+  /** The model IDs the user selected from its catalog or entered in Settings. */
   models: string[];
   /** Masked API key; empty = none (many local servers take none). */
   keyMasked: string;
@@ -2775,6 +2775,8 @@ export interface ModelBackendsView {
 
 /** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */
 export interface ModelEndpointUpdate {
+  /** Verify model metadata before saving this endpoint. The Settings form requests this on every save. */
+  verifyModels?: boolean;
   name: string;
   baseUrl: string;
   models: string[];

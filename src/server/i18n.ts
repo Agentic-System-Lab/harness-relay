@@ -242,11 +242,11 @@ const zhTW = {
   openBadModel: (cli: string, id: string) =>
     `${cli} 的模型「${id}」不是「模型來源/模型」的格式（例如 anthropic/claude-haiku-5-5、xai/grok-4.3，或你的端點 id 加上模型名稱）。`,
   openBackendMissing: (cli: string, backend: string, id: string) =>
-    `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 自定義模型」設定，或改選其他模型。`,
+    `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 模型連線」設定，或改選其他模型。`,
   openEndpointMissing: (cli: string, endpoint: string, id: string) =>
-    `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 自定義模型」新增，或改選其他模型。`,
+    `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型連線」新增，或改選其他模型。`,
   endpointDeleted: (cli: string, endpoint: string, id: string) =>
-    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 自定義模型」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 自定義模型 → 已刪除的端點」忘掉「${endpoint}」。`,
+    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型連線」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 模型連線 → 已刪除的端點」忘掉「${endpoint}」。`,
   openNoHome: 'Harness Relay 沒有給這個 agent 它自己的家目錄。',
   openNoWindowsSandbox: (cli: string) =>
     `在 Windows 上，Harness Relay 的沙箱還不能保護 ${cli}，所以它只能以「完全存取」執行。請改用完全存取（只在你信任的資料夾），或在 WSL 中執行 Harness Relay。`,
@@ -271,17 +271,17 @@ const zhTW = {
   openRejectedModel: (cli: string, model: string, e: string) => `${cli} 不接受模型「${model}」：${e}`,
   openRejectedEffort: (cli: string, effort: string, e: string) => `${cli} 不接受推理強度「${effort}」：${e}`,
   openNativeNotYet: (cli: string) => `Harness Relay 還不能列出 ${cli} 自己載入的項目。`,
-  openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 自定義模型」裡的 API key 與端點。`,
+  openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 模型連線」裡的 API key 與端點。`,
   openBackendsReady: (names: string) => `模型來源：${names}`,
-  openNoBackend: '請到「設定 → 自定義模型」加入 API 金鑰或端點',
+  openNoBackend: '請到「設定 → 模型連線」加入 API 金鑰或端點',
 
   // Goose (src/server/agents/goose.ts)
   gooseSessionNotChecked: (detail: string) =>
     `Harness Relay 無法檢查 Goose 這個 session 存的擴充功能清單（${detail}），所以沒有接續它：先前執行的指令可能在裡面加了不經詢問就會啟動的程式。這一輪改用新的 session。`,
-  gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 自定義模型」檢查這把 key。`,
+  gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型連線」檢查這把 key。`,
   gooseModelNotFound: (backend: string, model: string) => `${backend} 沒有模型「${model}」（404）。請在成員設定換一個模型。`,
   gooseUnreachable: (backend: string, host: string) =>
-    `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 自定義模型」檢查端點的網址。`,
+    `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型連線」檢查端點的網址。`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id: string) => `找不到 session ${id} 的檔案（可能已被刪除）`,
   piSessionMoved: (then: string, now: string) => `這個 session 的工作目錄是 ${then}，這一輪的是 ${now}`,
@@ -293,7 +293,7 @@ const zhTW = {
   piModelMismatch: (want: string, got: string) => `Pi 選了模型「${got}」，不是指定的「${want}」`,
   piEffortLevels: (levels: string) => `這個模型可用的強度：${levels}`,
   piPromptRejected: (e: string) => `Pi 沒有接受這一輪的訊息：${e}`,
-  piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 自定義模型」檢查金鑰。`,
+  piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 模型連線」檢查金鑰。`,
   piModelRejected: (model: string, backend: string, e: string) => `${backend} 沒有可用的模型「${model}」（${e}）。請改選其他模型。`,
   piUnreachable: (backend: string, e: string) => `連不上 ${backend}：${e}`,
   piEndpointUnreachable: (name: string, url: string, e: string) =>
@@ -301,16 +301,16 @@ const zhTW = {
   piModelError: (e: string) => `模型回報錯誤：${e}`,
 
   // Cline (src/server/agents/cline.ts)
-  clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 自定義模型」檢查這把 key。`,
+  clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 模型連線」檢查這把 key。`,
   clineBadModel: (model: string, where: string, e: string) =>
     `模型來源「${where}」沒有 Cline 要用的模型「${model}」：${e}。請改選這個來源提供的模型。`,
   clineUnreachable: (where: string, e: string) =>
-    `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 自定義模型）。`,
+    `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型連線）。`,
   clineFailed: (e: string) => `Cline 沒有完成這一輪：${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: '完全存取以外不允許：OpenHands 的 subagent 會不經詢問執行指令與修改檔案',
   openhandsNoSuchSession: '它的 session 資料夾裡沒有這個 session',
-  openhandsBadKey: (backend: string) => `${backend} 不接受 OpenHands 用的 API key（401）。請到「設定 → 自定義模型」檢查金鑰。`,
+  openhandsBadKey: (backend: string) => `${backend} 不接受 OpenHands 用的 API key（401）。請到「設定 → 模型連線」檢查金鑰。`,
   openhandsBadModel: (backend: string, model: string) => `${backend} 沒有模型「${model}」，或這把金鑰不能用它。請為這位成員選另一個模型。`,
   openhandsUnreachable: (backend: string, e: string) => `OpenHands 連不到模型來源 ${backend}：${e}`,
   openhandsRateLimited: (backend: string, e: string) => `${backend} 暫時拒絕了 OpenHands 的請求（額度或速率限制）：${e}`,
@@ -344,8 +344,22 @@ const zhTW = {
   endpointIdInvalid: (id: string) => `端點 id「${id}」只能用小寫英文字母、數字與 -（開頭與結尾不能是 -，最多 32 個字元）。`,
   endpointIdReserved: (id: string) => `「${id}」是內建模型來源的名稱，請為端點取別的 id。`,
   endpointNameMissing: '請輸入端點的名稱',
-  endpointUrlInvalid: (url: string) => `「${url}」不是可用的端點網址：需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。`,
-  endpointUrlRelay: (url: string) => `「${url}」是 Harness Relay 自己的位址，不能當成模型端點。`,
+  endpointUrlInvalid: '請輸入以 http:// 或 https:// 開頭的端點網址，不含帳號密碼、查詢字串或 #。',
+  endpointUrlRelay: '這是 Harness Relay 自己的位址，不能當成模型端點。',
+  endpointCatalogKeyUnreadable: '無法讀取已儲存的 API key。請重新輸入，或解鎖憑證庫後重新啟動 Harness Relay。',
+  endpointVerifyNeedsModel: '端點不支援列出模型。請輸入至少一個模型 ID，讓 Harness Relay 在儲存前確認端點。',
+  endpointVerifyMismatch: (id: string) => `端點未回傳符合「${id}」的模型資料。請檢查模型 ID。`,
+  endpointVerifyModelHttp: (id: string, status: number) => `無法確認模型「${id}」（HTTP ${status}）。請檢查模型 ID 與 API key 的存取權限。`,
+  endpointVerifyModelError: (id: string, reason: string) => `無法確認模型「${id}」。${reason}`,
+  endpointVerifyChanged: '確認模型時，端點設定已有變更。請重新開啟設定，確認後再儲存。',
+  endpointVerifyTimeout: '模型檢查逾時。請確認端點可連線後再試一次。',
+  endpointCatalogConnection: '無法讀取端點回應。請確認網址與連線後再試一次。',
+  endpointResponseTooLarge: (single: number, total: number) =>
+    `模型資料超過大小上限。每個回應最多 ${single} MiB，每次驗證總計最多 ${total} MiB。`,
+  endpointCatalogDenied: (status: number) => `端點拒絕讀取模型清單（HTTP ${status}）。請檢查 API key 與存取權限。`,
+  endpointCatalogHttp: (status: number) => `端點的 /models 回傳 HTTP ${status}。請檢查 OpenAI 相容 API 的基底網址。`,
+  endpointCatalogInvalid: (mib: number) =>
+    `/models 需要回傳含有 data 陣列的 JSON 模型清單，每個模型以 id 標示，回應大小上限為 ${mib} MiB。`,
   endpointModelsInvalid: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元，不能含空白。`,
   backendUnknown: (id: string) => `未知的模型來源：${id}`,
   claudeReopens: (file: string, entry: string) =>
@@ -356,9 +370,8 @@ const zhTW = {
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // OpenCode (agents/opencode.ts)
   opencodeBackendError: (backend: string, e: string) =>
-    `模型來源 ${backend} 回報錯誤，OpenCode 無法完成這一輪：${e}。請檢查「設定 → 自定義模型」裡的 API key、端點網址與模型名稱。`,
-  opencodeAuthRequired: (backend: string) =>
-    `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 自定義模型」檢查。`,
+    `模型來源 ${backend} 回報錯誤，OpenCode 無法完成這一輪：${e}。請檢查「設定 → 模型連線」裡的 API key、端點網址與模型名稱。`,
+  opencodeAuthRequired: (backend: string) => `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 模型連線」檢查。`,
   opencodeForeignControl: (detail: string) =>
     `安全問題，這次執行已停止：OpenCode 自己的伺服器被 Harness Relay 以外的程式操作了（${detail}）。agent 執行的指令可能讀到了它伺服器的密碼。沙箱的檔案與網路限制仍然有效；請檢查這一輪做了什麼。`,
   opencodeNoLinuxSandbox:
@@ -1249,11 +1262,11 @@ const en: ServerMessages = {
   openBadModel: (cli, id) =>
     `${cli}'s model "${id}" is not "backend/model" (such as anthropic/claude-haiku-5-5, xai/grok-4.3, or your endpoint's id and a model name).`,
   openBackendMissing: (cli, backend, id) =>
-    `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Custom models, or pick another model.`,
+    `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Model connections, or pick another model.`,
   openEndpointMissing: (cli, endpoint, id) =>
-    `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Custom models, or pick another model.`,
+    `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model connections, or pick another model.`,
   endpointDeleted: (cli, endpoint, id) =>
-    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Custom models. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Custom models → Deleted endpoints.`,
+    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model connections. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Model connections → Deleted endpoints.`,
   openNoHome: 'Harness Relay gave this agent no home of its own.',
   openNoWindowsSandbox: (cli) =>
     `On Windows, Harness Relay's sandbox cannot protect ${cli} yet, so it only runs with full access. Use full access (only in a folder you trust), or run Harness Relay in WSL.`,
@@ -1277,17 +1290,17 @@ const en: ServerMessages = {
   openRejectedModel: (cli, model, e) => `${cli} does not accept the model "${model}": ${e}`,
   openRejectedEffort: (cli, effort, e) => `${cli} does not accept the reasoning effort "${effort}": ${e}`,
   openNativeNotYet: (cli) => `Harness Relay cannot list what ${cli} loads by itself yet.`,
-  openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Custom models.`,
+  openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Model connections.`,
   openBackendsReady: (names) => `Model backends: ${names}`,
-  openNoBackend: 'No model backend set up yet (Settings → Custom models)',
+  openNoBackend: 'No model backend set up yet (Settings → Model connections)',
 
   // Goose (src/server/agents/goose.ts)
   gooseSessionNotChecked: (detail) =>
     `Harness Relay could not check the extension list Goose keeps for this session (${detail}), so it did not resume it: an earlier run's command could have added a program there that starts without asking. The turn starts a fresh session instead.`,
-  gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Custom models.`,
+  gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model connections.`,
   gooseModelNotFound: (backend, model) => `${backend} has no model "${model}" (404). Pick another model in the member's settings.`,
   gooseUnreachable: (backend, host) =>
-    `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Custom models.`,
+    `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model connections.`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id) => `The file of session ${id} is gone (it may have been deleted)`,
   piSessionMoved: (then, now) => `the session's working directory is ${then}, this turn's is ${now}`,
@@ -1299,7 +1312,7 @@ const en: ServerMessages = {
   piModelMismatch: (want, got) => `Pi picked the model "${got}", not "${want}"`,
   piEffortLevels: (levels) => `this model takes: ${levels}`,
   piPromptRejected: (e) => `Pi did not take this turn's message: ${e}`,
-  piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Custom models.`,
+  piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Model connections.`,
   piModelRejected: (model, backend, e) => `${backend} has no model "${model}" it can use (${e}). Pick another model.`,
   piUnreachable: (backend, e) => `Could not reach ${backend}: ${e}`,
   piEndpointUnreachable: (name, url, e) =>
@@ -1307,16 +1320,16 @@ const en: ServerMessages = {
   piModelError: (e) => `The model reported an error: ${e}`,
 
   // Cline (src/server/agents/cline.ts)
-  clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Custom models.`,
+  clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Model connections.`,
   clineBadModel: (model, where, e) =>
     `The model backend "${where}" has no model "${model}" for Cline: ${e}. Pick a model this backend offers.`,
   clineUnreachable: (where, e) =>
-    `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Custom models).`,
+    `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model connections).`,
   clineFailed: (e) => `Cline did not finish this turn: ${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: "Not allowed below full access: OpenHands' subagents run commands and edit files without asking",
   openhandsNoSuchSession: 'its session folder holds no such session',
-  openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Custom models.`,
+  openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Model connections.`,
   openhandsBadModel: (backend, model) =>
     `${backend} has no model "${model}", or this key cannot use it. Pick another model for this member.`,
   openhandsUnreachable: (backend, e) => `OpenHands could not reach the model backend ${backend}: ${e}`,
@@ -1353,9 +1366,25 @@ const en: ServerMessages = {
     `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
   endpointIdReserved: (id) => `"${id}" is the name of a built-in model backend; give the endpoint another id.`,
   endpointNameMissing: 'Enter a name for the endpoint',
-  endpointUrlInvalid: (url) =>
-    `"${url}" is not an endpoint address that can be used: it must start with http:// or https://, without a user name, password, query or #.`,
-  endpointUrlRelay: (url) => `"${url}" is Harness Relay's own address; it cannot be a model endpoint.`,
+  endpointUrlInvalid:
+    'This is not an endpoint address that can be used. Enter an http:// or https:// address without a username, password, query or fragment.',
+  endpointUrlRelay: "This is Harness Relay's own address. Choose a model endpoint.",
+  endpointCatalogKeyUnreadable:
+    'The saved API key could not be read. Enter it again, or unlock the credential store and restart Harness Relay.',
+  endpointVerifyNeedsModel:
+    'This endpoint does not support listing models. Enter at least one model ID so Harness Relay can verify it before saving.',
+  endpointVerifyMismatch: (id) => `The endpoint did not return a matching record for model "${id}". Check the model ID.`,
+  endpointVerifyModelHttp: (id, status) => `Could not verify model "${id}" (HTTP ${status}). Check the model ID and API key permissions.`,
+  endpointVerifyModelError: (id, reason) => `Could not verify model "${id}". ${reason}`,
+  endpointVerifyChanged: 'The endpoint settings changed during verification. Reopen the settings and review them before saving.',
+  endpointVerifyTimeout: 'The model check timed out. Check the endpoint connection and try again.',
+  endpointCatalogConnection: 'Could not read the endpoint response. Check the address and connection, then try again.',
+  endpointResponseTooLarge: (single, total) =>
+    `Model metadata exceeded the size limit of ${single} MiB per response and ${total} MiB per verification.`,
+  endpointCatalogDenied: (status) =>
+    `The endpoint denied access to its model list (HTTP ${status}). Check the API key and its permissions.`,
+  endpointCatalogHttp: (status) => `The endpoint returned HTTP ${status} for /models. Check the OpenAI-compatible API base URL.`,
+  endpointCatalogInvalid: (mib) => `Expected /models to return a JSON object with a data array of model IDs, within ${mib} MiB.`,
   endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
   backendUnknown: (id) => `Unknown model backend: ${id}`,
   claudeReopens: (file, entry) =>
@@ -1365,9 +1394,9 @@ const en: ServerMessages = {
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   opencodeBackendError: (backend, e) =>
-    `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Custom models.`,
+    `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Model connections.`,
   opencodeAuthRequired: (backend) =>
-    `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Custom models.`,
+    `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model connections.`,
   opencodeForeignControl: (detail) =>
     `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
   opencodeNoLinuxSandbox:

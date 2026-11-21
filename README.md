@@ -22,7 +22,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
-  - [Open-source agents and custom models](#open-source-agents-and-custom-models)
+  - [Model connections](#model-connections)
 - [Desktop app](#desktop-app)
 - [Safety](#safety)
 - [Scripts](#scripts)
@@ -49,7 +49,7 @@ These twelve examples are just a starting point. Bring your curiosity and a task
 
 ## Features
 
-- **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [custom models](docs/user-guide.md#open-source-agents-and-custom-models))
+- **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [API keys and endpoints](docs/user-guide.md#model-connections))
 - **A team for every question**: the lead agent picks or designs the team (roles, models, reasoning effort, turn order) from your templates, you confirm it, and once the team has answered it reviews the replies and marks what needs your attention. ([Auto team](docs/user-guide.md#auto-team), [templates](docs/user-guide.md#templates), [lead review](docs/user-guide.md#lead-review))
 - **Team checks**: set protected paths, a commit format and commands such as `npm test` for your whole team in Edit and Full access chats. Harness Relay checks the work itself, and runs hooks around supported tool calls. ([Team checks](docs/user-guide.md#team-checks))
 - **Agents talk to each other**: roundtable, parallel or relay, and `@mentions` to address one of them. ([Conversation rules](docs/user-guide.md#conversation-rules))
@@ -89,12 +89,14 @@ Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787
 - Working on Harness Relay itself? Run `npm run dev` instead (at http://localhost:5173): see [Running](docs/developer-guide.md#running) in the developer guide.
 
 <a id="open-source-agents-and-model-backends"></a>
+<a id="open-source-agents-and-custom-models"></a>
+<a id="api-keys-and-endpoints-for-open-source-agents"></a>
 
-### Open-source agents and custom models
+### Model connections
 
-OpenCode, Goose, Cline, OpenHands and Pi have no sign-in: they run on the model backends you set up under **Settings → Custom models**, an API key for OpenAI, Anthropic or xAI, or your own OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp). Give a member a model as `backend/model`, such as `openai/gpt-5.4-nano` or `homelab/muse-glimmer-30b-nvfp4`. The Claude subscription and Grok's sign-in cannot be used by these CLIs. Claude Code, Codex, Grok and Copilot can run on your own endpoints too.
+In **Settings → Model connections**, **API keys for open-source assistants** lets OpenCode, Goose, Cline, OpenHands and Pi use an OpenAI, Anthropic or xAI key. Those five agents and Claude Code, Codex, Grok and GitHub Copilot can also use **Custom endpoints**. Expand it to connect your own OpenAI-compatible server (vLLM, Ollama, LM Studio or llama.cpp). Enter its base URL and optional key, click **Load models**, select the models you want and click **Save**. Relay checks selected and manually entered IDs against the server before saving them. Give a member a model as `backend/model`, such as `openai/gpt-5.4-nano` or `homelab/muse-glimmer-30b-nvfp4`. The Claude subscription and Grok sign-in are unavailable to these five open-source agents.
 
-How to set them up, and what to expect from each agent: [Open-source agents and custom models](docs/user-guide.md#open-source-agents-and-custom-models) in the user guide. How each one works: [OpenCode](docs/open-agents.md#opencode), [Goose](docs/open-agents.md#goose), [Cline](docs/open-agents.md#cline), [OpenHands](docs/open-agents.md#openhands) and [Pi](docs/open-agents.md#pi), in Open agents.
+How to set them up, and what to expect from each agent: [Model connections](docs/user-guide.md#model-connections) in the user guide. How each one works: [OpenCode](docs/open-agents.md#opencode), [Goose](docs/open-agents.md#goose), [Cline](docs/open-agents.md#cline), [OpenHands](docs/open-agents.md#openhands) and [Pi](docs/open-agents.md#pi), in Open agents.
 
 ## Desktop app
 

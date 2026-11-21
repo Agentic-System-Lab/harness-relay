@@ -595,9 +595,11 @@ export const api = {
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  endpointModels: (b: { baseUrl: string; endpointId?: string; apiKey?: string | null }, signal?: AbortSignal) =>
+    request<{ models: string[] }>('POST', '/api/backends/endpoint-models', b, signal),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),
   saveEndpoint: (id: string, b: ModelEndpointUpdate) =>
-    request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
+    request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, { ...b, verifyModels: true }),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
   updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault'>) => request<CheckList>('PATCH', '/api/settings/checks-default', patch),

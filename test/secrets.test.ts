@@ -290,7 +290,9 @@ describe('secrets encrypted in the database (no credential store)', () => {
     ).toThrow(/讀不到 MCP 伺服器「github」.*加密它們的金鑰檔不見了/);
     after.update('codex', { bin: '/opt/codex' });
     after.backends.putEndpoint('lab', { name: 'Lab', baseUrl: 'http://lab:8000/v1', models: ['m'] });
-    expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', expect.stringMatching(/^mcp-/)]);
+    // The new endpoint masks any orphan key of its ID in an offline native credential store.
+    expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', 'endpoint-lab-api-key', expect.stringMatching(/^mcp-/)]);
+    expect(open().get('endpoint-lab-api-key')).toBe('');
     // Set again, it is read with the new key.
     after.backends.setApiKey('openai', 'sk-openai-new');
     expect(new SettingsStore(db, open()).backends.forRun().apis).toEqual({ openai: 'sk-openai-new' });

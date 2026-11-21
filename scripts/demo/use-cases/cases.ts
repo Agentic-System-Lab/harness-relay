@@ -1346,7 +1346,7 @@ const contractReview: UseCase = {
   async drive(s) {
     const { page, moveClick, mark } = s;
     const T = M(s);
-    // Settings → Custom models: the server of your own, then the lead agent on it.
+    // Settings → Model connections: the server of your own, then the lead agent on it.
     await s.moveTo(700, 420, 300);
     await page.locator('#settings-backends').scrollIntoViewIfNeeded();
     await sleep(3500);
@@ -1393,7 +1393,7 @@ const contractReview: UseCase = {
   },
   rail: {
     en: [
-      { at: 'start', kind: 'you', say: 'Settings → Custom models: your own vLLM server, serving Qwen3.8 27B.' },
+      { at: 'start', kind: 'you', say: 'Settings → Model connections: your own vLLM server, serving Qwen3.8 27B.' },
       { at: 'lead-model', kind: 'you', say: 'The lead agent runs on it too, as every member’s default model does.' },
       {
         at: 'chat-open',
@@ -1422,7 +1422,7 @@ const contractReview: UseCase = {
       { at: 'files', kind: 'you', say: 'Open REDLINE-MEMO.md in Files: each change, its rule, and what to tell the vendor.' },
     ],
     'zh-TW': [
-      { at: 'start', kind: 'you', say: '設定 → 自定義模型：你自己的 vLLM 伺服器，跑的是 Qwen3.8 27B。' },
+      { at: 'start', kind: 'you', say: '設定 → 模型連線：你自己的 vLLM 伺服器，跑的是 Qwen3.8 27B。' },
       { at: 'lead-model', kind: 'you', say: '首席 agent 也用它，每位成員的預設模型也是它。' },
       { at: 'chat-open', kind: 'you', say: '在 vendor-contract 開新對話、權限選「可編輯」：請他們依你的審閱準則修訂廠商的草稿。' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行、都用你的伺服器，並說明原因。' },

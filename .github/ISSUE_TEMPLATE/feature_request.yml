@@ -38,7 +38,7 @@ body:
         - Chat and turns · 對話與輪流發言
         - Teams / templates / the lead agent · 團隊／範本／首席 agent
         - Agent CLIs (Claude Code / Codex / Grok / Cursor / the open-source agents) · Agent CLI
-        - Custom models and your own endpoints · 自定義模型與自訂端點
+        - Model connections · 模型連線
         - Files / workspaces / git · 檔案／工作目錄／git
         - Tools / skills / memory · 工具／skill／記憶
         - Schedules · 排程
