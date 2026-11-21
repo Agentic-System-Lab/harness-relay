@@ -7,6 +7,8 @@ import {
   MAX_ACCOUNT_LABEL,
   type AccountRunSettings,
   type CheckList,
+  LAB_MODES,
+  type LabSettings,
   isEndpointCli,
   isOpenProvider,
   nativeItemsFor,
@@ -28,6 +30,7 @@ import {
 } from '../shared/types';
 import type { RunBackends } from './agents/types';
 import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backends';
+import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
 import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
@@ -728,6 +731,24 @@ export class SettingsStore {
     this.db
       .prepare("INSERT INTO app_settings (key, value) VALUES ('lead_agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(JSON.stringify(this.leadAgent));
+  }
+
+  /**
+   * Settings → Labs: the mode saved there; until it is changed there, the environment's (`RELAY_RLM`,
+   * else `RELAY_RUN_CODE`); else off.
+   */
+  labs(env: Pick<ServerConfig, 'runCode' | 'rlmModel'> = CONFIG): LabSettings & { source: 'saved' | 'env' | 'default' } {
+    const saved = parseJson(this.appSetting('labs') ?? 'null') as Partial<LabSettings> | null;
+    if (saved && (LAB_MODES as readonly unknown[]).includes(saved.mode) && (saved.mode !== 'rlm' || typeof saved.rlmModel === 'string'))
+      return { mode: saved.mode!, ...(saved.mode === 'rlm' ? { rlmModel: saved.rlmModel } : {}), source: 'saved' };
+    if (env.rlmModel) return { mode: 'rlm', rlmModel: env.rlmModel, source: 'env' };
+    if (env.runCode) return { mode: 'code', source: 'env' };
+    return { mode: 'off', source: 'default' };
+  }
+
+  /** Keeps Settings → Labs' mode (validated by the caller: `validLabs()`), over the environment's from now on. */
+  setLabs(labs: LabSettings): void {
+    this.saveAppSetting('labs', JSON.stringify({ mode: labs.mode, ...(labs.mode === 'rlm' ? { rlmModel: labs.rlmModel } : {}) }));
   }
 
   /** Voice input settings. */

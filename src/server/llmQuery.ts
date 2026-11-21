@@ -141,10 +141,12 @@ export function llmAnswer(target: LlmTarget, body: unknown): LlmAnswer {
   };
 }
 
-/** A response's body as text, at most `max` bytes (more is refused). */
-async function bodyText(res: Response, max: number): Promise<string> {
+/** A response's body as text, at most `max` bytes (more is refused), its reading cancelled by `signal`. */
+async function bodyText(res: Response, max: number, signal?: AbortSignal): Promise<string> {
   if (!res.body) return '';
   const reader = res.body.getReader();
+  // Cancelled when the run ends: what is left of the answer is not read.
+  signal?.addEventListener('abort', () => void reader.cancel().catch(() => undefined), { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   for (;;) {
@@ -195,22 +197,24 @@ export async function llmComplete(
   signal: AbortSignal,
   deps: LlmDeps = defaultDeps,
 ): Promise<LlmAnswer> {
-  if (signal.aborted) throw new Error('the run ended');
-  const port = Number(target.url.port || (target.url.protocol === 'https:' ? 443 : 80));
-  let addresses: string[] | undefined;
-  if (target.kind === 'endpoint' && deps.relayPorts().includes(port)) {
-    // A name that leads to this computer on one of Harness Relay's own ports, as Settings refuses it.
-    addresses = await resolveAddresses(target.url, deps.net);
-    const own = deps.own();
-    if (addresses.some((a) => isLocalHost(a, own))) throw new Error(`${target.id}'s endpoint is one of Harness Relay's own ports`);
-  }
+  // The run's end ends the request itself (its connection closed, so the backend stops), not only the wait.
   let stop!: (err: Error) => void;
   const stopped = new Promise<never>((_resolve, reject) => (stop = reject));
+  stopped.catch(() => undefined);
   const onAbort = () => stop(new Error('the run ended'));
+  if (signal.aborted) throw new Error('the run ended');
   signal.addEventListener('abort', onAbort, { once: true });
   try {
-    const res = await Promise.race([deps.send(target.url, llmRequest(target, req), addresses), stopped]);
-    const text = await Promise.race([bodyText(res, MAX_ANSWER_BYTES), stopped]);
+    const port = Number(target.url.port || (target.url.protocol === 'https:' ? 443 : 80));
+    let addresses: string[] | undefined;
+    if (target.kind === 'endpoint' && deps.relayPorts().includes(port)) {
+      // A name that leads to this computer on one of Harness Relay's own ports, as Settings refuses it.
+      addresses = await Promise.race([resolveAddresses(target.url, deps.net), stopped]);
+      const own = deps.own();
+      if (addresses.some((a) => isLocalHost(a, own))) throw new Error(`${target.id}'s endpoint is one of Harness Relay's own ports`);
+    }
+    const res = await Promise.race([deps.send(target.url, { ...llmRequest(target, req), signal }, addresses), stopped]);
+    const text = await Promise.race([bodyText(res, MAX_ANSWER_BYTES, signal), stopped]);
     if (res.status < 200 || res.status > 299) throw refusal(target, res.status, text);
     let body: unknown;
     try {

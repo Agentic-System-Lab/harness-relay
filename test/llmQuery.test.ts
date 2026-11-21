@@ -182,13 +182,47 @@ describe("RLM's sub-model: asking it", () => {
     expect(elsewhere.sent[0]!.addresses).toEqual(['93.184.216.34']);
   });
 
-  it('stops waiting when the run ends', async () => {
+  it('ends the request itself when the run ends, not only the wait, and its reading of the answer', async () => {
     const stop = new AbortController();
-    const deps: LlmDeps = { ...backend(200, '{}').deps, send: () => new Promise<Response>(() => undefined) };
+    const signals: (AbortSignal | undefined)[] = [];
+    const deps: LlmDeps = {
+      ...backend(200, '{}').deps,
+      send: (_url, request) => (signals.push(request.signal), new Promise<Response>(() => undefined)),
+    };
     const asking = llmComplete(openai, { prompt: 'Q', maxTokens: 10 }, stop.signal, deps);
     stop.abort();
     await expect(asking).rejects.toThrow('the run ended');
-    stop.abort();
+    // The request was given the run's signal: its connection is closed with it.
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(true);
     await expect(llmComplete(openai, { prompt: 'Q', maxTokens: 10 }, stop.signal, deps)).rejects.toThrow('the run ended');
+
+    // An answer still coming in: its reading is cancelled.
+    const late = new AbortController();
+    let cancelled = false;
+    const slowBody = new ReadableStream<Uint8Array>({ pull: () => new Promise(() => undefined), cancel: () => void (cancelled = true) });
+    const reading = llmComplete(openai, { prompt: 'Q', maxTokens: 10 }, late.signal, {
+      ...backend(200, '{}').deps,
+      send: async () => new Response(slowBody, { status: 200 }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    late.abort();
+    await expect(reading).rejects.toThrow('the run ended');
+    expect(cancelled).toBe(true);
+  });
+
+  it('stops looking up an endpoint on one of its ports when the run ends', async () => {
+    const stop = new AbortController();
+    const own: LlmTarget = {
+      id: 'lab/m',
+      kind: 'endpoint',
+      model: 'm',
+      url: new URL('http://relay.example.test:8787/v1/chat/completions'),
+    };
+    const { deps, sent } = backend(200, '{}', { net: { lookup: () => new Promise(() => undefined) } });
+    const asking = llmComplete(own, { prompt: 'Q', maxTokens: 10 }, stop.signal, deps);
+    stop.abort();
+    await expect(asking).rejects.toThrow('the run ended');
+    expect(sent).toEqual([]);
   });
 });

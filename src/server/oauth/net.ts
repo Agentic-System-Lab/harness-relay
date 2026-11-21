@@ -95,7 +95,7 @@ export function pinnedSend(url: URL, r: ProviderRequest, addresses: readonly str
     const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
       method: r.method,
       headers: { ...r.headers, ...(r.body !== undefined ? { 'content-length': String(Buffer.byteLength(r.body)) } : {}) },
-      signal: AbortSignal.timeout(r.timeoutMs),
+      signal: r.signal ? AbortSignal.any([AbortSignal.timeout(r.timeoutMs), r.signal]) : AbortSignal.timeout(r.timeoutMs),
       // A connection of its own: none kept for another request, which may have been checked for other addresses.
       agent: false,
       ...(addresses ? { lookup: pinnedLookup(addresses) } : {}),

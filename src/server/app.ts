@@ -62,11 +62,12 @@ import {
   type ZipCheck,
   PERMISSION_ORDER,
   type Permission,
+  type LabsView,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { hasRules } from '../shared/checks';
-import { servingPort } from './relaySandbox';
+import { gatewayNode, sandboxAvailable, servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
@@ -124,6 +125,7 @@ import {
   validateAccountUpdate,
   validateAgents,
   validateLead,
+  validLabs,
   validateMcpServer,
   validateProviderUpdate,
   validateInboxRead,
@@ -221,6 +223,11 @@ export interface AppDeps {
   oauth?: OAuthService;
   /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
   mcpOAuth?: McpOAuth;
+  /**
+   * Why Settings → Labs' modes cannot run on this computer (no sandbox for the code, no Node.js), in the
+   * request's language, or undefined when they can (a fake in tests: the real one starts a sandbox).
+   */
+  labsUnavailable?: () => Promise<string | undefined>;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -332,6 +339,12 @@ export function createApp({
   scheduler,
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
+  labsUnavailable = async () => {
+    if (process.platform === 'win32') return t().labsWindows;
+    if (!gatewayNode()) return t().labsNoNode;
+    const sandbox = await sandboxAvailable();
+    return sandbox.ok ? undefined : sandbox.reason;
+  },
 }: AppDeps): Hono {
   const app = new Hono();
   const hostedApps = new HostedAppChecks(settings);
@@ -612,6 +625,21 @@ export function createApp({
   // --- Model backends: what the open agents run their models on (keys masked) ---------
 
   app.get('/api/backends', (c) => c.json(settings.backends.view()));
+
+  // --- Labs: experimental ways agents use Harness Relay's own tools (runCode.ts) --------------------
+
+  /** Settings → Labs as the page shows it: the mode on now, where it comes from, and whether it can run here. */
+  const labsView = async (): Promise<LabsView> => {
+    const unavailable = await labsUnavailable();
+    return { ...settings.labs(), ...(unavailable ? { unavailable } : {}) };
+  };
+  app.get('/api/labs', async (c) => c.json(await labsView()));
+  app.put('/api/labs', async (c) => {
+    // Only a model connection set up now: an API backend with its key, or an endpoint.
+    const configured = settings.backends.configured();
+    settings.setLabs(validLabs(await body<unknown>(c), configured));
+    return c.json(await labsView());
+  });
 
   app.post('/api/backends/endpoint-models', async (c) => {
     const { baseUrl, endpointId, apiKey } = validateEndpointCatalog(await body<unknown>(c));

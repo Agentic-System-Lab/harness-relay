@@ -42,15 +42,17 @@ export interface ServerConfig extends ServerLimits {
   microsoftImap?: MailServer;
   microsoftSmtp?: MailServer;
   /**
-   * Whether agents get the gateway's `run_code` tool (`RELAY_RUN_CODE=on`): JavaScript that calls the
-   * turn's other Harness Relay tools as functions, run in Harness Relay's own sandbox with no network
-   * (`runCode.ts`). Off by default: agents call those tools one at a time, as before.
+   * Settings → Labs' mode until it is changed there (`SettingsStore.labs()`): whether agents get the
+   * gateway's `run_code` tool (`RELAY_RUN_CODE=on`): JavaScript that calls the turn's other Harness Relay
+   * tools as functions, run in Harness Relay's own sandbox with no network (`runCode.ts`). Off by
+   * default: agents call those tools one at a time, as before.
    */
   runCode: boolean;
   /**
-   * RLM mode (`RELAY_RLM=<backend>/<model>`, a model connection of Settings): `run_code` keeps a `state`
-   * for the rest of the agent's turn and gives the code `llm_query()`, a question to this sub-model, which
-   * the server asks with no tools (`llmQuery.ts`). It turns `run_code` on. undefined = off.
+   * RLM mode (`RELAY_RLM=<backend>/<model>`, a model connection of Settings), as Labs' mode until it is
+   * changed there: `run_code` keeps a `state` for the rest of the agent's turn and gives the code
+   * `llm_query()`, a question to this sub-model, which the server asks with no tools (`llmQuery.ts`). It
+   * turns `run_code` on. undefined = off.
    */
   rlmModel?: string;
 }

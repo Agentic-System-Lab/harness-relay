@@ -501,6 +501,12 @@ const zhTW = {
   checksCommandNotFound: '找不到要執行的程式（exit 127）。Harness Relay 不會自己安裝缺少的東西。',
   checksCommandWindows: '原生 Windows 上還不能執行指令檢查（沒有 Harness Relay 的沙箱）；只檢查受保護路徑和 commit 格式。',
   gatewayFromCode: '由代理用 run_code 執行的程式碼發出。',
+  labsBadMode: '實驗室的模式只能是關閉、讓助理寫程式呼叫工具，或分段閱讀長文字。',
+  labsNoModel: '分段閱讀長文字需要選一個模型（「來源/模型」）。',
+  labsBadModel: (id: string) => `「${id}」不是「來源/模型」的格式，例如 anthropic/claude-haiku-5-5，或你的端點 id 加上模型名稱。`,
+  labsNoConnection: (backend: string) => `「模型連線」裡沒有設定 ${backend}：請先在「設定 → 模型連線」加上它的金鑰或端點。`,
+  labsWindows: '原生 Windows 上還不能用：Harness Relay 在這裡沒有可以執行程式的沙箱。',
+  labsNoNode: '這台電腦上找不到可以執行程式的 Node.js。',
   checksCommandNoFolder: (cwd: string) =>
     cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
   checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
@@ -1537,6 +1543,13 @@ const en: ServerMessages = {
   checksCommandWindows:
     'Commands cannot be checked on native Windows yet (Harness Relay has no sandbox there): only the protected paths and the commit format are.',
   gatewayFromCode: 'Asked by code the agent runs with run_code.',
+  labsBadMode: "Labs' mode is off, letting assistants script the tools, or reading long texts in parts.",
+  labsNoModel: 'Reading long texts in parts needs a model ("backend/model").',
+  labsBadModel: (id) => `"${id}" is not "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint's id and a model name.`,
+  labsNoConnection: (backend) =>
+    `${backend} is not set up in Model connections: add its key or endpoint under Settings → Model connections first.`,
+  labsWindows: 'Not on native Windows yet: Harness Relay has no sandbox there to run the code in.',
+  labsNoNode: 'There is no Node.js on this computer to run the code with.',
   checksCommandNoFolder: (cwd) =>
     cwd
       ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`
