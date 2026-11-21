@@ -772,6 +772,9 @@ export const zhTW = {
     todo: '計畫',
     output: '輸出',
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
+    /** A subagent's own calls, listed under the call that started it. */
+    subagentSteps: (name: string) => `${name} 做的事`,
+    subagentResult: 'subagent 回報的結果',
   },
 
   /** The page an OAuth provider's sign-in sends the browser back to. */

@@ -443,6 +443,58 @@ async function claudeTurn(steps, o) {
       message: { id: msgId, role: 'assistant', content: [block] },
     });
   };
+  /**
+   * A subagent's work, as Claude Code 2.1.330 reports it: its `Agent` call, its own calls with the
+   * Agent call's id as their `parent_tool_use_id` (a subagent of its own the same way), what it
+   * reported as the Agent call's result (with the line Claude Code adds for the agent that called it),
+   * and then a compaction (`system`/`compact_boundary`).
+   */
+  const subagent = async (step) => {
+    const call = (name, input, parent) => {
+      const id = `toolu_${++n}_${process.pid}`;
+      out({
+        type: 'assistant',
+        session_id: o.sessionId,
+        parent_tool_use_id: parent,
+        message: { id: `msg_tool_${n}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+      });
+      return id;
+    };
+    const answer = (id, content, parent) =>
+      out({
+        type: 'user',
+        session_id: o.sessionId,
+        parent_tool_use_id: parent,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+      });
+    const agent = call('Agent', {
+      description: 'Look around the project',
+      prompt: 'List the folder and read its README.',
+      subagent_type: 'Explore',
+      model: 'haiku',
+      run_in_background: false,
+    });
+    await sleep(20);
+    const list = call('Bash', { command: 'ls', description: 'List the working directory' }, agent);
+    await sleep(20);
+    answer(list, step.output, agent);
+    const read = call('Read', { file_path: path.join(process.cwd(), 'README.md') }, agent);
+    await sleep(step.wait || 1000);
+    answer(read, '# A fake project', agent);
+    const inner = call('Agent', { description: 'Search for TODOs', prompt: 'Find the TODOs.', subagent_type: 'general-purpose' }, agent);
+    const grep = call('Grep', { pattern: 'TODO' }, inner);
+    await sleep(20);
+    answer(grep, 'No matches found', inner);
+    answer(inner, [{ type: 'text', text: 'There are no TODOs.' }], agent);
+    answer(agent, [
+      { type: 'text', text: 'The project has a README and no TODOs.' },
+      {
+        type: 'text',
+        text: `agentId: a${n} (use SendMessage with to: 'a${n}' to continue this agent)\n<usage>subagent_tokens: 10</usage>`,
+      },
+    ]);
+    out({ type: 'system', subtype: 'compact_boundary', session_id: o.sessionId, compact_metadata: { trigger: 'auto', pre_tokens: 1000 } });
+  };
   /** The team's before hooks on a call: the reason they refused it, or undefined. */
   const hookBefore = async (tool_name, tool_input) => {
     const a = await o.hook('PreToolUse', { tool_name, tool_input });
@@ -480,6 +532,7 @@ async function claudeTurn(steps, o) {
         content: step.output,
         isError: false,
       }));
+    if (step.type === 'subagent') await subagent(step);
     if (step.type === 'mcp') {
       const spec = o.mcpSpecs[step.server];
       const name = `mcp__${step.server}__${step.tool}`;

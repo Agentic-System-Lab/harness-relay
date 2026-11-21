@@ -356,6 +356,29 @@ describe("a member's recorded session", () => {
     expect(r.some((x) => x.message?.usage || x.type === 'cost-state')).toBe(false);
   });
 
+  it("leaves a subagent's own calls out of the member's session: the call that started it is there, with its result", () => {
+    const conv = conversation({
+      agents: [{ id: 'cur', name: 'Reviewer', provider: 'cursor', role: '' }],
+      messages: [
+        message('m1', { kind: 'user' }, 'Look'),
+        message('m2', { kind: 'agent', agentId: 'cur' }, '', {
+          provider: 'cursor',
+          parts: [
+            { type: 'tool', id: 'task', name: 'Task', agent: 'explore', status: 'done', output: 'Found it.' },
+            { type: 'tool', id: 'r1', name: 'Read', detail: 'a.ts', status: 'done', parentId: 'task' },
+            { type: 'text', text: 'Done.' },
+          ],
+        }),
+      ],
+    });
+    const r = records(memberTranscript(conv, 'cur'));
+    const uses = r
+      .flatMap((x) => (Array.isArray(x.message?.content) ? x.message.content : []))
+      .filter((b: { type: string }) => b.type === 'tool_use');
+    expect(uses.map((b: { name: string }) => b.name)).toEqual(['Task']);
+    expect(JSON.stringify(r)).toContain('Found it.');
+  });
+
   it('names the CLI as the model once the member has left the team or moved to another CLI', () => {
     const left = recordedTeam();
     left.agents = left.agents.filter((a) => a.id !== 'cur');

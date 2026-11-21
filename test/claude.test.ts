@@ -137,6 +137,234 @@ describe('claude arguments', () => {
   });
 });
 
+// Messages as Claude Code 2.1.330's own schemas of its stream-json output have them (read in its
+// binary, not recorded from a run): a subagent's calls carry `parent_tool_use_id`, the id of the
+// `Agent` call that started it; its tasks' `system` messages carry that call's id as `tool_use_id`.
+describe('claude parser: subagents, background tasks and notes about its own run', () => {
+  const parse = () => {
+    const events: AgentEvent[] = [];
+    const parser = createClaudeParser((e) => e.type !== 'session' && events.push(e));
+    return { events, parser, line: (o: unknown) => parser.handle(JSON.stringify(o)) };
+  };
+  const use = (id: string, name: string, input: Record<string, unknown>, parent: string | null = null) => ({
+    type: 'assistant',
+    parent_tool_use_id: parent,
+    session_id: 's',
+    message: { id: `msg-${id}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+  });
+  const result = (id: string, content: unknown, parent: string | null = null, extra: Record<string, unknown> = {}) => ({
+    type: 'user',
+    parent_tool_use_id: parent,
+    session_id: 's',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+    ...extra,
+  });
+
+  it("folds a subagent's calls under its Agent call, one within another, and ends it with what it reported", () => {
+    const { events, line } = parse();
+    line(
+      use('agent-1', 'Agent', {
+        description: 'Find the date parser',
+        prompt: 'Look for…',
+        subagent_type: 'Explore',
+        model: 'haiku',
+        run_in_background: false,
+      }),
+    );
+    line(use('read-1', 'Read', { file_path: '/repo/src/date.ts' }, 'agent-1'));
+    // Its own words, a partial message and its to-do list are not the agent's.
+    line({
+      type: 'assistant',
+      parent_tool_use_id: 'agent-1',
+      message: {
+        id: 'm-sub',
+        content: [
+          { type: 'text', text: 'Found it.' },
+          { type: 'thinking', thinking: 'Hmm.' },
+        ],
+      },
+    });
+    line({
+      type: 'stream_event',
+      parent_tool_use_id: 'agent-1',
+      event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'x' } },
+    });
+    line(use('todo-1', 'TodoWrite', { todos: [{ content: 'Read', status: 'pending' }] }, 'agent-1'));
+    line(result('read-1', [{ type: 'text', text: 'export function parseDate() {}' }], 'agent-1'));
+    // A subagent of its own (no subagent_type: general-purpose).
+    line(use('agent-2', 'Task', { description: 'Check the tests', prompt: '…' }, 'agent-1'));
+    line(use('grep-2', 'Grep', { pattern: 'parseDate' }, 'agent-2'));
+    line({
+      type: 'system',
+      subtype: 'compact_boundary',
+      parent_tool_use_id: 'agent-2',
+      compact_metadata: { trigger: 'auto', pre_tokens: 1 },
+    });
+    line(
+      result('agent-1', [
+        { type: 'text', text: 'The parser is in src/date.ts.' },
+        {
+          type: 'text',
+          text: "agentId: a1b2c3d4e (use SendMessage with to: 'a1b2c3d4e', summary: '…' to continue this agent)\n<usage>subagent_tokens: 10\ntool_uses: 2\nduration_ms: 50</usage>",
+        },
+      ]),
+    );
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'agent-1', name: 'Agent', detail: 'Find the date parser', agent: 'Explore', model: 'haiku' },
+      { type: 'tool_start', id: 'read-1', name: 'Read', detail: '/repo/src/date.ts', parentId: 'agent-1' },
+      { type: 'tool_start', id: 'todo-1', name: 'TodoWrite', parentId: 'agent-1' },
+      { type: 'tool_end', id: 'read-1', ok: true, output: 'export function parseDate() {}' },
+      { type: 'tool_start', id: 'agent-2', name: 'Task', detail: 'Check the tests', parentId: 'agent-1', agent: 'general-purpose' },
+      { type: 'tool_start', id: 'grep-2', name: 'Grep', detail: 'parseDate', parentId: 'agent-2' },
+      { type: 'tool_end', id: 'agent-1', ok: true, output: 'The parser is in src/date.ts.' },
+    ]);
+  });
+
+  it('keeps a background subagent at work until its task says it ended, with its summaries as its detail', () => {
+    const { events, parser, line } = parse();
+    line(use('agent-bg', 'Agent', { description: 'Survey the repo', prompt: '…', subagent_type: 'Explore' }));
+    line({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      description: 'Survey the repo',
+      subagent_type: 'Explore',
+      is_backgrounded: true,
+      task_type: 'local_agent',
+    });
+    line(
+      result(
+        'agent-bg',
+        [{ type: 'text', text: 'Async agent launched successfully. agentId: a1 … The agent is working in the background.' }],
+        null,
+        {
+          tool_use_result: { status: 'async_launched', agentId: 'a1' },
+        },
+      ),
+    );
+    line(use('ls-bg', 'Bash', { command: 'ls src' }, 'agent-bg'));
+    line({
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      description: 'Analyzing auth module',
+      summary: 'Analyzing auth module',
+      usage: { total_tokens: 9, tool_uses: 1, duration_ms: 5 },
+    });
+    line({ type: 'result', subtype: 'success', is_error: false, result: 'I started a survey.' });
+    line({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      status: 'completed',
+      summary: 'Ten modules, one of them auth.',
+      output_file: '/tmp/a1.output',
+    });
+    // A background command still at work when Claude Code exits: cut off with the run.
+    line(use('bash-bg', 'Bash', { command: 'npm run watch', run_in_background: true }));
+    line(result('bash-bg', 'Command running in background with ID: b1'));
+    withLang('en', () => parser.finish());
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'agent-bg', name: 'Agent', detail: 'Survey the repo', agent: 'Explore' },
+      { type: 'tool_start', id: 'ls-bg', name: 'Bash', detail: 'ls src', parentId: 'agent-bg' },
+      { type: 'tool_start', id: 'agent-bg', name: 'Agent', detail: 'Analyzing auth module' },
+      { type: 'tool_end', id: 'agent-bg', ok: true, output: 'Ten modules, one of them auth.' },
+      { type: 'tool_start', id: 'bash-bg', name: 'Bash', detail: 'npm run watch' },
+      { type: 'tool_end', id: 'bash-bg', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it("shows a workflow's agents under its call, and a background task that failed or stopped as failed", () => {
+    const { events, line: say } = parse();
+    const line = (o: unknown) => withLang('en', () => say(o));
+    line(use('wf-1', 'Workflow', { name: 'review', args: {} }));
+    line(result('wf-1', 'Workflow launched in background. Task ID: w1\nRun ID: wf_abc123'));
+    const progress = (rows: unknown[]) =>
+      line({
+        type: 'system',
+        subtype: 'task_progress',
+        task_id: 'w1',
+        tool_use_id: 'wf-1',
+        description: 'Review: lint',
+        workflow_progress: rows,
+      });
+    progress([
+      { type: 'workflow_phase', index: 0, title: 'Review' },
+      { type: 'workflow_agent', index: 0, label: 'lint', state: 'start', phaseTitle: 'Review', agentType: 'reviewer', model: 'sonnet' },
+    ]);
+    progress([
+      { type: 'workflow_agent', index: 0, label: 'lint', state: 'done', resultPreview: 'No problems.' },
+      { type: 'workflow_agent', index: 1, label: 'tests', state: 'error', error: 'timed out' },
+    ]);
+    progress([{ type: 'workflow_agent', index: 2, label: 'docs', state: 'start' }]);
+    line({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'w1',
+      tool_use_id: 'wf-1',
+      status: 'failed',
+      summary: 'One agent failed.',
+    });
+    // A task of a call that is not a background one (a foreground subagent's): its result says how it went.
+    line({ type: 'system', subtype: 'task_notification', task_id: 'x', tool_use_id: 'other', status: 'completed', summary: 'x' });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'wf-1', name: 'Workflow', detail: undefined },
+      {
+        type: 'tool_start',
+        id: 'wf-1:agent-0',
+        name: 'Agent',
+        agent: 'reviewer',
+        detail: 'Review: lint',
+        model: 'sonnet',
+        parentId: 'wf-1',
+      },
+      { type: 'tool_end', id: 'wf-1:agent-0', ok: true, output: 'No problems.' },
+      { type: 'tool_start', id: 'wf-1:agent-1', name: 'Agent', agent: 'tests', detail: 'tests', parentId: 'wf-1' },
+      { type: 'tool_end', id: 'wf-1:agent-1', ok: false, error: 'timed out' },
+      { type: 'tool_start', id: 'wf-1:agent-2', name: 'Agent', agent: 'docs', detail: 'docs', parentId: 'wf-1' },
+      // Still at work as the workflow failed: ended with it.
+      { type: 'tool_end', id: 'wf-1:agent-2', ok: false },
+      { type: 'tool_end', id: 'wf-1', ok: false, error: 'One agent failed.' },
+    ]);
+  });
+
+  it('notes a compaction, a retried request and a fallback model as notes of its own, not its words', () => {
+    const { events, line } = parse();
+    withLang('en', () => {
+      line({ type: 'system', subtype: 'status', status: 'compacting' });
+      line({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 180000 } });
+      line({ type: 'system', subtype: 'status', status: null, compact_result: 'failed', compact_error: 'Not enough messages to compact' });
+      line({
+        type: 'system',
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 10,
+        retry_delay_ms: 2000,
+        error_status: 529,
+        error: 'overloaded',
+      });
+      line({
+        type: 'system',
+        subtype: 'model_fallback',
+        trigger: 'overloaded',
+        original_model: 'claude-fable-5',
+        fallback_model: 'claude-opus-5-5',
+        content: 'Switched to …',
+      });
+      line({ type: 'system', subtype: 'init', tools: [] });
+    });
+    expect(events).toEqual([
+      { type: 'notice', text: "Claude Code compacted the conversation's context to make room." },
+      { type: 'notice', text: "Claude Code could not compact the conversation's context: Not enough messages to compact" },
+      { type: 'notice', text: "Claude Code's request to its model failed; retrying (attempt 2 of 10): overloaded" },
+      { type: 'notice', text: 'Claude Code switched models from claude-fable-5 to claude-opus-5-5.' },
+    ]);
+  });
+});
+
 describe('claude parser', () => {
   it('reports why a tool call was refused', () => {
     const events: AgentEvent[] = [];
@@ -1524,6 +1752,8 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
     it('registers no hooks without them, and answers a callback it does not know with nothing', async () => {
       const lines = await run(undefined, { tool_name: 'Bash', tool_input: { command: 'ls' } });
       expect(lines.find((l) => 'hooks' in l)?.hooks).toBeNull();
+      // Its `initialize` asks for a line now and then on what each subagent is doing.
+      expect(lines.find((l) => 'hooks' in l)?.progressSummaries).toBe(true);
       expect(lines.find((l) => l.hook === 'before')?.answer).toBeNull();
       // A callback id that is not Harness Relay's: answered with nothing, and no hook is asked.
       const other = fake({ before: ['command'] }, 'not allowed');

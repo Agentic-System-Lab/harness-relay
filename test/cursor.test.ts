@@ -355,6 +355,105 @@ describe('cursor session updates', () => {
     ]);
   });
 
+  // With the `subagents` client capability, as Cursor 2026.11.11's bundled code sends them (read in
+  // its `8512.index.js`, not recorded from a run): `subagent_spawned` on the session that started the
+  // subagent, its own updates on its own session, `subagent_state_update` as a background one ends,
+  // and `cursor/task` as a Task call completes.
+  const task = (id: string, status: string, more: Record<string, unknown> = {}) => ({
+    sessionUpdate: status === 'pending' ? 'tool_call' : 'tool_call_update',
+    toolCallId: id,
+    title: 'Task: Find the date parser',
+    kind: 'other',
+    status,
+    rawInput: { _toolName: 'task', prompt: 'Look for…', description: 'Find the date parser', subagentType: 'explore' },
+    ...more,
+  });
+  const spawned = (session: string, call: string, name = 'explore') => ({
+    sessionUpdate: 'subagent_spawned',
+    subagentSessionId: session,
+    name,
+    task: 'Find the date parser',
+    capabilities: {},
+    _meta: { cursor: { toolCallId: call, agentId: session, model: 'composer-2' } },
+  });
+
+  it("folds a subagent's calls, from its own session, under its Task call, and ends it with what it reported", () => {
+    const events: AgentEvent[] = [];
+    const h = createCursorUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.handle(task('task-1', 'pending'));
+      h.handle(spawned('agent-a', 'task-1'));
+      h.child('agent-a', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'It is in src/date.ts.' } });
+      h.child('agent-a', {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'r1',
+        title: 'Read `src/date.ts`',
+        kind: 'read',
+        status: 'pending',
+        rawInput: { path: 'src/date.ts' },
+      });
+      h.child('agent-a', { sessionUpdate: 'tool_call_update', toolCallId: 'r1', status: 'completed' });
+      // Its own subagent, announced on its session.
+      h.child('agent-a', spawned('agent-b', 'task-2', 'shell'));
+      h.child('agent-a', {
+        ...task('task-2', 'pending'),
+        rawInput: { _toolName: 'task', description: 'Run the tests', subagentType: { custom: 'tester' } },
+      });
+      h.child('agent-b', {
+        sessionUpdate: 'tool_call',
+        toolCallId: 's1',
+        title: '`npm test`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'npm test' },
+      });
+      // A session no subagent of this turn's has.
+      expect(h.child('elsewhere', { sessionUpdate: 'tool_call', toolCallId: 'x', kind: 'read', status: 'pending' })).toBe(false);
+      h.handle(task('task-1', 'completed', { rawOutput: { durationMs: 1200, isBackground: false } }));
+      h.task({ toolCallId: 'task-1', description: 'Find the date parser', prompt: '…', subagentType: 'explore', model: 'composer-2.5' });
+    });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'task-1', name: 'Task', detail: 'Find the date parser', kind: 'other', agent: 'explore' },
+      { type: 'tool_start', id: 'task-1', name: 'Task', agent: 'explore', model: 'composer-2' },
+      { type: 'tool_start', id: 'r1', name: 'Read', detail: 'src/date.ts', kind: 'read', parentId: 'task-1' },
+      { type: 'tool_end', id: 'r1', ok: true },
+      // Announced before its call came: the call's row gets its name and model.
+      {
+        type: 'tool_start',
+        id: 'task-2',
+        name: 'Task',
+        detail: 'Run the tests',
+        kind: 'other',
+        parentId: 'task-1',
+        agent: 'shell',
+        model: 'composer-2',
+      },
+      { type: 'tool_start', id: 's1', name: 'Shell', detail: 'npm test', kind: 'execute', parentId: 'task-2' },
+      { type: 'tool_end', id: 'task-1', ok: true, output: 'It is in src/date.ts.' },
+      { type: 'tool_start', id: 'task-1', name: 'Task', agent: 'explore', model: 'composer-2.5' },
+    ]);
+  });
+
+  it('keeps a background subagent at work until it ends, and cuts off one still at work when the turn ends', () => {
+    const events: AgentEvent[] = [];
+    const h = createCursorUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.handle(task('bg', 'pending'));
+      h.handle(spawned('agent-bg', 'bg'));
+      h.handle(task('bg', 'completed', { rawOutput: { durationMs: 5, isBackground: true } }));
+      h.child('agent-bg', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done looking.' } });
+      h.handle({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'agent-bg', state: 'completed', _meta: { cursor: {} } });
+      h.handle(task('bg2', 'pending'));
+      h.handle(spawned('agent-bg2', 'bg2'));
+      h.handle(task('bg2', 'completed', { rawOutput: { durationMs: 5, isBackground: true } }));
+      h.finishSubagents();
+    });
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'bg', ok: true, output: 'Done looking.' },
+      { type: 'tool_end', id: 'bg2', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
   it("keeps an error from Cursor's service out of the reply, to fail the turn with it", () => {
     const { events, h } = run([
       { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Partial' } },
@@ -622,6 +721,19 @@ rl.on('line', async (line) => {
         update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Working…' } });
         return (hung = reply);
       }
+      if (process.env.FAKE_CURSOR_SUBAGENT) {
+        // A subagent, as 2026.11.11 sends one to a client with the subagents capability.
+        const input = { _toolName: 'task', prompt: 'Look', description: 'Look around', subagentType: 'explore' };
+        update(sid, { sessionUpdate: 'tool_call', toolCallId: 'task-1', title: 'Task: Look around', kind: 'other', status: 'pending', rawInput: input });
+        update(sid, { sessionUpdate: 'subagent_spawned', subagentSessionId: 'agent-1', name: 'explore', task: 'Look around', capabilities: {}, _meta: { cursor: { toolCallId: 'task-1', agentId: 'agent-1', model: 'composer-2' } } });
+        update('agent-1', { sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'Read', kind: 'read', status: 'pending', rawInput: { path: 'README.md' } });
+        update('agent-1', { sessionUpdate: 'tool_call_update', toolCallId: 'r1', status: 'completed' });
+        update('agent-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'A README.' } });
+        update(sid, { sessionUpdate: 'tool_call_update', toolCallId: 'task-1', status: 'completed', rawOutput: { durationMs: 9, isBackground: false } });
+        log({ task: await ask('cursor/task', { toolCallId: 'task-1', description: 'Look around', prompt: 'Look', subagentType: 'explore', agentId: 'agent-1', durationMs: 9 }) });
+        update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done.' } });
+        return reply({ stopReason: 'end_turn' });
+      }
       update(sid, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Thinking.' } });
       update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Running it.' } });
       update(sid, { sessionUpdate: 'tool_call', toolCallId: 'c1\\nfc1', title: '\`npm test\`', kind: 'execute', status: 'pending', rawInput: { command: 'npm test' } });
@@ -702,6 +814,23 @@ rl.on('line', async (line) => {
   };
 
   it.skipIf(process.platform === 'win32')(
+    "shows a subagent's calls from its own session under its Task call, and answers cursor/task",
+    async () => {
+      const t = await turn({ log: 'subagent.log', env: { FAKE_CURSOR_SUBAGENT: '1' } });
+      expect(t.error).toBeUndefined();
+      expect(t.events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end')).toEqual([
+        { type: 'tool_start', id: 'task-1', name: 'Task', detail: 'Look around', kind: 'other', agent: 'explore' },
+        { type: 'tool_start', id: 'task-1', name: 'Task', agent: 'explore', model: 'composer-2' },
+        { type: 'tool_start', id: 'r1', name: 'Read', detail: 'README.md', kind: 'read', parentId: 'task-1' },
+        { type: 'tool_end', id: 'r1', ok: true },
+        { type: 'tool_end', id: 'task-1', ok: true, output: 'A README.' },
+      ]);
+      expect(t.events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual(['Done.']);
+      expect(t.lines.find((l) => 'task' in l)?.task).toEqual({});
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
     'starts a session in a private config folder, briefs it, and asks the user about its command',
     async () => {
       const t = await turn({ log: 'new.log' });
@@ -731,7 +860,7 @@ rl.on('line', async (line) => {
 
       expect(t.methods).toEqual(['initialize', 'authenticate', 'session/new', 'session/set_config_option', 'session/prompt']);
       const init = t.lines.find((l) => l.method === 'initialize');
-      expect(init.params.clientCapabilities._meta).toEqual({ parameterizedModelPicker: true });
+      expect(init.params.clientCapabilities._meta).toEqual({ parameterizedModelPicker: true, subagents: true });
       // A session left in another mode is put back in agent mode.
       expect(t.lines.find((l) => l.method === 'session/set_config_option').params).toEqual({
         sessionId: 'sess-1',

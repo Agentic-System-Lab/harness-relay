@@ -765,6 +765,8 @@ export const en: Messages = {
     todo: 'Plan',
     output: 'Output',
     status: { running: 'Running', done: 'Done', error: 'Failed' },
+    subagentSteps: (name) => `What ${name} did`,
+    subagentResult: 'What the subagent reported',
   },
 
   oauthCallback: {

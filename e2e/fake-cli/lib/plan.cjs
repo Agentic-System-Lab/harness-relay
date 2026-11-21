@@ -40,6 +40,8 @@ const DIRECTIVES = {
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
   mcpserver: 'choose the server for an e2e:mcp call; defaults to the Relay gateway',
   mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
+  subagent:
+    "hand the look around to a subagent (Explore, on haiku) that lists the working directory and reads its README, the reading taking `=<seconds>` (one by default), and then a subagent of its own that searches; then report that the CLI compacted its context (Claude Code's fake only)",
 };
 
 function directivesIn(text) {
@@ -250,6 +252,7 @@ function plan(prompt, turn) {
     });
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
+  if (d.subagent) steps.push({ type: 'subagent', output: safeList(turn.cwd), wait: slowMs(d.subagent === true ? 1 : d.subagent) });
   if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   if (typeof d.mcp === 'string') {

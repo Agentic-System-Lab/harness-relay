@@ -524,6 +524,35 @@ describe('tool calls', () => {
   });
 });
 
+describe("subagents' calls and the CLI's notes", () => {
+  it("keeps a subagent's calls under its call, the agent's words in one part around them, and the CLI's note apart", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'use a subagent');
+    await finish(conv.id);
+
+    const [alice] = agentMessages(conv);
+    const parts = store.get(conv.id)!.messages.find((m) => m.id === alice!.id)!.parts;
+    expect(parts.slice(0, 5)).toEqual([
+      {
+        type: 'tool',
+        id: 'ag-Alice',
+        name: 'Agent',
+        detail: 'Look around',
+        agent: 'Explore',
+        model: 'haiku',
+        status: 'done',
+        output: 'Found it.',
+      },
+      // The words go on in their part: the subagent's call that came in between does not end it.
+      { type: 'text', text: 'While it looks, a word.' },
+      { type: 'tool', id: 'rd-Alice', name: 'Read', detail: 'a.ts', parentId: 'ag-Alice', status: 'done' },
+      // Said to be a subagent's only by a second start: put under it then.
+      { type: 'tool', id: 'ls-Alice', name: 'Shell', detail: 'ls', parentId: 'ag-Alice', status: 'running' },
+      { type: 'notice', text: 'Claude Code compacted the conversation' },
+    ]);
+  });
+});
+
 describe('editing a user message', () => {
   const kinds = (conv: Conversation) => conv.messages.map((m) => m.author.kind);
 

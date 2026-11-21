@@ -2442,6 +2442,8 @@ export class Orchestrator {
           if (e.detail) known.detail = e.detail;
           if (e.agent) known.agent = e.agent;
           if (e.model) known.model = e.model;
+          // A call the CLI says only now was a subagent's (Copilot's runtime events come after its call).
+          if (e.parentId && !known.parentId && e.parentId !== known.id) known.parentId = e.parentId;
           this.hub.emit(convId, { type: 'message', message: msg });
           break;
         }
@@ -4193,11 +4195,17 @@ export class Orchestrator {
           }
           return;
         case 'text': {
-          const last = msg.parts[msg.parts.length - 1];
+          // A subagent's calls that came in since the text began do not close it: it goes on in its part.
+          let at = msg.parts.length - 1;
+          while (textOpen && at > 0 && msg.parts[at].type === 'tool' && (msg.parts[at] as { parentId?: string }).parentId) at--;
+          const last = msg.parts[at];
           if (textOpen && last?.type === 'text') last.text += e.text;
-          else msg.parts.push({ type: 'text', text: e.text });
+          else {
+            msg.parts.push({ type: 'text', text: e.text });
+            at = msg.parts.length - 1;
+          }
           textOpen = true;
-          this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
+          this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: at, text: e.text });
           break;
         }
         case 'text_end':

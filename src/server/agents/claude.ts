@@ -1145,6 +1145,75 @@ export function claudeHookAnswer(when: 'before' | 'after', said: string | undefi
     : { decision: 'block', reason: said };
 }
 
+/** The tools that start a subagent: `Agent`, and `Task`, the name it had before (Claude Code 2.1.330 keeps it as an alias). */
+const CLAUDE_AGENT_TOOLS = new Set(['Agent', 'Task']);
+
+/**
+ * A tool call's row. An `Agent` call names its subagent (`subagent_type`; without one Claude Code runs
+ * `general-purpose`) and the model it asked for (`model`), as the tool's input has them in Claude Code
+ * 2.1.330. `parentId`: the call whose subagent made this one.
+ */
+function claudeToolStart(block: Record<string, any>, parentId?: string): AgentEvent {
+  const input = (block.input && typeof block.input === 'object' ? block.input : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const agent = CLAUDE_AGENT_TOOLS.has(block.name) ? (text(input.subagent_type) ?? 'general-purpose') : undefined;
+  const model = agent ? text(input.model) : undefined;
+  return {
+    type: 'tool_start',
+    id: block.id,
+    name: block.name,
+    detail: summarizeInput(block.input),
+    ...(parentId ? { parentId } : {}),
+    ...(agent ? { agent } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+/**
+ * What a subagent reported (its `Agent` call's result): its words, without the line Claude Code adds
+ * for the agent that called it (`agentId: … (use SendMessage …)` and its `<usage>`).
+ */
+function agentResultText(content: unknown): string {
+  if (!Array.isArray(content)) return resultText(content);
+  return resultText(content.filter((b) => !(typeof b?.text === 'string' && /^agentId: /.test(b.text))));
+}
+
+/**
+ * The rows of a workflow's agents, from a `task_progress`'s `workflow_progress` (Claude Code 2.1.330's
+ * schema: `{ type: 'workflow_agent', index, label, state: 'start' | 'progress' | 'done' | 'error',
+ * agentType?, model?, phaseTitle?, error?, resultPreview? }`), under the `Workflow` call.
+ */
+function workflowAgents(toolUseId: string, rows: unknown, shown: Map<string, string>, emit: (e: AgentEvent) => void): void {
+  if (!Array.isArray(rows)) return;
+  for (const row of rows) {
+    if (row?.type !== 'workflow_agent' || typeof row.index !== 'number') continue;
+    const id = `${toolUseId}:agent-${row.index}`;
+    const label = typeof row.label === 'string' && row.label ? row.label : undefined;
+    const detail = label && typeof row.phaseTitle === 'string' && row.phaseTitle ? `${row.phaseTitle}: ${label}` : label;
+    const state = String(row.state ?? '');
+    const before = shown.get(id);
+    if (before === 'done' || before === 'error') continue;
+    if (before === undefined) {
+      emit({
+        type: 'tool_start',
+        id,
+        name: 'Agent',
+        agent: typeof row.agentType === 'string' && row.agentType ? row.agentType : (label ?? 'agent'),
+        ...(detail ? { detail: clip(detail) } : {}),
+        ...(typeof row.model === 'string' && row.model ? { model: row.model } : {}),
+        parentId: toolUseId,
+      });
+    }
+    shown.set(id, state);
+    if (state === 'done') {
+      const output = typeof row.resultPreview === 'string' && row.resultPreview.trim() ? tailText(row.resultPreview) : undefined;
+      emit({ type: 'tool_end', id, ok: true, ...(output ? { output } : {}) });
+    } else if (state === 'error') {
+      emit({ type: 'tool_end', id, ok: false, ...(typeof row.error === 'string' && row.error ? { error: clip(row.error, 240) } : {}) });
+    }
+  }
+}
+
 /** A `control_request` Claude Code sends on stdout (e.g. `can_use_tool`). */
 export interface ClaudeControlRequest {
   requestId: string;
@@ -1159,8 +1228,87 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
   const streamedMessages = new Set<string>();
   /** Tool calls shown as something else (the to-do list), so their results are not tool rows. */
   const hiddenTools = new Set<string>();
+  /** The calls that start a subagent (`Agent`), whose result is what the subagent reported. */
+  const agentCalls = new Set<string>();
+  /**
+   * Calls whose work goes on in the background once they answered (a background subagent, which
+   * `Agent` starts by default in 2.1.330, a `Workflow`, a background command): their row ends with
+   * their task's `task_notification`, or with the run.
+   */
+  const background = new Set<string>();
+  /** Background calls that answered and are still at work. */
+  const held = new Set<string>();
+  /** Background tasks that ended before their call answered: how. */
+  const settled = new Map<string, Extract<AgentEvent, { type: 'tool_end' }>>();
+  /** A workflow's agents' rows shown so far, with their state. */
+  const workflowRows = new Map<string, string>();
+  /** The rows of a workflow's agents still at work as the workflow ended: ended with it. */
+  const endWorkflowAgents = (toolUseId: string, ok: boolean, error?: string) => {
+    for (const [id, state] of workflowRows) {
+      if (!id.startsWith(`${toolUseId}:agent-`) || state === 'done' || state === 'error') continue;
+      workflowRows.set(id, ok ? 'done' : 'error');
+      emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}) });
+    }
+  };
   let result: Record<string, any> | null = null;
   let sessionId: string | undefined;
+
+  /**
+   * What Claude Code reports about its own run and its background tasks (`type: 'system'`), as Claude
+   * Code 2.1.330's own schemas of its stream-json messages have them: a compaction, a retried request,
+   * a fallback model; and its tasks (`task_started`, `task_progress`, `task_notification`, linked to the
+   * call that started them by `tool_use_id`).
+   */
+  const system = (ev: Record<string, any>) => {
+    const toolUseId = typeof ev.tool_use_id === 'string' && ev.tool_use_id ? ev.tool_use_id : undefined;
+    switch (ev.subtype) {
+      case 'compact_boundary':
+        emit({ type: 'notice', text: t().cliCompacted('Claude Code') });
+        break;
+      case 'status':
+        if (ev.compact_result === 'failed') {
+          const why = typeof ev.compact_error === 'string' && ev.compact_error ? clip(ev.compact_error, 240) : undefined;
+          emit({ type: 'notice', text: t().cliCompactFailed('Claude Code', why) });
+        }
+        break;
+      case 'api_retry': {
+        const n = (v: unknown) => (typeof v === 'number' && v > 0 ? v : undefined);
+        const why = typeof ev.error === 'string' && ev.error ? ev.error.replace(/_/g, ' ') : undefined;
+        emit({ type: 'notice', text: t().cliRetrying('Claude Code', n(ev.attempt), n(ev.max_retries), why) });
+        break;
+      }
+      case 'model_fallback':
+        if (typeof ev.fallback_model === 'string' && ev.fallback_model) {
+          emit({ type: 'notice', text: t().cliModelSwitched('Claude Code', String(ev.original_model ?? ''), ev.fallback_model) });
+        }
+        break;
+      case 'task_started':
+        if (toolUseId && ev.is_backgrounded === true) background.add(toolUseId);
+        break;
+      case 'task_progress':
+        if (!toolUseId) break;
+        // `agentProgressSummaries`: a line on what the subagent is doing, as its row's detail.
+        if (agentCalls.has(toolUseId) && typeof ev.summary === 'string' && ev.summary.trim()) {
+          emit({ type: 'tool_start', id: toolUseId, name: 'Agent', detail: clip(ev.summary) });
+        }
+        workflowAgents(toolUseId, ev.workflow_progress, workflowRows, emit);
+        break;
+      case 'task_notification': {
+        if (!toolUseId || !background.has(toolUseId)) break;
+        workflowAgents(toolUseId, ev.workflow_progress, workflowRows, emit);
+        const said = typeof ev.result === 'string' && ev.result.trim() ? ev.result : typeof ev.summary === 'string' ? ev.summary : '';
+        const ok = ev.status === 'completed';
+        const end: Extract<AgentEvent, { type: 'tool_end' }> = ok
+          ? { type: 'tool_end', id: toolUseId, ok, ...(said.trim() ? { output: tailText(said.trim()) } : {}) }
+          : { type: 'tool_end', id: toolUseId, ok, ...(said.trim() ? { error: clip(said, 240) } : {}) };
+        background.delete(toolUseId);
+        endWorkflowAgents(toolUseId, ok);
+        if (held.delete(toolUseId)) emit(end);
+        else settled.set(toolUseId, end);
+        break;
+      }
+    }
+  };
 
   function handle(line: string): void {
     const ev = parseJsonLine(line);
@@ -1173,10 +1321,15 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
       sessionId = ev.session_id as string;
       emit({ type: 'session', sessionId });
     }
-    // Ignore events produced inside sub-agents; only the main agent's turn goes to the chat.
-    if (ev.parent_tool_use_id) return;
+    // A subagent's calls go to the chat under the call that started it (`parentId`); nothing else of
+    // its own does (its words, its partial messages, its notes).
+    const parentId = typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id ? ev.parent_tool_use_id : undefined;
+    if (parentId && ev.type !== 'assistant' && ev.type !== 'user') return;
 
     switch (ev.type) {
+      case 'system':
+        system(ev);
+        break;
       case 'stream_event': {
         const e = ev.event ?? {};
         if (e.type === 'message_start' && e.message?.id) streamedMessages.add(e.message.id);
@@ -1199,13 +1352,19 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
         const streamed = msg.id && streamedMessages.has(msg.id);
         for (const block of Array.isArray(msg.content) ? msg.content : []) {
           if (block.type === 'tool_use') {
-            const todos = block.name === 'TodoWrite' ? todoEntries(block.input) : undefined;
+            // A subagent's to-do list is its own: not the agent's plan.
+            const todos = !parentId && block.name === 'TodoWrite' ? todoEntries(block.input) : undefined;
             if (todos) {
               hiddenTools.add(block.id);
               emit({ type: 'plan', entries: todos });
             } else {
-              emit({ type: 'tool_start', id: block.id, name: block.name, detail: summarizeInput(block.input) });
+              if (CLAUDE_AGENT_TOOLS.has(block.name)) agentCalls.add(block.id);
+              // A workflow always runs in the background, and a command asked to.
+              if (block.name === 'Workflow' || block.input?.run_in_background === true) background.add(block.id);
+              emit(claudeToolStart(block, parentId));
             }
+          } else if (parentId) {
+            continue;
           } else if (!streamed && block.type === 'thinking' && block.thinking) {
             emit({ type: 'thinking', text: block.thinking });
           } else if (!streamed && block.type === 'text' && block.text) {
@@ -1220,7 +1379,20 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
         const content = ev.message?.content;
         for (const block of Array.isArray(content) ? content : []) {
           if (block.type !== 'tool_result' || hiddenTools.has(block.tool_use_id)) continue;
-          const text = resultText(block.content).trim();
+          const id = String(block.tool_use_id);
+          const text = (agentCalls.has(id) ? agentResultText(block.content) : resultText(block.content)).trim();
+          // A background subagent's call answers at once (`status: 'async_launched'`): it is still at work.
+          if (ev.tool_use_result?.status === 'async_launched') background.add(id);
+          if (background.has(id)) {
+            const end = settled.get(id);
+            settled.delete(id);
+            if (!block.is_error) {
+              if (end) emit(end);
+              else held.add(id);
+              continue;
+            }
+            background.delete(id); // it never started
+          }
           const declined = block.is_error ? declinedNote(text) : undefined;
           const extra = !text
             ? {}
@@ -1245,6 +1417,14 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
 
   return {
     handle,
+    /** Claude Code has exited: a background call still at work was cut off with the run. */
+    finish() {
+      for (const id of [...held]) {
+        held.delete(id);
+        endWorkflowAgents(id, false, t().backgroundCutOff);
+        emit({ type: 'tool_end', id, ok: false, error: t().backgroundCutOff });
+      }
+    },
     get result() {
       return result;
     },
@@ -1464,7 +1644,12 @@ async function runClaudeTurn(
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;
-      send({ type: 'control_request', request_id: initId, request: { subtype: 'initialize', hooks: claudeHooksConfig(o.hooks) } });
+      // `agentProgressSummaries`: a line now and then on what each subagent is doing (`task_progress`).
+      send({
+        type: 'control_request',
+        request_id: initId,
+        request: { subtype: 'initialize', hooks: claudeHooksConfig(o.hooks), agentProgressSummaries: true },
+      });
       if (!gate) sendPrompt();
     },
     signal: stop.signal,
@@ -1479,6 +1664,7 @@ async function runClaudeTurn(
       if (parser.result) child?.stdin?.end();
     },
   }).finally(() => o.signal.removeEventListener('abort', relayStop));
+  parser.finish();
   if (failure && !o.signal.aborted) throw failure;
   if (res.aborted) throw new AgentRunError(t().stopped, true);
   if (res.timedOut) throw new AgentRunError(t().timedOut);

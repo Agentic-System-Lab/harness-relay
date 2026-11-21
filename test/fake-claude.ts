@@ -126,7 +126,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     switch (m.request.subtype) {
       case 'initialize':
         hooks = m.request.hooks || null;
-        record({ hooks });
+        record({ hooks, progressSummaries: m.request.agentProgressSummaries ?? null });
         return ok({
           claude_code_version: '9.9.9',
           commands: commands.filter((c) => !pluginOff(c)).map((name) => ({ name, description: name + ' it', argumentHint: '' })).concat(noCommands ? [] : [{ name: 'compact', description: 'Compact', builtin: true }, { name: 'usage', description: 'Usage', builtin: true }]),

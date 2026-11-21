@@ -316,6 +316,19 @@ beforeAll(() => {
         o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test', kind: 'execute' });
         o.onEvent({ type: 'tool_end', id: `sh-${name}`, ok: true, output: 'ok' });
       }
+      if (o.prompt.includes('use a subagent')) {
+        // A subagent's calls between the agent's words, one the CLI says only later was a subagent's,
+        // and a note about the CLI's own run.
+        o.onEvent({ type: 'tool_start', id: `ag-${name}`, name: 'Agent', detail: 'Look around', agent: 'Explore', model: 'haiku' });
+        o.onEvent({ type: 'text', text: 'While it looks, ' });
+        o.onEvent({ type: 'tool_start', id: `rd-${name}`, name: 'Read', detail: 'a.ts', parentId: `ag-${name}` });
+        o.onEvent({ type: 'text', text: 'a word.' });
+        o.onEvent({ type: 'tool_end', id: `rd-${name}`, ok: true });
+        o.onEvent({ type: 'tool_start', id: `ls-${name}`, name: 'Shell', detail: 'ls' });
+        o.onEvent({ type: 'tool_start', id: `ls-${name}`, name: 'bash', parentId: `ag-${name}` });
+        o.onEvent({ type: 'tool_end', id: `ag-${name}`, ok: true, output: 'Found it.' });
+        o.onEvent({ type: 'notice', text: 'Claude Code compacted the conversation' });
+      }
       if (fake.asking.has(name) && !o.prompt.includes('ANSWER:')) {
         o.onEvent({ type: 'text', text: `${name} asks: A or B?\n\n[ASK_USER]` });
         o.onEvent({ type: 'text_end' });

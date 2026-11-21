@@ -221,6 +221,159 @@ describe('codex app-server events', () => {
   });
 });
 
+describe("codex subagents and notes about its own run (shapes from Codex 0.167.0's app-server schema)", () => {
+  const spawn = (id: string, status: string, sender: string, receivers: string[]) => ({
+    type: 'collabAgentToolCall',
+    id,
+    tool: 'spawnAgent',
+    status,
+    senderThreadId: sender,
+    receiverThreadIds: receivers,
+    prompt: 'Find where dates are parsed',
+    model: 'gpt-5.5-mini',
+    reasoningEffort: 'low',
+    agentsStates: {},
+  });
+  const started = (id: string, parent: string, role: string) => ({
+    thread: {
+      id,
+      parentThreadId: parent,
+      source: { subAgent: { thread_spawn: { parent_thread_id: parent, depth: 1, agent_role: role } } },
+    },
+  });
+
+  it("folds each subagent's calls under its spawn call, a subagent's own subagent under it, and ends it with its last words", () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    h.main('main');
+    h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+    h.handle('thread/started', started('thr-a', 'main', 'explorer'));
+    h.handle('item/completed', { threadId: 'main', item: spawn('call-a', 'completed', 'main', ['thr-a']) });
+    h.handle('item/started', { threadId: 'thr-a', item: command({ id: 'exec-a', command: 'rg parseDate' }) });
+    h.handle('item/agentMessage/delta', { threadId: 'thr-a', itemId: 'm-a', delta: 'Looking.' });
+    // Its own subagent.
+    h.handle('item/started', { threadId: 'thr-a', item: spawn('call-b', 'inProgress', 'thr-a', []) });
+    h.handle('thread/started', started('thr-b', 'thr-a', 'worker'));
+    h.handle('item/started', {
+      threadId: 'thr-b',
+      item: { type: 'fileChange', id: 'p-b', status: 'inProgress', changes: [{ path: '/repo/a.ts', kind: { type: 'update' } }] },
+    });
+    h.handle('turn/completed', { threadId: 'thr-b', turn: { id: 't-b', status: 'failed', error: { message: 'usage limit' }, items: [] } });
+    h.handle('item/completed', {
+      threadId: 'thr-a',
+      item: command({ id: 'exec-a', command: 'rg parseDate', status: 'completed', exitCode: 0 }),
+    });
+    h.handle('item/completed', { threadId: 'thr-a', item: { type: 'agentMessage', id: 'm-a', text: 'Dates are parsed in src/date.ts.' } });
+    h.handle('turn/completed', { threadId: 'thr-a', turn: { id: 't-a', status: 'completed', items: [] } });
+    // A thread of no subagent of this turn's: not shown.
+    h.handle('item/started', { threadId: 'thr-other', item: command({ id: 'exec-x' }) });
+    h.handle('thread/started', started('thr-x', 'elsewhere', 'stranger'));
+    // Waiting for it: a row of its own, with the states the subagents reported.
+    const wait = (status: string, agentsStates = {}) => ({
+      type: 'collabAgentToolCall',
+      id: 'call-wait',
+      tool: 'wait',
+      status,
+      senderThreadId: 'main',
+      receiverThreadIds: ['thr-a'],
+      agentsStates,
+    });
+    h.handle('item/started', { threadId: 'main', item: wait('inProgress') });
+    h.handle('item/completed', { threadId: 'main', item: wait('completed', { 'thr-a': { status: 'completed', message: 'Found it.' } }) });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'call-a', name: 'spawn_agent', detail: 'Find where dates are parsed', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'call-a', name: 'spawn_agent', agent: 'explorer' },
+      { type: 'tool_start', id: 'exec-a', name: 'Shell', detail: 'rg parseDate', parentId: 'call-a' },
+      {
+        type: 'tool_start',
+        id: 'call-b',
+        name: 'spawn_agent',
+        detail: 'Find where dates are parsed',
+        model: 'gpt-5.5-mini',
+        parentId: 'call-a',
+      },
+      { type: 'tool_start', id: 'call-b', name: 'spawn_agent', agent: 'worker' },
+      { type: 'tool_start', id: 'p-b', name: 'Edit', detail: '/repo/a.ts', parentId: 'call-b' },
+      { type: 'tool_end', id: 'call-b', ok: false, error: 'usage limit' },
+      { type: 'tool_end', id: 'exec-a', ok: true },
+      { type: 'tool_end', id: 'call-a', ok: true, output: 'Dates are parsed in src/date.ts.' },
+      { type: 'tool_start', id: 'call-wait', name: 'wait', detail: 'explorer' },
+      { type: 'tool_end', id: 'call-wait', ok: true, output: 'explorer: Found it.' },
+    ]);
+    // An approval for a subagent's file change names its file.
+    expect(h.filePaths('p-b')).toBe('/repo/a.ts');
+  });
+
+  it("counts the subagents' tokens with the turn's, once per change of each thread's total", () => {
+    const h = createCodexUpdateHandler(() => undefined);
+    h.main('main');
+    h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+    h.handle('thread/started', started('thr-a', 'main', 'explorer'));
+    const usage = (threadId: string, input: number, output: number, total: number) =>
+      h.handle('thread/tokenUsage/updated', {
+        threadId,
+        turnId: 't',
+        tokenUsage: {
+          last: { inputTokens: input, outputTokens: output, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: input + output },
+          total: { totalTokens: total },
+        },
+      });
+    usage('main', 100, 10, 110);
+    usage('thr-a', 40, 4, 44);
+    usage('thr-a', 40, 4, 44); // the same count again
+    usage('main', 20, 2, 132);
+    usage('thr-other', 999, 99, 1098); // no thread of this turn's
+    expect(h.usage).toEqual({ inputTokens: 160, outputTokens: 16 });
+  });
+
+  it('cuts off a subagent still at work when the turn ends, and notes compaction and a rerouted model', () => {
+    const events: AgentEvent[] = [];
+    const h = withLang('en', () => {
+      const h = createCodexUpdateHandler((e) => events.push(e));
+      h.main('main');
+      h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+      h.handle('item/completed', { threadId: 'main', item: { type: 'contextCompaction', id: 'cc-1' } });
+      h.handle('model/rerouted', {
+        threadId: 'main',
+        turnId: 't',
+        fromModel: 'gpt-5.5',
+        toModel: 'gpt-5.5-safe',
+        reason: 'highRiskCyberActivity',
+      });
+      h.finish();
+      return h;
+    });
+    expect(h.usage).toEqual({});
+    expect(events.slice(1)).toEqual([
+      { type: 'notice', text: "Codex compacted the conversation's context to make room." },
+      { type: 'notice', text: 'Codex switched models from gpt-5.5 to gpt-5.5-safe.' },
+      { type: 'tool_end', id: 'call-a', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it('gives a subagent that no spawn call started a row of its own from its activity', () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    h.main('main');
+    const act = (kind: string) => ({
+      type: 'subAgentActivity',
+      id: 'act-1',
+      agentThreadId: 'thr-a',
+      agentPath: '/root/reviewer',
+      kind,
+      model: 'gpt-5.5',
+    });
+    h.handle('item/completed', { threadId: 'main', item: act('started') });
+    h.handle('item/started', { threadId: 'thr-a', item: command({ id: 'exec-a' }) });
+    h.handle('item/completed', { threadId: 'main', item: act('completed') });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'act-1', name: 'subagent', agent: 'reviewer', model: 'gpt-5.5' },
+      { type: 'tool_start', id: 'exec-a', name: 'Shell', detail: 'npm test', parentId: 'act-1' },
+      { type: 'tool_end', id: 'act-1', ok: true },
+    ]);
+  });
+});
+
 describe('codex approvals', () => {
   it('turns approval requests into what the user sees, and answers in the shape Codex expects', () => {
     const paths = (id: string) => (id === 'patch-1' ? 'src/a.ts' : undefined);
@@ -822,6 +975,23 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       }
       // Asked of clients that take the experimental API.
       if (init.capabilities?.experimentalApi) out({ id: 'time-1', method: 'currentTime/read', params: { threadId: 'thr-1' } });
+      if (process.env.FAKE_CODEX_SUBAGENT) {
+        // A subagent, as Codex 0.167.0's schema has it: its spawn call, its thread, a command in it, its tokens.
+        const spawn = (status, receiverThreadIds) => ({ type: 'collabAgentToolCall', id: 'spawn-1', tool: 'spawnAgent', status,
+          senderThreadId: 'thr-1', receiverThreadIds, prompt: 'Look for the parser', model: 'gpt-5.5-mini', agentsStates: {} });
+        const child = (method, params) => out({ method, params: { threadId: 'thr-sub', turnId: 'turn-sub', ...params } });
+        out({ method: 'item/started', params: { threadId: 'thr-1', item: spawn('inProgress', []) } });
+        out({ method: 'thread/started', params: { thread: { id: 'thr-sub', parentThreadId: 'thr-1',
+          source: { subAgent: { thread_spawn: { parent_thread_id: 'thr-1', depth: 1, agent_nickname: 'Noether', agent_role: 'explorer' } } } } } });
+        out({ method: 'item/completed', params: { threadId: 'thr-1', item: spawn('completed', ['thr-sub']) } });
+        child('item/started', { item: { type: 'commandExecution', id: 'exec-sub', command: 'rg parse', status: 'inProgress' } });
+        child('item/completed', { item: { type: 'commandExecution', id: 'exec-sub', command: 'rg parse', status: 'completed', exitCode: 0, aggregatedOutput: 'src/parse.ts' } });
+        child('item/completed', { item: { type: 'agentMessage', id: 'msg-sub', text: 'It is in src/parse.ts.' } });
+        child('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 30, outputTokens: 3 }, total: { totalTokens: 33 } } });
+        child('turn/completed', { turn: { id: 'turn-sub', status: 'completed', items: [] } });
+        out({ method: 'thread/tokenUsage/updated', params: { threadId: 'thr-1', turnId: 'turn-1',
+          tokenUsage: { last: { inputTokens: 100, outputTokens: 10 }, total: { totalTokens: 110 } } } });
+      }
       return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } }), 100);
     default:
       return out({ id: m.id, error: { code: -32600, message: 'Invalid request: unknown variant ' + m.method } });
@@ -935,6 +1105,21 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     } finally {
       resetCodexProfiles();
     }
+  });
+
+  it("shows a subagent's commands under the call that started it, and adds its tokens to the turn's", async () => {
+    const events: AgentEvent[] = [];
+    const r = run({ FAKE_CODEX_SUBAGENT: '1' }, undefined, [], { onEvent: (e) => events.push(e) });
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1', inputTokens: 130, outputTokens: 13 });
+    expect(events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end')).toEqual([
+      { type: 'tool_start', id: 'spawn-1', name: 'spawn_agent', detail: 'Look for the parser', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'spawn-1', name: 'spawn_agent', agent: 'explorer' },
+      { type: 'tool_start', id: 'exec-sub', name: 'Shell', detail: 'rg parse', parentId: 'spawn-1' },
+      { type: 'tool_end', id: 'exec-sub', ok: true, output: 'src/parse.ts' },
+      { type: 'tool_end', id: 'spawn-1', ok: true, output: 'It is in src/parse.ts.' },
+    ]);
+    // The subagent's own words are not the agent's.
+    expect(events.some((e) => e.type === 'text' && e.text.includes('src/parse.ts'))).toBe(false);
   });
 
   it('gives its app-server the switches too, and checks them before the turn starts', async () => {

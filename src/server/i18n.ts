@@ -538,6 +538,16 @@ const zhTW = {
   hookMoreNotices: '這一輪之後的 hook 拒絕或沒有通過，不再一一列出。',
   hooksUnsupported: (cli: string) => `${cli} 還不能執行團隊的 hook：這位成員這一輪的工具呼叫不經過它們，團隊答完後的檢查照常。`,
 
+  // What a CLI reports about its own run (notes in the reply), and its subagents
+  backgroundCutOff: '這一輪在這項工作完成之前就結束了。',
+  cliCompacted: (cli: string) => `${cli} 壓縮了對話的上下文，騰出空間繼續。`,
+  cliCompactFailed: (cli: string, why?: string) => `${cli} 沒能壓縮對話的上下文${why ? `：${why}` : '。'}`,
+  cliRetrying: (cli: string, attempt?: number, max?: number, why?: string) =>
+    `${cli} 向模型的請求失敗，正在重試${attempt ? `（第 ${attempt}${max ? ` / ${max}` : ''} 次）` : ''}${why ? `：${why}` : '。'}`,
+  cliRetryFailed: (cli: string, why?: string) => `${cli} 重試之後仍然失敗${why ? `：${why}` : '。'}`,
+  cliModelSwitched: (cli: string, from: string, to: string) =>
+    from ? `${cli} 把模型從 ${from} 換成了 ${to}。` : `${cli} 換成了模型 ${to}。`,
+
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
   approvalDeclined: '使用者拒絕了這個操作。',
@@ -1586,6 +1596,14 @@ const en: ServerMessages = {
   hookMoreNotices: 'Later hook refusals or failures in this turn are not listed.',
   hooksUnsupported: (cli) =>
     `${cli} cannot run the team's hooks yet: this member's tool calls in this turn go without them; the checks once the team has answered run as usual.`,
+
+  backgroundCutOff: 'The turn ended before this work finished.',
+  cliCompacted: (cli) => `${cli} compacted the conversation's context to make room.`,
+  cliCompactFailed: (cli, why) => `${cli} could not compact the conversation's context${why ? `: ${why}` : '.'}`,
+  cliRetrying: (cli, attempt, max, why) =>
+    `${cli}'s request to its model failed; retrying${attempt ? ` (attempt ${attempt}${max ? ` of ${max}` : ''})` : ''}${why ? `: ${why}` : '.'}`,
+  cliRetryFailed: (cli, why) => `${cli} retried and still failed${why ? `: ${why}` : '.'}`,
+  cliModelSwitched: (cli, from, to) => (from ? `${cli} switched models from ${from} to ${to}.` : `${cli} switched to the model ${to}.`),
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',

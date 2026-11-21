@@ -316,8 +316,13 @@ export function enterSends(key: { key: string; shiftKey: boolean; metaKey: boole
 export type ToolPart = Extract<MessagePart, { type: 'tool' }>;
 export type ApprovalPart = Extract<MessagePart, { type: 'approval' }>;
 
-/** One step of an agent's work between its words: a tool call, or a stretch of its reasoning. */
-export type ActivityItem = { kind: 'tool'; part: ToolPart; key: number } | { kind: 'thinking'; text: string; key: number };
+/**
+ * One step of an agent's work between its words: a tool call, or a stretch of its reasoning. A call
+ * that started a subagent holds the subagent's own calls (`steps`: those whose `parentId` is its id),
+ * which are never steps of the block themselves.
+ */
+export type ActivityItem = ToolItem | { kind: 'thinking'; text: string; key: number };
+export type ToolItem = { kind: 'tool'; part: ToolPart; key: number; steps?: ActivityItem[] };
 
 /**
  * How an agent's message is drawn, in order. Tool calls and thinking that follow each other, with no reply
@@ -357,6 +362,8 @@ export function segments(parts: MessagePart[]): Segment[] {
     if (prev?.kind === 'activity') prev.items.push(item);
     else out.push({ kind: 'activity', items: [item], key: item.key, last: false });
   };
+  /** Every call so far, by id: a subagent's call goes into the one that started it, wherever that is. */
+  const calls = new Map<string, ToolItem>();
   parts.forEach((p, i) => {
     switch (p.type) {
       case 'text':
@@ -365,9 +372,15 @@ export function segments(parts: MessagePart[]): Segment[] {
       case 'thinking':
         if (p.text.trim()) step({ kind: 'thinking', text: p.text, key: i });
         break;
-      case 'tool':
-        step({ kind: 'tool', part: p, key: i });
+      case 'tool': {
+        const item: ToolItem = { kind: 'tool', part: p, key: i };
+        // A call whose parent is not (or not yet) in the message stands on its own.
+        const parent = p.parentId ? calls.get(p.parentId) : undefined;
+        if (parent) (parent.steps ??= []).push(item);
+        else step(item);
+        if (!calls.has(p.id)) calls.set(p.id, item);
         break;
+      }
       case 'plan':
         if (p.entries.length) out.push({ kind: 'todo', entries: p.entries, key: i });
         break;
@@ -402,7 +415,10 @@ export function shownSegments(segs: Segment[], passed: boolean, live: boolean): 
   };
 }
 
-/** How many tool calls, stretches of thinking and failed calls an activity block holds. */
+/**
+ * How many tool calls, stretches of thinking and failed calls an activity block (or a subagent) holds:
+ * its own steps, a subagent counting as one, its own calls counted in its row.
+ */
 export function activityCounts(items: ActivityItem[]): { actions: number; thoughts: number; failed: number } {
   let actions = 0;
   let failed = 0;
@@ -412,6 +428,39 @@ export function activityCounts(items: ActivityItem[]): { actions: number; though
     if (item.part.status === 'error') failed++;
   }
   return { actions, thoughts: items.length - actions, failed };
+}
+
+/** Whether a step is a call that started a subagent: the CLI named the subagent, or it made calls of its own. */
+export function isSubagent(item: ActivityItem): boolean {
+  return item.kind === 'tool' && (Boolean(item.part.agent) || Boolean(item.steps?.length));
+}
+
+/** What a subagent's row calls it: its name (`Explore`) when the CLI gave one, else the call's. */
+export function subagentName(part: ToolPart): string {
+  return part.agent ?? part.name;
+}
+
+/** Whether a call is still at work: running itself, or a subagent with a call of its own still running. */
+function atWork(item: ActivityItem): item is ToolItem {
+  return item.kind === 'tool' && (item.part.status === 'running' || Boolean(item.steps?.some(atWork)));
+}
+
+/**
+ * The step a live activity block is on, for its folded row: the first call still at work and, inside a
+ * subagent, the latest of its own calls still at work, one subagent within another (`agents`: their
+ * names, outermost first). `part` is that call; for a subagent between calls (thinking), the subagent's
+ * own call, with `agents` naming the subagents around it only.
+ */
+export function runningStep(items: ActivityItem[]): { agents: string[]; part: ToolPart } | undefined {
+  let item = items.find(atWork);
+  if (!item) return undefined;
+  const agents: string[] = [];
+  for (;;) {
+    const inner: ToolItem | undefined = item.steps?.filter(atWork).pop();
+    if (!inner) return { agents, part: item.part };
+    agents.push(subagentName(item.part));
+    item = inner;
+  }
 }
 
 /**
