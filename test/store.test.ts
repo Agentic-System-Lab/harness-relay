@@ -762,6 +762,32 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).list(() => false).find((c) => c.id === 'auto')?.confirmTeam).toBeUndefined();
   });
 
+  it("keeps each member's own limit, only the one its CLI has, in conversations and templates", () => {
+    const store = new Store(db);
+    const conv: Conversation = {
+      ...sampleConversation(),
+      id: 'limits',
+      agents: [
+        { id: 'c', name: 'Coder', provider: 'claude', role: '', limits: { usd: 2.5 } },
+        { id: 'g', name: 'Goose', provider: 'goose', role: '', limits: { steps: 40 } },
+        // Another CLI's limit, or one out of bounds: not kept.
+        { id: 'x', name: 'Codex', provider: 'codex', role: '', limits: { usd: 3 } },
+        { id: 'p', name: 'Pilot', provider: 'copilot', role: '', limits: { aiCredits: 5 } },
+      ],
+    };
+    store.create(conv);
+    const loaded = new Store(reopen()).get('limits')!;
+    expect(loaded.agents.map((a) => a.limits)).toEqual([{ usd: 2.5 }, { steps: 40 }, undefined, undefined]);
+    new Store(db).savePreset({
+      id: 'user-limits',
+      name: 'Capped',
+      agents: conv.agents,
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 6, permission: 'read-only' },
+    });
+    const preset = new Store(reopen()).listPresets().find((p) => p.id === 'user-limits')!;
+    expect(preset.agents.map((a) => a.limits)).toEqual([{ usd: 2.5 }, { steps: 40 }, undefined, undefined]);
+  });
+
   it('saves user presets after the built-in ones', () => {
     const store = new Store(db);
     const preset: TeamPreset = {

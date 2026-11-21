@@ -931,7 +931,8 @@ describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks
   // the user's config would). FAKE_CODEX_IGNORE plays a Codex that ignores the
   // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
   // that ignores the thread's permission profile; FAKE_CODEX_PROFILE_FAILS one that cannot load it
-  // (a turn in it fails, as Codex 0.167 on Linux does). Each request goes to the log.
+  // (a turn in it fails, as Codex 0.167 on Linux does). FAKE_CODEX_SAYS (JSON) are its turn's agent
+  // messages. Each request goes to the log, and each turn's outputSchema.
   const FAKE_CODEX = `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
@@ -990,7 +991,11 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     case 'plugin/installed':
       return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
     case 'turn/start':
+      log({ outputSchema: m.params.outputSchema ?? null });
       reply({ turn: { id: 'turn-1' } });
+      // Its agent messages, the last one the answer (in the shape outputSchema asks for, when it does).
+      for (const [i, text] of JSON.parse(process.env.FAKE_CODEX_SAYS || '[]').entries())
+        out({ method: 'item/completed', params: { threadId: 'thr-1', item: { type: 'agentMessage', id: 'msg-' + i, text } } });
       if (process.env.FAKE_CODEX_PROFILE_FAILS && profiled) {
         const error = { message: 'failed to load workspace requirements: invalid input parameter' };
         return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'failed', error } } }), 50);
@@ -1080,6 +1085,31 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
           }
         : {}),
     });
+
+  it("asks its maker's model for the answer's shape on this turn only, and gives back its last message as it", async () => {
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const shaped = run({ FAKE_CODEX_SAYS: JSON.stringify(['Looking at the groups…', '{"group":3}']) }, undefined, [], {
+      outputSchema: schema,
+    });
+    await expect(shaped.result).resolves.toMatchObject({ sessionId: 'thr-1', structured: { group: 3 } });
+    expect(shaped.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: schema });
+    // A last message that is not JSON: no structured answer (the caller reads the text).
+    const prose = run({ FAKE_CODEX_SAYS: JSON.stringify(['group three']) }, undefined, [], { outputSchema: schema });
+    expect((await prose.result).structured).toBeUndefined();
+    // Not asked for: neither sent nor read.
+    const plain = run({ FAKE_CODEX_SAYS: JSON.stringify(['{"group":3}']) });
+    expect((await plain.result).structured).toBeUndefined();
+    expect(plain.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: null });
+    // The user's own endpoint may not take it: not sent.
+    const backends = { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma'] }] };
+    const own = run({ FAKE_CODEX_SAYS: JSON.stringify(['{"group":3}']) }, undefined, [], {
+      outputSchema: schema,
+      backends,
+      model: 'homelab/gemma',
+    });
+    expect((await own.result).structured).toBeUndefined();
+    expect(own.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: null });
+  });
 
   it('trusts only the Relay hook on a resumed thread and keeps native hooks left out', async () => {
     const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [], { permission: 'full', sessionId: 'thr-1', hooks: teamHooks() });

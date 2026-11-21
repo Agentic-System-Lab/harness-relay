@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import {
   TOOL_CALL_KINDS,
+  type AgentLimits,
   type ApiBackend,
   type ApprovalAnswer,
   type ApprovalKind,
@@ -163,7 +164,23 @@ export interface RunOptions {
    * (read-only → edit → full), so nothing it wrote may be read now. The session starts afresh too.
    */
   freshState?: boolean;
+  /**
+   * The member's own limits (`AgentConfig.limits`, only those of its CLI: `agentLimitsFor()`): each
+   * adapter whose CLI has one gives it (`AGENT_LIMITS`); absent = none.
+   */
+  limits?: AgentLimits;
+  /**
+   * The JSON shape the answer must have (a JSON Schema whose objects list every property as required
+   * and allow no others, as Codex's strict structured output needs), for the lead agent's turns: Claude
+   * Code (`--json-schema`) and Codex (`outputSchema` on `turn/start`) ask their maker's models for it and
+   * give it back as `RunResult.structured`; the others, and those two on the user's own endpoint, ignore
+   * it, and the caller reads the reply's text instead.
+   */
+  outputSchema?: OutputSchema;
 }
+
+/** A JSON Schema for `RunOptions.outputSchema`. */
+export type OutputSchema = Record<string, unknown>;
 
 /**
  * The state keys the orchestrator gives its runs (`RunOptions.stateKey`): a branched conversation is
@@ -250,7 +267,20 @@ export interface RunResult {
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * The answer in the shape `RunOptions.outputSchema` asked for, as the CLI gave it (parsed JSON), when
+   * it gave one; the caller checks it, and reads the reply's text when it is missing or not an object.
+   */
+  structured?: unknown;
+  /**
+   * The AI credits the turn used, as Copilot reports them (its `assistant.usage` events), which are not
+   * US dollars; not kept with the reply yet.
+   */
+  aiCredits?: number;
 }
+
+/** What a turn spent, as `RunResult` has it. */
+export type RunUsage = Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>;
 
 export interface AgentRunner {
   provider: Provider;
@@ -262,6 +292,8 @@ export class AgentRunError extends Error {
   constructor(
     message: string,
     public aborted = false,
+    /** What the turn had spent when it failed or was stopped, as far as its CLI said (kept with the reply). */
+    public usage?: RunUsage,
   ) {
     super(message);
   }

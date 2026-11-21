@@ -35,6 +35,7 @@ import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
 import { familiesForLead, familyOf, guideMark, roleGuidesForLead, unlistedFamily } from './roleGuides';
 import { validateAgents } from './validate';
+import type { OutputSchema } from './agents/types';
 
 /*
  * Auto team: before the team answers a new question, the lead agent (Settings) chooses the team for
@@ -823,6 +824,96 @@ export function parsePlanReply(text: string): Record<string, any> {
   throw new Error(t().planUnparsable);
 }
 
+/*
+ * The lead's answers as JSON Schemas, for a lead whose CLI can be asked for one (`RunOptions.outputSchema`:
+ * Claude Code and Codex on their makers' models). Each mirrors the JSON its prompt asks for, in the form
+ * Codex's strict structured output takes (and Claude Code too): every object lists all its properties
+ * as required and allows no others, so a field the answer has none of is null (`leadReply()` leaves the
+ * nulls out, as if the field were not there); a nullable array or object is an `anyOf` with null.
+ */
+
+/** A string, number… that may be null. */
+const orNull = (type: 'string' | 'integer', description?: string) => ({ type: [type, 'null'], ...(description ? { description } : {}) });
+/** An object of these properties, all of them required, no others. */
+export const strictObject = (properties: Record<string, unknown>, description?: string): OutputSchema => ({
+  type: 'object',
+  ...(description ? { description } : {}),
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+const MODE_SCHEMA = { type: 'string', enum: MODES };
+
+/** A member of a new or adapted team, as TEAM_FIELDS has it. */
+const PLAN_MEMBER_SCHEMA = strictObject({
+  name: { type: 'string', description: 'Letters, digits, _ or - only, unique' },
+  provider: { type: 'string', enum: PROVIDERS },
+  role: { type: 'string' },
+  model: orNull('string', "null for its coding agent's default"),
+  effort: orNull('string', "null for its coding agent's default"),
+});
+
+/** The team design (`buildPlannerPrompt()`, `decidePlan()`): one object for every choice, the others' fields null. */
+export const PLAN_SCHEMA: OutputSchema = strictObject({
+  choice: { type: 'string', enum: ['keep', 'template', 'adapted', 'custom'] },
+  templateId: orNull('string', 'For "template": the template\'s id'),
+  baseTemplateId: orNull('string', 'For "adapted": the id of the template it starts from'),
+  name: orNull('string', 'For "adapted" and "custom": a short team name'),
+  description: orNull('string', 'For "adapted" and "custom": one line'),
+  mode: { anyOf: [MODE_SCHEMA, { type: 'null' }] },
+  rounds: orNull('integer', '1-5'),
+  maxHops: orNull('integer', '1-30'),
+  agents: {
+    anyOf: [{ type: 'array', items: PLAN_MEMBER_SCHEMA }, { type: 'null' }],
+    description: 'For "adapted" and "custom": the whole team',
+  },
+  reason: { type: 'string' },
+});
+
+/** The changed team (`buildRevisePrompt()`, `decideRevision()`): null for what a member keeps. */
+export const REVISION_SCHEMA: OutputSchema = strictObject({
+  mode: MODE_SCHEMA,
+  rounds: { type: 'integer', description: '1-5' },
+  maxHops: { type: 'integer', description: '1-30' },
+  agents: {
+    type: 'array',
+    description: 'Every member, in speaking order',
+    items: strictObject({
+      name: { type: 'string' },
+      provider: { type: 'string', enum: PROVIDERS },
+      role: orNull('string', 'Only for a new member or a role you rewrite; null keeps it'),
+      model: orNull('string', 'null keeps what it has; "" for its coding agent\'s default'),
+      effort: orNull('string', 'null keeps what it has; "" for its coding agent\'s default'),
+      was: orNull('string', 'Its current name: only for a member you renamed or moved to another coding agent'),
+    }),
+  },
+  reason: { type: 'string' },
+});
+
+/** `v` with its null properties left out, all the way down (and null items of arrays). */
+export function withoutNulls(v: unknown): unknown {
+  if (Array.isArray(v)) return v.filter((x) => x !== null).map(withoutNulls);
+  if (v && typeof v === 'object')
+    return Object.fromEntries(
+      Object.entries(v)
+        .filter(([, x]) => x !== null)
+        .map(([k, x]) => [k, withoutNulls(x)]),
+    );
+  return v;
+}
+
+/**
+ * The lead's answer as an object: the structured answer its CLI gave in the shape asked for
+ * (`RunResult.structured`), its nulls left out; else, when it gave none or not an object with
+ * something in it, the JSON object in its reply's text (`parsePlanReply()`).
+ */
+export function leadReply(text: string, structured?: unknown): Record<string, any> {
+  const raw = withoutNulls(structured);
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length) return raw as Record<string, any>;
+  return parsePlanReply(text);
+}
+
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -1080,8 +1171,8 @@ export function fallbackPlan(
 
 /**
  * Members who stay on from the current team (same name, ignoring case, and same CLI) keep their ids,
- * so their CLI sessions — what they learned in this conversation — carry on, and their accounts and
- * tools as the user set them. Automatic designs pass the account already selected by availability.
+ * so their CLI sessions — what they learned in this conversation — carry on, and their accounts,
+ * tools and limits as the user set them. Automatic designs pass the account already selected by availability.
  */
 export function keepMemberIds(next: AgentConfig[], current: AgentConfig[], keepAccount = true): AgentConfig[] {
   const taken = new Set<string>();
@@ -1089,16 +1180,23 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[], keepA
     const same = current.find((c) => !taken.has(c.id) && c.provider === a.provider && c.name.toLowerCase() === a.name.toLowerCase());
     if (!same) return a;
     taken.add(same.id);
-    const { account: _account, tools: _tools, ...rest } = a;
+    const { account: _account, tools: _tools, limits: _limits, ...rest } = a;
     const account = keepAccount ? same.account : a.account;
-    return { ...rest, id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(account ? { account } : {}) };
+    return {
+      ...rest,
+      id: same.id,
+      ...(same.tools ? { tools: same.tools } : {}),
+      ...(same.limits ? { limits: same.limits } : {}),
+      ...(account ? { account } : {}),
+    };
   });
 }
 
 /** A member as a team design keeps it, its empty fields left out: two of them are the same member when these are. */
 function memberKey(a: AgentConfig): string {
   const tools = Object.entries(a.tools ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
-  return JSON.stringify([a.name, a.provider, a.role.trim(), a.model || '', a.effort || '', a.account || '', tools]);
+  const limits = Object.entries(a.limits ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+  return JSON.stringify([a.name, a.provider, a.role.trim(), a.model || '', a.effort || '', a.account || '', tools, limits]);
 }
 
 /**
@@ -1135,7 +1233,14 @@ export function planFollowsTeam(
 export function fromTemplate(agents: AgentConfig[], template: TeamPreset): AgentConfig[] {
   return agents.map((a) => {
     const was = template.agents.find((t) => t.provider === a.provider && t.name.toLowerCase() === a.name.toLowerCase());
-    return was ? { ...a, ...(was.tools ? { tools: was.tools } : {}), ...(was.account ? { account: was.account } : {}) } : a;
+    return was
+      ? {
+          ...a,
+          ...(was.tools ? { tools: was.tools } : {}),
+          ...(was.limits ? { limits: was.limits } : {}),
+          ...(was.account ? { account: was.account } : {}),
+        }
+      : a;
   });
 }
 
@@ -1316,7 +1421,7 @@ Reply with only this JSON object, in a \`\`\`json code block, with the whole tea
  *    over, and the listed one has no role or the same one: that one (renamed, though the lead did not
  *    say so).
  * A matched member keeps what the lead does not change — its id (and with it its CLI session, which
- * starts afresh on another CLI), its account and its tools — and the role, model and effort the lead left out (null, or a
+ * starts afresh on another CLI), its account, its tools and its limits — and the role, model and effort the lead left out (null, or a
  * blank role, is left out; a model or effort of its old CLI does not carry over to another one). A role
  * the lead copied, trimmed, stays as the user wrote it. A changed model or effort, and every new or moved
  * member, is fitted to the CLIs here (`fitAgents`); a member who stays on its CLI keeps it even when that
@@ -1388,8 +1493,8 @@ export function decideRevision(
     // A new member based on another (a misused "was") starts from that one's role.
     const role = given ?? same?.role ?? basedOn[i]?.role ?? '';
     return {
-      // Its tools stay as the user set them: the lead does not change them.
-      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
+      // Its tools and limits stay as the user set them: the lead does not change them.
+      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(same.limits ? { limits: same.limits } : {}) } : {}),
       // Its account stays while it stays on the same CLI.
       ...(sameCli && same?.account ? { account: same.account } : {}),
       name,

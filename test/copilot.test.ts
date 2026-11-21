@@ -29,8 +29,10 @@ afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 import {
   COPILOT_AGENT_MODE,
   COPILOT_NOTES,
+  COPILOT_RUNTIME_EVENTS,
   COPILOT_SECRET_VARS,
   askCopilotModels,
+  createCopilotUsage,
   copilotApprovalRequest,
   copilotArgs,
   copilotCommandOutput,
@@ -865,6 +867,33 @@ describe("Copilot's home and settings for one run", () => {
     }
   });
 
+  it('caps its session with the AI credits given', () => {
+    expect(copilotArgs({ permission: 'edit', maxAiCredits: 120 }).slice(-2)).toEqual(['--max-ai-credits', '120']);
+  });
+
+  it("counts its model calls' usage once each, the cache with the input, and the credits only where reported", () => {
+    const u = createCopilotUsage();
+    expect(u.tokens).toEqual({});
+    expect(u.aiCredits).toBeUndefined();
+    u.add({ type: 'assistant.turn_start', data: {} });
+    u.add({ type: 'assistant.usage' });
+    u.add({ type: 'assistant.usage', id: 'a', data: { model: 'm', inputTokens: 10, cacheReadTokens: 90, outputTokens: 4 } });
+    expect(u.tokens).toEqual({ inputTokens: 100, outputTokens: 4 });
+    expect(u.aiCredits).toBeUndefined();
+    u.add({ type: 'assistant.usage', id: 'a', data: { model: 'm', inputTokens: 10, outputTokens: 4 } });
+    // No event id: its accounting identity is the call's.
+    u.add({
+      type: 'assistant.usage',
+      data: { model: 'm', inputTokens: 5, outputTokens: 1, accounting: { usageId: 'b' }, copilotUsage: { totalNanoAiu: 2e8 } },
+    });
+    u.add({
+      type: 'assistant.usage',
+      data: { model: 'm', inputTokens: 5, outputTokens: 1, accounting: { usageId: 'b' }, copilotUsage: { totalNanoAiu: 2e8 } },
+    });
+    expect(u.tokens).toEqual({ inputTokens: 105, outputTokens: 5 });
+    expect(u.aiCredits).toBeCloseTo(0.2);
+  });
+
   it('starts it over ACP: in its sandbox below full access, allowing all with full access, with what the run leaves out', () => {
     // Its question form is never offered: the agent asks in its reply.
     const secrets = `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`;
@@ -1680,6 +1709,68 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(JSON.parse(r.log()[0]!.files['settings.json']).sandbox).toEqual({ enabled: false });
     expect(r.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1); // no policy to check
     expect(r.approvals).toEqual([]);
+  });
+
+  it("subscribes to its model calls' usage, and takes its AI credits from them, its tokens when the answer has none", async () => {
+    const calls = [
+      {
+        id: 'u-1',
+        data: {
+          model: 'gpt-6',
+          inputTokens: 100,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 50,
+          outputTokens: 40,
+          copilotUsage: { totalNanoAiu: 1.5e9 },
+        },
+      },
+      // The same call again: counted once.
+      {
+        id: 'u-1',
+        data: {
+          model: 'gpt-6',
+          inputTokens: 100,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 50,
+          outputTokens: 40,
+          copilotUsage: { totalNanoAiu: 1.5e9 },
+        },
+      },
+      // A subagent's call.
+      {
+        id: 'u-2',
+        data: { model: 'gpt-6-mini', inputTokens: 10, outputTokens: 5, initiator: 'sub-agent', copilotUsage: { totalNanoAiu: 0.25e9 } },
+      },
+    ];
+    const r = run(undefined, { permission: 'full' }, undefined, { FAKE_COPILOT_USAGE_EVENTS: JSON.stringify(calls) });
+    const result = await copilotRunner.run(r.o);
+    expect(r.log().find((l) => l.method === 'initialize')?.params.clientCapabilities._meta).toEqual({
+      'github.com/copilot': { events: [...COPILOT_RUNTIME_EVENTS] },
+    });
+    // The answer's tokens, as before; the credits, which only the events have.
+    expect(result).toMatchObject({ inputTokens: 3, outputTokens: 1, aiCredits: 1.75 });
+    const none = run(undefined, { permission: 'full' }, undefined, {
+      FAKE_COPILOT_USAGE_EVENTS: JSON.stringify(calls),
+      FAKE_COPILOT_NO_USAGE: '1',
+    });
+    expect(await copilotRunner.run(none.o)).toMatchObject({ inputTokens: 1060, outputTokens: 45, aiCredits: 1.75 });
+  });
+
+  it("gives Copilot the member's AI credit limit, but not on the user's own endpoint", async () => {
+    const r = run(undefined, { permission: 'full', limits: { aiCredits: 50 } });
+    await copilotRunner.run(r.o);
+    expect(r.log()[0]!.argv.slice(-2)).toEqual(['--max-ai-credits', '50']);
+    const other = run(undefined, { permission: 'full', limits: { usd: 5 } });
+    await copilotRunner.run(other.o);
+    expect(other.log()[0]!.argv).not.toContain('--max-ai-credits');
+    // The user's own endpoint uses no AI credits.
+    const backends = {
+      apis: {},
+      endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://127.0.0.1:11434/v1', models: ['gemma4'] }],
+    };
+    const own = run(undefined, { permission: 'full', limits: { aiCredits: 50 }, model: 'homelab/gemma4', backends });
+    await copilotRunner.run(own.o);
+    expect(own.log()[0]!.argv).not.toContain('--max-ai-credits');
   });
 
   it("resumes a session with session/load, and what it replays is not this turn's", async () => {

@@ -61,6 +61,11 @@ export interface GatewayContext {
   ask?: (req: ApprovalRequest) => Promise<ApprovalAnswer>;
   /** Puts a `send` call in the outbox, for the user to send; returns the item (an equal one waiting is returned instead). */
   toOutbox?: (item: Pick<OutboxItem, 'tool' | 'title' | 'preview'> & { args: Record<string, unknown> }) => OutboxItem;
+  /**
+   * Counts tokens a tool spent itself for the turn (RLM's sub-model, `llm_query()`), which go into the
+   * turn's reply with the CLI's own (`withSubModelTokens()` in `runCode.ts`).
+   */
+  usage?: (tokens: { inputTokens: number; outputTokens: number }) => void;
   signal: AbortSignal;
 }
 

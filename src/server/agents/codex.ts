@@ -655,6 +655,8 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   const lastWords = new Map<string, string>();
   /** The subagents' names, by thread, for the rows of the calls that wait for them or write to them. */
   const names = new Map<string, string>();
+  /** The text of the turn's last agent message, which a turn given an `outputSchema` answers in. */
+  let lastMessage: string | undefined;
 
   const isMain = (thread: unknown) => !thread || !mainThread || thread === mainThread;
 
@@ -835,6 +837,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
         if (item.type === 'subAgentActivity') return activity(item);
         if (item.type === 'contextCompaction') return emit({ type: 'notice', text: t().cliCompacted('Codex') });
         if (item.type === 'agentMessage') {
+          if (typeof item.text === 'string') lastMessage = item.text;
           if (!streamedText.has(item.id) && item.text) emit({ type: 'text', text: String(item.text) });
           emit({ type: 'text_end' });
           break;
@@ -924,6 +927,15 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
     },
     get usage() {
       return usage.seen ? { inputTokens: usage.input, outputTokens: usage.output } : {};
+    },
+    /** The last agent message's text, as JSON (a turn given an `outputSchema` answers in it); undefined when it is not JSON. */
+    get structured(): unknown {
+      if (lastMessage === undefined) return undefined;
+      try {
+        return JSON.parse(lastMessage) as unknown;
+      } catch {
+        return undefined;
+      }
     },
   };
 }
@@ -1133,12 +1145,16 @@ const codexTurnRunner: AgentRunner = {
       // Stopped during the check: there is no turn to interrupt yet, so do not start one.
       if (userAborted) throw new AgentRunError(t().stopped, true);
 
+      // The lead agent's turns ask its maker's models for their answer's shape (this turn only); not on
+      // the user's own endpoint, which may not take it.
+      const outputSchema = endpoint ? undefined : o.outputSchema;
       const started = await conn.request('turn/start', {
         threadId,
         input: [
           { type: 'text', text: o.prompt, text_elements: [] },
           ...(o.images ?? []).map((img) => ({ type: 'localImage', path: img.path })),
         ],
+        ...(outputSchema ? { outputSchema } : {}),
       });
       turnId = started?.turn?.id;
       const turn = await turnDone;
@@ -1150,7 +1166,8 @@ const codexTurnRunner: AgentRunner = {
         const message = [err.message, err.additionalDetails].filter(Boolean).join('\n') || failure;
         throw new AgentRunError(message || t().exitedWithoutTurn('codex', null));
       }
-      return { sessionId: threadId, ...updates.usage };
+      const structured = outputSchema ? updates.structured : undefined;
+      return { sessionId: threadId, ...updates.usage, ...(structured !== undefined ? { structured } : {}) };
     } catch (err) {
       if (userAborted) throw new AgentRunError(t().stopped, true);
       if (err instanceof AgentRunError) throw err;

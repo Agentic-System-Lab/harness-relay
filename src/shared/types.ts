@@ -154,6 +154,55 @@ export interface AgentConfig {
    * gets the tool although the tool is off by default, false = it does not get a tool that is on.
    */
   tools?: Record<string, boolean>;
+  /** This member's own limits, for the CLIs that have one (`AGENT_LIMITS`); absent = none. */
+  limits?: AgentLimits;
+}
+
+// --- A member's own limits: what one turn (or session) of its CLI may spend --------------------
+
+/**
+ * A member's limits, each one a CLI's own (`AGENT_LIMITS` says whose): `usd`, the US dollars a turn may
+ * cost (Claude Code's `--max-budget-usd`, by its own estimate); `aiCredits`, the AI credits its session
+ * may use (Copilot's `--max-ai-credits`, a soft cap: one response can pass it); `steps`, the model calls
+ * a turn may make (Goose's `GOOSE_MAX_TURNS`, OpenCode's agent `steps`).
+ */
+export interface AgentLimits {
+  usd?: number;
+  aiCredits?: number;
+  steps?: number;
+}
+export type AgentLimitKey = keyof AgentLimits;
+
+/** One CLI's limit: which it is, its least and greatest value, and whether it is a whole number. */
+export interface AgentLimitSpec {
+  key: AgentLimitKey;
+  min: number;
+  max: number;
+  integer: boolean;
+  /** Not given on the user's own endpoint (Claude Code would price its model as one of its own; Copilot bills it no credits). */
+  notOnEndpoint?: boolean;
+}
+
+/** The CLIs with a limit of their own, and its bounds; the others have none. */
+export const AGENT_LIMITS: Partial<Record<Provider, AgentLimitSpec>> = {
+  claude: { key: 'usd', min: 0.01, max: 10_000, integer: false, notOnEndpoint: true },
+  // Copilot refuses a session limit under 30 AI credits.
+  copilot: { key: 'aiCredits', min: 30, max: 1_000_000, integer: true, notOnEndpoint: true },
+  goose: { key: 'steps', min: 1, max: 10_000, integer: true },
+  opencode: { key: 'steps', min: 1, max: 10_000, integer: true },
+};
+
+/** Whether `v` is a value `spec` takes. */
+export function agentLimitValid(spec: AgentLimitSpec, v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= spec.min && v <= spec.max && (!spec.integer || Number.isInteger(v));
+}
+
+/** The limits of `limits` that `provider` has and takes, or undefined when none is left. */
+export function agentLimitsFor(provider: Provider, limits: unknown): AgentLimits | undefined {
+  const spec = AGENT_LIMITS[provider];
+  if (!spec || !limits || typeof limits !== 'object') return undefined;
+  const v = (limits as Record<string, unknown>)[spec.key];
+  return agentLimitValid(spec, v) ? { [spec.key]: v } : undefined;
 }
 
 // --- Tool library: MCP servers, skills and memory every agent can be given ------------------

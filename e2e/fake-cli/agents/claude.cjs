@@ -18,6 +18,9 @@
  * refuses the call with its reason; once it ran, one for the `PostToolUse` entry, whose `decision:
  * block` reason it is told.
  *
+ * An `interrupt` control request (Harness Relay's Stop) ends a turn under way at once, with a result
+ * (`error_during_execution`) that carries the run's usage, as Claude Code's does.
+ *
  * Its usage is counted as Claude Code 2.1.323's: each run that reaches the model costs $0.0012, 120
  * tokens in and 40 out (a failed one too); a kept session's result reports the session's totals
  * (`total_cost_usd`, `modelUsage`), counted on from the last `cost-state` record of its file
@@ -253,8 +256,15 @@ function claudeStream() {
             models: [],
           });
         case 'apply_flag_settings':
-        case 'interrupt':
           return reply(m, undefined);
+        case 'interrupt':
+          reply(m, undefined);
+          // As Claude Code: a turn under way ends at once, with a result that says what it used.
+          if (busy) {
+            claudeResult(o, { subtype: 'error_during_execution', is_error: true, errors: [] });
+            process.stdout.write('', () => exitAfterLog(0));
+          }
+          return;
         case 'mcp_status':
           return reply(m, { mcpServers: [] });
         case 'get_hooks_listing':

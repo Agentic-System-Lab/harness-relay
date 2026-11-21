@@ -141,6 +141,10 @@ export interface Fake {
   reply: ((name: string, prompt: string) => string | undefined) | undefined;
   /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
   inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
+  /** The structured answer each of the lead agent's runs gives (`RunResult.structured`), besides its text. */
+  structured: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
+  /** The answer's shape each of the lead agent's runs was last asked for (`RunOptions.outputSchema`). */
+  schemas: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
 }
 
 const fresh = (): Fake => ({
@@ -163,6 +167,8 @@ const fresh = (): Fake => ({
   keptAsk: undefined,
   reply: undefined,
   inTurn: undefined,
+  structured: {},
+  schemas: {},
 });
 
 export const fake: Fake = fresh();
@@ -191,9 +197,10 @@ beforeAll(() => {
           await Promise.race([fake.sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        fake.schemas.sorter = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.sorterReply });
         o.onEvent({ type: 'text_end' });
-        return { sessionId: 'sorter-session' };
+        return { sessionId: 'sorter-session', ...('sorter' in fake.structured ? { structured: fake.structured.sorter } : {}) };
       }
       if (o.systemPrompt === REVIEWER_BRIEFING) {
         calls.push({
@@ -212,9 +219,14 @@ beforeAll(() => {
         }
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
         if (fake.reviewFail) throw new Error(fake.reviewFail);
+        fake.schemas.reviewer = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.reviewReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.03, sessionId: 'reviewer-session' };
+        return {
+          costUsd: 0.03,
+          sessionId: 'reviewer-session',
+          ...('reviewer' in fake.structured ? { structured: fake.structured.reviewer } : {}),
+        };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
         calls.push({
@@ -237,9 +249,14 @@ beforeAll(() => {
         if (o.signal?.aborted && linger) await linger;
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
         if (fake.reviseFail) throw new Error(fake.reviseFail);
+        fake.schemas.reviser = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.reviseReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.02, sessionId: 'reviser-session' };
+        return {
+          costUsd: 0.02,
+          sessionId: 'reviser-session',
+          ...('reviser' in fake.structured ? { structured: fake.structured.reviser } : {}),
+        };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({
@@ -255,9 +272,10 @@ beforeAll(() => {
           effort: o.effort,
         });
         if (fake.leadGate) await fake.leadGate;
+        fake.schemas.lead = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.leadReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.01, sessionId: 'lead-session' };
+        return { costUsd: 0.01, sessionId: 'lead-session', ...('lead' in fake.structured ? { structured: fake.structured.lead } : {}) };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
       calls.push({

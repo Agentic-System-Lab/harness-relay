@@ -3,6 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import {
+  agentLimitsFor,
   API_BACKENDS,
   PROVIDER_LABEL,
   isApiBackend,
@@ -553,7 +554,7 @@ export function opencodeBaseUrl(url: string): string {
 
 /** The run's config (`OPENCODE_CONFIG_CONTENT`): everything that differs between runs of one home. */
 export function opencodeRunConfig(
-  o: Pick<RunOptions, 'permission' | 'nativeOff' | 'nativeItems'>,
+  o: Pick<RunOptions, 'permission' | 'nativeOff' | 'nativeItems' | 'limits'>,
   run: Pick<BackendRun, 'kind' | 'backend' | 'model' | 'endpoint'>,
   instructions: string[],
 ): Record<string, unknown> {
@@ -562,6 +563,9 @@ export function opencodeRunConfig(
   const agentsOff = o.nativeOff?.includes('agents') ? ['general', 'explore'] : (o.nativeItems?.agents ?? []);
   const endpoint = run.kind === 'endpoint' ? run.endpoint : undefined;
   const models = endpoint ? [...new Set([...endpoint.models, run.model])] : [];
+  // The member's own limit: the agentic iterations of its agent (`build`, the one Harness Relay sets)
+  // before OpenCode makes it answer in text only.
+  const steps = agentLimitsFor('opencode', o.limits)?.steps;
   return {
     $schema: 'https://opencode.ai/config.json',
     model,
@@ -588,6 +592,7 @@ export function opencodeRunConfig(
       // Each new session's title would cost a call to the model of its own.
       title: { disable: true },
       ...Object.fromEntries(agentsOff.map((name) => [name, { disable: true }])),
+      ...(steps ? { build: { steps } } : {}),
     },
   };
 }

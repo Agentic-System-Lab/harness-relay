@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import {
+  agentLimitsFor,
   API_BACKENDS,
   isApiBackend,
   parseBackendModel,
@@ -484,6 +485,9 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     // A model server of the user's often serves one request at a time: one subagent at once there (5 by default).
     ...(run.kind === 'endpoint' ? { GOOSE_MAX_CONCURRENT_SUBAGENTS: '1' } : {}),
   });
+  // The member's own limit: the model calls ("turns") Goose makes for one prompt before it stops to ask.
+  const steps = agentLimitsFor('goose', o.limits)?.steps;
+  if (steps) env.GOOSE_MAX_TURNS = String(steps);
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
 }
 

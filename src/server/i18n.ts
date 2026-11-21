@@ -65,6 +65,8 @@ const zhTW = {
   claudeAgentsFailed: (detail: string) =>
     `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Subagents」分頁的「全部不載入」。`,
   claudeError: 'Claude Code 回報錯誤',
+  claudeBudgetReached: (usd: number) =>
+    `這一輪已用到這位成員的上限 US$${usd}（Claude Code 自己估的費用），所以 Claude Code 停了下來。要讓它做得更多，請在團隊設定中提高或拿掉這位成員的上限。`,
   claudeSandbox: (why: string) =>
     `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
   sandboxHost: '沙箱中的指令想連到這個主機。',
@@ -909,6 +911,7 @@ const zhTW = {
   duplicateName: (name: string) => `agent 名稱「${name}」重複了`,
   badProvider: (name: string) => `agent「${name}」的 provider 無效`,
   badEffort: (name: string, effort: string) => `agent「${name}」的推理強度「${effort}」無效`,
+  badLimit: (name: string, min: number, max: number) => `agent「${name}」的上限無效：須介於 ${min} 與 ${max} 之間`,
   cwdMissing: (cwd: string) => `工作目錄不存在：${cwd}`,
   cwdNotDirectory: (cwd: string) => `這不是資料夾：${cwd}`,
   cwdCreateFailed: (cwd: string, reason: string) => `無法建立工作目錄 ${cwd}（${reason}）`,
@@ -1098,6 +1101,8 @@ const en: ServerMessages = {
   claudeAgentsFailed: (detail) =>
     `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Subagents tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeError: 'Claude Code reported an error',
+  claudeBudgetReached: (usd) =>
+    `This turn reached the member's limit of US$${usd} (by Claude Code's own estimate), so Claude Code stopped. To let it do more, raise or remove the member's limit in Team settings.`,
   claudeSandbox: (why) =>
     `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat), on Ubuntu 23.10 or later also an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md), and try again; or switch the permission to "Full access" to run without one.`,
   sandboxHost: 'A command in the sandbox wants to connect to this host.',
@@ -1981,6 +1986,7 @@ const en: ServerMessages = {
   duplicateName: (name) => `The agent name "${name}" is used twice`,
   badProvider: (name) => `Agent "${name}" has an invalid provider`,
   badEffort: (name, effort) => `Agent "${name}" has an invalid reasoning effort "${effort}"`,
+  badLimit: (name, min, max) => `Agent "${name}" has an invalid limit: it must be from ${min} to ${max}`,
   cwdMissing: (cwd) => `Working directory not found: ${cwd}`,
   cwdNotDirectory: (cwd) => `Not a folder: ${cwd}`,
   cwdCreateFailed: (cwd, reason) => `Could not create the working directory ${cwd} (${reason})`,

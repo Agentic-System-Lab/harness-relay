@@ -33,4 +33,11 @@ describe('sorting conversations into groups', () => {
     expect(() => parseGroupReply('{}', groups)).toThrow();
     expect(() => parseGroupReply('Frontend, I think.', groups)).toThrow();
   });
+
+  it('reads the structured answer its CLI gave, and the text without one', () => {
+    expect(parseGroupReply('Frontend, I think.', groups, { group: 2 })).toEqual(groups[1]);
+    expect(parseGroupReply('{"group": 1}', groups, { group: 0 })).toBeNull();
+    expect(parseGroupReply('{"group": 1}', groups, undefined)).toEqual(groups[0]);
+    expect(() => parseGroupReply('{"group": 1}', groups, { group: 7 })).toThrow();
+  });
 });

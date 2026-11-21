@@ -191,10 +191,12 @@ flowchart LR
 
 1. 對話中出現一則 `plan.status = "planning"` 的系統訊息。
 2. 首席 agent（在設定頁指定：provider，以及選填的模型與推理強度）可用時會以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `PLANNER_BRIEFING`。prompt（`buildPlannerPrompt()`）內容包括**問題**——團隊上次發言或上次設計團隊之後使用者說的所有內容（`questionStart()`），所以被停止的那次設計的問題仍然算數——在它之前**到目前為止的對話**（`historyForLead()`：使用者的訊息與 agent 的回覆，由舊到新，不含工具呼叫、系統訊息、plan、pass 與失敗的回覆；每則最多 1,500 個字元，全部最多 12,000 個字元，保留最新的部分）、**目前的團隊**（模式、輪數或交棒次數，以及每位成員的 CLI、模型、推理強度與完整角色）、已登入的 CLI（`agentsForLead()`），每個都附上它提供的可用模型（名稱、支援的推理強度與預設推理強度）與 Harness Relay 執行它時用的預設值（兩者都以新成員會用的帳號為準：`catalogFor(ctx.catalog, p, ctx.accounts[p][0])`）、它在對話工作目錄裡自己載入的內容（`ctx.native`：內建工具、skill、MCP 伺服器與它們的工具、subagent 與 plugin，不含執行時不載入的項目；透過 `NativeSetupService.recent()` 詢問，不呼叫模型，在它新成員會用的帳號（`ctx.accounts[p][0]`）的家目錄裡問；只要執行時不載入的項目沒變，就直接用那個 CLI、資料夾與家目錄上次的答案，不論多舊，超過一分鐘就在背景重新詢問；還沒有答案時，設計最多等 `NATIVE_WAIT_MS`（20 秒），到時什麼都沒回答的 CLI 標為未知並註明原因；拒絕某個問題、某部分沒回答，或回答了一些之後逾時的 CLI，保留已回答的清單並註明可能不完整（`probeCompleteness()`；被拒絕的問題會標為 `refused`，所以清單都回答為空、自己什麼都沒有的 CLI，不會被當成無法詢問）），以及它的新成員會拿到的工具庫項目；接著是工具庫本身（`ctx.library`：每個 MCP 伺服器、可用的 skill 與記憶，以及預設給哪些 CLI 的成員），並說明怎麼依這些分配成員；角色怎麼寫（第一行說明這位成員是誰，因為隊友的簡報裡只看得到這一行，`roleSummary()`；而且只寫這位成員特有的事），以及它寫角色時參考的指引（`src/server/roleGuides.ts` 的 `roleGuidesForLead()`：各模型家族最適合的角色寫法，取自各家自己的指南與文件，只給已登入的 CLI 能跑的家族，`familiesForLead()`；不知道任何家族時就不給，權限是唯讀時也不會要求修改檔案；這時 CLI 清單裡的每個模型都標上它適用的指引，`familyOf()` 給的 `guide: …`，CLI 沒列出的預設模型也標，CLI 一個自己的模型都沒列出時就標它自己的模型，`unlistedFamily()`；不屬於任何家族的模型，例如 Cursor 的 Auto，則不標）；三種模式、使用者選的權限與工作目錄（首席 agent 無法更改）、使用者會先檢視團隊還是團隊立刻回答、排程訊息 @ 了但目前沒有成員叫這個名字的名字（`src/shared/mentions.ts` 的 `unknownMentions()`；如果它們是訊息要找的人或角色，首席 agent 要用這些名字為成員命名，必要時調整範本為成員改名，因為只有被 @ 的成員會回答——一般問題不加這段，因為裡面的 @ 常常是程式碼），以及所有範本（內建與使用者儲存的）的完整內容（JSON）。它必須回覆一個 JSON 物件：保留目前的團隊是 `{"choice": "keep", "reason"}`（只有已經有團隊時才提供；同一件工作的後續問題優先選它，因為成員會保有他們已經知道的事）；直接套用範本是 `{"choice": "template", "templateId", "reason"}`；依範本調整是 `{"choice": "adapted", "baseTemplateId", …團隊, "reason"}`；從頭設計是 `{"choice": "custom", …團隊, "reason"}`，其中團隊為 `"name", "description", "mode", "rounds", "maxHops", "agents": [{name, provider, role, model?, effort?}]`。首席 agent 只看工具，不會改：目前的團隊和範本以 `fromToolLibrary` 列出每位成員實際拿到的工具庫項目（CLI 的預設套用成員的例外之後，`memberLibraryTools()`，規則同 `ToolLibrary.forAgent`）；新成員用它 CLI 的預設，留下的成員保留原本的例外設定。這些資料由 `planner.ts` 的 `plannerContext()` 收集（伺服器的 `PlannerSource.context(cwd)`）。reason 是給使用者看的說明。
-3. `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。目前團隊所有成員都能執行時，可以原樣沿用（id 也一樣）。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員（`RELAY_MAX_TEAM_AGENTS` 更小時以它為準），輪數 1–5，交棒次數 1–30。成員比隊伍上限多的範本（上限調低之前存的）不會提供給首席 agent，它點名時也不採用；備用的範本會截到上限。上限調低之前存的隊伍，仍可交給首席 agent 修改，它的回答會截到上限。`fitAgents()` 會檢查每位成員的模型與帳號，並移除不相容的推理強度。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱），其中是範本成員的成員（名稱不分大小寫相同、CLI 也相同）保留那位範本成員的工具與帳號（`fromTemplate()`）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
+3. `leadReply()` 取首席 agent 的 CLI 給的結構化回答（見下方的「**照格式回答**」），沒有時由 `parsePlanReply()` 從程式碼區塊（或最外層的大括號）取出 JSON；`decidePlan()` 把它轉成團隊。目前團隊所有成員都能執行時，可以原樣沿用（id 也一樣）。自訂成員會經過與手動設計團隊相同的驗證（`validateAgents`）：名稱中的空白會被替換，最多 5 位成員（`RELAY_MAX_TEAM_AGENTS` 更小時以它為準），輪數 1–5，交棒次數 1–30。成員比隊伍上限多的範本（上限調低之前存的）不會提供給首席 agent，它點名時也不採用；備用的範本會截到上限。上限調低之前存的隊伍，仍可交給首席 agent 修改，它的回答會截到上限。`fitAgents()` 會檢查每位成員的模型與帳號，並移除不相容的推理強度。直接套用範本時若首席 agent 沒給原因，會補上預設說明。調整過的團隊會在 `plan.basedOn` 記下原本的範本（id 與名稱），其中是範本成員的成員（名稱不分大小寫相同、CLI 也相同）保留那位範本成員的工具與帳號（`fromTemplate()`）；若原本範本的 id 不存在，就當成自訂團隊。調整或自訂的團隊若與某個範本完全相同（`sameTeam()`：成員、CLI、角色、模型、推理強度、模式與輪數或交棒次數都一樣），就記為直接套用該範本。
 4. 若首席 agent 執行失敗或回覆無法使用，`fallbackPlan()` 會替目前成員安排可用的帳號與模型，沒有團隊時採用「一般問題智囊團」範本，卡片上會說明原因（`source: "fallback"`，只有改用範本時才帶 `presetId`）。若使用者停止執行，這則訊息會標為已中斷；下一個問題或「繼續」會重新設計。
-5. 留下來的成員（名稱與目前某位成員相同、不分大小寫，CLI 也相同；`keepMemberIds()`）保留原本的 id、worktree 和使用者設定的工具。帳號也相同時會接續原本的 CLI session。新成員及更換帳號的成員從頭開始，跟任何新成員一樣，從「還沒看過的訊息」讀到這段對話。plan 卡片變成 `ready`（附上首席 agent 與模型實測回報的費用和 token 數），團隊記在卡片上（`plan.agents`、`plan.settings`）。這次執行到此結束。
+5. 留下來的成員（名稱與目前某位成員相同、不分大小寫，CLI 也相同；`keepMemberIds()`）保留原本的 id、worktree、使用者設定的工具與上限（`AgentConfig.limits`，見[成員自己的上限](#成員自己的上限)）；改編範本的成員也會帶著範本中那位成員的上限（`fromTemplate()`），首席 agent 依要求修改團隊時則不動它（`decideRevision()`）。帳號也相同時會接續原本的 CLI session。新成員及更換帳號的成員從頭開始，跟任何新成員一樣，從「還沒看過的訊息」讀到這段對話。plan 卡片變成 `ready`（附上首席 agent 與模型實測回報的費用和 token 數），團隊記在卡片上（`plan.agents`、`plan.settings`）。這次執行到此結束。
 6. **確認。** 預設情況下 plan 會等待確認（`awaitingConfirmation`），對話仍保留目前的團隊，所以這時重試或編輯較早的訊息（會連同後面等待中的 plan 一起刪除）仍由那個團隊處理。使用者回應之前，「繼續」會被拒絕（409），訊息則放進佇列等待（首席 agent 設計期間送出的也一樣）。使用者可以確認（`POST /api/conversations/:id/messages/:messageId/confirm-plan`：plan 的團隊與模式成為對話的團隊，設定 `plan.confirmedAt`）、不採用（`…/decline-plan`：保留目前的團隊，設定 `plan.declinedAt`；第一個問題沒有團隊可以保留，所以不行），或手動設定團隊（`PATCH … { agents }`，以送出的團隊作為決定：團隊設定抽屜會編輯等待中的設計，並說明儲存就會採用它）。有其他操作佔用這個對話時，兩個按鈕都會被拒絕（409）。無論哪種，團隊接著都會回答（`startConfirmed()`）：用現在的團隊開始一次執行，先貼出等待中的訊息，並在歷史中看到那個問題。設了 `settings.autoConfirm` 時，plan 的團隊會立刻採用（`confirmedAt`、`autoConfirmed`），團隊的執行在設計團隊的執行結束時開始（`Run.answerNext`）；若無法開始（另一個對話正在修改同一個資料夾），對話中會說明原因，按「繼續」就由團隊回答，不會重新設計。plan 訊息是系統訊息，所以永遠不會轉交給 agent。
+
+**照格式回答。** 首席 agent 的四種回合（組隊、依要求修改團隊、審閱、側欄分組）各有一份描述回答格式的 JSON Schema，放在它對應的解析器旁邊（`planner.ts` 的 `PLAN_SCHEMA` 與 `REVISION_SCHEMA`、`reviewer.ts` 的 `REVIEW_SCHEMA`、`grouping.ts` 的 `GROUP_SCHEMA`），以 `RunOptions.outputSchema` 交給這次執行。每一份都照 Codex 嚴格結構化輸出能接受的寫法（Claude Code 也接受）：每個物件把所有屬性都列為必填、不允許其他屬性，所以回答中沒有的欄位就是 null（可為 null 的陣列或物件寫成與 null 的 `anyOf`；`test/planner.test.ts` 逐一檢查每份 schema）。首席 agent 用 Claude Code 或 Codex 且使用它們廠商自己的模型時才會要求：Claude Code 用 `--json-schema`（結果中帶 `structured_output`；claude 2.1.330），Codex 用 `turn/start` 的 `outputSchema`，只對那一輪有效（在 codex 0.167 app-server 的 schema 中是穩定欄位；它最後一則 agent 訊息就是回答，當成 JSON 讀取）；兩者都以 `RunResult.structured` 傳回。在使用者自己的端點上（`endpointRunModel()`）可能不支援，所以都不要求，其他 CLI 則忽略它。`leadReply()` 在結構化回答是有內容的物件時採用它，並把其中的 null 當成沒有那個欄位；否則照舊解析回覆的文字，所以首席 agent 用其他 CLI、用端點，或結構化回答缺少、不是物件時，仍然可以運作。Claude Code 重試後仍無法照格式回答（`error_max_structured_output_retries`）不算失敗，改讀它的文字。組隊失敗而沒有文字時，診斷訊息會附上結構化回答。
 
 **模型可用性。** 自動組隊時，`plannerContext()` 透過 `ProviderService.usage()` 重新詢問已安裝 CLI 的各個可用帳號。這些詢問不呼叫模型，會共用設定中正在進行的詢問，設計最多等待十秒。回報額度用完的帳號或模型會從候選名單移除。已重置的額度、用量未知的模型，以及不使用訂閱額度的自訂端點仍可參與。若預設模型無法使用，首席 agent 會看到該帳號上其他可用的模型，並須明確指定其中之一。沿用、範本與備援也會檢查最終模型和帳號，依序嘗試同模型的其他帳號、同 CLI 的其他模型、其他可用 CLI。首席 agent 無法使用時會走備援流程。若指定的私人端點已刪除，設計會停止，避免將提示送往其他模型來源。沒有可用成員時，設計會標為 `failed`，佇列中的訊息會繼續等待。按「繼續」或從自動任務面板可重試設計。這些檢查以設計當下的資料為準，手動編輯與之後的回合照原本的設定執行。
 
@@ -378,7 +380,7 @@ Muse Code 的轉接器（`src/server/agents/muse.ts`）在工作目錄啟動 `mu
 
 ### 每則回覆的費用與 token
 
-每則回覆都會顯示這一輪的耗時、費用與 token（`messages.duration_ms`、`cost_usd`、`input_tokens`、`output_tokens`；自動組隊的 plan 訊息顯示首席 agent 的）。這些數字只屬於這一輪：它的每一次模型呼叫（CLI 有計入的話，也包含 subagent 的），不含同一個 session 先前的回合，也不含先前失敗或被停止的回合。輸入包含讀取與寫入快取的 token；輸出包含推理，只算一次。Harness Relay 自己不計價：費用是 CLI 自己算的美元金額，CLI 沒有回報費用時不顯示。在使用者自己的端點上，Claude Code（它會把不認得的模型當成自家模型計價）、Goose 與 Pi 不顯示費用，OpenCode、Cline 與 OpenHands（它們把它當成免費）只在大於 0 時顯示。
+每則回覆都會顯示這一輪的耗時、費用與 token（`messages.duration_ms`、`cost_usd`、`input_tokens`、`output_tokens`；自動組隊的 plan 訊息顯示首席 agent 的）。這些數字只屬於這一輪：它的每一次模型呼叫（CLI 有計入的話，也包含 subagent 的），不含同一個 session 先前的回合，也不含先前失敗或被停止的回合。失敗或被停止的回合會保留它的 CLI 說到那時為止用了多少（`AgentRunError.usage`）：被停止的 Claude Code 回合的結果（見[停止 Claude Code 的回合](#停止-claude-code-的回合)）、失敗回合的結果、Copilot 回合收到的 `assistant.usage` 事件。在 RLM 模式（設定 → Labs）中，子模型回答這一輪 `llm_query()` 用的 token 會加進回覆的 token（`GatewayContext.usage`、`runCode.ts` 的 `withSubModelTokens()`），前提是它的 CLI 有回報自己的 token（只有子模型的會被誤認為這一輪的；`run_code` 的結果仍會列出）；子模型不計價，所以費用仍是 CLI 的。輸入包含讀取與寫入快取的 token；輸出包含推理，只算一次。Harness Relay 自己不計價：費用是 CLI 自己算的美元金額，CLI 沒有回報費用時不顯示。在使用者自己的端點上，Claude Code（它會把不認得的模型當成自家模型計價）、Goose 與 Pi 不顯示費用，OpenCode、Cline 與 OpenHands（它們把它當成免費）只在大於 0 時顯示。
 
 | CLI | Token | 費用 | 來源 |
 | --- | --- | --- | --- |
@@ -387,7 +389,7 @@ Muse Code 的轉接器（`src/server/agents/muse.ts`）在工作目錄啟動 `mu
 | Grok | 有 | 有 | prompt 回應的 `_meta.usage`，就是這一輪的（`costUsdTicks` 以 1e-10 美元為單位）。 |
 | Cursor | 沒有 | 沒有 | 它不回報用量。 |
 | Antigravity | 有 | 沒有 | prompt 回應的 `usage`（`acpTokens()`）。 |
-| Copilot | 有 | 沒有 | prompt 回應的 `usage`，從程序開啟 session 時開始計算，也就是這一輪（`acpTokens()`）。 |
+| Copilot | 有 | 沒有（AI 點數） | prompt 回應的 `usage`，從程序開啟 session 時開始計算，也就是這一輪（`acpTokens()`）；回應沒有時（以及失敗或被停止的回合），用它的 `assistant.usage` 執行期事件（見下）。 |
 | Muse Code | 沒有 | 沒有 | 它的 `usage_update` 只有 context 大小。 |
 | OpenCode | 有 | 有（端點上為 0 時沒有） | 它的資料庫（`opencode.db`）：session 及其下的 session（subagent 的）每次模型呼叫的 `step-finish` part，扣掉 OpenCode 啟動前、這一輪開始前就有的；輸入加上快取，輸出加上推理（OpenCode 把它們分開記）。ACP 的數字是最後一次呼叫的 token 與整個 session 的總花費。 |
 | Goose | 有 | 有（端點上沒有） | 它的 sessions 資料庫（`sessions.db`）：session 與從它開始的 session（delegate 的，包含壓縮的）的總計，算法和 Goose 相同，prompt 回應時減去 Goose 啟動前；輸出至少是總數減去輸入（xAI 的推理）。ACP 的數字是最後一次呼叫的 token 與整個 session 的總費用。 |
@@ -395,9 +397,28 @@ Muse Code 的轉接器（`src/server/agents/muse.ts`）在工作目錄啟動 `mu
 | OpenHands | 有 | 有（端點上為 0 時沒有） | 更新的 `_meta` 裡它的合計數據（對話中所有 LLM，包含 condenser 的），減去這一輪開始前 `base_state.json` 裡的。 |
 | Pi | 有 | 有（大於 0，且不在端點上） | 加總這一輪 assistant 訊息的 `usage`（輸入加上 `cacheRead` 與 `cacheWrite`）。 |
 
+Copilot 以 AI 點數（AI credits）而不是美元回報模型呼叫的花費：它的 `assistant.usage` 執行期事件，每次模型呼叫一則（subagent 與壓縮的也有）。Harness Relay 在 `initialize` 訂閱它（`clientCapabilities._meta["github.com/copilot"].events`、`COPILOT_RUNTIME_EVENTS`；`copilot help acp`），以 `github.com/copilot/sessionEvent` 通知收到。`createCopilotUsage()` 每次呼叫只算一次（依事件的 id，沒有時依 `accounting.usageId`）：輸入加上 `cacheReadTokens` 與 `cacheWriteTokens`（Copilot 分別計價，`copilot help billing`），輸出照原數字（`reasoningTokens` 包含在內），以及有回報的呼叫的 AI 點數（`copilotUsage.totalNanoAiu`，10^9 為一點），放在 `RunResult.aiCredits`。點數還沒有跟回覆一起保存（需要一個自己的欄位）；Copilot 是否會透過 ACP 送出這些事件、它的 `inputTokens` 是否不含快取，是從 copilot 1.0.112 的 session-events schema 與說明讀到的，沒有在實際執行中看過。不使用 `--usage-output-file`（session 結束時寫出用量）：透過 ACP 跑完一輪後它會不會寫，還沒有確定。
+
 ACP 沒有規定 CLI 的 `inputTokens` 與 `outputTokens` 是否包含快取的 token 與推理，還是另外列出：回應的 `totalTokens` 會透露，`acpTokens()` 會在總數多出輸入與輸出的部分恰好等於快取的 token（`cachedReadTokens`、`cachedWriteTokens`）、推理（`thoughtTokens`）或兩者時，把它們加回去。
 
 開源 agent 自己的資料庫（OpenCode 的、Goose 的）在它們的狀態資料夾裡，執行中的指令可以寫入，所以它們的用量在一個 worker thread 裡讀取，伺服器最多等 10 秒（超過就不顯示用量），每個資料庫同時只讀一次，而且只讀取一般檔案（不是連結，也不是開啟時會一直等待的具名管道，旁邊的日誌檔也一樣），以唯讀方式，在一個讀取交易中讀，並確認讀到的資料表真的是資料表、沒有 generated column（view 或 generated column 可能會跑一個永遠不會結束的查詢），數字在 SQL 裡加總，只回傳一列：`db.ts` 的 `readRunDatabase()`。永遠不會結束的 worker（卡在 SQLite 裡，或在檢查之後被換成具名管道而卡在開啟上）既不會卡住伺服器，也不會卡住它的結束：伺服器關閉自己的資料庫後，或遇到未捕捉的例外時，就立刻結束（SIGKILL），不等它（`exitAfterRunDatabaseReads()`、`exitOnUncaughtException()`）。執行前會寫入的清理步驟，遇到連結或具名管道、殘留的 rollback 日誌（播放它可能會開啟另一個檔案）、超過 1 GiB 的 write-ahead log，或有 generated column、運算式索引或條件索引的資料表（兩個 CLI 都不會建立，而它們會在讀取或寫入時照指令設計的那麼慢執行）都會拒絕，也不執行 check 約束，這次執行接著從空的狀態重新開始（`openRunDatabase()`）。
+
+### 成員自己的上限
+
+CLI 有這種上限時（`src/shared/types.ts` 的 `AGENT_LIMITS`），成員可以有自己的上限（`AgentConfig.limits`，型別 `AgentLimits`：以 JSON 存在 `conversation_agents.limits` 與 `preset_agents.limits`，schema 版本 39），在團隊編輯器中設定（以一行顯示目前的值，按 **調整** 打開，和成員的工具一樣；留白表示不設）。只會保留它的 CLI 有的那一種（`agentLimitsFor()`：store、`validateAgents()`（超出範圍時以 400 拒絕）與執行時都是如此）；它跟著範本與分支走，成員在首席 agent 組隊與修改團隊後留下來時也會保留，和工具一樣。各轉接器把它交給自己的 CLI（`RunOptions.limits`）：
+
+| CLI | 上限 | 做法 | 查證 |
+| --- | --- | --- | --- |
+| Claude Code | 一輪最多花多少美元（0.01–10,000），以 Claude Code 自己的估算為準 | `--max-budget-usd`，計算這個程序的花費，而這個程序只跑這一輪；到了 Claude Code 就停下（`error_max_budget_usd`），回覆會說用到了這位成員的上限，並保留這一輪的費用。用使用者自己的端點時不設，因為 Claude Code 會把它的模型當成自家模型計價。 | claude 2.1.330：說明、bundle 中這個選項的檢查（須大於 0）與結果的 subtype |
+| Copilot | 它的 session 最多用多少 AI 點數（30–1,000,000，整數） | `--max-ai-credits`：寬鬆的上限（一次回應可能超過，之後的模型呼叫才被擋下），涵蓋整個 session，包含之前各輪，1.0.112 起也包含 subagent（`copilot help limits`、它附帶的 changelog）。用使用者自己的端點時不設，因為不用點數。 | copilot 1.0.112：說明、`help limits` |
+| Goose | 一輪最多呼叫模型幾次（1–10,000；Goose 預設 1,000） | 環境中的 `GOOSE_MAX_TURNS`（繼承來的會被拿掉）；到了它就停下來，問要不要繼續。 | goose 1.58.1：binary 中的這個變數與訊息 |
+| OpenCode | 一輪最多走幾步（1–10,000），每步一次模型呼叫 | 這次執行的設定中，它的 `build` agent 的 `steps`；到了它只能用文字回答。 | opencode 1.19.5：binary 中的設定 schema |
+
+這些上限透過 ACP（Copilot、Goose、OpenCode）以及在使用者自己的端點上是否照上述方式作用，還沒有用真正的模型試過。RLM 的子模型只受 `RLM_LIMITS` 限制，不受這些上限限制。
+
+### 停止 Claude Code 的回合
+
+在 Claude Code 的回合按下停止時，會先在它的 prompt 送出後送一個 `interrupt` control request（之前沒有可以中斷的回合，而且使用者停止後就不再送出 prompt），並等最多 3 秒（`CLAUDE_STOP_GRACE_MS`），讓這一輪以一個結果結束：這個結果的用量會保留在被停止的回覆上（`AgentRunError.usage`），然後關閉它的 stdin，Claude Code 就會結束。到時還沒結束的回合，會跟其他程序一樣被停止（先 `SIGTERM`，再 `SIGKILL`，`process.ts`）。其他 CLI 仍用它們自己的方式（Codex 的 `turn/interrupt`、ACP CLI 的 `session/cancel`）。
 
 ### 權限對應
 
@@ -700,7 +721,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | --- | --- |
 | `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 29）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`pinned_at`（使用者把它釘選在側邊欄最上面的時間；NULL 代表沒有釘選；schema 版本 30）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
-| `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19） |
+| `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19；`limits`：成員自己的上限，JSON，只存它的 CLI 有的那一種，NULL 表示不設，見[成員自己的上限](#成員自己的上限)，schema 版本 39） |
 | `task_requests` | 建立對話及傳送任務的重試紀錄（schema 版本 37），保存內容摘要、對話和首次送出的佇列狀態，隨對話刪除。 |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 29），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序。webhook 呼叫隨排程訊息送來的內容存在 `event`（schema 版本 32），不是來自 webhook 時，它來自哪裡存在 `event_source`（`mail`：自動任務的觸發條件找到的；schema 版本 35）。 |
 | `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON；自動任務的第一件事也存成 `trigger`，給前一個版本讀）、時區、語言、是否啟用、核准與錯過時間的選擇、是否每次開新對話（`new_chat`）、下一次，以及上次結果（含它開的對話 `last_chat_id`）。追蹤的目標（`goal`）、追蹤狀態（`tracking`，JSON：`ScheduleTracking`）、它的 webhook（`hook`，JSON：建立與上次呼叫的時間）與權杖的 SHA-256（`hook_hash`，從不存權杖本身；schema 版本 32）。當某件事發生時才啟動的自動任務，在兩次檢查之間保留的每件事的來源狀態（`watch`，JSON：`ScheduleWatch` 的清單，每件事一個；schema 版本 35，能等好幾件事之前寫下的物件讀成那唯一一件事的狀態）。 |
@@ -711,7 +732,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 | `agent_sessions` | 每個對話中每個 agent 的 CLI session id、provider 與帳號（NULL 表示預設帳號），它最近一次執行的權限（`permission`，schema 版本 23），以及依 CLI 分別記下的那個 CLI 最近一次執行的權限，與開源 agent 的狀態資料夾是否還要清空（`by_cli`，JSON，schema 版本 24：權限高於這個 CLI 最近一次時開新的 session，並先清空它的資料夾），以及 Claude Code、Codex、Grok 與 Copilot 的 session 建立時所在的模型來源（`backend`：端點的 id，NULL 表示 CLI 自己的服務；schema 版本 26：在另一個模型來源上的一輪會開新的 session） |
 | `agent_seen` | 每個 agent 已看過哪些訊息 |
 | `check_baselines` | 團隊檢查：每個對話最新一份結果那一輪的起點（受保護檔案的大小、時間和 hash，repository 分支的位置，誰改了什麼），JSON，每個對話一筆，隨對話刪除；只有伺服器會讀，用來重新檢查那份結果（schema 版本 36，一起加入的還有存清單的 `conversations.checks` 和 `presets.checks`，以及存結果的 `messages.checks`） |
-| `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools` 與 `account` 同上 |
+| `presets`、`preset_agents` | 使用者儲存的團隊範本（內建範本寫在程式碼裡）；`preset_agents.tools`、`account` 與 `limits` 同上 |
 | `provider_settings` | 每個 CLI 的執行檔路徑；它預設帳號的名稱（`account_label`）、預設模型與推理強度、執行時不載入的項目（`native_off`、`native_items`），以及執行時打開的項目（`native_on`，schema 版本 39：它的 workflow）；macOS 上 OpenHands 能不能在 Harness Relay 的沙箱裡使用終端機（`sandbox_terminal`，schema 版本 25）；只有在預設帳號的 API key 無法搬進機密儲存區時（舊版以原文存的）才存它 |
 | `provider_accounts` | 每個 CLI 預設帳號以外的帳號與順序（id、provider、名稱）；每個帳號自己的預設模型與推理強度、執行時不載入的項目（schema 版本 20：原有的帳號沿用它所屬 CLI 的值），以及執行時打開的項目（`native_on`，schema 版本 39）；只有在帳號的 API key 無法搬進機密儲存區時才存它（schema 版本 19）。開源 agent 沒有其他帳號 |
 | `model_backends` | 開源 agent 的模型來源：你的 OpenAI 相容端點（id、名稱、base URL、模型），以及只有在無法搬進機密儲存區時才存的 API 來源（`openai`、`anthropic`、`xai`）或端點的金鑰（schema 版本 22；見[開源 agent](open-agents.zh-TW.md#模型來源)） |

@@ -304,12 +304,39 @@ export const zhTW = {
       `工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
     goToolLibrary: '前往設定 → App 與工具 → 工具庫',
     toolProblem: '目前無法使用',
+    /**
+     * A member's own limit (`AGENT_LIMITS`, `src/web/memberLimits.ts`), only for the CLIs that have one:
+     * the field's label, in its CLI's unit, and what it does (`min` to `max`).
+     */
+    limit: {
+      label: {
+        claude: '每一輪的費用上限（美元）',
+        copilot: 'AI 點數上限（整個 session）',
+        goose: '每一輪的模型呼叫上限（次）',
+        opencode: '每一輪的步數上限（步）',
+      },
+      placeholder: '不設上限',
+      change: '調整',
+      done: '收起',
+      hint: {
+        claude: (min: number, max: number) =>
+          `這位成員的一輪最多可以花多少美元（${min} 到 ${max}），以 Claude Code 自己估的費用為準；用到時 Claude Code 就停下這一輪。用你自己的模型端點時不設（Claude Code 會把端點的模型當成自家的模型來計價）。`,
+        copilot: (min: number, max: number) =>
+          `這位成員的 Copilot session 最多可以用多少 AI 點數（${min} 到 ${max}），之前各輪用的也算在內（Copilot 1.0.112 起，subagent 用的也算）。這是寬鬆的上限：一次回應可能超過，之後的模型呼叫才會被擋下。用你自己的模型端點時不設。`,
+        goose: (min: number, max: number) =>
+          `Goose 在一輪中最多可以呼叫模型幾次（${min} 到 ${max}，Goose 預設 1000）；到了它就停下來，問要不要繼續。`,
+        opencode: (min: number, max: number) =>
+          `OpenCode 的 agent 在一輪中最多可以走幾步（每步一次模型呼叫，${min} 到 ${max}）；到了它只能用文字回答，不能再用工具。`,
+      },
+    },
     problems: {
       needAgent: '至少需要一個 agent',
       badName: (name: string) => `名稱「${name || '(空白)'}」只能用字母、數字、_ 或 -`,
       duplicate: (name: string) => `名稱 @${name} 重複`,
       tooMany: (max: number) => `一個隊伍最多 ${max} 位成員`,
       needCwd: '請填寫工作目錄',
+      badLimit: (name: string, min: number, max: number, whole: boolean) =>
+        `@${name} 的上限要是 ${min} 到 ${max} 之間的${whole ? '整數' : '數字'}，或留白不設`,
     },
   },
 

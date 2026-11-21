@@ -15,6 +15,7 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { ApiError } from './api';
+import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
 
@@ -272,7 +273,12 @@ export function revisedTeam(draft: Team, revision: Pick<TeamRevision, 'agents' |
   const was = new Map(draft.agents.map((a) => [a.id, a]));
   const agents = revision.agents.map((a) => {
     const b = was.get(a.id);
-    return b && JSON.stringify(working(a)) === JSON.stringify(working(b)) && canonical(a.tools ?? {}) === canonical(b.tools ?? {}) ? b : a;
+    return b &&
+      JSON.stringify(working(a)) === JSON.stringify(working(b)) &&
+      canonical(a.tools ?? {}) === canonical(b.tools ?? {}) &&
+      canonical(limitsKey(a)) === canonical(limitsKey(b))
+      ? b
+      : a;
   });
   return { agents, settings: { ...draft.settings, ...revision.settings } };
 }

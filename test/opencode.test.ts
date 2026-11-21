@@ -934,6 +934,14 @@ describe('the run config', () => {
     expect(JSON.parse(text)).toEqual({ instructions: ['/p/{file:/etc/passwd}'], provider: { x: { name: '{env:OPENAI_API_KEY}' } } });
   });
 
+  it("gives its agent the member's limit of steps a turn", () => {
+    const limited = context({ limits: { steps: 25 } });
+    expect(opencodeRunConfig(limited.o, limited.run, []).agent).toEqual({ title: { disable: true }, build: { steps: 25 } });
+    // Another CLI's limit is not OpenCode's.
+    const other = context({ limits: { usd: 2 } });
+    expect(opencodeRunConfig(other.o, other.run, []).agent).toEqual({ title: { disable: true } });
+  });
+
   it("holds only the run's backend, the left-out subagents and the instruction files", () => {
     const ctx = context({ nativeOff: ['agents'] });
     const api = opencodeRunConfig(ctx.o, ctx.run, ['/p/AGENTS.md']);
