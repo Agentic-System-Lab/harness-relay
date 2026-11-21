@@ -177,19 +177,44 @@ The lead agent's team design, review and sidebar grouping are free text that Har
 - **Cline's agent teams and checkpoints** (Cline's ACP mode leaves them off; keep it so); **OpenCode's share, snapshot and web search**, which Harness Relay turns off (`opencode.ts:156-157`, `opencode.ts:437-441`), and its code mode (off with its experiments, unless the server inherited `OPENCODE_EXPERIMENTAL_CODE_MODE`: [section 8](#8-smaller-findings-cli-by-cli)). Harness Relay has its own teams and snapshots, and the rest reach outside the run.
 - **Goals and `/goal`, `/grind`, `/learn`** in the CLIs that have them: they overlap Harness Relay's tracked goals and team checks, and `/learn` writes to `GEMINI.md` / `AGENTS.md`. Codex's goals are on by default ([section 8](#8-smaller-findings-cli-by-cli)): pin them off (step 1).
 
+## What #154 changes
+
+[#154](https://github.com/Agentic-System-Lab/harness-relay/pull/154) (still a draft, not merged, on 2026-11-22) adds **Settings → Labs**: two ways for agents to use Harness Relay's own tools, off by default and one at a time.
+
+- **CodeAct**: a gateway tool, `run_code`, whose JavaScript calls the turn's other Harness Relay tools as functions. Each call is decided by its tier as the agent's own call would be: reads run, acts ask below full access (the card says the code asked), sends wait in the outbox. The code runs in Harness Relay's own sandbox in every permission, with no network, within limits (`RUN_CODE_LIMITS`, 4 runs at once among them).
+- **RLM**: all of that, plus `state`, kept for the rest of the agent's turn, and `llm_query()`, a question to a sub-model the user picks from Model connections, with no tools, which the server asks itself (`src/server/llmQuery.ts`): at most 100 a turn, 4 at once in a run, 200,000 characters each (`RLM_LIMITS`). The sub-model's tokens are listed in the tool's result, not added to the reply's cost or tokens.
+- Both help only a member that gets the gateway: Grok, Muse Code, Goose, Cline, OpenHands and Pi get it in full access only (`GATEWAY_FULL_ACCESS_ONLY`); neither runs wherever Harness Relay's own sandbox cannot start (native Windows, a Linux without bubblewrap), or without Node.js.
+
+What it means for this proposal, step by step:
+
+- **Step 1 (subagents and workflows).** `run_code` is, like a workflow, a script that does many steps in one call, except that it runs tool calls, not agents, and each of its calls is decided by Harness Relay by its tier, through approval cards and the outbox, within limits Harness Relay sets. A CLI's own workflow (Claude Code's `Workflow`) is asked about below full access as one generic approval card that does not say what it will run, and in full access runs at once (section 1); when its subagents call Harness Relay's tools, those calls are still decided by their tier. That supports keeping workflows off by default, and the way Labs' card is written (what it does, what it is good for, what it costs) suits the switches step 1 adds. RLM's `llm_query` gives part of what a CLI's subagents give, a cheaper model for part of the work, but it has no tools, so it does not replace a subagent exploring in a context of its own. Where step 1 turns Codex's subagents off below full access, a Codex member can still read long texts in parts with RLM (Codex gets the gateway at every permission).
+- **OpenCode's code mode ([section 8](#8-smaller-findings-cli-by-cli), [section 9](#9-off-and-should-stay-off)).** With #154 Harness Relay has a governed code mode of its own, so there is even less reason to turn OpenCode's on; and an inherited `OPENCODE_EXPERIMENTAL_CODE_MODE` wins (section 8), so step 1 now pins it off.
+- **Step 2 (showing the work).** With #154 as it is, the chat shows one `run_code` call and its result; the calls the code made are listed inside the result (`<run_code_result>`), those that ask have approval cards (which say the code asked), and sends have outbox cards. The display chosen (folded under the call that started them) suits them too: each call the code makes and each RLM question folded under that `run_code` call with `parentId`. The gateway knows which turn each call belongs to (its approval cards already go into that turn's reply), but `parentId` must be the id the CLI reported for that `run_code` call, which MCP's `tools/call` does not necessarily carry; in CodeAct mode one turn can have several `run_code` runs at once, so more than one may be running in the turn. How to match them: unsure.
+- **Step 4 (context windows).** RLM's sub-model is a model of Model connections; where it is on the user's own endpoint, the context window step 4 asks of the server when the endpoint is saved serves it too. With #154 as it is, each question may have 200,000 characters whatever the sub-model, which a 32k model on an endpoint refuses or silently cuts; with the context window, `llm_query`'s limit follows the sub-model's context window less `max_tokens`, turned into characters at a cautious number of characters per token (`RLM_LIMITS.prompt` counts characters, and a token holds fewer characters of Chinese than of English), and `run_code`'s description tells the agent. Four questions at once in a run (`RLM_LIMITS.concurrent`), with 4 runs at once, can send an endpoint up to 16 at a time, too many for one that serves one request at a time, for the reason step 1 lowers Goose's subagents. On the other side, a member with a short context can keep a long text in `state`, out of its own context, beside step 4's compaction settings; but of the open agents only OpenCode gets the gateway below full access.
+- **Step 8 (cost).** The sub-model's tokens left out of the reply are the same gap as Codex's subagent threads (section 1): add them to the reply's tokens. Harness Relay prices nothing itself ([A reply's cost and tokens](../architecture.md#a-replys-cost-and-tokens)), so the cost stays the CLI's. Step 8's caps per member (`--max-budget-usd` and the others) do not reach these questions either; only `RLM_LIMITS` does.
+- **Steps 3, 5, 6, 7 and 9** are unaffected.
+
 ## Design
 
 In this order; where a step depends on another, it says so.
 
 ### 1. Decide on each CLI's subagents, and pin what stays off
 
+Each CLI's account in Settings gets two switches beside what the CLI loads by itself ([What each CLI loads by itself](../architecture.md#what-each-cli-loads-by-itself)): subagents and workflows. The subagents item there today leaves out only Claude Code's and OpenCode's own subagents, keeping the built-in ones; the new subagents switch turns off the CLI's subagents altogether, built-in ones included (Codex's `agents.enabled=false`, Grok's `GROK_SUBAGENTS=0`, say). By default subagents are on and workflows off, in full access too; either can be changed in that CLI's settings. Below full access a switch cannot turn on what this step turns off for safety (Codex's and Grok's subagents, say); it can only turn off more. A switch shows only where the CLI has one to set, and without one the CLI's subagents or workflows are as the CLI has them:
+
+- Antigravity's and Cursor's subagents have none (`agy acp` has no such switch, and Cursor can leave nothing out over ACP), so they stay on;
+- whether Antigravity's `run_workflow` and `/swarm` and Grok's workflows have one: unsure; without one they stay on, unlike the workflows-off default;
+- Copilot's workflows come only from extensions and need its experimental mode (section 1), and whether it has a switch for workflows alone is unsure; without one, the account's own settings stay;
+- Muse Code's workflows stay off until step 3 keeps a turn until their agents finish.
+
 For these CLIs, below full access, either bound their subagents or turn them off, and say which in [Permission mapping](../architecture.md#permission-mapping); the others stay as they are today:
 
 - **Codex**: `agents.enabled=false` and `features.multi_agent_v2=false` below full access (the architecture's [Leaving them out](../architecture.md#leaving-them-out-of-harness-relays-runs) names only `features.multi_agent = false`, which decides only for a model the catalog gives no version: complete it with this step), until a CLI check on 0.170.0 or later (step 9) shows a subagent keeps the permission profile's `read` entries; then caps (`agents.max_concurrent_threads_per_session`, `agents.default_subagent_reasoning_effort`). At every permission, pin `features.goals=false`, and `approvalsReviewer: "user"` on `thread/start`, since an account's own `approvals_reviewer` applies otherwise.
 - **Grok**: `GROK_SUBAGENTS=0` until step 3 keeps its background work; then `GROK_MAX_CONCURRENT_SUBAGENTS` and `GROK_SUBAGENTS_MAX_DEPTH`.
-- **Claude Code**: `Workflow` off by default with `CLAUDE_CODE_DISABLE_WORKFLOWS=1` (or a deny rule, as the switch for a single built-in tool already writes, `claudeNativeSettings()`), kept where the account turns it on; ultracode, which has Claude plan a workflow for every substantive task, only as a choice of its own, through the `"ultracode": true` setting, which keeps the member's effort; `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` set from the turn's timeout.
+- **Claude Code**: `Workflow` off by default with `CLAUDE_CODE_DISABLE_WORKFLOWS=1` (or a deny rule, as the switch for a single built-in tool already writes, `claudeNativeSettings()`), kept where the switch above turns it on; ultracode, which has Claude plan a workflow for every substantive task, only as a choice of its own, through the `"ultracode": true` setting, which keeps the member's effort; `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` set from the turn's timeout.
 - **Antigravity**: `agy acp` has no switch for its subagents ([Leaving them out](../architecture.md#leaving-them-out-of-harness-relays-runs)), so they stay on; from 1.5.10 (step 9) step 3 keeps the turn until they finish, and until then its briefing asks it not to leave a subagent running when it ends its turn.
 - **Goose**: `GOOSE_MAX_CONCURRENT_SUBAGENTS` lower on an endpoint, which often serves one request at a time.
+- **OpenCode**: at every permission, `OPENCODE_EXPERIMENTAL_CODE_MODE=false` and `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=false` set explicitly, so that a value the server inherited does not win ([section 8](#8-smaller-findings-cli-by-cli); for code mode, see also [What #154 changes](#what-154-changes)).
 
 ### 2. Show the work subagents do
 
@@ -206,20 +231,19 @@ A tool call gets an optional parent: `tool_start` and `tool_end` take `parentId`
 
 The parent is an id only, so the shared types and the stored messages keep one list of calls.
 
+How it looks: in the activity group, the call that started a subagent becomes an item that can be opened, with the subagent's name, model and number of actions; open, it lists each of the subagent's calls, joined to their parent by a line, and last what the subagent reported back. The group stays folded by default, as today; while it runs, its summary shows the step the subagent is on (`Explore › Read test/files.test.ts`, say). A subagent's own subagents fold under it the same way, one level under another. Once #154 is merged, the calls `run_code` makes and RLM's questions fold under the `run_code` call the same way ([What #154 changes](#what-154-changes)).
+
 ### 3. Keep a turn until its background work ends
 
 For Grok, Antigravity (from 1.5.10) and Muse Code: after the prompt answers, keep reading until the CLI reports that the work it started is done or the turn's timeout passes, and stream what comes in that time into the same reply. Where a CLI gives no such signal, its briefing asks it to wait for its subagents before it ends the turn. Cursor does this itself once the `subagents` capability is advertised (step 2); Claude Code already reads until it exits, so it needs only the ceiling from step 1.
 
 ### 4. A context window for endpoint models
 
-Settings → Model backends gets an optional context window per model of an endpoint, filled in from the server when it says (vLLM's `/v1/models` reports `max_model_len`, llama.cpp's `meta.n_ctx`; other servers: unsure). Each open agent's adapter writes it where the table in [section 2](#2-endpoint-models-have-no-context-window) says, with a profile for a small context: OpenCode's pruning and tool output limits, Goose's tool response size and tool output summing, a step limit. Goose's persistent instructions are left out under 32,000 tokens, so they do not suit those models. For Cline, ask its makers to honour the compaction settings over ACP; until then a member whose context overflows starts a new session from Harness Relay's own record.
+Settings → Model connections gets an optional context window per model of an endpoint, asked of the server when the endpoint is saved: **Save** already checks new or changed connections against the endpoint's catalog and looks up the IDs it lacks one by one (`src/server/endpointModels.ts`), and the context window is read from the same answers, filled in where the server says, and can be changed by the user (vLLM's `/v1/models` reports `max_model_len`, llama.cpp's `meta.n_ctx`; other servers: unsure). A save that changes only the display name asks the server nothing, so an endpoint saved before this step gets its context window the next time its connection is changed and saved; until then it has none, as today. #154's RLM sub-model uses it too when it is on an endpoint ([What #154 changes](#what-154-changes)). Each open agent's adapter writes it where the table in [section 2](#2-endpoint-models-have-no-context-window) says, with a profile for a small context: OpenCode's pruning and tool output limits, Goose's tool response size and tool output summing, a step limit. Goose's persistent instructions are left out under 32,000 tokens, so they do not suit those models. For Cline, ask its makers to honour the compaction settings over ACP; until then a member whose context overflows starts a new session from Harness Relay's own record.
 
 ### 5. Plans
 
-Claude Code's and Codex's plan tools are now off by their makers' choice, so turning them on costs context; whatever is chosen, correct the architecture's table and known limitations now.
-
-- Claude Code: an opt-in per account: `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` with `CLAUDE_CODE_ENABLE_TASKS=0` reuses the `TodoWrite` mapping as it is; or keep the task tools and turn `TaskCreate` and `TaskUpdate` into the plan.
-- Codex: the same opt-in, `tools.update_plan.enabled=true`.
+- Claude Code and Codex: their plan tools keep their makers' default (off), and Harness Relay offers no way to turn them on: Anthropic's reason is that newer models track multi-step work without a written list, and the tools' definitions and reminders cost context; OpenAI made Codex's opt-in in August 2026 (section 3). Correct the architecture's table and known limitations now: these two CLIs' plan tools are off by default, so the chat usually shows no plan from them.
 - Cursor: take `cursor/update_todos` as the plan, and correct the architecture's table and the end-to-end fake (`e2e/fake-cli/agents/cursor.cjs`, with `e2e/README.md` and `e2e/README.zh-TW.md`) to what a live run shows.
 - Pi: a to-do tool registered by the gate extension, which then loads in every run.
 
@@ -229,7 +253,15 @@ Where a CLI's question tool can be turned off, turn it off: `tools.experimental_
 
 ### 7. Steering
 
-A conversation setting, off by default: a message for a member that is speaking now goes into its running turn when its CLI steers ([section 5](#5-a-message-cannot-reach-a-running-turn)), and is marked as such in the chat; otherwise it waits in the queue as today.
+A conversation setting, off by default. When it is on, a message for a member that is speaking now goes into its running turn as the mode and that member's CLI allow, and is marked as such in the chat; where it cannot, it waits in the queue as today.
+
+| Mode | How the message goes |
+| --- | --- |
+| Roundtable | into the turn of the member speaking now; the members after it get it before their own turns, as today |
+| Relay | as in roundtable: into the turn of the member holding the relay |
+| Parallel | into every member's turn at once, so that the round sees the same messages, when every member of the round is still running and can be steered; if one cannot, the whole message waits in the queue for the next round, as today |
+
+Whether a CLI can be steered, and how, is in [section 5](#5-a-message-cannot-reach-a-running-turn): Codex, Claude Code, Grok, Antigravity, Goose and Pi can; Cursor cannot (a new prompt cancels the running one); the audit found no way to steer OpenCode, Cline or OpenHands, so they count as cannot; Muse Code and Copilot count as cannot too, until a run shows otherwise.
 
 ### 8. Structured answers, budgets and cost
 
@@ -244,28 +276,33 @@ Move these forward through the CLI check, for what the newer versions fix: Codex
 
 ## Database
 
-One migration, for step 4: the endpoint models' context windows, kept with their models in `model_backends`.
+- Step 1: the workflows switch records what is on, the reverse of `native_off`, which records what is left out, so existing and new accounts have workflows off with no data changed: a column of what is on in `provider_settings` and in `provider_accounts`. The subagents switch is on by default and kept in `native_off` (a new item).
+- Step 4: the endpoint models' context windows, kept with their models in `model_backends`.
+
+Both can be one migration.
 
 ## Tests
 
 - Each adapter's parser with recorded messages: subagents' calls given their parent, notices, Cursor's to-dos as the plan.
-- The orchestrator with the fake runner: a steered message delivered into the running turn and marked; a turn kept until its background work ends, within the timeout.
-- The adapters' arguments and settings: what step 1 pins and what step 4 writes, per permission.
+- The orchestrator with the fake runner: a steered message delivered into the running turn as the mode allows, and marked (in parallel mode only when the whole round can be steered); a turn kept until its background work ends, within the timeout.
+- The adapters' arguments and settings: what step 1 pins and its switches for subagents and workflows, and what step 4 writes, per permission.
 - End-to-end: the fake CLIs get directives for subagents' events and steering; `e2e/README.md` and `e2e/README.zh-TW.md` list them.
+- Live tests (`e2e/live/`, the real CLIs): settle these four findings marked unsure first: Grok's lost wake-up turns, Codex's subagents and the sandbox (with the CLI check on 0.170.0 or later that step 1 needs), Antigravity's browser subagent, Cursor's to-do list; the others marked unsure, as the steps they bear on are built.
 
 ## Alternatives considered
 
 - **Claude Code's agent teams instead of Harness Relay's team.** Rejected: they are experimental, spawn no teammates in `-p`, and would be Claude Code only, while Harness Relay's teams mix CLIs.
 - **The CLIs' workflows (`Workflow`, `/fleet`, `run_workflow`) instead of parallel mode.** Rejected: each stays inside one CLI, with none of parallel mode's worktrees, checks or apply. They are worth having inside one member's turn, governed (step 1) and shown (step 2).
-- **Every subagent off.** The simplest and the safest; it is step 1's default for the CLIs Harness Relay cannot bound yet. As the only answer it loses parallel work inside a turn, which helps large tasks.
+- **Every subagent off.** The simplest and the safest; it is step 1's default below full access for the CLIs Harness Relay cannot bound yet. As the only answer it loses parallel work inside a turn, which helps large tasks.
 - **Turning on the approval judges** to cut the number of approval cards. Rejected: see [section 9](#9-off-and-should-stay-off).
-- **Leaving Claude Code's and Codex's plan tools off, and only correcting the docs.** What their makers chose for today's models, and the cheapest; it costs the user the plan beside the reply. Step 5 makes it an opt-in, not a default.
+- **Subagents' calls in a panel of their own** (a card per subagent, in a drawer like Team settings'). Rejected: what a subagent does would be apart from where it sits in the reply; a shared page is made from the chat on screen, which the drawer is not part of; on a phone the drawer covers the whole conversation. What it is good for (a reply that does not grow with many agents, parallel progress side by side) shows only with a workflow of a dozen or more agents, and workflows are off by default (step 1).
+- **An opt-in per account for Claude Code's and Codex's plan tools** (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` with `CLAUDE_CODE_ENABLE_TASKS=0`, reusing the `TodoWrite` mapping, or `TaskCreate` and `TaskUpdate` turned into the plan; Codex's `tools.update_plan.enabled=true`). Rejected: it goes against what their makers chose for today's models, and costs context; the price is that the user sees no plan beside these two CLIs' replies.
 
-## Open questions
+## Answers to the open questions
 
-- Should subagents' calls be folded under the call that started them, or shown in a panel of their own?
-- In full access, should subagents and workflows be on by default, as the CLIs have them?
-- Should Claude Code's and Codex's plan tools be offered at all, against their makers' default?
-- Does steering suit every mode? In parallel mode the round is meant to see the same messages.
-- Should the context window be asked of the server when the endpoint is saved, or only when the user asks?
-- Which findings marked unsure should a live test settle first? Proposed: Grok's lost wake-up turns, Codex's subagents and the sandbox, Antigravity's browser subagent, Cursor's to-do list.
+- **Where do subagents' calls go?** Folded under the call that started them (step 2); a panel of their own is rejected ([Alternatives considered](#alternatives-considered)).
+- **In full access, are subagents and workflows on?** Subagents on by default, workflows off; either can be switched on or off in each CLI's settings (step 1).
+- **Should Claude Code's and Codex's plan tools be offered, against their makers' default?** No: their makers' default stays, and only the docs are corrected (step 5).
+- **Does steering suit every mode?** Designed per mode and per CLI: in roundtable and relay a message goes into the turn of the member speaking; in parallel mode only when the whole round can be steered, so that the round sees the same messages (step 7).
+- **When is the context window asked of the server?** When the endpoint is saved (step 4).
+- **Which findings marked unsure does a live test settle first?** As proposed: Grok's lost wake-up turns, Codex's subagents and the sandbox, Antigravity's browser subagent, Cursor's to-do list ([Tests](#tests)).

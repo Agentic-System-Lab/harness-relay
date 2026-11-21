@@ -177,19 +177,44 @@ Muse Code 有 `user_steer` 輸入，Copilot 的 ACP 也可能可以引導；兩�
 - **Cline 的 agent teams 與 checkpoint**（Cline 的 ACP 模式本來就不開；應維持如此）；**OpenCode 的分享、snapshot 與網路搜尋**，由 Harness Relay 關閉（`opencode.ts:156-157`、`opencode.ts:437-441`），以及它的 code mode（隨它的實驗功能一起關閉，除非伺服器繼承了 `OPENCODE_EXPERIMENTAL_CODE_MODE`：[第 8 節](#8-較小的發現逐個-cli)）。Harness Relay 有自己的團隊與快照，其餘的會連到這次執行之外。
 - **各 CLI 的目標與 `/goal`、`/grind`、`/learn`**：和 Harness Relay 的追蹤目標與團隊檢查重疊，而 `/learn` 會寫入 `GEMINI.md`／`AGENTS.md`。Codex 的目標預設開啟（[第 8 節](#8-較小的發現逐個-cli)）：把它固定為關閉（第 1 步）。
 
+## #154 的影響
+
+[#154](https://github.com/Agentic-System-Lab/harness-relay/pull/154)（2026-11-22 時仍是草稿，尚未合併）新增「設定 → 實驗室」：兩種讓 agent 使用 Harness Relay 自己工具的方式，預設關閉，一次只能開一種。
+
+- **CodeAct**：gateway 多一個 `run_code` 工具，agent 的 JavaScript 把這個回合的其他 Harness Relay 工具當成函式呼叫。每個呼叫依它的等級決定，和 agent 自己呼叫時一樣：讀取直接執行，動作在完全存取以外會詢問（卡片會說是程式碼要求的），送出的內容在待送出匣等待。程式碼在任何權限下都在 Harness Relay 自己的沙箱裡執行，不能連網，並有上限（`RUN_CODE_LIMITS`，其中同時最多 4 次執行）。
+- **RLM**：CodeAct 的全部，再加上在 agent 這個回合裡一直保留的 `state`，以及 `llm_query()`：向使用者在「模型連線」選的子模型提問，不帶工具，由伺服器自己送出（`src/server/llmQuery.ts`）；每個回合最多 100 個問題，每次執行同時 4 個，每個最多 200,000 字元（`RLM_LIMITS`）。子模型的 token 列在工具的結果裡，沒有加進回覆的費用與 token。
+- 兩者都只對拿得到 gateway 的成員有用：Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只在完全存取時拿得到（`GATEWAY_FULL_ACCESS_ONLY`）；Harness Relay 自己的沙箱無法啟動的地方（原生 Windows、沒有 bubblewrap 的 Linux），或沒有 Node.js 時，都不能用。
+
+對這份提案的影響，依設計的步驟：
+
+- **第 1 步（subagent 與 workflow）。** `run_code` 和 workflow 一樣是一段一次做很多步的腳本，只是它跑的是工具呼叫，不是 agent，而且每個呼叫都由 Harness Relay 依等級決定、經過核准卡與待送出匣，並有 Harness Relay 設的上限。CLI 自己的 workflow（Claude Code 的 `Workflow`）在完全存取以外只以一張不說要跑什麼的一般核准卡詢問，完全存取時直接執行（第 1 節）；它的 subagent 呼叫 Harness Relay 的工具時，仍然依等級決定。這支持 workflow 預設關閉的決定，實驗室卡片的寫法（做什麼、適合什麼、代價是什麼）也適合第 1 步新增的開關。RLM 的 `llm_query` 提供了 CLI subagent 的一部分好處：用便宜的模型做一部分工作；但它不帶工具，取代不了在另一個 context 裡探索的 subagent。第 1 步在完全存取以外關掉 Codex 的 subagent 時，Codex 成員仍然能用 RLM 分段讀長文（Codex 在各種權限下都拿得到 gateway）。
+- **OpenCode 的 code mode（[第 8 節](#8-較小的發現逐個-cli)、[第 9 節](#9-已關閉也應該維持關閉的)）。** #154 讓 Harness Relay 有了自己受管理的 code mode，OpenCode 的就更沒有理由打開；而伺服器繼承到的 `OPENCODE_EXPERIMENTAL_CODE_MODE` 會勝出（第 8 節），所以第 1 步明確把它設為關閉。
+- **第 2 步（顯示）。** 照 #154 現在的做法，聊天畫面只顯示一個 `run_code` 呼叫與它的結果；程式碼做的呼叫列在結果（`<run_code_result>`）裡，其中會詢問的有核准卡（卡片會說是程式碼要求的），送出的有待送出匣的卡片。決定採用的畫法（收在啟動它的呼叫底下）也適用於它們：程式碼做的每個呼叫與 RLM 的每個提問，以 `parentId` 收在那個 `run_code` 呼叫底下。gateway 知道每個呼叫屬於哪個回合（它的核准卡本來就送進這個回合的回覆），但 `parentId` 必須是 CLI 回報的那個 `run_code` 呼叫的 id，而 MCP 的 `tools/call` 不一定帶著它；CodeAct 模式下一個回合可以同時跑好幾次 `run_code`，所以「這個回合裡還在執行的那個」不一定只有一個。怎麼對上：待確認。
+- **第 4 步（context window）。** RLM 的子模型是「模型連線」裡的一個模型；它在使用者自己的端點上時，第 4 步在儲存端點時向伺服器詢問的 context window 也用得上。照 #154 現在的做法，每個問題不論子模型都能到 200,000 字元，端點上 32k 的模型會拒絕或默默截斷；有了 context window，`llm_query` 的上限就依子模型的 context window 扣掉 `max_tokens` 來定，以保守的每個 token 字元數換算成字元（`RLM_LIMITS.prompt` 以字元計，而中文等語言一個 token 的字元比英文少），並寫進 `run_code` 給 agent 的說明。每次執行同時 4 個問題（`RLM_LIMITS.concurrent`），而同時可以有 4 次執行，所以一個端點最多可能同時收到 16 個，對一次只服務一個請求的端點太多，和第 1 步調低 Goose 的 subagent 上限是同一個理由。另一方面，context 短的成員可以把長文留在 `state`，不放進自己的 context，補足第 4 步的壓縮設定；但開源 agent 裡只有 OpenCode 在完全存取以外拿得到 gateway。
+- **第 8 步（費用）。** RLM 子模型的 token 沒有算進回覆，和 Codex 沒算進的 subagent thread（第 1 節）是同一種缺口：把它們加進回覆的 token。Harness Relay 自己不計價（[每則回覆的費用與 token](../architecture.zh-TW.md#每則回覆的費用與-token)），所以費用仍然只來自 CLI。第 8 步每個成員的上限（`--max-budget-usd` 等）也管不到這些提問，只有 `RLM_LIMITS` 管得到。
+- **第 3、5、6、7、9 步**不受影響。
+
 ## 設計
 
 依這個順序；某一步要等另一步時，會寫明。
 
 ### 1. 決定每個 CLI 的 subagent，並固定該關的
 
+設定裡每個 CLI 的帳號，在它自己載入的內容旁（[各 CLI 自己載入的內容](../architecture.zh-TW.md#各-cli-自己載入的內容)）多兩個開關：subagent 與 workflow。現有的 subagent 項目只排除 Claude Code 與 OpenCode 自己定義的 subagent，內建的保留；新的 subagent 開關關掉的是 CLI 整個 subagent 功能，內建的也包括在內（例如 Codex 的 `agents.enabled=false`、Grok 的 `GROK_SUBAGENTS=0`）。預設 subagent 開啟、workflow 關閉，完全存取時也是；兩者都可以在各自 CLI 的設定裡改。完全存取以外，這一步為了安全關掉的（例如 Codex 與 Grok 的 subagent），開關不能打開，只能再關掉其他的。CLI 沒有對應的開關時，這個開關不出現，它的 subagent 或 workflow 就照 CLI 自己的預設：
+
+- Antigravity 與 Cursor 的 subagent 沒有開關（`agy acp` 沒有這個開關，Cursor 在 ACP 下什麼都排除不了），所以保持開啟；
+- Antigravity 的 `run_workflow` 與 `/swarm`、Grok 的 workflow 有沒有開關：待確認；沒有的話，它們和 workflow 預設關閉不同，保持開啟；
+- Copilot 的 workflow 只由擴充功能註冊、需要它的實驗模式（第 1 節），有沒有只關 workflow 的開關：待確認；沒有的話，維持帳號自己的設定；
+- Muse Code 的 workflow 維持關閉，直到第 3 步能讓回合等到它們的 agent 完成。
+
 完全存取以外，下面這些 CLI 的 subagent 不是加上限制，就是關掉，並在[權限對應](../architecture.zh-TW.md#權限對應)寫明是哪一種；其他 CLI 維持現狀：
 
 - **Codex**：完全存取以外設 `agents.enabled=false` 與 `features.multi_agent_v2=false`（架構文件的[在 Harness Relay 的執行中不載入](../architecture.zh-TW.md#在-harness-relay-的執行中不載入)只寫了 `features.multi_agent = false`，它只決定內附目錄沒給版本的模型：隨這一步一起補上），直到在 0.170.0 或之後的 CLI 檢查（第 9 步）顯示 subagent 會保留權限設定檔的 `read` 項目；之後再加上限（`agents.max_concurrent_threads_per_session`、`agents.default_subagent_reasoning_effort`）。各種權限下都固定 `features.goals=false`，並在 `thread/start` 設 `approvalsReviewer: "user"`，否則帳號自己的 `approvals_reviewer` 會生效。
 - **Grok**：設 `GROK_SUBAGENTS=0`，直到第 3 步能保住它的背景工作；之後設 `GROK_MAX_CONCURRENT_SUBAGENTS` 與 `GROK_SUBAGENTS_MAX_DEPTH`。
-- **Claude Code**：預設用 `CLAUDE_CODE_DISABLE_WORKFLOWS=1` 關閉 `Workflow`（或用排除單一內建工具的開關本來就會寫的拒絕規則，`claudeNativeSettings()`），帳號開啟時才保留；ultracode 會讓 Claude 為每個實質的任務規劃 workflow，只作為另外的選項，用 `"ultracode": true` 設定，以保留成員的強度；依回合的逾時設定 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`。
+- **Claude Code**：預設用 `CLAUDE_CODE_DISABLE_WORKFLOWS=1` 關閉 `Workflow`（或用排除單一內建工具的開關本來就會寫的拒絕規則，`claudeNativeSettings()`），用上面的開關打開時才保留；ultracode 會讓 Claude 為每個實質的任務規劃 workflow，只作為另外的選項，用 `"ultracode": true` 設定，以保留成員的強度；依回合的逾時設定 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`。
 - **Antigravity**：`agy acp` 沒有關閉 subagent 的開關（[在 Harness Relay 的執行中不載入](../architecture.zh-TW.md#在-harness-relay-的執行中不載入)），所以它們保持開啟；到 1.5.10（第 9 步）後由第 3 步等它們完成，在那之前由簡報要它結束回合前不要留下還在跑的 subagent。
 - **Goose**：在端點上調低 `GOOSE_MAX_CONCURRENT_SUBAGENTS`，因為端點常常一次只服務一個請求。
+- **OpenCode**：各種權限下都明確設定 `OPENCODE_EXPERIMENTAL_CODE_MODE=false` 與 `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=false`，不讓伺服器繼承到的值勝出（[第 8 節](#8-較小的發現逐個-cli)；code mode 另見 [#154 的影響](#154-的影響)）。
 
 ### 2. 顯示 subagent 做的事
 
@@ -206,20 +231,19 @@ Muse Code 有 `user_steer` 輸入，Copilot 的 ACP 也可能可以引導；兩�
 
 上層只是一個 id，所以共用型別與儲存的訊息仍然只有一份呼叫清單。
 
+畫法：啟動 subagent 的呼叫在活動列裡成為一個可以展開的項目，標出 subagent 的名稱、模型與動作數；展開後是它的每個呼叫，以一條線連到上層，最後是它回報給上層的結果。整組和現在一樣預設收合；執行中時，摘要列顯示 subagent 正在做的那一步（例如 `Explore › Read test/files.test.ts`）。subagent 再開 subagent 時，一樣一層收在一層底下。#154 合併後，`run_code` 做的呼叫與 RLM 的提問也這樣收在 `run_code` 底下（[#154 的影響](#154-的影響)）。
+
 ### 3. 等背景工作結束再結束回合
 
 Grok、Antigravity（1.5.10 起）與 Muse Code：prompt 回答之後繼續讀，直到 CLI 回報它啟動的工作都完成，或回合逾時，這段時間收到的內容串流進同一則回覆。CLI 沒有提供這種訊號的，就在簡報裡要它在結束回合前等它的 subagent 完成。Cursor 在宣告 `subagents` 能力後（第 2 步）會自己這樣做；Claude Code 本來就會讀到它結束，只需要第 1 步的上限。
 
 ### 4. 端點模型的 context window
 
-設定 → 模型來源，為端點的每個模型加一個可選的 context window，伺服器有回報時自動填入（vLLM 的 `/v1/models` 回報 `max_model_len`，llama.cpp 回報 `meta.n_ctx`；其他伺服器：待確認）。每個開源 agent 的轉接器依[第 2 節](#2-端點的模型沒有-context-window)表格寫入對應位置，並為短 context 提供一組設定：OpenCode 的修剪與工具輸出上限、Goose 的工具回應大小與工具輸出摘要、步數上限。Goose 的常駐指示在 32,000 token 以下不會放進去，所以不適合這些模型。Cline 的部分，請廠商讓 ACP 採用壓縮設定；在那之前，context 溢出的成員從 Harness Relay 自己的紀錄開一個新 session。
+設定 → 模型連線，為端點的每個模型加一個可選的 context window，在儲存端點時向伺服器詢問：「儲存」本來就會向端點的目錄檢查新的或改過的連線，並逐一查詢目錄裡沒有的 ID（`src/server/endpointModels.ts`），context window 從同一份回答讀取，伺服器有回報時自動填入，使用者可以修改（vLLM 的 `/v1/models` 回報 `max_model_len`，llama.cpp 回報 `meta.n_ctx`；其他伺服器：待確認）。只改顯示名稱的儲存不會向伺服器詢問，所以這一步之前存好的端點，要到下次改了連線再儲存時才有 context window；在那之前和現在一樣沒有。#154 的 RLM 子模型在端點上時也用得上（[#154 的影響](#154-的影響)）。每個開源 agent 的轉接器依[第 2 節](#2-端點的模型沒有-context-window)表格寫入對應位置，並為短 context 提供一組設定：OpenCode 的修剪與工具輸出上限、Goose 的工具回應大小與工具輸出摘要、步數上限。Goose 的常駐指示在 32,000 token 以下不會放進去，所以不適合這些模型。Cline 的部分，請廠商讓 ACP 採用壓縮設定；在那之前，context 溢出的成員從 Harness Relay 自己的紀錄開一個新 session。
 
 ### 5. 計畫
 
-Claude Code 與 Codex 的計畫工具現在是廠商選擇關閉的，打開就會佔用 context；不論怎麼決定，架構文件的表格與已知限制現在就要修正。
-
-- Claude Code：每個帳號可以選擇開啟：`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 搭配 `CLAUDE_CODE_ENABLE_TASKS=0`，直接沿用 `TodoWrite` 的轉換；或保留任務工具，把 `TaskCreate` 與 `TaskUpdate` 轉成計畫。
-- Codex：同樣是選擇開啟，`tools.update_plan.enabled=true`。
+- Claude Code 與 Codex：計畫工具維持廠商的預設（關閉），Harness Relay 不提供開啟的選項：Anthropic 的理由是較新的模型不需要寫下的清單就能追蹤多步驟的工作，而工具的定義與提醒會佔用 context；OpenAI 在 2026 年 8 月把 Codex 的改成選擇開啟（第 3 節）。架構文件的表格與已知限制現在就要修正，寫明這兩個 CLI 的計畫工具預設關閉，所以聊天畫面通常不會有它們的計畫。
 - Cursor：把 `cursor/update_todos` 當成計畫，並依實際跑出來的結果修正架構文件的表格與端對端測試的假 CLI（`e2e/fake-cli/agents/cursor.cjs`，連同 `e2e/README.md` 與 `e2e/README.zh-TW.md`）。
 - Pi：由 gate 擴充功能註冊一個待辦工具，gate 擴充功能也因此在每次執行都要載入。
 
@@ -229,7 +253,15 @@ CLI 的提問工具能關的就關掉：Codex 用 `tools.experimental_request_us
 
 ### 7. 引導
 
-一個對話設定，預設關閉：給正在發言的成員的訊息，在它的 CLI 能引導時（[第 5 節](#5-訊息進不了執行中的回合)）送進它執行中的回合，並在聊天畫面標示；否則和現在一樣在佇列裡等。
+一個對話設定，預設關閉。開啟時，給正在發言的成員的訊息，依模式與那個成員的 CLI 送進它執行中的回合，並在聊天畫面標示；做不到時，和現在一樣在佇列裡等。
+
+| 模式 | 訊息怎麼送 |
+| --- | --- |
+| 圓桌 | 送進正在發言的成員的回合；後面的成員照常在自己的回合前收到它 |
+| 接力 | 和圓桌一樣：送進目前這一棒的回合 |
+| 平行 | 這一輪的成員都還在執行、而且都能引導時，同時送進每一個成員的回合，讓同一輪看到相同的訊息；只要有一個不能，整則訊息就在佇列裡等到下一輪，和現在一樣 |
+
+CLI 能不能引導、用什麼方法，見[第 5 節](#5-訊息進不了執行中的回合)：Codex、Claude Code、Grok、Antigravity、Goose 與 Pi 可以；Cursor 不行（新的 prompt 會取消執行中的那個）；這次盤點沒有找到 OpenCode、Cline 與 OpenHands 引導的方法，當成不行；Muse Code 與 Copilot 在實際跑過確定之前，也當成不行。
 
 ### 8. 結構化回答、預算與費用
 
@@ -244,28 +276,33 @@ CLI 的提問工具能關的就關掉：Codex 用 `tools.experimental_request_us
 
 ## 資料庫
 
-一個 migration，給第 4 步：端點模型的 context window，和它們的模型一起存在 `model_backends`。
+- 第 1 步：workflow 開關記下的是「打開」，和記下關掉項目的 `native_off` 相反，所以現有與新的帳號不用改資料就是關閉：`provider_settings` 與 `provider_accounts` 各加一欄打開的項目。subagent 開關預設開啟，記在 `native_off`（一個新的項目）。
+- 第 4 步：端點模型的 context window，和它們的模型一起存在 `model_backends`。
+
+兩者可以是同一個 migration。
 
 ## 測試
 
 - 各轉接器的解析器，用錄下的訊息：subagent 的呼叫帶上它的上層、通知、Cursor 的待辦清單成為計畫。
-- 協調器搭配假 runner：引導的訊息送進執行中的回合並加上標示；回合等到背景工作結束才結束，且不超過逾時。
-- 轉接器的參數與設定：第 1 步固定的與第 4 步寫入的，依權限分別測試。
+- 協調器搭配假 runner：引導的訊息依模式送進執行中的回合並加上標示（平行模式只在整輪都能引導時）；回合等到背景工作結束才結束，且不超過逾時。
+- 轉接器的參數與設定：第 1 步固定的、它的 subagent 與 workflow 開關，以及第 4 步寫入的，依權限分別測試。
 - 端對端：假 CLI 加上 subagent 事件與引導的指令；`e2e/README.md` 與 `e2e/README.zh-TW.md` 列出它們。
+- 實際測試（`e2e/live/`，真的 CLI）：先確定這四項待確認的發現：Grok 遺失的喚醒回合、Codex 的 subagent 與沙箱（和第 1 步要的 0.170.0 或之後的 CLI 檢查一起）、Antigravity 的 browser subagent、Cursor 的待辦清單；其他待確認的，做到相關的步驟時再確定。
 
 ## 考慮過的其他做法
 
 - **用 Claude Code 的 agent teams 取代 Harness Relay 的團隊。** 不採用：它們是實驗功能，在 `-p` 下不會產生 teammate，而且只限 Claude Code，Harness Relay 的團隊則混合多種 CLI。
 - **用 CLI 的 workflow（`Workflow`、`/fleet`、`run_workflow`）取代平行模式。** 不採用：每一種都只在一個 CLI 之內，沒有平行模式的 worktree、檢查與套用。放在一個成員的回合裡、受到管理（第 1 步）並且看得到（第 2 步），它們值得保留。
-- **全部 subagent 都關掉。** 最簡單也最安全；對 Harness Relay 還無法加上限制的 CLI，這是第 1 步的預設。但如果只做這件事，就會失去回合內的平行工作，而這對大任務有幫助。
+- **全部 subagent 都關掉。** 最簡單也最安全；對 Harness Relay 還無法加上限制的 CLI，這是第 1 步在完全存取以外的預設。但如果只做這件事，就會失去回合內的平行工作，而這對大任務有幫助。
 - **打開核准評審**，以減少核准卡。不採用：見[第 9 節](#9-已關閉也應該維持關閉的)。
-- **讓 Claude Code 與 Codex 的計畫工具維持關閉，只修正文件。** 這是廠商為現在的模型做的選擇，也最省事；代價是使用者看不到回覆旁的計畫。第 5 步把它做成選擇開啟，而不是預設。
+- **subagent 的呼叫顯示在自己的面板**（每個 subagent 一張卡，放在和「團隊設定」一樣的抽屜）。不採用：subagent 做的事會和它在回覆裡的位置分開；分享的頁面由畫面上的聊天產生，抽屜不在其中；手機上抽屜會蓋住整個對話。它的好處（回覆不會因為 agent 多而變長、可以並列看平行的進度）要到一次跑十幾個 agent 的 workflow 才明顯，而 workflow 預設關閉（第 1 步）。
+- **每個帳號可以選擇開啟 Claude Code 與 Codex 的計畫工具**（`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 搭配 `CLAUDE_CODE_ENABLE_TASKS=0`，沿用 `TodoWrite` 的轉換，或把 `TaskCreate` 與 `TaskUpdate` 轉成計畫；Codex 的 `tools.update_plan.enabled=true`）。不採用：違反廠商為現在的模型做的選擇，也會佔用 context；代價是使用者看不到這兩個 CLI 回覆旁的計畫。
 
-## 待決問題
+## 回答待決問題
 
-- subagent 的呼叫應該收在啟動它的呼叫底下，還是顯示在自己的面板？
-- 完全存取時，subagent 與 workflow 是否應該像 CLI 自己的預設一樣開啟？
-- 要不要違反廠商的預設，提供 Claude Code 與 Codex 的計畫工具？
-- 引導適合每一種模式嗎？在平行模式裡，同一輪應該看到相同的訊息。
-- context window 應該在儲存端點時向伺服器詢問，還是只在使用者要求時？
-- 標為待確認的發現，哪些應該先用實際測試確定？建議：Grok 遺失的喚醒回合、Codex 的 subagent 與沙箱、Antigravity 的 browser subagent、Cursor 的待辦清單。
+- **subagent 的呼叫放在哪裡？** 收在啟動它的呼叫底下（第 2 步）；自己的面板不採用（[考慮過的其他做法](#考慮過的其他做法)）。
+- **完全存取時，subagent 與 workflow 要不要開？** subagent 預設開啟，workflow 預設關閉；兩者都可以在各自 CLI 的設定裡分別開關（第 1 步）。
+- **要不要違反廠商的預設，提供 Claude Code 與 Codex 的計畫工具？** 不要：維持廠商的預設，只修正文件（第 5 步）。
+- **引導適合每一種模式嗎？** 依模式與 CLI 分別設計：圓桌與接力送進正在發言的成員的回合；平行模式只在整輪都能引導時才送，讓同一輪看到相同的訊息（第 7 步）。
+- **context window 什麼時候向伺服器詢問？** 儲存端點時（第 4 步）。
+- **哪些待確認的發現先實際測試？** 照建議：Grok 遺失的喚醒回合、Codex 的 subagent 與沙箱、Antigravity 的 browser subagent、Cursor 的待辦清單（[測試](#測試)）。
