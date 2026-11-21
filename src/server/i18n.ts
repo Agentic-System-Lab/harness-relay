@@ -204,7 +204,9 @@ const zhTW = {
   memoryNoteNotFound: '找不到這則記憶',
   memoryNoteEmpty: '記憶的內容不能是空的',
   memoryFull: (max: number) => `長期記憶最多 ${max} 則，請先刪掉一些再新增。`,
-  memoryTidying: '主導代理正在整理記憶，請等它完成。',
+  memoryTidying: '首席 agent 正在整理記憶，請等它完成。',
+  memoryTidyUnparsable: '首席 agent 的回覆裡沒有 JSON 格式的變更。',
+  memoryReplyRemoved: '記下它的回覆已重試或因編輯而移除',
   memoryOff: '長期記憶已關閉。',
   memoryNothingToTidy: '還沒有記憶可以整理。',
 
@@ -1237,6 +1239,8 @@ const en: ServerMessages = {
   memoryNoteEmpty: 'A memory note cannot be empty',
   memoryFull: (max: number) => `Long-term memory holds at most ${max} notes: delete some before adding more.`,
   memoryTidying: 'The lead agent is tidying the memory: wait until it is done.',
+  memoryTidyUnparsable: "The lead agent's reply held no changes as JSON.",
+  memoryReplyRemoved: 'The reply that saved it was retried or edited away',
   memoryOff: 'Long-term memory is off.',
   memoryNothingToTidy: 'There are no notes to tidy yet.',
 

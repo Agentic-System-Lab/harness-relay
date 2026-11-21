@@ -1,6 +1,6 @@
 // Long-term memory as Settings and a reply's card show it: pure, so it can be tested without a DOM.
 
-import { PROVIDER_LABEL, type MemoryNote, type MemoryState, type MemoryView } from '../shared/types';
+import { PROVIDER_LABEL, type MemoryNote, type MemoryPartNote, type MemoryState, type MemoryView } from '../shared/types';
 import type { Messages } from './locales/zh-TW';
 
 /** How many notes are in each state. */
@@ -68,4 +68,18 @@ export function tidyStatus(
       : [];
   if (view.changedSinceTidy > 0) parts.push(m.changedSince(view.changedSinceTidy));
   return parts.join(' · ');
+}
+
+/**
+ * What a reply's card shows of one of its notes: whether it says where the note stands (not for one the
+ * reply set aside: that entry says what the reply did, and the card of the reply that saved the note
+ * follows it), and which buttons it has.
+ */
+export function cardEntry(n: MemoryPartNote): { status: boolean; action: 'keep' | 'archive' | 'restore' | 'none' } {
+  if (n.status === 'skipped') return { status: true, action: 'none' };
+  if (n.op === 'forgotten' || !n.id) return { status: false, action: 'none' };
+  if (n.status === 'pending') return { status: true, action: 'keep' };
+  if (n.status === 'active') return { status: true, action: 'archive' };
+  if (n.status === 'archived') return { status: true, action: 'restore' };
+  return { status: true, action: 'none' };
 }

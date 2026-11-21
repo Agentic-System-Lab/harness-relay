@@ -2086,6 +2086,11 @@ export class Store {
       );
   }
 
+  /** Several memory writes as one: all of them, or none when one fails. `fn` may not start a transaction itself. */
+  memoryWrites<T>(fn: () => T): T {
+    return transaction(this.db, fn);
+  }
+
   deleteMemoryNote(id: string): boolean {
     return Number(this.db.prepare('DELETE FROM memories WHERE id = ?').run(id).changes) > 0;
   }

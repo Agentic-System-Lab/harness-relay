@@ -3,9 +3,19 @@
  * (src/web/chat.ts), and shared pages leaving the card out (src/web/share.ts).
  */
 import { describe, expect, it } from 'vitest';
-import { segments } from '../src/web/chat';
+import { segments, shownSegments } from '../src/web/chat';
 import { en } from '../src/web/locales/en';
-import { authorText, firstFilter, folderName, folderOptions, memoryCounts, replacedBy, shownNotes, tidyStatus } from '../src/web/memory';
+import {
+  authorText,
+  cardEntry,
+  firstFilter,
+  folderName,
+  folderOptions,
+  memoryCounts,
+  replacedBy,
+  shownNotes,
+  tidyStatus,
+} from '../src/web/memory';
 import { SHARE_DROP } from '../src/web/share';
 import type { MemoryNote } from '../src/shared/types';
 
@@ -77,6 +87,24 @@ describe("a reply's memory card", () => {
       { kind: 'memory', part, key: 1 },
     ]);
     expect(segments([{ type: 'memory', notes: [] }])).toEqual([]);
+  });
+
+  it('stays shown under a reply that passed', () => {
+    const segs = segments([
+      { type: 'text', text: '[PASS]' },
+      { type: 'memory', notes: [{ id: 'm_1', text: 'x', op: 'saved', status: 'active' }] },
+    ]);
+    expect(shownSegments(segs, true, false).shown.map((s) => s.kind)).toEqual(['memory']);
+  });
+
+  it("offers what fits each note, and no state for one the reply set aside (the saving reply's card follows it)", () => {
+    const n = { id: 'm_1', text: 'x', op: 'saved' as const };
+    expect(cardEntry({ ...n, status: 'pending' })).toEqual({ status: true, action: 'keep' });
+    expect(cardEntry({ ...n, status: 'active' })).toEqual({ status: true, action: 'archive' });
+    expect(cardEntry({ ...n, status: 'archived' })).toEqual({ status: true, action: 'restore' });
+    expect(cardEntry({ ...n, status: 'deleted' })).toEqual({ status: true, action: 'none' });
+    expect(cardEntry({ ...n, op: 'forgotten', status: 'archived' })).toEqual({ status: false, action: 'none' });
+    expect(cardEntry({ text: 'x', op: 'saved', status: 'skipped', skipped: 'full' })).toEqual({ status: true, action: 'none' });
   });
 
   it('stays out of a shared page', () => {

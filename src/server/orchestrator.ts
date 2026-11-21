@@ -1721,8 +1721,12 @@ export class Orchestrator {
       conv.id,
       dropped.map((m) => m.id),
     );
-    // What those replies asked to send goes with them.
+    // What those replies asked to send goes with them, and the notes they saved are set aside.
     this.outbox?.discardFor(
+      conv.id,
+      dropped.map((m) => m.id),
+    );
+    this.memory.dropReplies(
       conv.id,
       dropped.map((m) => m.id),
     );

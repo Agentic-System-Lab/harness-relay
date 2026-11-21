@@ -7,10 +7,14 @@ import { MEMORY_BASES, MEMORY_LIMITS, type MemoryBasis, type MemoryNote } from '
  *   <remember scope="everywhere|project" basis="user|checked|inferred">one note</remember>
  *
  * corrects one with the same block and the note's id (`<remember id="m_…">`), and sets one aside with
- * `<forget id="m_…"/>` (or `<forget id="m_…">why</forget>`). The blocks are taken out of the reply's
- * text, the chat shows them as a card instead, and the server keeps each note as a row of its own, so
- * agents writing at once never overwrite each other's notes. A block in a code fence with anything
- * else in it is code, and stays. Pure, shared by the server and the UI.
+ * `<forget id="m_…"/>` (or `<forget id="m_…">why</forget>`, on one line). The blocks are taken out of
+ * the reply's text, the chat shows them as a card instead, and the server keeps each note as a row of
+ * its own, so agents writing at once never overwrite each other's notes.
+ *
+ * Only what is plainly a block is taken: it starts a line (indented at most three spaces), nothing but
+ * other blocks follows it on its last line, it is not code (in a fence, or indented as code) and does
+ * not run across a fence. Anything else, an example of the syntax among them, stays as text. Pure,
+ * shared by the server and the UI.
  */
 
 /** What one block asks. */
@@ -20,8 +24,12 @@ export type MemoryOp =
 
 /** A fence's opening or closing line: three or more backticks or tildes, indented at most three spaces. */
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/;
-/** A block's opening tag where a line starts (after spaces), its attributes in group 2. */
-const OPEN = /[ \t]*<(remember|forget)\b([^>]*)>/iy;
+/** A fence line anywhere in a text (one a block must not run across). */
+const FENCE_LINE = /(?:^|\n)[ \t]{0,3}(?:`{3,}|~{3,})/;
+/** A block's opening tag, its attributes in group 2: at a line's start, or right after another block. */
+const OPEN = /<(remember|forget)\b([^>\n]*)>/iy;
+/** The longest a note's block may be: past it, the block is not one an agent wrote for a note. */
+const MAX_BLOCK = 2 * MEMORY_LIMITS.noteChars;
 
 /** A value of the attributes of an opening tag, quoted or not. */
 function attr(attrs: string, name: 'id' | 'scope' | 'basis'): string | undefined {
@@ -44,12 +52,13 @@ function basisOf(value: string | undefined): MemoryBasis | undefined {
   return (MEMORY_BASES as readonly string[]).includes(v ?? '') ? (v as MemoryBasis) : undefined;
 }
 
-/** Where `needle` (lower case) next occurs in `text` from `from`, ignoring case, or -1. */
-function indexOfCI(text: string, needle: string, from: number): number {
-  return text.toLowerCase().indexOf(needle, from);
-}
+/** Where the current line ends (its `\n`, or the end of `text`). */
+const lineEnd = (text: string, pos: number) => {
+  const nl = text.indexOf('\n', pos);
+  return nl < 0 ? text.length : nl;
+};
 
-/** The block that starts at `pos` (a line's start), and where it ends; undefined when none does. */
+/** The block whose opening tag is at `pos`, and where it ends; undefined when there is none. */
 function blockAt(text: string, pos: number): { op: MemoryOp; end: number } | undefined {
   OPEN.lastIndex = pos;
   const open = OPEN.exec(text);
@@ -64,10 +73,10 @@ function blockAt(text: string, pos: number): { op: MemoryOp; end: number } | und
     const close = /<\/remember\s*>/gi;
     close.lastIndex = afterOpen;
     const m = close.exec(text);
-    if (!m) return undefined;
+    if (!m || m.index - afterOpen > MAX_BLOCK) return undefined;
     const body = text.slice(afterOpen, m.index);
-    // An unfinished block before another one: neither is taken as written.
-    if (/<remember\b/i.test(body)) return undefined;
+    // An unfinished block before another one, or one that runs across code: not a note.
+    if (/<remember\b/i.test(body) || FENCE_LINE.test(body)) return undefined;
     const id = attr(attrs, 'id');
     const scope = scopeOf(attr(attrs, 'scope'));
     const basis = basisOf(attr(attrs, 'basis'));
@@ -78,104 +87,98 @@ function blockAt(text: string, pos: number): { op: MemoryOp; end: number } | und
   }
   const id = attr(attrs, 'id') ?? '';
   if (selfClosed) return { op: { kind: 'forget', id }, end: afterOpen };
-  // `<forget id="…">why</forget>`, or an opening tag alone (as if it closed itself).
+  // `<forget id="…">why</forget>` on its line, or an opening tag alone (as if it closed itself).
   const close = /<\/forget\s*>/gi;
   close.lastIndex = afterOpen;
   const m = close.exec(text);
-  const next = indexOfCI(text, '<remember', afterOpen);
-  const nextForget = indexOfCI(text, '<forget', afterOpen);
-  const before = [next, nextForget].filter((i) => i >= 0);
-  if (m && (!before.length || m.index < Math.min(...before))) {
+  if (m && m.index < lineEnd(text, afterOpen)) {
     const reason = text.slice(afterOpen, m.index).trim();
     return { op: { kind: 'forget', id, ...(reason ? { reason } : {}) }, end: close.lastIndex };
   }
   return { op: { kind: 'forget', id }, end: afterOpen };
 }
 
-/** The blocks `inner` holds when it holds nothing else (a fence an agent wrapped its blocks in). */
-function blocksOnly(inner: string): MemoryOp[] | undefined {
+/**
+ * The blocks that start the line at `pos` (after at most three spaces) and end a line, one after
+ * another, and where that line's break is; undefined when the line is not blocks alone.
+ */
+function blocksAt(text: string, pos: number): { ops: MemoryOp[]; end: number } | undefined {
+  const indent = /^[ \t]*/.exec(text.slice(pos, pos + 8))![0];
+  if (indent.replace(/\t/g, '    ').length > 3) return undefined;
   const ops: MemoryOp[] = [];
-  let pos = 0;
+  let p = pos + indent.length;
   for (;;) {
-    while (pos < inner.length && /\s/.test(inner[pos]!)) pos++;
-    if (pos >= inner.length) break;
-    const block = blockAt(inner, pos);
+    const block = blockAt(text, p);
     if (!block) return undefined;
     ops.push(block.op);
-    pos = block.end;
+    p = block.end;
+    while (p < text.length && (text[p] === ' ' || text[p] === '\t')) p++;
+    if (p >= text.length || text[p] === '\n') return { ops, end: p };
   }
-  return ops.length ? ops : undefined;
 }
 
-/** Where the fence opened by `mark` on the line ending at `lineEnd` closes: after its closing line, or the end of `text`. */
-function fenceEnd(text: string, lineEnd: number, mark: string): { found: boolean; innerEnd: number; after: number } {
-  let pos = lineEnd < text.length ? lineEnd + 1 : text.length;
+/** Where the fence opened by `mark` on the line ending at `end` closes: after its closing line, or the end of `text`. */
+function fenceEnd(text: string, end: number, mark: string): number {
+  let pos = end < text.length ? end + 1 : text.length;
   while (pos < text.length) {
-    const nl = text.indexOf('\n', pos);
-    const end = nl < 0 ? text.length : nl;
-    const m = FENCE.exec(text.slice(pos, end));
-    if (m && m[1]![0] === mark[0] && m[1]!.length >= mark.length && !text.slice(pos, end).trim().slice(m[1]!.length).trim()) {
-      return { found: true, innerEnd: pos, after: nl < 0 ? text.length : nl + 1 };
+    const e = lineEnd(text, pos);
+    const line = text.slice(pos, e);
+    const m = FENCE.exec(line);
+    if (m && m[1]![0] === mark[0] && m[1]!.length >= mark.length && !line.trim().slice(m[1]!.length).trim()) {
+      return e < text.length ? e + 1 : text.length;
     }
-    pos = nl < 0 ? text.length : nl + 1;
+    pos = e < text.length ? e + 1 : text.length;
   }
-  return { found: false, innerEnd: text.length, after: text.length };
+  return text.length;
 }
+
+/** A line of indented code: four spaces (or a tab) in, after a blank line or another such line. */
+const indentedCode = (line: string) => /^(?: {4}|\t)/.test(line);
 
 /**
  * The memory blocks of a reply, in order (at most `MEMORY_LIMITS.perReply`; the rest are dropped), and
- * its text without them. A block is taken where it starts a line, outside code: alone in a fence, the
- * fence goes with it.
+ * its text without them. Only lines of blocks alone are taken, outside code (see the top of this file).
  */
 export function splitMemory(text: string): { text: string; ops: MemoryOp[] } {
   if (!/<(?:remember|forget)\b/i.test(text)) return { text, ops: [] };
+  const src = text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text;
   const ops: MemoryOp[] = [];
   let out = '';
   let pos = 0;
-  /** A block on lines of its own was taken out: the blank line after it goes too when one is before it. */
-  const skipGap = () => {
-    if (out && !out.endsWith('\n\n')) return;
-    const nl = text.indexOf('\n', pos);
-    const line = text.slice(pos, nl < 0 ? text.length : nl);
-    if (!line.trim() && nl >= 0) pos = nl + 1;
-  };
-  while (pos < text.length) {
-    const nl = text.indexOf('\n', pos);
-    const end = nl < 0 ? text.length : nl;
-    const next = nl < 0 ? text.length : nl + 1;
-    const fence = FENCE.exec(text.slice(pos, end));
+  /** In indented code: the line before was code or blank after code. */
+  let inCode = false;
+  let prevBlank = true;
+  while (pos < src.length) {
+    const end = lineEnd(src, pos);
+    const next = end < src.length ? end + 1 : src.length;
+    const line = src.slice(pos, end);
+    const fence = FENCE.exec(line);
     if (fence) {
-      const close = fenceEnd(text, end, fence[1]!);
-      const only = close.found ? blocksOnly(text.slice(next, close.innerEnd)) : undefined;
-      if (only) {
-        ops.push(...only);
-        pos = close.after;
-        skipGap();
-      } else {
-        out += text.slice(pos, close.after);
-        pos = close.after;
-      }
+      const after = fenceEnd(src, end, fence[1]!);
+      out += src.slice(pos, after);
+      pos = after;
+      inCode = false;
+      prevBlank = false;
       continue;
     }
-    const block = blockAt(text, pos);
-    if (!block) {
-      out += text.slice(pos, next);
+    const blank = !line.trim();
+    if (!blank && indentedCode(line) && (prevBlank || inCode)) inCode = true;
+    else if (!blank) inCode = false;
+    const run = !inCode && !blank ? blocksAt(src, pos) : undefined;
+    if (!run) {
+      out += src.slice(pos, next);
       pos = next;
+      prevBlank = blank;
       continue;
     }
-    ops.push(block.op);
-    let p = block.end;
-    while (p < text.length && (text[p] === ' ' || text[p] === '\t' || text[p] === '\r')) p++;
-    if (p >= text.length || text[p] === '\n') {
-      pos = Math.min(p + 1, text.length);
-      skipGap();
-      continue;
+    ops.push(...run.ops);
+    pos = run.end < src.length ? run.end + 1 : src.length;
+    // A block on lines of its own was taken out: the blank line after it goes too when one is before it.
+    if (!out || out.endsWith('\n\n')) {
+      const e = lineEnd(src, pos);
+      if (e < src.length && !src.slice(pos, e).trim()) pos = e + 1;
     }
-    // Text after the block on its line stays, as it was.
-    const nl2 = text.indexOf('\n', p);
-    const after = nl2 < 0 ? text.length : nl2 + 1;
-    out += text.slice(p, after);
-    pos = after;
+    prevBlank = true;
   }
   if (!ops.length) return { text, ops };
   return { text: out.trimEnd(), ops: ops.slice(0, MEMORY_LIMITS.perReply) };
@@ -189,10 +192,10 @@ export function withoutMemoryBlocks(text: string): string {
   if (!/<(?:r|f|$)/i.test(text)) return text;
   let rest = splitMemory(text).text;
   let last = -1;
-  for (const m of rest.matchAll(/(?:^|\n)[ \t]*<(?:remember|forget)\b/gi)) last = m.index;
-  if (last >= 0 && !/<\/remember\s*>/i.test(rest.slice(last))) rest = rest.slice(0, last);
+  for (const m of rest.matchAll(/(?:^|\n) {0,3}<(?:remember|forget)\b/gi)) last = m.index;
+  if (last >= 0 && !/<\/remember\s*>/i.test(rest.slice(last)) && !FENCE_LINE.test(rest.slice(last))) rest = rest.slice(0, last);
   // `<rem`, `<forg`… being typed at the start of the last line.
-  rest = rest.replace(/(?:^|\n)[ \t]*<(?:r(?:e(?:m(?:e(?:m(?:b(?:e(?:r)?)?)?)?)?)?)?|f(?:o(?:r(?:g(?:e(?:t)?)?)?)?)?)?$/i, '');
+  rest = rest.replace(/(?:^|\n) {0,3}<(?:r(?:e(?:m(?:e(?:m(?:b(?:e(?:r)?)?)?)?)?)?)?|f(?:o(?:r(?:g(?:e(?:t)?)?)?)?)?)?$/i, '');
   return rest.trimEnd();
 }
 

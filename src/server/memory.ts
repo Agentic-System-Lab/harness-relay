@@ -90,7 +90,8 @@ interface Meta {
 }
 
 export class LongTermMemory {
-  private tidyRun?: { abort: AbortController; done: Promise<void> };
+  /** The tidying under way: `auto`, started by itself after a run rather than by the user's Tidy up now. */
+  private tidyRun?: { abort: AbortController; done: Promise<void>; auto: boolean };
   private closing = false;
 
   constructor(
@@ -128,9 +129,13 @@ export class LongTermMemory {
 
   updateSettings(patch: Partial<MemorySettings>): MemoryView {
     const meta = this.meta();
-    meta.settings = { ...meta.settings, ...patch };
+    const before = meta.settings;
+    meta.settings = { ...before, ...patch };
     this.saveMeta(meta);
-    if (!meta.settings.enabled || !meta.settings.autoTidy) this.tidyRun?.abort.abort();
+    // Switching memory off stops a tidying; switching automatic tidying off stops one that started by itself.
+    const off = before.enabled && !meta.settings.enabled;
+    const autoOff = before.autoTidy && !meta.settings.autoTidy && this.tidyRun?.auto;
+    if (off || autoOff) this.tidyRun?.abort.abort();
     return this.view();
   }
 
@@ -198,6 +203,8 @@ export class LongTermMemory {
     const now = Date.now();
     const author: MemoryAuthor = { kind: 'agent', name: agent.name, provider: agent.provider };
     const out: MemoryPartNote[] = [];
+    /** Notes set aside: their cards say so once the writes are done. */
+    const cards: MemoryNote[] = [];
     const notes = this.store.memoryNotes();
     let count = notes.length;
     const byId = new Map(notes.map((n) => [n.id, n]));
@@ -206,6 +213,30 @@ export class LongTermMemory {
       if (!byId.has(n.id)) count++;
       byId.set(n.id, n);
     };
+    this.store.memoryWrites(() =>
+      this.applyOps(conv, msg, agent, ops, { review, now, author, out, cards, byId, save, count: () => count }),
+    );
+    for (const n of cards) this.hooks.cardChanged?.(n, 'archived');
+    return out;
+  }
+
+  private applyOps(
+    conv: Conversation,
+    msg: ChatMessage,
+    agent: Pick<AgentConfig, 'name' | 'provider'>,
+    ops: readonly MemoryOp[],
+    c: {
+      review: boolean;
+      now: number;
+      author: MemoryAuthor;
+      out: MemoryPartNote[];
+      cards: MemoryNote[];
+      byId: Map<string, MemoryNote>;
+      save: (n: MemoryNote) => void;
+      count: () => number;
+    },
+  ): void {
+    const { review, now, author, out, byId, save } = c;
     for (const op of ops) {
       if (op.kind === 'forget') {
         const note = op.id ? byId.get(op.id) : undefined;
@@ -217,7 +248,7 @@ export class LongTermMemory {
           const reason = op.reason ? cleanNoteText(op.reason).slice(0, 300) : '';
           save({ ...note, state: 'archived', reason: `@${agent.name}${reason ? `: ${reason}` : ''}`, updatedAt: now });
           out.push({ id: note.id, text: note.text, op: 'forgotten', status: 'archived' });
-          this.hooks.cardChanged?.(note, 'archived');
+          c.cards.push(note);
         }
         continue;
       }
@@ -252,7 +283,7 @@ export class LongTermMemory {
         });
         continue;
       }
-      if (count >= MEMORY_LIMITS.maxNotes) {
+      if (c.count() >= MEMORY_LIMITS.maxNotes) {
         out.push({ text, op: correcting ? 'updated' : 'saved', status: 'skipped', skipped: 'full' });
         continue;
       }
@@ -273,7 +304,6 @@ export class LongTermMemory {
       save(note);
       out.push({ id: note.id, text, op: correcting ? 'updated' : 'saved', status: note.state, ...(cwd ? { cwd } : {}), basis });
     }
-    return out;
   }
 
   // --- The user's own changes (Settings, a reply's card) ----------------------------------------
@@ -331,17 +361,37 @@ export class LongTermMemory {
       if (patch.state === 'active') delete note.reason;
     }
     note.updatedAt = now;
-    this.store.saveMemoryNote(note);
-    if (was === 'pending' && note.state === 'active') {
+    const setAside: MemoryNote[] = [];
+    this.store.memoryWrites(() => {
+      this.store.saveMemoryNote(note);
+      if (was !== 'pending' || note.state !== 'active') return;
       for (const old of note.replaces ?? []) {
         const replaced = this.store.memoryNote(old);
         if (!replaced || replaced.state === 'archived') continue;
         this.store.saveMemoryNote({ ...replaced, state: 'archived', updatedAt: now });
-        this.hooks.cardChanged?.(replaced, 'archived');
+        setAside.push(replaced);
       }
-    }
+    });
+    for (const n of setAside) this.hooks.cardChanged?.(n, 'archived');
     if (was !== note.state) this.hooks.cardChanged?.(note, note.state);
     return note;
+  }
+
+  /**
+   * Retry or an edit took these replies of `convId` away, and their cards with them: the notes they
+   * saved or last corrected, still as agents wrote them, are set aside (the user can restore them).
+   */
+  dropReplies(convId: string, messageIds: readonly string[]): void {
+    const ids = new Set(messageIds);
+    const now = Date.now();
+    const reason = t().memoryReplyRemoved;
+    this.store.memoryWrites(() => {
+      for (const n of this.store.memoryNotes()) {
+        if (n.conversationId !== convId || !n.messageId || !ids.has(n.messageId)) continue;
+        if (n.author.kind !== 'agent' || n.state === 'archived') continue;
+        this.store.saveMemoryNote({ ...n, state: 'archived', reason, updatedAt: now });
+      }
+    });
   }
 
   /** Deletes a note for good (a waiting one is discarded so). */
@@ -365,7 +415,7 @@ export class LongTermMemory {
     if (!enabled || !autoTidy) return;
     if (meta.lastTidy && Date.now() - meta.lastTidy.at < MEMORY_LIMITS.tidyHours * 3_600_000) return;
     if (this.changedSince(this.store.memoryNotes(), meta) < MEMORY_LIMITS.tidyAfterChanges) return;
-    this.startTidy();
+    this.startTidy(true);
   }
 
   /** The user's Tidy up now. */
@@ -373,10 +423,10 @@ export class LongTermMemory {
     if (!this.config.enabled) throw new HttpError(409, t().memoryOff);
     if (this.tidyRun) throw new HttpError(409, t().memoryTidying);
     if (!this.store.memoryNotes().some((n) => n.state === 'active')) throw new HttpError(409, t().memoryNothingToTidy);
-    this.startTidy();
+    this.startTidy(false);
   }
 
-  private startTidy(): void {
+  private startTidy(auto: boolean): void {
     const abort = new AbortController();
     const lang = currentLang();
     const done = withLang(lang, () => this.tidy(lang, abort.signal))
@@ -390,14 +440,14 @@ export class LongTermMemory {
       .finally(() => {
         this.tidyRun = undefined;
       });
-    this.tidyRun = { abort, done };
+    this.tidyRun = { abort, done, auto };
   }
 
   private async tidy(lang: Lang, signal: AbortSignal): Promise<void> {
     const meta = this.meta();
     const all = this.store.memoryNotes();
-    // The newest notes that agents get, or may once the user keeps them.
-    const notes = all.filter((n) => n.state !== 'archived').slice(0, MEMORY_LIMITS.tidyNotes);
+    // The newest notes that agents get: those waiting for the user are the user's to decide.
+    const notes = all.filter((n) => n.state === 'active').slice(0, MEMORY_LIMITS.tidyNotes);
     if (!notes.length) return;
     const since = meta.lastTidy?.at ?? 0;
     const sources = notes
@@ -438,8 +488,10 @@ export class LongTermMemory {
     // The notes as they are now: the user or an agent may have changed some while the lead agent read.
     const current = new Map(this.store.memoryNotes().map((n) => [n.id, n]));
     const given = new Set(notes.filter((n) => current.get(n.id)?.updatedAt === n.updatedAt).map((n) => n.id));
-    const result = applyTidy(changes, current, given, lead.provider);
-    for (const n of result.saved) this.store.saveMemoryNote(n);
+    const result = applyTidy(changes, current, given, lead.provider, Date.now(), this.config.review);
+    this.store.memoryWrites(() => {
+      for (const n of result.saved) this.store.saveMemoryNote(n);
+    });
     for (const n of result.archived) this.hooks.cardChanged?.(n, 'archived');
     const after = this.meta();
     after.lastTidy = { at: Date.now(), changes: result.applied, ...(summary ? { summary: summary.slice(0, 1000) } : {}) };
@@ -505,10 +557,9 @@ export function buildTidyPrompt(
 ): string {
   const lines = notes.map((n) => {
     const pin = n.pinned === 'user' ? ' · pinned by the user' : n.pinned === 'lead' ? ' · pinned' : '';
-    const state = n.state === 'pending' ? ' · waiting for the user' : '';
     const used = n.usedAt ? ` · last given to an agent ${new Date(n.usedAt).toISOString().slice(0, 10)}` : '';
     const by = n.author.kind === 'agent' ? ` (${PROVIDER_LABEL[n.author.provider]})` : '';
-    return dataBody(memoryLine(n) + `${by}${pin}${state}${used}`, TIDY_TAGS);
+    return dataBody(memoryLine(n) + `${by}${pin}${used}`, TIDY_TAGS);
   });
   const record = sources.length
     ? `
@@ -538,6 +589,7 @@ Rules:
 - Set aside a note that is wrong, that a later note superseded, that only mattered for a task that is done, or that a conversation can find out again by itself (a file's contents, a web page).
 - Pin a note only when nearly every conversation where it holds needs it (the user's lasting preferences and standing instructions), at most ${MEMORY_LIMITS.pinnedNotes} pinned notes in all and about ${MEMORY_LIMITS.pinnedChars} characters; unpin a note pinned so that no longer qualifies.
 - Notes the user wrote, and notes the user pinned, stay as they are: you may point out a problem with one in the summary.
+- Change a note only with its id from the list above.
 - Do not invent facts. When unsure, leave a note as it is: an empty list of changes is a fine answer.
 
 Reply with only this JSON object:
@@ -561,7 +613,12 @@ export interface TidyChange {
 
 /** The lead agent's changes and summary. Throws when its reply holds no JSON object. */
 export function parseTidyReply(text: string): { changes: TidyChange[]; summary?: string } {
-  const v = parsePlanReply(text);
+  let v: Record<string, unknown>;
+  try {
+    v = parsePlanReply(text);
+  } catch {
+    throw new Error(t().memoryTidyUnparsable);
+  }
   const list: unknown[] = Array.isArray(v.changes) ? v.changes : [];
   const str = (x: unknown) => (typeof x === 'string' ? x : undefined);
   const changes = list.flatMap<TidyChange>((c) => {
@@ -587,9 +644,11 @@ export function parseTidyReply(text: string): { changes: TidyChange[]; summary?:
 
 /**
  * Applies the lead agent's changes to the notes it was given (`given`: those not changed since), as
- * the rules say: never to the user's own notes, each note at most once, only notes that agents get,
- * merges of notes that hold in the same place, and no more pins than `MEMORY_LIMITS.pinnedNotes`.
- * Returns the notes to save, those set aside (their cards say so), and how many changes it made.
+ * the rules say: only to notes in use that agents wrote (not the user's own, nor notes waiting for the
+ * user), each note once, merges of notes that hold in the same place, no basis stronger than its
+ * notes', and no more pins than `MEMORY_LIMITS.pinnedNotes`. With `review` on, a correction or a merge
+ * is a proposal: a note waiting for the user that replaces the old ones once kept. Returns the notes to
+ * save, those set aside (their cards say so), and how many changes it made.
  */
 export function applyTidy(
   changes: readonly TidyChange[],
@@ -597,6 +656,7 @@ export function applyTidy(
   given: ReadonlySet<string>,
   lead: Provider,
   now = Date.now(),
+  review = false,
 ): { saved: MemoryNote[]; archived: MemoryNote[]; applied: number } {
   const touched = new Set<string>();
   const out = new Map<string, MemoryNote>();
@@ -608,15 +668,36 @@ export function applyTidy(
   const open = (id: string | undefined): MemoryNote | undefined => {
     if (!id || touched.has(id) || !given.has(id)) return undefined;
     const n = out.get(id) ?? current.get(id);
-    return n && n.state !== 'archived' && !usersOwn(n) ? n : undefined;
+    return n && n.state === 'active' && !usersOwn(n) ? n : undefined;
   };
+  /** How a note is known after a change: never stronger than what it was made from. */
+  const capped = (wanted: MemoryBasis | undefined, strongest: MemoryBasis) =>
+    wanted && BASIS_RANK[wanted] <= BASIS_RANK[strongest] ? wanted : strongest;
+  /** A note the user decides on, in place of `ids`. */
+  const proposal = (text: string, basis: MemoryBasis, ids: string[], like: MemoryNote): MemoryNote => ({
+    id: newId(),
+    text,
+    ...(like.cwd ? { cwd: like.cwd } : {}),
+    basis,
+    state: 'pending',
+    author,
+    replaces: ids,
+    ...(like.conversationId ? { conversationId: like.conversationId } : {}),
+    ...(like.messageId ? { messageId: like.messageId } : {}),
+    createdAt: now,
+    updatedAt: now,
+  });
   for (const c of changes) {
     if (c.op === 'update') {
       const n = open(c.id);
       const text = cleanNoteText(c.text ?? '');
       if (!n || !text) continue;
       touched.add(n.id);
-      out.set(n.id, { ...n, text, basis: c.basis ?? n.basis, author, updatedAt: now });
+      const basis = capped(c.basis, n.basis);
+      if (review) {
+        const p = proposal(text, basis, [n.id], n);
+        out.set(p.id, p);
+      } else out.set(n.id, { ...n, text, basis, author, updatedAt: now });
       applied++;
     } else if (c.op === 'remove') {
       const n = open(c.id);
@@ -637,24 +718,21 @@ export function applyTidy(
       const merged = notes as MemoryNote[];
       const strongest = merged.reduce((b, n) => (BASIS_RANK[n.basis] > BASIS_RANK[b] ? n.basis : b), 'inferred' as MemoryBasis);
       const newest = merged.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a));
-      const pinned = merged.some((n) => n.pinned && n.state === 'active');
+      for (const n of merged) touched.add(n.id);
+      if (review) {
+        const p = proposal(text, capped(c.basis, strongest), ids, newest);
+        out.set(p.id, p);
+        applied++;
+        continue;
+      }
+      const pinned = merged.some((n) => n.pinned);
       const note: MemoryNote = {
-        id: newId(),
-        text,
-        ...(newest.cwd ? { cwd: newest.cwd } : {}),
-        basis: c.basis && BASIS_RANK[c.basis] <= BASIS_RANK[strongest] ? c.basis : strongest,
-        state: merged.every((n) => n.state === 'pending') ? 'pending' : 'active',
+        ...proposal(text, capped(c.basis, strongest), ids, newest),
+        state: 'active',
         ...(pinned ? { pinned: 'lead' as const } : {}),
-        author,
-        replaces: ids,
-        ...(newest.conversationId ? { conversationId: newest.conversationId } : {}),
-        ...(newest.messageId ? { messageId: newest.messageId } : {}),
-        createdAt: now,
-        updatedAt: now,
       };
       for (const n of merged) {
-        touched.add(n.id);
-        if (n.pinned && n.state === 'active') pins--;
+        if (n.pinned) pins--;
         const gone: MemoryNote = { ...n, state: 'archived', updatedAt: now };
         delete gone.pinned;
         out.set(n.id, gone);
@@ -666,7 +744,7 @@ export function applyTidy(
       applied++;
     } else if (c.op === 'pin') {
       const n = open(c.id);
-      if (!n || n.pinned || n.state !== 'active' || pins >= MEMORY_LIMITS.pinnedNotes) continue;
+      if (!n || n.pinned || pins >= MEMORY_LIMITS.pinnedNotes) continue;
       touched.add(n.id);
       out.set(n.id, { ...n, pinned: 'lead', updatedAt: now });
       pins++;

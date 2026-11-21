@@ -16,6 +16,7 @@ import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { withoutProgressTail } from '../../shared/tracking';
 import { withoutMemoryBlocks } from '../../shared/memory';
+import { cardEntry } from '../memory';
 import { api } from '../api';
 import { settingsHref } from '../route';
 import {
@@ -259,7 +260,6 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
   );
 }
 
-/** What a reply said about the goal its schedule tracks (its `<progress>` block). */
 /**
  * What a reply saved to long-term memory: each note, where it stands now (the server updates the card
  * when the note changes), and what the user can do with it here; the rest is in Settings.
@@ -289,12 +289,15 @@ function MemoryCard({ part }: { part: MemoryPart }) {
       <ul className="memory-card-notes">
         {part.notes.map((n, i) => {
           const id = n.id;
+          const entry = cardEntry(n);
           return (
             <li key={`${id ?? ''}-${i}`} className={`memory-card-note memory-${n.status}`}>
               <span className="memory-op">{c.op[n.op]}</span>
               <span className="memory-text">{n.text || id}</span>
-              <span className="memory-status">{n.status === 'skipped' && n.skipped ? c.skipped[n.skipped] : c.status[n.status]}</span>
-              {id && n.status === 'pending' && (
+              {entry.status && (
+                <span className="memory-status">{n.status === 'skipped' && n.skipped ? c.skipped[n.skipped] : c.status[n.status]}</span>
+              )}
+              {id && entry.action === 'keep' && (
                 <span className="memory-actions">
                   <button
                     type="button"
@@ -314,15 +317,17 @@ function MemoryCard({ part }: { part: MemoryPart }) {
                   </button>
                 </span>
               )}
-              {id && (n.status === 'active' || n.status === 'archived') && (
+              {id && (entry.action === 'archive' || entry.action === 'restore') && (
                 <span className="memory-actions">
                   <button
                     type="button"
                     className="ghost small-button"
                     disabled={busy === id}
-                    onClick={() => void act(id, () => api.editMemoryNote(id, { state: n.status === 'active' ? 'archived' : 'active' }))}
+                    onClick={() =>
+                      void act(id, () => api.editMemoryNote(id, { state: entry.action === 'archive' ? 'archived' : 'active' }))
+                    }
                   >
-                    {n.status === 'active' ? t.longTerm.archive : t.longTerm.restore}
+                    {entry.action === 'archive' ? t.longTerm.archive : t.longTerm.restore}
                   </button>
                 </span>
               )}
@@ -335,6 +340,7 @@ function MemoryCard({ part }: { part: MemoryPart }) {
   );
 }
 
+/** What a reply said about the goal its schedule tracks (its `<progress>` block). */
 function ProgressCard({ status, text }: { status: ProgressStatus; text: string }) {
   const t = useT();
   return (

@@ -398,12 +398,13 @@ export function segments(parts: MessagePart[]): Segment[] {
 
 /**
  * What a reply shows of its segments: all of them, or for a reply whose agent passed only Harness
- * Relay's own notes (an MCP server left out of the turn), which stay shown with the pass. `typing`: the
+ * Relay's own notes (an MCP server left out of the turn) and what it saved to long-term memory, which
+ * stay shown with the pass. `typing`: the
  * agent has shown nothing yet while it streams (a note is not its words).
  */
 export function shownSegments(segs: Segment[], passed: boolean, live: boolean): { shown: Segment[]; typing: boolean } {
   return {
-    shown: passed ? segs.filter((s) => s.kind === 'notice') : segs,
+    shown: passed ? segs.filter((s) => s.kind === 'notice' || s.kind === 'memory') : segs,
     typing: live && segs.every((s) => s.kind === 'notice'),
   };
 }

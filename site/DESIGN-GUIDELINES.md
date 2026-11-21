@@ -146,7 +146,7 @@ Keep the Tools page sections `#google-oauth-setup` and `#microsoft-oauth-setup` 
 | 6 | Permissions and approvals (`permissions/`) | The three levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words (the team's protected paths too), the outbox, reviewing and applying changes (checked before a parallel result is applied) |
 | 7 | Conversations (`conversations/`) | The list and its badges, groups, pins and search, branching, copying and editing, files, sharing, notifications |
 | 8 | Automations (`automations/`) | What starts one, its times and the things it waits for, runs nobody watches, a goal to track, the webhook |
-| 9 | Tools (`tools/`) | Harness Relay's browser, mail and calendar, the outbox, accounts you sign in to, the tool library (MCP servers, skills, memory and the hooks new chats start with), a member's tools, what each agent loads by itself |
+| 9 | Tools (`tools/`) | Harness Relay's browser, mail and calendar, the outbox, accounts you sign in to, the tool library (MCP servers, skills, memory, long-term memory and the hooks new chats start with), a member's tools, what each agent loads by itself |
 | 10 | Use it from your phone (`phone/`) | Sharing it with the phone through Tailscale, signing the phone in, the home screen, notifications, keeping it running, security |
 | 11 | Troubleshooting (`troubleshooting/`) | Symptoms and what to try, by topic, where your data is, reporting a problem |
 

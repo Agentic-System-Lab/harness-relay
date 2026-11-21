@@ -166,6 +166,75 @@ describe('long-term memory in team runs', () => {
     expect(calls.some((c) => c.name === 'tidier')).toBe(false);
   });
 
+  it('keeps the card of a reply that passed but saved a note, and tells the next teammate what it saved', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    fake.reply = (name) => (name === 'Alice' ? '[PASS]\n<remember>Nothing to add, but the CI runs on Node 24.</remember>' : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const [alice] = agentMessages(store.get(conv.id)!);
+    expect(alice!.passed).toBe(true);
+    expect(alice!.parts.find((p) => p.type === 'memory')).toMatchObject({ notes: [{ op: 'saved', status: 'active' }] });
+    expect(calls.find((c) => c.name === 'Bob')!.prompt).toContain('[PASS]\n\n<memory_saved>\n- saved [');
+  });
+
+  it('keeps the notes a failed reply finished writing', async () => {
+    const conv = conversation({ mode: 'relay' });
+    fake.inTurn = async (_name, o) => {
+      o.onEvent({ type: 'text', text: 'Half done.\n<remember>Kept from a reply that failed.</remember>\n' });
+      o.onEvent({ type: 'text_end' });
+    };
+    fake.fail = () => new Error('rate limited');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const [reply] = agentMessages(store.get(conv.id)!);
+    expect(reply!.status).toBe('error');
+    expect(textOf(reply!)).toBe('Half done.');
+    expect(orchestrator.memory.view().notes.map((n) => n.text)).toEqual(['Kept from a reply that failed.']);
+  });
+
+  it('offers a recalled note again after a turn that failed', async () => {
+    store.saveMemoryNote(note({ id: 'm_deploy', text: 'Deploys go through scripts/deploy.sh.' }));
+    const conv = conversation({ mode: 'relay' });
+    fake.fail = (name, sessionId) =>
+      name === 'Alice' && !sessionId && calls.filter((c) => c.name === 'Alice').length === 1 ? new Error('rate limited') : undefined;
+    await orchestrator.send(conv.id, 'How do we deploy?');
+    await finish(conv.id);
+    expect(store.get(conv.id)!.agentState.a?.seen ?? []).not.toContain('memory:m_deploy');
+    await orchestrator.send(conv.id, 'And again: how do we deploy?');
+    await finish(conv.id);
+    const alice = calls.filter((c) => c.name === 'Alice');
+    expect(alice).toHaveLength(2);
+    for (const c of alice) expect(c.prompt).toContain('[m_deploy]');
+  });
+
+  it('sets aside the notes of a reply that Retry takes away', async () => {
+    const conv = conversation({ mode: 'relay' });
+    let n = 0;
+    fake.reply = () => (++n === 1 ? 'ok\n<remember>A wrong guess.</remember>' : 'ok');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const [first] = agentMessages(store.get(conv.id)!);
+    await orchestrator.retry(conv.id, first!.id);
+    await finish(conv.id);
+    expect(orchestrator.memory.view().notes).toMatchObject([{ text: 'A wrong guess.', state: 'archived' }]);
+    expect(agentMessages(store.get(conv.id)!).flatMap((m) => m.parts.filter((p) => p.type === 'memory'))).toEqual([]);
+  });
+
+  it('stops a tidying when memory is switched off, and one that started by itself when automatic tidying is, but not for another switch', async () => {
+    store.saveMemoryNote(note({ id: 'm_1', text: 'one', author: { kind: 'agent', name: 'Alice', provider: 'claude' } }));
+    let release!: () => void;
+    fake.tidyGate = new Promise((r) => (release = r));
+    // The user's own tidying goes on through other switches, automatic tidying's among them.
+    orchestrator.memory.tidyNow();
+    orchestrator.memory.updateSettings({ review: true });
+    orchestrator.memory.updateSettings({ autoTidy: false });
+    expect(orchestrator.memory.tidying).toBe(true);
+    orchestrator.memory.updateSettings({ enabled: false });
+    await vi.waitFor(() => expect(orchestrator.memory.tidying).toBe(false));
+    release();
+    expect(orchestrator.memory.view().lastTidy).toBeUndefined();
+  });
+
   it('records why a tidying failed, and refuses Tidy up now while it is off or has nothing to tidy', async () => {
     expect(() => orchestrator.memory.tidyNow()).toThrow();
     store.saveMemoryNote(note({ id: 'm_1', text: 'one', author: { kind: 'agent', name: 'Alice', provider: 'claude' } }));
