@@ -764,6 +764,40 @@ describe('settings', () => {
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps steering as asked (only `true` turns it on), turns it off with a PATCH, and switches it at any time on its own', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const on = (await (await post({ agents, settings: { cwd: project, steer: true } })).json()) as Conversation;
+    expect(on.settings.steer).toBe(true);
+    const odd = (await (await post({ agents, settings: { cwd: project, steer: 'yes' } })).json()) as Conversation;
+    expect(odd.settings.steer).toBeUndefined();
+
+    const off = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...on.settings, steer: false } }));
+    expect(((await off.json()) as Conversation).settings.steer).toBeUndefined();
+    expect(store.get(on.id)!.settings.steer).toBeUndefined();
+
+    const set = (id: string, body: unknown) => app.request(`/api/conversations/${id}/steer`, json('PUT', body));
+    const res = await set(on.id, { on: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ steer: true });
+    expect(store.get(on.id)!.settings.steer).toBe(true);
+    expect((await set(on.id, { on: 'yes' })).status).toBe(400);
+    // Switched while a settings change prepares the workspace: the switch came later, and stands.
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementationOnce(async () => {
+      orchestrator.setSteer(on.id, false);
+      return { isolated: false };
+    });
+    const saved = await app.request(
+      `/api/conversations/${on.id}`,
+      json('PATCH', { settings: { ...store.get(on.id)!.settings, rounds: 2 } }),
+    );
+    expect(saved.status).toBe(200);
+    expect(store.get(on.id)!.settings).toMatchObject({ rounds: 2 });
+    expect(store.get(on.id)!.settings.steer).toBeUndefined();
+    prepare.mockRestore();
+    expect((await set('nope', { on: true })).status).toBe(404);
+  });
+
   it('keeps team checks as given, tidied, refuses one that cannot be used, and keeps them with a template', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];

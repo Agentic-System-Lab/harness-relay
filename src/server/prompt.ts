@@ -562,6 +562,18 @@ export function buildTurnPrompt(conv: Conversation, agent: AgentConfig, delta: C
 }
 
 /**
+ * The text a user message goes into a member's running turn with (steering, `ConversationSettings.steer`):
+ * the message as the chat block renders it, and what to do with it. The member counts it as seen.
+ */
+export function buildSteerPrompt(conv: Conversation, msg: ChatMessage): string {
+  return (
+    'The user sent a new message while you were working:\n' +
+    `<chat>\n${renderMessage(conv, msg)}\n</chat>\n\n` +
+    'Take it into account as you go on with this turn, and answer it in your reply.'
+  );
+}
+
+/**
  * Agents @mentioned in `text`, in order of first mention. The rule is shared with the UI's mention
  * highlighting (`src/shared/mentions.ts`): prose only — not code or link text — and text may follow a
  * name directly (`@Builder請實作`), while `@Bobby` is not `@Bob`.

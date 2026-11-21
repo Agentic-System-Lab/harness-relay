@@ -30,6 +30,7 @@ import {
   type ApprovalRequest,
   type RunOptions,
   type RunResult,
+  type SteerTurn,
 } from './types';
 import { isGuarded, type WriteGuard } from '../writeGuard';
 
@@ -871,12 +872,120 @@ export const antigravityRunner: AgentRunner = {
 };
 
 /** One Antigravity turn over ACP, with its own settings folder `runDir` (in the account's CLI folder). */
+/** How long a prompt sent into a running turn may take to be refused before it counts as taken. */
+export const ANTIGRAVITY_STEER_GRACE_MS = 1500;
+
+/**
+ * A turn's prompts (`session/prompt`): the first, and those a message the user sent while it ran went
+ * out with (steering, `RunOptions.onSteer`). agy takes another prompt while a turn runs as steering it
+ * (agy 1.5.0's changelog: "steering a running turn by sending another prompt"; its ACP session's turn
+ * lease is superseded by the new one, `Lease.Steer`, `Lease.Superseded`, `YieldTurn`, `FinishSteer` in
+ * agy 1.5.14's binary), so the turn is over once every prompt has answered: its result is the one that
+ * answered last, and its tokens those of all of them. A prompt that answered while a later one was still
+ * out was superseded, and its `cancelled` is no stop. A steering prompt counts as taken once an earlier
+ * prompt answered (the new one carries the turn) or `graceMs` went by without an error (an agy that
+ * takes no second prompt refuses it at once); refused, it is left out. Not run with a model.
+ */
+export class AntigravityPrompts {
+  private prompts: {
+    settled: boolean;
+    result?: any;
+    error?: unknown;
+    done: Promise<void>;
+    /** A steering prompt not taken yet: refused, it does not count. */
+    refused?: boolean;
+  }[] = [];
+  /** Answered, in the order they answered. */
+  private order: number[] = [];
+  private closed = false;
+
+  constructor(
+    private send: (prompt: unknown[]) => Promise<any>,
+    first: unknown[],
+    private graceMs = ANTIGRAVITY_STEER_GRACE_MS,
+  ) {
+    this.add(first);
+  }
+
+  readonly steer: SteerTurn = (text) => {
+    if (this.closed) return Promise.resolve(false);
+    const before = this.prompts.filter((p) => !p.settled).map((p) => p.done);
+    const entry = this.add([{ type: 'text', text }]);
+    return new Promise<boolean>((resolve) => {
+      let answered = false;
+      const answer = (taken: boolean) => {
+        if (answered) return;
+        answered = true;
+        clearTimeout(timer);
+        if (!taken) entry.refused = true;
+        resolve(taken);
+      };
+      const timer = setTimeout(() => answer(!entry.error), this.graceMs);
+      timer.unref?.();
+      // An earlier prompt answered: this one carries the turn on.
+      if (before.length) void Promise.race(before).then(() => answer(!entry.error));
+      void entry.done.then(() => answer(entry.error === undefined));
+    });
+  };
+
+  /**
+   * Waits until every prompt of the turn has answered (one sent meanwhile too), then: the result of the
+   * one that answered last, and the turn's tokens; throws the error of a prompt that failed (not a
+   * refused steering one).
+   */
+  async done(): Promise<{ result: any; inputTokens?: number; outputTokens?: number }> {
+    for (;;) {
+      const open = this.prompts.filter((p) => !p.settled);
+      if (!open.length) break;
+      await Promise.race(open.map((p) => p.done));
+    }
+    this.closed = true;
+    const counted = this.prompts.filter((p) => !p.refused);
+    const failed = counted.find((p) => p.error !== undefined);
+    if (failed) throw failed.error;
+    const lastIndex = this.order.filter((i) => !this.prompts[i]!.refused).at(-1);
+    const result = lastIndex === undefined ? undefined : this.prompts[lastIndex]!.result;
+    const sum = (key: 'inputTokens' | 'outputTokens') => {
+      const values = counted.map((p) => acpTokens(p.result?.usage)[key]).filter((v): v is number => v !== undefined);
+      return values.length ? values.reduce((a, b) => a + b, 0) : undefined;
+    };
+    return { result, inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens') };
+  }
+
+  /** No more prompts (the turn is being stopped or is over). */
+  close(): void {
+    this.closed = true;
+  }
+
+  private add(prompt: unknown[]) {
+    const index = this.prompts.length;
+    const entry: AntigravityPrompts['prompts'][number] = { settled: false, done: Promise.resolve() };
+    entry.done = this.send(prompt)
+      .then(
+        (result) => {
+          entry.result = result;
+        },
+        (err: unknown) => {
+          entry.error = err;
+        },
+      )
+      .finally(() => {
+        entry.settled = true;
+        this.order.push(index);
+      });
+    this.prompts.push(entry);
+    return entry;
+  }
+}
+
 async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult> {
   let child: ChildProcess | undefined;
   let sessionId: string | undefined;
   let userAborted = false;
   /** Until `session/new` or `session/resume` answers, its updates are not this turn's. */
   let opening = true;
+  /** The turn's prompts, once the first is out (steering sends more). */
+  let prompts: AntigravityPrompts | undefined;
   const stop = new AbortController();
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
   const protectedPaths = o.permission === 'full' ? [] : (o.protectedPaths ?? protectedReads());
@@ -989,19 +1098,29 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     await setAntigravityOptions(conn, sessionId, opened, o);
 
     const text = systemPrompt ? o.prompt : antigravityPromptText(o.prompt, o.systemPrompt, last);
-    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(text, o.images) });
+    const promptSession = sessionId;
+    prompts = new AntigravityPrompts(
+      (prompt) => conn.request('session/prompt', { sessionId: promptSession, prompt }),
+      acpPrompt(text, o.images),
+    );
+    // From now on a message the user sends may go into the turn (steering), as another prompt.
+    o.onSteer?.(prompts.steer);
+    const { result, ...tokens } = await prompts.done();
+    o.onSteer?.(undefined);
     rememberBriefing(sessionId, o.systemPrompt);
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().antigravityCancelled);
     // The turn's: one process per turn (a resumed session's answer counts only the turn's calls).
-    return { sessionId, ...acpTokens(result?.usage) };
+    return { sessionId, ...tokens };
   } catch (err) {
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
     opening = false;
+    o.onSteer?.(undefined);
+    prompts?.close();
     o.signal.removeEventListener('abort', onAbort);
     noteGroups();
     child?.stdin?.end(); // agy exits when its stdin closes

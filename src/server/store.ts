@@ -128,6 +128,7 @@ interface ConversationRow {
   auto_confirm: number;
   lead_review: number;
   approvals: string | null;
+  steer: number;
   checks: string | null;
   allow_rules: string | null;
   queue: string | null;
@@ -171,6 +172,7 @@ interface MessageRow {
   review: string | null;
   checks: string | null;
   queued: number | null;
+  steered: string | null;
   asked: number | null;
   scheduled: number | null;
   tracked: string | null;
@@ -440,6 +442,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     review: parseReview(r.review),
     ...checksOf(r.checks),
     queued: r.queued ? true : undefined,
+    ...steeredOf(r.steered),
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
     ...(r.event ? { event: r.event } : {}),
@@ -687,6 +690,13 @@ function parseReview(json: string | null): LeadReview | undefined {
   return review && typeof review === 'object' ? review : undefined;
 }
 
+/** The members whose running turn a user message went into (`ChatMessage.steered`, steering). */
+function steeredOf(json: string | null): Pick<ChatMessage, 'steered'> {
+  const ids = parseJson<unknown>(json, null);
+  const list = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  return list.length ? { steered: list } : {};
+}
+
 /** A system message's team checks result (`ChatMessage.checks`). */
 function checksOf(json: string | null): Pick<ChatMessage, 'checks'> {
   const checks = parseJson<ChecksResult | null>(json, null);
@@ -702,8 +712,8 @@ function checkListOf(json: string | null): Pick<ConversationSettings, 'checks'> 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled, event, tracked, event_source, checks)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked, event_source, checks, steered)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -712,7 +722,7 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
-   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks`;
+   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks, steered = excluded.steered`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -995,6 +1005,7 @@ export class Store {
         ...(c.auto_confirm ? { autoConfirm: true } : {}),
         ...(c.lead_review ? { leadReview: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+        ...(c.steer ? { steer: true } : {}),
         ...checkListOf(c.checks),
       },
       messages,
@@ -1029,8 +1040,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, extra_cwds,
-                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch, checks)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch, checks, steer)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -1051,6 +1062,7 @@ export class Store {
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
           s.checks ? JSON.stringify(s.checks) : null,
+          s.steer ? 1 : 0,
         );
       if (request) this.recordTask(request, conv.id, null);
       this.writeAgents(conv);
@@ -1068,7 +1080,7 @@ export class Store {
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
              extra_cwds = ?, auto_team = ?, auto_confirm = ?, lead_review = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?,
-             checks = ?
+             checks = ?, steer = ?
            WHERE id = ?`,
         )
         .run(
@@ -1088,6 +1100,7 @@ export class Store {
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
           s.checks ? JSON.stringify(s.checks) : null,
+          s.steer ? 1 : 0,
           conv.id,
         );
       this.writeAgents(conv);
@@ -1425,6 +1438,7 @@ export class Store {
         m.tracked ? JSON.stringify(m.tracked) : null,
         m.event !== undefined ? nul(m.eventSource) : null,
         m.checks ? JSON.stringify(m.checks) : null,
+        m.steered?.length ? JSON.stringify(m.steered) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

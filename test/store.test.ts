@@ -232,6 +232,34 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps whether the conversation steers, and whose running turns a message went into', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.settings = { ...conv.settings, steer: true };
+    store.create(conv);
+    const steered: ChatMessage = {
+      id: 'steered-1',
+      author: { kind: 'user' },
+      createdAt: 6,
+      status: 'done',
+      parts: [{ type: 'text', text: 'also the tests' }],
+      queued: true,
+      steered: ['a1', 'a2'],
+    };
+    conv.messages.push(steered);
+    store.saveMessage(conv.id, steered, true);
+    const reopened = new Store(reopen());
+    const again = reopened.get(conv.id)!;
+    expect(again.settings.steer).toBe(true);
+    expect(again.messages.at(-1)).toMatchObject({ id: 'steered-1', queued: true, steered: ['a1', 'a2'] });
+    // A message that went into no turn has none.
+    expect(again.messages.filter((m) => m.id !== 'steered-1').every((m) => m.steered === undefined)).toBe(true);
+
+    again.settings = { ...again.settings, steer: undefined };
+    reopened.saveMeta(again);
+    expect(new Store(reopen()).get(conv.id)!.settings.steer).toBeUndefined();
+  });
+
   it('finds what a ready review says (its summary, notes, quotes and steps), not its JSON', () => {
     const store = new Store(db);
     const conv = sampleConversation();

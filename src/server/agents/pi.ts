@@ -1195,7 +1195,12 @@ async function piSession(
     stopped();
     const started = await rpc.request(piPrompt(o));
     if (!started.success) throw new AgentRunError(t().piPromptRejected(started.error || 'prompt'));
-    if (started.data?.disposition !== 'handled') await settled;
+    if (started.data?.disposition !== 'handled') {
+      // Steering: until the run settles, a message the user sends may go into it (`piSteer`).
+      o.onSteer?.((text) => piSteer(rpc, text, () => over || userAborted));
+      await settled;
+    }
+    o.onSteer?.(undefined);
     over = true;
     if (userAborted) throw new AgentRunError(t().stopped, true);
     const last = events.last;
@@ -1208,6 +1213,7 @@ async function piSession(
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
+    o.onSteer?.(undefined);
     over = true;
     events.finish();
     events.closeOpen(ended);
@@ -1215,6 +1221,23 @@ async function piSession(
     child?.stdin?.end(); // Pi shuts down when its stdin closes
     stopSoon(deps.exitGraceMs ?? 3000);
     await exited.catch(() => undefined);
+  }
+}
+
+/**
+ * Sends a message the user wrote into Pi's running turn: its `steer` command (`{ type: "steer", message }`),
+ * which queues the message for after the current tool calls, before the next model call, and answers
+ * `{ disposition: "queued" }` (`"handled"` when an extension's input handler took it instead; Pi 1.5.1's
+ * docs/rpc-commands.md). True only when Pi queued it while the run was still going (`over`: it settled,
+ * or was stopped): Pi keeps its queue in memory, so one queued after the run settled never runs.
+ */
+export async function piSteer(rpc: Pick<PiRpc, 'request'>, text: string, over: () => boolean): Promise<boolean> {
+  if (over()) return false;
+  try {
+    const r = await rpc.request({ type: 'steer', message: text });
+    return r.success && r.data?.disposition === 'queued' && !over();
+  } catch {
+    return false;
   }
 }
 

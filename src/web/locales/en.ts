@@ -222,6 +222,12 @@ export const en: Messages = {
       on: 'Each time the team has answered, the lead agent reads the new replies, marks what needs your close attention and suggests the next steps.',
       off: "The team's answer is the end of it; the lead agent does not review the replies.",
     },
+    steer: 'Send messages into running turns while the team works',
+    steerHint: {
+      on: 'A message you send while members are working goes into the turn of the member speaking now; in parallel mode, into every turn of the round, when all of them are still running and can take it. The member sees it and answers it in that turn. When that cannot be done, it waits in the queue for the next turn as usual; a message with files always waits.',
+      off: 'A message you send while the team works waits in the queue and is delivered before the next turn; the member speaking sees it on their next turn.',
+    },
+    steerUnsupported: (names) => `${names}'s CLI cannot take a message into a running turn: messages for them wait in the queue as usual.`,
     relayOrder: 'The first member leads: they take messages that @mention no one.',
     order: 'The order is the speaking order.',
     agentName: 'Agent name',
@@ -394,6 +400,7 @@ export const en: Messages = {
     placeholderReviewing:
       'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
+    placeholderSteer: 'Add to the discussion… (goes into the running turn when it can)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,
     retryConfirm: (later, changed) =>
@@ -411,7 +418,7 @@ export const en: Messages = {
     confirmCreateCwd: (dirs) => `These working directories do not exist:\n${dirs}\nCreate them and save the team settings?`,
     drawerBusy: 'The team is replying; stop it to save',
     drawerReviewing: "The lead agent is reviewing the team's replies; stop it to save",
-    drawerBusyReview: ' (lead review alone can be saved now)',
+    drawerBusyReview: ' (lead review and steering alone can be saved now)',
     drawerPending:
       'You are adjusting the team the lead agent proposed, which waits for your confirmation: saving uses this team, and it then answers your question.',
     drawerChanged:
@@ -755,6 +762,8 @@ export const en: Messages = {
     askSkip: 'Skip, let the team go on',
     queuedTitle:
       'Sent while the team was replying and delivered before a later turn; whoever was speaking then sees it on their next turn.',
+    steeredTag: (names) => (names ? `Sent into ${names}'s turn` : 'Sent into a running turn'),
+    steeredTitle: 'Sent while the team was replying, straight into the running turns of these members: they saw it in that turn.',
     tokensIn: (n) => `${n} in`,
     tokensOut: (n) => `${n} out`,
   },
@@ -1179,6 +1188,9 @@ export const en: Messages = {
     hintConfirm: 'Enter to send (the team gets it once you confirm the team) · Shift+Enter for a new line',
     hintTouch: '↑ to send · Enter for a new line · type @ to address members (only they reply) · 📎 to attach files',
     hintBusyTouch: '↑ to add it (delivered before the next turn) · Enter for a new line',
+    hintSteer: (mod) =>
+      `Enter to add it (into the running turn when it can, else before the next turn) · ${mod}+Enter to stop and ask this instead · Shift+Enter for a new line`,
+    hintSteerTouch: '↑ to add it (into the running turn when it can) · Enter for a new line',
     hintReview: 'Enter to stop the review and send it now · Shift+Enter for a new line',
     hintReviewTouch: '↑ to stop the review and send it now · Enter for a new line',
     hintConfirmTouch: '↑ to send (the team gets it once you confirm the team) · Enter for a new line',

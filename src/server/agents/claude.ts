@@ -21,6 +21,7 @@ import {
   type McpServerSpec,
   type RunOptions,
   type RunResult,
+  type SteerTurn,
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
@@ -1384,6 +1385,13 @@ async function runClaudeTurn(
   const send = (msg: unknown) => {
     if (child?.stdin?.writable) child.stdin.write(JSON.stringify(msg) + '\n');
   };
+  /** Its input is over: no more prompts, approvals' answers or steering. */
+  let inputEnded = false;
+  const steering = new ClaudeSteering((msg) => {
+    if (inputEnded || !child?.stdin?.writable) return false;
+    send(msg);
+    return true;
+  });
   const respond = (requestId: string, response: unknown) =>
     send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
 
@@ -1436,7 +1444,24 @@ async function runClaudeTurn(
 
   const parser = createClaudeParser(o.onEvent, onControl);
   const initId = `init-${randomUUID()}`;
-  const sendPrompt = () => send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+  const sendPrompt = () => {
+    send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+    // From now on a message the user sends may go into the turn (steering).
+    o.onSteer?.(steering.steer);
+  };
+  // One prompt per run: once the turn has its result, and no message sent into it still waits for its
+  // turn (steering), the input ends and Claude Code exits.
+  const endInput = () => {
+    if (inputEnded) return;
+    inputEnded = true;
+    o.onSteer?.(undefined);
+    steering.close();
+    child?.stdin?.end();
+  };
+  const maybeEndInput = () => {
+    if (parser.result && !steering.holdsInput()) endInput();
+  };
+  steering.onChange = maybeEndInput;
   // Our own stop as well as the user's, to end the run when its subagents cannot be left out.
   const stop = new AbortController();
   const relayStop = () => stop.abort();
@@ -1474,11 +1499,19 @@ async function runClaudeTurn(
         const msg = parseJsonLine(line);
         if (msg && gate(msg)) return;
       }
+      // Only a lifecycle or result line can change what holds the input: the others go by unparsed here.
+      const ev = line.includes('"command_lifecycle"') || line.includes('"result"') ? parseJsonLine(line) : null;
+      if (ev && steering.handle(ev)) return;
       parser.handle(line);
-      // One prompt per run: once the turn has its result, let Claude Code exit.
-      if (parser.result) child?.stdin?.end();
+      if (ev?.type === 'result') maybeEndInput();
     },
-  }).finally(() => o.signal.removeEventListener('abort', relayStop));
+  }).finally(() => {
+    o.signal.removeEventListener('abort', relayStop);
+    // Gone: no message can go in any more.
+    inputEnded = true;
+    o.onSteer?.(undefined);
+    steering.close();
+  });
   if (failure && !o.signal.aborted) throw failure;
   if (res.aborted) throw new AgentRunError(t().stopped, true);
   if (res.timedOut) throw new AgentRunError(t().timedOut);
@@ -1500,6 +1533,120 @@ async function runClaudeTurn(
     sessionId: parser.sessionId ?? newSessionId ?? o.sessionId,
     ...claudeTurnUsage(r, before),
   };
+}
+
+/** How long a message sent into a running turn waits for Claude Code to say it took it (`command_lifecycle`). */
+export const CLAUDE_STEER_ACK_MS = 5000;
+
+/**
+ * Steering a Claude Code turn (`RunOptions.onSteer`). A user message written to its stream-json input
+ * while the turn runs, with `priority: "next"` and a `uuid` of its own, goes into the running turn:
+ * Claude Code folds queued messages of priority `now` or `next` into the turn after the current tool
+ * calls, before its next model request (framed as "This is how Claude Code surfaces messages the user
+ * sends mid-turn…"; `later` waits for the turn's end, `now` may stop it). One it reads once the model
+ * has answered runs as a further turn of the same process, with a result of its own. For a message with
+ * a uuid it writes `command_lifecycle` lines (`command_uuid`, `state`: queued, started, then completed,
+ * cancelled, discarded or refused), and a result's `queued_turn_count` says how many more turns follow.
+ * All of it read in Claude Code 2.1.330 (its SDK message schema: `priority`, `command_lifecycle`,
+ * `queued_turn_count`, `cancel_async_message`; its print mode's queue), not run.
+ *
+ * So a message counts as taken once Claude Code says it queued or started it; one it says nothing about
+ * within `ackMs` is withdrawn (`cancel_async_message`, a no-op once dequeued) and counts as refused. The
+ * run's input stays open after a result while a message of ours waits for its turn or its answer, or
+ * more turns follow (`holdsInput`): ending it then would lose the message, or leave a turn without the
+ * way to answer its approvals.
+ */
+export class ClaudeSteering {
+  /** Ours, written, that Claude Code has said nothing about yet. */
+  private waiting = new Map<string, (taken: boolean) => void>();
+  /** Ours that Claude Code queued but has not started. */
+  private queued = new Set<string>();
+  /** Ours that started a turn of their own since the latest result: those turns are running. */
+  private running = new Set<string>();
+  private latest: Record<string, any> | undefined;
+  private closed = false;
+
+  constructor(
+    private write: (msg: unknown) => boolean,
+    private ackMs = CLAUDE_STEER_ACK_MS,
+  ) {}
+
+  /** The `SteerTurn` for this turn. */
+  readonly steer: SteerTurn = (text) => {
+    if (this.closed) return Promise.resolve(false);
+    const uuid = randomUUID();
+    const message = { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, priority: 'next', uuid };
+    if (!this.write(message)) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.waiting.delete(uuid)) return;
+        this.write({
+          type: 'control_request',
+          request_id: `cancel-${uuid}`,
+          request: { subtype: 'cancel_async_message', message_uuid: uuid },
+        });
+        resolve(false);
+        this.onChange?.();
+      }, this.ackMs);
+      timer.unref?.();
+      this.waiting.set(uuid, (taken) => {
+        clearTimeout(timer);
+        resolve(taken);
+      });
+    });
+  };
+
+  /** Called when what holds the input may have changed (a message taken, refused, given up on). */
+  onChange?: () => void;
+
+  /** A line of Claude Code's output, parsed: true when it was the lifecycle of a message of ours. */
+  handle(ev: Record<string, any>): boolean {
+    if (ev.type === 'result') {
+      this.latest = ev;
+      this.running.clear();
+      return false;
+    }
+    if (ev.type !== 'command_lifecycle') return false;
+    const uuid = String(ev.command_uuid ?? '');
+    const state = String(ev.state ?? '');
+    const answer = this.waiting.get(uuid);
+    // Not ours (none of Harness Relay's other messages has a uuid), or ours and done with.
+    if (!answer && !this.queued.has(uuid) && !this.running.has(uuid)) return true;
+    this.waiting.delete(uuid);
+    if (state === 'queued') {
+      this.queued.add(uuid);
+      answer?.(true);
+    } else if (state === 'started') {
+      this.queued.delete(uuid);
+      if (this.latest) this.running.add(uuid);
+      answer?.(true);
+    } else {
+      // completed, cancelled, discarded, refused: no longer waiting for a turn, and a turn it started is
+      // over (its result may still come; nothing more needs the input).
+      this.queued.delete(uuid);
+      this.running.delete(uuid);
+      answer?.(false);
+    }
+    this.onChange?.();
+    return true;
+  }
+
+  /**
+   * After a result: whether the input must stay open, because more turns follow (its
+   * `queued_turn_count`), a message of ours waits for Claude Code to say it took it or for its turn,
+   * or one of ours started a turn that has no result yet.
+   */
+  holdsInput(): boolean {
+    const more = typeof this.latest?.queued_turn_count === 'number' && this.latest.queued_turn_count > 0;
+    return more || this.waiting.size > 0 || this.queued.size > 0 || this.running.size > 0;
+  }
+
+  /** No more messages (the input is ending, or the process is gone): one still waiting counts as refused. */
+  close(): void {
+    this.closed = true;
+    for (const answer of this.waiting.values()) answer(false);
+    this.waiting.clear();
+  }
 }
 
 /** The prompt, plus attached images as image blocks. */

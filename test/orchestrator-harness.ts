@@ -78,6 +78,8 @@ export interface Call {
   asksApproval?: boolean;
   /** The names of the MCP servers it was given. */
   mcpServers?: string[];
+  /** What was sent into its running turn (steering), and the turn took. */
+  steered?: string[];
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -140,6 +142,13 @@ export interface Fake {
   reply: ((name: string, prompt: string) => string | undefined) | undefined;
   /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
   inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
+  /**
+   * Steering: the agents whose fake CLI takes a message into its running turn (`RunOptions.onSteer`)
+   * while it waits for its gate; `refuseSteer` names those that refuse one. A turn that took messages
+   * says so in its reply ("Alice done; heard: …").
+   */
+  steer: Set<string>;
+  refuseSteer: Set<string>;
 }
 
 const fresh = (): Fake => ({
@@ -162,6 +171,8 @@ const fresh = (): Fake => ({
   keptAsk: undefined,
   reply: undefined,
   inTurn: undefined,
+  steer: new Set(),
+  refuseSteer: new Set(),
 });
 
 export const fake: Fake = fresh();
@@ -284,11 +295,21 @@ beforeAll(() => {
       // In each other working directory too.
       for (const dir of o.addDirs ?? []) writeFileSync(join(dir, `${name}.txt`), `${name} was here\n`);
       fake.during?.(name, o.cwd);
+      // Steering: from here until it ends, the turn may take a message (or refuse one).
+      const call = calls.findLast((c) => c.name === name)!;
+      if (fake.steer.has(name)) {
+        o.onSteer?.(async (text) => {
+          if (fake.refuseSteer.has(name)) return false;
+          (call.steered ??= []).push(text);
+          return true;
+        });
+      }
       await fake.inTurn?.(name, o);
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
         await Promise.race([fake.gates[name] ?? fake.gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
       }
+      o.onSteer?.(undefined);
       if (o.signal?.aborted) throw new AgentRunError('stopped', true);
       const failure = fake.fail?.(name, o.sessionId);
       if (failure) throw failure;
@@ -321,7 +342,10 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
-      o.onEvent({ type: 'text', text: fake.reply?.(name, o.prompt) ?? `${name} done` });
+      const heard = call.steered?.length
+        ? `; heard: ${call.steered.map((s) => /<message from="user">\n([\s\S]*?)\n<\/message>/.exec(s)?.[1]).join(' | ')}`
+        : '';
+      o.onEvent({ type: 'text', text: (fake.reply?.(name, o.prompt) ?? `${name} done`) + heard });
       o.onEvent({ type: 'text_end' });
       return { sessionId: `session-${name}` };
     },

@@ -14,6 +14,7 @@ import type {
   TeamPlan,
   TeamRevision,
 } from '../shared/types';
+import { STEER_PROVIDERS } from '../shared/types';
 import { ApiError } from './api';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
@@ -132,24 +133,49 @@ export function sameTeam(a: Team, b: Team): boolean {
   return canonical(a) === canonical(b);
 }
 
-/**
- * The team drawer saves only lead review (its box), through its own request: while the team replies
- * (when nothing else may be saved, and the switch is read once the team has answered), and only when
- * the box is all the draft changes. Not while a design waits for confirmation (`proposed`): saving
- * there confirms the design, which the drawer's usual save does.
- */
-export function savesLeadReviewAlone(base: Team, draft: Team, running: boolean, proposed: boolean): boolean {
-  return running && !proposed && onlyLeadReview(base, draft);
+/** The members whose CLI cannot take a message into a running turn (steering, `STEER_PROVIDERS`). */
+export function cannotSteer(agents: readonly AgentConfig[]): AgentConfig[] {
+  return agents.filter((a) => !STEER_PROVIDERS.includes(a.provider));
 }
 
-/** The draft changes only lead review (the team drawer's box). */
-export function onlyLeadReview(base: Team, draft: Team): boolean {
-  if (Boolean(base.settings.leadReview) === Boolean(draft.settings.leadReview)) return false;
+/**
+ * The names of the members a user message went into the running turn of (`ChatMessage.steered`), as the
+ * team has them now ("@Alice, @Bob"); a member who left since is left out.
+ */
+export function steeredNames(msg: Pick<ChatMessage, 'steered'>, agents: readonly AgentConfig[]): string {
+  return (msg.steered ?? [])
+    .flatMap((id) => agents.find((a) => a.id === id) ?? [])
+    .map((a) => `@${a.name}`)
+    .join(', ');
+}
+
+/**
+ * The switches the team drawer saves through requests of their own, at any time: lead review (read once
+ * the team has answered) and steering (read as each message is sent).
+ */
+export const RUN_SWITCHES = ['leadReview', 'steer'] as const;
+export type RunSwitch = (typeof RUN_SWITCHES)[number];
+
+/**
+ * The team drawer saves only its switches (`RUN_SWITCHES`), each through its own request: while the team
+ * replies (when nothing else may be saved), and only when they are all the draft changes. Not while a
+ * design waits for confirmation (`proposed`): saving there confirms the design, which the drawer's usual
+ * save does. The switches to save, or none.
+ */
+export function savesSwitchesAlone(base: Team, draft: Team, running: boolean, proposed: boolean): RunSwitch[] {
+  return running && !proposed ? onlySwitches(base, draft) : [];
+}
+
+/** The switches the draft changes (`RUN_SWITCHES`), when they are all it changes; else none. */
+export function onlySwitches(base: Team, draft: Team): RunSwitch[] {
+  const changed = RUN_SWITCHES.filter((k) => Boolean(base.settings[k]) !== Boolean(draft.settings[k]));
+  if (!changed.length) return [];
   const without = (t: Team): Team => {
-    const { leadReview: _review, ...settings } = t.settings;
+    const settings = { ...t.settings };
+    for (const k of RUN_SWITCHES) delete settings[k];
     return { ...t, settings };
   };
-  return sameTeam(without(base), without(draft));
+  return sameTeam(without(base), without(draft)) ? changed : [];
 }
 
 /**

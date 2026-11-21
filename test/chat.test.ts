@@ -28,8 +28,8 @@ import {
   thoughtTail,
   thoughtTitle,
   restoredText,
-  onlyLeadReview,
-  savesLeadReviewAlone,
+  onlySwitches,
+  savesSwitchesAlone,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -593,28 +593,34 @@ describe('text that comes into the message box', () => {
   });
 });
 
-describe("the team drawer's lead review box", () => {
+describe("the team drawer's switches (lead review, steering)", () => {
   const team = (settings: Partial<ConversationSettings> = {}): Team => ({
     agents: [{ id: 'a1', name: 'Alice', provider: 'claude' } as AgentConfig],
     settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/w', ...settings },
   });
 
-  it('is saved on its own (also while the team replies) when it is all that changed', () => {
-    expect(onlyLeadReview(team(), team({ leadReview: true }))).toBe(true);
-    expect(onlyLeadReview(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toBe(true);
+  it('are saved on their own (also while the team replies) when they are all that changed', () => {
+    expect(onlySwitches(team(), team({ leadReview: true }))).toEqual(['leadReview']);
+    expect(onlySwitches(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toEqual([
+      'leadReview',
+    ]);
+    expect(onlySwitches(team(), team({ steer: true }))).toEqual(['steer']);
+    expect(onlySwitches(team({ steer: true }), team())).toEqual(['steer']);
+    expect(onlySwitches(team(), team({ leadReview: true, steer: true }))).toEqual(['leadReview', 'steer']);
     // Nothing changed, or something else changed too.
-    expect(onlyLeadReview(team(), team())).toBe(false);
-    expect(onlyLeadReview(team(), team({ leadReview: true, rounds: 2 }))).toBe(false);
-    expect(onlyLeadReview(team(), { ...team({ leadReview: true }), agents: [] })).toBe(false);
+    expect(onlySwitches(team(), team())).toEqual([]);
+    expect(onlySwitches(team(), team({ leadReview: true, rounds: 2 }))).toEqual([]);
+    expect(onlySwitches(team(), team({ steer: true, mode: 'parallel' }))).toEqual([]);
+    expect(onlySwitches(team(), { ...team({ leadReview: true }), agents: [] })).toEqual([]);
   });
 
-  it('saves the box alone only while the team replies and no design waits for confirmation', () => {
-    const on = team({ leadReview: true });
-    expect(savesLeadReviewAlone(team(), on, true, false)).toBe(true);
+  it('saves them alone only while the team replies and no design waits for confirmation', () => {
+    const on = team({ leadReview: true, steer: true });
+    expect(savesSwitchesAlone(team(), on, true, false)).toEqual(['leadReview', 'steer']);
     // Idle: the usual save, which also checks the rest.
-    expect(savesLeadReviewAlone(team(), on, false, false)).toBe(false);
+    expect(savesSwitchesAlone(team(), on, false, false)).toEqual([]);
     // A design waits: saving confirms it, so the usual save.
-    expect(savesLeadReviewAlone(team(), on, true, true)).toBe(false);
-    expect(savesLeadReviewAlone(team(), on, false, true)).toBe(false);
+    expect(savesSwitchesAlone(team(), on, true, true)).toEqual([]);
+    expect(savesSwitchesAlone(team(), on, false, true)).toEqual([]);
   });
 });

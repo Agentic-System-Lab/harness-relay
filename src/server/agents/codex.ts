@@ -806,8 +806,10 @@ const codexTurnRunner: AgentRunner = {
     conn.onNotification = (method, params) => {
       if (method === 'error' && params?.error?.message) failure = String(params.error.message);
       if (!threadId || params?.threadId !== threadId) return; // other threads (sub-agents) and startup noise
-      if (method === 'turn/completed') resolveTurn(params.turn ?? {});
-      else updates.handle(method, params);
+      if (method === 'turn/completed') {
+        o.onSteer?.(undefined);
+        resolveTurn(params.turn ?? {});
+      } else updates.handle(method, params);
     };
     conn.onRequest = async (method, params) => {
       if (method === 'item/tool/requestUserInput') return { answers: {} };
@@ -901,6 +903,8 @@ const codexTurnRunner: AgentRunner = {
         ],
       });
       turnId = started?.turn?.id;
+      // Steering: a message the user sends now goes into this turn (`codexSteer`), until it completes.
+      if (turnId) o.onSteer?.((text) => codexSteer(conn, threadId!, turnId!, text));
       const turn = await turnDone;
 
       if (userAborted) throw new AgentRunError(t().stopped, true);
@@ -915,6 +919,7 @@ const codexTurnRunner: AgentRunner = {
       if (err instanceof AgentRunError) throw err;
       throw new AgentRunError(err instanceof Error ? err.message : String(err));
     } finally {
+      o.onSteer?.(undefined);
       o.signal.removeEventListener('abort', onAbort);
       child?.stdin?.end();
       stopSoon(3000);
@@ -922,6 +927,26 @@ const codexTurnRunner: AgentRunner = {
     }
   },
 };
+
+/**
+ * Sends a message into the running turn: `turn/steer { threadId, input, expectedTurnId }`, which Codex
+ * refuses when that turn is no longer the active one (it completed in between), and answers with the
+ * turn's id once it took the input into it (`TurnSteerParams` / `TurnSteerResponse` in codex 0.167.0's
+ * `codex app-server generate-json-schema`; not experimental). True only when it answered so.
+ */
+export async function codexSteer(
+  conn: { request(method: string, params?: unknown): Promise<any> },
+  threadId: string,
+  turnId: string,
+  text: string,
+): Promise<boolean> {
+  try {
+    const r = await conn.request('turn/steer', { threadId, expectedTurnId: turnId, input: [{ type: 'text', text, text_elements: [] }] });
+    return typeof r?.turnId === 'string' && r.turnId !== '';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Whether this Codex cannot load a permission profile of Harness Relay's: seen with Codex 0.167 on

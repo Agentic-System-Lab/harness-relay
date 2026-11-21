@@ -24,6 +24,7 @@ import {
   isTouchScreen,
   segments,
   shownSegments,
+  steeredNames,
   thoughtTail,
   thoughtTitle,
   type ActivityItem,
@@ -976,12 +977,14 @@ function UserMessage({
   msg,
   convId,
   mentionNames,
+  agents,
   canEdit,
   onResend,
 }: {
   msg: ChatMessage;
   convId: string;
   mentionNames: string[];
+  agents: AgentConfig[];
   canEdit: boolean;
   onResend: Props['onResend'];
 }) {
@@ -1024,6 +1027,10 @@ function UserMessage({
             <span className="queued-tag scheduled-tag" title={t.schedule.tagTitle}>
               <ClockIcon size={11} />
               {t.schedule.tag}
+            </span>
+          ) : msg.steered?.length ? (
+            <span className="queued-tag steered-tag" title={t.message.steeredTitle}>
+              {t.message.steeredTag(steeredNames(msg, agents))}
             </span>
           ) : (
             msg.queued && (
@@ -1172,7 +1179,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   if (msg.author.kind === 'user') {
-    return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
+    return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} agents={agents} canEdit={!running} onResend={onResend} />;
   }
   return (
     <AgentMessage

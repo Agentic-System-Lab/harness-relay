@@ -163,7 +163,23 @@ export interface RunOptions {
    * (read-only → edit → full), so nothing it wrote may be read now. The session starts afresh too.
    */
   freshState?: boolean;
+  /**
+   * Steering (`ConversationSettings.steer`): a runner whose CLI can take a message into its running turn
+   * (`STEER_PROVIDERS`) calls this with a way to send one (`SteerTurn`) once the turn can take one, and
+   * with undefined once it no longer can (the turn is ending or over), at the latest before `run`
+   * settles. It may call it again (another way, or undefined) as the turn goes on. Absent: the turn is
+   * not steered (the conversation has steering off, or it is a lead agent's run).
+   */
+  onSteer?: (steer: SteerTurn | undefined) => void;
 }
+
+/**
+ * Sends `text` into the running turn as a message of the user's. Resolves true once the CLI took it
+ * into this turn (it will reach the model before the turn ends), false when the CLI refused it or the
+ * turn ended first: the orchestrator then lets the message wait in the queue, so a false must mean the
+ * CLI will not act on it. Never rejects.
+ */
+export type SteerTurn = (text: string) => Promise<boolean>;
 
 /**
  * The state keys the orchestrator gives its runs (`RunOptions.stateKey`): a branched conversation is

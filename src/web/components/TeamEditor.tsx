@@ -17,6 +17,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
+import { cannotSteer } from '../chat';
 import { checkProblems } from '../checks';
 import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
@@ -111,6 +112,28 @@ export function LeadReviewOption({ enabled, onChange }: { enabled: boolean; onCh
       </label>
       <span className="small muted" id={hint}>
         {enabled ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Steering (`ConversationSettings.steer`): a message sent while members work goes into their running
+ * turns. Says which members' CLIs cannot take one, while it is on.
+ */
+export function SteerOption({ enabled, agents, onChange }: { enabled: boolean; agents: AgentConfig[]; onChange: (on: boolean) => void }) {
+  const t = useT();
+  const hint = useId();
+  const cannot = cannotSteer(agents);
+  return (
+    <div className="field auto-team steer-option">
+      <label className="check-row">
+        <input type="checkbox" aria-describedby={hint} checked={enabled} onChange={(e) => onChange(e.target.checked)} />
+        <span>{t.team.steer}</span>
+      </label>
+      <span className="small muted" id={hint}>
+        {enabled ? t.team.steerHint.on : t.team.steerHint.off}
+        {enabled && cannot.length > 0 && <> {t.team.steerUnsupported(cannot.map((a) => `@${a.name}`).join(', '))}</>}
       </span>
     </div>
   );
@@ -341,6 +364,9 @@ export function TeamEditor({
         )}
         {!template && teamOptionsInEditor && (
           <LeadReviewOption enabled={Boolean(settings.leadReview)} onChange={(on) => setSettings({ leadReview: on || undefined })} />
+        )}
+        {!template && teamOptionsInEditor && (
+          <SteerOption enabled={Boolean(settings.steer)} agents={agents} onChange={(on) => setSettings({ steer: on || undefined })} />
         )}
         {template && checksEditor}
         {showMembers && (

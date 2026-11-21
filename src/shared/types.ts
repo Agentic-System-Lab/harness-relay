@@ -1160,6 +1160,14 @@ export interface ConversationSettings {
    */
   approvals?: 'ask' | 'deny';
   /**
+   * Steering: a message the user sends while members are working goes into their running turns, as the
+   * mode allows and as their CLIs can take one (`STEER_PROVIDERS`), instead of waiting in the queue for
+   * the next turn: in roundtable and relay mode into the turn of the member speaking now; in parallel
+   * mode into every turn of the round at once, only when all of them are still running and can take it.
+   * Otherwise it waits in the queue as before. Off by default; switched in Team settings, any time.
+   */
+  steer?: boolean;
+  /**
    * Team checks: what Harness Relay itself checks the team's work against once the team has answered,
    * whichever CLI each member runs on (`CheckList`). Copied from a template with the team; once the
    * conversation has a list, a new team or template leaves it as it is.
@@ -1259,6 +1267,15 @@ export interface CheckHook {
  * members work without them, and the chat says so.
  */
 export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot', 'muse', 'pi'];
+
+/**
+ * The CLIs whose adapters can send a message into a running turn (steering, `ConversationSettings.steer`,
+ * `RunOptions.onSteer`): Claude Code (a user message on its stream-json input, `priority: "next"`), Codex
+ * (`turn/steer`), Grok (`x.ai/interject`), Antigravity (another `session/prompt`), Goose
+ * (`_goose/unstable/session/steer`) and Pi (its `steer` command). Cursor cannot (a new prompt cancels the
+ * running one); OpenCode, Cline, OpenHands, Copilot and Muse Code count as cannot until a run shows otherwise.
+ */
+export const STEER_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'grok', 'antigravity', 'goose', 'pi'];
 
 /**
  * How many protected path patterns a list may have, the longest pattern and commit pattern, how many
@@ -1782,6 +1799,11 @@ export interface ChatMessage {
   checks?: ChecksResult;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
+  /**
+   * A user message that went into running turns (steering, `ConversationSettings.steer`): the ids of the
+   * members whose turn took it, who count it as seen. It is `queued` too (it joined a discussion under way).
+   */
+  steered?: string[];
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */

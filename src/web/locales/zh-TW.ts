@@ -228,6 +228,12 @@ export const zhTW = {
       on: '團隊每次回答完，首席 agent 會讀過新的回覆，標出你需要特別注意的地方，並建議接下來的步驟。',
       off: '團隊回答完就結束；首席 agent 不會審閱回覆。',
     },
+    steer: '團隊工作時，把訊息直接送進進行中的回合',
+    steerHint: {
+      on: '團隊工作時你送出的訊息，會直接送進正在發言那位成員的回合；平行模式下則送進這一輪每位成員的回合（前提是他們都還在進行，也都能接收）。成員在這一回合裡就會看到並回應。做不到時，訊息照常排隊，在下一回合前送達；附有檔案的訊息一律排隊。',
+      off: '團隊工作時你送出的訊息會排隊，在下一回合前送達；正在發言的成員要到下一次發言才看到。',
+    },
+    steerUnsupported: (names: string) => `${names} 用的 CLI 無法在回合中接收訊息：要給他們的訊息照常排隊。`,
     relayOrder: '第一位是隊長：訊息沒有 @ 任何人時由他先接。',
     order: '順序就是發言順序。',
     agentName: 'Agent 名稱',
@@ -408,6 +414,8 @@ export const zhTW = {
     // A message sent during the review stops it and goes at once (the next review reads these replies too).
     placeholderReviewing: '首席 agent 正在審閱回覆；現在送出訊息會停止審閱並立刻送出（下一次審閱會把這些回覆一起讀）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
+    // Steering on: what is sent goes into the running turn when it can.
+    placeholderSteer: '插話給團隊…（可以的話直接送進進行中的回合）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
     retryConfirm: (later: number, changed: number) =>
@@ -425,7 +433,7 @@ export const zhTW = {
     drawerBusy: '團隊回覆中，停止後才能儲存',
     drawerReviewing: '首席 agent 正在審閱回覆，停止後才能儲存',
     // Only when the box can be saved alone: no design waits, and the draft is not in conflict.
-    drawerBusyReview: '（只改首席 agent 審閱的話，現在就能儲存）',
+    drawerBusyReview: '（只改首席 agent 審閱或插話方式的話，現在就能儲存）',
     drawerPending: '你正在調整首席 agent 提出、還在等確認的團隊：儲存後就會採用這個團隊，接著回答你的問題。',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
     drawerReload: '載入目前的團隊',
@@ -762,6 +770,9 @@ export const zhTW = {
     askNote: (name: string) => `直接在下方回覆：@${name} 會依你的回答給出完整答案，團隊再接著往下。`,
     askSkip: '略過，讓團隊繼續',
     queuedTitle: '在團隊回覆途中送出，於之後的回合送達；當時正在發言的成員，下一次發言時才會看到。',
+    // Steering: the message went into these members' running turns.
+    steeredTag: (names: string) => (names ? `已送進 ${names} 的回合` : '已送進進行中的回合'),
+    steeredTitle: '在團隊回覆途中送出，直接送進了這些成員正在進行的回合，他們在那一回合裡就看到了。',
     tokensIn: (n: string) => `輸入 ${n}`,
     tokensOut: (n: string) => `輸出 ${n}`,
   },
@@ -1190,6 +1201,10 @@ export const zhTW = {
     // Phones and tablets: Enter starts a new line, the ↑ button sends.
     hintTouch: '按 ↑ 送出 · Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 按 📎 附加檔案',
     hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
+    // Steering on: what is sent goes into the running turn when it can.
+    hintSteer: (mod: string) =>
+      `Enter 插話（可以的話直接送進進行中的回合，否則下一位發言前送達） · ${mod}+Enter 停止並改問這個 · Shift+Enter 換行`,
+    hintSteerTouch: '按 ↑ 插話（可以的話直接送進進行中的回合） · Enter 換行',
     // The lead agent reviews the team's replies: sending stops the review and sends the message now.
     hintReview: 'Enter 停止審閱並立刻送出 · Shift+Enter 換行',
     hintReviewTouch: '按 ↑ 停止審閱並立刻送出 · Enter 換行',
