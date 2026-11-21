@@ -2,6 +2,8 @@ import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
   AboutInfo,
+  AppDependency,
+  AppDependencyView,
   HostedApp,
   HostedProvider,
   HostedAppStatus,
@@ -477,6 +479,7 @@ export const api = {
     request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),
   /** An account's mail account, for the mail tools (it must have signed in for mail). */
   addOAuthMail: (id: string) => request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/mail`, {}),
+  removeOAuthDrive: (id: string) => request<OAuthView>('DELETE', `/api/oauth/accounts/${id}/drive`),
   removeOAuthAccount: (id: string) =>
     request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
@@ -553,6 +556,9 @@ export const api = {
   teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),
   teamsDisconnect: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/signin'),
   githubSignOut: (login: string) => request<{ ok: true }>('POST', '/api/apps/github/signout', { login }),
+  appDependency: (name: AppDependency, signal?: AbortSignal) =>
+    request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
+  installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),

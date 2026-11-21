@@ -42,8 +42,8 @@ export const SETTINGS_SECTIONS = [
   'home-screen',
   'tour',
 ] as const;
-/** The tool library has its own bookmark inside the Apps and tools card. */
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number] | 'tools';
+/** The tool library tab and the menu of agent settings each have a direct link. */
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number] | 'tools' | 'agents';
 export const settingsCard = (section: SettingsSection) => (section === 'tools' ? 'apps' : section);
 
 /** Whether a settings card is an agent's (one per CLI). */
@@ -86,7 +86,9 @@ export function routeFromHash(hash: string): Route {
   if (h === 'settings') return { page: 'settings' };
   if (h.startsWith('settings/')) {
     const section = h.slice('settings/'.length) as SettingsSection;
-    return section === 'tools' || SETTINGS_SECTIONS.includes(section) ? { page: 'settings', section } : { page: 'settings' };
+    return section === 'tools' || section === 'agents' || SETTINGS_SECTIONS.includes(section)
+      ? { page: 'settings', section }
+      : { page: 'settings' };
   }
   return { page: 'home' };
 }

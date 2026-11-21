@@ -27,6 +27,8 @@ import { BUILT_IN_CLIENTS, type OAuthClient, type OAuthIdentity } from './provid
 interface StoredAccount extends Omit<OAuthAccountView, 'error'> {
   /** Its id at the provider, which never changes: a sign-in of the same account updates it. */
   subject: string;
+  /** Changes only when Drive and Docs are removed locally. Earlier consents and drafts cannot restore that access. */
+  driveRevision?: number;
   /** The scopes it was granted. */
   scopes: string[];
   error?: string;
@@ -161,7 +163,7 @@ export class OAuthStore {
   }
 
   accounts(): OAuthAccountView[] {
-    return this.data.accounts.map(({ subject: _s, scopes: _sc, ...view }) => view);
+    return this.data.accounts.map(({ subject: _s, scopes: _sc, driveRevision: _r, ...view }) => view);
   }
 
   account(id: string): StoredAccount | undefined {
@@ -216,8 +218,26 @@ export class OAuthStore {
     account.connectedAt = now;
     delete account.error;
     this.save();
-    const { subject: _s, scopes: _sc, ...view } = account;
+    const { subject: _s, scopes: _sc, driveRevision: _r, ...view } = account;
     return view;
+  }
+
+  /** Keep Google's shared credential and all other services. This counter survives restarts for pending Docs previews. */
+  removeDrive(id: string): string | undefined {
+    const account = this.account(id);
+    if (!account) throw new HttpError(404, t().connectorNotFound(id));
+    if (account.provider !== 'google') throw new HttpError(400, t().invalidField('account'));
+    const uses = account.uses.filter((u) => u !== 'drive' && u !== 'documents');
+    if (uses.length === account.uses.length) return;
+    const updated = {
+      ...account,
+      uses,
+      driveRevision: (account.driveRevision ?? 0) + 1,
+    };
+    const next = { ...this.data, accounts: this.data.accounts.map((a) => (a.id === id ? updated : a)) };
+    this.save(next);
+    this.data = next;
+    return account.subject;
   }
 
   /** Its sign-in no longer works: it needs signing in again (the tools and Settings say so). */

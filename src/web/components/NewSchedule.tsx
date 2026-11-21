@@ -17,12 +17,14 @@ import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
+import { taskWithApps, type DraftApp } from '../draftApps';
 import { settingsHref } from '../route';
 import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
 export interface NewAutomationDraft {
+  apps?: DraftApp[];
   form: ScheduleDraft;
   title: string;
   withHook: boolean;
@@ -83,10 +85,11 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
     onDraft({ ...current, form: { ...draft, ...patch } });
     setError('');
   };
-  const problems = [...draftProblems(draft, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
+  const task = { ...draft, text: taskWithApps(draft.text, current.apps ?? [], t) };
+  const problems = [...draftProblems(task, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
   const automatic = Boolean(team.settings.autoConfirm);
   // What the team editor warns about: the runs this schedule starts may have nobody watching.
-  const schedule: ConversationSchedule = { ...toUpdate(draft), lang, updatedAt: 0 };
+  const schedule: ConversationSchedule = { ...toUpdate(task), lang, updatedAt: 0 };
 
   const create = async () => {
     setBusy(true);
@@ -102,7 +105,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
             title: title.trim() || undefined,
             settings: team.settings,
             createCwd,
-            schedule: { ...toUpdate(draft), ...(attachments.length ? { attachments } : {}) },
+            schedule: { ...toUpdate(task), ...(attachments.length ? { attachments } : {}) },
             ...(withHook ? { hook: true } : {}),
           }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
@@ -138,7 +141,11 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
         disabled={busy}
         onEdit={edit}
         settings={team.settings}
-        creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
+        creation={{
+          apps: { selected: current.apps ?? [], onChange: (apps) => onDraft({ ...current, apps }) },
+          withHook,
+          onHook: (checked) => onDraft({ ...current, withHook: checked }),
+        }}
       >
         <CreationOptions
           team={team}

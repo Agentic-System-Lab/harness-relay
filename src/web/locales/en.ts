@@ -863,8 +863,10 @@ export const en: Messages = {
       add: 'Add',
       added: 'Added',
       loadingCalendars: 'Reading the calendars…',
+      noAccountServices: 'No connected services',
       confirmRemove: (provider, email, uses, hasConnectors) =>
-        `Disconnect ${email} from ${provider}? This disconnects ${uses} in Harness Relay.` +
+        `Disconnect ${email} from ${provider}?` +
+        (uses ? ` This disconnects ${uses} in Harness Relay.` : ' This removes the saved sign-in from Harness Relay.') +
         (hasConnectors ? ' Any mailboxes or calendars linked to this sign-in will be removed from Relay.' : ''),
       removedMicrosoft: (pages) =>
         `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
@@ -1590,6 +1592,9 @@ export const en: Messages = {
 
   apps: {
     title: 'Common apps',
+    draftHint: 'Choose apps to mention in your request. Each assistant uses its existing connections and permissions.',
+    manageConnections: 'Manage app connections',
+    requestApps: (names: string[]) => `Please use ${new Intl.ListFormat('en').format(names)} for this task.`,
     options: 'Connect',
     manage: 'Manage',
     inProgress: 'Sign-in or setup in progress',
@@ -1664,7 +1669,11 @@ export const en: Messages = {
     driveOptions: { read: 'Search and read', both: 'Search, read, create and edit', documents: 'Only create and edit Google Docs' },
     driveWritePreview: 'Relay shows you a preview before creating or editing a document.',
     enableDocs: 'Allow creating and editing documents',
-    addDriveAccount: 'Add account',
+    addDriveAccount: 'Add another Google account',
+    driveUpgradeHint: 'Google will ask you to allow editing for this account. You’ll preview and confirm each change in Relay.',
+    removeDrive: 'Remove Google Drive',
+    confirmRemoveDrive: (email: string, reads: boolean, edits: boolean) =>
+      `Remove Google Drive for ${email} in Relay? This removes ${reads && edits ? 'Drive file access and Google Docs editing' : reads ? 'Drive file access' : 'Google Docs editing'} for this account. Gmail, Calendar and other Google accounts keep their access.`,
     driveAccounts: (count: number) => (count === 1 ? '1 account connected' : `${count} accounts connected`),
     docsEnabled: 'Can create and edit Google Docs after your confirmation',
     driveReading: 'Read-only · Search files and read Google Docs',
@@ -1688,6 +1697,11 @@ export const en: Messages = {
     ghSignedOut: (login: string) => `Signed out of ${login} on this computer.`,
     ghToken: (name: string) =>
       `GitHub gets its sign-in from ${name}. To disconnect, remove this variable from the environment that starts Relay, then restart Relay.`,
+    installBrowser: 'Install a browser',
+    installingDependency: 'Installing on the computer running Relay…',
+    installLog: 'Installation log',
+    manualDependency: 'Install on the computer running Relay, then select Check again.',
+    downloadPage: 'Official download',
     installGh: 'Install GitHub CLI',
     checkAgain: 'Check again',
     vault: 'Choose vault',
@@ -1736,7 +1750,8 @@ export const en: Messages = {
       },
     },
     title: 'Tool library',
-    hint: 'Set up tools and instructions for your team. To change one member’s tools, open Team settings.',
+    hint: 'Set up shared tools and instructions here. Choose an assistant to manage the tools it loads.',
+    agentSettings: 'Open agent settings',
     categories: {
       mcp: 'Connect more tools by URL or local command',
       skills: 'Add reusable instructions from a folder',
@@ -2503,7 +2518,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. You can attach files beside it. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. Select Common apps beside the paperclip to choose apps to mention in your question. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',
@@ -2617,7 +2632,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message, attach files, and choose what starts it. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
+        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps beside the paperclip to name the services to use in each run. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
@@ -2642,7 +2657,7 @@ export const en: Messages = {
         title: 'Connect apps to your chats',
         body: 'Open Settings → Apps and tools → Common apps and choose a service. For Teams, sign in with a Microsoft work or school account. For Slack, choose the assistant you use in Relay.',
         points: [
-          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. Drive asks separately for permission to create or edit Google documents. Account sign-in settings (OAuth 2.0) has the setup guides and lists the accounts you can disconnect under Google or Microsoft.',
+          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. On each Drive account card you can enable document editing or remove Drive while keeping Gmail and Calendar. Account sign-in settings (OAuth 2.0) has setup guides and lets you disconnect an entire Google or Microsoft account.',
           'Choose assistants on the tool’s row. For Slack, open Send from Relay to choose who can draft messages. Relay shows a preview before posting a message, changing an Obsidian note or writing a Google document.',
           'To add a custom tool, skill or shared instruction, switch to the Tool library tab.',
         ],

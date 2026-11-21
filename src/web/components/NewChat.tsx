@@ -9,6 +9,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
+import { taskWithApps, type DraftApp } from '../draftApps';
 import { startingChecks } from '../checks';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
@@ -73,6 +74,7 @@ export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: C
 
 /** Kept by the signed-in application while the user visits settings or another chat. */
 export interface NewChatDraft {
+  apps?: DraftApp[];
   files: PendingFile[];
   question: string;
   title: string;
@@ -126,7 +128,7 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
   const leadText = leadLabel(lead);
 
-  const firstMessage = draft.question.trim();
+  const firstMessage = taskWithApps(draft.question, draft.apps ?? [], t);
   const canStart = Boolean(firstMessage) && !busy && problems.length === 0;
   const start = async () => {
     if (!canStart) return;
@@ -176,6 +178,7 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
       <TaskInput
         id="first-question"
         creation
+        apps={{ selected: draft.apps ?? [], onChange: (apps) => onDraft({ ...draft, apps }) }}
         text={draft.question}
         onText={(question) => onDraft({ ...draft, question })}
         files={draft.files}

@@ -239,7 +239,16 @@
         <p class="doc-toc-title">On this page</p>
         <ol>
           <li><a href="#new-chat">Start a new chat</a></li>
-          <li><a href="#ask">Ask your question</a></li>
+          <li>
+            <details>
+              <summary>Ask your question</summary>
+              <ol>
+                <li><a href="#ask" aria-label="Ask your question overview">Overview</a></li>
+                <li><a href="#use-connected-apps">Use connected apps</a></li>
+                <li><a href="#write-your-question">Write your question</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#team-design">Confirm the team</a></li>
           <li><a href="#while-they-work">While the team works</a></li>
           <li><a href="#questions">When an agent asks you</a></li>
@@ -276,17 +285,17 @@
               <a href="#lead-review">below</a>).
             </li>
           </ul>
-          <p>Type or dictate your question to enable <b>Send question</b>. You can send files with your question for the team. The send button stays at the bottom of the form card. Use the down arrow to see more settings.</p>
+          <p>Type or dictate your question to enable <b>Send question</b>. You can send files with your question. Select <b>Common apps</b> beside the paperclip to choose the apps you want the team to use. The names are sent with your question. Each assistant uses its existing access. To set up a service, select <b>Manage app connections</b>, then <b>Return to new chat draft</b>. Your question, files and app choices stay in place. The send button stays at the bottom of the form card. Use the down arrow to see more settings.</p>
           <figure class="doc-figure">
             <img
               src="../../assets/media/docs/first-chat-new-chat-en.webp"
               width="1280"
               height="800"
-              alt="The New chat form has a question about splitBill, the bill-split working directory, Edit permission selected, and an enabled Send question button at the bottom right."
+              alt="The new chat draft shows the ten Common apps, GitHub selected, a link to manage connections and the request that will be sent."
               loading="lazy"
             />
             <figcaption>
-              The question and workspace settings just before sending the first message in
+              Here the team is asked to use GitHub for the example in
               <a href="../../use-cases/#fix-a-bug">Fix a bug three ways, keep the best one</a>.
             </figcaption>
           </figure>
@@ -294,12 +303,14 @@
 
         <section id="ask" aria-labelledby="ask-title">
           <h2 id="ask-title">Ask your question</h2>
-          <p>To try a file in your first chat, open <a href="../tools/#common-apps">Settings → Apps and tools</a>. On the <b>Common apps</b> tab, find <b>Google Drive</b> under <b>Documents and notes</b>, open the Drive row, keep the default search and read option, then select <b>Sign in with Google</b>. If you see <b>Set up Google sign-in</b>, follow the <a href="../tools/#google-oauth-setup">Google OAuth setup</a> first. Under <b>Choose assistants to enable this tool</b>, choose an assistant and ask it to find a document by name. To write a Google Doc, open the connected Google account in the Drive row and enable document editing. Ask your chosen assistant to draft a document. Review the account, title and text before selecting <b>Create document</b> or <b>Discard</b>. <a href="../tools/#google-drive">Set up Google Docs editing</a></p>
+          <h3 id="use-connected-apps">Use connected apps</h3>
+          <p>To try a file in your first chat, select <b>Common apps</b> beside the paperclip and check <b>Google Drive</b>. Select <a href="../tools/#common-apps">Manage app connections</a>. Find <b>Google Drive</b> under <b>Documents and notes</b>, open the Drive row, keep the default search and read option, then select <b>Sign in with Google</b>. If you see <b>Set up Google sign-in</b>, follow the <a href="../tools/#google-oauth-setup">Google OAuth setup</a> first. Under <b>Choose assistants to enable this tool</b>, choose an assistant and ask it to find a document by name. To write a Google Doc, open the connected Google account in the Drive row and enable document editing. Ask your chosen assistant to draft a document. Review the account, title and text before selecting <b>Create document</b> or <b>Discard</b>. <a href="../tools/#google-drive">Set up Google Docs editing</a></p>
           <p>For <b>Microsoft Teams</b>, open its row under <b>Team messaging</b>, install PowerShell 7 if prompted, then sign in with a work or school account. Choose which assistants may read channels. To send a message, enable sending separately and confirm the draft in Relay. <a href="../tools/#microsoft-teams">Set up Microsoft Teams</a></p>
           <p>For Slack, open <b>Team messaging → Slack</b>, follow the connection link for Claude or Codex and return to verify that account. You can also select <b>Check connections</b>. To post through Relay, enable <b>Send from Relay</b> and choose <b>Assistants who can draft messages</b>. These posts wait for your <b>Send</b> in the Relay chat. Claude and Codex manage permissions for posts made through their hosted connectors. <a href="../tools/#common-apps">Connect Slack</a></p>
           <p>Under <b>Mail and calendar</b>, open <b>Mail</b> and select <b>Gmail</b>, <b>iCloud Mail</b>, <b>Outlook</b> or <b>Other mailbox</b> under <b>Choose your mail service</b>. To connect a calendar, open <b>Calendar</b>. Under <b>Choose your calendar service</b>, select <b>Google Calendar</b>, <b>iCloud Calendar</b>, <b>Outlook</b> or <b>Other (CalDAV)</b> to see the setup for your service. For Gmail or Google Calendar, select <b>Sign in with Google</b>. If prompted, choose <b>Set up Google sign-in</b> to register the shared client first. Use <b>Choose assistants to enable this tool</b> within either row to choose an assistant. Each Google or Microsoft account appears once under <b>Connected mailboxes</b> or <b>Connected calendars</b>, with its mailboxes or calendars underneath. You can remove one mailbox or calendar there. To disconnect the account from all its services, find its email under Google or Microsoft in <b>Account sign-in settings (OAuth 2.0)</b>. <a href="../tools/#accounts">Manage mail and calendar accounts</a></p>
           <p>To try a local note, open <b>Obsidian → Choose vault</b> in Common apps. Use <b>Add vaults</b> for additional vaults. Assistants you enable can use every connected vault. Ask one to turn a decision from the chat into a Markdown note in a named vault. Review the vault’s full path, the note path and the proposed text, then select <b>Create note</b> or <b>Discard</b>.</p>
-          <p>To ask about a pull request, connect <b>GitHub</b> under <b>Development and browsing</b> in Common apps. The same GitHub CLI account handles chat sharing and GitHub automations. <a href="../tools/#github">Manage or sign out of that account</a></p>
+          <p>To ask about a pull request, connect <b>GitHub</b> under <b>Development and browsing</b> in Common apps. If Relay offers <b>Install GitHub CLI</b>, select it and wait for the sign-in button. The same GitHub CLI account handles chat sharing and GitHub automations. <a href="../tools/#github">Manage or sign out of that account</a></p>
+          <h3 id="write-your-question">Write your question</h3>
           <p>
             Write your question as you would to a colleague: what you need, what you have tried, and what a good answer
             looks like. <kbd>Enter</kbd> sends it, and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. On a phone

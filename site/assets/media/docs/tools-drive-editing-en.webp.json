@@ -1,4 +1,4 @@
 {
-  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of Google Drive showing its read-only account with the option to allow creating and editing Google Docs and an Add account action in the built Harness Relay UI. Language en, viewport 1200 × 1080. Isolated local server and fictitious accounts. Encoded with cwebp -q 92.",
-  "createdAt": "2026-11-21T02:26:17.937Z"
+  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the linked Google Drive account card in the built Harness Relay UI, with its read-only permission, editing and removal actions, and a separate Add another Google account button. Language en, viewport 1200 × 1080. Isolated local Relay server with fictitious accounts. Encoded with cwebp -q 92.",
+  "createdAt": "2026-11-21T02:49:16.989Z"
 }

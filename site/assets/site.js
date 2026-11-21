@@ -373,29 +373,106 @@ if (docNav && docNavToggle) {
   });
 }
 
-const tocLinks = [...document.querySelectorAll('.doc-toc a[href^="#"]')];
-const tocSections = tocLinks.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1))));
-if (tocLinks.length && tocSections.every(Boolean)) {
+// Reading position and deep links use the same static contents as native disclosure and keyboard navigation.
+const toc = document.querySelector('.doc-toc');
+if (toc) {
+  const entries = [...toc.querySelectorAll('a[href^="#"]')]
+    .map((link) => ({
+      link,
+      target: document.getElementById(link.hash.slice(1)),
+    }))
+    .filter((entry) => entry.target);
+  let current;
+  let fragment;
   let queued = false;
+  const automatic = new Set();
+  const article = document.querySelector('.doc-body');
+  const readingLine = () => {
+    const pad = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+    return (Number.isFinite(pad) ? pad : 96) + 24;
+  };
+  const updateBranches = (reveal) => {
+    const before = article.getBoundingClientRect().top;
+    if (reveal) {
+      for (let branch = current?.link.closest('details'); branch; branch = branch.parentElement.closest('details')) {
+        if (!branch.open) {
+          automatic.add(branch);
+          branch.open = true;
+        }
+      }
+    }
+    // A manually opened descendant must stay reachable, even when its parent was opened by scrolling.
+    const manual = [...toc.querySelectorAll('details[open]')].filter(
+      (branch) => !automatic.has(branch) && !branch.closest('details:not([open])'),
+    );
+    for (const branch of automatic) {
+      if (
+        branch.contains(current?.link ?? null) ||
+        branch.contains(document.activeElement) ||
+        manual.some((pinned) => branch.contains(pinned))
+      )
+        continue;
+      branch.open = false;
+      automatic.delete(branch);
+    }
+    // On narrow screens the contents occupy space above the article. Keep the text under the
+    // reader's eye in place, accounting for any scroll anchoring the browser already performed.
+    if (before <= readingLine()) {
+      const shift = article.getBoundingClientRect().top - before;
+      if (shift) window.scrollBy({ top: shift, behavior: 'instant' });
+    }
+  };
+  toc.addEventListener('click', (event) => {
+    const summary = event.target.closest('summary');
+    if (summary) automatic.delete(summary.parentElement);
+  });
+  toc.addEventListener('focusout', () => requestAnimationFrame(() => updateBranches(false)));
+  const select = (entry, reveal = false) => {
+    if (current === entry && !reveal) return;
+    current?.link.removeAttribute('aria-current');
+    current = entry;
+    current?.link.setAttribute('aria-current', 'true');
+    updateBranches(true);
+  };
+  const followHash = () => {
+    fragment = undefined;
+    let id;
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return;
+    }
+    const target = document.getElementById(id);
+    const section = target?.closest('.doc-body section');
+    if (!section) return;
+    // Older links also point to section titles, paragraphs and figures. Use their last preceding heading.
+    const entry = entries.findLast(
+      ({ target: heading }) =>
+        heading.closest('section') === section &&
+        (heading === target || heading.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+    if (entry) {
+      fragment = { target, entry };
+      select(entry, true);
+      // Opening a branch changes the height of the contents above the article on small screens.
+      target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+  };
   const mark = () => {
     queued = false;
     const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-    const narrow = window.matchMedia('(max-width: 920px)').matches;
-    const pad = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
-    // Wide: a heading has passed once it is under the header. Narrow: a jumped-to heading rests at
-    // scroll-padding, below the sticky row, so the line sits under that.
-    const line = narrow ? (Number.isFinite(pad) && pad > 0 ? pad : 126) + 24 : 120;
-    let current = 0;
-    tocSections.forEach((section, i) => {
-      if (section.getBoundingClientRect().top < line) current = i;
-    });
-    if (atEnd) current = tocSections.length - 1;
-    tocLinks.forEach((link, i) => {
-      if (i === current) link.setAttribute('aria-current', 'true');
-      else link.removeAttribute('aria-current');
-    });
+    const line = readingLine();
+    const top = fragment?.target.getBoundingClientRect().top;
+    // The last headings cannot all scroll to the top. Keep a visible deep-link target selected there.
+    if (fragment && top >= 0 && (top <= line || (atEnd && top < window.innerHeight))) select(fragment.entry);
+    else select(atEnd ? entries.at(-1) : entries.findLast(({ target }) => target.getBoundingClientRect().top <= line));
   };
-  mark();
+  followHash();
+  if (!fragment) mark();
+  window.addEventListener('hashchange', () => {
+    followHash();
+    if (!fragment) mark();
+  });
   window.addEventListener(
     'scroll',
     () => {

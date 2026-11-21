@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, parse } from 'node:path';
+import { dirname, isAbsolute, join, parse } from 'node:path';
 import type { Writable } from 'node:stream';
 import type { TeamsConnection } from '../../shared/types';
 import { HttpError } from '../errors';
@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import { LOGIN_TIMEOUT_MS } from '../login';
 import { CommandNotFoundError, runProcess, stripAnsi, type SpawnOptions } from '../process';
 import { CONNECT_TEAMS, INSTALL_TEAMS, POST_TEAMS, PROBE_TEAMS } from './teamsPowerShell';
+import { portableInstallEnv } from '../portableInstall';
 import { installTeamsRuntime, publishTeamsDirectory, runtimeFolder, teamsModulesFolder, TeamsRuntimeError } from './teamsRuntime';
 
 type Run = (
@@ -17,28 +18,8 @@ type Run = (
   options: Pick<SpawnOptions, 'signal' | 'timeoutMs' | 'onLine' | 'onSpawn' | 'keepStdinOpen'>,
 ) => Promise<number | null>;
 
-function powerShellEnv() {
-  const env: NodeJS.ProcessEnv = {};
-  // Keep OS, HTTPS proxy and certificate settings. Never inherit a PowerShell profile/module path,
-  // .NET startup hooks, cloud service credentials, or npm's project-local bin directories.
-  for (const [key, val] of Object.entries(process.env)) {
-    if (
-      /^(HOME|USERPROFILE|SYSTEMROOT|WINDIR|ProgramFiles(?:\(x86\))?|ProgramData|APPDATA|LOCALAPPDATA|TMPDIR|TEMP|TMP|XDG_DATA_HOME|HTTPS?_PROXY|ALL_PROXY|NO_PROXY|SSL_CERT_FILE|SSL_CERT_DIR|LANG)$/i.test(
-        key,
-      )
-    )
-      env[key] = val;
-  }
-  env.PATH = (process.env.PATH ?? '')
-    .split(delimiter)
-    .filter((p) => isAbsolute(p) && !/(^|[/\\])node_modules([/\\]|$)/i.test(p))
-    .join(delimiter);
-  env.PATHEXT = '.EXE';
-  return env;
-}
-
 const runPowerShell = async (script: string, options: Parameters<Run>[1], executable?: string): Promise<number | null> => {
-  const env = powerShellEnv();
+  const env = portableInstallEnv();
   const systemDirs =
     process.platform === 'win32'
       ? [join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7')]
@@ -403,7 +384,7 @@ export class TeamsGraph {
   constructor(
     private run: Run = runPowerShell,
     private installRuntime: (signal: AbortSignal) => Promise<void> = (signal) =>
-      installTeamsRuntime(signal, (exe) => runPowerShell(PROBE_TEAMS, { signal, timeoutMs: 15000 }, exe), powerShellEnv()),
+      installTeamsRuntime(signal, (exe) => runPowerShell(PROBE_TEAMS, { signal, timeoutMs: 15000 }, exe), portableInstallEnv()),
   ) {
     this.read = new TeamsSession(run, undefined, () => this.disconnectPosting());
   }

@@ -865,7 +865,91 @@ describe('Google Docs write consent', () => {
   async function start(use: 'drive' | 'documents', account?: string) {
     return service.startSignIn({ provider: 'google', uses: [use], account, port: 8787, session: 's1' });
   }
+  const finish = (flow: OAuthSignInView) => service.signIns.callback(callbackParams(fake.allow(flow.authorizeUrl!)));
   beforeEach(() => service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret }));
+
+  it('does not restore a disconnected account from Docs consent started before its first Drive connection', async () => {
+    const stale = await start('documents');
+    const forAnother = await start('documents');
+    const id = (await finish(await start('drive'))).account!.id;
+    service.removeDrive(id);
+    await service.removeAccount(id);
+    expect(service.store.accounts()).toEqual([]);
+    expect((await finish(stale)).status).toBe('failed');
+    expect(service.store.accounts()).toEqual([]);
+    const original = fake.google.me;
+    fake.google.me = { sub: 'another', email: 'another@example.com', name: 'Another' };
+    expect((await finish(forAnother)).account?.email).toBe('another@example.com');
+    fake.google.me = original;
+    const fresh = (await finish(await start('drive'))).account!;
+    expect(fresh.uses).toEqual(['drive']);
+    expect(fresh.id).not.toBe(id);
+  });
+
+  it('keeps a fresh Drive reconnection valid after a duplicate removal of the already detached Drive', async () => {
+    const id = (await finish(await start('drive'))).account!.id;
+    service.removeDrive(id);
+    const reconnect = await start('drive', id);
+    service.removeDrive(id);
+    expect((await finish(reconnect)).account).toMatchObject({ id, uses: ['drive'] });
+  });
+
+  it('rejects earlier Drive consent for the removed account, even after reconnecting with a fresh read-only grant', async () => {
+    const id = (await finish(await start('drive'))).account!.id;
+    const oldFetch = service.broker.fetch(id, 'drive');
+    const targeted = await start('documents', id);
+    const chooseAccount = await start('documents');
+    const otherSignIn = await start('drive');
+    const originalRefresh = service.store.refreshToken(id);
+    service.removeDrive(id);
+    const detachedFetch = service.broker.fetch(id, 'drive');
+    expect(newService().view().accounts).toMatchObject([{ id, uses: [], status: 'connected' }]);
+    expect(service.store.refreshToken(id)).toBe(originalRefresh);
+    expect(fake.google.revoked).toEqual([]);
+    await expect(service.broker.accessToken(id, undefined)).rejects.toThrow();
+    const me = fake.google.me;
+    fake.google.me = { sub: 'another', email: 'another@example.com', name: 'Another' };
+    const other = (await finish(otherSignIn)).account!;
+    expect(other.email).toBe('another@example.com');
+    fake.google.me = me;
+    const fresh = await finish(await start('drive', id));
+    expect(fresh.account).toMatchObject({ id, uses: ['drive'] });
+    const current = service.store.refreshToken(id);
+    const requestsBefore = fake.requests.length;
+    for (const staleFetch of [oldFetch, detachedFetch]) await expect(staleFetch(fake.google.urls.drive! + '/files')).rejects.toThrow();
+    expect(fake.requests).toHaveLength(requestsBefore);
+    for (const stale of [targeted, chooseAccount]) {
+      expect((await finish(stale)).status).toBe('failed');
+      expect(service.store.refreshToken(id)).toBe(current);
+      expect(service.store.account(id)?.uses).toEqual(['drive']);
+    }
+    expect(service.store.account(other.id)?.uses).toEqual(['drive']);
+    expect((await finish(await start('documents', id))).account?.uses).toEqual(['drive', 'documents']);
+  });
+
+  it('withholds a pending shared token from Drive while an existing Gmail caller receives it', async () => {
+    const flow = await service.startSignIn({ provider: 'google', uses: ['mail', 'drive'], port: 8787 });
+    const id = (await service.signIns.callback(callbackParams(fake.allow(flow.authorizeUrl!)))).account!.id;
+    const pending = gate();
+    fake.hold = { grant: 'refresh_token', until: pending.until };
+    const drive = service.broker.accessToken(id, 'drive', true);
+    const gmail = service.broker.accessToken(id, 'mail', true);
+    try {
+      await vi.waitFor(
+        () =>
+          expect(tokenRequests('/google/token').some((r) => new URLSearchParams(r.body).get('grant_type') === 'refresh_token')).toBe(true),
+        { interval: 10 },
+      );
+      service.removeDrive(id);
+      pending.open();
+      await expect(drive).rejects.toThrow();
+      await expect(gmail).resolves.toBeTruthy();
+      await expect(service.broker.accessToken(id, 'drive')).rejects.toThrow();
+      expect(service.store.account(id)?.status).toBe('connected');
+    } finally {
+      pending.open();
+    }
+  });
 
   it('adds explicit Docs consent to the same account and keeps its read grant if consent is refused', async () => {
     const read = await start('drive');

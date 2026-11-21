@@ -242,9 +242,35 @@
           <li><a href="#settings">Settings &amp; sign-in</a></li>
           <li><a href="#sign-in">Sign in to an agent</a></li>
           <li><a href="#api-keys">Or use an API key</a></li>
-          <li><a href="#open-agents">Open-source agents and model backends</a></li>
-          <li><a href="#accounts">Accounts and plan usage</a></li>
-          <li><a href="#models">Default models and the lead agent</a></li>
+          <li>
+            <details>
+              <summary>Open-source agents and model backends</summary>
+              <ol>
+                <li><a href="#open-agents" aria-label="Open-source agents and model backends overview">Overview</a></li>
+                <li><a href="#agents-on-your-server">The other agents on your own server</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Accounts and plan usage</summary>
+              <ol>
+                <li><a href="#accounts" aria-label="Accounts and plan usage overview">Overview</a></li>
+                <li><a href="#multiple-accounts">More than one account</a></li>
+                <li><a href="#plan-usage">Plan usage</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Default models and the lead agent</summary>
+              <ol>
+                <li><a href="#models" aria-label="Default models and the lead agent overview">Overview</a></li>
+                <li><a href="#default-model">Default model and reasoning effort</a></li>
+                <li><a href="#lead-agent">Choose the lead agent</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -407,7 +433,7 @@
             <code>homelab/muse-glimmer-30b-nvfp4</code>. Its card in Settings says <b>Ready</b> once the agent is installed and at least one
             backend is set up.
           </p>
-          <h3>The other agents on your own server</h3>
+          <h3 id="agents-on-your-server">The other agents on your own server</h3>
           <p>
             Claude Code, Codex, Grok and Copilot can run on your custom endpoints too: their model menus list your endpoints'
             models after their own. Give a member one of them, and that agent works on your server instead of its maker's
@@ -419,7 +445,7 @@
 
         <section id="accounts" aria-labelledby="accounts-title">
           <h2 id="accounts-title">Accounts and plan usage</h2>
-          <h3>More than one account</h3>
+          <h3 id="multiple-accounts">More than one account</h3>
           <p>
             Each agent can be signed in to several accounts at once, such as a work and a personal Claude subscription: open
             <b>Add an account</b> under the agent's accounts, name it and click <b>Add an account</b>. Each account signs in on
@@ -431,7 +457,7 @@
             Cursor, Antigravity and Muse Code keep their sign-in in one place for your whole computer user, so their extra
             accounts take an API key instead (a Cursor API key, a Gemini API key, a Meta API key).
           </p>
-          <h3>Plan usage</h3>
+          <h3 id="plan-usage">Plan usage</h3>
           <p>
             Once an account is signed in, its box shows <b>Plan usage</b>: how much of its plan is left, as the agent reports
             it, with a bar for each limit and when it starts over (Claude Code's 5-hour and weekly limits, say, or Copilot's
@@ -445,13 +471,13 @@
 
         <section id="models" aria-labelledby="models-title">
           <h2 id="models-title">Default models and the lead agent</h2>
-          <h3>Default model and reasoning effort</h3>
+          <h3 id="default-model">Default model and reasoning effort</h3>
           <p>
             Each account's box has <b>Default model and reasoning effort</b>: what its members use when their own model is left
             on <i>Default</i>. Left on <b>CLI default</b>, the agent uses its own settings, as in a terminal. You can always
             give a single member another model in the team.
           </p>
-          <h3>Choose the lead agent</h3>
+          <h3 id="lead-agent">Choose the lead agent</h3>
           <p>
             <b>Lead agent</b> in Settings picks the agent, and optionally its model and effort, that designs a team for each
             question, reviews the team's replies, and sorts new chats into your groups. Choose one that is signed in, or an

@@ -1103,9 +1103,32 @@ describe('chat tools for common apps', () => {
     await expect(call('drive_search', { pageToken: ['bad'] })).rejects.toThrow();
     expect((await call('drive_read_document', { id: 'doc' })).text).toContain('Meeting summary');
     await expect(call('drive_read_document', { id: '..' })).rejects.toThrow();
-    await service.removeAccount(drive.account!.id);
+    service.removeDrive(drive.account!.id);
     await expect(call('drive_search')).rejects.toThrow();
+    await expect(call('drive_read_document', { id: 'doc' })).rejects.toThrow();
+    await expect(service.mailToken(mail.account!.id)).resolves.toBeTruthy();
     await expect(service.startSignIn({ provider: 'microsoft', uses: ['drive'], port: 8787 })).rejects.toThrow();
+  });
+  it('withholds a Drive response when that account is removed and reconnected while a read is in flight', async () => {
+    const { account } = await signIn(['drive'], 'google');
+    const requested = gate();
+    const release = gate();
+    vi.spyOn(service.broker, 'fetch').mockImplementationOnce(() => async () => {
+      requested.open();
+      await release.until;
+      return Response.json({ files: [{ id: 'before-removal' }] });
+    });
+    const result = call('drive_search');
+    try {
+      await requested.until;
+      service.removeDrive(account!.id);
+      expect((await signIn(['drive'], 'google')).account?.id).toBe(account!.id);
+      release.open();
+      await expect(result).rejects.toThrow();
+      expect((await call('drive_search')).text).toContain('Notebook');
+    } finally {
+      release.open();
+    }
   });
   it('routes Teams reads to a connected PowerShell account and disambiguates older OAuth accounts', async () => {
     let connected = true;
@@ -1323,6 +1346,37 @@ describe('/api: mail accounts that sign in', () => {
   }
   const error = async (res: Response) => ((await res.json()) as { error: string }).error;
 
+  it('removes both Drive uses locally while Gmail, calendars, other accounts and the shared refresh credential remain', async () => {
+    const { call } = await signedInApp();
+    const { account } = await signIn(['mail', 'calendar', 'drive', 'documents'], 'google');
+    const { id } = account!;
+    const other = (await signIn(['calendar'])).account!;
+    const connectors = await (await call('GET', '/api/connectors')).json();
+    const refresh = service.store.refreshToken(id);
+    const route = `/api/oauth/accounts/${id}/drive`;
+    for (let i = 0; i < 2; i++) {
+      const response = await call('DELETE', route, {});
+      expect(response.status).toBe(200);
+      const view = (await response.json()) as OAuthView;
+      expect(view.accounts.find((a) => a.id === id)).toMatchObject({ uses: ['calendar', 'mail'], status: 'connected' });
+      expect(view.accounts.find((a) => a.id === other.id)).toEqual(other);
+      expect(JSON.stringify(view)).not.toContain(refresh);
+    }
+    expect(await (await call('GET', '/api/connectors')).json()).toEqual(connectors);
+    await expect(service.broker.accessToken(id, 'calendar')).resolves.toBeTruthy();
+    await expect(service.mailToken(id)).resolves.toBeTruthy();
+    await expect(service.broker.accessToken(id, 'drive')).rejects.toThrow();
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    expect(service.store.refreshToken(id)).toBe(refresh);
+    expect(fake.google.revoked).toEqual([]);
+    // Google still grants the original scopes, including Drive and Docs, when the user signs back in to Gmail.
+    const renewed = await signIn(['mail'], 'google');
+    expect(renewed.account).toMatchObject({ id, uses: ['calendar', 'mail'] });
+    await expect(service.broker.accessToken(id, 'drive')).rejects.toThrow();
+    await expect(service.broker.accessToken(id, 'documents')).rejects.toThrow();
+    expect((await call('DELETE', '/api/oauth/accounts/missing/drive', {})).status).toBe(404);
+    expect((await call('DELETE', `/api/oauth/accounts/${other.id}/drive`, {})).status).toBe(400);
+  });
   it('starts a sign-in for its uses, adds and tests the mail account over XOAUTH2, keeps its servers fixed, and removes it with its account', async () => {
     const { call, HOST } = await signedInApp();
     for (const uses of [[], ['mail', 'drive'], 'mail']) {

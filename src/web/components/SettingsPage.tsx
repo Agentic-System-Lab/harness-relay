@@ -156,7 +156,7 @@ export function SettingsPage({
   // as its offset changes, until the reader takes over scrolling or follows a different link.
   const loaded = settings !== null;
   useEffect(() => {
-    if (!section || !loaded) return;
+    if (!section || section === 'agents' || !loaded) return;
     const card = document.getElementById(sectionId(section));
     const layout = card?.closest('.page-inner');
     if (!card || !layout) return;
@@ -1506,6 +1506,14 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   const menuId = useId();
   const agentsButton = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  // The Tool library links to the same picker as the navigation. A bookmarked link
+  // or a return with Back opens it with the keyboard focus on a choice.
+  useLayoutEffect(() => {
+    if (section !== 'agents') return;
+    agentsButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    focusOnOpen.current = 'first';
+    setMenuOpen(true);
+  }, [section]);
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   /** Focuses an item, scrolling the menu (and only it) just far enough to show it. */
   const focusItem = (item: HTMLElement | undefined) => {

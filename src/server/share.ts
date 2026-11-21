@@ -32,7 +32,9 @@ import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
 import { DATA_DIR } from './settings';
 import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
-import { BREW_DIRS, findOnPath } from './executable';
+import { findGithubCli, parseGhVersion } from './githubInstall';
+
+export { parseGhVersion } from './githubInstall';
 
 /**
  * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as
@@ -90,11 +92,6 @@ export function ghTooOld(stderr: string): boolean {
   return /unknown (shorthand )?flag|unknown command/i.test(stderr);
 }
 
-/** The version `gh --version` printed ("gh version 2.88.1 (2026-03-12)"). */
-export function parseGhVersion(stdout: string): string | undefined {
-  return /gh version (\d+\.\d+\.\d+)/.exec(stdout)?.[1];
-}
-
 /** What went wrong, in words for the user, when `gh` failed (to create a gist, or with `failed`, to delete one). */
 export function gistError(r: Pick<SpawnResult, 'stderr' | 'timedOut'>, failed: (detail: string) => string = t().shareFailed): string {
   if (r.timedOut) return failed(t().timedOut);
@@ -123,15 +120,14 @@ function failure(r: SpawnResult, failed?: (detail: string) => string): ShareErro
 }
 
 /**
- * Where gh is: on the PATH, or where Homebrew puts it (a server started outside a terminal may not have
- * those folders on its PATH).
+ * The installed gh shared by sign-in, gist uploads, repository tools and watches.
  */
 export function ghBin(
   env: NodeJS.ProcessEnv = process.env,
   platform: string = process.platform,
   isFile?: (path: string) => boolean,
 ): string {
-  return findOnPath('gh', env, platform, platform === 'win32' ? [] : BREW_DIRS, isFile) ?? 'gh';
+  return findGithubCli(env, platform, isFile) ?? 'gh';
 }
 
 /**

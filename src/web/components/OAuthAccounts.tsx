@@ -195,7 +195,7 @@ export function OAuthClientSettings({ view, onSaved }: { view: OAuthView | null;
                         <div className="lib-row" role="group" aria-label={account.email}>
                           <div className="lib-row-main">
                             <strong className="lib-name">{account.email}</strong>
-                            <span className="small muted">{accountServices(account, t)}</span>
+                            <span className="small muted">{accountServices(account, t) || o.noAccountServices}</span>
                           </div>
                           <button
                             type="button"

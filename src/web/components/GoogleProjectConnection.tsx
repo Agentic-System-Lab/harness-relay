@@ -36,43 +36,13 @@ export function GoogleProjectConnection({
     <AppRow name="Google Drive" description={a.details.drive} label={linked.length ? a.manage : a.connect} status={summary}>
       {linked.length ? (
         <>
-          {linked.map((account) => {
-            const reads = account.uses.includes('drive');
-            const edits = account.uses.includes('documents');
-            const permissions = edits ? (reads ? a.driveReadWrite : a.docsEnabled) : a.driveReading;
-            return (
-              <div key={account.id} className="drive-account" role="group" aria-label={account.email}>
-                <div className="drive-account-identity">
-                  <strong>{account.email}</strong>
-                  <span className="small muted">
-                    {account.status === 'reauth' && <>{o.reauth} · </>}
-                    {permissions}
-                  </span>
-                </div>
-                <div className="form-actions">
-                  {account.status === 'reauth' ? (
-                    <AppSignIn
-                      name="Google Drive"
-                      disabled={!configured}
-                      onDone={onDone}
-                      button={o.signInAgain}
-                      startRequest={() => api.startOAuthSignIn('google', account.uses, false, account.id)}
-                    />
-                  ) : (
-                    (!reads || !edits) && (
-                      <AppSignIn
-                        name={reads ? 'Google Docs' : 'Google Drive'}
-                        disabled={!configured}
-                        onDone={onDone}
-                        button={reads ? a.enableDocs : a.enableDriveReading}
-                        startRequest={() => api.startOAuthSignIn('google', [reads ? 'documents' : 'drive'], false, account.id)}
-                      />
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <ul className="lib-list drive-accounts">
+            {linked.map((account) => (
+              <li key={account.id} className="lib-row relay-group">
+                <DriveAccountCard account={account} configured={configured} onDone={onDone} />
+              </li>
+            ))}
+          </ul>
           <DriveAccountSignIn key="another" additional disabled={!configured} onDone={onDone} />
           {!configured && client && <OAuthSetupHint id={descriptionId} client={client} />}
           {access}
@@ -84,6 +54,84 @@ export function GoogleProjectConnection({
         </>
       )}
     </AppRow>
+  );
+}
+
+function DriveAccountCard({
+  account,
+  configured,
+  onDone,
+}: {
+  account: OAuthAccountView;
+  configured: boolean;
+  onDone: () => Promise<void>;
+}) {
+  const t = useT();
+  const a = t.apps;
+  const reads = account.uses.includes('drive');
+  const edits = account.uses.includes('documents');
+  const permissions = edits ? (reads ? a.driveReadWrite : a.docsEnabled) : a.driveReading;
+  const renew = account.status === 'reauth';
+  const upgradeHint = reads && !edits && !renew;
+  const hintId = useId();
+  const [removing, setRemoving] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [error, setError] = useState('');
+  const remove = async (button: HTMLButtonElement) => {
+    if (!window.confirm(a.confirmRemoveDrive(account.email, reads, edits))) return;
+    setRemoving(true);
+    setError('');
+    try {
+      await api.removeOAuthDrive(account.id);
+      if (document.activeElement === button || document.activeElement === document.body) {
+        button.closest('details')?.querySelector('summary')?.focus();
+      }
+      await onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRemoving(false);
+    }
+  };
+  return (
+    <div className="drive-account" role="group" aria-label={account.email}>
+      <div className="drive-account-identity">
+        <strong className="lib-name">{account.email}</strong>
+        <span className="small muted">{permissions}</span>
+        {renew && <span className="small warn-text">{t.connectors.oauth.reauth}</span>}
+      </div>
+      {upgradeHint && (
+        <p id={hintId} className="small muted">
+          {a.driveUpgradeHint}
+        </p>
+      )}
+      <div className="form-actions">
+        {(renew || !reads || !edits) && (
+          <AppSignIn
+            name={renew || !reads ? 'Google Drive' : 'Google Docs'}
+            disabled={!configured || removing}
+            describedBy={upgradeHint ? hintId : undefined}
+            onPendingChange={setAuthorizing}
+            onDone={onDone}
+            button={renew ? t.connectors.oauth.signInAgain : reads ? a.enableDocs : a.enableDriveReading}
+            startRequest={() => api.startOAuthSignIn('google', renew ? account.uses : [reads ? 'documents' : 'drive'], false, account.id)}
+          />
+        )}
+        <button
+          type="button"
+          className="ghost small-button danger"
+          disabled={removing || authorizing}
+          onClick={(e) => void remove(e.currentTarget)}
+        >
+          {a.removeDrive}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="error-line">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -106,11 +154,11 @@ function DriveAccountSignIn({
   const [authorizing, setAuthorizing] = useState(false);
   const group = useId();
   return (
-    <div className="drive-account">
+    <div className="drive-account-signin">
       {additional && (
         <button
           type="button"
-          className="link-button"
+          className="ghost small-button"
           disabled={disabled || authorizing}
           aria-expanded={open}
           aria-controls={group}

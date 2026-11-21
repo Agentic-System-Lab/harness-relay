@@ -871,8 +871,10 @@ export const zhTW = {
       add: '加入',
       added: '已加入',
       loadingCalendars: '讀取行事曆中…',
+      noAccountServices: '未連結任何服務',
       confirmRemove: (provider: string, email: string, uses: string, hasConnectors: boolean) =>
-        `解除 ${email} 的 ${provider} 帳號連結？這會中斷「${uses}」在 Harness Relay 的連線。` +
+        `解除 ${email} 的 ${provider} 帳號連結？` +
+        (uses ? `這會中斷「${uses}」在 Harness Relay 的連線。` : '這會從 Harness Relay 移除已儲存的登入。') +
         (hasConnectors ? '這個帳號連結的信箱與行事曆都會從 Relay 移除。' : ''),
       removedMicrosoft: (pages: string) =>
         `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
@@ -1598,6 +1600,9 @@ export const zhTW = {
 
   apps: {
     title: '常用 App',
+    draftHint: '勾選的 App 名稱會加在任務訊息中。每位助理會依現有連線與權限使用。',
+    manageConnections: '管理 App 連線',
+    requestApps: (names: string[]) => `請使用 ${new Intl.ListFormat('zh-TW').format(names)} 完成這項任務。`,
     options: '連結',
     manage: '管理',
     inProgress: '正在登入或設定',
@@ -1669,7 +1674,11 @@ export const zhTW = {
     driveOptions: { read: '搜尋與讀取', both: '搜尋、讀取、新增與編輯', documents: '僅新增及編輯 Google 文件' },
     driveWritePreview: '新增或編輯文件前，Relay 會先顯示草稿，等你確認才寫入。',
     enableDocs: '開啟文件新增與編輯',
-    addDriveAccount: '新增帳號',
+    addDriveAccount: '新增另一個 Google 帳號',
+    driveUpgradeHint: 'Google 會請你再次授權這個帳號編輯文件。每次新增或編輯前，你都會在 Relay 預覽並確認。',
+    removeDrive: '移除 Google Drive',
+    confirmRemoveDrive: (email: string, reads: boolean, edits: boolean) =>
+      `要在 Relay 移除 ${email} 的 Google Drive 嗎？這會移除這個帳號的 ${reads && edits ? 'Drive 檔案存取和 Google 文件編輯權限' : reads ? 'Drive 檔案存取權限' : 'Google 文件編輯權限'}。Gmail、行事曆和其他 Google 帳號仍可照常使用。`,
     driveAccounts: (count: number) => `已連結 ${count} 個帳號`,
     docsEnabled: '可在你確認後新增及編輯 Google 文件',
     driveReading: '唯讀 · 可搜尋檔案和讀取 Google 文件',
@@ -1691,6 +1700,11 @@ export const zhTW = {
       `要在這台電腦登出 ${login} 嗎？Relay 和其他使用 GitHub CLI 的程式都會失去此帳號的存取權，包括用此帳號分享對話或執行 GitHub 自動任務。若還有其他已登入的帳號，GitHub CLI 可能會切換到該帳號。`,
     ghSignedOut: (login: string) => `已在這台電腦登出 ${login}。`,
     ghToken: (name: string) => `GitHub 使用 ${name} 提供的憑證登入。若要解除連線，請從啟動 Relay 的環境移除這個變數，再重新啟動 Relay。`,
+    installBrowser: '安裝瀏覽器',
+    installingDependency: '正在執行 Relay 的電腦上安裝…',
+    installLog: '安裝紀錄',
+    manualDependency: '請在執行 Relay 的電腦上安裝，完成後按「重新檢查」。',
+    downloadPage: '官方下載頁',
     installGh: '安裝 GitHub CLI',
     checkAgain: '重新檢查',
     vault: '選擇筆記庫',
@@ -1739,7 +1753,8 @@ export const zhTW = {
       } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
     },
     title: '工具庫',
-    hint: '設定成員共用的工具與指示。要調整單一成員的工具，請到團隊設定。',
+    hint: '在這裡設定共用的工具與指示。要調整個別助理自行載入的工具，請選擇助理。',
+    agentSettings: '前往助理設定',
     categories: {
       mcp: '用網址或本機指令連接其他工具',
       skills: '從資料夾加入可重複使用的操作指引',
@@ -2494,7 +2509,7 @@ export const zhTW = {
       },
       {
         title: '建立新對話',
-        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述，也可以加入附件。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」。',
+        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述。點迴紋針旁的「常用 App」，勾選想在問題中指定的服務。需要設定時，點「管理 App 連線」。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」。',
       },
       {
         title: '每個問題自動組隊',
@@ -2604,7 +2619,7 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入或口述訊息、加入附件，再選擇啟動方式。首席 agent 會為任務組隊，每次執行都會送出訊息和附件。在現有對話裡，可點上方的「自動任務」（手機上在 ⋯ 裡）。',
+        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入或口述訊息，再選擇啟動方式。點迴紋針旁的「常用 App」，勾選每次執行想在任務中指定的服務。首席 agent 會為任務組隊，每次執行都會送出訊息和附件。在現有對話裡，可點上方的「自動任務」（手機上在 ⋯ 裡）。',
         points: [
           '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、某件事發生時（新郵件、行程、pull request 或失敗的 CI、檔案），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
@@ -2629,7 +2644,7 @@ export const zhTW = {
         title: '在聊天中使用常用 App',
         body: '打開「設定 → App 與工具 → 常用 App」，找到想用的服務。Teams 請用 Microsoft 工作或學校帳號登入。Slack 則可選擇你在 Relay 使用的助理。',
         points: [
-          '使用 Gmail、Google Calendar 或 Google Drive 時，在該服務的設定中登入 Google。新增或編輯 Google 文件需要另外授權。首次設定可到「帳號登入設定（OAuth 2.0）」查看教學。要解除單一帳號的連結，也可在該面板的 Google 或 Microsoft 下找到帳號。',
+          '使用 Gmail、Google Calendar 或 Google Drive 時，在該服務的設定中登入 Google。在各帳號的 Drive 卡片上可開啟文件編輯，也可單獨移除 Drive，保留 Gmail 和行事曆。「帳號登入設定（OAuth 2.0）」提供設定教學，也可解除整個 Google 或 Microsoft 帳號的連結。',
           '在工具列中選擇使用的助理。Slack 請在「從 Relay 傳送訊息」中選擇可擬稿的助理。傳送訊息、變更 Obsidian 筆記及寫入 Google 文件前，Relay 都會先顯示預覽，等你確認。',
           '要加入自訂工具、Skill 或共用指示，切換到「工具庫」分頁。',
         ],

@@ -238,7 +238,16 @@
           <li><a href="#templates">範本</a></li>
           <li><a href="#members">團隊成員</a></li>
           <li><a href="#modes">三種對話模式</a></li>
-          <li><a href="#checks">團隊檢查</a></li>
+          <li>
+            <details>
+              <summary>團隊檢查</summary>
+              <ol>
+                <li><a href="#checks" aria-label="團隊檢查概覽">概覽</a></li>
+                <li><a href="#configure-checks">設定檢查與 hook</a></li>
+                <li><a href="#review-check-results">檢閱檢查結果</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#change-the-team">在對話中修改團隊</a></li>
           <li><a href="#writing-roles">寫出好的角色</a></li>
         </ol>
@@ -401,6 +410,7 @@
             團隊檢查在<b>可編輯</b>與<b>完全存取</b>的對話中，讓整個團隊遵守同一份規則。Harness Relay 會自行檢查磁碟上的檔案和 commit，並執行指令。
             在<b>團隊設定</b>中，展開<b>進階設定</b>即可編輯規則。在<b>新對話</b>或<b>新自動任務</b>中，請先展開<b>工作目錄與對話設定</b>。編輯範本時，請展開<b>團隊檢查</b>。
           </p>
+          <h3 id="configure-checks">設定檢查與 hook</h3>
           <dl class="doc-terms">
             <dt>受保護路徑</dt>
             <dd>
@@ -422,6 +432,7 @@
               支援的工具呼叫。成員未使用團隊 hook 時，回覆會註明。
             </dd>
           </dl>
+          <h3 id="review-check-results">檢閱檢查結果</h3>
           <p>
             agent 一開始就會知道這些規則。在可以修改檔案的對話裡，回覆後面會有一張<b>團隊檢查</b>卡片，說明每條規則的結果：<b>通過</b>、<b>未通過</b>（附上檔案或
             commit，以及是誰發言時發生的）、<b>無法執行</b>（不算通過，原因寫在卡片上）或<b>不適用</b>。這一輪沒改到規則涵蓋的東西，就不會有卡片。最新的結果未通過時：

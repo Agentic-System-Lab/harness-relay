@@ -214,12 +214,26 @@ export function driveDocumentTools(oauth: OAuthService): GatewayTool[] {
     if (!a || a.provider !== 'google' || a.status !== 'connected' || !a.subject || !a.uses.includes('documents') || !hasDocsScope(a.scopes))
       throw new Error(t().docsGrant);
     const provider = oauth.provider('google');
-    return { id: a.id, subject: a.subject, email: a.email, api: endpoint(provider.docsApi), client: provider.clientId };
+    return {
+      id: a.id,
+      subject: a.subject,
+      email: a.email,
+      api: endpoint(provider.docsApi),
+      client: provider.clientId,
+      ...(a.driveRevision ? { driveRevision: a.driveRevision } : {}),
+    };
   };
   type Account = ReturnType<typeof account>;
   const verify = (a: Account) => {
     const now = account(a.id);
-    if (now.subject !== a.subject || now.api !== a.api || now.client !== a.client || now.email !== a.email) throw changed();
+    if (
+      now.subject !== a.subject ||
+      now.api !== a.api ||
+      now.client !== a.client ||
+      now.email !== a.email ||
+      now.driveRevision !== a.driveRevision
+    )
+      throw changed();
   };
   const request = async (a: Account, suffix: string, target: string, body?: Json): Promise<Json> => {
     verify(a);
@@ -321,7 +335,8 @@ export function driveDocumentTools(oauth: OAuthService): GatewayTool[] {
           owner.email !== frozen.email ||
           owner.subject !== frozen.subject ||
           owner.api !== frozen.api ||
-          owner.client !== frozen.client
+          owner.client !== frozen.client ||
+          (owner.driveRevision ?? 0) !== (frozen.driveRevision ?? 0)
         )
           throw changed();
         const after = textField(doc.after, 'after');

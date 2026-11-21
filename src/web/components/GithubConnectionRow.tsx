@@ -3,6 +3,7 @@ import type { GithubConnection } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { AppRow } from './AppRow';
+import { AppDependencyInstall } from './AppDependencyInstall';
 import { GhSignIn } from './GhHelp';
 
 export function GithubConnectionRow({ access }: { access: ReactNode }) {
@@ -74,9 +75,7 @@ export function GithubConnectionRow({ access }: { access: ReactNode }) {
           {a.ghSignOut}
         </button>
       ) : account?.status === 'missing' ? (
-        <a href="https://cli.github.com/" target="_blank" rel="noreferrer">
-          {a.installGh}
-        </a>
+        <AppDependencyInstall name="github" onReady={refresh} />
       ) : account?.status === 'signed-out' ? (
         <GhSignIn
           onSignedIn={() => {
@@ -89,7 +88,7 @@ export function GithubConnectionRow({ access }: { access: ReactNode }) {
         !error && t.common.loading
       )}
       {error && <p role="alert">{error}</p>}
-      {(account?.status === 'missing' || error) && (
+      {error && (
         <button
           ref={retryButton}
           className="ghost small-button"

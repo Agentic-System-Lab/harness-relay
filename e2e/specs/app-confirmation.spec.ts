@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { OAuthView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { checkToolOff, openCommonApp, selectAssistant } from '../support/app-access';
-import { finishedReply, openTeamChat, send } from '../support/app';
+import { finishedReply, openTeamChat, replies, send } from '../support/app';
 
 test('Obsidian previews the exact note in full access, supports discard, and checks for changes before saving', async ({ page, relay }) => {
   const vault = join(relay.root, 'Personal notes');
@@ -430,7 +430,12 @@ test.describe('Google Docs editing with Relay confirmation', () => {
       expect(q.get('state')).toBeTruthy();
       writeFileSync(
         join(relay.dataDir, 'google-docs-consent.json'),
-        JSON.stringify({ challenge: q.get('code_challenge'), redirect, scopes: q.get('scope')!.split(' ') }),
+        JSON.stringify({
+          challenge: q.get('code_challenge'),
+          redirect,
+          scopes: q.get('scope')!.split(' '),
+          incremental: q.get('include_granted_scopes') === 'true',
+        }),
       );
       const back = new URL(redirect);
       back.searchParams.set('state', q.get('state')!);
@@ -457,7 +462,9 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     const q = new URL(tab.url()).searchParams;
     expect(q.get('scope')!.split(' ').sort()).toEqual(['openid', 'email', 'profile', ...scopes].sort());
     expect(q.get('login_hint')).toBe(loginHint);
-    if (!loginHint) await expect(page.getByRole('combobox', { name: 'Access for this account' })).toBeDisabled();
+    if (!loginHint && scopes.some((scope) => scope === driveScope || scope === docsScope)) {
+      await expect(page.getByRole('combobox', { name: 'Access for this account' })).toBeDisabled();
+    }
     await allow.click();
     await expect(tab.getByRole('status')).toHaveText('Signed in as ' + identity + '.');
     await tab.close();
@@ -489,6 +496,10 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(summary).not.toContainText(email);
     const account = drive.getByRole('group', { name: email, exact: true });
     await expect(account).toContainText('Read-only');
+    await expect(account.getByRole('button', { name: 'Allow creating and editing documents' })).toHaveAccessibleDescription(
+      /confirm each change in Relay/,
+    );
+    await expect(account.getByRole('button', { name: 'Add another Google account' })).toHaveCount(0);
     await expect(account.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
     await expect(connect).toBeHidden();
     const accounts = async () => (await relay.api<OAuthView>('/api/oauth')).accounts;
@@ -497,7 +508,7 @@ test.describe('Google Docs editing with Relay confirmation', () => {
 
     await page.reload();
     await manageDrive(drive);
-    const addAccount = drive.getByRole('button', { name: 'Add account', exact: true });
+    const addAccount = drive.getByRole('button', { name: 'Add another Google account', exact: true });
     await addAccount.click();
     await expect(drive.getByRole('combobox', { name: 'Access for this account' })).toHaveValue('read');
     await expect(connect).toBeVisible();
@@ -547,13 +558,13 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(await finishedReply(page, 'Claude')).toContainText('drive_search cannot be used now: Connect an account');
   });
 
-  test('two Drive accounts use one Google registration with independent permissions and disconnect', async ({ page, relay }) => {
+  test('removing Drive and Docs from one account preserves Gmail, Calendar and a second Drive account', async ({ page, relay }) => {
     const drive = await openCommonApp(page, relay, 'Google Drive');
     const permission = drive.getByRole('combobox', { name: 'Access for this account' });
     const signIn = drive.getByRole('button', { name: 'Sign in with Google', exact: true });
     await permission.selectOption('both');
     await authorize(page, signIn, [driveScope, docsScope]);
-    await drive.getByRole('button', { name: 'Add account' }).click();
+    await drive.getByRole('button', { name: 'Add another Google account' }).click();
     await expect(permission).toHaveValue('read');
     const reader = 'reader@example.test';
     await authorize(page, signIn, [driveScope], null, reader);
@@ -564,21 +575,86 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     const second = drive.getByRole('group', { name: reader, exact: true });
     await expect(first).toContainText('create or edit Google Docs');
     await expect(second).toContainText('Read-only');
+    const mail = await openCommonApp(page, relay, 'Mail');
+    await mail.getByRole('button', { name: 'Gmail', exact: true }).click();
+    await authorize(page, mail.getByRole('button', { name: 'Sign in with Google' }), ['https://mail.google.com/']);
+    await expect(mail.getByRole('group', { name: email })).toBeVisible();
+    const calendar = await openCommonApp(page, relay, 'Calendar');
+    await calendar.getByRole('button', { name: 'Google Calendar', exact: true }).click();
+    await authorize(page, calendar.getByRole('button', { name: 'Sign in with Google' }), ['https://www.googleapis.com/auth/calendar']);
+    await expect(calendar.getByRole('group', { name: email })).toBeVisible();
+    await page.reload();
+    await manageDrive(drive);
+    const remove = first.getByRole('button', { name: 'Remove Google Drive' });
     page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain(reader);
-      expect(dialog.message()).not.toContain(email);
-      await dialog.accept();
+      expect(dialog.message()).toContain(email);
+      expect(dialog.message()).toContain('Google Docs');
+      expect(dialog.message()).toContain('Gmail, Calendar');
+      expect(dialog.message()).not.toContain(reader);
+      await dialog.dismiss();
     });
-    await expect(drive.getByRole('button', { name: /disconnect/i })).toHaveCount(0);
-    const settingsReader = await googleAccountSettings(page, reader);
-    await settingsReader.getByRole('button', { name: 'Disconnect account', exact: true }).click();
-    await expect(settingsReader).toHaveCount(0);
-    await expect(second).toHaveCount(0);
+    await remove.click();
     await expect(first).toBeVisible();
+    page.once('dialog', (dialog) => dialog.accept());
+    await remove.click();
+    await expect(first).toHaveCount(0);
+    await expect(drive.locator('.app-options > summary')).toBeFocused();
+    await expect(second).toBeVisible();
+    await expect(drive.locator('.app-options > summary')).toContainText('1 account connected');
+    const accounts = async () => (await relay.api<OAuthView>('/api/oauth')).accounts;
+    const kept = (await accounts()).find((account) => account.email === email)!;
+    expect([...kept.uses].sort()).toEqual(['calendar', 'mail']);
+    await mail.locator('.app-options > summary').click();
+    await expect(mail.getByRole('group', { name: email })).toBeVisible();
+    await calendar.locator('.app-options > summary').click();
+    await expect(calendar.getByRole('group', { name: email })).toBeVisible();
     await selectAssistant(drive, true);
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Remaining Drive account');
     await send(page, '{"query":"Planning"} e2e:mcp=drive_search');
     await expect(await finishedReply(page, 'Claude')).toContainText('Planning notes');
+    await page.goto(relay.base + '/#/settings/apps');
+    await manageDrive(drive);
+    await drive.getByRole('button', { name: 'Add another Google account' }).click();
+    await expect(permission).toHaveValue('read');
+    await authorize(page, signIn, [driveScope]);
+    await expect(first).toContainText('Read-only');
+    await expect(second).toContainText('Read-only');
+    const restored = (await accounts()).find((account) => account.id === kept.id)!;
+    expect([...restored.uses].sort()).toEqual(['calendar', 'drive', 'mail']);
+  });
+
+  test('removing the last editing-only Drive connection keeps its Google sign-in until the user disconnects it', async ({
+    page,
+    relay,
+  }) => {
+    const drive = await openCommonApp(page, relay, 'Google Drive');
+    const permission = drive.getByRole('combobox', { name: 'Access for this account' });
+    await permission.selectOption('documents');
+    await authorize(page, drive.getByRole('button', { name: 'Sign in with Google' }), [docsScope]);
+    const card = drive.getByRole('group', { name: email });
+    await expect(card.getByRole('button', { name: 'Enable file search and reading' })).toBeVisible();
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Google Docs editing');
+      expect(dialog.message()).not.toContain('Drive file access');
+      await dialog.accept();
+    });
+    await card.getByRole('button', { name: 'Remove Google Drive' }).click();
+    await expect(card).toHaveCount(0);
+    await expect(permission).toHaveValue('read');
+    await expect(drive.getByRole('button', { name: 'Sign in with Google' })).toBeEnabled();
+    await expect(drive.locator('.app-chat-access')).toHaveCount(0);
+    const central = await googleAccountSettings(page, email);
+    await expect(central).toContainText('No connected services');
+    const grant = () => JSON.parse(readFileSync(join(relay.dataDir, 'google-docs-consent.json'), 'utf8'));
+    expect(grant().revoked).not.toBe(true);
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain(email);
+      expect(dialog.message()).toContain('removes the saved sign-in');
+      await dialog.accept();
+    });
+    await central.getByRole('button', { name: 'Disconnect account' }).click();
+    await expect(central).toHaveCount(0);
+    expect(grant().revoked).toBe(true);
   });
 
   test('turning off Google pauses its connected account across reloads and turning it on restores access', async ({ page, relay }) => {
@@ -625,7 +701,7 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(mail.getByRole('button', { name: 'Google sign-in settings' })).toBeEnabled();
     await expect(mail.getByRole('link', { name: 'Google OAuth 2.0 setup guide' })).toBeVisible();
     await expect(gmail).toHaveJSProperty('disabled', true);
-    await expect(drive.getByRole('button', { name: 'Add account', exact: true })).toHaveJSProperty('disabled', true);
+    await expect(drive.getByRole('button', { name: 'Add another Google account', exact: true })).toHaveJSProperty('disabled', true);
     await expect(outlook).toBeEnabled();
     await expect(microsoft).toContainText('Configured');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Drive access');
@@ -647,7 +723,7 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await expect(settingsAccount.getByRole('button', { name: 'Disconnect account', exact: true })).toBeEnabled();
     await google.getByRole('button', { name: 'Turn on', exact: true }).click();
     await expect(google).toContainText('Configured');
-    await expect(drive.getByRole('button', { name: 'Add account', exact: true })).toBeEnabled();
+    await expect(drive.getByRole('button', { name: 'Add another Google account', exact: true })).toBeEnabled();
     await expect(account.getByRole('button', { name: 'Allow creating and editing documents' })).toBeEnabled();
     const after = await relay.api<OAuthView>('/api/oauth');
     expect(after.accounts).toEqual(before);
@@ -661,6 +737,8 @@ test.describe('Google Docs editing with Relay confirmation', () => {
   });
 
   test('the Google Docs write grant allows exact create and edit previews that wait for confirmation', async ({ page, relay }) => {
+    // Four proposal turns and the final tool-access check each start a CLI and its gateway on Windows.
+    test.setTimeout(150_000);
     const stateFile = join(relay.dataDir, 'google-docs-state.json');
     const state = (): { id: string; title: string; content: string; revision: number; creates: number; updates: number } =>
       JSON.parse(readFileSync(stateFile, 'utf8'));
@@ -679,9 +757,10 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Google Docs decisions');
     const propose = async (tool: 'drive_create_document' | 'drive_edit_document', args: Record<string, string>, count: number) => {
       await send(page, JSON.stringify(args) + ' e2e:mcp=' + tool);
+      await expect(replies(page, 'Claude')).toHaveCount(count, { timeout: 45_000 });
+      await expect(await finishedReply(page, 'Claude')).toContainText('The ' + tool + ' tool said:');
       const cards = page.locator('.outbox-card');
       await expect(cards).toHaveCount(count);
-      await finishedReply(page, 'Claude');
       return cards.nth(count - 1);
     };
     const unrelated = 'https://docs.google.com/document/d/other/edit';
@@ -724,7 +803,9 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     const external = state();
     external.content += ' Changed in Google Docs.';
     external.revision++;
-    writeFileSync(stateFile, JSON.stringify(external));
+    const externalEdit = stateFile + '.external-edit';
+    writeFileSync(externalEdit, JSON.stringify(external));
+    renameSync(externalEdit, stateFile);
     await card.getByRole('button', { name: 'Save changes' }).click();
     await expect(card.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
     await expect(card).toContainText('Check the result');

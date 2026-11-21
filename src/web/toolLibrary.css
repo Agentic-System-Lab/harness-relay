@@ -179,13 +179,21 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.drive-accounts {
+  width: 100%;
+}
 .drive-account,
+.drive-account-signin,
 .drive-account-identity {
   display: grid;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .drive-account {
+  width: 100%;
+  gap: 10px;
+}
+.drive-account-signin {
   gap: 16px;
   justify-items: start;
 }
@@ -208,6 +216,10 @@
   display: none;
 }
 .drive-account .mcp-signin {
+  flex-basis: auto;
+}
+.drive-account .mcp-signin,
+.drive-account-signin .mcp-signin {
   max-width: 100%;
 }
 .oauth-client-row {
@@ -366,4 +378,12 @@
     grid-column: 1;
     grid-row: auto;
   }
+}
+
+.app-dependency {
+  display: grid;
+  gap: 12px;
+}
+.app-dependency p {
+  margin: 0;
 }

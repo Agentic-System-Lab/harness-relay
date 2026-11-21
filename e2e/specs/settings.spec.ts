@@ -247,6 +247,24 @@ test.describe('settings', () => {
     await expect(card.locator('.provider-head')).toContainText('v1.0.999');
   });
 
+  test('the Tool library links to the agent picker and the selected agent’s own tools', async ({ page, relay }) => {
+    await page.goto(relay.base + '/#/settings/tools');
+    const library = page.getByRole('tabpanel', { name: 'Tool library' });
+    const link = library.getByRole('link', { name: 'Open agent settings' });
+    await expect(link).toHaveAttribute('href', '#/settings/agents');
+    await link.focus();
+    await link.press('Enter');
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await menu.getByRole('menuitem', { name: 'Codex', exact: true }).click();
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    await expect(page.locator('#settings-codex')).toContainText('this CLI loads by itself');
+    await page.goBack();
+    await expect(menu).toBeVisible();
+    await page.reload();
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+  });
+
   test("the links row gathers the agents in one menu, which leads to each agent's card and names the one being read", async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const nav = page.getByRole('navigation', { name: 'Sections of this page' });
@@ -504,4 +522,63 @@ test.describe('settings', () => {
     // The lead agent's prompt went to the fake codex.
     expect(relay.fakeLog().some((e) => e.cli === 'codex' && e.prompt?.includes('Choose the team that answers it'))).toBe(true);
   });
+});
+
+test('missing GitHub CLI and browser install in their rows and refresh after completion', async ({ page, relay }) => {
+  const states = { github: 'missing', browser: 'missing' };
+  const clicks = { github: 0, browser: 0 };
+  await page.route('**/api/apps/github', (route) =>
+    route.fulfill({ json: { status: states.github === 'ready' ? 'signed-out' : 'missing' } }),
+  );
+  await page.route('**/api/tools', async (route) => {
+    const response = await route.fetch();
+    const tools = await response.json();
+    await route.fulfill({ json: { ...tools, browser: states.browser === 'ready' ? { using: '/installed/browser' } : {} } });
+  });
+  for (const name of ['github', 'browser'] as const) {
+    await page.route('**/api/apps/' + name + '/install', (route) => {
+      if (route.request().method() === 'POST') {
+        clicks[name]++;
+        states[name] = 'running';
+      }
+      const state = states[name];
+      return route.fulfill({
+        json: {
+          available: state === 'ready',
+          canInstall: state === 'missing' || state === 'failed',
+          job:
+            state === 'missing'
+              ? undefined
+              : {
+                  state: state === 'ready' ? 'success' : state,
+                  startedAt: 1,
+                  log: '',
+                  error: state === 'failed' ? 'Download interrupted' : undefined,
+                },
+        },
+      });
+    });
+  }
+  await page.goto(relay.base + '/#/settings/apps');
+  for (const name of ['github', 'browser'] as const) {
+    const row = page.getByRole('listitem', { name: name === 'github' ? 'GitHub' : 'Browser', exact: true });
+    const summary = row.locator('.app-options > summary');
+    await summary.click();
+    expect(clicks[name]).toBe(0);
+    await row.getByRole('button', { name: name === 'github' ? 'Install GitHub CLI' : 'Install a browser', exact: true }).click();
+    await expect(row.getByRole('status')).toContainText('Installing');
+    await page.reload();
+    await summary.click();
+    await expect(row.getByRole('status')).toContainText('Installing');
+    if (name === 'github') {
+      states[name] = 'failed';
+      await expect(row.getByRole('alert')).toHaveText('Download interrupted');
+      await row.getByRole('button', { name: 'Retry installation' }).click();
+      await expect(row.getByRole('status')).toContainText('Installing');
+    }
+    states[name] = 'ready';
+    if (name === 'github') await expect(row.getByRole('button', { name: 'Sign in to GitHub' })).toBeVisible();
+    else await expect(row.getByRole('textbox', { name: 'Browser to start' })).toHaveAttribute('placeholder', '/installed/browser');
+    expect(clicks[name]).toBe(name === 'github' ? 2 : 1);
+  }
 });

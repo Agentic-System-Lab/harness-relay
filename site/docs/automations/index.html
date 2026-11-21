@@ -239,8 +239,24 @@
         <p class="doc-toc-title">On this page</p>
         <ol>
           <li><a href="#what">What an automation does</a></li>
-          <li><a href="#create">Create one</a></li>
-          <li><a href="#when">When it runs</a></li>
+          <li>
+            <details>
+              <summary>Create one</summary>
+              <ol>
+                <li><a href="#create" aria-label="Create one overview">Overview</a></li>
+                <li><a href="#run-pause-delete">Run it now, pause it, delete it</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>When it runs</summary>
+              <ol>
+                <li><a href="#when" aria-label="When it runs overview">Overview</a></li>
+                <li><a href="#event-triggers">When something happens</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#unattended">While nobody is watching</a></li>
           <li><a href="#goal">Track a goal</a></li>
           <li><a href="#webhook">Let a program start it</a></li>
@@ -282,7 +298,7 @@
         <section id="create" aria-labelledby="create-title">
           <h2 id="create-title">Create one</h2>
           <ol class="doc-steps">
-            <li>Click <b>New automation</b> in the sidebar and type or dictate what the team should do. Attach any files to send with each run. The create button stays at the bottom of the form card while you scroll through the form. You can address individual members with <code>@mentions</code>.</li>
+            <li>Click <b>New automation</b> in the sidebar and type or dictate what the team should do. Attach any files to send with each run. Select <b>Common apps</b> next to the paperclip to choose the services to mention in every run’s message. To set up a connection, select <b>Manage app connections</b>, then <b>Return to automation draft</b>. Your message, attachments, apps and schedule stay in place. The create button stays at the bottom of the form card while you scroll through the form. You can address individual members with <code>@mentions</code>.</li>
             <li>Optionally fill in <b>Goal to track</b>, then choose a trigger under <b>When</b>.</li>
             <li>Open <b>Workspace and chat settings</b> to change the folders, file permission or title. The next section, <b>Webhooks and run settings</b>, lets you start a new chat for each run.</li>
             <li>Choose <b>Wait for my confirmation</b> or <b>Accept the team automatically</b>, then choose whether the lead agent should review replies and click <b>Create automation</b>. Its chat opens for team design. The task runs when triggered.</li>
@@ -293,7 +309,7 @@
               src="../../assets/media/docs/automations-new-en.webp"
               width="1280"
               height="1050"
-              alt="The New automation page: the message to send the team, a goal to track (each overdue invoice paid, or a date agreed in writing), When set to Every week on Monday to Friday at 09:00 with the next three times shown, and Create automation at the bottom."
+              alt="The new automation draft shows the ten Common apps, Mail and Calendar selected, a link to manage connections and the request that will be sent."
               loading="lazy"
             />
             <figcaption>
@@ -301,7 +317,7 @@
               <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
             </figcaption>
           </figure>
-          <h3>Run it now, pause it, delete it</h3>
+          <h3 id="run-pause-delete">Run it now, pause it, delete it</h3>
           <p>
             <b>Automation</b> at the top of its chat opens the automation again. There, <b>Run once now</b> sends the
             message at once, to try it before its first time; untick <b>On</b> to pause it without deleting it (one with
@@ -352,7 +368,7 @@
             </tbody>
           </table>
           <p>Before you save, the next three times are shown, in the automation's time zone.</p>
-          <h3>When something happens</h3>
+          <h3 id="event-triggers">When something happens</h3>
           <p>Under <b>What to wait for</b>, choose what starts it. Harness Relay checks for it itself, every few minutes:</p>
           <ul>
             <li>

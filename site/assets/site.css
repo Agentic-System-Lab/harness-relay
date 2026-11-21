@@ -3292,6 +3292,10 @@ body:has(.cs-dialog[open]) {
   color: var(--danger);
 }
 
+/* Jump to the chosen heading without opening intermediate branches on the way through a long article. */
+html:has(.doc-toc) {
+  scroll-behavior: auto;
+}
 /* The page's sections, the one on screen marked (site.js). */
 .doc-toc {
   grid-area: toc;
@@ -3311,31 +3315,48 @@ body:has(.cs-dialog[open]) {
 }
 
 .doc-toc ol {
+  display: grid;
+  gap: 2px;
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 2px;
+}
+.doc-toc ol ol {
+  margin: 2px 0 5px 7px;
+  padding-left: 9px;
   border-left: 1px solid var(--border);
 }
-
-.doc-toc a {
-  display: block;
-  margin-left: -1px;
-  padding: 4px 0 4px 12px;
-  border-left: 2px solid transparent;
+.doc-toc a,
+.doc-toc summary {
+  padding: 5px 6px;
   color: var(--muted);
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.doc-toc summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.doc-toc summary::marker {
+  font-size: 0.8em;
+}
+.doc-toc a {
+  display: block;
   text-decoration: none;
 }
-
-.doc-toc a:hover {
+.doc-toc a:hover,
+.doc-toc summary:hover,
+.doc-toc details:has(a[aria-current='true']) > summary {
   color: var(--text);
 }
-
 .doc-toc a[aria-current='true'] {
-  border-left-color: var(--text);
   color: var(--text);
+  background: var(--surface);
+  box-shadow: inset 2px 0 currentColor;
+}
+.doc-toc :is(a, summary):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 
 /* The page's text: the body at reading scale, in the page's ink. */
@@ -3711,20 +3732,17 @@ body:has(.cs-dialog[open]) {
     border-radius: var(--radius);
   }
 
-  .doc-toc ol {
+  .doc-toc > ol {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 24px;
-    border-left: 0;
+    align-items: start;
   }
-
-  .doc-toc a {
-    margin-left: 0;
-    padding-left: 0;
-    border-left: 0;
+  .doc-toc:has(details) > ol {
+    grid-template-columns: minmax(0, 1fr);
   }
-
-  .doc-toc a[aria-current='true'] {
-    color: var(--muted);
+  .doc-toc a,
+  .doc-toc summary {
+    padding-block: 8px;
   }
 }
 
@@ -3882,7 +3900,7 @@ body:has(.cs-dialog[open]) {
 }
 
 @media (max-width: 560px) {
-  .doc-toc ol,
+  .doc-toc > ol,
   .doc-index {
     grid-template-columns: minmax(0, 1fr);
   }

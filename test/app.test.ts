@@ -4075,6 +4075,49 @@ describe('sharing conversations', () => {
     expect(await request('/posting', 'DELETE')).toEqual({ status: 'connected', account: 'sender' });
     expect(await request('/signin', 'DELETE')).toEqual({ status: 'signed-out' });
   });
+  it('installs only the requested common-app prerequisite through an explicit authenticated write', async () => {
+    const { AppDependencies } = await import('../src/server/appDependencies');
+    const installed = new Set<string>();
+    const dep = (name: string) => ({
+      available: () => installed.has(name),
+      plan: () => ({
+        install: async () => {
+          installed.add(name);
+        },
+      }),
+    });
+    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser') });
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      appDependencies,
+    });
+    for (const name of ['github', 'browser']) {
+      const path = '/api/apps/' + name + '/install';
+      expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: false, canInstall: true });
+      expect(installed.has(name)).toBe(false);
+      const bad = await own.request(path, { method: 'POST', headers: { ...HOST, origin: 'https://unrelated.example' } });
+      expect(bad.ok).toBe(false);
+      expect(installed.has(name)).toBe(false);
+      const accepted = await own.request(path, { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' }, body: '{}' });
+      expect(accepted.ok).toBe(true);
+      expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: true, job: { state: 'success' } });
+    }
+    expect(
+      (
+        await own.request('/api/apps/arbitrary/install', {
+          method: 'POST',
+          headers: { ...HOST, 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
+  });
   it("runs gh's own sign-in for sharing when the dialog asks, shows it, and stops it", async () => {
     const view = (state: CliLoginView['state']): CliLoginView => ({
       id: 'l1',

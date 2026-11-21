@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
-import { dirname, join, win32 } from 'node:path';
-import { isProgram, sha256Of } from '../executable';
+import { join } from 'node:path';
 import { t } from '../i18n';
-import { runProcess } from '../process';
+import { installPortableArchive, type ArchiveHost } from '../portableInstall';
 import { cliFolder } from '../protect';
+
+export { publishPortableDirectory as publishTeamsDirectory } from '../portableInstall';
 
 // SHA-256 digests from Microsoft's LTS release:
 // https://github.com/PowerShell/PowerShell/releases/tag/v7.6.10
@@ -41,38 +41,7 @@ export const runtimeFolder = () => join(cliFolder(), 'teams-powershell-' + VERSI
 
 export const teamsModulesFolder = () => join(cliFolder(), 'teams-modules');
 
-/** Swap in the tested directory. Even when cancellation arrives during a rename, restore the original before releasing the installation slot. */
-export async function publishTeamsDirectory(staged: string, target: string, signal: AbortSignal, move = rename): Promise<void> {
-  signal.throwIfAborted();
-  const hadPrevious = existsSync(target);
-  // A failed rollback must leave the backup outside the staging folder the caller cleans up.
-  const previous = dirname(staged) + '-previous';
-  if (hadPrevious) await move(target, previous);
-  let published = false;
-  try {
-    signal.throwIfAborted();
-    await move(staged, target);
-    published = true;
-    signal.throwIfAborted();
-  } catch (err) {
-    if (published) await move(target, staged);
-    if (hadPrevious) await move(previous, target);
-    throw err;
-  }
-  if (hadPrevious) await rm(previous, { recursive: true, force: true, maxRetries: 3 });
-}
-
 export class TeamsRuntimeError extends Error {}
-
-function systemTool(name: string): string | undefined {
-  const candidates =
-    process.platform === 'win32'
-      ? [win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', name + '.exe')]
-      : ['/usr/bin/' + name, '/bin/' + name];
-  return candidates.find(isProgram);
-}
-
-type Run = (bin: string, args: string[], signal: AbortSignal) => Promise<boolean>;
 
 /** Publish only an intact official archive whose pwsh starts here. A cancelled install leaves any previous runtime in place. */
 export async function installTeamsRuntime(
@@ -86,56 +55,20 @@ export async function installTeamsRuntime(
       ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1', '/lib/ld-musl-armhf.so.1'].some(existsSync),
     ),
     folder = runtimeFolder(),
-    tool = systemTool,
-    run = async (bin, args, stop) => {
-      const result = await runProcess({ bin, args, signal: stop, timeoutMs: 300000, cwd: dirname(folder), env, maxCapture: 256 });
-      return result.code === 0 && !result.timedOut;
-    },
-  }: { build?: ReturnType<typeof powerShellBuild>; folder?: string; tool?: typeof systemTool; run?: Run } = {},
+    ...host
+  }: ArchiveHost & { build?: ReturnType<typeof powerShellBuild>; folder?: string } = {},
 ): Promise<void> {
   if (!build) throw new TeamsRuntimeError(t().teamsRuntimeUnsupported);
-  const curl = tool('curl');
-  const tar = tool('tar');
-  if (!curl || !tar) throw new TeamsRuntimeError(t().teamsRuntimeTools);
-  signal.throwIfAborted();
-  await mkdir(dirname(folder), { recursive: true, mode: 0o700 });
-  const temp = await mkdtemp(folder + '-install-');
-  const archive = join(temp, 'archive');
-  const staged = join(temp, 'runtime');
-  try {
-    const download = await run(
-      curl,
-      [
-        '-q',
-        '--fail',
-        '--silent',
-        '--show-error',
-        '--location',
-        '--proto',
-        '=https',
-        '--proto-redir',
-        '=https',
-        '--retry',
-        '2',
-        '--max-filesize',
-        '134217728',
-        '--output',
-        archive,
-        build.url,
-      ],
-      signal,
-    );
-    if (!download || (await sha256Of(archive)) !== build.sha256) throw new TeamsRuntimeError(t().teamsRuntimeDownload);
-    signal.throwIfAborted();
-    await mkdir(staged, { mode: 0o700 });
-    if (!(await run(tar, ['-xf', archive, '-C', staged], signal))) throw new TeamsRuntimeError(t().teamsRuntimeRun);
-    const exe = join(staged, build.exe);
-    if (build.exe === 'pwsh') await chmod(exe, 0o755);
-    signal.throwIfAborted();
-    const result = await probe(exe);
-    if (result !== 0 && result !== 21) throw new TeamsRuntimeError(t().teamsRuntimeRun);
-    await publishTeamsDirectory(staged, folder, signal);
-  } finally {
-    await rm(temp, { recursive: true, force: true, maxRetries: 3 });
-  }
+  await installPortableArchive(
+    build,
+    folder,
+    signal,
+    env,
+    async (exe) => {
+      const code = await probe(exe);
+      return code === 0 || code === 21;
+    },
+    (step) => new TeamsRuntimeError({ tools: t().teamsRuntimeTools, download: t().teamsRuntimeDownload, run: t().teamsRuntimeRun }[step]),
+    host,
+  );
 }

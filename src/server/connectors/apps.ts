@@ -83,6 +83,7 @@ export function appTools(
     const account = which ? all.find((a) => a.email === which) : all.length === 1 ? all[0] : undefined;
     if (!account) throw new Error(all.length ? `Choose an account: ${all.map((a) => a.email).join(', ')}` : t().appsConnectFirst);
     const base = oauth.provider(account.provider).appApi;
+    const check = oauth.driveGuard(account.id, use);
     return async (path: string, params: Record<string, string>, plain = false) => {
       const url = new URL(`${base}/${path}`);
       url.search = new URLSearchParams(params).toString();
@@ -92,6 +93,7 @@ export function appTools(
         throw new Error(`${use} · HTTP ${res.status}`);
       }
       const body = await answerText(res, plain ? 1024 * 1024 : 2 * 1024 * 1024, t().appsTooLarge);
+      check?.();
       return plain ? body : JSON.parse(body);
     };
   };

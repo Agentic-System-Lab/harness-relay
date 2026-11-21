@@ -65,8 +65,8 @@ export interface SignedIn {
   /** What the sign-in's own token was granted, as its answer said (`scope`); undefined when it did not say. */
   granted?: string;
   hosts: string[];
-  /** Whether it is still wanted: not cancelled, nor its app changed, while who signed in is asked. */
-  live: () => boolean;
+  /** Whether it is still wanted, for this provider subject once the account chooser has identified it. */
+  live: (subject?: string) => boolean;
 }
 
 /** Keeps a sign-in that worked (the account it signed in, or an MCP server's tokens), and answers the account, if any. */
@@ -85,6 +85,8 @@ interface Pending {
   provider: OAuthProvider;
   uses: OAuthUse[];
   keep: KeepSignIn;
+  /** Accounts disconnected since this flow started. The user can still pick another account. */
+  excludedSubjects?: Set<string>;
   /** A tool library MCP server's own sign-in: the server, by its id and name. */
   server?: { id: string; name: string };
   /** The signed-in browser's session that started it (none when signing in is off: tests). */
@@ -350,6 +352,15 @@ export class SignIns {
     for (const [id, p] of this.pending) if (p.provider.id === provider && p.status === 'waiting') this.pending.delete(id);
   }
 
+  /** Stop outstanding account choosers from restoring an account or service after its local removal. */
+  excludeAccount(provider: OAuthProviderId, subject: string, uses?: readonly OAuthUse[]): void {
+    for (const p of this.pending.values()) {
+      if (p.provider.id !== provider || p.server || p.status !== 'waiting') continue;
+      if (uses && !p.uses.some((use) => uses.includes(use))) continue;
+      (p.excludedSubjects ??= new Set()).add(subject);
+    }
+  }
+
   /** Ends an MCP server's sign-ins still waiting: it was removed, its address changed, or it signed out. */
   cancelServer(serverId: string): void {
     for (const [id, p] of this.pending) if (p.server?.id === serverId && p.status === 'waiting') this.pending.delete(id);
@@ -514,7 +525,7 @@ export class SignIns {
       scopes: [...new Set(body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes)],
       ...(typeof body.scope === 'string' ? { granted: body.scope } : {}),
       hosts: provider.hosts,
-      live: () => this.live(p),
+      live: (subject) => this.live(p) && (subject === undefined || !p.excludedSubjects?.has(subject)),
       tokenFor: async (use) => {
         if (!provider.tokenScopes) return;
         if (!this.live(p)) throw new Error(t().oauthSignInCancelled);

@@ -239,7 +239,16 @@
           <li><a href="#approvals">核准卡片</a></li>
           <li><a href="#sandboxes">沙箱做了什麼</a></li>
           <li><a href="#outbox">待送出匣</a></li>
-          <li><a href="#changes">檢視與套用修改</a></li>
+          <li>
+            <details>
+              <summary>檢視與套用修改</summary>
+              <ol>
+                <li><a href="#changes" aria-label="檢視與套用修改概覽">概覽</a></li>
+                <li><a href="#parallel-results">平行模式：挑一份結果</a></li>
+                <li><a href="#folder-protection">你的資料夾怎麼保持安全</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -370,7 +379,7 @@
             agent 修改檔案時，它的回覆最後會有一張卡片列出這些檔案，各自標示 A（新增）、M（修改）或 D（刪除），以及增減的行數。<b>查看這回合 diff</b> 會顯示 agent
             在這一回合確切改了什麼。
           </p>
-          <h3>平行模式：挑一份結果</h3>
+          <h3 id="parallel-results">平行模式：挑一份結果</h3>
           <p>
             平行模式中，每個 agent 都在自己的副本（git worktree）裡工作，不會互相覆蓋，你的工作目錄也不會被動到。卡片上會標示<b>在 worktree</b>，該 agent 最新的卡片還有：
           </p>
@@ -399,7 +408,7 @@
             對話有<a href="../teams/#checks">團隊檢查</a>時，Harness Relay 會在套用結果後的工作目錄副本中檢查。檢查未通過時，可以修正後重試，或選<b>仍要套用</b>。
             如果結果修改了指令會讀取的設定，檢視後可選<b>確認後執行指令，通過就套用</b>。
           </p>
-          <h3>你的資料夾怎麼保持安全</h3>
+          <h3 id="folder-protection">你的資料夾怎麼保持安全</h3>
           <ul>
             <li>
               在可編輯與完全存取模式下，還不是 git repository 的工作目錄會先變成一個（<code>git init</code>），每項修改才記錄得下來。Harness Relay 從不 commit 到你的分支。

@@ -153,6 +153,7 @@ for (const name of ['New chat', 'New automation']) {
     await page.getByRole('button', { name, exact: true }).first().click();
     const attach = page.getByRole('button', { name: en.composer.attach });
     const mic = page.getByRole('button', { name: en.voice.start, exact: true });
+    const apps = page.locator('.first-input-tools').getByRole('button', { name: en.apps.title });
     const stop = page.getByRole('button', { name: en.voice.stop, exact: true });
     const cancel = page.getByRole('button', { name: en.voice.cancel });
     for (const width of [1280, 390]) {
@@ -160,6 +161,10 @@ for (const name of ['New chat', 'New automation']) {
       await expect(mic).toBeInViewport();
       const attachBox = await attach.boundingBox();
       const micBox = (await mic.boundingBox())!;
+      const appsBox = (await apps.boundingBox())!;
+      await expect(apps).toBeInViewport();
+      expect(appsBox.x).toBeGreaterThanOrEqual(attachBox!.x + attachBox!.width);
+      expect(appsBox.x + appsBox.width).toBeLessThanOrEqual(micBox.x);
       const picker = page.waitForEvent('filechooser');
       await attach.click();
       const files = ['weekly-report.txt', 'release-notes.txt', 'meeting-agenda.txt', 'review-checklist.txt'];

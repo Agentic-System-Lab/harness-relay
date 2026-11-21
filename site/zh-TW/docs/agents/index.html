@@ -237,9 +237,35 @@
           <li><a href="#settings">設定與登入</a></li>
           <li><a href="#sign-in">登入 agent</a></li>
           <li><a href="#api-keys">或使用 API key</a></li>
-          <li><a href="#open-agents">開源 agent 與模型來源</a></li>
-          <li><a href="#accounts">帳號與方案用量</a></li>
-          <li><a href="#models">預設模型與首席 agent</a></li>
+          <li>
+            <details>
+              <summary>開源 agent 與模型來源</summary>
+              <ol>
+                <li><a href="#open-agents" aria-label="開源 agent 與模型來源概覽">概覽</a></li>
+                <li><a href="#agents-on-your-server">其他 agent 也能用你自己的伺服器</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>帳號與方案用量</summary>
+              <ol>
+                <li><a href="#accounts" aria-label="帳號與方案用量概覽">概覽</a></li>
+                <li><a href="#multiple-accounts">多個帳號</a></li>
+                <li><a href="#plan-usage">方案用量</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>預設模型與首席 agent</summary>
+              <ol>
+                <li><a href="#models" aria-label="預設模型與首席 agent概覽">概覽</a></li>
+                <li><a href="#default-model">預設模型與推理強度</a></li>
+                <li><a href="#lead-agent">選擇首席 agent</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -374,7 +400,7 @@
             開源 agent 的成員，模型寫成「模型來源/模型」：<code>openai/…</code>、<code>anthropic/…</code>、<code>xai/…</code>，或你的端點 id 加上模型，例如
             <code>homelab/muse-glimmer-30b-nvfp4</code>。agent 裝好、且至少設定一個模型來源後，它在設定頁的卡片會顯示<b>可使用</b>。
           </p>
-          <h3>其他 agent 也能用你自己的伺服器</h3>
+          <h3 id="agents-on-your-server">其他 agent 也能用你自己的伺服器</h3>
           <p>
             Claude Code、Codex、Grok 與 Copilot 也能在你的自訂端點上執行：它們的模型選單會在自己的模型後面列出端點的模型。給成員選其中一個，那個 agent 就在你的伺服器上工作，而不是用它供應商的服務。你的伺服器要提供那個
             agent 用的 API；vLLM、Ollama、LM Studio 與 llama.cpp 都提供。這時 Claude Code、Codex 與 Copilot 不需要登入；Grok 仍需要它自己的登入。Cursor、Antigravity 與 Muse Code
@@ -384,13 +410,13 @@
 
         <section id="accounts" aria-labelledby="accounts-title">
           <h2 id="accounts-title">帳號與方案用量</h2>
-          <h3>多個帳號</h3>
+          <h3 id="multiple-accounts">多個帳號</h3>
           <p>
             每個 agent 都能同時登入好幾個帳號，例如公司和個人的 Claude 訂閱：打開 agent 帳號下方的<b>新增帳號</b>，取個名稱，按<b>新增帳號</b>。每個帳號各自登入，也有自己的 API key
             與預設模型。在團隊裡，用成員卡片上的<b>帳號</b>選擇它用哪個帳號；沒有選的成員使用預設帳號。按<b>移除</b>會登出並刪除多出來的帳號。
           </p>
           <p>Cursor、Antigravity 與 Muse Code 在整個電腦使用者只存一個登入，所以它們多出來的帳號改用 API key（Cursor API key、Gemini API key、Meta API key）。</p>
-          <h3>方案用量</h3>
+          <h3 id="plan-usage">方案用量</h3>
           <p>
             帳號登入後，它的框會顯示<b>方案用量</b>：agent 回報的方案還剩多少，每個額度一條長條，以及何時重置（例如 Claude Code 的 5 小時與每週額度，或 Copilot 這個月的 premium 請求）。Harness
             Relay 查詢時不會送出 prompt，所以查看不會用掉額度。按<b>重新查詢</b>會再問一次。用 API key 的帳號（Claude Code、Codex、Grok、Antigravity、Muse
@@ -401,11 +427,11 @@
 
         <section id="models" aria-labelledby="models-title">
           <h2 id="models-title">預設模型與首席 agent</h2>
-          <h3>預設模型與推理強度</h3>
+          <h3 id="default-model">預設模型與推理強度</h3>
           <p>
             每個帳號框都有<b>預設模型與推理強度</b>：成員的模型維持<i>預設</i>時用的模型。維持 <b>CLI 預設</b>時，agent 用它自己的設定，和在終端機一樣。在團隊裡，你隨時可以給單一成員指定別的模型。
           </p>
-          <h3>選擇首席 agent</h3>
+          <h3 id="lead-agent">選擇首席 agent</h3>
           <p>
             設定頁的<b>首席 agent</b> 決定由哪個 agent（以及選填的模型與推理強度）為每個問題設計團隊、審閱團隊的回覆，並把新對話歸進你的群組。請選一個已登入的 agent，或已有模型來源的開源
             agent。通常小而快的模型就夠用。

@@ -234,30 +234,103 @@
       <nav class="doc-toc" aria-label="本頁內容">
         <p class="doc-toc-title">本頁內容</p>
         <ol>
-          <li><a href="#common-apps">常用 App</a></li>
-          <li><a href="#oauth-settings">帳號登入設定（OAuth 2.0）</a></li>
-          <li><a href="#google-oauth-setup">設定 Google OAuth 2.0</a></li>
-          <li><a href="#microsoft-oauth-setup">設定 Microsoft OAuth 2.0</a></li>
-          <li><a href="#accounts">郵件與行事曆帳號</a></li>
-          <li><a href="#mail">郵件</a></li>
-          <li><a href="#calendar">行事曆</a></li>
-          <li><a href="#microsoft-teams">Microsoft Teams</a></li>
-          <li><a href="#slack">Slack</a></li>
-          <li><a href="#google-drive">Google Drive 與 Google 文件</a></li>
-          <li><a href="#notion">Notion</a></li>
-          <li><a href="#heptabase">Heptabase</a></li>
-          <li><a href="#obsidian">Obsidian</a></li>
-          <li><a href="#github">GitHub</a></li>
-          <li><a href="#browser-mail-calendar">瀏覽器</a></li>
-          <li><a href="#library">工具庫</a></li>
-          <li><a href="#mcp-servers">MCP 伺服器</a></li>
-          <li><a href="#skills">Skills</a></li>
-          <li><a href="#memory">記憶</a></li>
-          <li><a href="#hooks">Hooks</a></li>
-          <li><a href="#default-team-checks">團隊檢查預設</a></li>
-          <li><a href="#outbox">檢閱待送出項目</a></li>
-          <li><a href="#per-member">給單一成員的工具</a></li>
-          <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
+          <li>
+            <details>
+              <summary>常用 App</summary>
+              <ol>
+                <li><a href="#common-apps" aria-label="常用 App概覽">概覽</a></li>
+                <li>
+                  <details>
+                    <summary>帳號登入設定（OAuth 2.0）</summary>
+                    <ol>
+                      <li><a href="#oauth-settings" aria-label="帳號登入設定（OAuth 2.0）概覽">概覽</a></li>
+                      <li><a href="#oauth-accounts">解除單一 Google 或 Microsoft 帳號的連結</a></li>
+                      <li><a href="#google-oauth-setup">設定 Google OAuth 2.0</a></li>
+                      <li><a href="#microsoft-oauth-setup">設定 Microsoft OAuth 2.0</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>郵件與行事曆</summary>
+                    <ol>
+                      <li><a href="#accounts" aria-label="郵件與行事曆帳號概覽">概覽</a></li>
+                      <li><a href="#mail">郵件</a></li>
+                      <li><a href="#calendar">行事曆</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>團隊通訊</summary>
+                    <ol>
+                      <li><a href="#microsoft-teams">Microsoft Teams</a></li>
+                      <li><a href="#slack">Slack</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>文件與筆記</summary>
+                    <ol>
+                      <li><a href="#google-drive">Google Drive 與 Google 文件</a></li>
+                      <li><a href="#notion">Notion</a></li>
+                      <li><a href="#heptabase">Heptabase</a></li>
+                      <li><a href="#obsidian">Obsidian</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>開發與瀏覽</summary>
+                    <ol>
+                      <li><a href="#github">GitHub</a></li>
+                      <li><a href="#browser-mail-calendar">瀏覽器</a></li>
+                    </ol>
+                  </details>
+                </li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>工具庫</summary>
+              <ol>
+                <li><a href="#library" aria-label="工具庫概覽">概覽</a></li>
+                <li>
+                  <details>
+                    <summary>MCP 伺服器</summary>
+                    <ol>
+                      <li><a href="#mcp-servers" aria-label="MCP 伺服器概覽">概覽</a></li>
+                      <li><a href="#mcp-server-sign-in">需要登入的伺服器</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li><a href="#skills">Skills</a></li>
+                <li><a href="#memory">記憶</a></li>
+                <li><a href="#hooks">Hooks</a></li>
+                <li><a href="#default-team-checks">團隊檢查預設</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>延伸主題</summary>
+              <ol>
+                <li><a href="#outbox">檢閱待送出項目</a></li>
+                <li>
+                  <details>
+                    <summary>給單一成員的工具</summary>
+                    <ol>
+                      <li><a href="#per-member" aria-label="給單一成員的工具概覽">概覽</a></li>
+                      <li><a href="#default-tool-access">預設提供給</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -428,10 +501,11 @@
             <a href="../../../assets/media/docs/tools-drive-add-account-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-add-account-zh-TW.webp" width="842" height="452" alt="Drive 帳號設定可選搜尋與讀取、讀取與編輯或僅新增及編輯，下方有一個「用 Google 登入」按鈕。" loading="lazy" /></a>
             <figcaption>選擇這個 Google 帳號的用途，再登入一次即可授予所選權限。</figcaption>
           </figure>
-          <p>連結完成後，按<b>管理</b>。每個帳號各有一列，列出電子郵件地址，以及目前能否讀取 Drive 檔案或編輯 Google 文件。唯讀帳號可按<b>開啟文件新增與編輯</b>，只有編輯權限的帳號可按<b>開啟檔案搜尋與讀取</b>。需要更新授權時才會顯示<b>重新登入</b>。要再連結另一個 Google 帳號，請展開清單下方的<b>新增帳號</b>，從相同的三種用途中擇一，再按<b>用 Google 登入</b>。要從 Relay 解除 Google 帳號的連結，請到<a href="#oauth-accounts">帳號登入設定（OAuth 2.0）</a>找到該帳號。</p>
+          <p>在 Drive 列按<b>管理</b>。每張帳號卡都會顯示電子郵件地址與目前權限。唯讀帳號可按<b>開啟文件新增與編輯</b>，由 Google 再次請你授權。每次新增或編輯前，你都會在 Relay 預覽並確認。只有編輯權限的帳號可按<b>開啟檔案搜尋與讀取</b>。需要更新授權時，請按<b>重新登入</b>。要連結不同帳號，請按卡片下方的<b>新增另一個 Google 帳號</b>，選擇用途再登入。</p>
+          <p>在帳號卡按<b>移除 Google Drive</b>並確認，即可從 Relay 移除該帳號的 Drive 檔案存取與 Google 文件編輯權限。Gmail、行事曆及其他 Google 帳號仍可照常使用，之後也能重新連結。若要解除整個帳號的連結，請到<a href="#oauth-accounts">帳號登入設定（OAuth 2.0）</a>的 Google 區塊找到該電子郵件地址。</p>
           <figure class="doc-figure">
-            <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-editing-zh-TW.webp" width="842" height="287" alt="Drive 管理畫面列出一個唯讀帳號，以及授權新增與編輯文件的按鈕和「新增帳號」。" loading="lazy" /></a>
-            <figcaption>這個帳號已有搜尋與讀取權限。可在該列另外授權新增及編輯 Google 文件。</figcaption>
+            <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-editing-zh-TW.webp" width="842" height="328" alt="Drive 帳號卡顯示電子郵件、唯讀權限、開啟文件新增與編輯及移除 Google Drive 的按鈕。卡片下方可新增另一個 Google 帳號。" loading="lazy" /></a>
+            <figcaption>在該帳號卡上開啟文件編輯或移除 Drive。要連結另一個帳號，請使用卡片下方的按鈕。</figcaption>
           </figure>
           <p>在<b>選擇助理以啟用工具</b>勾選可使用這些帳號的助理。當助理提議修改文件時，請在待送出匣核對 Google 帳號及文字，再按<b>建立文件</b>或<b>儲存變更</b>。<a href="#google-docs-preview">檢閱文件提案</a></p>
           <p id="google-docs-preview">若是 Google 文件，請先核對 Google 帳號與標題。新文件會顯示完整的提議內文。編輯時會列出既有文件、目標分頁，以及要在一個內文段落中替換的原文與新文字。替換的內容是純文字，會沿用周圍的格式。若要在同一段文字內套用不同格式，請直接在 Google 文件編輯。按<b>建立文件</b>或<b>儲存變更</b>核准，或按<b>捨棄</b>取消。若文件在預覽後已變更，請助理重新提議。</p>
@@ -458,11 +532,13 @@
 
         <section id="github" aria-labelledby="github-title">
           <h2 id="github-title">GitHub</h2>
+          <p>若 Relay 找不到 GitHub CLI，按<b>安裝 GitHub CLI</b>。Relay 會驗證官方下載檔，安裝到自己的資料夾，再顯示 GitHub 登入按鈕。</p>
           <p><b>GitHub</b> 使用執行 Relay 那台電腦的 GitHub CLI 帳號。在<b>開發與瀏覽</b>展開 GitHub 即可登入。要登出時，請按<b>登出 GitHub</b>並確認畫面上的帳號。分享對話與 GitHub 自動任務也使用這套 CLI，其他帳號可能仍保持登入。如果畫面顯示提供權杖的環境變數名稱，請從啟動 Relay 的環境移除該變數，再重新啟動 Relay。</p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">瀏覽器</h2>
+          <p>若找不到支援的瀏覽器，請在這一列按<b>安裝瀏覽器</b>。macOS 和 Windows 使用 Google Chrome，Linux 使用系統套件管理員安裝 Chromium。若系統需要管理員授權，請在執行 Relay 的電腦上核准。完成後 Relay 會自動檢查。也可以在欄位指定已安裝的瀏覽器。</p>
           <p id="browser"><b>瀏覽器</b>：每個對話一個 Harness Relay 自己的瀏覽器，沒有登入任何東西，刪除對話時一起刪除。agent
               可以打開網頁、閱讀、點擊與輸入，也能截圖，截圖會顯示在回覆裡。它絕不是你自己的瀏覽器，也不用你的登入；下載與上傳檔案一律不行。</p>
           <p>在完全存取以下，瀏覽器要打開這個對話還沒開過的網站之前，也會先問你，就像這個畫面：</p>
@@ -482,6 +558,7 @@
 
         <section id="library" aria-labelledby="library-title">
           <h2 id="library-title">工具庫</h2>
+          <p>按分頁上方的<b>前往助理設定</b>，選擇助理即可調整<a href="#own-setup">它自行載入的工具</a>。</p>
           <p>
             <b>工具庫</b>分頁有五列，預設都是收合的。展開 <b>MCP 伺服器</b>、<b>Skills</b> 或<b>記憶</b>，可在 agent 自己的設定之外加入項目。<b>Hooks</b> 與<b>團隊檢查預設</b>可設定新對話和自動任務一開始帶著的規則。變更從 agent 的下一回合開始生效。
           </p>
@@ -491,7 +568,7 @@
         <section id="mcp-servers" aria-labelledby="mcp-servers-title">
           <h2 id="mcp-servers-title">MCP 伺服器</h2>
           <p>按<b>新增 MCP 伺服器</b>，取一個名稱，再選<b>本機指令（stdio）</b>或<b>網址（HTTP）</b>。它的環境變數與標頭的值通常是 token，會存進你的金鑰儲存區，畫面上只顯示遮蔽後的值。它的工具呼叫和其他動作一樣，受對話權限限制。</p>
-          <h3>需要登入的伺服器</h3>
+          <h3 id="mcp-server-sign-in">需要登入的伺服器</h3>
           <p>網路上有些伺服器要你登入，而不是收 token（Linear、Notion、Atlassian 等）：在那台伺服器的那一列按<b>登入</b>，再在打開的頁面上允許。登入頁面不在伺服器自己的登入服務所在的網站時，那一列會先告訴你會在哪裡登入：只有在你預期是那個頁面時才繼續。</p>
         </section>
 
@@ -531,7 +608,7 @@
 
         <section id="per-member" aria-labelledby="per-member-title">
           <h2 id="per-member-title">給單一成員的工具</h2>
-          <h3>預設提供給</h3>
+          <h3 id="default-tool-access">預設提供給</h3>
           <p>在 MCP 伺服器的編輯表單或已加入的 skill 那一列展開這個選項。你可以選全部 agent（預設）、其中幾種，或全部取消勾選，這時只有在團隊設定裡勾選的成員會拿到該項目。</p>
           <p>
             在範本裡，或對話上方的<b>團隊設定</b>裡，每位成員的卡片會用標籤列出它從工具庫拿到的<b>工具</b>。按<b>調整</b>打開清單勾選：一開始照工具庫給那位成員所用 agent 的預設；只要你把

@@ -237,30 +237,103 @@
       <nav class="doc-toc" aria-label="On this page">
         <p class="doc-toc-title">On this page</p>
         <ol>
-          <li><a href="#common-apps">Common apps</a></li>
-          <li><a href="#oauth-settings">Account sign-in settings (OAuth 2.0)</a></li>
-          <li><a href="#google-oauth-setup">Set up Google OAuth 2.0</a></li>
-          <li><a href="#microsoft-oauth-setup">Set up Microsoft OAuth 2.0</a></li>
-          <li><a href="#accounts">Mail and calendar accounts</a></li>
-          <li><a href="#mail">Mail</a></li>
-          <li><a href="#calendar">Calendar</a></li>
-          <li><a href="#microsoft-teams">Microsoft Teams</a></li>
-          <li><a href="#slack">Slack</a></li>
-          <li><a href="#google-drive">Google Drive and Google Docs</a></li>
-          <li><a href="#notion">Notion</a></li>
-          <li><a href="#heptabase">Heptabase</a></li>
-          <li><a href="#obsidian">Obsidian</a></li>
-          <li><a href="#github">GitHub</a></li>
-          <li><a href="#browser-mail-calendar">Browser</a></li>
-          <li><a href="#library">Tool library</a></li>
-          <li><a href="#mcp-servers">MCP servers</a></li>
-          <li><a href="#skills">Skills</a></li>
-          <li><a href="#memory">Memory</a></li>
-          <li><a href="#hooks">Hooks</a></li>
-          <li><a href="#default-team-checks">Default team checks</a></li>
-          <li><a href="#outbox">Review the outbox</a></li>
-          <li><a href="#per-member">Tools for one member</a></li>
-          <li><a href="#own-setup">What each agent loads by itself</a></li>
+          <li>
+            <details>
+              <summary>Common apps</summary>
+              <ol>
+                <li><a href="#common-apps" aria-label="Common apps overview">Overview</a></li>
+                <li>
+                  <details>
+                    <summary>Account sign-in settings (OAuth 2.0)</summary>
+                    <ol>
+                      <li><a href="#oauth-settings" aria-label="Account sign-in settings (OAuth 2.0) overview">Overview</a></li>
+                      <li><a href="#oauth-accounts">Disconnect a Google or Microsoft account</a></li>
+                      <li><a href="#google-oauth-setup">Set up Google OAuth 2.0</a></li>
+                      <li><a href="#microsoft-oauth-setup">Set up Microsoft OAuth 2.0</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>Mail and calendar</summary>
+                    <ol>
+                      <li><a href="#accounts" aria-label="Mail and calendar accounts overview">Overview</a></li>
+                      <li><a href="#mail">Mail</a></li>
+                      <li><a href="#calendar">Calendar</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>Team messaging</summary>
+                    <ol>
+                      <li><a href="#microsoft-teams">Microsoft Teams</a></li>
+                      <li><a href="#slack">Slack</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>Documents and notes</summary>
+                    <ol>
+                      <li><a href="#google-drive">Google Drive and Google Docs</a></li>
+                      <li><a href="#notion">Notion</a></li>
+                      <li><a href="#heptabase">Heptabase</a></li>
+                      <li><a href="#obsidian">Obsidian</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary>Development and browsing</summary>
+                    <ol>
+                      <li><a href="#github">GitHub</a></li>
+                      <li><a href="#browser-mail-calendar">Browser</a></li>
+                    </ol>
+                  </details>
+                </li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Tool library</summary>
+              <ol>
+                <li><a href="#library" aria-label="Tool library overview">Overview</a></li>
+                <li>
+                  <details>
+                    <summary>MCP servers</summary>
+                    <ol>
+                      <li><a href="#mcp-servers" aria-label="MCP servers overview">Overview</a></li>
+                      <li><a href="#mcp-server-sign-in">Servers that sign in</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li><a href="#skills">Skills</a></li>
+                <li><a href="#memory">Memory</a></li>
+                <li><a href="#hooks">Hooks</a></li>
+                <li><a href="#default-team-checks">Default team checks</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Related topics</summary>
+              <ol>
+                <li><a href="#outbox">Review the outbox</a></li>
+                <li>
+                  <details>
+                    <summary>Tools for one member</summary>
+                    <ol>
+                      <li><a href="#per-member" aria-label="Tools for one member overview">Overview</a></li>
+                      <li><a href="#default-tool-access">Given by default to</a></li>
+                    </ol>
+                  </details>
+                </li>
+                <li><a href="#own-setup">What each agent loads by itself</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -436,10 +509,11 @@
             <a href="../../assets/media/docs/tools-drive-add-account-en.webp"><img src="../../assets/media/docs/tools-drive-add-account-en.webp" width="842" height="452" alt="Drive account setup with a choice of search and read, read and edit, or create and edit only, followed by one Sign in with Google button." loading="lazy" /></a>
             <figcaption>Choose what this Google account can do, then sign in once to grant the selected permissions.</figcaption>
           </figure>
-          <p>Once connected, select <b>Manage</b>. Each account shows its email and its permissions for reading Drive files and editing Google Docs. On a read-only account’s row, enable document creation and editing. On an editing-only account, select <b>Enable file search and reading</b>. <b>Sign in again</b> appears when an account’s authorization needs renewal. To connect another Google account, expand <b>Add account</b> below the list, choose from the same three options and select <b>Sign in with Google</b>. To disconnect a Google account from Relay, use its entry in <a href="#oauth-accounts">Account sign-in settings (OAuth 2.0)</a>.</p>
+          <p>Open <b>Manage</b> in the Drive row. Each account card shows its email and current access. Select <b>Allow creating and editing documents</b> on a read-only account to grant editing through Google. Relay shows you a preview and asks for confirmation before each change. An editing-only account can add <b>Enable file search and reading</b>. Use <b>Sign in again</b> when a grant needs renewal. To connect a different account, select <b>Add another Google account</b> below the cards, choose its permissions and sign in.</p>
+          <p>Select <b>Remove Google Drive</b> on the account card and confirm to remove its Drive file access and Google Docs editing from Relay. Gmail, Calendar and other Google accounts keep their access. You can reconnect the account later. To disconnect the entire account, find its email under Google in <a href="#oauth-accounts">Account sign-in settings (OAuth 2.0)</a>.</p>
           <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-drive-editing-en.webp"><img src="../../assets/media/docs/tools-drive-editing-en.webp" width="842" height="287" alt="Drive management shows one read-only account, the option to allow document editing and the Add account button." loading="lazy" /></a>
-            <figcaption>The account can search and read files. Use its row to grant permission to create and edit Google Docs.</figcaption>
+            <a href="../../assets/media/docs/tools-drive-editing-en.webp"><img src="../../assets/media/docs/tools-drive-editing-en.webp" width="842" height="327" alt="A Drive account card shows its email, read-only access and buttons to enable editing or remove Google Drive. Add another Google account is below the card." loading="lazy" /></a>
+            <figcaption>Use the account card to request editing access or remove Drive. Add another account below the card.</figcaption>
           </figure>
           <p>Under <b>Choose assistants to enable this tool</b>, select the assistants that may use your connected accounts. When an assistant proposes a document change, check the account and the text in the outbox before choosing <b>Create document</b> or <b>Save changes</b>. <a href="#google-docs-preview">Review a proposed document</a></p>
           <p id="google-docs-preview">For a Google Doc, check the Google account and title. A new document shows its full proposed text. An edit shows the document, target tab and exact text to replace in one body paragraph. The replacement is plain text and inherits the surrounding style. To apply different formatting within it, edit in Google Docs. Choose <b>Create document</b> or <b>Save changes</b> to approve it, or <b>Discard</b>. If the document changed after the preview, ask for a fresh proposal.</p>
@@ -466,11 +540,13 @@
 
         <section id="github" aria-labelledby="github-title">
           <h2 id="github-title">GitHub</h2>
+          <p>If Relay cannot find the GitHub CLI, select <b>Install GitHub CLI</b>. Relay verifies the official download, installs it in its data folder and then offers GitHub sign-in.</p>
           <p><b>GitHub</b> uses the GitHub CLI account on the computer running Relay. Under <b>Development and browsing</b>, open the GitHub row to sign in. To sign out, select <b>Sign out of GitHub</b> and confirm the account shown. Chat sharing and GitHub automations share this CLI. Other accounts may remain signed in. If the row names a token environment variable, remove it from the environment that starts Relay, then restart Relay.</p>
         </section>
 
         <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
           <h2 id="browser-mail-calendar-title">Browser</h2>
+          <p>If Relay cannot find a supported browser, select <b>Install a browser</b> in this row. Relay installs Google Chrome on macOS and Windows, or Chromium through the system package manager on Linux. Approve any system prompt on the computer running Relay. The row checks again after installation. You can also enter the path to an existing browser.</p>
           <p id="browser"><b>Browser</b>: a browser of Harness Relay's own for each chat, with nothing signed in, deleted with the chat.
               Agents open pages, read them, click and type, and take screenshots that show in their reply. It is never your
               own browser or its sign-ins, and it downloads and uploads nothing.</p>
@@ -495,6 +571,7 @@
 
         <section id="library" aria-labelledby="library-title">
           <h2 id="library-title">Tool library</h2>
+          <p>At the top of the tab, choose <b>Open agent settings</b> to select an assistant and manage <a href="#own-setup">the tools it loads itself</a>.</p>
           <p>
             The <b>Tool library</b> tab opens with five collapsed rows. Use <b>MCP servers</b>, <b>Skills</b> or <b>Memory</b> to add something to the agents’ own setup. Use <b>Hooks</b> and <b>Default team checks</b> for rules that new chats and automations start with. Changes reach an agent at its next turn.
           </p>
@@ -506,7 +583,7 @@
           <p>Choose <b>Add MCP server</b>, give it a name, then select either a <b>Local command (stdio)</b> or a <b>URL (HTTP)</b>. The
               values of its environment variables and headers, usually tokens, go to your credential store and are shown
               masked. Its tool calls follow the chat's permission like any other action.</p>
-          <h3>Servers that sign in</h3>
+          <h3 id="mcp-server-sign-in">Servers that sign in</h3>
           <p>Some servers on the web ask you to sign in instead of taking a token (Linear, Notion, Atlassian and others):
               click <b>Sign in</b> on the server's row, and allow it on the page that opens. When the sign-in page is on another
               site than the server's own sign-in service, the row first says where you will sign in: continue only if you
@@ -558,7 +635,7 @@
 
         <section id="per-member" aria-labelledby="per-member-title">
           <h2 id="per-member-title">Tools for one member</h2>
-          <h3>Given by default to</h3>
+          <h3 id="default-tool-access">Given by default to</h3>
           <p>Open this setting in the MCP server editor or on a skill’s row. Choose all agents (the default), specific agents, or none. With none selected, only members you tick in the team settings receive it.</p>
           <p>
             In a template, or in <b>Team settings</b> in a chat's header, each member's card shows

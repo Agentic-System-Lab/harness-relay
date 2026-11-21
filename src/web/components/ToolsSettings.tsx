@@ -24,6 +24,7 @@ import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId, settingsHref } from '../route';
 import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
+import { AppDependencyInstall } from './AppDependencyInstall';
 import { CommonApps } from './CommonApps';
 import { AccountSignInProvider } from './OAuthAccounts';
 import { ConnectorsSettings } from './ConnectorsSettings';
@@ -177,7 +178,9 @@ export function ToolsCard({
         )}
       </div>
       <div role="tabpanel" id="settings-tools" aria-labelledby="tab-tools" className="apps-tools-panel" hidden={tab !== 'tools'}>
-        <p className="muted small">{t.tools.hint}</p>
+        <p className="muted small">
+          {t.tools.hint} <a href={settingsHref('agents')}>{t.tools.agentSettings}</a>
+        </p>
         {error && <p className="error-line">{error}</p>}
         {!lib ? (
           !error && <p className="muted small">{t.common.loading}</p>
@@ -298,6 +301,7 @@ function BrowserPath({ lib, change }: { lib: ToolLibraryView; change: Change }) 
   const saved = lib.browser.path ?? '';
   const [path, setPath] = useState(saved);
   const [busy, setBusy] = useState(false);
+  const [installed, setInstalled] = useState(false);
   useEffect(() => setPath(saved), [saved]);
   const save = async () => {
     setBusy(true);
@@ -306,7 +310,7 @@ function BrowserPath({ lib, change }: { lib: ToolLibraryView; change: Change }) 
   };
   const dirty = path.trim() !== saved;
   return (
-    <details className="sub browser-path" open={Boolean(saved) || !lib.browser.using}>
+    <details className="sub browser-path" open={Boolean(saved) || !lib.browser.using || installed}>
       <summary>
         {t.tools.relay.browserPath}
         {saved && ` (${saved})`}
@@ -326,9 +330,18 @@ function BrowserPath({ lib, change }: { lib: ToolLibraryView; change: Change }) 
             {t.common.save}
           </button>
         </div>
-        <p className={`small ${lib.browser.using ? 'muted' : 'warn-text'}`}>
+        <p role={installed ? 'status' : undefined} className={`small ${lib.browser.using ? 'muted' : 'warn-text'}`}>
           {lib.browser.using ? t.tools.relay.browserUsing(lib.browser.using) : t.tools.relay.browserNone}
         </p>
+        {!lib.browser.using && (
+          <AppDependencyInstall
+            name="browser"
+            onReady={async () => {
+              setInstalled(true);
+              await change(api.tools);
+            }}
+          />
+        )}
       </div>
     </details>
   );

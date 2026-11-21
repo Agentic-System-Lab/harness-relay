@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 42 個 spec 檔、555 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 43 個 spec 檔、562 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -35,6 +35,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
+| [文件目錄](#文件目錄) | [`docs-navigation.spec.ts`](specs/docs-navigation.spec.ts) | 4 | [工具文件](../site/zh-TW/docs/tools/index.html) |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 10 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
@@ -52,7 +53,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 11 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
+| [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
@@ -61,7 +62,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 19 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 21 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -79,6 +80,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 16 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
+
+## 文件目錄
+
+以本機網站檔案驗證繁中工具頁的深層連結、手機鍵盤展開與返回、英文手機指南捲動時的小節標示，以及停用 JavaScript 後仍能展開目錄並開啟 Google 設定步驟。捲動時，原先自動展開的分支會收起，手機上的閱讀位置會保持穩定。手動展開的分支和仍有鍵盤焦點的分支會保持開啟。
 
 ## 登入
 
@@ -107,7 +112,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | 檢查的內容 |
 | --- | --- |
 | 新對話與新自動任務的固定操作區（兩個案例） | 長說明在文字框內捲動。內容少時外框隨內容縮短，送出按鈕固定在框內底部。有無捲動箭頭時，按鈕列的上下留白都相等。組隊選項與首席審閱隨表單捲動，點箭頭會往下捲。最後一個欄位完全可見時箭頭隱藏，包含下方只剩留白的情況，偏好減少動態效果時箭頭靜止。 |
-| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。前往首席 agent 設定再返回後，問題、附件、標題、資料夾、權限與組隊確認方式都保留。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
+| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。在手機版可從迴紋針用 Tab 移到常用 App，按 Enter 展開選擇器。勾選與取消勾選會更新隨提問送出的 App 名單，從管理連線返回後，問題、附件與 App 選項仍在，也尚未建立對話或變更任何助理權限。前往首席 agent 設定也會保留標題、資料夾、權限與組隊確認方式。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
 | 新對話與新自動任務的建立請求較慢時（各測一次） | 從設定返回後，失敗訊息、草稿與表單上的審閱選擇都保留。重試成功時仍停留在設定，在手機寬度也能從該頁直接開啟剛建立的對話或自動任務、取得一次性 webhook 權杖。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
@@ -344,8 +349,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在完全存取對話中於所選的 Obsidian 筆記庫建立或編輯筆記 | Claude Code | 兩個筆記庫有同名筆記時，預覽會顯示所選筆記庫的完整路徑，只有所選的筆記會變更。若在確認前解除該筆記庫的連結，就無法儲存待確認的修改。每項提案都會在聊天中等候確認。**捨棄**會取消提案，**建立筆記**與**儲存變更**會將預覽的 Markdown 寫入筆記庫。預覽後在磁碟上變動過的筆記會保留較新的內容。 |
 | 編輯舊的 Gmail 密碼信箱 | — | 改用 OAuth 登入前已儲存的信箱仍能編輯，不需重新輸入已儲存的密碼。 |
 | 暫停與恢復 Google 存取 | Claude Code | Drive 已連結時，停用 Google 前會列出受影響服務並要求確認。取消後連線仍有效。確認並重新整理後，Google 維持停用、Outlook 仍可使用，再啟用 Google 會沿用原用戶端與帳號授權。 |
-| 連結 Google Drive 並開啟文件編輯 | Claude Code | 先以 OAuth 授予唯讀權限。「管理」在該帳號那一列顯示權限與「開啟文件新增與編輯」，下方的「新增帳號」可展開。授權編輯後會更新同一帳號。在共用 OAuth 設定的 **Google** 區塊解除該電子郵件地址的連結後，兩項授權一併移除。 |
-| 分別連結與解除兩個 Google Drive 帳號 | — | 兩個 Google 帳號共用同一桌面用戶端。Drive 列顯示各自權限，在共用 OAuth 設定的 **Google** 區塊解除其中一個電子郵件地址的連結後，另一個帳號仍保留自己的授權。 |
+| 連結 Google Drive 並開啟文件編輯 | Claude Code | Drive 預設為唯讀。卡片說明如何授權該帳號編輯，以及每次變更前都會預覽並確認。「新增另一個 Google 帳號」獨立顯示。授權編輯後會更新原帳號。在共用 OAuth 設定解除整個帳號的連結後，兩項授權一併移除。 |
+| 從兩個已連結的帳號移除其中一個帳號的 Drive | Claude Code | 取消會保留存取權。確認後，該帳號的檔案存取與文件編輯會移除，Gmail、行事曆及另一個帳號的 Drive 仍可使用。重新連結只會恢復這次要求的權限。 |
+| 移除最後一個只有編輯權限的 Drive 帳號 | — | Drive 回到預設唯讀的設定畫面。OAuth 設定保留 Google 登入，並顯示未連結任何服務。在該處解除整個帳號的連結後，才會撤銷儲存的憑證。 |
 | 在完全存取對話中建立及編輯 Google 文件 | Claude Code | 使用本機 Google OAuth 與 Docs 替身，驗證另外授予的文件編輯權限。建立文件或替換唯一符合的原文前，都要核對帳號、目標與文字並確認。捨棄不會寫入，重新整理後仍可檢閱待建立的文件；即使標題含另一份文件的網址，儲存結果仍連到實際建立的文件。文件版本變更後則無法套用舊提案。 |
 | 在完全存取對話中傳送 Slack 訊息 | Claude Code | 工作區權杖啟用發文後，才會在**從 Relay 傳送訊息**中顯示助理選擇。開放 Claude Code 使用這項工具後，它的代管 Slack 連線仍可維持未設定。預覽顯示傳送者、目的地與純文字訊息。**捨棄**會取消提案，第二則草稿在重新整理後仍保留，按**送出**才會依預覽內容發送一次。 |
 | 桌面與手機上的常用 App 與設定表單 | — | 檢查 Google Drive、郵件與行事曆控制項的字型及間距、服務按鈕在桌面與手機寬度下是否貼合單行標籤、**其他（CalDAV）**表單中 iCloud 預設的密碼說明，以及 OpenHands 執行檔標籤在 1280、390 與 320 像素寬度下的位置。 |
@@ -476,7 +482,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工作目錄中出現檔案時啟動的自動任務：第一次檢查記下已經在的檔案，新的檔案以路徑送到團隊，從不送出內容 | Codex | **要等的事** → **工作目錄中的檔案出現或變動**（When something happens → A file appears or changes in the working directory），樣式 `reports/*.csv`；說明寫著只列出檔名、不列內容，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory**。**立即檢查** 記下 `reports/jan.csv`，什麼都不送；新的 `reports/feb.csv`（以及樣式不包含的 `notes.txt`），都在一分鐘前就寫完了，讓下一次 **立即檢查** 送出訊息一次，它的 **The files that appeared or changed** 區塊把 `reports/feb.csv` 列為新檔案，沒有 `jan.csv`、`notes.txt`，也沒有檔案裡的內容；agent 收到的是 `<event source="file">` |
 | 等兩件事的自動任務，任何一件發生都會啟動：每件各自檢查、各一行顯示，各送自己的訊息 | Codex | **當某件事發生時**選**工作目錄中的檔案出現或變動**（A file appears or changes in the working directory），樣式 `reports/*.csv`：只有一件時沒有**移除**（Remove）；**再等一件事**（Add another）加上**要等的第 2 件事**（Thing 2 to wait for），同樣是檔案樣式，樣式還是空的。在那裡填 `./reports/*.csv` 時表單說 **Two of the things to wait for are the same**，**儲存**變灰；改填 `invoices/*.pdf` 就能儲存，說明寫著每件各自檢查，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory, or when a file matching invoices/\*.pdf appears or changes in the working directory**。再打開時抽屜列出兩件，各在自己的群組裡、各有**移除**；**立即檢查**記下已經在的檔案，什麼都不送，狀態裡每件的檢查情況各一行。新的 `reports/feb.csv` 讓下一次**立即檢查**送出訊息一次，它的區塊寫著 `reports/*.csv` 並列出 `reports/feb.csv`；Codex 回覆之後，新的 `invoices/inv-7.pdf` 讓再下一次送出另一則訊息，只列出這張發票（沒有 `feb.csv`，也沒有舊的發票）；Codex 收到的是 `<event source="file">`。關掉之後（取消勾選**啟用**（On）並儲存），狀態寫著兩件事與 **paused**，沒有每件一行；**移除要等的第 1 件事**（Remove thing 1 to wait for）之後只剩 `invoices/*.pdf`，不在群組裡，也沒有**移除**，儲存後狀態只寫著它，仍然是 **paused**。 |
 | GitHub 上開了 pull request 時啟動的自動任務：透過 gh 檢查，第一次檢查記下已經在的，新開的以資料送到團隊 | Codex | **要等的事** → **GitHub 上有新的 pull request 或 CI 失敗**（A pull request or a failed CI run on GitHub）；填 `not a repo` 時表單說 **Give the GitHub repository as owner/name**（和伺服器一樣），`https://github.com/octo/app` 當作 `octo/app`；說明提到你自己的 GitHub CLI，側邊欄的時鐘寫著 **when a pull request is opened in octo/app**。**立即檢查** 執行假的 `gh`（`pr list --repo octo/app --state all …`），記下 #41，什麼都不送；標題含有 `</event>` 的 #42 讓下一次 **立即檢查** 送出訊息一次，它的 **What is new on GitHub** 區塊列出 #42 與它的分支，沒有 #41；Codex 收到的是 `<event source="github">`，標題的 `<` 寫成 `\u003c`。 |
-| 每週自動任務草稿 | Claude Code | 以合成音訊錄音並將轉寫結果插入任務欄位。只加附件時不能建立。經過首席設定仍保留訊息、附件、時間、目標、標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
+| 每週自動任務草稿 | Claude Code | 以合成音訊錄音並將轉寫結果插入任務欄位。只加附件時不能建立。用鍵盤開啟附件旁的常用 App，可複選多項。管理連線後返回，訊息、App 選項、附件、目標與每週排程仍保留。確認建立才會把選取的 App 名稱寫入任務。經過首席設定仍保留標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
 | 事件草稿 | Claude Code | 從連接帳號設定返回，保留事件草稿，改選檔案事件並儲存。 |
 | 建立 webhook | Claude Code | 從「Webhook 與執行設定」建立 webhook；權杖只顯示一次，外部程式可用它啟動任務。 |
 
@@ -484,8 +490,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 [`settings.spec.ts`](specs/settings.spec.ts)
 
+從工具庫點「前往助理設定」會展開助理選單。測試涵蓋鍵盤選擇 Codex、返回，以及重新開啟書籤後的焦點。
+
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 在 GitHub 和瀏覽器列安裝缺少的工具 | 缺少時顯示安裝按鈕，重新整理保留進度，失敗可重試。完成後顯示 GitHub 登入或瀏覽器路徑。 |
 | 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
 | 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
@@ -611,7 +620,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。 |
+| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。 另外檢查常用 App 入口位於附件與麥克風按鈕之間。 |
 | 離開新對話後才取得麥克風權限 | 開啟首席設定後才允許使用合成麥克風，音軌會立即關閉。 |
 | 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色；安裝狀態旁有 app 的載入標示，新對話、新自動任務和聊天輸入列的麥克風右上角都有 12px 的安裝標示。 |
 | 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |

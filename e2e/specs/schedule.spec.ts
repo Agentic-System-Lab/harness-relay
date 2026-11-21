@@ -267,6 +267,9 @@ test.describe('schedules', () => {
     await task.press('Tab');
     await expect(attach).toBeFocused();
     await attach.press('Tab');
+    const apps = page.locator('.first-input-tools').getByRole('button', { name: new RegExp(en.apps.title) });
+    await expect(apps).toBeFocused();
+    await apps.press('Tab');
     await expect(mic).toBeFocused();
     await mic.press('Tab');
     await expect(goal).toBeFocused();
@@ -286,6 +289,26 @@ test.describe('schedules', () => {
     await goal.fill('All changes reviewed');
     await when.selectOption('weekly');
     await page.getByLabel(en.schedule.time, { exact: true }).fill('11:15');
+    await apps.press('Enter');
+    const choices = page.getByRole('group', { name: en.apps.title, exact: true });
+    await choices.getByRole('checkbox', { name: 'Calendar', exact: true }).check();
+    await choices.getByRole('checkbox', { name: 'GitHub' }).check();
+    await expect(page.locator('.draft-app-selection')).toHaveText('Please use Calendar and GitHub for this task.');
+    await task.fill('A'.repeat(4_000));
+    await expect(create).toBeDisabled();
+    await expect(page.getByText(en.schedule.problems.tooLong(4_000), { exact: true })).toBeVisible();
+    await task.fill('Summarize merged pull requests');
+    await choices.getByRole('link', { name: en.apps.manageConnections }).click();
+    await expect(page.getByRole('tab', { name: en.apps.title })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('listitem', { name: 'Google Drive', exact: true }).locator('summary').first().click();
+    await page.getByRole('link', { name: en.newSchedule.returnToDraft }).press('Enter');
+    await expect(task).toHaveValue('Summarize merged pull requests');
+    await expect(goal).toHaveValue('All changes reviewed');
+    await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toBeVisible();
+    await expect(when).toHaveValue('weekly');
+    await expect(page.locator('.draft-app-selection')).toHaveText('Please use Calendar and GitHub for this task.');
+    await expect(page.getByLabel(en.schedule.time, { exact: true })).toHaveValue('11:15');
+    expect(await relay.api('/api/conversations')).toEqual([]);
     await extras.click();
     await page.getByRole('checkbox', { name: en.schedule.newChat }).check();
     await options.click();
@@ -304,7 +327,7 @@ test.describe('schedules', () => {
       title: 'Weekly review',
       settings: { autoConfirm: true },
       schedule: {
-        text: 'Summarize merged pull requests',
+        text: 'Summarize merged pull requests\n\nPlease use Calendar and GitHub for this task.',
         goal: 'All changes reviewed',
         attachments: [{ type: 'attachment', name: 'scope.txt', mimeType: 'text/plain', size: 4 }],
         repeat: { kind: 'weekly', time: '11:15' },
@@ -316,6 +339,7 @@ test.describe('schedules', () => {
     await expect(task).toHaveValue('');
     await expect(page.getByRole('button', { name: en.composer.removeFile('scope.txt') })).toHaveCount(0);
     await expect(when).toHaveValue('manual');
+    await expect(page.locator('.draft-app-selection')).toHaveCount(0);
     await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
   });
 

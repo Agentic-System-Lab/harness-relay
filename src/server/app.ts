@@ -12,6 +12,7 @@ import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from '
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
+import { commonAppDependencies, type AppDependencies } from './appDependencies';
 import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { APP_SERVERS, HOSTED_APPS } from '../shared/apps';
@@ -163,6 +164,7 @@ export interface AppDeps {
   /** What the agents' sandboxes need that is missing here, and installing it; created when not given. */
   sandboxSetup?: SandboxSetup;
   gitInstall?: GitInstall;
+  appDependencies?: AppDependencies;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -304,6 +306,7 @@ export function createApp({
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
   gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
+  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using)),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -801,6 +804,7 @@ export function createApp({
   );
   // Its mail account, for the mail tools: at its provider's own servers, signed in to with its token.
   app.post('/api/oauth/accounts/:id/mail', (c) => c.json(oauth.addMail(c.req.param('id'))));
+  app.delete('/api/oauth/accounts/:id/drive', (c) => c.json(oauth.removeDrive(c.req.param('id'))));
   // Removes the account, its tokens (Google's revoked), its calendars and mail accounts; Microsoft's pages to take the app's access away come back.
   app.delete('/api/oauth/accounts/:id', async (c) => {
     const removed = await oauth.removeAccount(c.req.param('id'));
@@ -1167,6 +1171,12 @@ export function createApp({
 
   // Stop the install under way.
   app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
+
+  for (const name of ['github', 'browser'] as const) {
+    const path = '/api/apps/' + name + '/install';
+    app.get(path, (c) => c.json(appDependencies.view(name)));
+    app.post(path, (c) => c.json(appDependencies.install(name)));
+  }
 
   app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
   app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));

@@ -2444,6 +2444,59 @@ details.sub .model-picker {
 .first-task .first-input-tools {
   align-items: center;
 }
+.draft-app-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text);
+}
+.draft-app-toggle:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .draft-app-toggle {
+    min-height: 44px;
+  }
+}
+.draft-app-choices {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.draft-app-choices[hidden] {
+  display: none;
+}
+.draft-app-choices > a {
+  justify-self: start;
+  font-size: 0.85rem;
+}
+.draft-app-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 145px), 1fr));
+  gap: 4px 8px;
+}
+.draft-app-list label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  cursor: pointer;
+}
+.draft-app-list input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.draft-app-selection {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
 .first-input-tools + .attach-tray {
   margin-top: 6px;
 }

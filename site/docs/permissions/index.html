@@ -243,7 +243,16 @@
           <li><a href="#approvals">Approval cards</a></li>
           <li><a href="#sandboxes">What the sandboxes do</a></li>
           <li><a href="#outbox">The outbox</a></li>
-          <li><a href="#changes">Review and apply changes</a></li>
+          <li>
+            <details>
+              <summary>Review and apply changes</summary>
+              <ol>
+                <li><a href="#changes" aria-label="Review and apply changes overview">Overview</a></li>
+                <li><a href="#parallel-results">Parallel mode: pick a result</a></li>
+                <li><a href="#folder-protection">How your folder stays safe</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -401,7 +410,7 @@
             D (deleted), with the lines added and removed. <b>View this turn's diff</b> shows exactly what the agent
             changed in that turn.
           </p>
-          <h3>Parallel mode: pick a result</h3>
+          <h3 id="parallel-results">Parallel mode: pick a result</h3>
           <p>
             In parallel mode each agent works in a copy of its own (a git worktree), so they cannot overwrite each other,
             and your working directory is not touched. Its card says <b>in worktree</b>, and the agent's latest card
@@ -438,7 +447,7 @@
             result changes settings the commands read, review them and choose <b>Confirm, run the commands and apply if
             they pass</b>.
           </p>
-          <h3>How your folder stays safe</h3>
+          <h3 id="folder-protection">How your folder stays safe</h3>
           <ul>
             <li>
               In edit mode and full access, a working directory that is not a git repository yet becomes one

@@ -15,7 +15,7 @@ import type { MailOAuth } from '../connectors/mailLogin';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { TokenBroker, type TokenGrants } from './broker';
-import { missingUse, oauthProvider, tokenHost, type AccountProvider, type OAuthClient } from './providers';
+import { missingUse, oauthProvider, OAuthSignInError, tokenHost, type AccountProvider, type OAuthClient } from './providers';
 import { noAccess, SignIns, signInFetch, type SignedIn } from './signin';
 import type { OAuthStore } from './store';
 
@@ -55,10 +55,12 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
             status: a.status,
             ...(a.error ? { error: a.error } : {}),
             uses: a.uses,
+            requiresUse: true,
             unavailable: this.clientProblem(a.provider),
           }
         );
       },
+      guardUse: (id, use) => this.driveGuard(id, use),
       refreshToken: (id) => store.refreshToken(id),
       setRefreshToken: (id, token) => store.setRefreshToken(id, token),
       needsSignIn: (id, why) => store.needsSignIn(id, why),
@@ -161,12 +163,16 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
       throw new HttpError(400, t().invalidField('uses'));
     const provider = this.provider(o.provider);
     const { account: accountId, ...rest } = o;
-    if (!accountId) return this.signIns.start({ ...rest, provider, keep: (s) => this.keep(provider, o.uses, s) });
-    const a = this.account(accountId);
-    if (a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
-    const uses = OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u));
-    const forAccount = { id: a.id, subject: a.subject };
-    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email, keep: (s) => this.keep(provider, uses, s, forAccount) });
+    const a = accountId ? this.account(accountId) : undefined;
+    if (a && a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
+    const uses = a ? OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u)) : o.uses;
+    return this.signIns.start({
+      ...rest,
+      provider,
+      uses,
+      loginHint: a?.email,
+      keep: (s) => this.keep(provider, uses, s, a && { id: a.id, subject: a.subject }),
+    });
   }
 
   /**
@@ -210,6 +216,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const first = (use: OAuthUse) => uses.includes(use) && !had.has(use);
     // Removed while the earlier uses' tokens were asked for: not brought back.
     if (forAccount && !this.store.account(forAccount.id)) throw new Error(t().oauthAccountRemoved);
+    if (!s.live(who.subject)) throw new Error(t().oauthSignInCancelled);
     // Always one here: a provider whose sign-in may bring none (`refreshOptional`) is an MCP server's.
     const account = this.store.signedIn(provider.id, who, uses, s.scopes, s.refreshToken ?? '', (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.access);
@@ -304,6 +311,29 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     return this.connectors.saveOAuthMail(id, { name, oauth: accountId, email: a.email, imap: mail.imap, smtp: mail.smtp });
   }
 
+  /** A Google refresh serves several uses. An old Drive caller must not get its token or data even if this Drive has since reconnected. */
+  driveGuard(accountId: string, use: OAuthUse | undefined): (() => void) | undefined {
+    if (use !== 'drive' && use !== 'documents') return;
+    const account = this.store.account(accountId);
+    const revision = account?.driveRevision;
+    const enabled = account?.uses.includes(use);
+    const client = this.clientRevision.google;
+    return () => {
+      const a = this.store.account(accountId);
+      if (!a) throw new OAuthSignInError(t().oauthAccountGone);
+      if (this.store.clientDisabled('google')) throw new OAuthSignInError(t().oauthClientDisabled('Google'));
+      if (a.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(a.email, a.error ?? '', use));
+      if (!enabled || !a.uses.includes(use) || a.driveRevision !== revision || this.clientRevision.google !== client)
+        throw new OAuthSignInError(t().oauthNotFor(a.email, use));
+    };
+  }
+
+  removeDrive(accountId: string): OAuthView {
+    const subject = this.store.removeDrive(accountId);
+    if (subject !== undefined) this.signIns.excludeAccount('google', subject, ['drive', 'documents']);
+    return this.view();
+  }
+
   /**
    * Removes the account, its tokens and the calendars and mail accounts reached through it: at once,
    * so that a refresh under way writes nothing back (`TokenBroker.forget()`). Google's token is revoked
@@ -321,6 +351,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const refresh = this.store.refreshToken(accountId);
     this.broker.forget(accountId);
     this.store.delete(accountId);
+    this.signIns.excludeAccount(a.provider, a.subject);
     this.connectors.removeOAuth(accountId);
     if (provider?.endpoints.revoke && refresh) {
       await fetch(provider.endpoints.revoke, {

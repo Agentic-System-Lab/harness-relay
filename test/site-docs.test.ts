@@ -65,6 +65,21 @@ function anchors(markdown: string): Set<string> {
   return out;
 }
 
+/** Every contents link and its enclosing disclosure labels, including the useful fallback without JavaScript. */
+function contentsItems(toc: string) {
+  const branches: string[] = [];
+  const items: { id: string; label: string; branches: string[] }[] = [];
+  for (const match of toc.matchAll(
+    /<summary>([^<]+)<\/summary>|<\/details>|<a href="#([^"]+)"(?: aria-label="([^"]+)")?>([\s\S]*?)<\/a>/g,
+  )) {
+    if (match[1]) branches.push(text(match[1]));
+    else if (match[2]) items.push({ id: match[2], label: text(match[3] || match[4]), branches: [...branches] });
+    else branches.pop();
+  }
+  expect(branches).toHaveLength(0);
+  return items;
+}
+
 /** Each docs page, read once. */
 const docs = DOC_PAGES.map((page) => {
   const html = read(page.file);
@@ -299,9 +314,7 @@ describe('the docs', () => {
     const narrowPad = css.match(/html\.js:has\(\.doc-nav\) \{\n {4}scroll-padding-top: (\d+)px;\n {2}\}/);
     expect(narrowPad?.[1]).toBeTruthy();
     const behavior = read('site/assets/site.js');
-    expect(behavior).toContain(`: ${narrowPad?.[1]}) + 24`);
     expect(read('site/assets/docs.js')).toContain("form.classList.add('is-wide')");
-    expect(behavior).toContain("matchMedia('(max-width: 920px)')");
     expect(behavior).toContain('scrollPaddingTop');
     expect(behavior).not.toContain('getBoundingClientRect().top < 120');
   });
@@ -347,15 +360,27 @@ describe('the docs', () => {
       expect(page.article.match(/<section\b/g), page.file).toHaveLength(sections.length);
       for (const [, id, labelledby, h2] of sections)
         expect([labelledby, h2], `${page.file} #${id}`).toEqual([`${id}-title`, `${id}-title`]);
-      const contents = [...page.toc.matchAll(/<a href="#([^"]+)">([\s\S]*?)<\/a>/g)].map((m) => [m[1], text(m[2])]);
-      expect(contents, page.file).toEqual(sections.map((m) => [m[1], text(m[4])]));
+      const headings = [...page.article.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h[23]>/g)];
+      const contents = contentsItems(page.toc);
+      expect(
+        contents.map((item) => item.id),
+        page.file,
+      ).toEqual(headings.map((m) => (m[1] === '2' ? m[2].replace(/-title$/, '') : m[2])));
+      expect(page.article.match(/<h3\b/g)?.length ?? 0).toBe(headings.filter((m) => m[1] === '3').length);
+      let parent = '';
+      for (const [i, heading] of headings.entries()) {
+        const label = text(heading[3]);
+        expect(contents[i]!.label, page.file).toContain(label);
+        if (heading[1] === '2') parent = label;
+        else expect(contents[i]!.branches.at(-1), page.file).toBe(parent);
+      }
       // Headings in order: none deeper than an h3, and an h3 only inside a section.
       expect(page.article, page.file).not.toMatch(/<h[4-6]\b/);
       expect(page.article.slice(0, page.article.indexOf('<section')), page.file).not.toMatch(/<h3\b/);
     }
     for (const page of docs.filter((p) => p.lang === 'en')) {
-      const sectionIds = (d: (typeof docs)[number]) => [...d.article.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
-      expect(sectionIds(doc(counterpart(page))), page.path).toEqual(sectionIds(page));
+      const destinationIds = (d: (typeof docs)[number]) => contentsItems(d.toc).map((item) => item.id);
+      expect(destinationIds(doc(counterpart(page))), page.path).toEqual(destinationIds(page));
     }
   });
 
@@ -415,14 +440,29 @@ describe('the docs', () => {
     const pages = docs.filter((d) => d.path === 'docs/tools/');
     expect(pages.map((page) => page.lang).sort()).toEqual(['en', 'zh-TW']);
     for (const page of pages) {
+      const contents = contentsItems(page.toc);
+      const sections = [...page.article.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
       expect(
-        links(page.toc, page.url).map((link) => new URL(link.href).hash.slice(1)),
+        contents.filter((item) => sections.includes(item.id)).map((item) => item.id),
         page.file,
       ).toEqual(order);
-      expect(
-        [...page.article.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]),
-        page.file,
-      ).toEqual(order);
+      expect(sections, page.file).toEqual(order);
+      const zh = page.lang === 'zh-TW';
+      const parents = (id: string) => contents.find((item) => item.id === id)!.branches;
+      const common = zh ? '常用 App' : 'Common apps';
+      const oauth = zh ? '帳號登入設定（OAuth 2.0）' : 'Account sign-in settings (OAuth 2.0)';
+      for (const provider of ['google', 'microsoft']) expect(parents(provider + '-oauth-setup')).toEqual([common, oauth]);
+      for (const [group, members] of [
+        [zh ? '郵件與行事曆' : 'Mail and calendar', ['mail', 'calendar']],
+        [zh ? '團隊通訊' : 'Team messaging', ['microsoft-teams', 'slack']],
+        [zh ? '文件與筆記' : 'Documents and notes', ['google-drive', 'notion', 'heptabase', 'obsidian']],
+        [zh ? '開發與瀏覽' : 'Development and browsing', ['github', 'browser-mail-calendar']],
+      ] as const) {
+        for (const member of members) expect(parents(member)).toEqual([common, group]);
+      }
+      for (const id of ['mcp-servers', 'skills', 'memory', 'hooks', 'default-team-checks'])
+        expect(parents(id)[0]).toBe(zh ? '工具庫' : 'Tool library');
+      for (const id of ['outbox', 'per-member', 'own-setup']) expect(parents(id)[0]).toBe(zh ? '延伸主題' : 'Related topics');
       for (const [section, assets] of Object.entries({
         'oauth-settings': ['tools-oauth-accounts'],
         'google-oauth-setup': ['google-cloud-client-details', 'tools-oauth-settings'],
@@ -442,15 +482,16 @@ describe('the docs', () => {
     }
   });
 
-  it('links to both OAuth setup guides from each docs home page and preserves the aspect ratio of linked screenshots', () => {
+  it('keeps the docs home introduction focused and links to Tools in both languages', () => {
     for (const lang of ['en', 'zh-TW'] as const) {
       const home = doc(overview(lang));
       const header = slice(home.body, '<header class="doc-head">', '</header>');
-      const targets = links(header, home.url).map((link) => link.href);
-      for (const provider of ['google', 'microsoft']) {
-        expect(targets).toContain(new URL('tools/#' + provider + '-oauth-setup', home.url).href);
-      }
+      expect(header).not.toContain('class="doc-note"');
+      expect(links(home.article, home.url).map((link) => link.href)).toContain(new URL('tools/', home.url).href);
     }
+  });
+
+  it('preserves the aspect ratio of linked screenshots', () => {
     // The global max-width shrinks both linked and standalone images. Their HTML height
     // is the natural height and must give way to automatic sizing at narrower widths.
     expect(read('site/assets/site.css')).toMatch(/\.doc-body img\s*\{[^}]*height:\s*auto;/);

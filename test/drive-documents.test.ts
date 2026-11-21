@@ -269,6 +269,27 @@ describe('direct Google Docs proposals', () => {
     expect(calls.every((c) => c.method === 'GET')).toBe(true);
   });
 
+  it('keeps old previews from writing after removing and reconnecting the same Drive account', async () => {
+    const draft = { title: 'Project', content: '' };
+    await propose('create', draft);
+    const [old] = outbox.list('c');
+    await propose('create', { ...draft, title: 'Before unlink' });
+    const whileDetached = outbox.list('c').find((i) => i.id !== old.id)!;
+    oauth.removeDrive(id);
+    expect((await propose('create', draft)).isError).toBe(true);
+    expect((await answer(whileDetached.id)).status).toBe('failed');
+    expect(signIn()).toBe(id);
+    outbox = new Outbox(db);
+    await propose('create', draft);
+    expect(outbox.waiting('c')).toBe(2);
+    expect((await answer(old.id)).status).toBe('failed');
+    expect(calls).toEqual([]);
+    handle = () => json({ documentId: 'doc_1', title: draft.title, revisionId: 'rev1' });
+    const fresh = outbox.list('c').find((i) => i.status === 'pending')!;
+    expect((await answer(fresh.id)).status).toBe('sent');
+    expect(calls.map((c) => c.method)).toEqual(['POST']);
+  });
+
   it('requires the reviewed account, its Google subject, current document permission, origin and OAuth project', async () => {
     signIn(['drive'], [], 'reader@example.test');
     expect((await propose('create', { ...preview, account: 'reader@example.test' })).isError).toBe(true);

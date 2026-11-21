@@ -63,6 +63,15 @@ export const CWD_MISSING = 'cwd-missing';
 export const GIT_MISSING = 'git-missing';
 export type GitRequirement = 'git' | 'gitBash';
 
+export type AppDependency = 'github' | 'browser';
+
+export interface AppDependencyView {
+  available: boolean;
+  canInstall: boolean;
+  command?: string;
+  job?: CliInstallJobView;
+}
+
 export interface GitInstallView {
   available: boolean;
   method?: 'apple' | 'winget' | 'linux';

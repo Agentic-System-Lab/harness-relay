@@ -1,6 +1,6 @@
 // Google OAuth, Drive and Docs for the Common apps browser tests. Every Google host stays offline.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const originalFetch = globalThis.fetch;
@@ -17,7 +17,12 @@ const accessGrants = new Map();
 const refreshGrants = new Map();
 let serial = 0;
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
-const save = (file, data) => writeFileSync(file, JSON.stringify(data));
+// Playwright polls the state from another process while this stand-in updates it.
+function save(file, data) {
+  const temporary = file + '.' + process.pid + '.tmp';
+  writeFileSync(temporary, JSON.stringify(data));
+  renameSync(temporary, file);
+}
 const error = (status, message) => Response.json({ error: { message } }, { status });
 
 async function tokens(request) {
@@ -36,7 +41,8 @@ async function tokens(request) {
       return Response.json({ error: 'invalid_grant' }, { status: 400 });
     }
     refreshToken = 'fixture-refresh-' + email;
-    refreshGrants.set(refreshToken, { email, scopes: grant.scopes });
+    const previous = refreshGrants.get(refreshToken)?.scopes ?? [];
+    refreshGrants.set(refreshToken, { email, scopes: grant.incremental ? [...new Set([...previous, ...grant.scopes])] : grant.scopes });
     save(authFile(), { ...grant, used: true });
   } else if (form.get('grant_type') !== 'refresh_token' || !refreshGrants.has(refreshToken)) {
     return Response.json({ error: 'invalid_grant' }, { status: 400 });

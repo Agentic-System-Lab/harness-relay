@@ -42,6 +42,7 @@ describe('client routes', () => {
     expect(sectionId('tools')).toBe(sectionId('apps'));
     expect(navEntryOf('tools')).toBe('apps');
     expect(hashFor(routeFromHash('#/settings/tools'))).toBe('#/settings/tools');
+    expect(hashFor(routeFromHash('#/settings/agents'))).toBe('#/settings/agents');
     expect(sectionId('voice')).toBe('settings-voice');
   });
 
