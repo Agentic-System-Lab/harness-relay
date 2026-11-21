@@ -1434,6 +1434,126 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(memberAvailable(checked, { provider: 'codex', model: 'local/model' })).toBe(true);
   });
 
+  it('keeps an account whose credits pay past its used-up plan, never past a model’s own limit, and tells the lead it is paid', async () => {
+    const now = Date.now();
+    const later = now + 86_400_000;
+    const codexCatalog: ProviderModels = {
+      provider: 'codex',
+      models: [{ id: 'gpt-6.2' }, { id: 'gpt-6.1-spark' }],
+      efforts: [],
+      defaultModel: 'gpt-6.2',
+      source: 'cli',
+    };
+    const week = { span: 'week' as const, usedPercent: 100, resetsAt: later };
+    const spark = { span: 'fiveHour' as const, scope: 'Spark', model: 'gpt-6.1-spark', usedPercent: 100, resetsAt: later };
+    const codex = (u: Partial<AccountUsage>): PlannerContext => ({
+      ...ctx,
+      accounts: { codex: [''] },
+      catalog: [codexCatalog],
+      staffing: { now, usage: [{ provider: 'codex', account: '', checkedAt: now, limits: [], ...u }] },
+    });
+    // The user's case: the weekly limit used up, ordinary usage blocked, credits paying.
+    const paid = codex({ limits: [{ ...week, paidPast: true }], planUsageBlocked: true, payer: 'credits' });
+    expect(memberAvailable(paid, { provider: 'codex' })).toBe(true);
+    expect(memberAvailable(paid, { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(true);
+    // Without a payer (no credits, a balance used up, a spend cap reached) it stops, as before.
+    for (const u of [
+      { limits: [{ ...week, paidPast: true as const }] },
+      { limits: [week], payer: 'credits' as const },
+      { limits: [], planUsageBlocked: true },
+    ]) {
+      expect(memberAvailable(codex(u), { provider: 'codex' })).toBe(false);
+    }
+    // Credits do not pay past a model's own limit.
+    const own = codex({ limits: [{ ...week, paidPast: true }, spark], payer: 'credits' });
+    expect(memberAvailable(own, { provider: 'codex' })).toBe(true);
+    expect(memberAvailable(own, { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(false);
+
+    const src = (usage: AccountUsage): PlannerSources => ({
+      statuses: async () => [
+        {
+          provider: 'codex',
+          installed: true,
+          bin: 'codex',
+          auth: { loggedIn: true },
+          usingStoredApiKey: false,
+          accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }],
+        },
+      ],
+      catalog: async () => [codexCatalog],
+      usage: async () => usage,
+      presets: () => [],
+      library: () => {
+        throw new Error('no library');
+      },
+      native: async () => ({ skills: [], mcpServers: [] }),
+    });
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
+    const blocked = { provider: 'codex' as const, account: '', checkedAt: now, limits: [{ ...week, paidPast: true as const }] };
+    expect((await plannerContext(src(blocked), undefined, 50)).available).toEqual([]);
+    const got = await plannerContext(src({ ...blocked, planUsageBlocked: true, payer: 'credits' }), undefined, 50);
+    expect(got.available).toEqual(['codex']);
+    const prompt = buildPlannerPrompt('q', settings, got);
+    expect(prompt).toContain(
+      "  Its plan's included usage is used up: it runs on paid credits, billed to the user for each turn. Prefer other coding agents when they fit the role as well.",
+    );
+    expect(prompt).toContain('Models: gpt-6.2 (guide: GPT), gpt-6.1-spark (guide: GPT)');
+    // Only a model's own limit is paid past: that model is marked.
+    const scoped = await plannerContext(
+      src({ provider: 'codex', account: '', checkedAt: now, limits: [{ ...spark, paidPast: true }], payer: 'additionalUsage' }),
+      undefined,
+      50,
+    );
+    const marked = buildPlannerPrompt('q', settings, scoped);
+    expect(marked).toContain('Models: gpt-6.2 (guide: GPT), gpt-6.1-spark (plan limit reached; guide: GPT)');
+    expect(marked).toContain('Models marked "plan limit reached" run on paid additional usage, billed to the user for each turn.');
+    expect(marked).not.toContain("Its plan's included usage is used up");
+    // Nothing used up, or nothing paying: no note.
+    const plain = buildPlannerPrompt('q', settings, await plannerContext(src({ ...blocked, limits: [], payer: 'credits' }), undefined, 50));
+    expect(plain).not.toContain('billed to the user');
+  });
+
+  it('applies usage credits to every Claude Code limit, a model’s own included, and Copilot’s overage to its chat', () => {
+    const now = Date.now();
+    const checked = (u: AccountUsage): PlannerContext => ({ ...ctx, accounts: { [u.provider]: [''] }, staffing: { now, usage: [u] } });
+    const claude = (payer?: AccountUsage['payer']): AccountUsage => ({
+      provider: 'claude',
+      account: '',
+      checkedAt: now,
+      limits: [
+        { span: 'fiveHour', usedPercent: 100, ...(payer ? { paidPast: true as const } : {}) },
+        { span: 'week', scope: 'Opus', usedPercent: 100, ...(payer ? { paidPast: true as const } : {}) },
+      ],
+      ...(payer ? { payer } : {}),
+    });
+    expect(memberAvailable(checked(claude('usageCredits')), { provider: 'claude' })).toBe(true);
+    expect(memberAvailable(checked(claude('usageCredits')), { provider: 'claude', model: 'claude-opus-4-6' })).toBe(true);
+    expect(memberAvailable(checked(claude()), { provider: 'claude' })).toBe(false);
+    const copilot = (paid: boolean): AccountUsage => ({
+      provider: 'copilot',
+      account: '',
+      checkedAt: now,
+      limits: [{ span: 'month', kind: 'chat', usedPercent: 100, ...(paid ? { paidPast: true as const } : {}) }],
+      ...(paid ? { payer: 'additionalUsage' as const } : {}),
+    });
+    expect(memberAvailable(checked(copilot(true)), { provider: 'copilot' })).toBe(true);
+    expect(memberAvailable(checked(copilot(false)), { provider: 'copilot' })).toBe(false);
+  });
+
+  it('keeps a Muse Code sign-in without a subscription allowance, billed by use as a key is, but not a signed-out one', () => {
+    const now = Date.now();
+    const muse = (u: Partial<AccountUsage>): PlannerContext => ({
+      ...ctx,
+      accounts: { muse: [''] },
+      staffing: { now, usage: [{ provider: 'muse', account: '', checkedAt: now, limits: [], ...u }] },
+    });
+    expect(memberAvailable(muse({ none: 'noAllowance' }), { provider: 'muse' })).toBe(true);
+    expect(memberAvailable(muse({ none: 'apiKey' }), { provider: 'muse' })).toBe(true);
+    expect(memberAvailable(muse({ none: 'signedOut' }), { provider: 'muse' })).toBe(false);
+    // A subscription's allowance used up is a hard stop: nothing pays past it.
+    expect(memberAvailable(muse({ limits: [{ usedPercent: 100 }] }), { provider: 'muse' })).toBe(false);
+  });
+
   it('chooses a configured model when an open agent’s default backend is unavailable', () => {
     const checked: PlannerContext = {
       ...ctx,

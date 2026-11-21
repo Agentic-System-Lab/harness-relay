@@ -334,6 +334,13 @@ export const zhTW = {
     inHours: (n: number) => `${n} 小時`,
     credits: (n: string) => `點數餘額：${n}`,
     creditsUnlimited: '點數：無上限',
+    /** A limit used up that the account keeps running past, billed (`AccountUsage.payer`). */
+    paying: {
+      credits: '已達方案上限，正在使用點數（另外計費）',
+      usageCredits: '已達方案上限，正在使用用量點數（額外用量，另外計費）',
+      additionalUsage: '已達方案上限，正在使用額外付費用量',
+      payAsYouGo: '已達方案上限，正在隨用隨付（另外計費）',
+    },
     none: {
       apiKey: '這個帳號用 API key 執行：供應商按用量計費，沒有方案額度；一般的 API key 也查不到剩餘餘額，請到供應商的主控台查看。',
       signedOut: '尚未登入，沒有方案用量。',

@@ -7,7 +7,7 @@ import { relativeTime } from '../util';
 
 /**
  * How much of an account's plan is used, as its CLI reports it: each limit as a bar with what is left
- * and when it starts over, its credits, or why there is nothing to show (an API key, a CLI that does not
+ * and when it starts over (or, used up, what pays past it: credits, usage credits…), its credits, or why there is nothing to show (an API key, a CLI that does not
  * report usage). Asked once the box is on screen (each ask starts the CLI) while the account can run
  * (`usable`), again when its sign-in or key changes (`signIn`), and when the user presses Check again;
  * the server keeps an answer for a while. Only the latest ask's answer is shown.
@@ -108,7 +108,7 @@ export function UsagePanel({
       {usage && usage.limits.length > 0 && (
         <ul className="usage-limits">
           {usage.limits.map((l, i) => (
-            <li key={i} className={`usage-limit ${usageLevel(l)}`}>
+            <li key={i} className={`usage-limit ${usageLevel(l, usage.payer)}`}>
               <span className="usage-label small">{usageLimitLabel(l, t)}</span>
               <span
                 className="usage-bar"
@@ -120,7 +120,7 @@ export function UsagePanel({
               >
                 <span style={{ width: `${Math.min(100, Math.max(0, l.usedPercent))}%` }} />
               </span>
-              <span className="muted small">{usageLine(l, t, lang)}</span>
+              <span className="muted small">{usageLine(l, t, lang, Date.now(), usage.payer)}</span>
             </li>
           ))}
         </ul>

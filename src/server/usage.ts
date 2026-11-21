@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AccountUsage, Provider, UsageKind, UsageLimit, UsageNone, UsageProblem, UsageSpan } from '../shared/types';
+import type { AccountUsage, Provider, UsageKind, UsageLimit, UsageNone, UsagePayer, UsageProblem, UsageSpan } from '../shared/types';
 import { antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { CLAUDE_PROBE_ARGS } from './agents/claude';
 import { copilotHome, copilotProbeEnv, prepareCopilotProbeHome } from './agents/copilot';
@@ -84,6 +84,16 @@ const clampPercent = (n: number) => Math.min(100, Math.max(0, n));
 
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 
+/** `limits` with the ones `covered` says `payer` pays past marked so, and the payer beside them; as they are without one. */
+function paidBy(
+  limits: UsageLimit[],
+  payer: UsagePayer | undefined,
+  covered: (l: UsageLimit, i: number) => boolean = () => true,
+): Pick<AccountUsage, 'limits' | 'payer'> {
+  if (!payer) return { limits };
+  return { limits: limits.map((l, i) => (covered(l, i) ? { ...l, paidPast: true as const } : l)), payer };
+}
+
 /** The span of a window given in minutes, when it is one of the usual ones. */
 export function spanOfMinutes(minutes: number): UsageSpan | undefined {
   if (minutes === 300) return 'fiveHour';
@@ -121,7 +131,8 @@ function claudeSpan(kind: string, group: string): UsageSpan | undefined {
  * it resets, a model's own weekly limit with the model's name), or the older per-window fields when
  * that list is missing or empty. `rate_limits_available: false`: plan limits do not apply (an API key)
  * or it cannot read them for how the account signs in (a token from `claude setup-token`, Bedrock,
- * Vertex, a sign-in without the profile scope).
+ * Vertex, a sign-in without the profile scope). Its usage credits pay past every limit while they can
+ * (`claudeUsageCredits`).
  */
 export function parseClaudeUsage(r: unknown, apiKey: boolean): UsageAnswer | undefined {
   if (!r || typeof r !== 'object') return undefined;
@@ -166,7 +177,54 @@ export function parseClaudeUsage(r: unknown, apiKey: boolean): UsageAnswer | und
       limits.push({ span: 'week', scope, usedPercent: clampPercent(usedPercent), ...(resetsAt ? { resetsAt } : {}) });
     }
   }
-  return { ...(plan ? { plan } : {}), limits, ...(limits.length ? {} : { none: 'noData' as const }) };
+  const paid = paidBy(limits, claudeUsageCredits(rl.extra_usage) ? 'usageCredits' : undefined);
+  return { ...(plan ? { plan } : {}), ...paid, ...(limits.length ? {} : { none: 'noData' as const }) };
+}
+
+/**
+ * Whether Claude Code's usage credits (extra usage, `rate_limits.extra_usage`) pay once a plan limit
+ * is used up: turned on, by nothing turned off (the user, the organization, the seat, a balance used
+ * up), and below its monthly, daily and weekly spend limits. Claude Code then keeps running past the
+ * 5-hour, weekly and a model's own weekly limits ("You're now using usage credits"). Missing (an answer
+ * made from the response headers alone), it says nothing: no payer.
+ */
+function claudeUsageCredits(x: unknown): boolean {
+  if (!x || typeof x !== 'object') return false;
+  const e = x as Record<string, any>;
+  if (e.is_enabled !== true || e.spend_limit_reached === true || e.user_disabled === true) return false;
+  if (text(e.disabled_reason)) return false;
+  const cap = num(e.monthly_limit);
+  const spent = num(e.used_credits);
+  const share = num(e.utilization);
+  if (cap !== undefined && ((spent !== undefined && spent >= cap) || (share !== undefined && share >= 100))) return false;
+  for (const period of [e.daily, e.weekly]) {
+    const limit = num(period?.limit);
+    const used = num(period?.used_credits);
+    if (limit !== undefined && used !== undefined && used >= limit) return false;
+  }
+  return true;
+}
+
+/** Codex's reasons a workspace's credits cannot pay: out of credits, or a spend cap reached. */
+const CODEX_CREDITS_STOPPED = new Set([
+  'workspace_owner_credits_depleted',
+  'workspace_member_credits_depleted',
+  'workspace_owner_usage_limit_reached',
+  'workspace_member_usage_limit_reached',
+]);
+
+/**
+ * Whether Codex's credits pay past the plan's own limit, read from its `codex` snapshot: unlimited, or
+ * credits it has (`hasCredits`) with a balance above zero (or none given), with no spend control
+ * reached and no workspace out of credits or at its spend cap. The plan's limit being reached
+ * (`rate_limit_reached`) is when they pay: Codex then keeps running on them while the balance lasts.
+ */
+function codexCreditsPay(s: Record<string, any> | undefined): boolean {
+  const c = s?.credits as Record<string, any> | null | undefined;
+  if (!c) return false;
+  const balance = num(c.balance);
+  if (c.unlimited !== true && (c.hasCredits !== true || (balance !== undefined && balance <= 0))) return false;
+  return s!.spendControlReached !== true && !CODEX_CREDITS_STOPPED.has(String(s!.rateLimitReachedType ?? ''));
 }
 
 async function askClaude(bin: string, env: NodeJS.ProcessEnv, apiKey: boolean, signal?: AbortSignal): Promise<UsageAnswer> {
@@ -196,7 +254,8 @@ async function askClaude(bin: string, env: NodeJS.ProcessEnv, apiKey: boolean, s
 
 /**
  * Codex's answers to `account/read` (who it is signed in as: a ChatGPT plan, or an API key) and
- * `account/rateLimits/read` (each limit's windows, by limit id when it has several, and the credits).
+ * `account/rateLimits/read` (each limit's windows, by limit id when it has several, and the credits,
+ * which pay past the plan's own limit and its block while they can: `codexCreditsPay`).
  */
 export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAnswer | undefined {
   const a = (account as Record<string, any> | undefined)?.account;
@@ -206,13 +265,20 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
   if (!r || typeof r !== 'object') return undefined;
   const byId = r.rateLimitsByLimitId && typeof r.rateLimitsByLimitId === 'object' ? Object.values(r.rateLimitsByLimitId) : [];
   const snapshots = (byId.length ? byId : [r.rateLimits]).filter((s): s is Record<string, any> => Boolean(s) && typeof s === 'object');
+  // The plan's own limit, which alone carries the account's credits; `rateLimits` is it when the
+  // answer has no list (the app-server fills it with the `codex` snapshot, else the first).
+  const main = (r.rateLimitsByLimitId?.codex ?? r.rateLimits) as Record<string, any> | undefined;
+  const pays = codexCreditsPay(main);
   const limits: UsageLimit[] = [];
+  /** Which of `limits` belong to the plan's own limit, which credits pay past. */
+  const plans = new Set<number>();
   let plan = text(a?.planType);
   let credits: AccountUsage['credits'];
   for (const s of snapshots) {
     plan ??= text(s.planType);
     // The default limit ("codex") needs no name; another one (a model's own) is named.
     const model = text(s.normalModelSlug);
+    const own = !model && (s === main || text(s.limitId) === 'codex');
     const scope = text(s.limitId) === 'codex' && !model ? undefined : (text(s.limitName) ?? model ?? text(s.limitId));
     for (const w of [s.primary, s.secondary]) {
       const usedPercent = num(w?.usedPercent);
@@ -220,6 +286,7 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
       const minutes = num(w.windowDurationMins);
       const span = minutes === undefined ? undefined : spanOfMinutes(minutes);
       const resetsAt = when(w.resetsAt);
+      if (own && !scope) plans.add(limits.length);
       limits.push({
         ...(span ? { span } : minutes ? { minutes } : {}),
         ...(scope ? { scope } : {}),
@@ -228,15 +295,18 @@ export function parseCodexUsage(account: unknown, rateLimits: unknown): UsageAns
         ...(resetsAt ? { resetsAt } : {}),
       });
     }
+  }
+  // The plan's own snapshot's credits, else the first another one has.
+  for (const s of main ? [main, ...snapshots] : snapshots) {
     const c = s.credits;
-    if (!credits && c && (c.hasCredits || c.unlimited)) {
-      const balance = num(c.balance);
-      credits = { ...(balance !== undefined ? { balance } : {}), ...(c.unlimited ? { unlimited: true } : {}) };
-    }
+    if (!c || !(c.hasCredits || c.unlimited)) continue;
+    const balance = num(c.balance);
+    credits = { ...(balance !== undefined ? { balance } : {}), ...(c.unlimited ? { unlimited: true } : {}) };
+    break;
   }
   return {
     ...(plan ? { plan } : {}),
-    limits,
+    ...paidBy(limits, pays ? 'credits' : undefined, (_, i) => plans.has(i)),
     ...(r.ordinaryUsageAllowed === false ? { planUsageBlocked: true } : {}),
     ...(credits ? { credits } : {}),
     ...(limits.length || credits ? {} : { none: 'noData' as const }),
@@ -303,8 +373,21 @@ function grokSpan(type: unknown): UsageSpan | undefined {
 }
 
 /**
+ * What pays once Grok's plan allowance is used up, which xAI says is "not a hard stop": prepaid Extra
+ * Usage Credits left (`config.prepaidBalance`), else pay-as-you-go turned on (`on_demand_enabled`) with
+ * room below its spending cap (`config.onDemandUsed` below `config.onDemandCap`; a cap of 0 leaves none).
+ */
+function grokPayer(o: Record<string, any>, c: Record<string, any> | undefined): UsagePayer | undefined {
+  if ((num(c?.prepaidBalance?.val) ?? 0) > 0) return 'credits';
+  const cap = num(c?.onDemandCap?.val) ?? 0;
+  if (o.on_demand_enabled === true && cap > 0 && (num(c?.onDemandUsed?.val) ?? 0) < cap) return 'payAsYouGo';
+  return undefined;
+}
+
+/**
  * Grok's answer to `_x.ai/billing`: its plan (`subscription_tier`) and the share of the period's
- * credits used (`config.creditUsagePercent`), with the period it counts in.
+ * credits used (`config.creditUsagePercent`), with the period it counts in, and what pays past it once
+ * it is used up (`grokPayer`).
  */
 export function parseGrokUsage(r: unknown): UsageAnswer | undefined {
   if (!r || typeof r !== 'object') return undefined;
@@ -317,7 +400,7 @@ export function parseGrokUsage(r: unknown): UsageAnswer | undefined {
   const resetsAt = when(c?.currentPeriod?.end) ?? when(c?.billingPeriodEnd);
   return {
     ...(plan ? { plan } : {}),
-    limits: [{ ...(span ? { span } : {}), usedPercent: clampPercent(usedPercent), ...(resetsAt ? { resetsAt } : {}) }],
+    ...paidBy([{ ...(span ? { span } : {}), usedPercent: clampPercent(usedPercent), ...(resetsAt ? { resetsAt } : {}) }], grokPayer(o, c)),
   };
 }
 
@@ -423,7 +506,8 @@ const COPILOT_KINDS: Record<string, UsageKind> = { premium_interactions: 'premiu
  * Copilot's answers to `account.getQuota` (`quotaSnapshots`: each kind's entitlement, requests used
  * and percent left) and `account.getCurrentAuth` (the GitHub user Copilot reports, with its plan and
  * when its quota resets: `getQuota`'s own `resetDate` is when the snapshot was taken). A kind without
- * a limit (`isUnlimitedEntitlement`) is left out; a plan with none at all has no limits.
+ * a limit (`isUnlimitedEntitlement`) is left out; a plan with none at all has no limits. Additional
+ * paid usage pays past a kind whose overage is allowed (`overageAllowedWithExhaustedQuota`).
  */
 export function parseCopilotUsage(quota: unknown, auth: unknown): UsageAnswer | undefined {
   const snaps = (quota as Record<string, any> | undefined)?.quotaSnapshots;
@@ -435,6 +519,8 @@ export function parseCopilotUsage(quota: unknown, auth: unknown): UsageAnswer | 
   const known = Object.keys(COPILOT_KINDS).filter((k) => k in snaps);
   const keys = [...known, ...Object.keys(snaps).filter((k) => !(k in COPILOT_KINDS))];
   const limits: UsageLimit[] = [];
+  /** Which of `limits` additional paid usage goes past. */
+  const overages = new Set<number>();
   let unlimited = false;
   for (const key of keys) {
     const s = snaps[key] as Record<string, any> | undefined;
@@ -449,6 +535,10 @@ export function parseCopilotUsage(quota: unknown, auth: unknown): UsageAnswer | 
     const used = num(s.usedRequests);
     const kind = COPILOT_KINDS[key];
     const resetsAt = when(user?.quota_snapshots?.[key]?.quota_reset_at) ?? resetAll;
+    // Additional paid usage allowed once this kind's quota is used up: Copilot keeps running ("Plan:
+    // additional usage"). getQuota's flag, else the user record's; false again once its cap is reached.
+    const overage = s.overageAllowedWithExhaustedQuota ?? user?.quota_snapshots?.[key]?.overage_permitted;
+    if (overage === true) overages.add(limits.length);
     limits.push({
       span: 'month',
       ...(kind ? { kind } : { scope: key }),
@@ -459,7 +549,7 @@ export function parseCopilotUsage(quota: unknown, auth: unknown): UsageAnswer | 
   }
   return {
     ...(plan ? { plan } : {}),
-    limits,
+    ...paidBy(limits, overages.size ? 'additionalUsage' : undefined, (_, i) => overages.has(i)),
     ...(limits.length ? {} : { none: unlimited ? ('unlimited' as const) : ('noData' as const) }),
   };
 }

@@ -28,6 +28,7 @@ import {
   type TeamPreset,
   type ToolLibraryView,
   type UsageLimit,
+  type UsagePayer,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
@@ -236,6 +237,34 @@ function privateEndpoint(provider: Provider, model: string | undefined, staffing
   return undefined;
 }
 
+/**
+ * Whether one of an account's limits is used up for this model now: not yet reset, and for the whole
+ * plan or for this model (with no model chosen and no default, for any model the CLI lists). Copilot's
+ * completions are unrelated to chat, and its premium request quotas do not apply to every model it
+ * lists (the catalog does not say which models consume them).
+ */
+function limitUsedUp(
+  provider: Provider,
+  catalog: ProviderModels | undefined,
+  model: string | undefined,
+  label: string | undefined,
+  limit: UsageLimit,
+  now: number,
+): boolean {
+  if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= now)) return false;
+  if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
+  if (!limit.scope && !limit.model) return true;
+  const scopes = [
+    ...(limit.model ? [limit.model] : []),
+    ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
+  ];
+  return scopes.some((scope) =>
+    model
+      ? scopeMatches(provider, scope, model, label)
+      : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
+  );
+}
+
 /** An exhausted window explains why the specific assignment is unavailable on a fallback card. */
 function modelAvailability(
   provider: Provider,
@@ -257,25 +286,35 @@ function modelAvailability(
   if (usage?.problem === 'cliMissing') return 'unavailable';
   // An endpoint uses its own backend, even when the same CLI's subscription is exhausted.
   if (option?.endpoint || endpoint) return 'available';
-  if (usage?.none === 'signedOut' || usage?.none === 'noAllowance') return 'unavailable';
+  // A plan without a subscription allowance (Muse Code's Meta sign-in) is billed by use, as a key is.
+  if (usage?.none === 'signedOut') return 'unavailable';
+  // A limit the account's payer pays past (credits, usage credits, additional usage) does not stop it.
   return (
-    usage?.limits.find((limit) => {
-      if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= staffing.now)) return false;
-      // Copilot's completions are unrelated to chat. Premium request quotas do not apply to every
-      // model it lists, and the catalog does not say which models consume them.
-      if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
-      if (!limit.scope && !limit.model) return true;
-      const scopes = [
-        ...(limit.model ? [limit.model] : []),
-        ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
-      ];
-      return scopes.some((scope) =>
-        model
-          ? scopeMatches(provider, scope, model, option?.label)
-          : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
-      );
-    }) ?? (usage?.planUsageBlocked ? 'unavailable' : 'available')
+    usage?.limits.find(
+      (limit) => !(limit.paidPast && usage.payer) && limitUsedUp(provider, catalog, model, option?.label, limit, staffing.now),
+    ) ?? (usage?.planUsageBlocked && !usage.payer ? 'unavailable' : 'available')
   );
+}
+
+/**
+ * What an available assignment runs on, billed, because its plan's included usage is used up for it
+ * (a limit its payer pays past, or the plan's block), when it does: for the lead, which prefers others.
+ */
+function paidUsage(
+  provider: Provider,
+  catalog: ProviderModels | undefined,
+  chosen: string | undefined,
+  usage: AccountUsage | undefined,
+  staffing: Staffing,
+): UsagePayer | undefined {
+  if (!usage?.payer) return undefined;
+  const model = chosen || catalog?.defaultModel;
+  const option = catalog?.models.find((m) => m.id === model);
+  // An endpoint runs on its own backend, not on the plan.
+  if (option?.endpoint || privateEndpoint(provider, model, staffing)) return undefined;
+  const used =
+    usage.planUsageBlocked || usage.limits.some((l) => l.paidPast && limitUsedUp(provider, catalog, model, option?.label, l, staffing.now));
+  return used ? usage.payer : undefined;
 }
 
 type ModelAssignment = Pick<AgentConfig, 'provider' | 'account' | 'model'>;
@@ -561,17 +600,34 @@ function names(list: string[], max = TOOL_NAMES_MAX): string {
   return list.length > max ? `${list.slice(0, max).join(', ')}, … (${list.length - max} more)` : list.join(', ');
 }
 
+/** What an account runs on past its plan, as the lead reads it. */
+const PAYER_FOR_LEAD: Record<UsagePayer, string> = {
+  credits: 'paid credits',
+  usageCredits: 'paid usage credits (extra usage)',
+  additionalUsage: 'paid additional usage',
+  payAsYouGo: 'paid pay-as-you-go usage',
+};
+
+/** What the assignment runs on, billed, because its plan's included usage is used up for it (`paidUsage`). */
+function paidFor(ctx: PlannerContext, provider: Provider, account: string | undefined, model?: string): UsagePayer | undefined {
+  if (!ctx.staffing) return undefined;
+  const id = account ?? '';
+  return paidUsage(provider, catalogFor(ctx.catalog, provider, id), model, usageFor(ctx.staffing, provider, id), ctx.staffing);
+}
+
 /**
  * A CLI's models as the lead reads them: each one's name, its efforts and its default effort, and with
  * `guided` (the lead reads role guides) the guide its role follows (`familyOf`).
  */
-function modelsForLead(p: Provider, c: ProviderModels, guided: boolean): string {
+function modelsForLead(p: Provider, c: ProviderModels, guided: boolean, paid?: (model: string) => UsagePayer | undefined): string {
   return c.models
     .map((m) => {
       const efforts = effortsFor(c, m.id);
       const family = guided ? familyOf(p, m.id, m) : undefined;
+      const payer = paid?.(m.id);
       const notes = [
         m.label && m.label !== m.id ? m.label : '',
+        payer ? 'plan limit reached' : '',
         m.latest ? "always its family's newest" : '',
         efforts.length ? `efforts ${efforts.join('/')}` : '',
         m.defaultEffort ? `default effort ${m.defaultEffort}` : '',
@@ -607,7 +663,25 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
             }
           : catalog;
       if (!defaultAllowed) lines.push('  The default model is unavailable. Choose an explicit model below.');
-      if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided)}`);
+      // Models whose plan usage is used up but that run on, billed to the user: all of them in one line.
+      const hasDefault = defaultAllowed && (Boolean(c?.defaultModel) || !c?.models.length);
+      const paidDefault = hasDefault ? paidFor(ctx, p, account) : undefined;
+      const each = [...(hasDefault ? [paidDefault] : []), ...(c?.models ?? []).map((m) => paidFor(ctx, p, account, m.id))];
+      const allPaid = each.length && each.every(Boolean) ? each[0] : undefined;
+      const somePaid = each.find(Boolean);
+      const listedPaid = each.slice(hasDefault ? 1 : 0).some(Boolean);
+      if (allPaid)
+        lines.push(
+          `  Its plan's included usage is used up: it runs on ${PAYER_FOR_LEAD[allPaid]}, billed to the user for each turn. Prefer other coding agents when they fit the role as well.`,
+        );
+      else if (somePaid)
+        lines.push(
+          listedPaid
+            ? `  Models marked "plan limit reached" run on ${PAYER_FOR_LEAD[somePaid]}, billed to the user for each turn${paidDefault ? ' (the default model too)' : ''}. Prefer its other models, or other coding agents, when they fit the role as well.`
+            : `  The default model's plan limit is reached: it runs on ${PAYER_FOR_LEAD[somePaid]}, billed to the user for each turn. Prefer other models or coding agents when they fit the role as well.`,
+        );
+      const paid = allPaid ? undefined : (model: string) => paidFor(ctx, p, account, model);
+      if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided, paid)}`);
       const unlisted =
         guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
       const defaults = [
