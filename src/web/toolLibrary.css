@@ -216,6 +216,9 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.oauth-client-accounts {
+  margin-top: 8px;
+}
 .oauth-setup-hint > .form-actions {
   margin: 0;
 }
@@ -247,7 +250,9 @@
   background: var(--surface);
   font-weight: 600;
 }
-.library-connectors .oauth-providers:empty {
+.library-connectors .oauth-providers:empty,
+.connector-account > .lib-row-actions:empty,
+.drive-account > .form-actions:empty {
   display: none;
 }
 

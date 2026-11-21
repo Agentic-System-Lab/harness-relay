@@ -871,8 +871,9 @@ export const zhTW = {
       add: '加入',
       added: '已加入',
       loadingCalendars: '讀取行事曆中…',
-      confirmRemove: (email: string, uses: string) =>
-        `移除 ${email} 的登入？這會中斷此帳號用於「${uses}」的連線，並從 Harness Relay 移除透過它使用的郵件帳號與行事曆。`,
+      confirmRemove: (provider: string, email: string, uses: string, hasConnectors: boolean) =>
+        `解除 ${email} 的 ${provider} 帳號連結？這會中斷「${uses}」在 Harness Relay 的連線。` +
+        (hasConnectors ? '這個帳號連結的信箱與行事曆都會從 Relay 移除。' : ''),
       removedMicrosoft: (pages: string) =>
         `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
       clientState: { ready: '已設定', disabled: '已停用', missing: '未設定' },
@@ -888,7 +889,8 @@ export const zhTW = {
       },
       setupGuide: { google: 'Google OAuth 2.0 設定圖解', microsoft: 'Microsoft OAuth 2.0 設定圖解' },
       settingsTitle: '帳號登入設定（OAuth 2.0）',
-      settingsHint: '選擇要設定或更換登入資料的服務。Gmail、Google Calendar 和 Google Drive 共用一組 Google 登入設定。',
+      settingsHint:
+        '選擇登入服務來設定應用程式註冊資料。每個已連結的帳號會列出使用的服務。解除帳號連結後，Relay 會一併中斷該帳號對這些服務的存取。',
       settingsFor: { google: 'Google 登入設定', microsoft: 'Microsoft 登入設定' },
       configure: { google: '設定 Google 登入', microsoft: '設定 Microsoft 登入' },
       clientId: '用戶端 ID（Client ID）',
@@ -1710,7 +1712,6 @@ export const zhTW = {
       github: '查詢拉取請求、分享對話。',
       obsidian: '讀取本機 Markdown 筆記，預覽並確認每次新增或修改。',
     },
-    confirmAccount: (email: string, apps: string) => `解除 ${email} 的連結？這會一併移除這個帳號的 ${apps} 存取權。`,
   },
   tools: {
     relay: {
@@ -2628,7 +2629,7 @@ export const zhTW = {
         title: '在聊天中使用常用 App',
         body: '打開「設定 → App 與工具 → 常用 App」，找到想用的服務。Teams 請用 Microsoft 工作或學校帳號登入。Slack 則可選擇你在 Relay 使用的助理。',
         points: [
-          '使用 Gmail、Google Calendar 或 Google Drive 時，在該服務的設定中登入 Google。首次設定可到「帳號登入設定（OAuth 2.0）」開啟 Google 設定教學。新增或編輯 Google 文件需要另外授權。',
+          '使用 Gmail、Google Calendar 或 Google Drive 時，在該服務的設定中登入 Google。新增或編輯 Google 文件需要另外授權。首次設定可到「帳號登入設定（OAuth 2.0）」查看教學。要解除單一帳號的連結，也可在該面板的 Google 或 Microsoft 下找到帳號。',
           '在工具列中選擇使用的助理。Slack 請在「從 Relay 傳送訊息」中選擇可擬稿的助理。傳送訊息、變更 Obsidian 筆記及寫入 Google 文件前，Relay 都會先顯示預覽，等你確認。',
           '要加入自訂工具、Skill 或共用指示，切換到「工具庫」分頁。',
         ],

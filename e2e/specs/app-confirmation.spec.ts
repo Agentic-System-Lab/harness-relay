@@ -470,6 +470,14 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await summary.click();
   }
 
+  async function googleAccountSettings(page: Page, email: string) {
+    const settings = page.locator('#oauth-client-settings');
+    if (!(await settings.evaluate((details) => (details as HTMLDetailsElement).open))) {
+      await settings.locator(':scope > summary').click();
+    }
+    return settings.getByRole('group', { name: 'Google', exact: true }).getByRole('group', { name: email, exact: true });
+  }
+
   test('Drive starts with read-only access, adds Docs editing to the same account and disconnects both grants', async ({ page, relay }) => {
     await page.goto(relay.base + '/#/settings/apps');
     const drive = page.getByRole('listitem', { name: 'Google Drive', exact: true });
@@ -513,7 +521,11 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     const chat = page.url();
     await page.goto(relay.base + '/#/settings/apps');
     await manageDrive(drive);
-    const disconnect = drive.getByRole('button', { name: 'Disconnect', exact: true });
+    await expect(drive.getByRole('button', { name: /disconnect/i })).toHaveCount(0);
+    const settingsAccount = await googleAccountSettings(page, email);
+    await expect(settingsAccount).toContainText('Google Docs editing');
+    await expect(settingsAccount).toContainText('Google Drive');
+    const disconnect = settingsAccount.getByRole('button', { name: 'Disconnect account', exact: true });
     page.once('dialog', async (dialog) => {
       expect(dialog.message()).toContain(email);
       expect(dialog.message()).toContain('Google Docs editing');
@@ -557,7 +569,10 @@ test.describe('Google Docs editing with Relay confirmation', () => {
       expect(dialog.message()).not.toContain(email);
       await dialog.accept();
     });
-    await second.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(drive.getByRole('button', { name: /disconnect/i })).toHaveCount(0);
+    const settingsReader = await googleAccountSettings(page, reader);
+    await settingsReader.getByRole('button', { name: 'Disconnect account', exact: true }).click();
+    await expect(settingsReader).toHaveCount(0);
     await expect(second).toHaveCount(0);
     await expect(first).toBeVisible();
     await selectAssistant(drive, true);
@@ -627,7 +642,9 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     await manageDrive(drive);
     const account = drive.getByRole('group', { name: email, exact: true });
     await expect(account.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
-    await expect(account.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    await expect(account.getByRole('button', { name: /disconnect/i })).toHaveCount(0);
+    const settingsAccount = await googleAccountSettings(page, email);
+    await expect(settingsAccount.getByRole('button', { name: 'Disconnect account', exact: true })).toBeEnabled();
     await google.getByRole('button', { name: 'Turn on', exact: true }).click();
     await expect(google).toContainText('Configured');
     await expect(drive.getByRole('button', { name: 'Add account', exact: true })).toBeEnabled();
@@ -727,6 +744,8 @@ test.describe('Google Docs editing with Relay confirmation', () => {
     const account = drive.getByRole('group', { name: email, exact: true });
     await expect(account.getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
     await expect(drive.getByRole('button', { name: 'Enable file search and reading' })).toHaveJSProperty('disabled', true);
-    await expect(account.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    await expect(account.getByRole('button', { name: /disconnect/i })).toHaveCount(0);
+    const settingsAccount = await googleAccountSettings(page, email);
+    await expect(settingsAccount.getByRole('button', { name: 'Disconnect account', exact: true })).toBeEnabled();
   });
 });

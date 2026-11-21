@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountActions,
+  accountServices,
   calendarName,
   callbackFrom,
   callbackOutcome,
@@ -101,6 +102,24 @@ describe('signing in with OAuth, in the page', () => {
     expect(waiting({ id: 'a', provider: 'microsoft', status: 'waiting', expiresAt: 1 })).toBe(true);
     expect(waiting({ id: 'a', provider: 'microsoft', status: 'done', expiresAt: 1 })).toBe(false);
     expect(waiting(undefined)).toBe(false);
+  });
+
+  it('names all services affected by disconnecting each provider’s account in both languages', () => {
+    const google = { provider: 'google', uses: ['calendar', 'mail', 'drive', 'documents'] } as const;
+    const microsoft = { provider: 'microsoft', uses: ['calendar', 'mail', 'teams'] } as const;
+    for (const [messages, googleLabels, msLabels] of [
+      [en, ['Google Calendar', 'Gmail', 'Google Drive', 'Google Docs editing'], ['Outlook calendar', 'Outlook mail', 'Microsoft Teams']],
+      [zhTW, ['Google Calendar', 'Gmail', 'Google Drive', 'Google 文件編輯'], ['Outlook 行事曆', 'Outlook 郵件', 'Microsoft Teams']],
+    ] as const) {
+      for (const [account, labels] of [
+        [google, googleLabels],
+        [microsoft, msLabels],
+      ] as const) {
+        expect(accountServices({ provider: account.provider, uses: [...account.uses] }, messages)).toBe(
+          labels.join(messages.common.listSeparator),
+        );
+      }
+    }
   });
 
   it('offers each account its calendars or a sign-in for them, and for mail a sign-in, its mail account to add, or nothing once there', () => {

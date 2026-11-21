@@ -863,8 +863,9 @@ export const en: Messages = {
       add: 'Add',
       added: 'Added',
       loadingCalendars: 'Reading the calendars…',
-      confirmRemove: (email, uses) =>
-        `Remove the sign-in for ${email}? This disconnects ${uses} for this account and removes its linked mail accounts and calendars from Harness Relay.`,
+      confirmRemove: (provider, email, uses, hasConnectors) =>
+        `Disconnect ${email} from ${provider}? This disconnects ${uses} in Harness Relay.` +
+        (hasConnectors ? ' Any mailboxes or calendars linked to this sign-in will be removed from Relay.' : ''),
       removedMicrosoft: (pages) =>
         `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
       clientState: { ready: 'Configured', disabled: 'Turned off', missing: 'Not set up' },
@@ -881,7 +882,7 @@ export const en: Messages = {
       setupGuide: { google: 'Google OAuth 2.0 setup guide', microsoft: 'Microsoft OAuth 2.0 setup guide' },
       settingsTitle: 'Account sign-in settings (OAuth 2.0)',
       settingsHint:
-        'Choose the provider whose app registration you want to set up or change. Gmail, Google Calendar and Google Drive share one Google registration.',
+        'Choose a provider to set up its app registration. Each linked account lists the services it uses. Disconnecting an account removes its access to all of those services in Relay.',
       settingsFor: { google: 'Google sign-in settings', microsoft: 'Microsoft sign-in settings' },
       configure: { google: 'Set up Google sign-in', microsoft: 'Set up Microsoft sign-in' },
       clientId: 'Client ID',
@@ -1708,7 +1709,6 @@ export const en: Messages = {
       github: 'Find pull requests and share chats.',
       obsidian: 'Read local Markdown notes. Preview and confirm each new note or edit.',
     },
-    confirmAccount: (email: string, apps: string) => `Disconnect ${email}? This removes access to ${apps} for this account.`,
   },
   tools: {
     relay: {
@@ -2642,7 +2642,7 @@ export const en: Messages = {
         title: 'Connect apps to your chats',
         body: 'Open Settings → Apps and tools → Common apps and choose a service. For Teams, sign in with a Microsoft work or school account. For Slack, choose the assistant you use in Relay.',
         points: [
-          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. If this is your first setup, open Account sign-in settings (OAuth 2.0) for the Google setup guide. Drive asks separately for permission to create or edit Google documents.',
+          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. Drive asks separately for permission to create or edit Google documents. Account sign-in settings (OAuth 2.0) has the setup guides and lists the accounts you can disconnect under Google or Microsoft.',
           'Choose assistants on the tool’s row. For Slack, open Send from Relay to choose who can draft messages. Relay shows a preview before posting a message, changing an Obsidian note or writing a Google document.',
           'To add a custom tool, skill or shared instruction, switch to the Tool library tab.',
         ],

@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   type ConnectorsView,
-  type OAuthAccountView,
   type OAuthView,
   type ObsidianVault,
   type RelayToolGroup,
@@ -49,8 +48,6 @@ export function CommonApps({
 }) {
   const t = useT();
   const a = t.apps;
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [teams, setTeams] = useState<TeamsConnection>();
   const linkedTeams = oauth?.accounts.filter((x) => x.provider === 'microsoft' && x.uses.includes('teams')) ?? [];
   const microsoftClient = oauth?.clients.find((client) => client.provider === 'microsoft');
@@ -72,150 +69,121 @@ export function CommonApps({
             : teamsAccount
               ? [teamsAccount, t.connectors.oauth.connected].join(' · ')
               : undefined;
-  const disconnect = async (account: OAuthAccountView) => {
-    const uses = account.uses.map((use) => t.connectors.oauth.uses[use]).join(t.common.listSeparator);
-    if (!confirm(a.confirmAccount(account.email, uses))) return;
-    try {
-      const removed = await api.removeOAuthAccount(account.id);
-      setNotice(
-        removed.permissionsPages?.length ? t.connectors.oauth.removedMicrosoft(removed.permissionsPages.join(t.common.listSeparator)) : '',
-      );
-      await refreshAccounts();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
   return (
-    <>
-      {error && (
-        <p role="alert" className="error-line">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="muted small">
-          {notice}
-        </p>
-      )}
-      <div className="common-apps">
-        <OAuthClientSettings view={oauth} onSaved={refreshAccounts} />
-        <AppGroup name={a.categories.schedule}>
-          {(['mail', 'calendar'] as const).map((kind) => {
-            const count = connectors?.[kind].length ?? 0;
-            const grants = oauth?.accounts.filter((account) => account.uses.includes(kind)) ?? [];
-            const status = grants.some((account) => account.status === 'reauth')
-              ? t.connectors.oauth.reauth
-              : count
-                ? a.added[kind](count)
-                : grants.length
-                  ? a.signedInFor[kind]
-                  : undefined;
-            return (
-              <AppRow
-                key={kind}
-                name={t.tools.relay.groups[kind]}
-                description={a.details[kind]}
-                label={status ? a.manage : a.options}
-                status={status}
-              >
-                {accountSettings(kind)}
-                {relayAccess(kind)}
-              </AppRow>
-            );
-          })}
-        </AppGroup>
-        <AppGroup name={a.categories.team}>
-          <AppRow
-            name="Microsoft Teams"
-            description={a.details.teams}
-            label={teamsAccount ? a.manage : a.connect}
-            status={teamsStatus}
-            reveal={pendingTeams}
-          >
-            {linkedTeams.map((account) => (
-              <div key={account.id}>
-                <span>
-                  {account.email} ·{' '}
-                  {microsoftState !== 'ready'
-                    ? t.connectors.oauth.clientState[microsoftState]
-                    : account.status === 'reauth'
-                      ? t.connectors.oauth.reauth
-                      : t.connectors.oauth.connected}
-                </span>
-                {account.status === 'reauth' && (
-                  <AppSignIn
-                    disabled={microsoftState !== 'ready'}
-                    name="Microsoft Teams"
-                    startRequest={() => api.startOAuthSignIn('microsoft', account.uses, false, account.id)}
-                    onDone={refreshAccounts}
-                    button={t.connectors.oauth.signInAgain}
-                  />
-                )}
-                <button className="link-button" onClick={() => void disconnect(account)}>
-                  {a.disconnect}
-                </button>
-              </div>
-            ))}
-            {linkedTeams.length > 0 && microsoftClient && microsoftState !== 'ready' && <OAuthSetupHint client={microsoftClient} />}
-            <TeamsSignIn view={teams} setView={setTeams} />
-            {(linkedTeams.length > 0 || teams?.status === 'connected') && relayAccess('teams')}
-          </AppRow>
-          <SlackAppRow active={activeApps} lib={lib} accounts={hostedAccounts} access={relayAccess('slack')} change={change} />
-        </AppGroup>
-        <AppGroup name={a.categories.notes}>
-          <GoogleProjectConnection
-            accounts={oauth?.accounts.filter((x) => x.provider === 'google') ?? []}
-            client={oauth?.clients.find((c) => c.provider === 'google')}
-            onDone={refreshAccounts}
-            onDisconnect={disconnect}
-            access={relayAccess('drive')}
-          />
-          {(Object.keys(remote) as (keyof typeof remote)[]).map((key) => {
-            const server = lib.mcpServers.find((s) => s.app === key);
-            const signIn = (
-              <AppSignIn
-                name={remote[key]}
-                oauth={server?.oauth}
-                button={
-                  server?.oauth ? undefined : (
-                    <span className="app-row-action">
-                      {a.connect}
-                      <ChevronIcon size={14} />
-                    </span>
-                  )
-                }
-                buttonLabel={server?.oauth ? undefined : a.connectApp(remote[key])}
-                rowDescription={server?.oauth ? undefined : a.details[key]}
-                startRequest={() => api.startAppSignIn(key)}
-                onDone={() => change(() => api.tools())}
-                onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
-              />
-            );
-            return (
-              <AppRow
-                key={key}
-                name={remote[key]}
-                description={a.details[key]}
-                label={server?.oauth ? a.manage : undefined}
-                status={
-                  server?.oauth ? (server.oauth.status === 'reauth' ? t.connectors.oauth.reauth : t.connectors.oauth.connected) : undefined
-                }
-              >
-                {signIn}
-              </AppRow>
-            );
-          })}
-          <VaultConnection vaults={lib.obsidianVaults ?? []} change={change} access={relayAccess('obsidian')} />
-        </AppGroup>
-        <AppGroup name={a.categories.dev}>
-          <GithubConnectionRow access={relayAccess('github')} />
-          <AppRow name={t.tools.relay.groups.browser} description={a.details.browser} label={a.manage}>
-            {relayAccess('browser')}
-            {browserSettings}
-          </AppRow>
-        </AppGroup>
-      </div>
-    </>
+    <div className="common-apps">
+      <OAuthClientSettings view={oauth} onSaved={refreshAccounts} />
+      <AppGroup name={a.categories.schedule}>
+        {(['mail', 'calendar'] as const).map((kind) => {
+          const count = connectors?.[kind].length ?? 0;
+          const grants = oauth?.accounts.filter((account) => account.uses.includes(kind)) ?? [];
+          const status = grants.some((account) => account.status === 'reauth')
+            ? t.connectors.oauth.reauth
+            : count
+              ? a.added[kind](count)
+              : grants.length
+                ? a.signedInFor[kind]
+                : undefined;
+          return (
+            <AppRow
+              key={kind}
+              name={t.tools.relay.groups[kind]}
+              description={a.details[kind]}
+              label={status ? a.manage : a.options}
+              status={status}
+            >
+              {accountSettings(kind)}
+              {relayAccess(kind)}
+            </AppRow>
+          );
+        })}
+      </AppGroup>
+      <AppGroup name={a.categories.team}>
+        <AppRow
+          name="Microsoft Teams"
+          description={a.details.teams}
+          label={teamsAccount ? a.manage : a.connect}
+          status={teamsStatus}
+          reveal={pendingTeams}
+        >
+          {linkedTeams.map((account) => (
+            <div key={account.id}>
+              <span>
+                {account.email} ·{' '}
+                {microsoftState !== 'ready'
+                  ? t.connectors.oauth.clientState[microsoftState]
+                  : account.status === 'reauth'
+                    ? t.connectors.oauth.reauth
+                    : t.connectors.oauth.connected}
+              </span>
+              {account.status === 'reauth' && (
+                <AppSignIn
+                  disabled={microsoftState !== 'ready'}
+                  name="Microsoft Teams"
+                  startRequest={() => api.startOAuthSignIn('microsoft', account.uses, false, account.id)}
+                  onDone={refreshAccounts}
+                  button={t.connectors.oauth.signInAgain}
+                />
+              )}
+            </div>
+          ))}
+          {linkedTeams.length > 0 && microsoftClient && microsoftState !== 'ready' && <OAuthSetupHint client={microsoftClient} />}
+          <TeamsSignIn view={teams} setView={setTeams} />
+          {(linkedTeams.length > 0 || teams?.status === 'connected') && relayAccess('teams')}
+        </AppRow>
+        <SlackAppRow active={activeApps} lib={lib} accounts={hostedAccounts} access={relayAccess('slack')} change={change} />
+      </AppGroup>
+      <AppGroup name={a.categories.notes}>
+        <GoogleProjectConnection
+          accounts={oauth?.accounts.filter((x) => x.provider === 'google') ?? []}
+          client={oauth?.clients.find((c) => c.provider === 'google')}
+          onDone={refreshAccounts}
+          access={relayAccess('drive')}
+        />
+        {(Object.keys(remote) as (keyof typeof remote)[]).map((key) => {
+          const server = lib.mcpServers.find((s) => s.app === key);
+          const signIn = (
+            <AppSignIn
+              name={remote[key]}
+              oauth={server?.oauth}
+              button={
+                server?.oauth ? undefined : (
+                  <span className="app-row-action">
+                    {a.connect}
+                    <ChevronIcon size={14} />
+                  </span>
+                )
+              }
+              buttonLabel={server?.oauth ? undefined : a.connectApp(remote[key])}
+              rowDescription={server?.oauth ? undefined : a.details[key]}
+              startRequest={() => api.startAppSignIn(key)}
+              onDone={() => change(() => api.tools())}
+              onSignOut={() => (server ? change(() => api.signOutMcp(server.name)) : Promise.resolve(false))}
+            />
+          );
+          return (
+            <AppRow
+              key={key}
+              name={remote[key]}
+              description={a.details[key]}
+              label={server?.oauth ? a.manage : undefined}
+              status={
+                server?.oauth ? (server.oauth.status === 'reauth' ? t.connectors.oauth.reauth : t.connectors.oauth.connected) : undefined
+              }
+            >
+              {signIn}
+            </AppRow>
+          );
+        })}
+        <VaultConnection vaults={lib.obsidianVaults ?? []} change={change} access={relayAccess('obsidian')} />
+      </AppGroup>
+      <AppGroup name={a.categories.dev}>
+        <GithubConnectionRow access={relayAccess('github')} />
+        <AppRow name={t.tools.relay.groups.browser} description={a.details.browser} label={a.manage}>
+          {relayAccess('browser')}
+          {browserSettings}
+        </AppRow>
+      </AppGroup>
+    </div>
   );
 }
 

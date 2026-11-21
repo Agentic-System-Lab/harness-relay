@@ -11,13 +11,11 @@ export function GoogleProjectConnection({
   client,
   accounts,
   onDone,
-  onDisconnect,
   access,
 }: {
   client?: OAuthClientView;
   accounts: OAuthAccountView[];
   onDone: () => Promise<void>;
-  onDisconnect: (account: OAuthAccountView) => Promise<void>;
   access: ReactNode;
 }) {
   const t = useT();
@@ -71,9 +69,6 @@ export function GoogleProjectConnection({
                       />
                     )
                   )}
-                  <button type="button" className="link-button" onClick={() => void onDisconnect(account)}>
-                    {a.disconnect}
-                  </button>
                 </div>
               </div>
             );

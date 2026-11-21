@@ -21,6 +21,14 @@ export function oauthClientStatus(client: OAuthClientView | undefined): 'disable
   return client?.clientId && (client.provider === 'microsoft' || client.secret) ? 'ready' : 'missing';
 }
 
+/** The services this shared sign-in will disconnect, in the order shown by the provider's account view. */
+export function accountServices(account: Pick<OAuthAccountView, 'provider' | 'uses'>, t: Messages): string {
+  const o = t.connectors.oauth;
+  return account.uses
+    .map((use) => (use === 'mail' || use === 'calendar' ? o.accountServices[account.provider][use] : o.uses[use]))
+    .join(t.common.listSeparator);
+}
+
 /** Where the provider's page sends the browser back: this web app's own page for it. */
 export const CALLBACK_PATH = '/oauth/callback';
 

@@ -3580,13 +3580,28 @@ body:has(.cs-dialog[open]) {
    said so under it. */
 .doc-figure {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 10px 0 24px;
 }
 
-.doc-figure > img {
-  width: 100%;
+.doc-body img {
   height: auto;
+}
+
+.doc-body h2 > svg {
+  display: inline-block;
+  vertical-align: -0.06em;
+}
+
+.doc-figure > a:has(> img),
+.doc-figure > img {
+  justify-self: start;
+  max-width: 100%;
+}
+
+.doc-figure > img,
+.doc-figure > a > img {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);

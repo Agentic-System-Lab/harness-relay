@@ -13,8 +13,7 @@ import {
 } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { useI18n, useT } from '../i18n';
-import { HARNESS_RELAY_URL } from '../share';
-import { accountActions, calendarName, oauthClientStatus, redirectAddresses, sayPopupBlocked, waiting } from '../oauth';
+import { accountActions, accountServices, calendarName, oauthClientStatus, redirectAddresses, sayPopupBlocked, waiting } from '../oauth';
 import { isAppWindow } from '../update';
 
 type AccountUse = 'mail' | 'calendar';
@@ -77,9 +76,9 @@ function useConfigureOAuth() {
 
 function OAuthGuideLink({ provider }: { provider: OAuthProviderId }) {
   const { lang, t } = useI18n();
-  const path = (lang === 'zh-TW' ? 'zh-TW/' : '') + 'docs/tools/#' + provider + '-oauth-setup';
+  const path = `/help/oauth/${lang}/${provider}.html`;
   return (
-    <a href={HARNESS_RELAY_URL + path} target="_blank" rel="noreferrer">
+    <a href={path} target="_blank" rel="noreferrer">
       {t.connectors.oauth.setupGuide[provider]}
     </a>
   );
@@ -108,15 +107,35 @@ export function OAuthSetupHint({ client, kind, id }: { client: OAuthClientView; 
 
 export function OAuthClientSettings({ view, onSaved }: { view: OAuthView | null; onSaved: () => Promise<void> }) {
   const { editor, configure, closeEditor, setupPanel, owner } = useContext(AccountSignInContext)!;
-  const o = useT().connectors.oauth;
+  const t = useT();
+  const o = t.connectors.oauth;
+  const [notice, setNotice] = useState('');
   const [changing, setChanging] = useState(false);
   const [error, setError] = useState('');
   const toggle = async (entry: OAuthClientView) => {
     if (!entry.disabled && !window.confirm(o.confirmTurnOff[entry.provider])) return;
     setChanging(true);
     setError('');
+    setNotice('');
     try {
       await api.setOAuthClientDisabled(entry.provider, !entry.disabled);
+      await onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChanging(false);
+    }
+  };
+  const disconnect = async (account: OAuthAccountView) => {
+    const services = accountServices(account, t);
+    const hasConnectors = account.uses.includes('mail') || account.uses.includes('calendar');
+    if (!window.confirm(o.confirmRemove(o.providers[account.provider], account.email, services, hasConnectors))) return;
+    setChanging(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api.removeOAuthAccount(account.id);
+      if (result.permissionsPages?.length) setNotice(o.removedMicrosoft(result.permissionsPages.join(t.common.listSeparator)));
       await onSaved();
     } catch (e) {
       setError((e as Error).message);
@@ -142,29 +161,54 @@ export function OAuthClientSettings({ view, onSaved }: { view: OAuthView | null;
             const entry = view?.clients.find((c) => c.provider === p);
             const name = p === 'google' ? 'Google' : 'Microsoft';
             const state = oauthClientStatus(entry);
+            const accounts = view?.accounts.filter((account) => account.provider === p) ?? [];
             return (
-              <div className="oauth-client-row" key={p} role="group" aria-label={name}>
-                <button
-                  type="button"
-                  className="ghost"
-                  aria-pressed={editor?.provider === p}
-                  aria-label={o.settingsFor[p]}
-                  disabled={!!owner || !view || changing}
-                  onClick={() => configure(p)}
-                >
-                  {name}
-                </button>
-                {entry && <span className="small muted">{o.clientState[state]}</span>}
-                {entry && state !== 'missing' && (
+              <div key={p} role="group" aria-label={name}>
+                <div className="oauth-client-row">
                   <button
                     type="button"
-                    className="link-button"
-                    ref={editor?.provider === p && entry.disabled ? enableButton : undefined}
-                    disabled={changing}
-                    onClick={() => toggle(entry)}
+                    className="ghost"
+                    aria-pressed={editor?.provider === p}
+                    aria-label={o.settingsFor[p]}
+                    disabled={!!owner || !view || changing}
+                    onClick={() => configure(p)}
                   >
-                    {entry.disabled ? o.turnOn : o.turnOff}
+                    {name}
                   </button>
+                  {entry && <span className="small muted">{o.clientState[state]}</span>}
+                  {entry && state !== 'missing' && (
+                    <button
+                      type="button"
+                      className="link-button"
+                      ref={editor?.provider === p && entry.disabled ? enableButton : undefined}
+                      disabled={changing}
+                      onClick={() => toggle(entry)}
+                    >
+                      {entry.disabled ? o.turnOn : o.turnOff}
+                    </button>
+                  )}
+                </div>
+                {accounts.length > 0 && (
+                  <ul className="lib-list oauth-client-accounts">
+                    {accounts.map((account) => (
+                      <li key={account.id}>
+                        <div className="lib-row" role="group" aria-label={account.email}>
+                          <div className="lib-row-main">
+                            <strong className="lib-name">{account.email}</strong>
+                            <span className="small muted">{accountServices(account, t)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="ghost small-button danger"
+                            disabled={!!owner || changing}
+                            onClick={() => disconnect(account)}
+                          >
+                            {o.disconnectAccount}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             );
@@ -173,6 +217,11 @@ export function OAuthClientSettings({ view, onSaved }: { view: OAuthView | null;
         {error && (
           <p role="alert" className="error-line">
             {error}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="small muted">
+            {notice}
           </p>
         )}
         {client && (
@@ -305,18 +354,6 @@ export function OAuthAccounts({
     }
   };
 
-  const remove = async (a: OAuthAccountView) => {
-    const services = a.uses.map((use) => (use === 'mail' || use === 'calendar' ? o.accountServices[a.provider][use] : o.uses[use]));
-    if (!confirm(o.confirmRemove(a.email, services.join(t.common.listSeparator)))) return;
-    try {
-      const r = await api.removeOAuthAccount(a.id);
-      await Promise.all([reloadOAuth(), reloadConnectors()]);
-      setInfo(r.permissionsPages?.length ? { text: o.removedMicrosoft(r.permissionsPages.join(t.common.listSeparator)) } : undefined);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
   const available = (p: OAuthProviderId) => oauthClientStatus(view?.clients.find((client) => client.provider === p)) === 'ready';
   const accounts = view?.accounts ?? [];
   const label = (p: OAuthProviderId) => o.providers[p];
@@ -384,9 +421,6 @@ export function OAuthAccounts({
                           {o.restoreMail}
                         </button>
                       )}
-                      <button type="button" className="ghost small-button danger" disabled={busy} onClick={() => remove(account)}>
-                        {o.disconnectAccount}
-                      </button>
                     </div>
                     {ready && calendarsOf === account.id && !can.signInAgain && (
                       <AccountCalendars

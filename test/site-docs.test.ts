@@ -385,6 +385,77 @@ describe('the docs', () => {
     }
   });
 
+  it('places the tools guides, settings and screenshots in the order of Apps and tools', () => {
+    const order = [
+      'common-apps',
+      'oauth-settings',
+      'google-oauth-setup',
+      'microsoft-oauth-setup',
+      'accounts',
+      'mail',
+      'calendar',
+      'microsoft-teams',
+      'slack',
+      'google-drive',
+      'notion',
+      'heptabase',
+      'obsidian',
+      'github',
+      'browser-mail-calendar',
+      'library',
+      'mcp-servers',
+      'skills',
+      'memory',
+      'hooks',
+      'default-team-checks',
+      'outbox',
+      'per-member',
+      'own-setup',
+    ];
+    const pages = docs.filter((d) => d.path === 'docs/tools/');
+    expect(pages.map((page) => page.lang).sort()).toEqual(['en', 'zh-TW']);
+    for (const page of pages) {
+      expect(
+        links(page.toc, page.url).map((link) => new URL(link.href).hash.slice(1)),
+        page.file,
+      ).toEqual(order);
+      expect(
+        [...page.article.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]),
+        page.file,
+      ).toEqual(order);
+      for (const [section, assets] of Object.entries({
+        'oauth-settings': ['tools-oauth-accounts'],
+        'google-oauth-setup': ['google-cloud-client-details', 'tools-oauth-settings'],
+        'microsoft-oauth-setup': ['microsoft-entra-desktop-platform', 'tools-oauth-microsoft'],
+        mail: ['tools-mail-services', 'tools-gmail-setup', 'tools-mail-connected', 'tools-outbox'],
+        calendar: ['tools-calendar-services', 'tools-icloud-setup', 'tools-calendar-connected'],
+        'microsoft-teams': ['tools-teams-setup'],
+        slack: ['tools-hosted-slack', 'tools-slack-preview'],
+        'google-drive': ['tools-drive-add-account', 'tools-drive-editing', 'tools-docs-preview'],
+        obsidian: ['tools-obsidian-settings', 'tools-obsidian-preview'],
+        'browser-mail-calendar': ['tools-browser'],
+      })) {
+        const body = slice(page.article, '<section id="' + section + '"', '</section>');
+        for (const asset of assets) expect(body, page.file + '#' + section).toContain('/' + asset);
+      }
+      expect(slice(page.article, '<section id="oauth-settings"', '</section>')).toContain('id="oauth-accounts"');
+    }
+  });
+
+  it('links to both OAuth setup guides from each docs home page and preserves the aspect ratio of linked screenshots', () => {
+    for (const lang of ['en', 'zh-TW'] as const) {
+      const home = doc(overview(lang));
+      const header = slice(home.body, '<header class="doc-head">', '</header>');
+      const targets = links(header, home.url).map((link) => link.href);
+      for (const provider of ['google', 'microsoft']) {
+        expect(targets).toContain(new URL('tools/#' + provider + '-oauth-setup', home.url).href);
+      }
+    }
+    // The global max-width shrinks both linked and standalone images. Their HTML height
+    // is the natural height and must give way to automatic sizing at narrower widths.
+    expect(read('site/assets/site.css')).toMatch(/\.doc-body img\s*\{[^}]*height:\s*auto;/);
+  });
+
   it('link only to what is there: their pages and sections, the pictures, and the files and headings on GitHub', () => {
     for (const page of docs) {
       const here = ids(page.html);

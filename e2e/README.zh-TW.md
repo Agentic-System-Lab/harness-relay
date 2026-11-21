@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 42 個 spec 檔、554 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 42 個 spec 檔、555 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -54,7 +54,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 11 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
-| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 12 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
+| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
@@ -344,8 +344,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在完全存取對話中於所選的 Obsidian 筆記庫建立或編輯筆記 | Claude Code | 兩個筆記庫有同名筆記時，預覽會顯示所選筆記庫的完整路徑，只有所選的筆記會變更。若在確認前解除該筆記庫的連結，就無法儲存待確認的修改。每項提案都會在聊天中等候確認。**捨棄**會取消提案，**建立筆記**與**儲存變更**會將預覽的 Markdown 寫入筆記庫。預覽後在磁碟上變動過的筆記會保留較新的內容。 |
 | 編輯舊的 Gmail 密碼信箱 | — | 改用 OAuth 登入前已儲存的信箱仍能編輯，不需重新輸入已儲存的密碼。 |
 | 暫停與恢復 Google 存取 | Claude Code | Drive 已連結時，停用 Google 前會列出受影響服務並要求確認。取消後連線仍有效。確認並重新整理後，Google 維持停用、Outlook 仍可使用，再啟用 Google 會沿用原用戶端與帳號授權。 |
-| 連結 Google Drive 並開啟文件編輯 | Claude Code | 先以 OAuth 授予唯讀權限。「管理」在該帳號那一列顯示權限與「開啟文件新增與編輯」，下方的「新增帳號」可展開。授權編輯後會更新同一帳號，解除連結時兩項授權一併移除。 |
-| 分別連結與解除兩個 Google Drive 帳號 | — | 兩個 Google 帳號共用同一桌面用戶端。解除一個帳號後，另一個帳號仍保留連線及自己的授權。 |
+| 連結 Google Drive 並開啟文件編輯 | Claude Code | 先以 OAuth 授予唯讀權限。「管理」在該帳號那一列顯示權限與「開啟文件新增與編輯」，下方的「新增帳號」可展開。授權編輯後會更新同一帳號。在共用 OAuth 設定的 **Google** 區塊解除該電子郵件地址的連結後，兩項授權一併移除。 |
+| 分別連結與解除兩個 Google Drive 帳號 | — | 兩個 Google 帳號共用同一桌面用戶端。Drive 列顯示各自權限，在共用 OAuth 設定的 **Google** 區塊解除其中一個電子郵件地址的連結後，另一個帳號仍保留自己的授權。 |
 | 在完全存取對話中建立及編輯 Google 文件 | Claude Code | 使用本機 Google OAuth 與 Docs 替身，驗證另外授予的文件編輯權限。建立文件或替換唯一符合的原文前，都要核對帳號、目標與文字並確認。捨棄不會寫入，重新整理後仍可檢閱待建立的文件；即使標題含另一份文件的網址，儲存結果仍連到實際建立的文件。文件版本變更後則無法套用舊提案。 |
 | 在完全存取對話中傳送 Slack 訊息 | Claude Code | 工作區權杖啟用發文後，才會在**從 Relay 傳送訊息**中顯示助理選擇。開放 Claude Code 使用這項工具後，它的代管 Slack 連線仍可維持未設定。預覽顯示傳送者、目的地與純文字訊息。**捨棄**會取消提案，第二則草稿在重新整理後仍保留，按**送出**才會依預覽內容發送一次。 |
 | 桌面與手機上的常用 App 與設定表單 | — | 檢查 Google Drive、郵件與行事曆控制項的字型及間距、服務按鈕在桌面與手機寬度下是否貼合單行標籤、**其他（CalDAV）**表單中 iCloud 預設的密碼說明，以及 OpenHands 執行檔標籤在 1280、390 與 320 像素寬度下的位置。 |
@@ -375,13 +375,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 選 **Outlook** 可查看該服務的設定。還沒有註冊 app 時，按**設定 Microsoft 登入**會開啟共用的**帳號登入設定（OAuth 2.0）**，顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**管理行事曆**會將預設行事曆標為**已加入**。加入另一個後再全部移除，仍可在同一帳號按**選擇行事曆**重新加入。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的**管理行事曆**說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**解除帳號連結**會先列出受影響的服務，同一登錄的另一個帳號與手動行事曆會保留。確認後會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
-| 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在**郵件 → Outlook** 按**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。**郵件**會列出這個帳號。它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **加入信箱**（Add mailbox）不必重新登入就再加入它，之後這個按鈕就不見了。從行事曆登入並選取相同的 Microsoft 帳號後，原有的郵件帳號會新增行事曆用途，Teams 權限維持關閉。等候授權時無法從郵件再開始登入。回呼頁面連回常用 App，同一帳號具有兩種用途。移除信箱後，如果共用的登入失效，收合的郵件列會顯示**需要重新登入**。從郵件重新登入可恢復兩項授權，再按**加入信箱**即可加回信箱。移除登入前會列出兩種用途，確認後才移除信箱與行事曆。 |
+| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 選 **Outlook** 可查看該服務的設定。還沒有註冊 app 時，按**設定 Microsoft 登入**會開啟共用的**帳號登入設定（OAuth 2.0）**，顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**管理行事曆**會將預設行事曆標為**已加入**。加入另一個後再全部移除，仍可在同一帳號按**選擇行事曆**重新加入。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的**管理行事曆**說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。在**帳號登入設定（OAuth 2.0）**的 **Microsoft** 區塊按**解除帳號連結**，會先列出受影響的服務。同一註冊的另一個帳號與手動行事曆會保留。確認後會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
+| 相同電子郵件地址的 Google 與 Microsoft 帳號可各自解除連結 | — | 兩個服務提供者分別列出該地址及其授權用途。在 Microsoft 下按「解除帳號連結」只會列出 Outlook 行事曆與舊版 Teams 存取權。取消會保留帳號，確認後 Google 的 Gmail、Drive 和文件授權仍可使用。 |
+| 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在**郵件 → Outlook** 按**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。**郵件**會列出這個帳號。它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **加入信箱**（Add mailbox）不必重新登入就再加入它，之後這個按鈕就不見了。從行事曆登入並選取相同的 Microsoft 帳號後，原有的郵件帳號會新增行事曆用途，Teams 權限維持關閉。等候授權時無法從郵件再開始登入。回呼頁面連回常用 App，同一帳號具有兩種用途。移除信箱後，如果共用的登入失效，收合的郵件列會顯示**需要重新登入**。從郵件重新登入可恢復兩項授權，再按**加入信箱**即可加回信箱。在共用 OAuth 設定的 **Microsoft** 區塊解除該帳號連結前會列出兩種用途，確認後才移除信箱與行事曆。 |
 | 較早的回應延遲時依舊正確移除資源 | — | 同帳號第一個行事曆的刪除回應延遲，不會讓已刪除的第二個行事曆重現。來自行事曆的較早清單回應也不會讓已移除的信箱重現。兩個服務中都仍可從該帳號加回資源。 |
 | 找到常用 App 的連線方式 | — | 十個服務中，郵件與行事曆排在最前面。Teams 可直接登入 Microsoft，Slack 提供可用鍵盤操作的 Claude、Codex 連線。Drive 提供 Google OAuth 與獨立的 Google 文件編輯授權。 |
 | 三個服務共用 Google 桌面用戶端 | — | Gmail、行事曆與 Drive 會開啟同一份用戶端表單。儲存後三者皆可登入，各服務向 Google 要求授權時都使用已儲存的用戶端 ID 與該服務的權限範圍。已設定的 Gmail 與 Google Calendar 各只顯示一個登入按鈕。 |
 | 重試失敗的儲存並保留較新的草稿 | — | 儲存失敗可重試，較舊的請求完成時也不會覆寫另一個服務提供者較新的草稿。 |
-| 從帳號登入設定開啟教學（英文、繁體中文） | — | 面板可開啟兩家服務對應語言的教學，選好服務後表單只顯示該服務的指南。 |
+| 從帳號登入設定開啟教學（英文、繁體中文） | — | 兩家服務的連結會在新分頁開啟 Relay 隨附的本機圖解。步驟和圖片可以讀取，手機與桌面上的圖片都保持原比例，並可點開原圖。編輯註冊資料時會顯示該服務的指南。 |
 | OAuth 設定的桌面與手機版面 | — | 不同螢幕寬度下，說明、按鈕和表單控制項之間都有足夠間距。 |
 | Google 用戶端缺少密碼時 | — | Google 登入、Drive 讀取與文件編輯按鈕停用，原因、設定捷徑和圖解仍可開啟。完成設定後即可授權。已設定的 Outlook 與手動信箱仍可使用。 |
 | OAuth 設定無法載入時仍可手動設定帳號 | — | OAuth 設定請求失敗時，仍可在郵件的**其他信箱**表單儲存手動設定的 IMAP/SMTP 信箱，也可從行事曆的**其他（CalDAV）**開啟表單，儲存使用密碼的 CalDAV 網址。重新整理後，兩者仍在各自的服務列。 |

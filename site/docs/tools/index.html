@@ -237,15 +237,28 @@
       <nav class="doc-toc" aria-label="On this page">
         <p class="doc-toc-title">On this page</p>
         <ol>
-          <li><a href="#common-apps">Connect your apps</a></li>
-          <li><a href="#microsoft-teams">Set up Microsoft Teams</a></li>
-          <li><a href="#google-drive">Manage Google Drive and Docs access</a></li>
-          <li><a href="#browser-mail-calendar">Browser, mail and calendar</a></li>
-          <li><a href="#outbox">Review outgoing messages, documents and notes</a></li>
-          <li><a href="#accounts">Your mail and calendar accounts</a></li>
+          <li><a href="#common-apps">Common apps</a></li>
+          <li><a href="#oauth-settings">Account sign-in settings (OAuth 2.0)</a></li>
           <li><a href="#google-oauth-setup">Set up Google OAuth 2.0</a></li>
           <li><a href="#microsoft-oauth-setup">Set up Microsoft OAuth 2.0</a></li>
-          <li><a href="#library">Your MCP servers, skills, memory and hooks</a></li>
+          <li><a href="#accounts">Mail and calendar accounts</a></li>
+          <li><a href="#mail">Mail</a></li>
+          <li><a href="#calendar">Calendar</a></li>
+          <li><a href="#microsoft-teams">Microsoft Teams</a></li>
+          <li><a href="#slack">Slack</a></li>
+          <li><a href="#google-drive">Google Drive and Google Docs</a></li>
+          <li><a href="#notion">Notion</a></li>
+          <li><a href="#heptabase">Heptabase</a></li>
+          <li><a href="#obsidian">Obsidian</a></li>
+          <li><a href="#github">GitHub</a></li>
+          <li><a href="#browser-mail-calendar">Browser</a></li>
+          <li><a href="#library">Tool library</a></li>
+          <li><a href="#mcp-servers">MCP servers</a></li>
+          <li><a href="#skills">Skills</a></li>
+          <li><a href="#memory">Memory</a></li>
+          <li><a href="#hooks">Hooks</a></li>
+          <li><a href="#default-team-checks">Default team checks</a></li>
+          <li><a href="#outbox">Review the outbox</a></li>
           <li><a href="#per-member">Tools for one member</a></li>
           <li><a href="#own-setup">What each agent loads by itself</a></li>
         </ol>
@@ -253,127 +266,18 @@
 
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
-          <h2 id="common-apps-title">Connect your apps</h2>
-          <p>All four groups appear on the <b>Common apps</b> tab. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub and Browser.</p>
-          <p>On the <b>Common apps</b> tab, choose <b>Connect</b> beside Slack, then select Claude or Codex. For Claude Code, authorize the service with the same Claude subscription account you use in Relay. For Codex, install the plugin in your ChatGPT workspace, authorize the service and open a new Relay chat. When you return, <b>Connected in Claude</b> means Claude Code reports the connector connected. <b>Available in Codex</b> means the app is enabled and callable. In Codex, open the app under <b>Settings → Plugins</b> to see which account or workspace you authorized. Removing an account there can leave the app available in Codex. Select <b>Check connections</b> or return from the provider page to check the connection. For Codex, this reads only your own service profile. <b>Connected in Codex</b> means the profile check succeeded. Relay shows its result without your profile details. Use the connected provider’s <b>Disconnect</b> link to open its management page, remove that connection, then return to verify its status. Each provider and Relay’s direct tools retain their own grants. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
-          <ul>
-            <li><b>Microsoft Teams</b> connects a work or school account directly to Relay for reading channels or drafting a message. <a href="#microsoft-teams">Set up Microsoft Teams</a></li>
-            <li><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval. Select the Claude or Codex account you want to use. Relay can check each connection independently without reading Slack messages. <a href="../../assets/media/docs/tools-hosted-slack-en.webp">See Slack connection settings</a></li>
-            <li><b>Google Drive</b> connects directly to Google for file search, reading and optional Google Docs editing. <a href="#google-drive">Set up or manage a Drive account</a></li>
-            <li>For <b>Notion</b> or <b>Heptabase</b>, select the service’s row to start sign-in. Review the requested access and authorize the workspace you want your assistants to use.</li>
-            <li>In <b>Obsidian</b>, use <b>Choose vault</b> to connect the first vault or <b>Add vaults</b> to connect more. Each folder on the Relay computer must contain a real <code>.obsidian</code> directory. In a remote browser, enter one full path per line. Relay checks all your selections before adding them. Every assistant selected under <b>Choose assistants to enable this tool</b> can use all connected vaults. Specify the vault when asking it to read, create or edit a note. To disconnect one vault, use the control beside its full path. Your notes stay on disk. <a href="../../assets/media/docs/tools-obsidian-settings-en.webp">See the vault settings</a></li>
-            <li id="github"><b>GitHub</b> uses the GitHub CLI account on the computer running Relay. Under <b>Development and browsing</b>, open the GitHub row to sign in. To sign out, select <b>Sign out of GitHub</b> and confirm the account shown. Chat sharing and GitHub automations share this CLI. Other accounts may remain signed in. If the row names a token environment variable, remove it from the environment that starts Relay, then restart Relay.</li>
-          </ul>
-          <p>Under <b>Mail and calendar</b>, open <b>Mail</b> or <b>Calendar</b>. The row shows settings for the service you select. Previously added accounts appear separately under <b>Connected mailboxes</b> or <b>Connected calendars</b>.</p>
-          <ul>
-            <li><b>Choose your mail service</b> offers <b>Gmail</b>, <b>iCloud Mail</b>, <b>Outlook</b> and <b>Other mailbox</b>. <a href="../../assets/media/docs/tools-mail-services-en.webp">See the four mail services</a></li>
-            <li><b>Choose your calendar service</b> offers <b>Google Calendar</b>, <b>iCloud Calendar</b>, <b>Outlook</b> and <b>Other (CalDAV)</b>. <a href="../../assets/media/docs/tools-calendar-services-en.webp">See the four calendar services</a></li>
-          </ul>
-          <p>For <b>Apple Calendar (iCloud)</b>, enter your Apple Account email and an app-specific password. To generate the password, enable two-factor authentication on your Apple Account, then follow the form’s Apple Account link to <b>Sign-In and Security → App-Specific Passwords</b>. Relay supplies the iCloud server address. Choose <b>Find calendars</b>, select an iCloud calendar and press <b>Save</b>. Calendars under <b>On My Mac</b> are local to that Mac. To use one in Relay, move it to iCloud in Apple Calendar first.</p>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-icloud-setup-en.webp"><img src="../../assets/media/docs/tools-icloud-setup-en.webp" width="842" height="479" alt="iCloud Calendar selected in the Calendar service chooser, with fields for Apple Account email and app-specific password and a Find calendars button." loading="lazy" /></a>
-          </figure>
-          <p>To post from Relay, open the <b>Slack</b> row and choose <b>Send from Relay</b>. Install a Slack app in your workspace, give it <code>chat:write</code> plus the read scope for your destination (<code>channels:read</code>, <code>groups:read</code>, <code>im:read</code> or <code>mpim:read</code>), and enter the bot or user OAuth token. Invite a bot to the channel first. Open <b>Assistants who can draft messages</b> inside <b>Send from Relay</b> after enabling sending. Slack connections in Claude and Codex have their own permissions.</p>
-          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a> · <a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mailbox and assistant selection on desktop</a></p>
-        </section>
-
-        <section id="microsoft-teams" aria-labelledby="microsoft-teams-title">
-          <h2 id="microsoft-teams-title">Set up Microsoft Teams</h2>
-          <ol>
-            <li>Open <b>Settings &amp; sign-in → Apps and tools → Common apps → Team messaging → Microsoft Teams</b>. If prompted, select <b>Install PowerShell 7</b>. Relay uses its data folder for Microsoft’s portable PowerShell package and any Graph sign-in module it needs to download. Relay can use an existing PowerShell 7 or Graph module. Installation needs no administrator privileges. If only the Graph module is missing, select <b>Install Microsoft Graph for Teams</b>.</li>
-            <li>Select <b>Sign in to Microsoft Teams</b>. Open Microsoft’s sign-in page, enter the device code shown in Relay and sign in with your work or school account. Your organization may require an administrator to approve access. Teams uses Microsoft Graph PowerShell’s own sign-in, so you can skip the Outlook client registration when connecting Teams.</li>
-            <li>Under <b>Choose assistants to enable this tool</b>, select the assistants that may list teams and channels and read recent channel messages. Try asking one to summarize a channel. Sign in again after the Relay server restarts.</li>
-            <li>To post, select <b>Enable sending</b> and complete a second device sign-in using the same account and tenant. Paste a Teams channel, chat or message link into the Relay chat and ask an assistant to draft a message. Review the sender, destination and full text, then select <b>Send</b> or <b>Discard</b>. Every post waits for you, even in Full access and automations. <a href="#outbox">Review an outgoing message</a></li>
-          </ol>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-teams-setup-en.webp"><img src="../../assets/media/docs/tools-teams-setup-en.webp" width="842" height="156" alt="Expanded Microsoft Teams row with the Install PowerShell 7 button." loading="lazy" /></a>
-            <figcaption>Select Install PowerShell 7 on the Teams row to prepare this computer for Microsoft sign-in.</figcaption>
-          </figure>
-          <p>If installation fails, follow the error shown and select <b>Retry installation</b>. To install PowerShell yourself, follow the steps for the computer running Relay. <a href="https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell">Microsoft’s PowerShell installation guide</a></p>
-        </section>
-
-        <section id="google-drive" aria-labelledby="google-drive-title">
-          <h2 id="google-drive-title">Manage Google Drive and Docs access</h2>
-          <p>In <b>Common apps → Documents and notes → Google Drive</b>, choose what the account can do. The default searches and reads files. The second option also allows creating and editing Google Docs. The third allows only creating and editing Google Docs. Select <b>Sign in with Google</b> once and approve the selected access. If prompted, select <b>Set up Google sign-in</b> and register the shared desktop client. <a href="#google-oauth-setup">Set up Google OAuth</a> · <a href="https://developers.google.com/workspace/docs/api/auth">Google Docs API permissions</a></p>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-drive-add-account-en.webp"><img src="../../assets/media/docs/tools-drive-add-account-en.webp" width="842" height="496" alt="Drive account setup with a choice of search and read, read and edit, or create and edit only, followed by one Sign in with Google button." loading="lazy" /></a>
-            <figcaption>Choose what this Google account can do, then sign in once to grant the selected permissions.</figcaption>
-          </figure>
-          <p>Once connected, select <b>Manage</b>. Each account shows its email and its permissions for reading Drive files and editing Google Docs. On a read-only account’s row, enable document creation and editing. On an editing-only account, select <b>Enable file search and reading</b>. <b>Disconnect</b> lists the account’s services before you confirm. <b>Sign in again</b> appears when an account’s authorization needs renewal. To connect another Google account, expand <b>Add account</b> below the list, choose from the same three options and select <b>Sign in with Google</b>.</p>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-drive-editing-en.webp"><img src="../../assets/media/docs/tools-drive-editing-en.webp" width="842" height="331" alt="Drive management with one read-only account and controls to enable document editing, disconnect or add an account." loading="lazy" /></a>
-            <figcaption>The account can search and read files. Use its row to grant permission to create and edit Google Docs.</figcaption>
-          </figure>
-          <p>Under <b>Choose assistants to enable this tool</b>, select the assistants that may use your connected accounts. When an assistant proposes a document change, check the account and the text in the outbox before choosing <b>Create document</b> or <b>Save changes</b>. <a href="#outbox">Review a proposed document</a></p>
-        </section>
-
-        <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
-          <h2 id="browser-mail-calendar-title">Browser, mail and calendar</h2>
+          <h2 id="common-apps-title">Common apps</h2>
+          <p>The <b>Common apps</b> tab opens with <a href="#oauth-settings">account sign-in settings</a>, followed by four groups. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub and Browser.</p>
+          <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a></p>
           <p>
             On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Choose assistants to enable this tool</b>. Select the assistants that can use that tool. After you select one or more, open <b>Assistants using this tool · N</b> to change them. Direct Drive, Teams, GitHub and Obsidian access works the same way. Slack’s assistant selection is inside its posting settings. For tools with multiple accounts, your selection applies to every account connected to that tool.
           </p>
-          <ul>
-            <li>
-              <b>Browser</b>: a browser of Harness Relay's own for each chat, with nothing signed in, deleted with the chat.
-              Agents open pages, read them, click and type, and take screenshots that show in their reply. It is never your
-              own browser or its sign-ins, and it downloads and uploads nothing.
-            </li>
-            <li><b>Mail</b>: search and read your mail, save drafts, and send mail through the outbox.</li>
-            <li><b>Calendar</b>: list your events, add events, and send invitations through the outbox.</li>
-          </ul>
-          <p>What a call may do without asking you depends on what it does:</p>
-          <table class="doc-table">
-            <thead>
-              <tr>
-                <th scope="col">A call that…</th>
-                <th scope="col">What happens</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">Reads</th>
-                <td>Opening and reading a page, searching mail, listing events: it just runs, also in an automation's run.</td>
-              </tr>
-              <tr>
-                <th scope="row">Changes something</th>
-                <td>
-                  A click or typing on a page, saving a draft, adding an event without attendees: below full access it asks
-                  you with a card first, saying exactly what it will do. <b>Always allow</b> works for each tool; an
-                  automation's run refuses it unless you always allowed it.
-                </td>
-              </tr>
-              <tr>
-                <th scope="row">Creates or edits a Google Doc or Obsidian note through Relay</th>
-                <td>Every write waits for your review in the outbox, including in Full access.</td>
-              </tr>
-              <tr>
-                <th scope="row">Reaches other people</th>
-                <td>Posting a direct Slack or Teams message, sending mail or inviting attendees to an event: it never goes out during the agent's turn. It waits in the outbox for you, whatever the permission.</td>
-              </tr>
-            </tbody>
-          </table>
-          <p>
-            Below full access, the browser also asks before it opens a site the chat's browser has not opened yet, as in this
-            frame:
-          </p>
-          <figure class="doc-figure">
-            <img
-              src="../../assets/media/docs/tools-browser-en.webp"
-              width="1280"
-              height="800"
-              alt="An approval card in a chat: @Copywriter wants to read a web page, the address it wants to open, a box to tell it what to do instead, and the buttons Allow, Always allow for that host in this chat, and Decline. The sidebar marks the chat Needs you."
-              loading="lazy"
-            />
-            <figcaption>
-              The browser asks before it opens a new site. A frame of the use case
-              <a href="../../use-cases/#launch-copy">Read the competition, then write the launch</a>.
-            </figcaption>
-          </figure>
+          <p>In a chat or an automation, reading a page, searching mail or listing events can run without approval. Below Full access, an action that changes a page, saves a mail draft or adds an event without attendees first shows an approval card describing the proposed action. Choose <b>Always allow</b> for a tool to let an automation use that action. Otherwise the automation refuses it.</p>
           <div class="doc-note">
             <svg aria-hidden="true"><use href="#i-info" /></svg>
             <div>
               <p>
-                Grok, Muse Code, Goose, Cline, OpenHands and Pi get these tools only in conversations with full access. Your
+                Grok, Muse Code, Goose, Cline, OpenHands and Pi get Relay’s direct tools only in conversations with full access. Your
                 passwords and accounts stay in Harness Relay: agents see only what each call returns, and are told it is
                 data from a page, a mail or a calendar, never instructions.
               </p>
@@ -381,75 +285,20 @@
           </div>
         </section>
 
-        <section id="outbox" aria-labelledby="outbox-title">
-          <h2 id="outbox-title">Review outgoing messages, documents and notes</h2>
-          <p>Paste a Slack conversation ID or link, or a Teams channel, chat or message link into the chat. Ask the assistant to draft the post. Check the sending account, the destination and the full plain text on the card, then choose <b>Send</b> or <b>Discard</b>. This applies in Full access and unattended automations too. A Teams channel message is a new channel post. <a href="../../assets/media/docs/tools-slack-preview-en.webp">See a Slack post awaiting Send</a></p>
-          <p>For a Google Doc, check the Google account and title. A new document shows its full proposed text. An edit shows the document, target tab and exact text to replace in one body paragraph. The replacement is plain text and inherits the surrounding style. To apply different formatting within it, edit in Google Docs. Choose <b>Create document</b> or <b>Save changes</b> to approve it, or <b>Discard</b>. If the document changed after the preview, ask for a fresh proposal.</p>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-docs-preview-en.webp"><img src="../../assets/media/docs/tools-docs-preview-en.webp" width="746" height="341" alt="A Google Docs edit awaiting confirmation in Relay, with the Google account, document, tab and exact original and replacement text." loading="lazy" /></a>
-          </figure>
-          <p>When an assistant proposes an Obsidian note, review the full vault path, the note’s path within that vault, and the Markdown. For an edit, compare the current and proposed text. Select <b>Create note</b> or <b>Save changes</b> to write it to the vault. <b>Discard</b> drops the proposal. If the note changed after the preview, ask the assistant to prepare a new edit. <a href="../../assets/media/docs/tools-obsidian-preview-en.webp">See an Obsidian edit preview</a></p>
-          <p>
-            When an agent wants to send a mail or an invitation, its reply shows a card instead: the message as it will go
-            out, field by field. Nothing has gone out yet.
-          </p>
-          <ul>
-            <li><b>Send</b> sends it as shown, from your account.</li>
-            <li><b>Discard</b> drops it.</li>
-          </ul>
-          <p>
-            Until you answer, the chat is marked <b>Needs you</b> and you are notified, as for an approval. The agent does not
-            wait for you: its turn goes on, so you can read the card and send it later, also after an automation's run that
-            nobody watched.
-          </p>
-          <figure class="doc-figure">
-            <img
-              src="../../assets/media/docs/tools-outbox-en.webp"
-              width="1280"
-              height="800"
-              alt="A card in @Mail_Reader's reply: Mail to tom@baysidedental.example, with its From, To and Subject, the whole body of the mail, and the buttons Send and Discard. It is marked Waiting for you."
-              loading="lazy"
-            />
-            <figcaption>
-              A mail waiting in the outbox. A frame of the use case
-              <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
-            </figcaption>
-          </figure>
-        </section>
-
-        <section id="accounts" aria-labelledby="accounts-title">
-          <h2 id="accounts-title">Your mail and calendar accounts</h2>
-          <p>In <b>Common apps</b>, open <b>Mail</b> to add a mailbox or <b>Calendar</b> to add a calendar.</p>
-          <ul>
-            <li>For <b>Gmail</b>, select <b>Sign in with Google</b> and allow mail access. To add a Gmail account, use the Gmail service. Gmail mailboxes previously added with a password remain available under <b>Connected mailboxes</b>. <a href="../../assets/media/docs/tools-gmail-setup-en.webp">See Gmail sign-in</a>. <b>Outlook</b> supports Microsoft 365 and Outlook.com sign-in.</li>
-            <li>For <b>iCloud Mail</b>, enter your iCloud Mail address and an Apple app-specific password. Relay fills in the mail servers. Under <b>Other mailbox</b>, pick the Fastmail or Yahoo Mail preset, or enter your provider’s IMAP and SMTP settings.</li>
-            <li>For other calendars, choose <b>Other (CalDAV)</b>, pick Fastmail or enter the CalDAV server address, then choose <b>Find calendars</b>.</li>
-          </ul>
-          <p>
-            <b>Test</b> signs in without sending anything. Passwords go to your system's credential store and are never shown
-            again; no agent ever gets them.
-          </p>
-          <p>In the <b>Calendar</b> row, select <b>Google Calendar</b> or <b>Outlook</b> for calendar access. To use one account for both mail and calendar, open the second service, select its sign-in button and choose the same account on Google’s or Microsoft’s consent page. Tokens stay in your credential store.</p>
-          <p>Under <b>Connected mailboxes</b> or <b>Connected calendars</b>, look for your email address. Each Google or Microsoft account lists its own resources. Use <b>Test</b> or <b>Remove mailbox</b> or <b>Remove calendar</b> on the resource. A manually configured resource also has <b>Edit</b>.</p>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-mail-connected-en.webp"><img src="../../assets/media/docs/tools-mail-connected-en.webp" width="842" height="380" alt="Connected mailboxes showing one Google account, its Gmail mailbox and the separate resource and account actions." loading="lazy" /></a>
-            <figcaption>Remove mailbox keeps the authorization. Add mailbox restores the mailbox on the same account.</figcaption>
-          </figure>
-          <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-calendar-connected-en.webp"><img src="../../assets/media/docs/tools-calendar-connected-en.webp" width="842" height="419" alt="Connected calendars showing one Google account with two calendars, each with its own Test and Remove calendar buttons." loading="lazy" /></a>
-            <figcaption>Manage calendars adds another calendar to this account. When you remove the last calendar, Choose calendars lets you select one again.</figcaption>
-          </figure>
-          <p>If an account’s authorization has expired, use <b>Sign in again</b> on that account. <b>Disconnect account</b> removes its shared sign-in. The confirmation lists every affected service, including mail, calendar or Drive access granted to that account. Other accounts keep their own access.</p>
-          <p><b>Account sign-in settings (OAuth 2.0)</b> shows Google and Microsoft separately as <b>Not set up</b>, <b>Configured</b> or <b>Turned off</b>. To pause one provider’s direct connections, choose <b>Turn off</b>, review the affected services and confirm. Its desktop client and existing grants are kept. Choose <b>Turn on</b> to resume.</p>
+        <section id="oauth-settings" aria-labelledby="oauth-settings-title">
+          <h2 id="oauth-settings-title">Account sign-in settings (OAuth 2.0)</h2>
           <p>Release builds ship without a default OAuth client. Select <b>Gmail</b>, <b>Google Calendar</b> or <b>Outlook</b> to open that service. If its OAuth settings are incomplete or turned off, the service shows a disabled sign-in button. Beside it, Relay explains why and links to the provider’s settings and illustrated guide. For a new registration, choose <b>Set up Google sign-in</b> or <b>Set up Microsoft sign-in</b> to open that provider in <b>Settings &amp; sign-in → Apps and tools → Common apps → Account sign-in settings (OAuth 2.0)</b>. <a href="#google-oauth-setup">Google setup</a> · <a href="#microsoft-oauth-setup">Microsoft setup</a></p>
+          <p><b>Account sign-in settings (OAuth 2.0)</b> shows Google and Microsoft separately as <b>Not set up</b>, <b>Configured</b> or <b>Turned off</b>. To pause one provider’s direct connections, choose <b>Turn off</b>, review the affected services and confirm. Its desktop client and existing grants are kept. Choose <b>Turn on</b> to resume.</p>
+          <h3 id="oauth-accounts">Disconnect a Google or Microsoft account</h3>
+          <p>In <b>Common apps</b>, expand <b>Account sign-in settings (OAuth 2.0)</b>. Under <b>Google</b> or <b>Microsoft</b>, find the email address and review its services. Select <b>Disconnect account</b> beside that address. The confirmation lists the affected services. Confirming removes the account’s tokens and its linked mailboxes and calendars from Relay, and ends any Drive or Google Docs access granted through that account. Other accounts keep their connections. Relay also asks Google to revoke its token. For Microsoft, Relay provides the link where you can withdraw the app’s permission.</p>
           <figure class="doc-figure">
-            <a href="../../assets/media/docs/tools-oauth-required-en.webp"><img src="../../assets/media/docs/tools-oauth-required-en.webp" width="842" height="333" alt="Gmail is selected. Its Google sign-in button is disabled and Relay offers a setup shortcut and the illustrated Google guide." loading="lazy" /></a>
-            <figcaption>After selecting <b>Gmail</b>, choose <b>Set up Google sign-in</b> to configure its desktop client. iCloud Mail and manual mailboxes are available independently.</figcaption>
+            <a href="../../assets/media/docs/tools-oauth-accounts-en.webp"><img src="../../assets/media/docs/tools-oauth-accounts-en.webp" width="842" height="373" alt="Google and Microsoft each show a connected email address, its authorized services and a Disconnect account button." loading="lazy" /></a>
+            <figcaption>Match the email address and its services before disconnecting the account.</figcaption>
           </figure>
         </section>
 
         <section id="google-oauth-setup" aria-labelledby="google-oauth-setup-title">
-          <h2 id="google-oauth-setup-title">Set up Google OAuth 2.0</h2>
+          <h2 id="google-oauth-setup-title"><svg aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24"><use href="#i-shield"></use></svg> Set up Google OAuth 2.0</h2>
           <p>Register one desktop client for this Relay installation. Gmail, Google Calendar and Google Drive share the client. You grant access to each service separately.</p>
           <ol>
             <li><b>Choose a project and audience.</b> In Google Cloud Console, select or create a project. Open <b>Google Auth Platform → Branding → Get started</b>. Enter an app name, support email and contact email. For a personal Gmail account using the testing flow, choose <b>External</b>. Choose <b>Internal</b> for accounts in your own Workspace organization. Review the policy and create the app. <a href="https://console.cloud.google.com/auth/overview">Open Google Auth Platform</a> · <a href="https://developers.google.com/workspace/guides/configure-oauth-consent">Google’s consent setup guide</a></li>
@@ -476,7 +325,7 @@
         </section>
 
         <section id="microsoft-oauth-setup" aria-labelledby="microsoft-oauth-setup-title">
-          <h2 id="microsoft-oauth-setup-title">Set up Microsoft OAuth 2.0</h2>
+          <h2 id="microsoft-oauth-setup-title"><svg aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24"><use href="#i-shield"></use></svg> Set up Microsoft OAuth 2.0</h2>
           <p>Register a public desktop app for Outlook mail or calendars. You need access to a Microsoft Entra tenant where you can register apps, even if the account you plan to connect is a personal Outlook.com account.</p>
           <ol>
             <li><b>Register the app.</b> In Microsoft Entra, open <b>App registrations → New registration</b> and name the app. To allow both work or school accounts and Outlook.com accounts, select the option for accounts in any organizational directory and personal Microsoft accounts. Select <b>Register</b>. From <b>Overview</b>, copy the <b>Application (client) ID</b>. For an organization-only registration, also copy its <b>Directory (tenant) ID</b>. <a href="https://entra.microsoft.com/">Open Microsoft Entra</a> · <a href="https://learn.microsoft.com/en-us/graph/auth-register-app-v2">Microsoft’s illustrated registration guide</a></li>
@@ -495,51 +344,222 @@
           </figure>
         </section>
 
+        <section id="accounts" aria-labelledby="accounts-title">
+          <h2 id="accounts-title">Mail and calendar accounts</h2>
+          <p>Under <b>Mail and calendar</b>, open <b>Mail</b> or <b>Calendar</b>. The row shows settings for the service you select. Previously added accounts appear separately under <b>Connected mailboxes</b> or <b>Connected calendars</b>.</p>
+          <p>Under <b>Connected mailboxes</b> or <b>Connected calendars</b>, look for your email address. Each Google or Microsoft account lists its own resources. Use <b>Test</b> or <b>Remove mailbox</b> or <b>Remove calendar</b> on the resource. A manually configured resource also has <b>Edit</b>.</p>
+          <p>
+            <b>Test</b> signs in without sending anything. Passwords go to your system's credential store and are never shown
+            again; no agent ever gets them.
+          </p>
+          <p>If an account’s authorization has expired, select <b>Sign in again</b> on the account in the affected service.</p>
+        </section>
+
+        <section id="mail" aria-labelledby="mail-title">
+          <h2 id="mail-title">Mail</h2>
+          <p>Open <b>Common apps → Mail and calendar → Mail</b> to add a mailbox. An assistant with mail access can search and read messages, save drafts, or prepare an email for the <a href="#outbox">outbox</a>.</p>
+          <p><b>Choose your mail service</b> offers <b>Gmail</b>, <b>iCloud Mail</b>, <b>Outlook</b> and <b>Other mailbox</b>. <a href="../../assets/media/docs/tools-mail-services-en.webp">See the four mail services</a></p>
+          <p>For <b>Gmail</b>, select <b>Sign in with Google</b> and allow mail access. To add a Gmail account, use the Gmail service. Gmail mailboxes previously added with a password remain available under <b>Connected mailboxes</b>. <a href="../../assets/media/docs/tools-gmail-setup-en.webp">See Gmail sign-in</a>.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-oauth-required-en.webp"><img src="../../assets/media/docs/tools-oauth-required-en.webp" width="842" height="333" alt="Gmail is selected. Its Google sign-in button is disabled and Relay offers a setup shortcut and the illustrated Google guide." loading="lazy" /></a>
+            <figcaption>After selecting <b>Gmail</b>, choose <b>Set up Google sign-in</b> to configure its desktop client. iCloud Mail and manual mailboxes are available independently.</figcaption>
+          </figure>
+          <p>For <b>iCloud Mail</b>, enter your iCloud Mail address and an Apple app-specific password. Relay fills in the mail servers.</p>
+          <p><b>Outlook</b> supports Microsoft 365 and Outlook.com sign-in.</p>
+          <p>Under <b>Other mailbox</b>, pick the Fastmail or Yahoo Mail preset, or enter your provider’s IMAP and SMTP settings.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-mail-connected-en.webp"><img src="../../assets/media/docs/tools-mail-connected-en.webp" width="842" height="336" alt="Connected mailboxes showing one Google account, its Gmail mailbox and the Test and Remove mailbox buttons." loading="lazy" /></a>
+            <figcaption>Remove mailbox keeps the authorization. Add mailbox restores the mailbox on the same account.</figcaption>
+          </figure>
+          <p><a href="../../assets/media/docs/tools-mail-access-desktop-en.webp">Mailbox and assistant selection on desktop</a></p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/tools-outbox-en.webp"
+              width="1280"
+              height="800"
+              alt="A card in @Mail_Reader's reply: Mail to tom@baysidedental.example, with its From, To and Subject, the whole body of the mail, and the buttons Send and Discard. It is marked Waiting for you."
+              loading="lazy"
+            />
+            <figcaption>
+              A mail waiting in the outbox. A frame of the use case
+              <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="calendar" aria-labelledby="calendar-title">
+          <h2 id="calendar-title">Calendar</h2>
+          <p>Open <b>Common apps → Mail and calendar → Calendar</b> to add a calendar. Assistants can list or add events. Invitations to attendees wait for your approval in the <a href="#outbox">outbox</a>.</p>
+          <p><b>Choose your calendar service</b> offers <b>Google Calendar</b>, <b>iCloud Calendar</b>, <b>Outlook</b> and <b>Other (CalDAV)</b>. <a href="../../assets/media/docs/tools-calendar-services-en.webp">See the four calendar services</a></p>
+          <p>Select <b>Google Calendar</b>, choose <b>Sign in with Google</b> and grant calendar access. To use one account for both mail and calendar, open the second service, select its sign-in button and choose the same account on Google’s or Microsoft’s consent page. Tokens stay in your credential store.</p>
+          <p>For <b>Apple Calendar (iCloud)</b>, enter your Apple Account email and an app-specific password. To generate the password, enable two-factor authentication on your Apple Account, then follow the form’s Apple Account link to <b>Sign-In and Security → App-Specific Passwords</b>. Relay supplies the iCloud server address. Choose <b>Find calendars</b>, select an iCloud calendar and press <b>Save</b>. Calendars under <b>On My Mac</b> are local to that Mac. To use one in Relay, move it to iCloud in Apple Calendar first.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-icloud-setup-en.webp"><img src="../../assets/media/docs/tools-icloud-setup-en.webp" width="842" height="479" alt="iCloud Calendar selected in the Calendar service chooser, with fields for Apple Account email and app-specific password and a Find calendars button." loading="lazy" /></a>
+          </figure>
+          <p>For <b>Outlook</b>, sign in with your Microsoft 365 or Outlook.com account and grant calendar access.</p>
+          <p>For other calendars, choose <b>Other (CalDAV)</b>, pick Fastmail or enter the CalDAV server address, then choose <b>Find calendars</b>.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-calendar-connected-en.webp"><img src="../../assets/media/docs/tools-calendar-connected-en.webp" width="842" height="419" alt="Connected calendars showing one Google account with two calendars, each with its own Test and Remove calendar buttons." loading="lazy" /></a>
+            <figcaption>Manage calendars adds another calendar to this account. When you remove the last calendar, Choose calendars lets you select one again.</figcaption>
+          </figure>
+        </section>
+
+        <section id="microsoft-teams" aria-labelledby="microsoft-teams-title">
+          <h2 id="microsoft-teams-title">Microsoft Teams</h2>
+          <p>Connect a work or school account directly to Relay to read channels and draft messages.</p>
+          <ol>
+            <li>Open <b>Settings &amp; sign-in → Apps and tools → Common apps → Team messaging → Microsoft Teams</b>. If prompted, select <b>Install PowerShell 7</b>. Relay uses its data folder for Microsoft’s portable PowerShell package and any Graph sign-in module it needs to download. Relay can use an existing PowerShell 7 or Graph module. Installation needs no administrator privileges. If only the Graph module is missing, select <b>Install Microsoft Graph for Teams</b>.</li>
+            <li>Select <b>Sign in to Microsoft Teams</b>. Open Microsoft’s sign-in page, enter the device code shown in Relay and sign in with your work or school account. Your organization may require an administrator to approve access. Teams uses Microsoft Graph PowerShell’s own sign-in, so you can skip the Outlook client registration when connecting Teams.</li>
+            <li>Under <b>Choose assistants to enable this tool</b>, select the assistants that may list teams and channels and read recent channel messages. Try asking one to summarize a channel. Sign in again after the Relay server restarts.</li>
+            <li>To post, select <b>Enable sending</b> and complete a second device sign-in using the same account and tenant. Paste a Teams channel, chat or message link into the Relay chat and ask an assistant to draft a message. Review the sender, destination and full text, then select <b>Send</b> or <b>Discard</b>. Every post waits for you, even in Full access and automations. <a href="#outbox">Review an outgoing message</a> A message sent to a Teams channel becomes a new channel post.</li>
+          </ol>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-teams-setup-en.webp"><img src="../../assets/media/docs/tools-teams-setup-en.webp" width="842" height="156" alt="Expanded Microsoft Teams row with the Install PowerShell 7 button." loading="lazy" /></a>
+            <figcaption>Select Install PowerShell 7 on the Teams row to prepare this computer for Microsoft sign-in.</figcaption>
+          </figure>
+          <p>If you previously connected Teams through the shared Microsoft OAuth registration, its account appears under <b>Microsoft</b> in <b>Account sign-in settings (OAuth 2.0)</b>. Use <b>Disconnect account</b> there. Use the Teams row to disconnect a Graph PowerShell device session.</p>
+          <p>If installation fails, follow the error shown and select <b>Retry installation</b>. To install PowerShell yourself, follow the steps for the computer running Relay. <a href="https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell">Microsoft’s PowerShell installation guide</a></p>
+        </section>
+
+        <section id="slack" aria-labelledby="slack-title">
+          <h2 id="slack-title">Slack</h2>
+          <p><b>Slack</b> lets you authorize a workspace in Claude or Codex. Review the requested permissions, including any permission to send messages. Your workspace may require admin approval. Select the Claude or Codex account you want to use. Relay can check each connection independently without reading Slack messages. <a href="../../assets/media/docs/tools-hosted-slack-en.webp">See Slack connection settings</a></p>
+          <p>On the <b>Common apps</b> tab, choose <b>Connect</b> beside Slack, then select Claude or Codex. For Claude Code, authorize the service with the same Claude subscription account you use in Relay. For Codex, install the plugin in your ChatGPT workspace, authorize the service and open a new Relay chat. When you return, <b>Connected in Claude</b> means Claude Code reports the connector connected. <b>Available in Codex</b> means the app is enabled and callable. In Codex, open the app under <b>Settings → Plugins</b> to see which account or workspace you authorized. Removing an account there can leave the app available in Codex. Select <b>Check connections</b> or return from the provider page to check the connection. For Codex, this reads only your own service profile. <b>Connected in Codex</b> means the profile check succeeded. Relay shows its result without your profile details. Use the connected provider’s <b>Disconnect</b> link to open its management page, remove that connection, then return to verify its status. Each provider and Relay’s direct tools retain their own grants. The selected service receives the content you ask it to read. Your plan and organization’s settings apply.</p>
+          <p>To post from Relay, open the <b>Slack</b> row and choose <b>Send from Relay</b>. Install a Slack app in your workspace, give it <code>chat:write</code> plus the read scope for your destination (<code>channels:read</code>, <code>groups:read</code>, <code>im:read</code> or <code>mpim:read</code>), and enter the bot or user OAuth token. Invite a bot to the channel first. Open <b>Assistants who can draft messages</b> inside <b>Send from Relay</b> after enabling sending. Slack connections in Claude and Codex have their own permissions.</p>
+          <p>Paste a Slack conversation ID or link into the chat and ask the assistant to draft a post. Check the sending account, destination and full plain text on the card. Choose <b>Send</b> or <b>Discard</b>. Posts also wait for review in Full access and unattended automations. <a href="../../assets/media/docs/tools-slack-preview-en.webp">See a Slack post awaiting Send</a></p>
+        </section>
+
+        <section id="google-drive" aria-labelledby="google-drive-title">
+          <h2 id="google-drive-title">Google Drive and Google Docs</h2>
+          <p>In <b>Common apps → Documents and notes → Google Drive</b>, choose what the account can do. The default searches and reads files. The second option also allows creating and editing Google Docs. The third allows only creating and editing Google Docs. Select <b>Sign in with Google</b> once and approve the selected access. If prompted, select <b>Set up Google sign-in</b> and register the shared desktop client. <a href="#google-oauth-setup">Set up Google OAuth</a> · <a href="https://developers.google.com/workspace/docs/api/auth">Google Docs API permissions</a></p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-drive-add-account-en.webp"><img src="../../assets/media/docs/tools-drive-add-account-en.webp" width="842" height="452" alt="Drive account setup with a choice of search and read, read and edit, or create and edit only, followed by one Sign in with Google button." loading="lazy" /></a>
+            <figcaption>Choose what this Google account can do, then sign in once to grant the selected permissions.</figcaption>
+          </figure>
+          <p>Once connected, select <b>Manage</b>. Each account shows its email and its permissions for reading Drive files and editing Google Docs. On a read-only account’s row, enable document creation and editing. On an editing-only account, select <b>Enable file search and reading</b>. <b>Sign in again</b> appears when an account’s authorization needs renewal. To connect another Google account, expand <b>Add account</b> below the list, choose from the same three options and select <b>Sign in with Google</b>. To disconnect a Google account from Relay, use its entry in <a href="#oauth-accounts">Account sign-in settings (OAuth 2.0)</a>.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-drive-editing-en.webp"><img src="../../assets/media/docs/tools-drive-editing-en.webp" width="842" height="287" alt="Drive management shows one read-only account, the option to allow document editing and the Add account button." loading="lazy" /></a>
+            <figcaption>The account can search and read files. Use its row to grant permission to create and edit Google Docs.</figcaption>
+          </figure>
+          <p>Under <b>Choose assistants to enable this tool</b>, select the assistants that may use your connected accounts. When an assistant proposes a document change, check the account and the text in the outbox before choosing <b>Create document</b> or <b>Save changes</b>. <a href="#google-docs-preview">Review a proposed document</a></p>
+          <p id="google-docs-preview">For a Google Doc, check the Google account and title. A new document shows its full proposed text. An edit shows the document, target tab and exact text to replace in one body paragraph. The replacement is plain text and inherits the surrounding style. To apply different formatting within it, edit in Google Docs. Choose <b>Create document</b> or <b>Save changes</b> to approve it, or <b>Discard</b>. If the document changed after the preview, ask for a fresh proposal.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-docs-preview-en.webp"><img src="../../assets/media/docs/tools-docs-preview-en.webp" width="746" height="341" alt="A Google Docs edit awaiting confirmation in Relay, with the Google account, document, tab and exact original and replacement text." loading="lazy" /></a>
+          </figure>
+        </section>
+
+        <section id="notion" aria-labelledby="notion-title">
+          <h2 id="notion-title">Notion</h2>
+          <p>Connect your Notion workspace for the assistants that support it. Open <b>Common apps → Documents and notes → Notion</b> to start sign-in. Review the requested access and authorize the workspace you want your assistants to use.</p>
+        </section>
+
+        <section id="heptabase" aria-labelledby="heptabase-title">
+          <h2 id="heptabase-title">Heptabase</h2>
+          <p>Connect a Heptabase knowledge base so supported assistants can read and write it. Open <b>Common apps → Documents and notes → Heptabase</b> to start sign-in. Review the requested access and authorize the workspace you want your assistants to use.</p>
+        </section>
+
+        <section id="obsidian" aria-labelledby="obsidian-title">
+          <h2 id="obsidian-title">Obsidian</h2>
+          <p>In <b>Obsidian</b>, use <b>Choose vault</b> to connect the first vault or <b>Add vaults</b> to connect more. Each folder on the Relay computer must contain a real <code>.obsidian</code> directory. In a remote browser, enter one full path per line. Relay checks all your selections before adding them. Every assistant selected under <b>Choose assistants to enable this tool</b> can use all connected vaults. Specify the vault when asking it to read, create or edit a note. To disconnect one vault, use the control beside its full path. Your notes stay on disk. <a href="../../assets/media/docs/tools-obsidian-settings-en.webp">See the vault settings</a></p>
+          <p>When an assistant proposes an Obsidian note, review the full vault path, the note’s path within that vault, and the Markdown. For an edit, compare the current and proposed text. Select <b>Create note</b> or <b>Save changes</b> to write it to the vault. <b>Discard</b> drops the proposal. If the note changed after the preview, ask the assistant to prepare a new edit. <a href="../../assets/media/docs/tools-obsidian-preview-en.webp">See an Obsidian edit preview</a></p>
+        </section>
+
+        <section id="github" aria-labelledby="github-title">
+          <h2 id="github-title">GitHub</h2>
+          <p><b>GitHub</b> uses the GitHub CLI account on the computer running Relay. Under <b>Development and browsing</b>, open the GitHub row to sign in. To sign out, select <b>Sign out of GitHub</b> and confirm the account shown. Chat sharing and GitHub automations share this CLI. Other accounts may remain signed in. If the row names a token environment variable, remove it from the environment that starts Relay, then restart Relay.</p>
+        </section>
+
+        <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
+          <h2 id="browser-mail-calendar-title">Browser</h2>
+          <p id="browser"><b>Browser</b>: a browser of Harness Relay's own for each chat, with nothing signed in, deleted with the chat.
+              Agents open pages, read them, click and type, and take screenshots that show in their reply. It is never your
+              own browser or its sign-ins, and it downloads and uploads nothing.</p>
+          <p>
+            Below full access, the browser also asks before it opens a site the chat's browser has not opened yet, as in this
+            frame:
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/tools-browser-en.webp"
+              width="1280"
+              height="800"
+              alt="An approval card in a chat: @Copywriter wants to read a web page, the address it wants to open, a box to tell it what to do instead, and the buttons Allow, Always allow for that host in this chat, and Decline. The sidebar marks the chat Needs you."
+              loading="lazy"
+            />
+            <figcaption>
+              The browser asks before it opens a new site. A frame of the use case
+              <a href="../../use-cases/#launch-copy">Read the competition, then write the launch</a>.
+            </figcaption>
+          </figure>
+        </section>
+
         <section id="library" aria-labelledby="library-title">
-          <h2 id="library-title">Your MCP servers, skills, memory and hooks</h2>
+          <h2 id="library-title">Tool library</h2>
           <p>
             The <b>Tool library</b> tab opens with five collapsed rows. Use <b>MCP servers</b>, <b>Skills</b> or <b>Memory</b> to add something to the agents’ own setup. Use <b>Hooks</b> and <b>Default team checks</b> for rules that new chats and automations start with. Changes reach an agent at its next turn.
           </p>
           <p><a href="../../assets/media/docs/tools-library-desktop-en.webp">Tool library on desktop</a> · <a href="../../assets/media/docs/tools-library-phone-en.webp">Tool library on a phone</a></p>
-          <dl class="doc-terms">
-            <dt>MCP servers</dt>
-            <dd>
-              <b>Add MCP server</b>, give it a name, then either a <b>Local command (stdio)</b> or a <b>URL (HTTP)</b>. The
+        </section>
+
+        <section id="mcp-servers" aria-labelledby="mcp-servers-title">
+          <h2 id="mcp-servers-title">MCP servers</h2>
+          <p>Choose <b>Add MCP server</b>, give it a name, then select either a <b>Local command (stdio)</b> or a <b>URL (HTTP)</b>. The
               values of its environment variables and headers, usually tokens, go to your credential store and are shown
-              masked. Its tool calls follow the chat's permission like any other action.
-            </dd>
-            <dt>Servers that sign in</dt>
-            <dd>
-              Some servers on the web ask you to sign in instead of taking a token (Linear, Notion, Atlassian and others):
+              masked. Its tool calls follow the chat's permission like any other action.</p>
+          <h3>Servers that sign in</h3>
+          <p>Some servers on the web ask you to sign in instead of taking a token (Linear, Notion, Atlassian and others):
               click <b>Sign in</b> on the server's row, and allow it on the page that opens. When the sign-in page is on another
               site than the server's own sign-in service, the row first says where you will sign in: continue only if you
-              expected that page.
-            </dd>
-            <dt>Skills</dt>
-            <dd>
-              Add a folder with a <code>SKILL.md</code>, or a folder of skills to pick from. Each agent that gets them is told
-              every skill's name and purpose, and reads the skill when a task calls for it.
-            </dd>
-            <dt>Memory</dt>
-            <dd>
-              Notes every agent gets in every conversation, such as your preferences and your project's conventions: for
-              <b>All members</b>, or in each agent's own tab, only for that agent.
-            </dd>
-            <dt>Hooks</dt>
-            <dd>
-              Open <b>Hooks</b> to set the commands that new chats and automations start with. You can change them for each team. On macOS and Linux they run around supported tool calls for
-              Claude Code, Codex, Copilot, Muse Code and Pi. Open <b>Default team checks</b> for protected paths, commit formats and check commands. See
-              <a href="../teams/#checks">Team checks</a>.
-            </dd>
-            <dt>Given by default to</dt>
-            <dd>
-              Open this setting in the MCP server editor or on a skill’s row. Choose all agents (the default), specific agents, or none. With none selected, only members you tick in the team settings receive it.
-            </dd>
-          </dl>
+              expected that page.</p>
+        </section>
+
+        <section id="skills" aria-labelledby="skills-title">
+          <h2 id="skills-title">Skills</h2>
+          <p>Add a folder with a <code>SKILL.md</code>, or a folder of skills to pick from. Each agent that gets them is told
+              every skill's name and purpose, and reads the skill when a task calls for it.</p>
+        </section>
+
+        <section id="memory" aria-labelledby="memory-title">
+          <h2 id="memory-title">Memory</h2>
+          <p>Notes every agent gets in every conversation, such as your preferences and your project's conventions: for
+              <b>All members</b>, or in each agent's own tab, only for that agent.</p>
+        </section>
+
+        <section id="hooks" aria-labelledby="hooks-title">
+          <h2 id="hooks-title">Hooks</h2>
+          <p>Open <b>Hooks</b> to set the commands that new chats and automations start with. You can change them for each team. On macOS and Linux they run around supported tool calls for
+              Claude Code, Codex, Copilot, Muse Code and Pi.</p>
+        </section>
+
+        <section id="default-team-checks" aria-labelledby="default-team-checks-title">
+          <h2 id="default-team-checks-title">Default team checks</h2>
+          <p>Open <b>Default team checks</b> for protected paths, commit formats and check commands. See
+              <a href="../teams/#checks">Team checks</a>.</p>
+        </section>
+
+        <section id="outbox" aria-labelledby="outbox-title">
+          <h2 id="outbox-title">Review the outbox</h2>
+          <p>Email, calendar invitations and posts sent directly through Relay wait for review, even in Full access or an unattended automation. Proposed writes to Google Docs and Obsidian also wait. Open the relevant guide to see what to check on each card.</p>
+          <p>
+            When an agent wants to send a mail or an invitation, its reply shows a card instead: the message as it will go
+            out, field by field. Nothing has gone out yet.
+          </p>
+          <ul>
+            <li><b>Send</b> sends it as shown, from your account.</li>
+            <li><b>Discard</b> drops it.</li>
+          </ul>
+          <p>
+            Until you answer, the chat is marked <b>Needs you</b> and you are notified, as for an approval. The agent does not
+            wait for you: its turn goes on, so you can read the card and send it later, also after an automation's run that
+            nobody watched.
+          </p>
+          <p><a href="#mail">Mail</a> · <a href="#calendar">Calendar</a> · <a href="#microsoft-teams">Microsoft Teams</a> · <a href="#slack">Slack</a> · <a href="#google-drive">Google Drive and Google Docs</a> · <a href="#obsidian">Obsidian</a></p>
         </section>
 
         <section id="per-member" aria-labelledby="per-member-title">
           <h2 id="per-member-title">Tools for one member</h2>
+          <h3>Given by default to</h3>
+          <p>Open this setting in the MCP server editor or on a skill’s row. Choose all agents (the default), specific agents, or none. With none selected, only members you tick in the team settings receive it.</p>
           <p>
             In a template, or in <b>Team settings</b> in a chat's header, each member's card shows
             its <b>Tools</b> from the library as chips. <b>Change</b> opens the list to tick them: it starts from the

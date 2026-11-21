@@ -1,4 +1,4 @@
 {
-  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the configured Google registration with its desktop client ID, masked secret, status and option to turn off sign-in in the built Harness Relay UI. Language zh-TW, viewport 1200 × 1080. Isolated local server and fictitious accounts. Encoded with cwebp -q 92.",
-  "createdAt": "2026-11-21T01:14:33.675Z"
+  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the configured Google registration in shared OAuth settings, showing its example desktop client ID and provider status in the built Harness Relay UI. Language zh-TW, viewport 1200 × 1080. Isolated local server with fictitious credentials. Encoded with cwebp -q 92.",
+  "createdAt": "2026-11-21T02:27:01.650Z"
 }

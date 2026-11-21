@@ -69,6 +69,14 @@ describe('needsOf', () => {
       'package-lock.json',
       'tsconfig.json',
       'vite.config.ts',
+      'scripts/oauth-guides.ts',
+      'site/docs/tools/index.html',
+      'site/zh-TW/docs/tools/index.html',
+      'site/assets/media/docs/google-cloud-client-details.png',
+      'site/assets/media/docs/microsoft-entra-desktop-platform.png',
+      'site/assets/media/docs/tools-gmail-setup-en.webp',
+      'site/assets/media/docs/tools-oauth-settings-zh-TW.webp',
+      'site/assets/media/docs/tools-oauth-microsoft-en.webp',
       '.gitattributes',
     ]) {
       expect(runs(file), file).toEqual(['windows', 'desktop', 'e2e']);
