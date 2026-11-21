@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { DraftApp } from '../shared/apps';
 import type { Permission } from '../shared/types';
 import type { DraftAppSelection } from './draftApps';
@@ -9,18 +9,26 @@ export function useDraftApps(status: DraftAppStatus, selected: DraftApp[], onCha
   const t = useT();
   const seen = useRef(false);
   const [removed, setRemoved] = useState<DraftApp[]>([]);
-  const { states, failed } = useSyncExternalStore(status.subscribe, () => status.snapshot(permission));
+  const previousPermission = useRef<Permission>(undefined);
+  const snapshot = useSyncExternalStore(status.subscribe, () => status.snapshot(permission));
+  const { states, failed } = snapshot;
   // Keep typing and attachments entered while several independent checks finish.
   const draft = useRef({ selected, onChange });
   draft.current = { selected, onChange };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!permission) return;
+    const previous = previousPermission.current;
+    previousPermission.current = permission;
+    const known = status.snapshot(permission).states;
+    const conflict = draft.current.selected.some((app) => known[app] && known[app] !== 'ready');
+    status.prepare(permission, Boolean((previous && previous !== permission) || conflict));
     const timer = setTimeout(() => status.warm(permission), 0);
     return () => clearTimeout(timer);
   }, [status, permission]);
 
   useEffect(() => {
+    if (status.snapshot(permission) !== snapshot) return;
     const current = draft.current;
     const lost = current.selected.filter((app) => states[app] && states[app] !== 'ready');
     if (!lost.length) return;
@@ -28,7 +36,7 @@ export function useDraftApps(status: DraftAppStatus, selected: DraftApp[], onCha
     draft.current = { ...current, selected: next };
     setRemoved((earlier) => [...new Set([...earlier, ...lost])]);
     current.onChange(next);
-  }, [states]);
+  }, [status, permission, snapshot, states]);
 
   const selection: DraftAppSelection = {
     selected,

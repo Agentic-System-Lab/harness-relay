@@ -108,6 +108,50 @@ test('New chat enables only verified apps and refreshes connections and team acc
   expect(await relay.api('/api/conversations')).toEqual([]);
 });
 
+for (const age of [1_000, 61_000]) {
+  test(`a selected app survives a permission change with a ${age / 1000}s-old negative answer`, async ({ page, relay }) => {
+    const start = new Date('2026-01-01T10:00:00Z');
+    await page.clock.setFixedTime(start);
+    let recheck = false;
+    let pending = false;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    await page.route('**/api/apps/availability?*', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      const edit = params.get('permission') === 'edit' && params.get('app') === 'local';
+      if (edit && recheck) {
+        pending = true;
+        await gate;
+      }
+      return route.fulfill({ json: appStates({ drive: edit && !recheck ? 'needs-assistant' : 'ready' }) });
+    });
+    try {
+      await page.goto(relay.base + '/#/new');
+      await page.locator('.draft-app-toggle').click();
+      const drive = page.getByRole('checkbox', { name: 'Google Drive' });
+      await expect(drive).toBeEnabled();
+      await page.locator('.chat-options > summary').click();
+      const edit = page.getByRole('button', { name: 'Edit', exact: true });
+      await edit.click();
+      await expect(drive).toHaveAccessibleDescription('Enable for an assistant');
+      await page.getByRole('button', { name: 'Read-only', exact: true }).click();
+      await drive.check();
+      recheck = true;
+      await page.clock.setFixedTime(new Date(start.getTime() + age));
+      await edit.click();
+      await expect.poll(() => pending).toBe(true);
+      await expect(drive).toBeDisabled();
+      await expect(page.locator('.draft-app-selection')).toContainText('Google Drive');
+      finish();
+      await expect(drive).toBeEnabled();
+      await expect(drive).toBeChecked();
+      await expect(page.locator('.draft-app-removed')).toHaveCount(0);
+    } finally {
+      finish();
+    }
+  });
+}
+
 test('New automation rechecks the selected app at submission and keeps its draft if availability changed', async ({ page, relay }) => {
   const states = appStates({ calendar: 'ready', github: 'ready' });
   const checked: string[] = [];

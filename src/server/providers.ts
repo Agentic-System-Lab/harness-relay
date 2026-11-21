@@ -165,12 +165,8 @@ export const USAGE_TTL_MS = 2 * 60_000;
 const slot = (p: Provider, account = '') => `${p}\0${account}`;
 
 export class ProviderService {
-  private cache = new Map<Provider, { at: number; status: ProviderStatus }>();
-  /**
-   * Raised by `invalidate()`: a status asked before it (an account added, a sign-in finished meanwhile)
-   * is still answered, but not kept, or it would hide the change for as long as the cache lasts.
-   */
-  private generation = new Map<Provider, number>();
+  /** A CLI's in-flight probe is shared; completed answers expire twenty seconds after finishing. */
+  private cache = new Map<Provider, { expires: number; status: Promise<ProviderStatus> }>();
   /** The last `checkedAt` given: each check's is later, even if the clock is set back. */
   private lastCheckedAt = 0;
   /** Sign-ins running or finished, by account (`slot`). */
@@ -192,7 +188,6 @@ export class ProviderService {
   ) {}
 
   invalidate(p?: Provider): void {
-    for (const q of p ? [p] : PROVIDERS) this.generation.set(q, (this.generation.get(q) ?? 0) + 1);
     if (p) {
       this.cache.delete(p);
       for (const key of this.modelCache.keys()) if (key.startsWith(slot(p))) this.modelCache.delete(key);
@@ -280,10 +275,34 @@ export class ProviderService {
     return all.flat();
   }
 
-  async status(p: Provider, refresh = false): Promise<ProviderStatus> {
+  status(p: Provider, refresh = false): Promise<ProviderStatus> {
     const cached = this.cache.get(p);
-    if (!refresh && cached && Date.now() - cached.at < 20_000) return cached.status;
-    const generation = this.generation.get(p) ?? 0;
+    if (!refresh && cached && Date.now() < cached.expires) return cached.status;
+    const entry = { expires: Infinity, status: this.checkStatus(p) };
+    this.cache.set(p, entry);
+    void entry.status.then(
+      (status) => {
+        // A refresh or account change replaced this entry. Its original callers still get their answer.
+        if (this.cache.get(p) !== entry) return;
+        entry.expires = Date.now() + 20_000;
+        if (!status.installed) return;
+        // Signed in as someone else (in a terminal, say), or on another key: its plan's usage is asked again.
+        for (const a of status.accounts) {
+          const now = JSON.stringify([a.auth.loggedIn, a.auth.account ?? '', a.auth.method ?? '', a.usingStoredApiKey]);
+          const key = slot(p, a.id);
+          const before = this.lastSignIn.get(key);
+          this.lastSignIn.set(key, now);
+          if (before !== undefined && before !== now) this.dropUsage(key);
+        }
+      },
+      () => {
+        if (this.cache.get(p) === entry) this.cache.delete(p);
+      },
+    );
+    return entry.status;
+  }
+
+  private async checkStatus(p: Provider): Promise<ProviderStatus> {
     const checkedAt = (this.lastCheckedAt = Math.max(Date.now(), this.lastCheckedAt + 1));
     const bin = this.settings.bin(p);
     const env = this.settings.env(p);
@@ -319,14 +338,6 @@ export class ProviderService {
         accounts,
         checkedAt,
       };
-      // Signed in as someone else (in a terminal, say), or on another key: its plan's usage is asked again.
-      for (const a of accounts) {
-        const now = JSON.stringify([a.auth.loggedIn, a.auth.account ?? '', a.auth.method ?? '', a.usingStoredApiKey]);
-        const key = slot(p, a.id);
-        const before = this.lastSignIn.get(key);
-        this.lastSignIn.set(key, now);
-        if (before !== undefined && before !== now) this.dropUsage(key);
-      }
     } catch (err) {
       // Not found: Settings says so in its own words, with where to install it. Anything else (the
       // file is there but cannot run, say) is told as it happened.
@@ -334,7 +345,6 @@ export class ProviderService {
       const accounts = ids.map((id) => account(id, { loggedIn: null }));
       status = { provider: p, installed: false, bin, auth, usingStoredApiKey: accounts[0]!.usingStoredApiKey, accounts, checkedAt };
     }
-    if ((this.generation.get(p) ?? 0) === generation) this.cache.set(p, { at: Date.now(), status });
     return status;
   }
 

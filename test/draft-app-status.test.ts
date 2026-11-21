@@ -65,3 +65,28 @@ it('rechecks selected apps on submission and keeps a passive Slack read from rep
   read.mockResolvedValue({ ...ready, drive: 'needs-assistant' });
   expect((await status.read('edit', 'local', 'confirm'))?.drive).toBe('needs-assistant');
 });
+
+it('clears only the expired group being checked until its replacement arrives', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+  const read = vi.spyOn(api, 'draftAppAvailability').mockResolvedValue(ready);
+  const status = new DraftAppStatus();
+  status.warm('edit');
+  await status.read('edit', 'local', 'cached');
+  const local = delayedAnswer();
+  read.mockReturnValueOnce(local.promise);
+  now.mockReturnValue(161_000);
+  const confirm = status.read('edit', 'local', 'confirm');
+  expect(status.snapshot('edit').states.drive).toBeUndefined();
+  expect(status.snapshot('edit').states.github).toBe('ready');
+  expect(status.snapshot('edit').states.teams).toBe('ready');
+  expect(status.snapshot('edit').states.slack).toBe('ready');
+  expect(status.read('edit', 'local', 'cached')).toBe(confirm);
+  expect(read).toHaveBeenCalledTimes(5);
+  local.resolve({ ...ready, drive: 'needs-connection' });
+  await confirm;
+  expect(status.snapshot('edit').states.drive).toBe('needs-connection');
+  status.warm('edit');
+  await status.read('edit', 'github', 'cached');
+  expect(read).toHaveBeenCalledTimes(8);
+  expect(status.snapshot('edit').states).toEqual({ ...ready, drive: 'needs-connection' });
+});

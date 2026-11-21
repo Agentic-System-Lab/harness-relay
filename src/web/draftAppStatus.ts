@@ -38,6 +38,34 @@ export class DraftAppStatus {
     for (const listener of this.listeners) listener();
   }
 
+  /** Remove outdated answers before a picker can use them. Other groups can stay ready. */
+  prepare(permission: Permission, changedPermission = false, groups: readonly AppGroup[] = appGroupNames) {
+    const snapshot = this.snapshots.get(permission);
+    if (!snapshot) return;
+    const stale = groups.filter((group) => {
+      const at = snapshot.checked[group];
+      return changedPermission || (at !== undefined && Date.now() - at >= freshFor);
+    });
+    if (!stale.length) return;
+    const states = { ...snapshot.states };
+    const checked = { ...snapshot.checked };
+    const unknown = new Set<DraftApp>();
+    for (const group of stale) {
+      if (changedPermission) {
+        const key = permission + '/' + group;
+        this.pending.get(key)?.controller.abort();
+        this.pending.delete(key);
+      }
+      delete checked[group];
+      for (const app of appGroups[group]) {
+        unknown.add(app);
+        delete states[app];
+      }
+    }
+    this.snapshots.set(permission, { states, checked, failed: snapshot.failed.filter((app) => !unknown.has(app)) });
+    this.notify();
+  }
+
   warm(permission: Permission, refresh = false) {
     for (const group of appGroupNames) void this.read(permission, group, refresh ? 'refresh' : 'cached');
   }
@@ -56,6 +84,7 @@ export class DraftAppStatus {
   }
 
   read(permission: Permission, group: AppGroup, mode: 'cached' | 'refresh' | 'confirm'): Result {
+    this.prepare(permission, false, [group]);
     const key = permission + '/' + group;
     const request = this.pending.get(key);
     const confirm = mode === 'confirm';
@@ -63,7 +92,7 @@ export class DraftAppStatus {
     if (request && (!confirm || request.confirm)) return request.result;
     const snapshot = this.snapshot(permission);
     const checked = snapshot.checked[group];
-    if (mode === 'cached' && checked !== undefined && Date.now() - checked < freshFor) return Promise.resolve(snapshot.states);
+    if (mode === 'cached' && checked !== undefined) return Promise.resolve(snapshot.states);
 
     request?.controller.abort();
     if (!this.snapshots.has(permission)) this.snapshots.set(permission, empty);

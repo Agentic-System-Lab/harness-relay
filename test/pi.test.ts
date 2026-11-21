@@ -1204,21 +1204,23 @@ describe('Pi: turns', () => {
 
     // Asked, and stopped before the user answered: nothing is sent to Pi afterwards.
     let release!: (a: ApprovalAnswer) => void;
+    let requested!: () => void;
+    const pending = new Promise<void>((resolve) => (requested = resolve));
     const p = run(
       { FAKE_PI_CALLS: JSON.stringify([{ toolCallId: 'w1', toolName: 'bash', input: { command: 'git push' } }]) },
       { permission: 'edit' },
-      () => new Promise((res) => (release = res)),
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+          requested();
+        }),
     );
-    p.o.onEvent = (e) => {
-      p.events.push(e);
-      if (e.type === 'tool_start') setTimeout(() => p.abort.abort(), 50);
-    };
     const stopped = en(() => piTurn(p.o, sandboxed()));
     stopped.catch(() => undefined); // awaited below
-    await new Promise((res) => setTimeout(res, 300));
+    await pending;
+    p.abort.abort();
     release({ allow: false, note: 'too late' }); // answered after Stop: the approval had expired
     await expect(stopped).rejects.toMatchObject({ aborted: true });
-    await new Promise((res) => setTimeout(res, 20));
     expect(uiAnswers(p)).toEqual([]);
     const row = p.events.find((e) => e.type === 'tool_end');
     expect(row).toMatchObject({ ok: false, error: 'Operation aborted' });
