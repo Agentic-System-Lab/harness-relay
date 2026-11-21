@@ -3,6 +3,7 @@
  * read of them (src/server/prompt.ts), the lead agent's tidying rules (src/server/memory.ts), and
  * `LongTermMemory` on a real database: what agents' blocks do, the user's changes, and settings.
  */
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/server/db';
 import { applyTidy, buildTidyPrompt, cleanNoteText, LongTermMemory, memorySeenKey, parseTidyReply } from '../src/server/memory';
@@ -609,7 +610,12 @@ describe('long-term memory requests', () => {
   it('checks the settings, a new note and a change', () => {
     expect(validateMemorySettings({ enabled: false, other: 1 })).toEqual({ enabled: false });
     expect(() => validateMemorySettings({ review: 'yes' })).toThrow();
-    expect(validateMemoryNoteCreate({ text: 'x', cwd: '/work/app', pinned: true })).toEqual({ text: 'x', cwd: '/work/app', pinned: true });
+    // Written as a conversation's folder would be: resolved for this system (a drive letter on Windows).
+    expect(validateMemoryNoteCreate({ text: 'x', cwd: '/work/app', pinned: true })).toEqual({
+      text: 'x',
+      cwd: resolve('/work/app'),
+      pinned: true,
+    });
     expect(() => validateMemoryNoteCreate({ text: ' ' })).toThrow();
     expect(() => validateMemoryNoteCreate({ text: 'x'.repeat(MEMORY_LIMITS.noteChars + 1) })).toThrow();
     expect(() => validateMemoryNoteCreate({ text: 'x', cwd: 'relative/path' })).toThrow();
