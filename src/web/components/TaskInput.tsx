@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { DRAFT_APPS } from '../../shared/apps';
-import { draftAppName, requestedApps, type DraftAppSelection } from '../draftApps';
+import { canConfirmSelectedApp, draftAppName, requestedApps, type DraftAppSelection } from '../draftApps';
 import { useT } from '../i18n';
 import { settingsHref } from '../route';
 import { insertTranscript } from '../voice';
@@ -126,6 +126,8 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
             <div className="draft-app-list">
               {DRAFT_APPS.map((app) => {
                 const state = apps.states[app];
+                const checked = apps.selected.includes(app);
+                const enabled = state === 'ready' || (checked && canConfirmSelectedApp(app, state));
                 const name = draftAppName(app, t);
                 const reason = apps.failed.includes(app)
                   ? t.apps.draftUnknown
@@ -137,13 +139,13 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
                     <label>
                       <input
                         type="checkbox"
-                        disabled={state !== 'ready'}
+                        disabled={!enabled}
                         id={choicesId + '-choice-' + app}
                         aria-label={name}
                         aria-describedby={reason ? choicesId + '-' + app : undefined}
-                        checked={apps.selected.includes(app)}
+                        checked={checked}
                         onChange={(e) => {
-                          if (state === 'ready')
+                          if (enabled)
                             apps.onChange(e.target.checked ? [...apps.selected, app] : apps.selected.filter((item) => item !== app));
                         }}
                       />

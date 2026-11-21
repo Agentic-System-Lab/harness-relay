@@ -165,8 +165,17 @@ describe('isForwardable', () => {
 });
 
 describe('buildBriefing', () => {
-  it('routes Teams reads and sends through Relay even when an assistant has other connectors', () => {
-    const briefing = buildBriefing(conv, team[0]!);
+  it('includes the Drive and Teams confirmation rules only for the groups actually granted to this turn', () => {
+    const withGroups = (groups: ('drive' | 'teams')[]) => buildBriefing(conv, team[0]!, undefined, { skills: [], grantedGroups: groups });
+    const neither = withGroups([]);
+    expect(neither).not.toContain('drive_create_document');
+    expect(neither).not.toContain('teams_send_message');
+    const drive = withGroups(['drive']);
+    expect(drive).toContain('drive_create_document or drive_edit_document');
+    expect(drive).not.toContain('teams_send_message');
+    const briefing = withGroups(['teams']);
+    expect(briefing).not.toContain('drive_search');
+    expect(withGroups(['drive', 'teams'])).toContain('drive_create_document');
     expect(briefing).toContain('teams_list and teams_messages');
     expect(briefing).toContain('Draft a Teams channel or chat message with teams_send_message');
     expect(briefing).toContain('selects Send in the chat to post it');

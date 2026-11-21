@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { DraftApp } from '../shared/apps';
 import type { Permission } from '../shared/types';
-import type { DraftAppSelection } from './draftApps';
+import { canConfirmSelectedApp, unavailableSelectedApps, type DraftAppSelection } from './draftApps';
 import { appGroupNames, appGroups, type DraftAppStatus } from './draftAppStatus';
 import { useT } from './i18n';
 
@@ -21,16 +21,33 @@ export function useDraftApps(status: DraftAppStatus, selected: DraftApp[], onCha
     const previous = previousPermission.current;
     previousPermission.current = permission;
     const known = status.snapshot(permission).states;
-    const conflict = draft.current.selected.some((app) => known[app] && known[app] !== 'ready');
+    const conflict = unavailableSelectedApps(draft.current.selected, known).length > 0;
     status.prepare(permission, Boolean((previous && previous !== permission) || conflict));
     const timer = setTimeout(() => status.warm(permission), 0);
     return () => clearTimeout(timer);
   }, [status, permission]);
 
   useEffect(() => {
+    if (!permission) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const onReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => status.recheck(permission), 0);
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [status, permission]);
+
+  useEffect(() => {
     if (status.snapshot(permission) !== snapshot) return;
     const current = draft.current;
-    const lost = current.selected.filter((app) => states[app] && states[app] !== 'ready');
+    const lost = unavailableSelectedApps(current.selected, states);
     if (!lost.length) return;
     const next = current.selected.filter((app) => !lost.includes(app));
     draft.current = { ...current, selected: next };
@@ -56,22 +73,21 @@ export function useDraftApps(status: DraftAppStatus, selected: DraftApp[], onCha
     },
     onChange: (next) => {
       setRemoved([]);
-      onChange(next.filter((app) => states[app] === 'ready' || (!states[app] && selected.includes(app))));
+      onChange(
+        next.filter(
+          (app) => states[app] === 'ready' || (selected.includes(app) && (!states[app] || canConfirmSelectedApp(app, states[app]))),
+        ),
+      );
     },
   };
 
   /** Always recheck the selected apps before creating a conversation or automation, including a folder-creation retry. */
   const verify = async () => {
-    const needed = appGroupNames.filter((group) => appGroups[group].some((app) => selected.includes(app)));
-    if (!needed.length) return;
+    if (!selected.length) return;
     if (!permission) throw new Error(t.apps.draftCheckFailed);
-    const results = await Promise.all(needed.map((group) => status.read(permission, group, 'confirm')));
-    if (results.some((result) => !result)) throw new Error(t.apps.draftCheckFailed);
-    if (
-      needed.some((group, i) => appGroups[group].some((app) => selected.includes(app) && results[i]?.[app] !== 'ready')) ||
-      selected.some((app) => !draft.current.selected.includes(app))
-    )
-      throw new Error(t.apps.draftReview);
+    const result = await status.confirmSelection(permission, selected);
+    if (result === 'failed') throw new Error(t.apps.draftCheckFailed);
+    if (result === 'changed' || selected.some((app) => !draft.current.selected.includes(app))) throw new Error(t.apps.draftReview);
   };
-  return { selection, verify, checkingSelection: selected.some((app) => states[app] !== 'ready') };
+  return { selection, verify, checkingSelection: selected.some((app) => !canConfirmSelectedApp(app, states[app])) };
 }

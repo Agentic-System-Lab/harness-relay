@@ -31,12 +31,13 @@ async function run() {
   const moduleName = 'Microsoft.Graph.Authentication';
   const privateMarker = join(privateModules, moduleName, 'module.fixture');
   const systemMarker = marker('graph-module');
-  if (script.includes('Save-PSResource')) {
-    if (!script.includes('Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop')) return 22;
+  if (script.includes('Invoke-WebRequest')) {
+    if (!script.includes('Import-Module -Name $manifest -ErrorAction Stop')) return 22;
     const stage = process.env.RELAY_TEAMS_MODULE_STAGE;
-    if (!stage || !stage.startsWith(privateModules + '-install-') || !script.includes('-Path $env:RELAY_TEAMS_MODULE_STAGE')) return 22;
-    const gallery = /^\s*\$gallery = '([^']+)'\s*$/m.exec(script)?.[1];
-    if (gallery !== 'https://www.powershellgallery.com/api/v2' || !script.includes('-Repository PSGallery')) return 22;
+    if (!stage || !stage.startsWith(privateModules + '-install-') || !script.includes('$stage = $env:RELAY_TEAMS_MODULE_STAGE')) return 22;
+    const uri = /^\s*\$uri = "([^"]+)"\s*$/m.exec(script)?.[1];
+    if (uri !== 'https://www.powershellgallery.com/api/v2/package/Microsoft.Graph.Authentication/$version') return 22;
+    if (!/^\$version = '\d+\.\d+\.\d+'$/m.test(script) || !/^\$sha512 = '[a-f0-9]{128}'$/m.test(script)) return 22;
     await waitFor('allow-module-install');
     if (existsSync(marker('bad-staged-module'))) return 22;
     mkdirSync(join(stage, moduleName), { recursive: true });

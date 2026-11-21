@@ -132,6 +132,8 @@ Its order is the landing page's list's. Each language's page shows its own recor
 
 ### The docs
 
+Keep the Tools page sections `#google-oauth-setup` and `#microsoft-oauth-setup` in both languages, including their headings, linked images and page canonical URL. The Vite plugin in `scripts/oauth-guides.ts` uses these sections for the app’s bundled `/help/oauth/<lang>/<provider>.html` guides and serves edits during development. A missing section or heading fails the build.
+
 `docs/` and `zh-TW/docs/`: how to use Harness Relay, a page per task, for people who use the app rather than work on it. They are the landing page's world at reading scale: the same header and footer, tokens, type and hairlines, the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the page at the same place in their language). Every claim is true of the code, as on the landing page, in plain words: the technical details (each setting's every case, environment variables, files, the sandboxes system by system) stay in the repository's `docs/`, which every page links at its end (`.doc-more`), in the page's language. A link in the page's own text goes to these pages when they cover the topic; `.doc-more` stays on GitHub.
 
 | # | Page | What it covers |

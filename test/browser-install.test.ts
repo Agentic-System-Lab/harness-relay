@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { browserInstallPlan } from '../src/server/browser/install';
+import { t, withLang } from '../src/server/i18n';
 import { InstallJob } from '../src/server/cliInstall';
 import type { runShellScript, SpawnOptions, SpawnResult } from '../src/server/process';
 import type { LinuxPackages, PackageManager } from '../src/server/sandboxSetup';
@@ -121,6 +122,18 @@ describe('installing the browser on the Relay computer', () => {
     expect(readdirSync(fixture.temp)).toEqual([]);
   });
 
+  it('reports an image with no Chrome bundle in the selected language before copying anything', async () => {
+    const fixture = macFixture((o) => {
+      if (o.args[0] === 'attach') rmSync(join(fixture.mount(), app), { recursive: true });
+      return undefined;
+    });
+    await withLang('zh-TW', async () => {
+      await expect(fixture.install()).rejects.toThrow(t().chromeMissingBundle);
+    });
+    expect(fixture.run.mock.calls.map(([o]) => o.bin)).not.toContain('/usr/bin/ditto');
+    expect(readdirSync(fixture.temp)).toEqual([]);
+  });
+
   it('detaches an image even when hdiutil was cancelled before reporting a successful mount', async () => {
     const fixture = macFixture((o, job) => {
       if (o.args[0] === 'attach') job.abort.abort();
@@ -160,7 +173,9 @@ describe('installing the browser on the Relay computer', () => {
     const fixture = macFixture();
     mkdirSync(fixture.dest, { recursive: true });
     writeFileSync(join(fixture.dest, 'user-data'), 'keep me');
-    await expect(fixture.install()).rejects.toThrow();
+    await withLang('zh-TW', async () => {
+      await expect(fixture.install()).rejects.toThrow(t().chromeDestinationExists(fixture.dest));
+    });
     expect(fixture.run).not.toHaveBeenCalled();
     expect(readFileSync(join(fixture.dest, 'user-data'), 'utf8')).toBe('keep me');
   });

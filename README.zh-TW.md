@@ -60,7 +60,7 @@
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
-- **設定 → App 與工具**有兩個分頁。在**常用 App** 可連結信箱、Apple 行事曆（iCloud）或其他行事曆、Slack 或一個以上的 Obsidian 筆記庫。Gmail、Google Calendar 與 Google Drive 都透過 Google OAuth 直接連結。**帳號登入設定（OAuth 2.0）**依服務提供者列出已連結的帳號，可在此解除單一 Google 或 Microsoft 帳號的連結。使用 Microsoft Teams 時，展開該列，依提示安裝 PowerShell 7，再用工作或學校帳號登入。每則 Teams 訊息都要經你確認才會送出。助理提議新增或編輯 Google 文件或 Obsidian 筆記時，Relay 會先顯示預覽，等你確認才寫入。在工具列中可選擇使用的助理。Slack 發文請先開啟**從 Relay 傳送訊息**，再展開**可提議傳送訊息的助理**。**工具庫**收錄自己的 MCP 伺服器、skill、記憶、hook 與團隊檢查預設。[常用 App 使用說明](docs/user-guide.zh-TW.md#常用-app)
+- **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
 - **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器（用 OAuth 登入的也在這裡登入）、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
 - **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
@@ -94,7 +94,7 @@ npm start
 
 ### 模型連線
 
-在 **設定 → 模型連線** 中，**開源助理的 API Key** 可為 OpenCode、Goose、Cline、OpenHands 與 Pi 設定 OpenAI、Anthropic 或 xAI 的金鑰。這五個助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，也能使用 **自訂端點**。展開後即可連接自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio 或 llama.cpp）。輸入端點網址與金鑰（選填），按 **載入模型**，勾選需要的模型，再按 **儲存**。Relay 會先向伺服器確認每個勾選或手動輸入的模型 ID，確認成功才儲存。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。這五個開源助理需要 API key 或自訂端點，不能使用 Claude 訂閱帳號或 Grok 的登入。
+在 **設定 → 模型連線** 中，**開源助理的 API Key** 可為 OpenCode、Goose、Cline、OpenHands 與 Pi 設定 OpenAI、Anthropic 或 xAI 的金鑰。這五個助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，也能使用 **自訂端點**。展開後即可連接自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio 或 llama.cpp）。輸入端點網址與金鑰（選填），按 **載入模型**，勾選需要的模型，再按 **儲存**。Relay 會檢查每個勾選或手動輸入的模型 ID。伺服器未提供任何模型資料時，會詢問是否仍要儲存未驗證的 ID。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。這五個開源助理需要 API key 或自訂端點，不能使用 Claude 訂閱帳號或 Grok 的登入。
 
 怎麼設定，以及每個 agent 要注意的地方：使用者說明的[模型連線](docs/user-guide.zh-TW.md#模型連線)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
 

@@ -311,6 +311,19 @@ export class ModelBackendStore {
     return endpoint.apiKey;
   }
 
+  /** Changing only the display name does not change the connection, even for older chat-only servers. */
+  isEndpointRename(id: string, update: ModelEndpointUpdate): boolean {
+    const current = this.endpoints.find((e) => e.id === id);
+    return Boolean(
+      current &&
+      current.name !== update.name &&
+      current.baseUrl === update.baseUrl &&
+      update.apiKey === undefined &&
+      current.models.length === update.models.length &&
+      current.models.every((model, i) => model === update.models[i]),
+    );
+  }
+
   endpointRevision(id: string): number {
     return this.endpointRevisions.get(id) ?? 0;
   }

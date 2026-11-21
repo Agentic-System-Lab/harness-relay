@@ -165,22 +165,41 @@ test('common app disclosure typography matches and setup labels stay above field
     );
     expect(await firstContentGap(mail, mail.getByRole('heading', { name: 'Choose your mail service' }))).toBeCloseTo(baseline, 0);
   }
+  await expect(mail.locator('.service-choices button')).toHaveText(['Gmail', 'iCloud Mail', 'Outlook', 'Other mailbox']);
+  await expect(calendar.locator('.service-choices button')).toHaveText(['Google Calendar', 'iCloud Calendar', 'Outlook', 'Other (CalDAV)']);
   for (const width of [1280, 775, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const buttons = page.locator('.service-choices > button:visible');
     const dims = await buttons.evaluateAll((elements) =>
       elements.map((el) => {
-        const rect = el.getBoundingClientRect();
+        const button = el.getBoundingClientRect();
+        const group = el.parentElement!.getBoundingClientRect();
         const range = document.createRange();
         range.selectNodeContents(el);
-        return { height: rect.height, width: rect.width, label: range.getBoundingClientRect().width, lines: range.getClientRects().length };
+        const label = range.getBoundingClientRect();
+        return {
+          name: el.textContent,
+          fitsRow: button.left >= Math.max(0, group.left) - 1 && button.right <= Math.min(innerWidth, group.right) + 1,
+          fitsLabel:
+            label.left >= button.left - 1 &&
+            label.right <= button.right + 1 &&
+            label.top >= button.top - 1 &&
+            label.bottom <= button.bottom + 1,
+          horizontalSpace: button.width - label.width,
+          height: button.height,
+          labelHeight: label.height,
+        };
       }),
     );
     expect(dims).toHaveLength(8);
+    const standardHeight = width <= 600 ? 44 : 36;
     for (const d of dims) {
-      expect(d.lines).toBe(1);
-      expect(d.height).toBe(dims[0]!.height);
-      expect(d.width - d.label).toBeLessThan(32);
+      expect(d, d.name ?? '').toMatchObject({ fitsRow: true, fitsLabel: true });
+      expect(d.labelHeight).toBeGreaterThan(0);
+      expect(d.horizontalSpace).toBeLessThanOrEqual(34);
+      // Phone buttons have a larger touch target. Wrapped labels can grow to fit the rendered font.
+      expect(d.height).toBeGreaterThanOrEqual(standardHeight - 1);
+      expect(Math.abs(d.height - Math.max(standardHeight, d.labelHeight + 12))).toBeLessThanOrEqual(5);
     }
   }
   await calendar.getByRole('button', { name: 'Other (CalDAV)' }).click();

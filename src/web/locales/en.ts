@@ -895,7 +895,7 @@ export const en: Messages = {
       secretHint: 'The "secret" Google gives a desktop app is not one, but it is needed; it is kept in the credential store.',
       redirects: 'Allow these redirect addresses in the app’s settings:',
       microsoftApp:
-        'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access of Microsoft Graph; for mail, IMAP.AccessAsUser.All and SMTP.Send of Office 365 Exchange Online too (and SMTP AUTH on for the mailbox).',
+        'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the Microsoft Graph permissions User.Read, Calendars.ReadWrite and offline_access; for mail, IMAP.AccessAsUser.All and SMTP.Send of Office 365 Exchange Online too (and SMTP AUTH on for the mailbox).',
       googleApp:
         'Create a Desktop app OAuth client in your own Google Cloud project. For Drive search and read access, enable the Drive API and request …/auth/drive.readonly. To create or edit Google documents, enable the Google Docs API and request …/auth/documents. For Calendar, enable the Google Calendar and CalDAV APIs and request …/auth/calendar. Gmail uses https://mail.google.com/. In Testing, add your Google account as a test user. Testing grants for these services expire after seven days.',
       waiting: (provider) => `Waiting for ${provider}'s sign-in page…`,
@@ -2259,6 +2259,7 @@ export const en: Messages = {
       endpointAccess: 'Works with the five open-source assistants above, plus Claude Code, Codex, Grok and GitHub Copilot.',
       endpointsHint: 'Add an OpenAI-compatible server and choose which models appear in your assistants’ model menus.',
       loadModels: 'Load models',
+      confirmUnverifiedModels: 'Save these model IDs without verification?',
       checkingBeforeSave: 'Checking models…',
       loadingModels: 'Loading models…',
       chooseModels: 'Models for your assistants',
@@ -2519,7 +2520,7 @@ export const en: Messages = {
       },
       {
         title: 'Check that each agent is ready',
-        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI, sign in, or connect a model backend. One ready assistant is enough to start.',
+        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI or sign in. For an open-source assistant, open Model connections to add a provider key or endpoint. One ready assistant is enough to start.',
       },
       {
         title: 'Connect your phone',

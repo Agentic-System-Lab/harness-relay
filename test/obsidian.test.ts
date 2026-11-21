@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  fsyncSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
@@ -14,7 +15,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as processes from '../src/server/process';
 import { noteWriteTools, selectedVault, vaultInventory } from '../src/server/connectors/obsidian';
 import { openDatabase, withholdFile } from '../src/server/db';
 import { ToolGateway, type GatewayContext } from '../src/server/gateway';
@@ -23,6 +25,11 @@ import { Outbox } from '../src/server/outbox';
 import { Store } from '../src/server/store';
 import { ToolLibrary } from '../src/server/tools';
 import type { Conversation, Permission } from '../src/shared/types';
+
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>();
+  return { ...fs, fsyncSync: vi.fn(fs.fsyncSync) };
+});
 
 describe('Obsidian note proposals', () => {
   let root: string;
@@ -122,6 +129,42 @@ describe('Obsidian note proposals', () => {
       expect(execFileSync('/bin/ls', ['-le', full], { encoding: 'utf8' })).toContain('allow readattr');
     },
   );
+
+  it('restores the reviewed bytes and removes staging after an in-place write cannot be synced', async () => {
+    const path = 'Note.md';
+    writeFileSync(join(vault, path), 'original contents');
+    await propose('edit', path, 'replacement');
+    // Windows edits in place. Force the same fallback on POSIX as a filesystem without metadata copying.
+    const cp = vi.spyOn(processes, 'runSync').mockReturnValue({ pid: 0, status: 1, signal: null, output: [], stdout: '', stderr: '' });
+    vi.mocked(fsyncSync).mockImplementationOnce(() => {
+      throw new Error('fixture fsync failure');
+    });
+    try {
+      expect(await answer(outbox.list(convId)[0].id)).toMatchObject({ status: 'failed', result: 'fixture fsync failure' });
+      expect(readFileSync(join(vault, path), 'utf8')).toBe('original contents');
+      expect(readdirSync(vault).sort()).toEqual(['.obsidian', 'Note.md', 'Notes']);
+    } finally {
+      cp.mockRestore();
+    }
+  });
+
+  it('refuses the Relay data directory and a vault under a protected profile', async () => {
+    const data = join(root, 'relay-data');
+    mkdirSync(join(data, '.obsidian'), { recursive: true });
+    const browser = join(vault, 'profile');
+    mkdirSync(join(browser, '.obsidian'), { recursive: true });
+    vi.stubEnv('RELAY_DATA_DIR', data);
+    vi.stubEnv('RELAY_APP_BROWSER_DIR', vault);
+    vi.resetModules();
+    try {
+      const { checkedVault } = await import('../src/server/connectors/obsidian');
+      expect(() => checkedVault(data, {})).toThrow();
+      if (process.platform !== 'win32') expect(() => checkedVault(browser, {})).toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
 
   it('refuses a create collision and a changed original, including an identical replacement at the same path', async () => {
     const path = 'Note.md',

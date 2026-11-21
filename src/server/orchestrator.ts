@@ -4392,7 +4392,7 @@ export class Orchestrator {
             conv,
             agent,
             workspace,
-            tools,
+            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined },
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),

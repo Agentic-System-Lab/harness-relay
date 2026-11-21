@@ -129,6 +129,16 @@ function gate(): { until: Promise<void>; open: () => void } {
 }
 
 describe('signing in', () => {
+  it('adds Teams to the existing Microsoft identity and keeps its calendar', async () => {
+    const existing = (await signIn()).account!;
+    const calendars = connectors.view().calendar;
+    const started = await service.startSignIn({ provider: 'microsoft', uses: ['teams'], port: 8787 });
+    const completed = await service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+    expect(completed).toMatchObject({ status: 'done', account: { id: existing.id, uses: expect.arrayContaining(['calendar', 'teams']) } });
+    expect(service.view().accounts).toHaveLength(1);
+    expect(connectors.view().calendar).toEqual(calendars);
+  });
+
   it('asks for an authorization code with PKCE, to the page’s own web app on this computer, and keeps who signed in', async () => {
     const started = await service.startSignIn({
       provider: 'microsoft',
@@ -1122,6 +1132,20 @@ describe('Google Calendar through a sign-in', () => {
     expect(fake.accessTokens.get(put.bearer!)).toBe(true);
     expect(put.ics).toContain('SUMMARY:Focus');
     expect(put.ics).toContain('DTSTART:20260107T010000Z');
+  });
+
+  it.each([200, 503])('removes a disabled Google connection and attempts revocation once even when Google returns %i', async (status) => {
+    const id = (await googleSignIn()).account!.id;
+    const token = keyring.values.get('oauth-' + id)!;
+    service.setClientDisabled('google', true);
+    if (status !== 200) fake.google.revokeStatus = status;
+    await service.removeAccount(id);
+    const requests = fake.requests.filter((r) => r.path === '/google/revoke');
+    expect(requests.map((r) => new URLSearchParams(r.body).get('token'))).toEqual([token]);
+    expect(fake.google.revoked).toEqual(status === 200 ? [token] : []);
+    expect(keyring.values.has('oauth-' + id)).toBe(false);
+    expect(service.view().accounts).toEqual([]);
+    expect(connectors.view().calendar).toEqual([]);
   });
 
   it('says the account needs a new sign-in rather than fall back to its primary calendar, and removing it revokes its token', async () => {

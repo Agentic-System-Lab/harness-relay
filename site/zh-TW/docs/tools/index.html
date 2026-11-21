@@ -6,7 +6,7 @@
     <title>給團隊的工具 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill、記憶與 hook，並選擇誰拿到哪一項。"
+      content="Harness Relay 文件：設定 OAuth，在常用 App 連結 Google Drive 與文件、Slack、Teams、Obsidian、GitHub，並選擇可使用的助理。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="給團隊的工具 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="給團隊比 agent 本身更多的工具：Harness Relay 自己的瀏覽器、郵件與行事曆，任何會送到別人那裡的東西都在待送出匣等你按「送出」；還有你自己的 MCP 伺服器、skill、記憶筆記與 hook，設定一次就能給每個 agent 用。"
+      content="在常用 App 連結郵件、行事曆、Google Drive 與文件、Slack、Teams、Obsidian、GitHub 和瀏覽器。設定 OAuth、選擇助理，並審核要送出的訊息與文件變更。工具庫收錄 MCP 伺服器、skill、記憶和 hook。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/",
         "name": "給團隊的工具 · Harness Relay 文件",
-        "description": "Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill、記憶與 hook，並選擇誰拿到哪一項。",
+        "description": "Harness Relay 文件：設定 OAuth，在常用 App 連結 Google Drive 與文件、Slack、Teams、Obsidian、GitHub，並選擇可使用的助理。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -474,7 +474,7 @@
           <p>使用公司或學校帳號直接連結 Relay，即可讀取頻道內容或請助理擬稿。</p>
           <ol>
             <li>開啟<b>設定與登入 → App 與工具 → 常用 App → 團隊通訊 → Microsoft Teams</b>。若出現<b>安裝 PowerShell 7</b>，請按下按鈕。Relay 會將 Microsoft 的可攜式 PowerShell 套件與需要下載的 Graph 登入模組安裝到自己的資料夾，不需系統管理員權限。已安裝的 PowerShell 7 或 Graph 模組可直接使用。若只缺少 Graph 模組，請按<b>安裝 Teams 需要的 Microsoft Graph 工具</b>。</li>
-            <li>按<b>登入 Microsoft Teams</b>，開啟 Microsoft 登入頁面，輸入 Relay 顯示的裝置代碼，再用工作或學校帳號登入。組織可能需要管理員核准存取權。Teams 使用 Microsoft Graph PowerShell 內建的登入，連結 Teams 時可以略過 Outlook 的用戶端註冊。</li>
+            <li>按<b>登入 Microsoft Teams</b>，開啟 Microsoft 登入頁面，輸入 Relay 顯示的裝置代碼，再用工作或學校帳號登入。讀取頻道訊息所需的 <code>ChannelMessage.Read.All</code> 權限必須由管理員同意。如果租用戶已授予 Microsoft Graph PowerShell 這項權限，就能沿用。<a href="https://learn.microsoft.com/zh-tw/graph/permissions-reference#channelmessagereadall">Microsoft Graph 權限參考</a>。Teams 使用 Microsoft Graph PowerShell 內建的登入，連結 Teams 時可以略過 Outlook 的用戶端註冊。</li>
             <li>在<b>選擇助理以啟用工具</b>勾選哪些助理可以列出團隊、頻道和讀取近期頻道訊息。可以請助理摘要某個頻道的討論。Relay 伺服器重新啟動後需要再登入。</li>
             <li>若要發文，按<b>開啟發送權限</b>，在相同租用戶用同一帳號完成第二次裝置登入。在 Relay 聊天貼上 Teams 頻道、聊天或訊息連結，請助理擬稿。核對發送帳號、目的地與全文後，按<b>送出</b>或<b>捨棄</b>。即使在「完全存取」或自動任務，每則訊息仍需你確認。<a href="#outbox">檢閱待送出的訊息</a>送到 Teams 頻道的訊息會成為新貼文。</li>
           </ol>
@@ -502,7 +502,7 @@
             <figcaption>選擇這個 Google 帳號的用途，再登入一次即可授予所選權限。</figcaption>
           </figure>
           <p>在 Drive 列按<b>管理</b>。每張帳號卡都會顯示電子郵件地址與目前權限。唯讀帳號可按<b>開啟文件新增與編輯</b>，由 Google 再次請你授權。每次新增或編輯前，你都會在 Relay 預覽並確認。只有編輯權限的帳號可按<b>開啟檔案搜尋與讀取</b>。需要更新授權時，請按<b>重新登入</b>。要連結不同帳號，請按卡片下方的<b>新增另一個 Google 帳號</b>，選擇用途再登入。</p>
-          <p>在帳號卡按<b>移除 Google Drive</b>並確認，即可從 Relay 移除該帳號的 Drive 檔案存取與 Google 文件編輯權限。Gmail、行事曆及其他 Google 帳號仍可照常使用，之後也能重新連結。若要解除整個帳號的連結，請到<a href="#oauth-accounts">帳號登入設定（OAuth 2.0）</a>的 Google 區塊找到該電子郵件地址。</p>
+          <p>在帳號卡按<b>移除 Google Drive</b>並確認，即可從 Relay 移除該帳號的 Drive 檔案存取與 Google 文件編輯權限。Google 仍保留原授權。解除整個 Google 帳號的連結時，Relay 才會向 Google 要求撤銷授權。Gmail、行事曆及其他 Google 帳號仍可照常使用，之後也能重新連結。若要解除整個帳號的連結，請到<a href="#oauth-accounts">帳號登入設定（OAuth 2.0）</a>的 Google 區塊找到該電子郵件地址。</p>
           <figure class="doc-figure">
             <a href="../../../assets/media/docs/tools-drive-editing-zh-TW.webp"><img src="../../../assets/media/docs/tools-drive-editing-zh-TW.webp" width="842" height="328" alt="Drive 帳號卡顯示電子郵件、唯讀權限、開啟文件新增與編輯及移除 Google Drive 的按鈕。卡片下方可新增另一個 Google 帳號。" loading="lazy" /></a>
             <figcaption>在該帳號卡上開啟文件編輯或移除 Drive。要連結另一個帳號，請使用卡片下方的按鈕。</figcaption>

@@ -23,26 +23,24 @@ export const PROBE_TEAMS =
 try { Import-Module -Name $name -ErrorAction Stop } catch { exit 21 }
 `;
 
+// The Gallery's SHA-512 PackageHash for the dependency-free Microsoft.Graph.Authentication 2.41.2:
+// https://www.powershellgallery.com/api/v2/Packages(Id='Microsoft.Graph.Authentication',Version='2.41.2')
 export const INSTALL_TEAMS =
   CHECK_TEAMS +
-  `
-$gallery = 'https://www.powershellgallery.com/api/v2'
-if (Get-Module -ListAvailable -Name Microsoft.PowerShell.PSResourceGet) {
-  $repo = Microsoft.PowerShell.PSResourceGet\\Get-PSResourceRepository -Name PSGallery
-  if ($repo.Uri.AbsoluteUri.TrimEnd('/') -ne $gallery) { exit 22 }
-  Microsoft.PowerShell.PSResourceGet\\Save-PSResource -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery -TrustRepository -Quiet
-} else {
-  $repo = PowerShellGet\\Get-PSRepository -Name PSGallery
-  if ($repo.SourceLocation.TrimEnd('/') -ne $gallery) { exit 22 }
-  PowerShellGet\\Save-Module -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery -Force
-}
-# Import the saved version by its own manifest, even if a broken or newer user copy is discoverable.
+  String.raw`
+$version = '2.41.2'
+$uri = "https://www.powershellgallery.com/api/v2/package/Microsoft.Graph.Authentication/$version"
+$sha512 = '1bd5656f5a792066a6b08c1b2cd57c7db88be50b15695895938e70ced14cce9a0bcdbe3eee3de08895ec05b9bf079b18789adfe776620eeadc264e8db3c90825'
 $stage = $env:RELAY_TEAMS_MODULE_STAGE
-$moduleDir = [IO.Path]::Combine($stage, $name)
-$manifest = @(Get-ChildItem -LiteralPath $moduleDir -Filter ($name + '.psd1') -File -Depth 1)
-if ($manifest.Count -ne 1) { exit 22 }
+$package = [IO.Path]::Combine([IO.Path]::GetDirectoryName($stage), 'graph.nupkg')
+$moduleDir = [IO.Path]::Combine($stage, $name, $version)
+# Use the fixed Gallery URL even on systems with a custom repository registered as PSGallery.
+Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $uri -OutFile $package -TimeoutSec 90
+if ((Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $package -Algorithm SHA512).Hash -ne $sha512) { exit 22 }
+[IO.Compression.ZipFile]::ExtractToDirectory($package, $moduleDir)
+$manifest = [IO.Path]::Combine($moduleDir, ($name + '.psd1'))
 $env:PSModulePath = $stage + [IO.Path]::PathSeparator + $env:PSModulePath
-try { Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop } catch { exit 22 }
+try { Import-Module -Name $manifest -ErrorAction Stop } catch { exit 22 }
 `;
 
 // The write-capable helper is started only by an explicit, separate device sign-in.

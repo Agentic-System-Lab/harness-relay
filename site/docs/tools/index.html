@@ -6,7 +6,7 @@
     <title>Tools for the team · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills, memory and hooks, and choose who gets each."
+      content="Harness Relay docs: connect Common apps with OAuth, including Google Drive and Docs, Slack, Teams, Obsidian and GitHub. Choose which assistants can use them."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Tools for the team · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Give the team more than the agents bring: Harness Relay's own browser, mail and calendar, with anything that reaches other people waiting in the outbox for your Send, and your own MCP servers, skills, memory notes and hooks, set up once for every agent."
+      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/tools/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/tools/",
         "name": "Tools for the team · Harness Relay docs",
-        "description": "Harness Relay docs: give your agents a browser, your mail and calendar, and your own MCP servers, skills, memory and hooks, and choose who gets each.",
+        "description": "Harness Relay docs: connect Common apps with OAuth, including Google Drive and Docs, Slack, Teams, Obsidian and GitHub. Choose which assistants can use them.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -482,7 +482,7 @@
           <p>Connect a work or school account directly to Relay to read channels and draft messages.</p>
           <ol>
             <li>Open <b>Settings &amp; sign-in → Apps and tools → Common apps → Team messaging → Microsoft Teams</b>. If prompted, select <b>Install PowerShell 7</b>. Relay uses its data folder for Microsoft’s portable PowerShell package and any Graph sign-in module it needs to download. Relay can use an existing PowerShell 7 or Graph module. Installation needs no administrator privileges. If only the Graph module is missing, select <b>Install Microsoft Graph for Teams</b>.</li>
-            <li>Select <b>Sign in to Microsoft Teams</b>. Open Microsoft’s sign-in page, enter the device code shown in Relay and sign in with your work or school account. Your organization may require an administrator to approve access. Teams uses Microsoft Graph PowerShell’s own sign-in, so you can skip the Outlook client registration when connecting Teams.</li>
+            <li>Select <b>Sign in to Microsoft Teams</b>. Open Microsoft’s sign-in page, enter the device code shown in Relay and sign in with your work or school account. Reading channel messages requires administrator consent for <code>ChannelMessage.Read.All</code>. If your tenant already granted it to Microsoft Graph PowerShell, that grant applies. <a href="https://learn.microsoft.com/en-us/graph/permissions-reference#channelmessagereadall">Microsoft Graph permissions</a>. Teams uses Microsoft Graph PowerShell’s own sign-in, so you can skip the Outlook client registration when connecting Teams.</li>
             <li>Under <b>Choose assistants to enable this tool</b>, select the assistants that may list teams and channels and read recent channel messages. Try asking one to summarize a channel. Sign in again after the Relay server restarts.</li>
             <li>To post, select <b>Enable sending</b> and complete a second device sign-in using the same account and tenant. Paste a Teams channel, chat or message link into the Relay chat and ask an assistant to draft a message. Review the sender, destination and full text, then select <b>Send</b> or <b>Discard</b>. Every post waits for you, even in Full access and automations. <a href="#outbox">Review an outgoing message</a> A message sent to a Teams channel becomes a new channel post.</li>
           </ol>
@@ -510,7 +510,7 @@
             <figcaption>Choose what this Google account can do, then sign in once to grant the selected permissions.</figcaption>
           </figure>
           <p>Open <b>Manage</b> in the Drive row. Each account card shows its email and current access. Select <b>Allow creating and editing documents</b> on a read-only account to grant editing through Google. Relay shows you a preview and asks for confirmation before each change. An editing-only account can add <b>Enable file search and reading</b>. Use <b>Sign in again</b> when a grant needs renewal. To connect a different account, select <b>Add another Google account</b> below the cards, choose its permissions and sign in.</p>
-          <p>Select <b>Remove Google Drive</b> on the account card and confirm to remove its Drive file access and Google Docs editing from Relay. Gmail, Calendar and other Google accounts keep their access. You can reconnect the account later. To disconnect the entire account, find its email under Google in <a href="#oauth-accounts">Account sign-in settings (OAuth 2.0)</a>.</p>
+          <p>Select <b>Remove Google Drive</b> on the account card and confirm to remove its Drive file access and Google Docs editing from Relay. Google keeps the authorization. Gmail, Calendar and other Google accounts keep their access. Disconnect the entire Google account to request revocation at Google. You can reconnect the account later. To disconnect the entire account, find its email under Google in <a href="#oauth-accounts">Account sign-in settings (OAuth 2.0)</a>.</p>
           <figure class="doc-figure">
             <a href="../../assets/media/docs/tools-drive-editing-en.webp"><img src="../../assets/media/docs/tools-drive-editing-en.webp" width="842" height="327" alt="A Drive account card shows its email, read-only access and buttons to enable editing or remove Google Drive. Add another Google account is below the card." loading="lazy" /></a>
             <figcaption>Use the account card to request editing access or remove Drive. Add another account below the card.</figcaption>

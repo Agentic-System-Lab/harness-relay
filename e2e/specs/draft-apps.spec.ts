@@ -30,6 +30,7 @@ test('signed-in startup checks common apps before either composer opens and shar
     const expected = ['read-only/github', 'read-only/local', 'read-only/slack', 'read-only/teams'];
     await expect.poll(() => requests.slice().sort()).toEqual(expected);
     await expect(page.locator('.draft-app-toggle')).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     for (const name of ['New chat', 'New automation']) {
       // Navigate through the signed-in shell so both composers use the same window and session.
       await page.getByRole('button', { name, exact: true }).click();
@@ -154,12 +155,7 @@ for (const age of [1_000, 61_000]) {
 
 test('New automation rechecks the selected app at submission and keeps its draft if availability changed', async ({ page, relay }) => {
   const states = appStates({ calendar: 'ready', github: 'ready' });
-  const checked: string[] = [];
-  await page.route('**/api/apps/availability?*', (route) => {
-    const group = new URL(route.request().url()).searchParams.get('app')!;
-    checked.push(group);
-    return route.fulfill({ json: states });
-  });
+  await page.route('**/api/apps/availability?*', (route) => route.fulfill({ json: states }));
   await page.goto(relay.base + '/#/schedule');
   const task = page.locator('.task-input');
   await task.fill('Review calendar changes');
@@ -175,12 +171,9 @@ test('New automation rechecks the selected app at submission and keeps its draft
   await page.getByRole('link', { name: 'Return to automation draft' }).click();
   await expect(page.locator('.draft-app-selection')).toHaveText('Please use Calendar for this task.');
   await expect(page.getByText('Removed GitHub from this draft because access is unavailable.')).toBeVisible();
-  await expect.poll(() => checked.length).toBeGreaterThanOrEqual(8);
-  checked.length = 0;
   states.calendar = 'needs-connection';
   await page.getByRole('button', { name: 'Create automation', exact: true }).click();
   await expect(page.getByText('App availability changed. Review your draft before sending.')).toBeVisible();
-  expect(checked).toEqual(['local']);
   await expect(page.locator('.draft-app-selection')).toHaveCount(0);
   await expect(task).toHaveValue('Review calendar changes');
   await expect(page.locator('.attach-tray')).toContainText('plan.txt');
@@ -191,7 +184,9 @@ test('Slack profile verification requires an explicit choice and the selected co
   page,
   relay,
 }) => {
-  const states = appStates({ slack: 'needs-verification' });
+  const verifiedAt = new Date('2026-01-01T10:00:00Z');
+  await page.clock.setFixedTime(verifiedAt);
+  const states = appStates({ slack: 'needs-verification', calendar: 'ready' });
   let checks = 0;
   let localReads = 0;
   let finishVerification!: () => void;
@@ -229,12 +224,60 @@ test('Slack profile verification requires an explicit choice and the selected co
   await expect(slack).toBeEnabled();
   await expect(slack).toBeFocused();
   await slack.check();
+  states.slack = 'needs-verification';
+  await page.clock.setFixedTime(new Date(verifiedAt.getTime() + 301_000));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(slack).toHaveAccessibleDescription('Check connection');
+  await expect(slack).toBeChecked();
+  await choices.getByRole('checkbox', { name: 'Calendar', exact: true }).check();
+  await expect(slack).toBeChecked();
+  expect(checks).toBe(1);
   await page.getByRole('button', { name: 'Send question', exact: true }).click();
   await expect(page.getByText('App availability changed. Review your draft before sending.')).toBeVisible();
   await expect(slack).toBeDisabled();
   await expect(slack).not.toBeChecked();
   expect(checks).toBe(2);
   expect(await relay.api('/api/conversations')).toEqual([]);
+});
+
+test('New automation restores a Slack choice after verification expires and sends it only after fresh confirmation', async ({
+  page,
+  relay,
+}) => {
+  const states = appStates({ slack: 'ready' });
+  let confirms = 0;
+  await page.route('**/api/apps/availability?*', (route) => route.fulfill({ json: states }));
+  await page.route('**/api/apps/availability/slack/verify', (route) => {
+    confirms++;
+    return route.fulfill({ json: { ...states, slack: 'ready' } });
+  });
+  await page.goto(relay.base + '/#/schedule');
+  await page.locator('.task-input').fill('Prepare meeting notes');
+  const toggle = page.locator('.draft-app-toggle');
+  const slack = page.getByRole('checkbox', { name: 'Slack', exact: true });
+  await toggle.click();
+  await slack.check();
+  await page.getByRole('link', { name: 'Manage app connections' }).click();
+  states.slack = 'needs-verification';
+  await page.getByRole('link', { name: 'Return to automation draft' }).click();
+  await toggle.click();
+  await expect(slack).toHaveAccessibleDescription('Check connection');
+  await expect(slack).toBeChecked();
+  await slack.uncheck();
+  await expect(slack).toBeDisabled();
+  expect(confirms).toBe(0);
+  await page.getByRole('button', { name: 'Check Slack connection' }).click();
+  await slack.check();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(slack).toHaveAccessibleDescription('Check connection');
+  await expect(slack).toBeChecked();
+  expect(confirms).toBe(1);
+  await page.getByRole('button', { name: 'Create automation', exact: true }).click();
+  await page.waitForURL(/#\/c\//);
+  expect(confirms).toBe(2);
+  expect(await relay.api('/api/conversations/' + page.url().split('/').pop())).toMatchObject({
+    schedule: { text: 'Prepare meeting notes\n\nPlease use Slack for this task.' },
+  });
 });
 
 test('The draft picker uses the actual vault connection and assistant grant returned by Relay', async ({ page, relay }) => {

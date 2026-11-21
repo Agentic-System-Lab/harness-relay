@@ -177,13 +177,25 @@ export function canReadFiles(provider: Provider, off: readonly NativePart[] = []
   return !off.includes('tools') && !['Read', 'Bash'].every((tool) => items.tools?.includes(tool));
 }
 
+type BriefingTools = Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> & {
+  /** Groups actually granted to this turn after applying the CLI's sandbox restrictions. */
+  grantedGroups?: AgentTools['relayGroups'];
+};
+
 /**
  * The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither).
  * `ownSkills`: the agent's CLI still loads its own skills (the user did not leave them out). `reads`:
  * it can read files; skills are read from their SKILL.md, so without that they are not listed.
  */
-function toolSections(tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'>, ownSkills: boolean, reads = true): string {
+function toolSections(tools: BriefingTools, ownSkills: boolean, reads = true): string {
   const out: string[] = [];
+  if (tools.grantedGroups?.includes('drive'))
+    out.push(`- For Google Drive searches and document reading, use the Relay tools drive_search and drive_read_document. If the account or tool is unavailable, direct the user to Settings → Apps and tools → Google Drive to connect their Google account and select this assistant.
+- To create or edit a Google Doc, propose the change with the Relay tool drive_create_document or drive_edit_document. The user reviews and confirms in this chat. If the tool is unavailable, help them enable document editing under Settings → Apps and tools → Google Drive. Never perform that write through another connector or a browser.`);
+  if (tools.grantedGroups?.includes('teams'))
+    out.push(
+      `- For Microsoft Teams, read teams, channels and messages with the Relay tools teams_list and teams_messages. Draft a Teams channel or chat message with teams_send_message. The user reviews the destination, account and exact text and selects Send in the chat to post it. Never send a Teams message through another connector, the browser or the command line. If the Relay tools are unavailable, direct the user to Settings → Apps and tools → Microsoft Teams to sign in, select this assistant and enable sending when needed.`,
+    );
   if (tools.leftOut?.length) {
     const list = tools.leftOut
       .map(
@@ -316,7 +328,7 @@ export function buildBriefing(
   conv: Conversation,
   agent: AgentConfig,
   ws: BriefingWorkspace = { kind: 'shared' },
-  tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> = { skills: [] },
+  tools: BriefingTools = { skills: [] },
   /** What the user left out of this agent's CLI in Harness Relay's runs, all of a kind and single items. */
   nativeOff: readonly NativePart[] = [],
   nativeItems: NativeItemsOff = {},
@@ -347,9 +359,6 @@ ${team}
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
 - Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${trackingSection(tracked)}
-- For Google Drive searches and document reading, use the Relay tools drive_search and drive_read_document. If the account or tool is unavailable, direct the user to Settings → Apps and tools → Google Drive to connect their Google account and select this assistant.
-- To create or edit a Google Doc, propose the change with the Relay tool drive_create_document or drive_edit_document. The user reviews and confirms in this chat. If the tool is unavailable, help them enable document editing under Settings → Apps and tools → Google Drive. Never perform that write through another connector or a browser.
-- For Microsoft Teams, read teams, channels and messages with the Relay tools teams_list and teams_messages. Draft a Teams channel or chat message with teams_send_message. The user reviews the destination, account and exact text and selects Send in the chat to post it. Never send a Teams message through another connector, the browser or the command line. If the Relay tools are unavailable, direct the user to Settings → Apps and tools → Microsoft Teams to sign in, select this assistant and enable sending when needed.
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 

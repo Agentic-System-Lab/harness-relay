@@ -136,6 +136,25 @@ describe('the portable PowerShell prerequisite for Teams', () => {
     expect((await readdir(temp)).sort()).toEqual(['current', 'install']);
   });
 
+  it('preserves the previous install outside staging if its rollback rename also fails', async () => {
+    temp = await mkdtemp(join(tmpdir(), 'relay-install-rollback-'));
+    const target = join(temp, 'current');
+    const staging = join(temp, 'install');
+    const staged = join(staging, 'new');
+    await mkdir(target);
+    await mkdir(staged, { recursive: true });
+    await writeFile(join(target, 'version'), 'original');
+    const failAfterBackup: typeof rename = async (from, to) => {
+      if (from !== target) throw new Error('destination unavailable');
+      await rename(from, to);
+    };
+    await expect(publishTeamsDirectory(staged, target, new AbortController().signal, failAfterBackup)).rejects.toThrow(
+      'destination unavailable',
+    );
+    await rm(staging, { recursive: true });
+    expect(await readFile(join(staging + '-previous', 'version'), 'utf8')).toBe('original');
+  });
+
   it('reports missing system extraction tools before creating staging files', async () => {
     const run = vi.fn();
     await expect(

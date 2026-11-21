@@ -1,4 +1,4 @@
-import type { DraftApp, DraftAppAvailability } from '../shared/apps';
+import type { DraftApp, DraftAppAvailability, DraftAppState } from '../shared/apps';
 import type { Messages } from './i18n';
 
 export interface DraftAppSelection {
@@ -10,6 +10,15 @@ export interface DraftAppSelection {
   verifySlack: () => Promise<boolean>;
   retry: () => void;
   onChange: (apps: DraftApp[]) => void;
+}
+
+// An expired Slack check still represents the user's choice. Sending explicitly verifies it again.
+export function canConfirmSelectedApp(app: DraftApp, state?: DraftAppState): boolean {
+  return state === 'ready' || (app === 'slack' && state === 'needs-verification');
+}
+
+export function unavailableSelectedApps(selected: readonly DraftApp[], states: Partial<DraftAppAvailability>): DraftApp[] {
+  return selected.filter((app) => states[app] !== undefined && !canConfirmSelectedApp(app, states[app]));
 }
 
 export function draftAppName(app: DraftApp, t: Messages): string {

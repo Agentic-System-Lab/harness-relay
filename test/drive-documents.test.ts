@@ -238,6 +238,24 @@ describe('direct Google Docs proposals', () => {
     expect(outbox.waiting('c')).toBe(0);
   });
 
+  it.each([408, 503])('reports an uncertain creation after HTTP %i without replaying the POST', async (status) => {
+    await propose('create', preview);
+    const item = outbox.list('c')[0];
+    handle = () => json({}, status);
+    expect(await answer(item.id)).toMatchObject({ status: 'failed', result: expect.stringContaining('outcome is uncertain') });
+    await expect(answer(item.id)).rejects.toMatchObject({ status: 409 });
+    expect(calls.map((c) => [c.method, c.retry])).toEqual([['POST', false]]);
+  });
+
+  it('does not queue an edit when the initial document read fails on the network', async () => {
+    handle = () => {
+      throw new Error('connection reset');
+    };
+    expect(await propose('edit', edit)).toMatchObject({ isError: true, text: expect.stringContaining('could not be verified') });
+    expect(outbox.waiting('c')).toBe(0);
+    expect(calls.map((c) => c.method)).toEqual(['GET']);
+  });
+
   it('uses one revision-guarded deletion and requests a new preview on a conflict at the write itself', async () => {
     handle = (c) => {
       if (c.method === 'GET') return json(document([tab('t.0', ['target\n'])]));

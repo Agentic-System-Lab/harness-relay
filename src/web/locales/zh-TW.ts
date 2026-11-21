@@ -903,7 +903,7 @@ export const zhTW = {
       secretHint: 'Google 給桌面 app 的「密碼」其實不是秘密，但仍需要；它存放在憑證儲存區。',
       redirects: '在 app 的設定裡允許這些重新導向網址：',
       microsoftApp:
-        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Microsoft Graph 的 Calendars.ReadWrite 與 offline_access；用於郵件時，再加上 Office 365 Exchange Online 的 IMAP.AccessAsUser.All 與 SMTP.Send（信箱的 SMTP AUTH 也要開啟）。',
+        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Microsoft Graph 的 User.Read、Calendars.ReadWrite 與 offline_access；用於郵件時，再加上 Office 365 Exchange Online 的 IMAP.AccessAsUser.All 與 SMTP.Send（信箱的 SMTP AUTH 也要開啟）。',
       googleApp:
         '請在自己的 Google Cloud 專案建立「電腦版應用程式」OAuth 用戶端。搜尋及讀取 Drive 需啟用 Drive API 和 …/auth/drive.readonly 權限。新增或編輯 Google 文件另需啟用 Google Docs API 和 …/auth/documents 權限。Calendar 需啟用 Google Calendar 和 CalDAV API，並加入 …/auth/calendar 權限。Gmail 使用 https://mail.google.com/。測試模式請加入自己的 Google 帳號為測試使用者，這些服務的測試授權會在七天後到期。',
       waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
@@ -2251,6 +2251,7 @@ export const zhTW = {
       endpointAccess: '除了上述五個開源助理，Claude Code、Codex、Grok 和 GitHub Copilot 也能使用自訂端點。',
       endpointsHint: '連結 OpenAI 相容的伺服器，選擇要顯示在助理選單裡的模型。',
       loadModels: '載入模型',
+      confirmUnverifiedModels: '仍要儲存這些未驗證的模型 ID 嗎？',
       checkingBeforeSave: '正在檢查模型…',
       loadingModels: '正在載入模型…',
       chooseModels: '助理可用的模型',
@@ -2511,7 +2512,7 @@ export const zhTW = {
       },
       {
         title: '先確認各 agent 可以使用',
-        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。',
+        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI 或登入。使用開源助理時，到「模型連線」新增服務商金鑰或端點。有一位可用助理就能開始。',
       },
       {
         title: '連接手機',
@@ -2670,7 +2671,7 @@ export const zhTW = {
         body: '打開「設定 → App 與工具 → 常用 App」，找到想用的服務。Teams 請用 Microsoft 工作或學校帳號登入。Slack 則可選擇你在 Relay 使用的助理。',
         points: [
           '使用 Gmail、Google Calendar 或 Google Drive 時，在該服務的設定中登入 Google。在各帳號的 Drive 卡片上可開啟文件編輯，也可單獨移除 Drive，保留 Gmail 和行事曆。「帳號登入設定（OAuth 2.0）」提供設定教學，也可解除整個 Google 或 Microsoft 帳號的連結。',
-          '在工具列中選擇使用的助理。Slack 請在「從 Relay 傳送訊息」中選擇可擬稿的助理。傳送訊息、變更 Obsidian 筆記及寫入 Google 文件前，Relay 都會先顯示預覽，等你確認。',
+          '展開個別工具那一列，選擇可使用該工具的助理。Slack 請在「從 Relay 傳送訊息」中選擇可擬稿的助理。傳送訊息、變更 Obsidian 筆記及寫入 Google 文件前，Relay 都會先顯示預覽，等你確認。',
           '要加入自訂工具、Skill 或共用指示，切換到「工具庫」分頁。',
         ],
       },

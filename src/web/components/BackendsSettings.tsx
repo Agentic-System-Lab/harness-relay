@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_BACKEND_LABEL, BACKEND_LIMITS, type ApiBackend, type ModelBackendsView, type ModelEndpointView } from '../../shared/types';
-import { api } from '../api';
+import {
+  API_BACKEND_LABEL,
+  BACKEND_LIMITS,
+  ENDPOINT_METADATA_UNAVAILABLE,
+  type ApiBackend,
+  type ModelBackendsView,
+  type ModelEndpointView,
+} from '../../shared/types';
+import { api, ApiError } from '../api';
 import {
   endpointDraft,
   endpointProblems,
@@ -180,22 +187,27 @@ function Endpoints({
   /** Each edit has a distinct identity, even when a user returns to the same endpoint during a save. */
   const [editing, setEditing] = useState<{ id: string }>();
   const current = endpoints.find((e) => e.id === editing?.id);
+  const save = async (draft: EndpointDraft) => {
+    const id = draft.id.trim();
+    const update = endpointUpdate(draft);
+    const saved = await apply(async () => {
+      try {
+        return await api.saveEndpoint(id, update);
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.code !== ENDPOINT_METADATA_UNAVAILABLE) throw err;
+        if (!window.confirm(`${err.message}\n\n${b.confirmUnverifiedModels}`)) throw err;
+        return api.saveEndpoint(id, { ...update, allowMissingMetadata: true });
+      }
+    }, b.saved);
+    if (saved) setEditing((open) => (open === editing ? undefined : open));
+  };
 
   return (
     <>
       {!endpoints.length && <p className="muted small">{b.noEndpoints}</p>}
       {endpoints.map((e) =>
         editing?.id === e.id ? (
-          <EndpointForm
-            key={e.id}
-            endpoint={e}
-            endpoints={endpoints}
-            onCancel={() => setEditing(undefined)}
-            onSave={async (d) => {
-              if (await apply(() => api.saveEndpoint(e.id, endpointUpdate(d)), b.saved))
-                setEditing((open) => (open === editing ? undefined : open));
-            }}
-          />
+          <EndpointForm key={e.id} endpoint={e} endpoints={endpoints} onCancel={() => setEditing(undefined)} onSave={save} />
         ) : (
           <div key={e.id} className="field">
             <span>
@@ -224,14 +236,7 @@ function Endpoints({
         ),
       )}
       {editing?.id === '' && !current ? (
-        <EndpointForm
-          endpoints={endpoints}
-          onCancel={() => setEditing(undefined)}
-          onSave={async (d) => {
-            if (await apply(() => api.saveEndpoint(d.id.trim(), endpointUpdate(d)), b.saved))
-              setEditing((open) => (open === editing ? undefined : open));
-          }}
-        />
+        <EndpointForm endpoints={endpoints} onCancel={() => setEditing(undefined)} onSave={save} />
       ) : (
         <div className="button-row">
           <button className="ghost" onClick={() => setEditing({ id: '' })} disabled={editing !== undefined}>

@@ -30,7 +30,8 @@ function messageTool<Target>(
     },
     describe: () => ({ title: t().messageTitle(app) }),
     async prepare(args) {
-      const { text, destination } = args;
+      const { destination } = args;
+      const text = typeof args.text === 'string' ? args.text.replace(/\r\n/g, '\n') : undefined;
       if (typeof destination !== 'string' || !destination || destination.length > 8192) throw new Error(t().invalidField('destination'));
       if (
         typeof text !== 'string' ||
@@ -45,7 +46,11 @@ function messageTool<Target>(
     },
     async send(args, item) {
       if (!args.target || typeof args.text !== 'string' || args.text !== item.preview.body) throw new Error(t().messageChanged);
-      await sender.sendPost(args.target as Target, args.text);
+      const target = args.target as Target;
+      const fields = describeTarget(target);
+      if (fields.length !== item.preview.fields.length || fields.some((f, i) => f.value !== item.preview.fields[i]?.value))
+        throw new Error(t().messageChanged);
+      await sender.sendPost(target, args.text);
       return t().messageSent(app);
     },
   };

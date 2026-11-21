@@ -520,7 +520,7 @@ export class TeamsGraph {
     const path = target.kind === 'channel' ? 'teams/' + segment(target.teamId) + '/channels/' + id : 'chats/' + id;
     try {
       const posted = await writer.request<{ id: string }>(path + '/messages', text);
-      if (!posted?.id) throw new Error();
+      if (typeof posted?.id !== 'string' || !posted.id.trim()) throw new Error();
     } catch (error) {
       if (error instanceof HttpError) throw error;
       // A network error can occur after Graph accepted the message.

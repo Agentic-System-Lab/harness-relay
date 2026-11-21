@@ -6,7 +6,7 @@
     <title>連接你的 agent · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：登入 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code，或給開源 agent 一個模型來源。"
+      content="Harness Relay 文件：連結助理、安裝 CLI 或登入。在「模型連線」替開源助理設定 API Key，或連接自己的模型伺服器。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="連接你的 agent · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="怎麼把你的 coding agent 接上 Harness Relay：登入七個 agent，或改用 API key、替開源 agent 設定模型來源（API key 或你自己的模型伺服器）、新增更多帳號、查看方案用量，以及選擇首席 agent。"
+      content="安裝 CLI、登入並在「模型連線」設定開源助理的 API Key 或自訂端點，也可以新增帳號、查看方案用量和選擇首席助理。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/",
         "name": "連接你的 agent · Harness Relay 文件",
-        "description": "Harness Relay 文件：登入 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code，或給開源 agent 一個模型來源。",
+        "description": "Harness Relay 文件：連結助理、安裝 CLI 或登入。在「模型連線」替開源助理設定 API Key，或連接自己的模型伺服器。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -383,7 +383,7 @@
               <b>自訂端點</b>即使收合也會列出支援的助理。上述五個開源助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，都能使用自己的伺服器。展開後即可連接 vLLM、Ollama、LM Studio、llama.cpp 等 OpenAI 相容伺服器。
               按<b>新增端點</b>，填寫名稱、簡短的 ID（例如 <code>homelab</code>）、端點網址（本機的 Ollama 是 <code>http://localhost:11434/v1</code>）與金鑰（選填）。
               按<b>載入模型</b>，勾選要在助理選單中顯示的模型 ID，也可以展開<b>手動輸入模型 ID</b> 來新增 ID。先前已儲存的 ID 會保持勾選。
-              按<b>儲存</b>時，Relay 會重新讀取清單，驗證勾選或手動輸入的每個 ID。如果清單沒有該 ID，或伺服器不支援列出模型，則會查詢個別模型資料。手動輸入的 ID 也必須通過其中一種查詢。如果連線失敗、金鑰遭拒或無法確認某個 ID，表單會顯示原因並保留你剛填的內容，助理繼續使用上次儲存的設定。
+              只改既有端點名稱可在本機儲存。新增端點或變更網址、金鑰、模型時，按<b>儲存</b>會重新讀取清單，驗證勾選或手動輸入的每個 ID。如果清單沒有該 ID，或伺服器不支援列出模型，則會查詢個別模型資料。只有清單與所有指定模型的個別資料都未提供時，Relay 才會詢問是否儲存未驗證的 ID。取消會留在編輯畫面。連線或授權失敗、回傳的 ID 不符，或有提供模型資料卻找不到該 ID，都會阻止儲存並保留表單內容。檢查時不會執行模型。
             </li>
           </ul>
           <figure class="doc-figure">

@@ -1,13 +1,13 @@
-import { spawnSync } from 'node:child_process';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runStep, type CliInstallHost, type InstallJob } from '../cliInstall';
+import { InstallError, runStep, type CliInstallHost, type InstallJob } from '../cliInstall';
 import { isProgram } from '../executable';
 import { wingetInstall } from '../gitInstall';
+import { t } from '../i18n';
 import { portableInstallEnv } from '../portableInstall';
-import { runProcess, runShellScript } from '../process';
+import { runProcess, runShellScript, runSync } from '../process';
 import { linuxPackageCommand, type LinuxPackages } from '../sandboxSetup';
 
 const CHROME_APP = 'Google Chrome.app';
@@ -30,16 +30,17 @@ function publishMacApp(source: string, destination: string, env: NodeJS.ProcessE
   const script = [
     "ObjC.bindFunction('renamex_np', ['int', ['char *', 'char *', 'unsigned int']]);",
     'function run(paths) {',
-    '  if ($.renamex_np(paths[0], paths[1], 4) !== 0) throw Error("Cannot install Google Chrome at " + paths[1]);',
+    '  if ($.renamex_np(paths[0], paths[1], 4) !== 0) throw Error("renamex_np");',
     '}',
   ].join('\n');
-  const result = spawnSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script, source, destination], {
+  const result = runSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script, source, destination], {
     env,
-    encoding: 'utf8',
-    timeout: 10000,
+    timeoutMs: 10000,
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(result.stderr.trim() || 'Cannot install Google Chrome.');
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message || result.stderr?.trim();
+    throw new InstallError(() => [t().chromePublishFailed(destination), detail].filter(Boolean).join('\n'), result.status);
+  }
 }
 
 function readOsRelease(): string {
@@ -58,7 +59,7 @@ async function installMacChrome(host: BrowserInstallHost, job: InstallJob): Prom
   const apps = join(host.home, 'Applications');
   const dest = join(apps, CHROME_APP);
   job.abort.signal.throwIfAborted();
-  if (lstatSync(dest, { throwIfNoEntry: false })) throw new Error('An application already exists at ' + dest);
+  if (lstatSync(dest, { throwIfNoEntry: false })) throw new InstallError(() => t().chromeDestinationExists(dest));
 
   mkdirSync(apps, { recursive: true });
   const stage = mkdtempSync(join(apps, '.relay-chrome-'));
@@ -95,7 +96,7 @@ async function installMacChrome(host: BrowserInstallHost, job: InstallJob): Prom
         env,
       });
       const source = join(volume, CHROME_APP);
-      if (!lstatSync(source).isDirectory()) throw new Error('Missing Google Chrome application in the disk image.');
+      if (!lstatSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new InstallError(() => t().chromeMissingBundle);
       // The vendor HFS image carries FinderInfo on its helpers. Omit resource forks and Finder
       // metadata so strict seal verification can run; preserve quarantine on the staged bundle.
       await runStep(host, job, 'Copy Google Chrome', {

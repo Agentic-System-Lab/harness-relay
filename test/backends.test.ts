@@ -965,6 +965,112 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     );
   });
 
+  it('requires explicit consent when both metadata routes are absent and never overrides an actual verification failure', async () => {
+    const { app, settings } = setup();
+    const requests: string[] = [];
+    let canceledRecord = false;
+    await withModelServer(
+      (req, res) => {
+        requests.push(req.method + ' ' + req.url);
+        switch (req.url) {
+          case '/v1/models':
+            return res.writeHead(405).end();
+          case '/v1/models/streaming':
+            res.on('close', () => {
+              canceledRecord = true;
+            });
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.flushHeaders();
+            return;
+          case '/v1/models/known':
+            return res.end('{"id":"known"}');
+          case '/v1/models/mismatch':
+            return res.end('{"id":"other"}');
+          case '/v1/models/denied':
+            return res.writeHead(403).end();
+          case '/v1/models/offline':
+            return req.socket.destroy();
+          default:
+            return res.writeHead(404).end();
+        }
+      },
+      async (origin) => {
+        const baseUrl = origin + '/v1';
+        const put = (models: string[], extra: object = {}) =>
+          app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, baseUrl, verifyModels: true, models, ...extra }));
+        const ids = ['first', 'second'];
+        const first = await put(ids);
+        expect(first.status).toBe(409);
+        expect(await first.json()).toMatchObject({ code: 'endpoint-metadata-unavailable' });
+        expect(settings.backends.forRun().endpoints).toEqual([]);
+        const probes = ['GET /v1/models', 'GET /v1/models/first', 'GET /v1/models/second'];
+        expect(requests.splice(0)).toEqual(probes);
+        expect((await put(ids, { allowMissingMetadata: true })).status).toBe(200);
+        expect(requests.splice(0)).toEqual(probes);
+        for (const [models, expected] of [
+          [['first', 'known'], /first.*404/],
+          [['first', 'streaming'], /first.*404/],
+          [['known', 'second'], /second.*404/],
+          [['first', 'denied'], /403/],
+          [['first', 'offline'], /offline.*connection/],
+          [['mismatch'], /matching record/],
+        ] as const) {
+          const failed = await put([...models], { allowMissingMetadata: true, name: 'Rejected' });
+          expect(failed.status).toBeGreaterThanOrEqual(400);
+          expect(await failed.json()).toEqual({ error: expect.stringMatching(expected) });
+          expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: endpoint.name, models: ids });
+        }
+        await vi.waitFor(() => expect(canceledRecord).toBe(true));
+        expect((await put(ids, { allowMissingMetadata: 'yes' })).status).toBe(400);
+        expect((await put(ids, { verifyModels: false, allowMissingMetadata: true })).status).toBe(400);
+        // A legacy chat backend can have no catalog and no saved IDs. A label-only change is local.
+        settings.backends.putEndpoint('lab', { ...endpoint, baseUrl, models: [], apiKey: 'existing' });
+        requests.length = 0;
+        expect((await put([], { name: 'New label' })).status).toBe(200);
+        expect(requests).toEqual([]);
+        expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: 'New label', apiKey: 'existing' });
+        expect((await put([], { name: 'Changed key', apiKey: 'new' })).status).toBe(400);
+        expect(requests).toEqual(['GET /v1/models']);
+        expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: 'New label', apiKey: 'existing' });
+      },
+    );
+  });
+
+  it('applies the same deadline to individual records after a slow catalog', async () => {
+    const { app, settings } = setup();
+    const now = Date.now.bind(Date);
+    let elapsed = 0;
+    const time = vi.spyOn(Date, 'now').mockImplementation(() => now() + elapsed);
+    const paths: string[] = [];
+    try {
+      await withModelServer(
+        (req, res) => {
+          paths.push(req.url!);
+          elapsed = 11_000;
+          res.end('{"data":[]}');
+        },
+        async (origin) => {
+          const response = await app.request(
+            '/api/backends/endpoints/lab',
+            json('PUT', {
+              ...endpoint,
+              baseUrl: origin + '/v1',
+              models: ['manual'],
+              verifyModels: true,
+              allowMissingMetadata: true,
+            }),
+          );
+          expect(response.status).toBe(502);
+          expect(await response.text()).toMatch(/manual.*timed out/);
+          expect(paths).toEqual(['/v1/models']);
+          expect(settings.backends.forRun().endpoints).toEqual([]);
+        },
+      );
+    } finally {
+      time.mockRestore();
+    }
+  });
+
   it('bounds the combined size of individual model records and stops checking on the first over-budget response', async () => {
     const { app, settings } = setup();
     const models = ['one', 'two', 'three', 'four'];
@@ -1137,11 +1243,11 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
           auth: { loggedIn: false, detail: expect.stringMatching(/not implemented yet/) },
         });
         opencodeAcp.implemented = true;
-        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Model connections)' });
+        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model connection set up yet (Settings → Model connections)' });
         await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
         await app.request('/api/backends/xai', json('PUT', { apiKey: 'xai-key-0000' }));
         // A change of backends is seen at once (the status cache is dropped).
-        expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model backends: xAI, Homelab' });
+        expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model connections: xAI, Homelab' });
       } finally {
         opencodeAcp.implemented = done;
       }

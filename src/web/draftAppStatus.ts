@@ -77,14 +77,19 @@ export class DraftAppStatus {
     this.notify();
   }
 
-  recheck(reason: 'focus' | 'settings') {
-    const permissions = new Set<Permission>(['read-only', ...this.snapshots.keys()]);
-    for (const permission of permissions) {
-      // Returning to the window can coincide with a user's verification. Settings changes invalidate even that answer.
-      const groups = appGroupNames.filter((group) => reason === 'settings' || !this.pending.get(permission + '/' + group)?.confirm);
-      this.prepare(permission, true, groups);
-      this.warm(permission);
-    }
+  /** The active draft regains focus. Leave explicit checks running for this permission. */
+  recheck(permission: Permission) {
+    const groups = appGroupNames.filter((group) => !this.pending.get(permission + '/' + group)?.confirm);
+    this.prepare(permission, true, groups);
+    this.warm(permission);
+  }
+
+  async confirmSelection(permission: Permission, selected: readonly DraftApp[]): Promise<'ready' | 'changed' | 'failed'> {
+    const groups = appGroupNames.filter((group) => appGroups[group].some((app) => selected.includes(app)));
+    const answers = await Promise.all(groups.map((group) => this.read(permission, group, 'confirm')));
+    if (answers.some((answer) => !answer)) return 'failed';
+    const changed = groups.some((group, i) => appGroups[group].some((app) => selected.includes(app) && answers[i]?.[app] !== 'ready'));
+    return changed ? 'changed' : 'ready';
   }
 
   read(permission: Permission, group: AppGroup, mode: 'cached' | 'refresh' | 'confirm'): Result {

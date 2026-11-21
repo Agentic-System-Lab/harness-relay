@@ -911,12 +911,15 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
   const names = models.map((m) => (typeof m === 'string' ? m.trim() : ''));
   if (names.some((m) => !validEndpointModelId(m))) bad(t().endpointModelsInvalid(maxModels, maxModelId));
   if (u.verifyModels !== undefined && typeof u.verifyModels !== 'boolean') bad(t().invalidField('verifyModels'));
+  if (u.allowMissingMetadata !== undefined && (typeof u.allowMissingMetadata !== 'boolean' || u.verifyModels !== true))
+    bad(t().invalidField('allowMissingMetadata'));
   const out = {
     name,
     baseUrl,
     models: [...new Set(names)],
     ...(u.apiKey === undefined ? {} : { apiKey: validateBackendKey(u) }),
     ...(u.verifyModels === true ? { verifyModels: true } : {}),
+    ...(u.allowMissingMetadata === true ? { allowMissingMetadata: true } : {}),
   };
   return out;
 }

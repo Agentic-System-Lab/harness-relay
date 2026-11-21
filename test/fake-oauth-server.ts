@@ -65,6 +65,7 @@ export interface FakeGoogle {
   puts: { path: string; ics: string; bearer?: string }[];
   /** The tokens revoked. */
   revoked: string[];
+  revokeStatus?: number;
   /** The scopes the account granted the app: a sign-in with `include_granted_scopes` gets them too. Delete one for a grant taken away. */
   granted: Set<string>;
 }
@@ -370,6 +371,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     // Google: revoke (a refresh token), userinfo and CalDAV with a good access token, or 401.
     if (req.method === 'POST' && url.pathname === '/google/revoke') {
       const t = form.get('token') ?? '';
+      if (google.revokeStatus) return json(google.revokeStatus, { error: 'temporarily_unavailable' });
       google.revoked.push(t);
       self.refreshTokens.set(t, false);
       return json(200, {});

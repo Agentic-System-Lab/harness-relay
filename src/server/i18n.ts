@@ -272,7 +272,7 @@ const zhTW = {
   openRejectedEffort: (cli: string, effort: string, e: string) => `${cli} 不接受推理強度「${effort}」：${e}`,
   openNativeNotYet: (cli: string) => `Harness Relay 還不能列出 ${cli} 自己載入的項目。`,
   openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 模型連線」裡的 API key 與端點。`,
-  openBackendsReady: (names: string) => `模型來源：${names}`,
+  openBackendsReady: (names: string) => `模型連線：${names}`,
   openNoBackend: '請到「設定 → 模型連線」加入 API 金鑰或端點',
 
   // Goose (src/server/agents/goose.ts)
@@ -347,6 +347,7 @@ const zhTW = {
   endpointUrlInvalid: '請輸入以 http:// 或 https:// 開頭的端點網址，不含帳號密碼、查詢字串或 #。',
   endpointUrlRelay: '這是 Harness Relay 自己的位址，不能當成模型端點。',
   endpointCatalogKeyUnreadable: '無法讀取已儲存的 API key。請重新輸入，或解鎖憑證庫後重新啟動 Harness Relay。',
+  endpointNoMetadata: '伺服器未提供模型清單或個別模型資料。Relay 已連到伺服器，但無法確認模型 ID 或金鑰能否用於對話。',
   endpointVerifyNeedsModel: '端點不支援列出模型。請輸入至少一個模型 ID，讓 Harness Relay 在儲存前確認端點。',
   endpointVerifyMismatch: (id: string) => `端點未回傳符合「${id}」的模型資料。請檢查模型 ID。`,
   endpointVerifyModelHttp: (id: string, status: number) => `無法確認模型「${id}」（HTTP ${status}）。請檢查模型 ID 與 API key 的存取權限。`,
@@ -630,6 +631,9 @@ const zhTW = {
   oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
   oauthNoDocumentsAccess: '若要建立或編輯 Google 文件，請重新登入 Google 並授權文件編輯。',
   oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
+  chromePublishFailed: (dest: string) => `無法將 Google Chrome 安裝到 ${dest}。`,
+  chromeDestinationExists: (dest: string) => `${dest} 已有應用程式。`,
+  chromeMissingBundle: '下載的磁碟映像檔中找不到 Google Chrome。',
   githubArchiveDownload: '無法下載或驗證 GitHub CLI。請檢查網路連線和磁碟空間後重試。',
   githubArchiveRun: '無法解壓縮或啟動下載的 GitHub CLI。請重新安裝或使用 GitHub 的官方安裝方式。',
   teamsRuntimeUnsupported: '這個系統或處理器沒有可自動安裝的 PowerShell 7 版本。請依 Microsoft 的指示手動安裝，再重試。',
@@ -1291,8 +1295,8 @@ const en: ServerMessages = {
   openRejectedEffort: (cli, effort, e) => `${cli} does not accept the reasoning effort "${effort}": ${e}`,
   openNativeNotYet: (cli) => `Harness Relay cannot list what ${cli} loads by itself yet.`,
   openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Model connections.`,
-  openBackendsReady: (names) => `Model backends: ${names}`,
-  openNoBackend: 'No model backend set up yet (Settings → Model connections)',
+  openBackendsReady: (names) => `Model connections: ${names}`,
+  openNoBackend: 'No model connection set up yet (Settings → Model connections)',
 
   // Goose (src/server/agents/goose.ts)
   gooseSessionNotChecked: (detail) =>
@@ -1371,6 +1375,8 @@ const en: ServerMessages = {
   endpointUrlRelay: "This is Harness Relay's own address. Choose a model endpoint.",
   endpointCatalogKeyUnreadable:
     'The saved API key could not be read. Enter it again, or unlock the credential store and restart Harness Relay.',
+  endpointNoMetadata:
+    'The server returned no catalog or individual model records. Relay reached the server but could not verify the model IDs or credentials for chat.',
   endpointVerifyNeedsModel:
     'This endpoint does not support listing models. Enter at least one model ID so Harness Relay can verify it before saving.',
   endpointVerifyMismatch: (id) => `The endpoint did not return a matching record for model "${id}". Check the model ID.`,
@@ -1668,6 +1674,9 @@ const en: ServerMessages = {
   oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
   oauthNoDocumentsAccess: 'To create or edit Google documents, sign in again and allow document editing.',
   oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
+  chromePublishFailed: (dest) => `Google Chrome could not be installed at ${dest}.`,
+  chromeDestinationExists: (dest) => `An application already exists at ${dest}.`,
+  chromeMissingBundle: 'The downloaded disk image does not contain Google Chrome.',
   githubArchiveDownload: 'Relay could not download or verify GitHub CLI. Check your connection and available disk space, then try again.',
   githubArchiveRun: 'Relay could not unpack or start the downloaded GitHub CLI. Retry or install it using GitHub’s instructions.',
   teamsRuntimeUnsupported:

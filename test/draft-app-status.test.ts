@@ -35,7 +35,7 @@ it('discards late responses from before a settings change or sign-out', async ()
     .mockResolvedValue({ ...ready, mail: 'needs-connection' });
   const status = new DraftAppStatus();
   const old = status.read('read-only', 'local', 'cached');
-  status.recheck('settings');
+  status.clear();
   await status.read('read-only', 'local', 'cached');
   expect(read.mock.calls[0][0]?.aborted).toBe(true);
   before.resolve(ready);
@@ -73,7 +73,7 @@ it('preserves explicit verification on focus and discards it after a settings ch
   const passive = vi.spyOn(api, 'draftAppAvailability').mockResolvedValue({ ...ready, slack: 'needs-verification' });
   const status = new DraftAppStatus();
   const checking = status.read('read-only', 'slack', 'confirm');
-  status.recheck('focus');
+  status.recheck('read-only');
   expect(status.read('read-only', 'slack', 'cached')).toBe(checking);
   expect(passive.mock.calls.map((call) => call[2])).toEqual(['local', 'github', 'teams']);
   first.resolve(ready);
@@ -81,10 +81,12 @@ it('preserves explicit verification on focus and discards it after a settings ch
   expect(status.snapshot('read-only').states.slack).toBe('ready');
 
   const superseded = status.read('read-only', 'slack', 'confirm');
-  status.recheck('settings');
+  status.clear();
   expect(verify.mock.calls[1][1]?.aborted).toBe(true);
   second.resolve(ready);
   expect(await superseded).toBeUndefined();
+  expect(status.snapshot('read-only').states).toEqual({});
+  await status.read('read-only', 'slack', 'cached');
   expect(status.snapshot('read-only').states.slack).toBe('needs-verification');
 
   const last = delayedAnswer();
@@ -119,4 +121,38 @@ it('clears only the expired group being checked until its replacement arrives', 
   await status.read('edit', 'github', 'cached');
   expect(read).toHaveBeenCalledTimes(8);
   expect(status.snapshot('edit').states).toEqual({ ...ready, drive: 'needs-connection' });
+});
+
+it('refreshes only the focused draft’s permission', async () => {
+  const read = vi.spyOn(api, 'draftAppAvailability').mockResolvedValue(ready);
+  const status = new DraftAppStatus();
+  for (const permission of ['read-only', 'edit'] as const) {
+    status.warm(permission);
+    await status.read(permission, 'local', 'cached');
+  }
+  read.mockClear().mockResolvedValue({ ...ready, mail: 'needs-connection' });
+  status.recheck('edit');
+  await status.read('edit', 'local', 'cached');
+  expect(read.mock.calls.map(([, permission, group]) => [permission, group])).toEqual([
+    ['edit', 'local'],
+    ['edit', 'slack'],
+    ['edit', 'github'],
+    ['edit', 'teams'],
+  ]);
+  expect(status.snapshot('read-only').states.mail).toBe('ready');
+  expect(status.snapshot('edit').states.mail).toBe('needs-connection');
+});
+
+it('confirms only the selected groups, keeps their responses separate, and distinguishes a failed check from loss of access', async () => {
+  const read = vi.spyOn(api, 'draftAppAvailability').mockResolvedValue({ ...ready, slack: 'unavailable' });
+  const verify = vi.spyOn(api, 'verifyDraftSlack').mockResolvedValue({ ...ready, mail: 'unavailable' });
+  const status = new DraftAppStatus();
+  expect(await status.confirmSelection('edit', [])).toBe('ready');
+  expect(await status.confirmSelection('edit', ['mail', 'calendar', 'slack'])).toBe('ready');
+  expect(read.mock.calls.map(([, permission, group]) => [permission, group])).toEqual([['edit', 'local']]);
+  expect(verify).toHaveBeenCalledTimes(1);
+  verify.mockResolvedValue({ ...ready, slack: 'needs-verification' });
+  expect(await status.confirmSelection('edit', ['slack'])).toBe('changed');
+  verify.mockRejectedValue(new Error('offline'));
+  expect(await status.confirmSelection('edit', ['slack'])).toBe('failed');
 });

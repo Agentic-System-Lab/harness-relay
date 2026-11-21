@@ -23,6 +23,12 @@ test('Apps and tools is one section with bookmarkable tabs that preserve drafts'
   const memory = await openToolCategory(page, 'Memory');
   const field = memory.getByRole('textbox', { name: 'Memory: All members' });
   await field.fill('Unfinished draft');
+  await nav.locator('a[href="#/settings/cwd"]').click();
+  await expect(page).toHaveURL(/#\/settings\/cwd$/);
+  await expect(tools).toHaveAttribute('aria-selected', 'true');
+  await expect(field).toHaveValue('Unfinished draft');
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/settings\/tools$/);
   await common.click();
   await expect(field).toBeHidden();
   await page.goBack();
@@ -171,7 +177,7 @@ test.describe('an open agent without a model backend', () => {
     await expect(page.locator('#settings-backends')).toBeInViewport();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
-    await expect(card).toContainText('No model backend set up yet (Settings → Model connections)');
+    await expect(card).toContainText('No model connection set up yet (Settings → Model connections)');
 
     await chatWith(page, relay, cli!);
     await send(page, 'Anyone there?');
@@ -643,6 +649,28 @@ test.describe('settings', () => {
     await save.click();
     await expect(row).toContainText('Renamed');
     expect(await savedEndpoint()).toMatchObject({ name: 'Renamed', models: [unlistedModel, models[0]] });
+
+    // A server with neither metadata route may still serve chat requests. Keep the old settings
+    // on decline, and save unverified IDs only after a second lookup and explicit consent.
+    await row.getByRole('button', { name: 'Edit' }).click();
+    const chatOnly = url + '/chat-only';
+    await card.getByLabel('Base URL').fill(chatOnly);
+    const confirmSave = async (accept: boolean) => {
+      const dialog = page.waitForEvent('dialog');
+      const clicking = save.click();
+      const confirmation = await dialog;
+      expect(confirmation.type()).toBe('confirm');
+      expect(confirmation.message()).toContain('without verification?');
+      if (accept) await confirmation.accept();
+      else await confirmation.dismiss();
+      await clicking;
+    };
+    await confirmSave(false);
+    await expect(error).toContainText('no catalog');
+    expect((await savedEndpoint())?.baseUrl).toBe(url);
+    await confirmSave(true);
+    await expect(row).toContainText(chatOnly);
+    expect(await savedEndpoint()).toMatchObject({ baseUrl: chatOnly, models: [unlistedModel, models[0]] });
   });
 
   test('settings subheadings stay close to the first field or description on desktop and phone', async ({ page, relay }) => {

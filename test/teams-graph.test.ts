@@ -1,10 +1,17 @@
 import type { ChildProcess } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { TeamsGraph } from '../src/server/connectors/teams';
 import { CONNECT_TEAMS, INSTALL_TEAMS, POST_TEAMS, PROBE_TEAMS } from '../src/server/connectors/teamsPowerShell';
+import { findOnPath } from '../src/server/executable';
+import { portableInstallEnv } from '../src/server/portableInstall';
 import { t } from '../src/server/i18n';
-import { CommandNotFoundError } from '../src/server/process';
+import { CommandNotFoundError, runProcess } from '../src/server/process';
+
+const pwsh = findOnPath('pwsh', process.env, process.platform);
 
 type Runner = NonNullable<ConstructorParameters<typeof TeamsGraph>[0]>;
 type Call = {
@@ -83,15 +90,21 @@ describe('the Teams Graph PowerShell connection', () => {
     expect(await teams.connect()).toEqual({ status: 'installing' });
     expect(calls).toHaveLength(1);
     expect(calls[0].script).toBe(INSTALL_TEAMS);
-    expect(INSTALL_TEAMS).toContain('https://www.powershellgallery.com/api/v2');
-    expect(INSTALL_TEAMS).toContain("AbsoluteUri.TrimEnd('/') -ne $gallery");
-    expect(INSTALL_TEAMS).toContain("SourceLocation.TrimEnd('/') -ne $gallery");
-    expect(INSTALL_TEAMS).toContain('Get-ChildItem -LiteralPath $moduleDir');
-    expect(INSTALL_TEAMS).toContain('Import-Module -Name ($manifest[0].FullName) -ErrorAction Stop');
-    expect(INSTALL_TEAMS).not.toContain('Import-Module -Name $name');
-    expect(INSTALL_TEAMS).toContain('Save-PSResource -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery');
-    expect(INSTALL_TEAMS).toContain('Save-Module -Name $name -Path $env:RELAY_TEAMS_MODULE_STAGE -Repository PSGallery');
-    expect(INSTALL_TEAMS).not.toMatch(/Install-Module|Install-PSResource|-Scope CurrentUser/);
+    expect(INSTALL_TEAMS).toContain("$version = '2.41.2'");
+    expect(INSTALL_TEAMS).toContain('"https://www.powershellgallery.com/api/v2/package/Microsoft.Graph.Authentication/$version"');
+    expect(INSTALL_TEAMS).toMatch(/\$sha512 = '[a-f0-9]{128}'/);
+    const verification =
+      '(Microsoft.PowerShell.Utility\\Get-FileHash -LiteralPath $package -Algorithm SHA512).Hash -ne $sha512) { exit 22 }';
+    const steps = [
+      'Invoke-WebRequest -Uri $uri -OutFile $package',
+      verification,
+      'ExtractToDirectory($package, $moduleDir)',
+      'Import-Module -Name $manifest -ErrorAction Stop',
+    ];
+    const positions = steps.map((step) => INSTALL_TEAMS.indexOf(step));
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(INSTALL_TEAMS).not.toMatch(/Import-Module -Name \$name|Save-PSResource|Save-Module|Install-Module|Install-PSResource/);
     for (const script of [PROBE_TEAMS, INSTALL_TEAMS, CONNECT_TEAMS, POST_TEAMS]) {
       expect(script).toContain(
         "PSModulePath = @($env:RELAY_TEAMS_MODULES, [IO.Path]::Combine($PSHOME, 'Modules'), $userModules, $systemModules)",
@@ -108,6 +121,37 @@ describe('the Teams Graph PowerShell connection', () => {
     const state = teams.status();
     calls[3].complete(0);
     expect(await state).toEqual({ status: 'signed-out' });
+  });
+
+  it.skipIf(!pwsh)('rejects changed package bytes before extracting or importing them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'relay-graph-digest-'));
+    try {
+      const stage = join(dir, 'modules');
+      await mkdir(stage);
+      const file = join(dir, 'package.fixture');
+      await writeFile(file, 'incomplete package');
+      // Stand in for the network transfer; run the real checksum and extraction code in PowerShell.
+      const download = 'Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $uri -OutFile $package -TimeoutSec 90';
+      expect(INSTALL_TEAMS).toContain(download);
+      const script = INSTALL_TEAMS.replace(download, '[IO.File]::Copy($env:FIXTURE_PACKAGE, $package)');
+      expect(script).not.toContain('Invoke-WebRequest');
+      const result = await runProcess({
+        bin: pwsh!,
+        args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+        env: {
+          ...portableInstallEnv(),
+          RELAY_TEAMS_MODULE_STAGE: stage,
+          RELAY_TEAMS_MODULES: stage,
+          RELAY_TEAMS_USER_MODULES: stage,
+          FIXTURE_PACKAGE: file,
+        },
+        timeoutMs: 15000,
+      });
+      expect(result.code).toBe(22);
+      expect(await readdir(stage)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('prepares PowerShell and Graph once, then verifies the module without signing in', async () => {
@@ -409,12 +453,12 @@ describe('the Teams Graph PowerShell connection', () => {
       const chatRoute = 'chats/' + encodeURIComponent(chat);
       const full = (path: string) => 'https://graph.microsoft.com/v1.0/' + path;
       let index = 0;
-      async function reply(path: string, value: unknown, body?: string) {
+      async function reply(path: string, value: unknown, body?: string, status?: number) {
         await vi.waitFor(() => expect(writer.requests.length).toBeGreaterThan(index));
         const request = writer.requests[index++];
         expect(request.uri).toBe(full(path));
         expect(request.text).toBe(body);
-        emit(writer, { id: request.id, json: JSON.stringify(value) });
+        emit(writer, status ? { id: request.id, error: 'graph', status } : { id: request.id, json: JSON.stringify(value) });
       }
       async function resolve(id = senderId, hostTenant = tenantId, teamTenant = tenantId) {
         await reply(me, { id });
@@ -455,6 +499,11 @@ describe('the Teams Graph PowerShell connection', () => {
       await resolve();
       await reply((kind === 'channel' ? channelRoute : chatRoute) + '/messages', { id: 'posted' }, text);
       await expect(send).resolves.toBeUndefined();
+      const failed = expect(teams.sendPost(target, text)).rejects.toThrow(t().teamsPostFailed);
+      await resolve();
+      // A blank receipt and a Graph transport failure both leave delivery uncertain.
+      await reply((kind === 'channel' ? channelRoute : chatRoute) + '/messages', {}, text, kind === 'chat' ? 503 : undefined);
+      await failed;
       const changed = expect(teams.sendPost(target, text)).rejects.toThrow(t().teamsPostingChanged);
       await resolve(teamId);
       await changed;
@@ -466,7 +515,7 @@ describe('the Teams Graph PowerShell connection', () => {
       const moved = expect(teams.sendPost(target, text)).rejects.toThrow(t().teamsPostingTarget);
       await resolve(senderId, kind === 'channel' ? tenantId : teamId, teamId);
       await moved;
-      expect(writer.requests.filter((r) => r.text !== undefined)).toHaveLength(1);
+      expect(writer.requests.filter((r) => r.text !== undefined)).toHaveLength(2);
       teams.disconnect();
       expect(writer.options.signal?.aborted).toBe(true);
     },

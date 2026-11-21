@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -23,6 +22,7 @@ import { HttpError } from '../errors';
 import { resolveInRoot } from '../files';
 import type { GatewayTool, PreparedOutboxCall } from '../gateway';
 import { t } from '../i18n';
+import { runSync } from '../process';
 import { overlaps, protectedReads, relayFolderRefusal, type AgentFolderOptions } from '../protect';
 
 /** Store the canonical folder, and check it is still that vault whenever a tool opens it. */
@@ -200,10 +200,10 @@ function copyNoteMetadata(source: number, staged: number): boolean {
         ? ['--attributes-only', '--preserve=all', '/proc/self/fd/3', '/proc/self/fd/4']
         : undefined;
   if (!args) return false;
-  const cp = spawnSync('/bin/cp', args, {
+  const cp = runSync('/bin/cp', args, {
     stdio: ['ignore', 'ignore', 'ignore', source, staged],
     env: { PATH: '/usr/bin:/bin' },
-    timeout: 3000,
+    timeoutMs: 3000,
   });
   if (cp.status !== 0) return false;
   // Some copies retain only as much of the source's ownership and access as the user may set.

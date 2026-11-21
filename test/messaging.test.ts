@@ -3,7 +3,7 @@ import { SlackPosting } from '../src/server/connectors/slack';
 import { messagingTools } from '../src/server/connectors/messaging';
 import type { TeamsPostTarget } from '../src/server/connectors/teams';
 import type { SecretStore } from '../src/server/secrets';
-import { withLang } from '../src/server/i18n';
+import { t, withLang } from '../src/server/i18n';
 import type { GatewayContext } from '../src/server/gateway';
 import type { OutboxItem } from '../src/shared/types';
 
@@ -20,7 +20,7 @@ function setup() {
       secrets.delete(name);
     },
   };
-  const state = { name: 'ops', user: 'UBOT', scopes: 'channels:read,chat:write', failedPost: false, revoked: false };
+  const state = { name: 'ops', user: 'UBOT', scopes: 'channels:read,chat:write', failedPost: false, revoked: false, postError: '' };
   const requests: { url: URL; args: Record<string, unknown> }[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input)),
@@ -37,6 +37,7 @@ function setup() {
     if (state.revoked) return Response.json({ ok: false, error: 'token_revoked' });
     if (url.pathname.endsWith('/conversations.info'))
       return Response.json({ ok: true, channel: { id: url.searchParams.get('channel'), name: state.name } });
+    if (state.postError) return Response.json({ ok: false, error: state.postError });
     if (state.failedPost) throw new Error(token);
     return Response.json({ ok: true, channel: args.channel, ts: '1.01' });
   };
@@ -66,13 +67,18 @@ describe('sending from Relay', () => {
       state.scopes = 'chat:write,channels:read';
       expect(await slack.connect(token)).toEqual({ status: 'connected', workspace: 'Work', sender: 'Relay' });
       const text = '<@UOTHER> & a link https://example.test/\n✓';
-      const proposal = await slackTool.prepare!({ destination: 'https://app.slack.com/client/T123/C123', text }, {} as GatewayContext);
+      const proposal = await slackTool.prepare!(
+        { destination: 'https://app.slack.com/client/T123/C123', text: text.replace('\n', '\r\n') },
+        {} as GatewayContext,
+      );
       expect(slackTool.tier).toBe('send');
       expect(proposal.preview.fields.map((f) => f.value)).toEqual(['Relay · UBOT', 'Work · T123', '#ops · C123']);
       expect(proposal.preview.body).toBe(text);
       expect(JSON.stringify(proposal)).not.toContain(token);
       expect(requests.some((r) => r.url.pathname.endsWith('chat.postMessage'))).toBe(false);
       const item = { preview: proposal.preview } as OutboxItem;
+      const altered = { preview: { ...proposal.preview, fields: proposal.preview.fields.slice(1) } } as OutboxItem;
+      await expect(slackTool.send!(proposal.args, altered)).rejects.toThrow('changed');
       state.name = 'renamed';
       await expect(slackTool.send!(proposal.args, item)).rejects.toThrow('changed');
       state.name = 'ops';
@@ -112,10 +118,25 @@ describe('sending from Relay', () => {
       ]) {
         await expect(slackTool.prepare!({ destination: link, text: 'Hi' }, {} as GatewayContext)).rejects.toThrow();
       }
-      for (const text of [' ', 'a'.repeat(3001), '\ud800', 'a\u0000b'])
+      for (const text of [' ', 'a'.repeat(3001), '\ud800', 'a\u0000b', 'a\rb'])
         await expect(slackTool.prepare!({ destination: 'C123', text }, {} as GatewayContext)).rejects.toThrow();
       expect(requests).toHaveLength(1);
     }));
+  it.each(['missing_scope', 'channel_not_found', 'not_in_channel', 'is_archived'])(
+    'reports Slack’s %s without retrying or disconnecting',
+    async (error) => {
+      const { slack, state, requests } = setup();
+      await slack.connect(token);
+      const target = await slack.resolvePost('C123');
+      state.postError = error;
+      await expect(slack.sendPost(target, 'Reviewed')).rejects.toMatchObject({
+        status: 400,
+        message: error === 'missing_scope' ? t().slackScope : t().slackDestination,
+      });
+      expect(slack.view().status).toBe('connected');
+      expect(requests.filter((r) => r.url.pathname.endsWith('chat.postMessage'))).toHaveLength(1);
+    },
+  );
   it('reports unknown Slack delivery after a transport failure without retry or exposing credentials', () =>
     withLang('en', async () => {
       const { slack, state, requests } = setup();
@@ -129,7 +150,9 @@ describe('sending from Relay', () => {
     withLang('en', async () => {
       const { teams, teamsTool } = setup();
       expect(teamsTool.tier).toBe('send');
-      const proposal = await teamsTool.prepare!({ destination: 'a channel link', text: 'Line 1\nLine 2' }, {} as GatewayContext);
+      const proposal = await teamsTool.prepare!({ destination: 'a channel link', text: 'Line 1\r\nLine 2' }, {} as GatewayContext);
+      expect(proposal.preview.body).toBe('Line 1\nLine 2');
+      expect(proposal.args.text).toBe(proposal.preview.body);
       expect(teams.sendPost).not.toHaveBeenCalled();
       expect(proposal.preview.fields).toContainEqual({ label: 'New channel post', value: 'Office / Studio · c' });
       await expect(teamsTool.send!(proposal.args, { preview: { ...proposal.preview, body: 'changed' } } as OutboxItem)).rejects.toThrow(

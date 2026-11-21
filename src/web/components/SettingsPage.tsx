@@ -133,6 +133,11 @@ export function SettingsPage({
   onInstallUpdate,
 }: Props) {
   const { t, lang, setLang } = useI18n();
+  const [lastToolsTab, setLastToolsTab] = useState<'apps' | 'tools'>('apps');
+  const requestedTab = section === 'tools' || section === 'apps' ? section : undefined;
+  useEffect(() => {
+    if (requestedTab) setLastToolsTab(requestedTab);
+  }, [requestedTab]);
   /** A language chosen whose words could not be loaded. */
   const [langFailed, setLangFailed] = useState<Lang | null>(null);
   const returnText = settingsReturn?.page === 'new' ? t.newChat : t.newSchedule;
@@ -342,7 +347,7 @@ export function SettingsPage({
         <ToolsCard
           activeApps={section === 'apps'}
           settings={settings}
-          tab={section === 'tools' ? 'tools' : 'apps'}
+          tab={requestedTab ?? lastToolsTab}
           draftLink={section === 'tools' || section === 'apps' ? draftLink : undefined}
         />
 

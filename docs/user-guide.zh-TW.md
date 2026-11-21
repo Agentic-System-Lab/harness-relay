@@ -232,7 +232,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型連�
 
   按 **載入模型** 向端點取得清單（以上面的 Ollama 為例，會送出 `GET http://localhost:11434/v1/models`）。勾選要在助理選單中顯示的 ID。修改端點時，先前已儲存的 ID 仍會保持勾選。要加入其他 ID，可展開 **手動輸入模型 ID**，每行填一個。
 
-  按 **儲存** 時，Relay 會重新讀取模型清單，驗證所有勾選或手動輸入的 ID。如果清單裡找不到某個 ID，或伺服器不支援列出模型，Relay 會透過 `GET <baseUrl>/models/<編碼後的 ID>` 查詢個別模型，確認回傳的 ID 完全相符。手動輸入的 ID 也必須通過其中一種查詢。如果連不上伺服器、金鑰遭拒或無法確認某個 ID，表單會顯示原因並保留你剛填的內容，方便修正後再儲存。助理會繼續使用上次儲存的設定。
+  只修改既有端點的顯示名稱時會直接在本機儲存，即使原本沒有選取模型也一樣。新增端點或變更網址、金鑰、模型選擇時，按 **儲存** 會重新讀取模型清單，驗證所有勾選或手動輸入的 ID。如果清單裡找不到某個 ID，或伺服器不支援列出模型，Relay 會透過 `GET <baseUrl>/models/<編碼後的 ID>` 查詢個別模型，確認回傳的 ID 完全相符。只有在清單和所有個別模型查詢都回報該路徑或資料不存在或未支援（404、405 或 501）時，Relay 才會詢問是否儲存未驗證的 ID。知道該服務聊天用的 ID 與憑證時可以確認，取消則會留在編輯畫面。其他錯誤會阻止儲存，包括連線失敗、金鑰遭拒、回傳的 ID 不符，或伺服器有提供模型資料卻找不到該 ID。表單會顯示原因並保留你剛填的內容。這些檢查只讀取模型資料，不會送出提示詞。
 
   **修改** 可以改端點，**刪除** 會連同它的金鑰一起刪除；使用它的模型的成員，要改選其他模型才能執行。Claude Code、Codex、Grok 與 Copilot 的成員也一樣：它們的這一輪會說端點已被刪除，也不會改送到那個 CLI 自己的服務。重新新增同 id 的端點後，它們就能再在上面執行。端點被刪除期間跑過一輪的 Claude Code、Codex、Grok 或 Copilot 成員，會在那裡開始新的 session；其他成員則接續它的 session，和修改端點之後一樣。刪除的 id 會列在 **已刪除的端點**，直到你再新增同 id 的端點或按 **忘掉**：如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如刪掉端點 `qwen` 之後，你 Codex 設定裡的 `qwen/…`），忘掉它，那個模型就能再交給那個 CLI。
 
@@ -354,7 +354,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 在 Drive 列按**管理**。每張帳號卡都會顯示電子郵件地址與目前權限。唯讀帳號可按**開啟文件新增與編輯**，由 Google 再次請你授權。每次新增或編輯前，你都會在 Relay 預覽並確認。只有編輯權限的帳號可按**開啟檔案搜尋與讀取**。需要更新授權時，請按**重新登入**。要連結不同帳號，請按卡片下方的**新增另一個 Google 帳號**，選擇用途再登入。在**選擇助理以啟用工具**勾選可使用 Drive 的助理。
 
-在帳號卡按**移除 Google Drive**並確認，即可從 Relay 移除該帳號的 Drive 檔案存取與 Google 文件編輯權限。Gmail、行事曆及其他 Google 帳號仍可照常使用，之後也能重新連結。若要解除整個帳號的連結，請到**帳號登入設定（OAuth 2.0）**的 **Google** 區塊找到該電子郵件地址。[查看 Drive 設定](../site/assets/media/docs/tools-drive-editing-zh-TW.webp)
+在帳號卡按**移除 Google Drive**並確認，即可從 Relay 移除該帳號的 Drive 檔案存取與 Google 文件編輯權限。這只移除 Relay 裡的存取權。Google 仍保留原授權，Gmail、行事曆及其他帳號仍可照常使用。解除整個 Google 帳號的連結時，Relay 才會向 Google 要求撤銷授權。之後也能重新連結。若要解除整個帳號的連結，請到**帳號登入設定（OAuth 2.0）**的 **Google** 區塊找到該電子郵件地址。[查看 Drive 設定](../site/assets/media/docs/tools-drive-editing-zh-TW.webp)
 
 要選擇哪些助理可透過 Relay 使用**郵件**、**行事曆**、**瀏覽器**、**Google Drive**、**Microsoft Teams**、**GitHub** 或 **Obsidian**，請展開該服務，再展開**選擇助理以啟用工具**。Slack 的**可提議傳送訊息的助理**位於**從 Relay 傳送訊息**中，開啟傳送權限後才會出現。Claude 與 Codex 代管的 Slack 連線各自獨立。選好後會顯示**可使用此工具的助理 · N 種**，N 是目前勾選的數量。再次展開即可更改。這項設定適用於該工具所有已連結的帳號。例如，開放郵件給 Codex 後，它可以使用你連結的信箱。行事曆可另外選擇助理。解除直接透過 OAuth 連線的 Google 或 Microsoft 帳號時，會一併移除該帳號列出的所有用途。
 
@@ -365,7 +365,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 #### 連結 Microsoft Teams 並發送訊息
 
 1. 在**常用 App → 團隊通訊 → Microsoft Teams**，若出現**安裝 PowerShell 7**，請按下按鈕。Relay 會將 Microsoft 的可攜式 PowerShell 套件與需要下載的 Graph 登入模組安裝到自己的資料夾，不需系統管理員權限。已安裝的 PowerShell 7 或 Graph 模組可直接使用。若已有 PowerShell 7、只缺少模組，請按**安裝 Teams 需要的 Microsoft Graph 工具**。
-2. 按**登入 Microsoft Teams**，開啟 Microsoft 登入頁面，輸入 Relay 顯示的代碼，再用工作或學校帳號登入。組織可能需要管理員核准存取權。在**選擇助理以啟用工具**勾選可以列出團隊、頻道和讀取近期頻道訊息的助理。例如，可以請助理摘要某個頻道最新的討論。
+2. 按**登入 Microsoft Teams**，開啟 Microsoft 登入頁面，輸入 Relay 顯示的代碼，再用工作或學校帳號登入。讀取頻道訊息所需的委派權限 `ChannelMessage.Read.All` 必須由管理員同意。如果租用戶已授予 Microsoft Graph PowerShell 這項權限，即可沿用既有授權登入。[Microsoft Graph 權限參考](https://learn.microsoft.com/zh-tw/graph/permissions-reference#channelmessagereadall)。在**選擇助理以啟用工具**勾選可以列出團隊、頻道和讀取近期頻道訊息的助理。例如，可以請助理摘要某個頻道最新的討論。
 3. 若要發文，按**開啟發送權限**，在相同租用戶用同一帳號完成第二次裝置登入。在 Relay 聊天貼上 Teams 頻道、聊天或訊息連結，請助理擬稿。在待送出匣核對發送帳號、目的地與全文，再按**送出**或**捨棄**。在頻道發文會開始新的對話。即使在「完全存取」或自動任務，每則訊息仍需你確認。
 
 Relay 重新啟動後需要再登入。在 Windows 上，Graph PowerShell 可能會記住你選的帳號。[Teams 設定圖解](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/#microsoft-teams)

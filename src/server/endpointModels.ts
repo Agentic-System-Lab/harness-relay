@@ -1,3 +1,4 @@
+import { ENDPOINT_METADATA_UNAVAILABLE } from '../shared/types';
 import { answerText } from './connectors/caldav';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -86,8 +87,15 @@ export async function listEndpointModels(baseUrl: string, key?: string | null): 
   return [...(await catalogIds(res, { remaining: MAX_BYTES }))];
 }
 
+const missingRoute = (status: number) => [404, 405, 501].includes(status);
+
 /** Verify before saving. Only omissions and an unsupported list justify asking about individual models. */
-export async function verifyEndpointModels(baseUrl: string, key: string | null | undefined, models: string[]): Promise<void> {
+export async function verifyEndpointModels(
+  baseUrl: string,
+  key: string | null | undefined,
+  models: string[],
+  allowMissingMetadata = false,
+): Promise<void> {
   const get = await modelRequests(baseUrl, key);
   const catalog = await get();
   const budget = { remaining: MAX_BYTES * 2 };
@@ -97,9 +105,11 @@ export async function verifyEndpointModels(baseUrl: string, key: string | null |
     missing = models.filter((id) => !ids.has(id));
   } else {
     await catalog.body?.cancel().catch(() => undefined);
-    if (![404, 405, 501].includes(catalog.status)) throw upstreamError(catalog.status);
+    if (!missingRoute(catalog.status)) throw upstreamError(catalog.status);
     if (!models.length) throw new HttpError(400, t().endpointVerifyNeedsModel);
   }
+  let firstUnavailable: { id: string; status: number } | undefined;
+  let individualSupported = false;
   // At most one request per distinct selected ID (bounded by maxModels), serial so a denial stops further probes.
   for (const id of missing) {
     // A literal dot segment would leave the model resource in the URL parser.
@@ -113,9 +123,20 @@ export async function verifyEndpointModels(baseUrl: string, key: string | null |
     }
     if (!res.ok) {
       await res.body?.cancel().catch(() => undefined);
+      if (!catalog.ok && missingRoute(res.status) && !individualSupported) {
+        firstUnavailable ??= { id, status: res.status };
+        continue;
+      }
       throw new HttpError(502, t().endpointVerifyModelHttp(id, res.status));
     }
+    // A working individual route makes earlier missing records definitive for this save.
+    if (firstUnavailable) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new HttpError(502, t().endpointVerifyModelHttp(firstUnavailable.id, firstUnavailable.status));
+    }
+    individualSupported = true;
     // Only the model's own ID confirms it. A generic success page or an alias for a different model fails.
     if ((await modelJson(res, budget, id))?.id !== id) throw new HttpError(400, t().endpointVerifyMismatch(id));
   }
+  if (firstUnavailable && !allowMissingMetadata) throw new HttpError(409, t().endpointNoMetadata, ENDPOINT_METADATA_UNAVAILABLE);
 }

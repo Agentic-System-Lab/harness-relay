@@ -2773,10 +2773,14 @@ export interface ModelBackendsView {
   deletedEndpoints: string[];
 }
 
+export const ENDPOINT_METADATA_UNAVAILABLE = 'endpoint-metadata-unavailable';
+
 /** `PUT /api/backends/endpoints/:id`: the endpoint as it should be. */
 export interface ModelEndpointUpdate {
   /** Verify model metadata before saving this endpoint. The Settings form requests this on every save. */
   verifyModels?: boolean;
+  /** The user accepted a save when neither metadata route was available. Verification still runs. */
+  allowMissingMetadata?: boolean;
   name: string;
   baseUrl: string;
   models: string[];
