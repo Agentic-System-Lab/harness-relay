@@ -1,3 +1,4 @@
+import type { AppPreviewRequest, AppPreviewSession } from '../shared/types';
 import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
@@ -5,6 +6,7 @@ import type {
   AboutInfo,
   AppDependency,
   AppDependencyView,
+  PreviewDockerView,
   HostedApp,
   HostedProvider,
   HostedAppStatus,
@@ -154,6 +156,7 @@ interface Sending {
   resent?: boolean;
   signIn?: boolean;
   task?: boolean;
+  keepalive?: boolean;
 }
 
 /**
@@ -179,6 +182,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     headers: requestHeaders,
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
+    ...(o.keepalive ? { keepalive: true } : {}),
   });
   const data = await res.json().catch((err: unknown) => {
     if (o.task && res.ok) throw err;
@@ -568,6 +572,8 @@ export const api = {
   appDependency: (name: AppDependency, signal?: AbortSignal) =>
     request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
   installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),
+  previewDocker: (signal?: AbortSignal) => request<PreviewDockerView>('GET', '/api/apps/docker/install', undefined, signal),
+  installPreviewDocker: () => request<PreviewDockerView>('POST', '/api/apps/docker/install'),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
@@ -577,6 +583,24 @@ export const api = {
   signOutMcp: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}/signin`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
+
+  appPreviewTarget: (id: string, target: AppPreviewRequest, signal?: AbortSignal) =>
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/target`,
+      target,
+      signal,
+    ),
+  startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
+    request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
+  stopAppPreview: (id: string, session: string) =>
+    request<{ ok: true }>(
+      'DELETE',
+      `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}`,
+      undefined,
+      undefined,
+      { keepalive: true },
+    ),
 
   // Files of a conversation's working directory (root: 'cwd' or an agent id)
   listFiles: (id: string, root: string, path: string) =>

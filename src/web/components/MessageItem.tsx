@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   PROVIDER_LABEL,
   isInlineImage,
@@ -443,6 +443,7 @@ interface Props {
   applyState?: ApplyState;
   /** The team is replying: messages cannot be edited until it stops. */
   running: boolean;
+  onPreview?: (messageId: string, agentName: string, path: string) => void;
   onDiff: (msg: ChatMessage, scope: 'turn' | 'agent') => void;
   onApply: (agentId: string) => Promise<void>;
   /** Replace a user message and run the team again from it; resolves true once sent. */
@@ -1115,6 +1116,7 @@ export const MessageItem = memo(function MessageItem({
   onSkipQuestion,
   onShare,
   onBranch,
+  onPreview,
   marks,
   onUseStep,
   leadReview,
@@ -1191,6 +1193,7 @@ export const MessageItem = memo(function MessageItem({
       onSkipQuestion={onSkipQuestion}
       onShare={onShare}
       onBranch={onBranch}
+      onPreview={onPreview}
       marks={marks}
     />
   );
@@ -1213,6 +1216,7 @@ function AgentMessage({
   onSkipQuestion,
   onShare,
   onBranch,
+  onPreview,
   marks,
 }: Pick<
   Props,
@@ -1231,6 +1235,7 @@ function AgentMessage({
   | 'onSkipQuestion'
   | 'onShare'
   | 'onBranch'
+  | 'onPreview'
   | 'marks'
 >) {
   const t = useT();
@@ -1247,6 +1252,7 @@ function AgentMessage({
   const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
   const who = speaker(msg, agents);
   const name = who.name;
+  const previewFile = useMemo(() => onPreview && ((path: string) => onPreview(msg.id, name, path)), [onPreview, msg.id, name]);
   const provider = who.provider ?? 'claude';
   const segs = segments(msg.parts);
   const passed = Boolean(msg.passed && msg.status === 'done');
@@ -1292,6 +1298,7 @@ function AgentMessage({
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}
+                  onPreview={previewFile}
                 />
               );
             case 'activity':

@@ -14,6 +14,7 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, ApiError, orCreateCwd, type AttachmentUpload } from '../api';
+import { filePreviewTarget, type PreviewSelection } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
 import {
@@ -44,6 +45,7 @@ import { TeamReviser } from './TeamReviser';
 import { useDialog } from './useDialog';
 
 // Loaded when first opened, not with the chat: the file browser, the schedule and sharing.
+const AppPreview = lazyPart(() => import('./AppPreview').then((m) => m.AppPreview));
 const FileBrowser = lazyPart(() => import('./FileBrowser').then((m) => m.FileBrowser));
 const ScheduleDrawer = lazyPart(() => import('./ScheduleDrawer').then((m) => m.ScheduleDrawer));
 const ShareDialog = lazyPart(() => import('./ShareDialog').then((m) => m.ShareDialog));
@@ -119,6 +121,15 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const [teamOpen, setTeamOpen] = useState(false);
   // Open at once for a webhook New automation made with it: the drawer shows its token, once.
   const [scheduleOpen, setScheduleOpen] = useState(() => handedHook(id) !== undefined);
+  const [appPreview, setAppPreview] = useState<PreviewSelection | null>(null);
+  const openFilePreview = useCallback((target: PreviewSelection) => {
+    setFilesOpen(false);
+    setAppPreview(target);
+  }, []);
+  const openReplyPreview = useCallback((messageId: string, agentName: string, path: string) => {
+    const request = filePreviewTarget(path);
+    if (request) setAppPreview({ request: { ...request, messageId }, label: '@' + agentName, agentName });
+  }, []);
   const [filesOpen, setFilesOpen] = useState(false);
   /** The share dialog is open: for the whole conversation, or up to and including one reply (`upTo`). */
   const [share, setShare] = useState<{ upTo?: string } | null>(null);
@@ -627,7 +638,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   };
 
   return (
-    <div className="chat" ref={chatRef}>
+    <div className={appPreview ? 'chat previewing' : 'chat'} ref={chatRef}>
       {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
           only the title and actions, plus a warning beside the title for full access; on phones the
           actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
@@ -779,6 +790,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 showRound={conv.settings.mode !== 'relay' && conv.settings.rounds > 1}
                 applyState={running ? undefined : applyStates.get(m.id)}
                 running={running}
+                onPreview={openReplyPreview}
                 onDiff={onDiff}
                 onApply={onApply}
                 onResend={onResend}
@@ -941,12 +953,23 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       )}
       {filesOpen && (
         <Deferred onClose={() => setFilesOpen(false)}>
-          <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />
+          <FileBrowser conv={conv} onPreview={openFilePreview} onClose={() => setFilesOpen(false)} />
         </Deferred>
       )}
       {share && (
         <Deferred onClose={() => setShare(null)}>
           <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />
+        </Deferred>
+      )}
+      {appPreview && (
+        <Deferred onClose={() => setAppPreview(null)}>
+          <AppPreview
+            key={JSON.stringify(appPreview.request)}
+            convId={conv.id}
+            target={appPreview}
+            onClose={() => setAppPreview(null)}
+            onFeedback={onUseStep}
+          />
         </Deferred>
       )}
     </div>

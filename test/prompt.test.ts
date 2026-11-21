@@ -314,6 +314,8 @@ describe('buildBriefing', () => {
 
   it('tells agents how to hand the user a file to download', () => {
     const briefing = buildBriefing(conv, team[0]!);
+    expect(briefing).toContain('[Preview app](web/package.json)');
+    expect(briefing).toContain('<preview_console>');
     expect(briefing).toContain('[Q3 report](out/report.pdf)');
     expect(briefing).toContain('[Deck](<out/Q3 deck.pptx>)');
     expect(briefing).toContain('only files inside your working directory can be downloaded');

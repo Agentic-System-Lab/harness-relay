@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import react from '@vitejs/plugin-react';
 import { oauthGuides } from './scripts/oauth-guides.ts';
-import { DEV_WEB_PORT, apiPort } from './src/server/ports.ts';
+import { DEV_WEB_PORT, apiPort, previewFramePolicy } from './src/server/ports.ts';
 
 /** The most a chunk loaded at startup may weigh (minified, in kB): the page waits for all of them. */
 const STARTUP_CHUNK_LIMIT_KB = 500;
@@ -84,6 +84,7 @@ export default defineConfig({
   plugins: [react(), oauthGuides(), startupChunkLimit(STARTUP_CHUNK_LIMIT_KB), languagePreload()],
   server: {
     port: DEV_WEB_PORT,
+    headers: { 'Content-Security-Policy': previewFramePolicy(apiPort(), process.env.RELAY_PREVIEW_DOMAIN) },
     // Trailing slash matters: a bare '/api' prefix would also swallow the client module '/api.ts'.
     proxy: { '/api/': { target: `http://localhost:${apiPort()}`, changeOrigin: false } },
   },

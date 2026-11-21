@@ -72,6 +72,12 @@ export interface AppDependencyView {
   job?: CliInstallJobView;
 }
 
+export interface PreviewDockerView extends AppDependencyView {
+  state: 'missing' | 'unavailable' | 'ready';
+  detail?: string;
+  help?: 'linux-access';
+}
+
 export interface GitInstallView {
   available: boolean;
   method?: 'apple' | 'winget' | 'linux';
@@ -789,6 +795,24 @@ export interface NativeSetup {
 
 // --- Browsing a conversation's files ----------------------------------------------------------
 
+/** An app preview starts only when the user asks. Files paths are relative to the selected root;
+ * a reply's local link is resolved on the server against the worktrees that reply used. */
+export interface AppPreviewRequest {
+  /** Canonical folder pinned from Files or from resolving a reply's target. */
+  expectedFolder?: string;
+  mode: 'static' | 'build' | 'server';
+  folder: string;
+  entry?: string;
+  root?: string;
+  messageId?: string;
+}
+
+export interface AppPreviewSession {
+  id: string;
+  url: string;
+  origin: string;
+}
+
 /** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {
   /**
@@ -826,6 +850,7 @@ export interface FileEntry {
 }
 
 export interface FileListing {
+  canonicalRoot: string;
   roots: FileRoot[];
   root: string;
   /** Relative to the root, with `/`; '' is the root itself. */

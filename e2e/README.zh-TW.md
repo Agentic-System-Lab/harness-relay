@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 44 個 spec 檔、576 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 46 個 spec 檔、582 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,6 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 6 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -282,6 +283,17 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼，並以 TypeScript 上色（關鍵字與型別各有自己的 class）；按 Escape 關閉。 |
 | 資料夾可下載成 ZIP 檔，裡面沒有 .git | Claude Code | 工作目錄的 ZIP（`work.zip`）剛好包含它的檔案與內容，沒有 `.git`；某個資料夾自己的 ZIP（`src.zip`）只有那個資料夾。 |
 | 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個長度設為超過 1 GiB、但沒有真的寫入的被忽略檔案（Windows 上仍會佔用磁碟空間）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
+
+## 應用程式預覽
+
+| 情境 | CLI | 驗證內容 |
+| --- | --- | --- |
+| 從「檔案」試用靜態網站 | Claude Code | 資料夾會直接開啟並載入 JavaScript 模組，全程不需設定 Docker。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
+| 平行成員回覆中的同名檔案 | Claude Code、Codex | 每個連結可繼續下載，預覽則開啟該成員自己的版本。手機寬度下可操作整個面板。 |
+| 從回覆開啟 npm 專案 | Claude Code | 自動啟動後端。Relay 在檢查 Docker 前就會指出缺少的 lockfile，可將錯誤放入草稿並標註該成員。關閉正在啟動的預覽會清除遲到的結果。 |
+| 建置時缺少 Docker | Claude Code | 取消設定後預覽仍為停止狀態。選擇安裝 Docker 才會啟動安裝。模擬的引擎就緒後，預覽只會啟動一次建置。 |
+| 已安裝的引擎尚未就緒 | Claude Code | 可重新檢查已停止的引擎。引擎就緒後，同時有兩種 npm 指令的專案只會啟動後端一次。 |
+| 從登入後的面板建置前端與執行 SQLite 後端 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1` 且本機有能執行 Linux 容器的 Docker 時，從兩個專案連結直接預覽，先檢查前端建置的 HTML，再用另一個專案的後端 API 儲存資料。重新整理後資料仍在，重建後變回空白，停止後關閉 frame。 |
 
 ## 工作目錄與其他資料夾
 
@@ -652,7 +664,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -790,6 +802,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在五個組成的團隊中：依序回答、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | ✓（npm 給程式的） | — | ✓（npm 給 Node 腳本的） | — | ✓（npm 給 Node 腳本的） |
 
+預覽面板與 agent 使用的 CLI 無關。上述檔案與草稿情境使用 Claude Code，平行 worktree 另加入 Codex。
+
 ## 平台與瀏覽器
 
 - [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
@@ -809,7 +823,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
+本機預覽情境使用 loopback 主機名稱，並把瀏覽器縮成手機寬度。WebKit 的本機驗證採用已兌換的票券、專屬隨機主機名稱及同 origin 的 Fetch Metadata。Linux CI 另啟用需 Docker 的面板測試。
+
 ## 沒有測到的部分
+
+- **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 
 - **團隊檢查的大部分。**端對端測試檢查編輯器、受保護路徑、指令與 hook，需要 CLI 時用 Claude Code 的替身。以下情況由離線測試涵蓋：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。
 - **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。

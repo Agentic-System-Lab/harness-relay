@@ -22,3 +22,8 @@ export function isDevRun(env: NodeJS.ProcessEnv = process.env): boolean {
 export function apiPort(env: NodeJS.ProcessEnv = process.env): number {
   return Number(env.PORT ?? (isDevRun(env) ? DEV_API_PORT : DEFAULT_PORT));
 }
+
+/** Browsers also apply the parent page's frame-src when an embedded app navigates its own frame. */
+export function previewFramePolicy(port: number, domain?: string): string {
+  return 'frame-src about: http://*.localhost:' + port + (domain ? ' https://*.' + domain : '');
+}

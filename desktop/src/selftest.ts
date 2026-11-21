@@ -89,6 +89,8 @@ export function withFakeClis(env: NodeJS.ProcessEnv, fakeDir: string, root: stri
   for (const dir of [out.XDG_CONFIG_HOME!, out.CLAUDE_CONFIG_DIR!, out.CODEX_HOME!, out.GROK_HOME!, cwd])
     mkdirSync(dir, { recursive: true });
   writeFileSync(join(cwd, 'README.md'), '# Smoke test\n\nThe folder the desktop app check asks its agents a question in.\n');
+  mkdirSync(join(cwd, 'site'), { recursive: true });
+  writeFileSync(join(cwd, 'site', 'index.html'), '<!doctype html><title>Desktop preview check</title>');
   return { env: out, cwd };
 }
 
@@ -129,6 +131,21 @@ export async function checkTurn(base: string, auth: SignedIn, check: Check, o: {
   });
   const id = (created.json as Conversation | undefined)?.id;
   check(created.ok && id, said(`starts a read-only chat with ${names}`, created));
+
+  const previewRoute = `/api/conversations/${id}/preview`;
+  const started = await request(previewRoute, { mode: 'static', folder: 'site' });
+  const preview = started.json as { id?: string; url?: string } | undefined;
+  const address = preview?.url && new URL(preview.url);
+  check(
+    started.ok && preview?.id && address && /^p-[0-9a-f]{48}\.localhost$/.test(address.hostname) && address.port === new URL(base).port,
+    said('opens the static app on its own preview origin', started),
+  );
+  const stopped = await fetch(base + previewRoute + '/' + encodeURIComponent(preview!.id!), {
+    method: 'DELETE',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  check(stopped.ok, 'stops the static preview');
 
   const question = `Can you hear me? (check ${Math.random().toString(36).slice(2, 10)})`;
   const sent = await request(`/api/conversations/${id}/messages`, { text: question });

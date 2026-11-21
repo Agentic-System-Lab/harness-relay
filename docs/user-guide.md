@@ -727,6 +727,26 @@ The header shows the automation (point at it for the next time), and the sidebar
 
 **Files** in the header opens the conversation's working directory (with several, pick one from the list at the top): folders first, a filter for the folder you are in, and ↑ to go up. Click a file to preview it: code with line numbers and highlighting, Markdown rendered (or its source), images and videos. **Download** saves any file to the device you are using, also one that cannot be previewed, such as a PDF or slides. **Copy path** copies the file's full path. To download a whole folder as a ZIP file, use the download button at the end of the toolbar for the folder you are in (the working directory itself too), or the one beside a folder in the list (shown when you point at it). A folder too large to zip — more than 10,000 files and folders or 1 GB, usually because of `node_modules` and the like — is offered without the files git ignores (repositories inside it included), when it is in a git repository; the ZIP file has the same files you can browse, with their permissions, inside a folder of its name (an agent's worktree is named after the working directory and the agent). In parallel mode you can also pick an agent's worktree, to look at its result before you apply it. Only what is inside the chosen folder is shown, `.git` folders are left out, and files over 512 KB show their beginning. On a phone, the list and the preview take turns; **Back to the list** returns.
 
+### Previewing an app
+
+Choose **Preview app** beside an HTML or `package.json` link in a reply. In **Files**, open the file and choose **Preview app**, or enter the project’s folder and choose **Preview this folder**. Relay detects the entry page or npm command and opens the app. An index page that loads project source, such as `/src/main.tsx`, uses the adjacent npm project. In parallel mode, a reply uses the member’s own worktree. You can also select that worktree in Files.
+
+| Preview | What the project needs | What you can try |
+| --- | --- | --- |
+| **Static site** | A public folder with `index.html`, or the HTML page you selected, and its local assets. Works without Docker. | Open the page, follow its links, interact with its JavaScript. Select the folder you would publish. JSON files, source maps and backend source directories are excluded. |
+| **Build frontend** | A Node.js frontend with `package.json`, `package-lock.json` (v2 or v3) and an npm `build` script that produces `dist/index.html`. A project with a backend entry runs as a backend. | Build a Vite app and open its bundled assets. |
+| **Run backend** | A Node.js project with the same manifests and an npm `start` script or npm’s default `server.js` entry. Relay runs `npm start` even when the project also has a `build` script. Its HTTP server must listen on `127.0.0.1` at `process.env.PORT` (4173). | Submit a form to the app’s own API. Data the backend writes to its scratch space survives page refreshes for this run. |
+
+When the preview starts, Relay copies the current files, including edits the agent has yet to commit. **Reload page** reloads the page inside the current run and keeps backend state. After further edits, **Rebuild preview** takes another copy. Reloading the Relay chat itself closes the preview. **Add errors to message** puts the error text in your draft so you can review it, describe what you clicked and send it. **Stop preview** releases the copy and any running backend. On a phone, **Return to preview** brings you back after editing the draft. Rebuilding or stopping discards the backend’s data.
+
+![An interactive app in the preview panel beside the conversation](media/app-preview-en.png)
+
+Relay checks the project for a supported `package-lock.json` before it offers Docker setup. An npm preview waits for a local Docker engine on the computer running Relay. If Docker is missing, **Set up Docker** offers **Install Docker** on supported systems. You can cancel and return to setup later. If Docker is already installed, start the engine and use Linux container mode on Windows. Relay continues the pending preview when the engine is ready. Choose **Check again** to check immediately.
+
+![The Set up Docker dialog with Install Docker, Check again and Cancel.](../site/assets/media/docs/app-preview-docker-setup-en.webp)
+
+Relay uses a pinned Node image and needs access to the public npm registry for locked dependencies. The build and backend run offline. Projects requiring an external API, a private package registry, a separate database server or a host `.env` file need different inputs to run here. For a phone or a remote browser, set up the separate preview hostname first. [Remote preview access](remote-access.md#app-previews)
+
 ### Copying, editing and retrying
 
 - The buttons under a message are icons (point at one for its name). Under an agent's reply they are always shown; under your own message they appear when you point at it (on a phone or tablet they are always shown). Under an agent's reply, copy, retry, share and branch are on the left and the reply's time, cost and tokens at the right edge; under your own message, copy and edit sit below the bubble.

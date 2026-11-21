@@ -43,6 +43,7 @@ describe('guided tour', () => {
         'Start a new chat',
         'Notifications and sound',
         'Team checks',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
       ]);
@@ -51,6 +52,7 @@ describe('guided tour', () => {
         'API keys and endpoints for open-source agents',
         'Start a new chat',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
       ]);
@@ -59,6 +61,7 @@ describe('guided tour', () => {
         'API keys and endpoints for open-source agents',
         'Start a new chat',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
       ]);
@@ -66,15 +69,23 @@ describe('guided tour', () => {
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
           'Start a new chat',
+          'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
         ]);
       }
-      expect(titles(33)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations']);
-      expect(titles(34)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations']);
-      expect(titles(35)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations']);
-      expect(titles(36)).toEqual(['Start a new chat', 'Automations']);
-      expect(tourIndices(37)).toEqual([]);
+      for (let version = 33; version <= 35; version++) {
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'Start a new chat',
+          'Browse the working directory',
+          'Automations',
+        ]);
+      }
+      expect(titles(36)).toEqual(['Start a new chat', 'Browse the working directory', 'Automations']);
+      expect(titles(37)).toEqual(['Browse the working directory']);
+      expect(titles(38)).toEqual(['Browse the working directory']);
+      expect(tourIndices(39)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -118,6 +129,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 37, fingerprint: 'eae724ee5cd3' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: '07138fb79980' });
   });
 });

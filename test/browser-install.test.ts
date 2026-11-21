@@ -128,7 +128,7 @@ describe('installing the browser on the Relay computer', () => {
       return undefined;
     });
     await withLang('zh-TW', async () => {
-      await expect(fixture.install()).rejects.toThrow(t().chromeMissingBundle);
+      await expect(fixture.install()).rejects.toThrow(t().macAppMissingBundle('Google Chrome'));
     });
     expect(fixture.run.mock.calls.map(([o]) => o.bin)).not.toContain('/usr/bin/ditto');
     expect(readdirSync(fixture.temp)).toEqual([]);
@@ -155,7 +155,7 @@ describe('installing the browser on the Relay computer', () => {
     await expect(fixture.install()).rejects.toThrow();
     const mount = fixture.mount();
     expect(readFileSync(join(mount, app, 'contents'), 'utf8')).toBe('application data');
-    expect(readFileSync(join(mount, '..', 'googlechrome.dmg'), 'utf8')).toBe('disk image');
+    expect(readFileSync(join(mount, '..', 'installer.dmg'), 'utf8')).toBe('disk image');
     expect(readdirSync(fixture.apps)).toEqual([]);
   });
 
@@ -174,7 +174,7 @@ describe('installing the browser on the Relay computer', () => {
     mkdirSync(fixture.dest, { recursive: true });
     writeFileSync(join(fixture.dest, 'user-data'), 'keep me');
     await withLang('zh-TW', async () => {
-      await expect(fixture.install()).rejects.toThrow(t().chromeDestinationExists(fixture.dest));
+      await expect(fixture.install()).rejects.toThrow(t().macAppDestinationExists(fixture.dest));
     });
     expect(fixture.run).not.toHaveBeenCalled();
     expect(readFileSync(join(fixture.dest, 'user-data'), 'utf8')).toBe('keep me');

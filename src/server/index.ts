@@ -1,4 +1,8 @@
-import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { AppPreviews } from './appPreviews';
+import { cleanupPreviewRuntimes, startPreviewRuntime } from './previewRuntime';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { AlertWatcher } from './alerts';
@@ -20,7 +24,7 @@ import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { checkTrigger } from './watch';
 import { IdleWatcher } from './idle';
-import { ToolGateway, outboxTool } from './gateway';
+import { GatewaySocketPathError, ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
@@ -237,10 +241,38 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
-const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using));
+const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using), clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
+// An installation that only previews static sites never needs to contact Docker. The marker
+// survives a crash. Serialize its first sweep with new starts so it only removes older containers.
+const previewOwner = createHash('sha256').update(realpathSync(DATA_DIR)).digest('hex');
+const previewMarker = join(DATA_DIR, 'preview-runtime-used');
+let previewRecovered = !existsSync(previewMarker);
+let recoveringPreviews: Promise<void> | undefined;
+function recoverPreviews(): Promise<void> {
+  if (previewRecovered) return Promise.resolve();
+  return (recoveringPreviews ??= cleanupPreviewRuntimes(previewOwner)
+    .then(() => {
+      previewRecovered = true;
+    })
+    .finally(() => {
+      recoveringPreviews = undefined;
+    }));
+}
+if (!previewRecovered) void recoverPreviews().catch((err: unknown) => console.error('[preview] startup cleanup:', err));
+const previews = new AppPreviews(previewOwner, (options) =>
+  startPreviewRuntime({
+    ...options,
+    beforeDocker: async () => {
+      await recoverPreviews();
+      options.signal.throwIfAborted();
+      mkdirSync(previewMarker, { recursive: true, mode: 0o700 });
+    },
+  }),
+);
 const app = createApp({
+  previews,
   teams,
   auth,
   store,
@@ -321,7 +353,14 @@ clearOpenRunLeftovers(
 );
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 // The gateway's socket: agents get Harness Relay's own tools only once it listens.
-await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
+await gateway
+  .start()
+  .catch((err: unknown) =>
+    console.error(
+      "[server] could not start the gateway for Harness Relay's own tools:",
+      err instanceof GatewaySocketPathError ? `${err.message}.` : err,
+    ),
+  );
 
 const port = apiPort();
 const host = process.env.HOST ?? DEFAULT_HOST;
@@ -381,6 +420,7 @@ async function shutdown(code = 0): Promise<void> {
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
   const installsStopped = Promise.all([
+    previews.close(),
     clis.shutdown(),
     sandboxSetup.shutdown(),
     gitInstall.shutdown(),

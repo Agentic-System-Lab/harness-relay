@@ -14,6 +14,8 @@
  * a call it says nothing then. Plain JavaScript with Node's built-ins only, as Node runs it directly.
  */
 
+import { SOCKET_REACH_SOURCE } from './gatewayShim';
+
 /**
  * The most of the call (as JSON) the program passes on. A call larger than this is refused before it
  * runs, never cut: a hook that decides about a command must see all of it. After a call, its result
@@ -25,7 +27,10 @@ export const HOOK_INLINE_TOKEN_ENV = 'RELAY_HOOK_TOKEN';
 
 export const HOOK_SHIM_SOURCE = `// Harness Relay's hook program (written by the server; do not edit).
 import { readFileSync } from 'node:fs';
-import { connect } from 'node:net';
+import { Socket, connect } from 'node:net';
+import { basename, dirname } from 'node:path';
+
+${SOCKET_REACH_SOURCE}
 
 const [socketPath, tokenFile, when, limitSec] = process.argv.slice(2);
 const MAX = ${HOOK_SHIM_MAX};
@@ -89,7 +94,7 @@ process.stdin.on('end', () => {
   }
   let buffer = '';
   let answered = false;
-  const sock = connect(socketPath || '');
+  const sock = reach(socketPath || '');
   sock.setEncoding('utf8');
   sock.on('connect', () => sock.write(JSON.stringify({ token }) + '\\n' + line + '\\n'));
   sock.on('data', (chunk) => {
