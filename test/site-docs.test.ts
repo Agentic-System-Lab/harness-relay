@@ -305,14 +305,16 @@ describe('the docs', () => {
     expect(css).toMatch(/\.doc-search-field:focus-within \{[^}]*box-shadow: inset 0 0 0 1px var\(--grok-ink\)/s);
     expect(css).not.toMatch(/\.doc-search-field:focus-within \{[^}]*outline-offset/s);
     // On a narrow screen the search field and the docs' button share one row. The field stays the narrower
-    // one until it is opened, then it fills the row, and a jumped-to heading clears that one row.
-    expect(css).toMatch(/@media \(max-width: 920px\) \{[\s\S]*\.js \.doc-search \{[^}]*max-width: 42%;/);
+    // one until it is opened, then it fills the row, and a jumped-to heading clears the search and contents rows.
+    const compact = '(max-width: 1180px), (hover: none) and (pointer: coarse)';
+    expect(css.slice(css.indexOf('@media ' + compact))).toMatch(/\.js \.doc-search \{[^}]*max-width: 42%;/);
+    expect(read('site/assets/site.js')).toContain("window.matchMedia('" + compact + "')");
     expect(css).toMatch(/\.js \.doc-search:focus-within,\s*\.js \.doc-search\.is-wide \{[^}]*max-width: 100%;/s);
     expect(css).toMatch(
       /\.js \.doc-search:focus-within ~ \.doc-nav-toggle,\s*\.js \.doc-search\.is-wide ~ \.doc-nav-toggle \{[^}]*display: none;/s,
     );
-    const narrowPad = css.match(/html\.js:has\(\.doc-nav\) \{\n {4}scroll-padding-top: (\d+)px;\n {2}\}/);
-    expect(narrowPad?.[1]).toBeTruthy();
+    expect(css).toContain('scroll-margin-top: calc(var(--doc-search-bottom) + var(--doc-contents-height) + 8px)');
+    expect(css).toContain('.js .doc-toc:not(.is-open) > ol');
     const behavior = read('site/assets/site.js');
     expect(read('site/assets/docs.js')).toContain("form.classList.add('is-wide')");
     expect(behavior).toContain('scrollPaddingTop');
@@ -361,6 +363,7 @@ describe('the docs', () => {
       for (const [, id, labelledby, h2] of sections)
         expect([labelledby, h2], `${page.file} #${id}`).toEqual([`${id}-title`, `${id}-title`]);
       const headings = [...page.article.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h[23]>/g)];
+      expect(page.toc, page.file).toContain(`<p class="doc-toc-title">${page.lang === 'en' ? 'On this page' : '本頁內容'}</p>`);
       const contents = contentsItems(page.toc);
       expect(
         contents.map((item) => item.id),

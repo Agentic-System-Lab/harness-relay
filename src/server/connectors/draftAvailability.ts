@@ -1,5 +1,14 @@
 import { APP_SERVERS, DRAFT_APPS, LOCAL_DRAFT_APPS, type DraftApp, type DraftAppAvailability, type DraftAppState } from '../../shared/apps';
-import { isOpenProvider, type HostedProvider, type Permission, type Provider, type RelayToolGroup } from '../../shared/types';
+import {
+  isEndpointCli,
+  isOpenProvider,
+  parseBackendModel,
+  type HostedProvider,
+  type Permission,
+  type Provider,
+  type RelayToolGroup,
+} from '../../shared/types';
+import { openhandsNeedsTerminalSwitch } from '../agents/openhands';
 import { openAgents } from '../agents/index';
 import { sandboxAvailable } from '../relaySandbox';
 import { NO_HTTP_MCP } from '../agents/acp';
@@ -36,9 +45,9 @@ export function draftAvailability(
   platform = process.platform,
   sandbox = sandboxAvailable,
 ) {
-  const usable = joinProbe(async (p: Provider) => {
+  const accountsFor = joinProbe(async (p: Provider) => {
     const status = await providers.status(p);
-    return status.installed ? status.accounts.filter((a) => a.auth.loggedIn === true || a.usingStoredApiKey) : [];
+    return status.installed ? status.accounts : [];
   });
   const slack = (p: HostedProvider, mode: 'draft' | true) => joinProbe(async (id: string) => hosted.check('slack', p, id, mode));
   const hostedSlack = { claude: slack('claude', 'draft'), codex: slack('codex', 'draft') };
@@ -53,12 +62,26 @@ export function draftAvailability(
     const accounts = oauth.store.accounts().filter((a) => a.status === 'connected');
     let sandboxReady: Promise<boolean> | undefined;
     const canRun = async (p: Provider) => {
+      const configured = await accountsFor(p);
+      if (!configured.length) return false;
       if (permission !== 'full' && isOpenProvider(p)) {
         if (platform === 'win32' || openAgents[p].process.sandboxUnsupported?.(platform)) return false;
+        if (p === 'openhands' && openhandsNeedsTerminalSwitch(platform) && !settings.sandboxTerminal(p)) return false;
         sandboxReady ??= sandbox().then((s) => s.ok);
         if (!(await sandboxReady)) return false;
       }
-      return (await usable(p)).length > 0;
+      return configured.some((a) => {
+        if (isEndpointCli(p)) {
+          const model = parseBackendModel(settings.defaultModel(p, a.id));
+          if (model) {
+            const backends = settings.backends.view();
+            const endpoint = backends.endpoints.find((e) => e.id === model.backend);
+            if (endpoint) return !endpoint.keyUnreadable;
+            if (backends.deletedEndpoints.includes(model.backend)) return false;
+          }
+        }
+        return a.auth.loggedIn === true || a.usingStoredApiKey;
+      });
     };
     const assistant = async (list: Provider[]): Promise<DraftAppState> => {
       // One signed-in provider with access is enough, even if another CLI cannot be checked.
@@ -135,7 +158,7 @@ export function draftAvailability(
           const states = (
             await Promise.all(
               (['claude', 'codex'] as const).map(async (p) => {
-                const signedIn = await usable(p).catch(() => []);
+                const signedIn = (await accountsFor(p).catch(() => [])).filter((a) => a.auth.loggedIn === true);
                 const probe = p === 'codex' && verifySlack ? verifyCodex : hostedSlack[p];
                 return Promise.all(signedIn.map((a) => probe(a.id).catch(() => 'unknown' as const)));
               }),

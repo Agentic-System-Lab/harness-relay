@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 44 個 spec 檔、566 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 44 個 spec 檔、568 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -35,7 +35,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
-| [文件目錄](#文件目錄) | [`docs-navigation.spec.ts`](specs/docs-navigation.spec.ts) | 4 | [工具文件](../site/zh-TW/docs/tools/index.html) |
+| [文件目錄](#文件目錄) | [`docs-navigation.spec.ts`](specs/docs-navigation.spec.ts) | 6 | [工具文件](../site/zh-TW/docs/tools/index.html) |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 10 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
@@ -84,7 +84,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 文件目錄
 
-以本機網站檔案驗證繁中工具頁的深層連結、手機鍵盤展開與返回、英文手機指南捲動時的小節標示，以及停用 JavaScript 後仍能展開目錄並開啟 Google 設定步驟。捲動時，原先自動展開的分支會收起，手機上的閱讀位置會保持穩定。手動展開的分支和仍有鍵盤焦點的分支會保持開啟。
+以本機網站檔案驗證繁中工具頁的深層連結、手機鍵盤展開與返回、英文手機指南捲動時的小節標示，以及停用 JavaScript 後仍能展開目錄並開啟 Google 設定步驟。捲動時，原先自動展開的分支會收起，手機上的閱讀位置會保持穩定。手動展開的分支和仍有鍵盤焦點的分支會保持開啟。手機與平板會檢查固定的單行目錄、跳到章節後的鍵盤焦點、長目錄內捲、切換搜尋及文件頁面，以及調整到桌面寬度。在 390、1024 和 1366 CSS 像素寬度，實際檢查文件選單從上排下緣展開，整列接收點擊，且鍵盤無法聚焦被蓋住的「本頁內容」。
+
+[收合的本頁內容](../docs/media/docs-contents-phone-zh-TW.webp) · [展開的本頁內容](../docs/media/docs-contents-open-phone-zh-TW.webp) · [文件選單蓋住本頁內容](../docs/media/docs-pages-over-contents-phone-zh-TW.webp)
 
 ## 登入
 

@@ -80,6 +80,20 @@ describe('apps that can be selected in a new draft', () => {
     settings.tools.gatewayStatus = () => ({ available: false, reason: 'not-started' });
     expect(await check()).toBe('unavailable');
   });
+  it('accepts an assistant using its own model endpoint for Relay tools and still requires an official account for hosted Slack', async () => {
+    loggedIn = false;
+    settings.tools.browserStatus = () => ({ using: 'test-browser' });
+    settings.tools.update({ relayTools: { browser: ['codex'] } });
+    settings.backends.putEndpoint('local', { name: 'Local', baseUrl: 'http://127.0.0.1:8080/v1', models: ['demo'] });
+    settings.updateAccount('codex', '', { defaultModel: 'local/demo' });
+    expect((await read('read-only', 'browser')).browser).toBe('ready');
+    expect((await read('read-only', 'slack')).slack).toBe('needs-connection');
+    expect(hosted).not.toHaveBeenCalled();
+    settings.backends.deleteEndpoint('local');
+    loggedIn = true;
+    expect((await read('read-only', 'browser')).browser).not.toBe('ready');
+  });
+
   it.each(['linux', 'win32'] as const)('respects open-agent sandbox support on %s for both gateway and MCP apps', async (platform) => {
     read = draftAvailability(settings, settings.oauth, { status }, { status: teams }, { check: hosted }, github, platform);
     settings.tools.browserStatus = () => ({ using: 'browser' });
@@ -88,6 +102,16 @@ describe('apps that can be selected in a new draft', () => {
     expect(await read('read-only', 'local')).toMatchObject({ browser: 'needs-assistant', notion: 'needs-assistant' });
     expect(await read('full', 'local')).toMatchObject({ browser: 'ready', notion: 'ready' });
   });
+  it('requires the macOS terminal switch and functioning sandbox for a restricted OpenHands assistant', async () => {
+    const sandbox = vi.fn(async () => ({ ok: true }) as const);
+    read = draftAvailability(settings, settings.oauth, { status }, { status: teams }, { check: hosted }, github, 'darwin', sandbox);
+    vi.spyOn(settings.tools, 'signedInAppServers').mockReturnValue([['openhands']]);
+    expect((await read('edit', 'notion')).notion).toBe('needs-assistant');
+    expect(sandbox).not.toHaveBeenCalled();
+    settings.update('openhands', { sandboxTerminal: true });
+    expect((await read('edit', 'notion')).notion).toBe('ready');
+  });
+
   it('requires each OAuth use and a selected calendar, respects revocation and leaves a separately connected CalDAV calendar usable', async () => {
     settings.tools.update({ relayTools: { mail: ['codex'], calendar: ['codex'], drive: ['codex'] } });
     const oauth = settings.oauth.store;

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 566 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 568 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -35,7 +35,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
-| [Documentation contents](#documentation-contents) | [`docs-navigation.spec.ts`](specs/docs-navigation.spec.ts) | 4 | [Tools guide](../site/docs/tools/index.html) |
+| [Documentation contents](#documentation-contents) | [`docs-navigation.spec.ts`](specs/docs-navigation.spec.ts) | 6 | [Tools guide](../site/docs/tools/index.html) |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 10 | [User guide → Start a chat](../docs/user-guide.md#conversation-rules) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
@@ -82,7 +82,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Documentation contents
 
-The website’s own files exercise deep links and keyboard disclosure in the Chinese tools guide, active subsections while scrolling the English phone guide, and opening a Google setup guide with JavaScript disabled. Scrolling collapses the previous automatic branch without moving the article text on a phone. Manual choices and branches containing keyboard focus stay open.
+The website’s own files exercise deep links and keyboard disclosure in the Chinese tools guide, active subsections while scrolling the English phone guide, and opening a Google setup guide with JavaScript disabled. Scrolling collapses the previous automatic branch without moving the article text on a phone. Manual choices and branches containing keyboard focus stay open. Phone and tablet checks cover the sticky contents row, keyboard focus at the destination, long lists with their own scrolling, switching between contents, search and the page list, and resizing to desktop. The page menu is tested at 390, 1024 and 1366 CSS pixels with pointer hit tests across the whole covered row and keyboard focus checks.
+
+[Collapsed contents](../docs/media/docs-contents-phone-en.webp) · [Expanded contents](../docs/media/docs-contents-open-phone-en.webp) · [Page menu covering the contents row](../docs/media/docs-pages-over-contents-phone-en.webp)
 
 ## Signing in
 

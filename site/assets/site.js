@@ -349,19 +349,33 @@ if (tabs.length && tabs.length === panels.length) {
 }
 
 // ---------- The docs: their pages behind a button on a narrow screen, and the section on screen ----------
-// At 920px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
+// At 1180px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
 // page's sections in "On this page" mark the one being read: the last whose heading has passed the line
-// under the header (on a narrow screen, under the sticky row of the search field and the docs' button), or the last
+// under the header (on a narrow screen, under the sticky search and contents rows), or the last
 // one once the page is scrolled to its end.
 
 const docNav = document.querySelector('[data-doc-nav]');
+const compactDocs = docNav && window.matchMedia('(max-width: 1180px), (hover: none) and (pointer: coarse)');
 const docNavToggle = docNav?.querySelector('[data-doc-nav-toggle]');
 if (docNav && docNavToggle) {
   const setOpen = (open) => {
     docNav.classList.toggle('is-open', open);
     docNavToggle.setAttribute('aria-expanded', String(open));
   };
-  docNavToggle.addEventListener('click', () => setOpen(!docNav.classList.contains('is-open')));
+  docNavToggle.addEventListener('click', () => {
+    const opening = !docNav.classList.contains('is-open');
+    if (opening) docNavToggle.focus({ preventScroll: true });
+    setOpen(opening);
+  });
+  compactDocs.addEventListener('change', () => {
+    const focus = document.activeElement;
+    setOpen(false);
+    if (compactDocs.matches && focus?.closest('.doc-nav-list')) docNavToggle.focus({ preventScroll: true });
+    if (!compactDocs.matches && focus === docNavToggle) docNav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
+  });
+  document.addEventListener('focusin', (event) => {
+    if (!docNav.contains(event.target) || event.target.closest('[data-doc-search]')) setOpen(false);
+  });
   // The button stays at the top over the page, so the open menu closes on a click or tap beside it, and on Esc.
   document.addEventListener('click', (event) => {
     if (docNav.classList.contains('is-open') && !docNav.contains(event.target)) setOpen(false);
@@ -369,13 +383,53 @@ if (docNav && docNavToggle) {
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !docNav.classList.contains('is-open')) return;
     setOpen(false);
-    docNavToggle.focus();
+    docNavToggle.focus({ preventScroll: true });
   });
 }
 
 // Reading position and deep links use the same static contents as native disclosure and keyboard navigation.
 const toc = document.querySelector('.doc-toc');
 if (toc) {
+  const list = toc.querySelector(':scope > ol');
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'doc-toc-toggle';
+  toggle.textContent = toc.querySelector('.doc-toc-title').textContent;
+  list.id = 'doc-contents';
+  toggle.setAttribute('aria-controls', list.id);
+  toc.prepend(toggle);
+
+  const setOpen = (open) => {
+    toc.classList.toggle('is-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  const head = document.querySelector('.doc-head');
+  const resize = () => {
+    // Put the tab stops in visual order. Preserve a usable focus target when a breakpoint hides its control.
+    const focus = document.activeElement;
+    const inside = toc.contains(focus);
+    setOpen(false);
+    if (compactDocs.matches) head.before(toc);
+    else head.after(toc);
+    if (inside) {
+      const next = compactDocs.matches ? toggle : focus === toggle ? list.querySelector('summary, a') : focus;
+      next?.focus({ preventScroll: true });
+    }
+  };
+  resize();
+  compactDocs.addEventListener('change', resize);
+  toggle.addEventListener('click', () => setOpen(!toc.classList.contains('is-open')));
+  const outside = (event) => {
+    if (!toc.contains(event.target)) setOpen(false);
+  };
+  document.addEventListener('click', outside);
+  document.addEventListener('focusin', outside);
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !toc.classList.contains('is-open')) return;
+    setOpen(false);
+    toggle.focus({ preventScroll: true });
+  });
+
   const entries = [...toc.querySelectorAll('a[href^="#"]')]
     .map((link) => ({
       link,
@@ -388,7 +442,9 @@ if (toc) {
   const automatic = new Set();
   const article = document.querySelector('.doc-body');
   const readingLine = () => {
-    const pad = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+    const pad = compactDocs.matches
+      ? toggle.getBoundingClientRect().bottom + 8
+      : parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
     return (Number.isFinite(pad) ? pad : 96) + 24;
   };
   const updateBranches = (reveal) => {
@@ -425,6 +481,15 @@ if (toc) {
   toc.addEventListener('click', (event) => {
     const summary = event.target.closest('summary');
     if (summary) automatic.delete(summary.parentElement);
+    const link = event.target.closest('a');
+    if (!compactDocs.matches || !link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    setOpen(false);
+    const target = entries.find((entry) => entry.link === link)?.target;
+    // Resume keyboard reading in the article, including when choosing the fragment already in the URL.
+    if (target) {
+      if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+    }
   });
   toc.addEventListener('focusout', () => requestAnimationFrame(() => updateBranches(false)));
   const select = (entry, reveal = false) => {
@@ -454,7 +519,7 @@ if (toc) {
     if (entry) {
       fragment = { target, entry };
       select(entry, true);
-      // Opening a branch changes the height of the contents above the article on small screens.
+      // Let hash navigation and the reading marker use the same offset below the sticky bars.
       target.scrollIntoView({ block: 'start', behavior: 'instant' });
     }
   };
