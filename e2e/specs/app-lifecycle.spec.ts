@@ -80,7 +80,7 @@ test('Calendar connects a CalDAV calendar, reads its event, then withholds the t
   }
 });
 
-test('Browser starts the selected Chromium, reads a local page, then withholds the tool', async ({ page, relay }) => {
+test('Browser starts the selected Chromium, reads a local page, then withholds the tool', async ({ page, relay, browserName }) => {
   const site = createServer((_req, res) =>
     res.writeHead(200, { 'content-type': 'text/html' }).end('<title>Fixture site</title><p>Browser lifecycle receipt</p>'),
   );
@@ -89,7 +89,9 @@ test('Browser starts the selected Chromium, reads a local page, then withholds t
     const row = await openCommonApp(page, relay, 'Browser');
     const pathEditor = row.locator('.browser-path');
     if (!(await pathEditor.evaluate((element) => (element as HTMLDetailsElement).open))) await pathEditor.locator('summary').click();
-    let executable = findBrowser({ configured: process.env.RELAY_BROWSER });
+    // Use CI's Chromium build by default. A developer can choose another, and Firefox/WebKit-only runs may have just a system Chromium.
+    const configured = process.env.RELAY_BROWSER;
+    let executable = configured || browserName !== 'chromium' ? findBrowser({ configured }) : undefined;
     if (!executable) {
       // CI may install only Playwright's headless shell. executablePath() names the full download.
       const shell = await chromium.launchServer();
