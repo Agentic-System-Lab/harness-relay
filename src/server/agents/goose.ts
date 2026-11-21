@@ -26,6 +26,7 @@ import {
   type NativeHook,
   type NativeMcpServer,
   type NativeMemoryFile,
+  type NativePart,
   type NativePlugin,
   type NativeSkill,
   type Permission,
@@ -217,10 +218,20 @@ export const GOOSE_HINT_FILES = ['.goosehints', 'AGENTS.md'];
  */
 export const GOOSE_PLATFORM_EXTENSIONS = ['analyze', 'summon', 'todo'];
 
+/** The extension its subagents come from (`delegate`), left out with them (`subagents` in `nativeOff`). */
+export const GOOSE_SUBAGENT_EXTENSION = 'summon';
+
+/** The platform extensions a run has besides `developer`: all of `GOOSE_PLATFORM_EXTENSIONS`, `summon` only with its subagents. */
+export function goosePlatformExtensions(off: readonly NativePart[] = []): string[] {
+  return off.includes('subagents')
+    ? GOOSE_PLATFORM_EXTENSIONS.filter((n) => n !== GOOSE_SUBAGENT_EXTENSION)
+    : [...GOOSE_PLATFORM_EXTENSIONS];
+}
+
 /** `EXTENSIONS` for a run (Goose takes a config key's value from its upper-case variable, as JSON). */
-export function gooseExtensionsEnv(): string {
+export function gooseExtensionsEnv(off: readonly NativePart[] = []): string {
   const entries = Object.fromEntries(
-    GOOSE_PLATFORM_EXTENSIONS.map((name) => [name, { enabled: true, type: 'platform', name, description: '', bundled: true }]),
+    goosePlatformExtensions(off).map((name) => [name, { enabled: true, type: 'platform', name, description: '', bundled: true }]),
   );
   return JSON.stringify(entries);
 }
@@ -467,9 +478,11 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     GOOSE_MODEL: run.model,
     GOOSE_MODE: gooseMode(o.permission),
     ...(windows ? {} : { GOOSE_SHELL: shell, ...gooseShellEnv(deps.realHome, deps.bash) }),
-    EXTENSIONS: gooseExtensionsEnv(),
+    EXTENSIONS: gooseExtensionsEnv(o.nativeOff),
     PLUGINS: goosePluginsEnv(goosePluginDirs(o.cwd, own), o),
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
+    // A model server of the user's often serves one request at a time: one subagent at once there (5 by default).
+    ...(run.kind === 'endpoint' ? { GOOSE_MAX_CONCURRENT_SUBAGENTS: '1' } : {}),
   });
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
 }
@@ -493,7 +506,8 @@ function checkGooseSessions(ctx: OpenRunContext): void {
     if (link) throw new Error(`${link}: not a folder (a link, a file…)`);
     const pending = sealed ? pendingGooseSignIns(sealed) : [];
     if (pending.length) stripGooseSignIns(home.state, { names: pending, secrets: [] });
-    if (o.sessionId && sealed) restoreGooseSession(home.state, sealed, o.sessionId);
+    if (o.sessionId && sealed)
+      restoreGooseSession(home.state, sealed, o.sessionId, o.nativeOff?.includes('subagents') ? [GOOSE_SUBAGENT_EXTENSION] : []);
     else if (existsSync(gooseSessionsDb(home.state))) openRunDatabase(gooseSessionsDb(home.state)).close();
   } catch (err) {
     startStateOver(ctx, err as Error);
@@ -801,7 +815,13 @@ function sealedExtensions(sealed: string, sessionId: string): GooseExtension[] |
  * back once written. Fails closed: a session whose row cannot be checked is not resumed (`prepareGoose`
  * starts the state over, and the orchestrator then starts a fresh session).
  */
-export function restoreGooseSession(state: string, sealed: string, sessionId: string): void {
+export function restoreGooseSession(
+  state: string,
+  sealed: string,
+  sessionId: string,
+  /** Platform extensions this run leaves out (its subagents' `summon`), taken out of the list a session started with. */
+  leaveOut: readonly string[] = [],
+): void {
   const file = gooseSessionsDb(state);
   if (!existsSync(file)) return; // nothing to resume: the load says so
   try {
@@ -818,11 +838,12 @@ export function restoreGooseSession(state: string, sealed: string, sessionId: st
       } catch {
         /* unreadable: only the extension list is put back */
       }
-      const extensions =
+      const extensions = (
         sealedExtensions(sealed, sessionId) ??
         (storedExtensions(row.extension_data) ?? []).filter(
           (e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name),
-        );
+        )
+      ).filter((e) => !(e.type === 'platform' && typeof e.name === 'string' && leaveOut.includes(e.name)));
       data[GOOSE_EXTENSIONS_KEY] = { extensions };
       const written = JSON.stringify(data);
       const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c));
@@ -932,7 +953,7 @@ export function gooseSessionParams(ctx: OpenRunContext, method: AcpSessionMethod
     _meta: {
       enabledExtensions: [
         { type: 'platform', name: 'developer' },
-        ...GOOSE_PLATFORM_EXTENSIONS.map((name) => ({ type: 'platform', name })),
+        ...goosePlatformExtensions(ctx.o.nativeOff).map((name) => ({ type: 'platform', name })),
         ...servers.map((server) => ({ type: 'mcp', server, env_keys: [], scopes: [] })),
       ],
     },

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { nativeItemsFor, sameNativeItems, type NativeSetup } from '../src/shared/types';
 import {
+  cliFeaturesState,
+  hasSubagentSwitch,
+  hasSubagents,
+  hasWorkflowSwitch,
+  subagentsFullAccessOnly,
+  withNativeOn,
+  withSubagents,
   canLeaveOutAll,
   canPick,
   canPickIn,
@@ -92,6 +99,8 @@ describe('the panel of what a CLI loads by itself', () => {
     expect(isPicked(two, 'mcp', 'mcp__a')).toBe(true);
     expect(isPicked(two, 'mcp', undefined)).toBe(false);
     expect(nativeOffTotal(['hooks'], two)).toBe(4);
+    // Its subagents have a box of their own: not counted among what the panel leaves out.
+    expect(nativeOffTotal(['hooks', 'subagents'], two)).toBe(4);
   });
 
   it('counts what Harness Relay leaves out across every list, an MCP server with its tools once', () => {
@@ -169,5 +178,41 @@ describe('single items left out, as stored', () => {
     expect(nativeItemsFor('claude', null)).toEqual({});
     expect(nativeItemsFor('claude', ['skills'])).toEqual({});
     expect(nativeItemsFor('claude', { skills: ['x'.repeat(4097)] })).toEqual({});
+  });
+});
+
+describe('the subagents and workflows box', () => {
+  it('has a subagent switch where the CLI can turn them off for a run, and a workflow switch for Claude Code', () => {
+    expect(['claude', 'codex', 'grok', 'opencode', 'goose', 'cline', 'openhands'].every((p) => hasSubagentSwitch(p as never))).toBe(true);
+    expect(['cursor', 'antigravity', 'copilot', 'muse', 'pi'].some((p) => hasSubagentSwitch(p as never))).toBe(false);
+    expect(hasWorkflowSwitch('claude')).toBe(true);
+    expect(hasWorkflowSwitch('codex')).toBe(false);
+    // Pi has no subagents: no box.
+    expect(hasSubagents('pi')).toBe(false);
+    expect(hasSubagents('cursor')).toBe(true);
+    expect(subagentsFullAccessOnly('codex')).toBe(true);
+    expect(subagentsFullAccessOnly('claude')).toBe(false);
+  });
+
+  it('switches them: subagents as a part left out, workflows and ultracode as parts turned on', () => {
+    expect(withSubagents(['mcp'], false)).toEqual(['mcp', 'subagents']);
+    expect(withSubagents(['subagents', 'mcp'], true)).toEqual(['mcp']);
+    expect(withSubagents(['subagents'], false)).toEqual(['subagents']);
+    expect(withNativeOn([], 'workflows', true)).toEqual(['workflows']);
+    // Ultracode needs workflows: on, it turns them on; workflows off take it with them.
+    expect(withNativeOn([], 'ultracode', true)).toEqual(['workflows', 'ultracode']);
+    expect(withNativeOn(['workflows', 'ultracode'], 'workflows', false)).toEqual([]);
+    expect(withNativeOn(['workflows', 'ultracode'], 'ultracode', false)).toEqual(['workflows']);
+  });
+
+  it('sums up where the switches stand, leaving out what the CLI has no switch for', () => {
+    expect(cliFeaturesState('claude', [], [])).toEqual({ subagents: true, workflows: false, ultracode: false });
+    expect(cliFeaturesState('claude', ['subagents'], ['workflows', 'ultracode'])).toEqual({
+      subagents: false,
+      workflows: true,
+      ultracode: true,
+    });
+    expect(cliFeaturesState('codex', ['subagents'], [])).toEqual({ subagents: false });
+    expect(cliFeaturesState('cursor', [], [])).toEqual({});
   });
 });

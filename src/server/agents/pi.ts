@@ -4,7 +4,14 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, real
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
-import { API_BACKENDS, PROVIDER_LABEL, type ModelOption, type NativeMemoryFile, type ToolCallKind } from '../../shared/types';
+import {
+  API_BACKENDS,
+  PROVIDER_LABEL,
+  type ModelOption,
+  type NativeMemoryFile,
+  type PlanEntry,
+  type ToolCallKind,
+} from '../../shared/types';
 import { commandLine } from '../commands';
 import { backendLabel, type BackendRun } from '../backends';
 import type { HookCall, HookResult } from '../hooks';
@@ -80,10 +87,15 @@ export const PI_GATE_COMMAND = 'harness-relay-gate';
 export const PI_RESULT_TITLE = 'harness-relay:tool_result';
 
 /**
- * Whether a run loads the gate: below full access, and with full access when the turn has the team's
- * hooks, which it asks before and after each call.
+ * Whether the gate asks about the run's calls: below full access, and with full access when the turn
+ * has the team's hooks, which it asks before and after each call. Every run loads it, for its plan tool
+ * (`PI_PLAN_TOOL`); one it does not gate has `HARNESS_RELAY_PI_UNGATED=1`, so that a gate whose
+ * variable went missing still asks (it fails closed).
  */
 export const piGated = (o: Pick<RunOptions, 'permission' | 'hooks'>): boolean => o.permission !== 'full' || Boolean(o.hooks);
+
+/** The plan tool the gate registers (Pi has no to-do tool): its calls are shown as the reply's plan, not as tool rows. */
+export const PI_PLAN_TOOL = 'update_plan';
 
 /** Pi's thinking levels (`--thinking`, `set_thinking_level`), Harness Relay's efforts for it. */
 export const PI_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -428,6 +440,8 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
     throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
   // The team's after hooks: the gate shows each call's result too.
   if (o.hooks?.kinds('after').size) ctx.env.HARNESS_RELAY_PI_AFTER = '1';
+  // Full access without hooks: the gate is loaded for its plan tool only.
+  if (!piGated(o)) ctx.env.HARNESS_RELAY_PI_UNGATED = '1';
 
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
@@ -451,7 +465,7 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
     writeFile(state.briefingFile, brief + '\n');
   }
   // `--tools` with plain names would drop the MCP tools too (seen with Pi 1.5.1): `mcp__*` keeps them.
-  if (o.permission === 'read-only') state.tools = [...piReadTools(ctx.env), ...(state.mcp ? ['mcp__*'] : [])];
+  if (o.permission === 'read-only') state.tools = [...piReadTools(ctx.env), PI_PLAN_TOOL, ...(state.mcp ? ['mcp__*'] : [])];
 
   ctx.home.configPaths.push(...PI_CONFIG_NAMES.map((n) => join(agentDir, n)), join(agentDir, PI_BRIEFING_FILE));
   Object.assign(ctx.state, state);
@@ -462,7 +476,7 @@ export function piArgs(ctx: Pick<OpenRunContext, 'o' | 'run' | 'state'>): string
   const s = piState(ctx);
   const { o } = ctx;
   const args = ['--mode', 'rpc', '--model', piModelRef(ctx.run), ...PI_FLAGS];
-  if (piGated(o)) args.push('-e', PI_GATE_PATH);
+  args.push('-e', PI_GATE_PATH);
   if (s.mcp) args.push('-e', 'builtin:mcp');
   else args.push('--no-mcp');
   if (o.nativeOff?.includes('instructions')) args.push('--no-context-files');
@@ -833,9 +847,20 @@ export function piToolDetail(name: string, args: unknown): string | undefined {
 }
 
 /** Turns Pi's session events into AgentEvents (pure: records in, events out). */
+/** The plan an `update_plan` call's arguments give (`PI_PLAN_TOOL`), or undefined when they hold none. */
+export function piPlanEntries(args: unknown): PlanEntry[] | undefined {
+  const plan = (args as { plan?: unknown } | undefined)?.plan;
+  if (!Array.isArray(plan)) return undefined;
+  return plan
+    .filter((x): x is { step: string; status?: unknown } => Boolean(x) && typeof x.step === 'string' && x.step.trim() !== '')
+    .map((x) => ({ text: x.step, status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
+}
+
 export function createPiEventHandler(emit: (e: AgentEvent) => void) {
   let inText = false;
   const open = new Set<string>();
+  /** Calls of the plan tool, shown as the plan rather than as tool rows. */
+  const plans = new Set<string>();
   const refused = new Map<string, string>();
   let last: PiAssistantMessage | undefined;
   const usage: PiUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, messages: 0 };
@@ -879,7 +904,16 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
       }
       case 'tool_execution_start': {
         const id = String(msg.toolCallId ?? '');
-        if (!id || open.has(id)) break;
+        if (!id || open.has(id) || plans.has(id)) break;
+        if (msg.toolName === PI_PLAN_TOOL) {
+          plans.add(id);
+          const entries = piPlanEntries(msg.args);
+          if (entries) {
+            closeText();
+            emit({ type: 'plan', entries });
+          }
+          break;
+        }
         closeText();
         open.add(id);
         const name = String(msg.toolName ?? 'tool');

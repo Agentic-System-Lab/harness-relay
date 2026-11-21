@@ -714,6 +714,12 @@ describe('its home', () => {
       OPENCODE_AUTH_CONTENT: '{}',
       OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       OPENCODE_PURE: '1',
+      // Read apart from OPENCODE_EXPERIMENTAL, so an inherited one would win: its code mode, subagents in
+      // the background and its question tool, set off.
+      OPENCODE_EXPERIMENTAL: 'false',
+      OPENCODE_EXPERIMENTAL_CODE_MODE: 'false',
+      OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: 'false',
+      OPENCODE_ENABLE_QUESTION_TOOL: 'false',
     });
     expect(h.statePaths).toEqual(['/h/data', '/h/state']);
     expect(h.configPaths).toEqual(['/h/config', '/h/home', '/h/cache']);
@@ -892,6 +898,9 @@ describe('the run config', () => {
     });
     expect(opencodePermission({ permission: 'edit' })).toEqual({ ...ro, edit: 'allow' });
     expect(opencodePermission({ permission: 'full' })).toEqual({ '*': 'allow', skill: 'allow' });
+    // With full access the account's switch takes its subagents away; below it they are off anyway.
+    expect(opencodePermission({ permission: 'full', nativeOff: ['subagents'] })).toEqual({ '*': 'allow', skill: 'allow', task: 'deny' });
+    expect(opencodePermission({ permission: 'edit', nativeOff: ['subagents'] }).task).toBe('deny');
     // Skills left out: none at all; single ones: denied by name.
     expect(opencodePermission({ permission: 'full', nativeOff: ['skills'] })).toEqual({ '*': 'allow', skill: 'deny' });
     expect(opencodePermission({ permission: 'edit', nativeItems: { skills: ['a', 'b'] } }).skill).toEqual({

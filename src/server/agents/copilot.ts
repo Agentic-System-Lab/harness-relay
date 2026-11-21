@@ -478,7 +478,7 @@ export const COPILOT_SECRET_VARS = ['COPILOT_GITHUB_TOKEN', 'COPILOT_PROVIDER_AP
  * The arguments of a run: ACP; below full access its sandbox (the flag, so that it fails closed),
  * full access allows everything; the other working directories; the keys kept from commands; and what
  * the run leaves out of what Copilot loads by itself (skills by its skill tool, the built-in MCP
- * servers, single MCP servers by name); the model (`--model`) and the reasoning effort
+ * servers, single MCP servers by name); no question form (`--no-ask-user`); the model (`--model`) and the reasoning effort
  * (`--reasoning-effort`). On an endpoint the model is in `COPILOT_MODEL` instead (`copilotEnv`): a BYOK
  * model given with `--model` as well refuses any effort ("does not support reasoning effort
  * configuration"), and takes it this way (copilot 1.0.109).
@@ -501,6 +501,9 @@ export function copilotArgs(o: {
     ...copilotGuardArgs(o.guard),
     ...(o.addDirs ?? []).flatMap((d) => ['--add-dir', d]),
     `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`,
+    // Its question form (`ask_user`): over ACP without elicitation it is refused and the model told; the
+    // agent asks in its reply instead (`[ASK_USER]`). In Copilot 1.0.112's help.
+    '--no-ask-user',
     ...(off.has('skills') ? ['--excluded-tools', 'skill'] : []),
     ...(off.has('mcp') ? ['--disable-builtin-mcps'] : []),
     ...(off.has('mcp') ? [] : (o.nativeItems?.mcp ?? []).flatMap((name) => ['--disable-mcp-server', name])),

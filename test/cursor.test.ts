@@ -29,6 +29,7 @@ afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 
 import {
   createCursorUpdateHandler,
+  cursorTodos,
   cursorApprovalRequest,
   cursorArgs,
   cursorCommand,
@@ -369,6 +370,69 @@ describe('cursor session updates', () => {
     expect(cursorServiceError('\n\nError handling is covered below.')).toBeUndefined(); // "Error " is not "Error: "
     expect(cursorServiceError('Error: but not on a block of its own')).toBeUndefined();
     expect(cursorServiceError('\n\nThe tests pass.')).toBeUndefined();
+  });
+});
+
+describe("Cursor's to-do list", () => {
+  it('makes the plan from cursor/update_todos: replacing it, or merging by id; a cancelled item leaves it', () => {
+    const first = cursorTodos([], {
+      toolCallId: 't1',
+      todos: [
+        { id: 'a', content: 'Read the tests', status: 'completed' },
+        { id: 'b', content: 'Fix the parser', status: 'in_progress' },
+        { id: 'c', content: 'Ship', status: 'pending' },
+        { id: 7, content: 'no id' },
+      ],
+      merge: false,
+    });
+    expect(first?.entries).toEqual([
+      { text: 'Read the tests', status: 'completed' },
+      { text: 'Fix the parser', status: 'in_progress' },
+      { text: 'Ship', status: 'pending' },
+    ]);
+    const merged = cursorTodos(first!.todos, {
+      todos: [
+        { id: 'b', content: 'Fix the parser', status: 'completed' },
+        { id: 'c', content: 'Ship', status: 'cancelled' },
+        { id: 'd', content: 'Tell the user', status: 'pending' },
+      ],
+      merge: true,
+    });
+    expect(merged?.entries).toEqual([
+      { text: 'Read the tests', status: 'completed' },
+      { text: 'Fix the parser', status: 'completed' },
+      { text: 'Tell the user', status: 'pending' },
+    ]);
+    // Without merge, the list given is the list.
+    expect(cursorTodos(merged!.todos, { todos: [{ id: 'z', content: 'Only this', status: 'pending' }] })?.entries).toEqual([
+      { text: 'Only this', status: 'pending' },
+    ]);
+    expect(cursorTodos([], { todos: [] })).toBeUndefined();
+    expect(cursorTodos([], undefined)).toBeUndefined();
+  });
+
+  it('shows the list as the plan, never its tool call as a row', () => {
+    const events: AgentEvent[] = [];
+    const h = createCursorUpdateHandler((e) => events.push(e));
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'On it.' } });
+    // The call as Cursor reports it (its input names the tool), before or after the request.
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 't1',
+      title: 'Update TODOs: Fix',
+      kind: 'other',
+      rawInput: { _toolName: 'updateTodos', todos: [] },
+    });
+    h.todos({ toolCallId: 't1', todos: [{ id: 'a', content: 'Fix', status: 'in_progress' }], merge: false });
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    h.todos({ toolCallId: 't2', todos: [{ id: 'a', content: 'Fix', status: 'completed' }], merge: true });
+    h.handle({ sessionUpdate: 'tool_call', toolCallId: 't2', title: 'Update TODOs: Fix', kind: 'other', status: 'completed' });
+    expect(events).toEqual([
+      { type: 'text', text: 'On it.' },
+      { type: 'text_end' },
+      { type: 'plan', entries: [{ text: 'Fix', status: 'in_progress' }] },
+      { type: 'plan', entries: [{ text: 'Fix', status: 'completed' }] },
+    ]);
   });
 });
 

@@ -1500,6 +1500,23 @@ describe('SettingsStore accounts', () => {
       expect(again.env('codex', work).CODEX_HOME).toBe(join(home, 'codex'));
       expect(again.accountHomes()).toEqual([join(home, `claude-${work}`), join(home, `claude-${alt}`), join(home, `codex-${second}`)]);
 
+      // What runs turn on, each account's own, kept; ultracode only with workflows; a CLI without them none.
+      again.updateAccount('claude', alt, { nativeOn: ['workflows', 'ultracode'] });
+      again.updateAccount('codex', second, { nativeOn: ['workflows'] });
+      expect(again.nativeOn('claude', alt)).toEqual(['workflows', 'ultracode']);
+      expect(new SettingsStore(db).nativeOn('claude', alt)).toEqual(['workflows', 'ultracode']);
+      expect(again.nativeOn('claude', work)).toEqual([]);
+      expect(again.nativeOn('codex', second)).toEqual([]);
+      again.updateAccount('claude', alt, { nativeOn: ['ultracode'] });
+      expect(again.nativeOn('claude', alt)).toEqual([]);
+      // Below full access, Codex's subagents are off whatever the account says; with full access, as it says.
+      expect(again.runNative('codex', second, 'edit').nativeOff).toEqual(['subagents']);
+      expect(again.runNative('codex', second, 'full').nativeOff).toEqual([]);
+      again.updateAccount('codex', second, { nativeOff: ['subagents'] });
+      expect(again.runNative('codex', second, 'full').nativeOff).toEqual(['subagents']);
+      again.updateAccount('codex', second, { nativeOff: [] });
+      expect(again.runNative('claude', work, 'read-only')).toEqual({ nativeOff: [], nativeItems: {}, nativeOn: [] });
+
       const claude = again.view().providers.find((p) => p.provider === 'claude')!;
       const run = { defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] };
       expect(claude.accounts).toEqual([

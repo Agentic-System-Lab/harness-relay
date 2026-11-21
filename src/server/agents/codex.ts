@@ -141,6 +141,20 @@ export function codexGuardRefuses(
 }
 
 /**
+ * Config every thread gets, whatever the account's own config says (Codex 0.167.0's keys, from its
+ * config schema and the `[features]`/`[tools]` tables in its binary):
+ * - `features.goals`: its goals (on by default) continue a thread by themselves, where Harness Relay
+ *   tracks a goal of its own and ends the app-server at `turn/completed`.
+ * - `tools.experimental_request_user_input.enabled`: its question form, which Harness Relay answers with
+ *   no answers (`item/tool/requestUserInput`); only plan mode, which Harness Relay never uses, offers it
+ *   by default, so this is a guard. The briefing has the agent ask in its reply (`[ASK_USER]`).
+ */
+export const CODEX_FIXED_CONFIG: Readonly<Record<string, unknown>> = {
+  'features.goals': false,
+  'tools.experimental_request_user_input.enabled': false,
+};
+
+/**
  * Config overrides for a thread. Edit mode keeps the sandbox off the network even when the user's
  * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
  * (anything that leaves the machine) must go through an approval. Its legacy sandbox may also write
@@ -158,6 +172,7 @@ export function codexConfig(
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: write } : {}),
+    ...CODEX_FIXED_CONFIG,
     ...codexNativeConfig(native.off, native.items),
     ...codexMcpConfig(mcpServers, permission === 'full', mcpOff.turnOff, mcpOff.toolsOff),
   };
@@ -182,6 +197,10 @@ export function codexNativeConfig(off: readonly NativePart[], items: NativeItems
   return {
     ...(off.includes('skills') ? { 'skills.include_instructions': false } : {}),
     ...(skills.length ? { 'skills.config': skills.map((path) => ({ path, enabled: false })) } : {}),
+    // All its subagents, the built-in ones too: `agents.enabled` would not do alone, since
+    // `features.multi_agent_v2` wins when it is on, and otherwise the bundled catalog's
+    // `multi_agent_version` of the model decides before the `multi_agent` flag (Codex 0.167.0's source).
+    ...(off.includes('subagents') ? { 'agents.enabled': false, 'features.multi_agent': false, 'features.multi_agent_v2': false } : {}),
     ...(off.includes('mcp') ? { 'features.apps': false } : {}),
     ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
     ...(off.includes('memory') ? { 'features.memories': false } : {}),
@@ -479,6 +498,9 @@ export function codexThreadRequest(
   const params = {
     cwd: o.cwd,
     approvalPolicy: ask ? 'on-request' : 'never',
+    // The user answers what is asked, never Codex's `auto_review` subagent, whatever the account's
+    // `approvals_reviewer` says.
+    approvalsReviewer: 'user',
     ...(profile ? { permissions: profileId } : { sandbox: SANDBOX[o.permission] }),
     developerInstructions: o.systemPrompt,
     ...(model ? { model } : {}),

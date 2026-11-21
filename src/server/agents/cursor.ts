@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { Permission } from '../../shared/types';
+import type { Permission, PlanEntry } from '../../shared/types';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
@@ -370,9 +370,45 @@ interface CallState {
  * write or delete (`Write(**)`, which Cursor checks before it would ask), and reports such a call as
  * completed, so its writes and deletes are shown as not made.
  */
+/**
+ * Cursor's to-do list as plan entries: a `cursor/update_todos` request's todos (`{ id, content, status }`)
+ * replace the list, or with `merge` change the items of the same id and add the others (as
+ * `sendToolExtensionNotification` sends them, cursor-agent 2026.11.11's bundle). Its statuses are
+ * pending, in_progress, completed and cancelled; a cancelled item is no longer part of the plan.
+ * Undefined when the request holds no todos.
+ */
+export function cursorTodos(
+  current: readonly CursorTodo[],
+  params: Record<string, any> | undefined,
+): { todos: CursorTodo[]; entries: PlanEntry[] } | undefined {
+  const given: CursorTodo[] = (Array.isArray(params?.todos) ? params.todos : [])
+    .filter((x: any) => x && typeof x.id === 'string' && typeof x.content === 'string')
+    .map((x: any) => ({ id: x.id, content: x.content, status: typeof x.status === 'string' ? x.status : 'pending' }));
+  if (!given.length) return undefined;
+  let todos: CursorTodo[];
+  if (params?.merge === true) {
+    todos = current.map((x) => given.find((g) => g.id === x.id) ?? x);
+    for (const g of given) if (!current.some((x) => x.id === g.id)) todos.push(g);
+  } else todos = given;
+  const entries = todos
+    .filter((x) => x.status !== 'cancelled')
+    .map((x): PlanEntry => ({ text: x.content, status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
+  return { todos, entries };
+}
+
+/** One item of Cursor's to-do list. */
+export interface CursorTodo {
+  id: string;
+  content: string;
+  status: string;
+}
+
 export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnly = false) {
   const calls = new Map<string, CallState>();
   const open = new Set<string>();
+  /** Calls of its to-do tool, shown as the plan rather than as tool rows. */
+  const todoCalls = new Set<string>();
+  let todos: CursorTodo[] = [];
   const refused = new Map<string, string>();
   let inText = false;
   let serviceError: string | undefined;
@@ -450,6 +486,9 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
         const id = String(u.toolCallId ?? '');
         if (!id) break;
         const c = remember(id, u);
+        // Its to-do tool (`_toolName` in the input Cursor gives the call): the list comes as the plan.
+        if (c.rawInput?._toolName === 'updateTodos') todoCalls.add(id);
+        if (todoCalls.has(id)) break;
         if (!open.has(id)) {
           open.add(id);
           c.detail = detailOf(c);
@@ -477,6 +516,15 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
 
   return {
     handle,
+    /** A `cursor/update_todos` request: the plan it makes, emitted; its call is not shown as a tool row. */
+    todos(params: Record<string, any> | undefined) {
+      if (typeof params?.toolCallId === 'string') todoCalls.add(params.toolCallId);
+      const next = cursorTodos(todos, params);
+      if (!next) return;
+      todos = next.todos;
+      closeText();
+      emit({ type: 'plan', entries: next.entries });
+    },
     /** The title, kind and input Cursor gave a call so far (its permission requests leave the input out). */
     call(toolCallId: string): CallState | undefined {
       return calls.get(toolCallId);
@@ -549,6 +597,11 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     updates.handle(params.update);
   };
   conn.onRequest = async (method, params) => {
+    // Its to-do list in agent mode, sent as a request it does not wait for (no session id in it).
+    if (method === 'cursor/update_todos') {
+      if (!replaying) updates.todos(params);
+      return {};
+    }
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const skip = cursorQuestionSkip(options);

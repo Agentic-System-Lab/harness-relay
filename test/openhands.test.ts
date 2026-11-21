@@ -453,6 +453,8 @@ describe('the run home and settings', () => {
       llm: { extended_thinking_budget: null, reasoning_effort: null },
     });
     expect(openhandsAgentSettings(api, 'high', 'full')).not.toHaveProperty('filter_tools_regex');
+    // With full access, the account's subagent switch takes the subagent tools away too.
+    expect(openhandsAgentSettings(api, 'high', 'full', ['subagents'])).toMatchObject({ filter_tools_regex: OPENHANDS_TOOL_FILTER });
     const endpoint: BackendRun = {
       ...api,
       id: 'homelab/m',

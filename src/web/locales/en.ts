@@ -1898,6 +1898,24 @@ export const en: Messages = {
     chars: (n, max) => `${n} / ${max} characters`,
     saved: 'Saved',
   },
+  cliFeatures: {
+    title: 'Subagents and workflows',
+    hint: "This CLI can hand part of a turn to subagents of its own, and some can run whole workflows made of subagents. These switches apply only when Harness Relay starts it: the CLI's own settings stay as they are, and they are this account's alone.",
+    subagents: 'Let it use its own subagents (the built-in ones too)',
+    subagentsOn: 'subagents on',
+    subagentsOff: 'subagents off',
+    subagentsDefault: "subagents as the CLI's default",
+    fullAccessOnly:
+      'Below full access, Harness Relay always turns its subagents off: this switch matters only in conversations with full access.',
+    workflows: 'Let it run workflows (the Workflow tool: scripts that run many subagents at once)',
+    workflowsNote:
+      'Off by default. Once on, a conversation below full access asks you with an ordinary approval card before it runs one (the card does not say what it will run), and full access runs it unasked; one workflow can run a dozen subagents at once and use many tokens.',
+    workflowsOn: 'workflows on',
+    workflowsOff: 'workflows off',
+    ultracode: 'Ultracode: plan a workflow for every substantial task',
+    ultracodeNote: "Needs workflows on. Keeps the member's effort; uses many more tokens.",
+    ultracodeOn: 'ultracode on',
+  },
   native: {
     title: 'Skills, MCP servers, hooks, memory and more this CLI loads by itself',
     summary: (s, m, f) => `${s} skills · ${m} MCP · ${f} files`,

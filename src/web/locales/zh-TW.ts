@@ -1901,6 +1901,23 @@ export const zhTW = {
     chars: (n: number, max: number) => `${n} / ${max} 字`,
     saved: '已儲存',
   },
+  cliFeatures: {
+    title: 'Subagent 與 workflow',
+    hint: '這個 CLI 能把回合的一部分交給它自己的 subagent，有的還能執行一整套由 subagent 組成的 workflow。這些開關只在 Harness Relay 啟動它時生效，不會修改 CLI 自己的設定，只套用在這個帳號。',
+    subagents: '讓它使用自己的 subagent（包括內建的）',
+    subagentsOn: 'subagent 開啟',
+    subagentsOff: 'subagent 關閉',
+    subagentsDefault: 'subagent 照 CLI 的預設',
+    fullAccessOnly: '完全存取以外，Harness Relay 一律關閉它的 subagent：這個開關只在完全存取的對話裡有作用。',
+    workflows: '讓它執行 workflow（Workflow 工具：一次執行多個 subagent 的腳本）',
+    workflowsNote:
+      '預設關閉。開啟後，完全存取以外的對話會在它執行 workflow 前以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行；一個 workflow 可能同時跑十幾個 subagent，用掉很多 token。',
+    workflowsOn: 'workflow 開啟',
+    workflowsOff: 'workflow 關閉',
+    ultracode: 'Ultracode：每個實質的任務都先規劃一個 workflow',
+    ultracodeNote: '需要先開啟 workflow。保留成員設定的推理強度；會用掉多得多的 token。',
+    ultracodeOn: 'ultracode 開啟',
+  },
   native: {
     title: '這個 CLI 自己載入的 skill、MCP、hook 與記憶等',
     summary: (s: number, m: number, f: number) => `${s} 個 skill · ${m} 個 MCP · ${f} 個檔案`,

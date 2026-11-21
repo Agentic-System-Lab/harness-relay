@@ -128,6 +128,68 @@ test.describe('what each CLI loads by itself', () => {
   });
 });
 
+test.describe('subagents and workflows', () => {
+  test("claude: its subagents on and workflows off by default; switched, kept after a reload and in its next run, another CLI's box saying what it has", async ({
+    page,
+    relay,
+  }) => {
+    const logged = (text: string) => relay.fakeLog().find((e) => e.cli === 'claude' && e.prompt?.includes(text));
+    const chat = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await send(page, 'Before switching them');
+    await finishedReply(page, 'Claude');
+    expect(logged('Before switching them')).toMatchObject({ subagents: true, workflows: false, ultracode: false });
+
+    await page.goto(page.url().replace(/#.*$/, '#/settings/claude'));
+    const box = page.locator('#settings-claude details.cli-features');
+    await expect(box.locator('summary')).toContainText('subagents on · workflows off');
+    await box.locator('summary').click();
+    const subagents = box.getByRole('checkbox', { name: /Let it use its own subagents/ });
+    const workflows = box.getByRole('checkbox', { name: /Let it run workflows/ });
+    const ultracode = box.getByRole('checkbox', { name: /Ultracode/ });
+    await expect(subagents).toBeChecked();
+    await expect(workflows).not.toBeChecked();
+    // Ultracode needs workflows.
+    await expect(ultracode).toBeDisabled();
+    await subagents.uncheck();
+    await expect(subagents).not.toBeChecked();
+    await workflows.check();
+    await expect(ultracode).toBeEnabled();
+    await ultracode.check();
+    await expect(box.locator('summary')).toContainText('subagents off · ultracode on');
+    await page.reload();
+    await page.locator('#settings-claude details.cli-features summary').click();
+    await expect(subagents).not.toBeChecked();
+    await expect(workflows).toBeChecked();
+    await expect(ultracode).toBeChecked();
+    // Switching workflows off takes ultracode with them.
+    await workflows.uncheck();
+    await expect(ultracode).not.toBeChecked();
+    await workflows.check();
+    await ultracode.check();
+    await expect(ultracode).toBeChecked();
+
+    // Codex: a switch that matters with full access only. Cursor: no switch, and the box says so.
+    await page.goto(page.url().replace(/#.*$/, '#/settings/codex'));
+    const codex = page.locator('#settings-codex details.cli-features');
+    await codex.locator('summary').click();
+    await expect(codex.getByRole('checkbox', { name: /Let it use its own subagents/ })).toBeChecked();
+    await expect(codex).toContainText('Below full access, Harness Relay always turns its subagents off');
+    await expect(codex.getByRole('checkbox', { name: /Let it run workflows/ })).toHaveCount(0);
+    await page.goto(page.url().replace(/#.*$/, '#/settings/cursor'));
+    const cursor = page.locator('#settings-cursor details.cli-features');
+    await expect(cursor.locator('summary')).toContainText("subagents as the CLI's default");
+    await cursor.locator('summary').click();
+    await expect(cursor.getByRole('checkbox')).toHaveCount(0);
+    await expect(cursor).toContainText('Cursor has no switch for its subagents over ACP');
+
+    await page.goto(`${relay.base}/#/c/${chat}`);
+    await send(page, 'After switching them');
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    await finishedReply(page, 'Claude');
+    expect(logged('After switching them')).toMatchObject({ subagents: false, workflows: true, ultracode: true });
+  });
+});
+
 test.describe("Grok's trust in a folder", () => {
   test('a team with a Grok member says when Grok does not trust the folder, and trusting it there records the trust', async ({
     page,

@@ -38,8 +38,8 @@ export const pi: CliFacts = {
   pickModel: { model: 'e2e/e2e-model-mini', effort: 'high', logged: { model: 'relay-e2e/e2e-model-mini' } },
   defaultHome: { in: 'data', path: ['agent-homes', 'pi'] },
   accounts: 'none',
-  // Pi has no to-do lists.
-  todoList: false,
+  // Pi has no to-do tool of its own: the plan comes from the one Harness Relay's gate registers (`update_plan`).
+  todoList: true,
   // Read-only gives it no command tool to reach a URL with (`bash` `curl`): edit mode, where the sandbox's proxy asks.
   fetchPermission: 'edit',
 };

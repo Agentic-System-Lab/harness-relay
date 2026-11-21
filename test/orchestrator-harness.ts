@@ -66,6 +66,7 @@ export interface Call {
   attachmentsDir?: string;
   nativeOff?: readonly string[];
   nativeItems?: Record<string, string[]>;
+  nativeOn?: readonly string[];
   sandboxTerminal?: boolean;
   stateKey?: string;
   freshState?: boolean;
@@ -270,6 +271,7 @@ beforeAll(() => {
         attachmentsDir: o.attachmentsDir,
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
+        nativeOn: o.nativeOn,
         sandboxTerminal: o.sandboxTerminal,
         stateKey: o.stateKey,
         freshState: o.freshState,

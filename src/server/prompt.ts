@@ -289,6 +289,20 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
  * A branch's copied messages speak of files as they were then: the conversation it was branched from
  * may have gone on and changed them since ('' for a conversation that is not a branch).
  */
+/**
+ * The CLIs whose own subagents can still be at work when the agent's reply ends, and then lose what they
+ * do: Antigravity (no switch for them; Harness Relay ends `agy` 3 s after the prompt is answered, and
+ * before 1.5.10 what wakes it is lost), Muse Code (it gives a subagent's result "when the session is idle"),
+ * Grok (its subagents run in the background and wake it once done). Each is asked to wait for them.
+ */
+export const SUBAGENT_WAIT_RULE: readonly Provider[] = ['antigravity', 'grok', 'muse'];
+
+/** The rule that asks an agent to wait for its own subagents, when its CLI needs it and its run has them. */
+export function subagentRules(provider: Provider, nativeOff: readonly NativePart[] = []): string {
+  if (!SUBAGENT_WAIT_RULE.includes(provider) || nativeOff.includes('subagents')) return '';
+  return '\n- If you hand work to subagents or background tasks of your own, wait for every one of them to finish and use its result before you end your reply: anything still running when your reply ends is lost, and your reply is all the team sees.';
+}
+
 function branchRules(conv: Conversation): string {
   if (!conv.branch) return '';
   return '\n- This chat was branched from an earlier one: the messages up to the branch point were copied from it, and that chat may have gone on and changed files in the working directory since. Check the files themselves rather than relying on what earlier messages say about them.';
@@ -358,7 +372,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
-- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${trackingSection(tracked)}
+- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 

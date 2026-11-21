@@ -48,6 +48,7 @@ import {
   gooseEndpointProvider,
   gooseError,
   gooseExtensionsEnv,
+  goosePlatformExtensions,
   gooseFilterUpdate,
   gooseHideTool,
   gooseHintFiles,
@@ -464,6 +465,23 @@ describe("Goose's settings per run", () => {
       summon: { enabled: true, type: 'platform', name: 'summon', description: '', bundled: true },
       todo: { enabled: true, type: 'platform', name: 'todo', description: '', bundled: true },
     });
+    // Its subagents left out (the account's switch): no `summon`, which they come from.
+    expect(Object.keys(JSON.parse(gooseExtensionsEnv(['subagents'])))).toEqual(['analyze', 'todo']);
+    expect(goosePlatformExtensions(['subagents'])).toEqual(['analyze', 'todo']);
+  });
+
+  it("runs one subagent at a time on the user's own endpoint, and leaves its subagents' extension out when they are off", () => {
+    const endpoint = context({ model: 'homelab/muse-glimmer-30b-nvfp4', nativeOff: ['subagents'] });
+    prepareGoose(endpoint, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(endpoint.env.GOOSE_MAX_CONCURRENT_SUBAGENTS).toBe('1');
+    expect(endpoint.env.EXTENSIONS).toBe(gooseExtensionsEnv(['subagents']));
+    const api = context({ model: 'openai/gpt-5.4-mini' });
+    prepareGoose(api, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(api.env).not.toHaveProperty('GOOSE_MAX_CONCURRENT_SUBAGENTS');
+    // A new session with what it loads itself left out names its whole list: without `summon` too.
+    const both = context({ nativeOff: ['mcp', 'subagents'] });
+    const listed = (gooseSessionParams(both, 'new')._meta as { enabledExtensions: { name?: string }[] }).enabledExtensions;
+    expect(listed.map((e) => e.name)).toEqual(['developer', 'analyze', 'todo']);
   });
 
   it("names providers and key variables for endpoints apart from Goose's own", () => {
@@ -2046,6 +2064,9 @@ describe("a resumed Goose session's own row", () => {
       // A list sealed for another session is not this one's.
       restoreGooseSession(ctx.home.state, sealed, 's2');
       expect(names(row(file))).toEqual(['developer', 'analyze', 'summon', 'todo', 'p1:plug', 'lib']);
+      // A run with its subagents off resumes it without their extension (Goose ignores a list sent with the load).
+      prepareGoose({ ...ctx, o: { ...ctx.o, sessionId: 's1', nativeOff: ['subagents'] } }, { realHome: '/h', bash: '/bin/bash' });
+      expect(names(row(file))).toEqual(['developer', 'analyze', 'todo', 'p1:plug', 'lib']);
       // Emptied with the state folder.
       emptyStateFolder(ctx.home.root, 'conv.c1.a1');
       expect(existsSync(sealed)).toBe(false);

@@ -1028,10 +1028,16 @@ const TICKS_PER_USD = 1e10;
  * Variables that make Grok leave out, for one run, the skills, MCP servers and hooks it loads from
  * Claude Code's and Cursor's settings (Claude Code plugins' skills too, but not their hooks), and
  * its memory. Its own skills, MCP servers and hooks have no such switch (they are turned off in
- * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins.
+ * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins. Its subagents
+ * as a whole have one (`GROK_SUBAGENTS`), and its question form is always off.
  */
 export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
   return {
+    // Its question form (`ask_user_question`), which Harness Relay answers with -32601: the agent asks in
+    // its reply instead (`[ASK_USER]`). Grok 1.0.92 reads it.
+    GROK_ASK_USER_QUESTION: '0',
+    // All its subagents (`spawn_subagent`), the built-in ones too.
+    ...(off.includes('subagents') ? { GROK_SUBAGENTS: '0' } : {}),
     ...(off.includes('skills') ? { GROK_CLAUDE_SKILLS_ENABLED: 'false', GROK_CURSOR_SKILLS_ENABLED: 'false' } : {}),
     ...(off.includes('mcp') ? { GROK_CLAUDE_MCPS_ENABLED: 'false', GROK_CURSOR_MCPS_ENABLED: 'false' } : {}),
     ...(off.includes('memory') ? { GROK_MEMORY: '0' } : {}),

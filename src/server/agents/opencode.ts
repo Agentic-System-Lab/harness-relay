@@ -439,6 +439,13 @@ function homeEnv(root: string, state?: string): Record<string, string> {
     OPENCODE_EXPERIMENTAL_EXA: 'false',
     OPENCODE_ENABLE_PARALLEL: 'false',
     OPENCODE_EXPERIMENTAL_PARALLEL: 'false',
+    // OpenCode reads these apart, and looks at OPENCODE_EXPERIMENTAL only when one is not set (1.19.5's
+    // binary): one the server inherited would win. Its code mode (Harness Relay's own is `run_code`), its
+    // subagents in the background (a turn ends at its prompt's answer, before they finish), and its
+    // question tool (the agent asks in its reply, `[ASK_USER]`).
+    OPENCODE_EXPERIMENTAL_CODE_MODE: 'false',
+    OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: 'false',
+    OPENCODE_ENABLE_QUESTION_TOOL: 'false',
   };
 }
 
@@ -489,7 +496,8 @@ function skillRule(o: Pick<RunOptions, 'nativeOff' | 'nativeItems'>): string | R
  */
 export function opencodePermission(o: Pick<RunOptions, 'permission' | 'nativeOff' | 'nativeItems'>): Record<string, unknown> {
   const skill = skillRule(o);
-  if (o.permission === 'full') return { '*': 'allow', skill };
+  // With full access, the account's subagent switch (`subagents` left out) takes its `task` tool away.
+  if (o.permission === 'full') return { '*': 'allow', skill, ...(o.nativeOff?.includes('subagents') ? { task: 'deny' } : {}) };
   return {
     '*': 'ask',
     read: 'allow',

@@ -320,6 +320,11 @@ function claudeStream() {
       model: flag('--model') || null,
       effort: flag('--effort') || null,
       skills: claudeSkills().map((s) => s.name),
+      // What it may do by itself in the turn: its subagents (a deny rule for the whole Agent tool takes
+      // them all), its workflows (CLAUDE_CODE_DISABLE_WORKFLOWS) and ultracode, as Claude Code reads them.
+      subagents: !((claudeSettings().permissions || {}).deny || []).includes('Agent'),
+      workflows: process.env.CLAUDE_CODE_DISABLE_WORKFLOWS !== '1',
+      ultracode: claudeSettings().ultracode === true,
     });
     out({
       type: 'system',

@@ -24,6 +24,7 @@ import {
   type NativeAgent,
   type NativeHook,
   type NativeMemoryFile,
+  type NativePart,
   type NativeSkill,
   type Permission,
 } from '../../shared/types';
@@ -251,14 +252,20 @@ function llmSettings(run: BackendRun, effort: string | null, usageId: 'agent' | 
 }
 
 /** The whole `agent_settings.json` of one run: its model, effort and tools (no key in it). */
-export function openhandsAgentSettings(run: BackendRun, effort: string | null, permission: Permission): Record<string, unknown> {
+export function openhandsAgentSettings(
+  run: BackendRun,
+  effort: string | null,
+  permission: Permission,
+  /** With full access, its subagents left out by the account's switch (`subagents`) take the same filter. */
+  off: readonly NativePart[] = [],
+): Record<string, unknown> {
   return {
     kind: 'Agent',
     llm: llmSettings(run, effort, 'agent'),
     tools: [{ name: 'terminal' }, { name: 'file_editor' }, { name: 'task_tracker' }, { name: 'task_tool_set' }],
     system_prompt_kwargs: { cli_mode: true },
     condenser: { kind: 'LLMSummarizingCondenser', llm: llmSettings(run, effort, 'condenser'), max_size: 80, keep_first: 4 },
-    ...(permission === 'full' ? {} : { filter_tools_regex: OPENHANDS_TOOL_FILTER }),
+    ...(permission === 'full' && !off.includes('subagents') ? {} : { filter_tools_regex: OPENHANDS_TOOL_FILTER }),
   };
 }
 
@@ -626,7 +633,7 @@ export function prepareOpenhands(ctx: OpenRunContext, uid = process.getuid?.() ?
   const skills = join(own, 'skills');
   const skillCache = join(own, 'cache', 'skills');
   const bashrc = join(home, '.bashrc');
-  writePrivate(settings, JSON.stringify(openhandsAgentSettings(run, effort, o.permission), null, 2));
+  writePrivate(settings, JSON.stringify(openhandsAgentSettings(run, effort, o.permission, o.nativeOff), null, 2));
   writePrivate(mcp, JSON.stringify(openhandsMcpConfig(o.mcpServers ?? []), null, 2));
   const briefing = acpBriefing(o, openhandsAcp);
   if (briefing) writePrivate(join(skills, OPENHANDS_BRIEFING_SKILL), `${briefing}\n`);

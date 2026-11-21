@@ -34,6 +34,7 @@ import {
   claudeExcludePattern,
   claudeItemsBesideLibrary,
   claudeMcpName,
+  claudeFeatureEnv,
   claudeNativeEnv,
   claudeNativeSettings,
   claudeReadRule,
@@ -56,7 +57,7 @@ import {
   claudeHooksConfig,
 } from '../src/server/agents/claude';
 import type { TurnHooks } from '../src/server/hooks';
-import { AgentRunError, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
 import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 
@@ -121,13 +122,38 @@ describe('claude arguments', () => {
     expect(args).not.toContain('--session-id');
   });
 
-  it('removes the file-editing tools in read-only mode, so settings cannot allow them', () => {
+  it('removes the file-editing tools in read-only mode, so settings cannot allow them, and its question form at every level', () => {
     const readOnly = claudeArgs({ ...base, permission: 'read-only' });
     const i = readOnly.indexOf('--disallowedTools');
-    expect(readOnly.slice(i + 1, i + 5)).toEqual(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
-    expect(readOnly[i + 5]).toMatch(/^--/); // the variadic list ends before the next flag
+    expect(readOnly.slice(i + 1, i + 6)).toEqual(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'AskUserQuestion']);
+    expect(readOnly[i + 6]).toMatch(/^--/); // the variadic list ends before the next flag
     expect(after(readOnly, '--permission-mode')).toBe('manual');
-    expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--disallowedTools');
+    // `AskUserQuestion` would reach the user as an approval that sends no answer back: the agent asks in its reply.
+    for (const permission of ['edit', 'full'] as const) {
+      const args = claudeArgs({ ...base, permission });
+      expect(args.slice(args.indexOf('--disallowedTools') + 1, args.indexOf('--disallowedTools') + 3)).toEqual([
+        'AskUserQuestion',
+        expect.stringMatching(/^--/),
+      ]);
+    }
+  });
+
+  it('leaves out all its subagents with a rule for the Agent tool, keeps workflows off unless turned on, and waits for background work as long as a turn', () => {
+    expect(claudeNativeSettings(['subagents'])).toEqual({ permissions: { deny: ['Agent'] } });
+    // With all of them out, the rules for single ones are not needed.
+    expect(claudeNativeSettings(['subagents', 'agents'], [], { agents: ['reviewer'] })).toEqual({ permissions: { deny: ['Agent'] } });
+    expect(claudeNativeSettings([], [], { agents: ['reviewer'] })).toEqual({ permissions: { deny: ['Agent(reviewer)'] } });
+    // Ultracode only with workflows, as its own setting (`--effort ultracode` would force xhigh).
+    expect(claudeNativeSettings([], [], {}, ['workflows', 'ultracode'])).toEqual({ ultracode: true });
+    expect(claudeNativeSettings([], [], {}, ['ultracode'])).toBeUndefined();
+    expect(claudeNativeSettings([], [], {}, ['workflows'])).toBeUndefined();
+    const args = claudeArgs({ ...base, permission: 'edit', nativeOn: ['workflows', 'ultracode'] });
+    expect(JSON.parse(after(args, '--settings')!)).toMatchObject({ ultracode: true });
+    expect(claudeFeatureEnv()).toEqual({
+      CLAUDE_CODE_DISABLE_WORKFLOWS: '1',
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(TURN_TIMEOUT_MS),
+    });
+    expect(claudeFeatureEnv(['workflows'], 5000)).toEqual({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '5000' });
   });
 
   it('leaves out flags the installed version rejected', () => {

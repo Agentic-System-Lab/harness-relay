@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 577 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 578 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -71,7 +71,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [Plan usage](#plan-usage) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [User guide → Plan usage](../docs/user-guide.md#plan-usage), [Architecture → Providers](../docs/architecture.md#providers-status-login-and-models) |
-| [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
+| [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 6 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Subagents and workflows](../docs/user-guide.md#subagents-and-workflows), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 5 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
 | [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
@@ -239,7 +239,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Thinking, a tool call and a to-do list are shown with the reply | each | The steps fold into rows; opened, they show the thinking, the CLI's own tool for a listing of the working directory done with its output (Claude's `Bash`, Codex's `Shell`, Grok's `list_dir`, Cursor's, Antigravity's and Copilot's `Read`, Muse Code's `Search`, OpenCode's `glob`, Goose's `tree`, Cline's `read_files`, OpenHands' `file_editor`, Pi's `List`, or `Bash` with full access), and the to-do list with one of three done and one in progress (Cline and Pi have none to show). |
+| Thinking, a tool call and a to-do list are shown with the reply | each | The steps fold into rows; opened, they show the thinking, the CLI's own tool for a listing of the working directory done with its output (Claude's `Bash`, Codex's `Shell`, Grok's `list_dir`, Cursor's, Antigravity's and Copilot's `Read`, Muse Code's `Search`, OpenCode's `glob`, Goose's `tree`, Cline's `read_files`, OpenHands' `file_editor`, Pi's `List`, or `Bash` with full access), and the to-do list with one of three done and one in progress (Cursor's from its `cursor/update_todos` request, Pi's from the plan tool Harness Relay's gate gives it; Cline has none to show). |
 | A step in progress shows the app's loader in its row, the Logo turning, and the step's icon once it is done | Codex | Codex reports its command before it asks about it, so its step (`Shell`) runs while the approval card waits: its row shows the Logo's three dots (`.logo-spinner`), 14px, with one animation only, the team design card's turn (`logo-turn`, 1.9 s, again and again) on the orbit from the first moment, none on the dots (no spiral in, which would flicker as steps start and end). Allowed, the step is done while the reply still streams (`e2e:slow=4`): the loader is gone, ⚙ is in its place (the loader is for a step at work, not for the reply) and the row's text has not moved; the reply done, ⚙ still. |
 | A reply in Markdown is rendered | Claude Code | A heading, a list, a table and highlighted code. |
 
@@ -596,7 +596,7 @@ The Tool library links to the agent picker. Following the link, choosing Codex, 
 
 ## What each CLI loads by itself, and Grok's trust
 
-[`native.spec.ts`](specs/native.spec.ts): an account's box **Skills, MCP servers, hooks, memory and more this CLI loads by itself → Ask**, and Grok's trust in a project.
+[`native.spec.ts`](specs/native.spec.ts): an account's box **Skills, MCP servers, hooks, memory and more this CLI loads by itself → Ask**, its box **Subagents and workflows**, and Grok's trust in a project.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
@@ -604,6 +604,7 @@ The Tool library links to the agent picker. Following the link, choosing Codex, 
 | The Grok card shows the folder's trust; trusting it loads the project's skills, and leaving them out reaches the next run | Grok | Untrusted, the card says so and lists no skill; **Trust this folder** writes `$GROK_HOME/trusted_folders.toml`, and the project's skill appears; **Leave all out** reaches the next turn (`GROK_CLAUDE_SKILLS_ENABLED=false`), which runs trusted and loads none. |
 | A team with a Grok member says when Grok does not trust the folder, and trusting it there records the trust | Grok | From the team card, the trust is recorded and Grok's turn runs trusted. |
 | The team starts without trusting the folder when the user declines | Grok | Nothing is recorded, **Confirm team** still starts, and Grok's turn runs untrusted. |
+| Its subagents on and workflows off by default; switched, kept after a reload and in its next run; another CLI's box says what it has | Claude Code (Codex's and Cursor's boxes) | A turn runs with its subagents and no workflows; **Subagents and workflows**: subagents off, workflows and **Ultracode** on (Ultracode disabled until workflows are on, and off again with them), kept after a reload, and the next turn runs with a deny rule for `Agent`, without `CLAUDE_CODE_DISABLE_WORKFLOWS` and with `"ultracode": true`. Codex's box has the subagent switch with its note that below full access they are always off, and no workflow switch; Cursor's has no switch and says why. |
 
 ## Agent sessions and AgentsView
 
@@ -767,7 +768,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 | Scenario | OpenCode | Goose | Cline | OpenHands | Pi |
 | --- | --- | --- | --- | --- | --- |
 | Runs below full access (elsewhere with full access only, and says so when asked for less) | macOS | macOS, Linux | macOS, Linux | macOS (with its terminal switch, also tried off), Linux | macOS, Linux |
-| Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ (no to-do list) | ✓ | ✓ (no to-do list) |
+| Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ (no to-do list) | ✓ | ✓ (the gate's plan tool) |
 | A command allowed, and declined with a note | ✓ | ✓ (`env echo`) | ✓ (the note dropped) | ✓ (the note dropped) | ✓ (in edit mode, `npm publish`, through its gate) |
 | Full access: runs and writes anywhere without asking | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A read-only chat writes nothing | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (asks, declined) | ✓ (no write tool) |

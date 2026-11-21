@@ -396,26 +396,34 @@ describe('JSON-RPC connection', () => {
   });
 });
 
+/** Grok's question form, off in every run. */
+const ASK = { GROK_ASK_USER_QUESTION: '0' };
+
 describe('leaving out what Grok loads by itself', () => {
   it('turns off what it loads from Claude Code and Cursor, and its memory, with variables', () => {
     expect(grokNativeEnv(['skills', 'mcp', 'memory'])).toEqual({
+      ...ASK,
       GROK_CLAUDE_SKILLS_ENABLED: 'false',
       GROK_CURSOR_SKILLS_ENABLED: 'false',
       GROK_CLAUDE_MCPS_ENABLED: 'false',
       GROK_CURSOR_MCPS_ENABLED: 'false',
       GROK_MEMORY: '0',
     });
-    expect(grokNativeEnv(['instructions'])).toEqual({});
-    expect(grokNativeEnv()).toEqual({});
+    expect(grokNativeEnv(['instructions'])).toEqual(ASK);
+    // Its question form is always off (the agent asks in its reply).
+    expect(grokNativeEnv()).toEqual(ASK);
+    // All its subagents, the built-in ones too.
+    expect(grokNativeEnv(['subagents'])).toEqual({ ...ASK, GROK_SUBAGENTS: '0' });
     // The hooks it takes from Claude Code's and Cursor's settings files (not plugins', not its own).
-    expect(grokNativeEnv(['hooks'])).toEqual({ GROK_CLAUDE_HOOKS_ENABLED: 'false', GROK_CURSOR_HOOKS_ENABLED: 'false' });
+    expect(grokNativeEnv(['hooks'])).toEqual({ ...ASK, GROK_CLAUDE_HOOKS_ENABLED: 'false', GROK_CURSOR_HOOKS_ENABLED: 'false' });
     // Its own subagents and plugins have no switch for one run.
-    expect(grokNativeEnv(['agents', 'plugins'])).toEqual({});
+    expect(grokNativeEnv(['agents', 'plugins'])).toEqual(ASK);
   });
 
   it("keeps the user's variables and the sandbox next to them", () => {
     expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' }, 'linux')).toEqual({
       PATH: '/bin',
+      ...ASK,
       GROK_MEMORY: '0',
       GROK_CLAUDE_MCPS_ENABLED: 'false',
       GROK_CURSOR_MCPS_ENABLED: 'false',
@@ -423,10 +431,14 @@ describe('leaving out what Grok loads by itself', () => {
     });
     // Read-only runs in the same profile: Grok's `read-only` one refuses to start on some machines,
     // and a session resumes only under the profile it started with.
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' }, 'darwin')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'harness-relay' });
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' }, 'linux')).toEqual({ PATH: '/bin' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' }, 'darwin')).toEqual({
+      PATH: '/bin',
+      ...ASK,
+      GROK_SANDBOX: 'harness-relay',
+    });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' }, 'linux')).toEqual({ PATH: '/bin', ...ASK });
     // Windows: no sandbox to give a deny list to; the built-in profile as before.
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'edit' }, 'win32')).toEqual({ PATH: '/bin', GROK_SANDBOX: 'workspace' });
+    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'edit' }, 'win32')).toEqual({ PATH: '/bin', ...ASK, GROK_SANDBOX: 'workspace' });
   });
 });
 

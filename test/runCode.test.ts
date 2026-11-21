@@ -117,7 +117,7 @@ posix('run_code: the runner on its own stdio', () => {
         code: `console.log('looking', 2 + 2);
 const hits = await relay.mail_search({ q: 'invoice' });
 const read = await Promise.all([1, 2].map((id) => relay.call('mail_read', { id })));
-return { hits, read, tools: relay.tools.map((t) => t.name), env: Object.keys(process.env).sort() };`,
+return { hits, read, tools: relay.tools.map((t) => t.name), env: Object.keys(process.env).filter((k) => k !== '__CF_USER_TEXT_ENCODING').sort() };`,
       },
       ctx(),
       scope,
@@ -131,7 +131,8 @@ return { hits, read, tools: relay.tools.map((t) => t.name), env: Object.keys(pro
       hits: 'mail_search {"q":"invoice"}',
       read: ['mail_read {"id":1}', 'mail_read {"id":2}'],
       tools: ['mail_search', 'mail_read'],
-      // The server's locale and time zone only: no API key, no home, no PATH.
+      // The server's locale and time zone only: no API key, no home, no PATH. (On macOS the sandbox's own
+      // programs add `__CF_USER_TEXT_ENCODING`, the user's text encoding, to what they start: not the server's.)
       env: ['LANG', 'LC_ALL', 'TZ'],
     });
     // One at a time, in the order the code made them.

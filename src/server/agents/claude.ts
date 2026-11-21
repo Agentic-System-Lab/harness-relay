@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { open } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import {
+  endpointEffort,
+  PROVIDER_LABEL,
+  type NativeItemsOff,
+  type NativeOnPart,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+} from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
 import { converse, runProcess, tail } from '../process';
 import {
@@ -416,8 +424,9 @@ export function claudeRunSettings(
   denyRead: readonly string[] = [],
   env?: Record<string, string>,
   guard?: WriteGuard,
+  on: readonly NativeOnPart[] = [],
 ): Record<string, unknown> | undefined {
-  const native = claudeNativeSettings(off, pluginIds, items);
+  const native = claudeNativeSettings(off, pluginIds, items, on);
   const sandbox = claudeSandboxSettings(permission, platform, denyRead);
   const guarded = claudeGuardRules(guard, platform);
   const withGuard = (settings: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
@@ -528,9 +537,13 @@ export function claudeAllowedTools(permission: Permission): string[] {
 /**
  * Tools removed outright. Read-only drops the file-editing tools: `permissions.allow` rules in the
  * user's or a trusted project's Claude Code settings would otherwise let them run without asking.
+ * Every level drops `AskUserQuestion`, Claude Code's own question form: in `-p` it is on whenever a
+ * permission prompt tool is set (below full access when the conversation asks), and it would reach the
+ * user as an approval that sends back no answer. The briefing has the agent ask in its reply
+ * (`[ASK_USER]`) instead.
  */
 export function claudeDisallowedTools(permission: Permission): string[] {
-  return permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : [];
+  return [...(permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : []), 'AskUserQuestion'];
 }
 
 /**
@@ -566,6 +579,24 @@ export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string,
   return {
     ...(off.includes('instructions') ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1' } : {}),
     ...(off.includes('memory') ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
+  };
+}
+
+/**
+ * Variables for what Claude Code does by itself in a run:
+ * - `CLAUDE_CODE_DISABLE_WORKFLOWS`: its dynamic workflows (the `Workflow` tool, scripts of subagents)
+ *   stay off unless the account turns them on (`NATIVE_ON_SUPPORT`): below full access the call reaches
+ *   the user as an approval that does not say what it will run, with full access it runs unasked, and
+ *   its progress comes only as `task_*` messages. Claude Code 2.1.330 reads it at start ("Set in the
+ *   environment before Claude Code starts, CLAUDE_CODE_DISABLE_WORKFLOWS disables Workflows").
+ * - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: how long `-p` waits for its background subagents and
+ *   workflows once the turn has answered, 10 minutes by default; the turn's own time limit instead, since
+ *   Harness Relay reads until Claude Code exits and a turn may run that long.
+ */
+export function claudeFeatureEnv(on: readonly NativeOnPart[] = [], waitMs: number = TURN_TIMEOUT_MS): Record<string, string> {
+  return {
+    ...(on.includes('workflows') ? {} : { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }),
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(waitMs),
   };
 }
 
@@ -622,16 +653,21 @@ export function claudeNativeSettings(
   off: readonly NativePart[] = [],
   pluginIds: readonly string[] = [],
   items: NativeItemsOff = {},
+  /** What the run turns on: `ultracode` (with workflows) sets `"ultracode": true`, which keeps the member's effort. */
+  on: readonly NativeOnPart[] = [],
 ): Record<string, unknown> | undefined {
   const plugins = off.includes('plugins') ? pluginIds : (items.plugins ?? []);
   const skills = off.includes('skills') ? [] : (items.skills ?? []);
   const files = off.includes('instructions') ? [] : (items.instructions ?? []);
+  // All its subagents: a rule for the whole `Agent` tool, which the built-in ones are called through too.
+  const allAgents = off.includes('subagents');
   const deny = [
     ...(off.includes('tools') ? [] : (items.tools ?? [])),
     ...(off.includes('mcp') ? [] : [...(items.mcp ?? []), ...(items.mcpTools ?? [])]),
-    ...(items.agents ?? []).map((name) => `Agent(${name})`),
+    ...(allAgents ? ['Agent'] : (items.agents ?? []).map((name) => `Agent(${name})`)),
   ];
   const settings = {
+    ...(on.includes('workflows') && on.includes('ultracode') ? { ultracode: true } : {}),
     ...(off.includes('hooks') ? { disableAllHooks: true } : {}),
     ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((id) => [id, false])) } : {}),
     ...(skills.length ? { skillOverrides: Object.fromEntries(skills.map((name) => [name, 'off'])) } : {}),
@@ -903,6 +939,8 @@ export function claudeArgs(o: {
   nativeOff?: readonly NativePart[];
   /** Single items of it to leave out. */
   nativeItems?: NativeItemsOff;
+  /** What the run turns on (its `ultracode` setting; workflows go through `claudeFeatureEnv`). */
+  nativeOn?: readonly NativeOnPart[];
   /** The installed plugins, turned off when plugins are left out. */
   pluginIds?: readonly string[];
   /** A file holding the turn's `--settings` (else they go on the command line). */
@@ -947,7 +985,17 @@ export function claudeArgs(o: {
       o.pluginIds,
       o.nativeItems,
       o.settingsFile,
-      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths, o.endpointEnv, o.guard),
+      claudeRunSettings(
+        o.permission,
+        o.nativeOff,
+        o.pluginIds,
+        o.nativeItems,
+        o.platform,
+        o.protectedPaths,
+        o.endpointEnv,
+        o.guard,
+        o.nativeOn,
+      ),
     ),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
@@ -1328,7 +1376,17 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   }
   // The endpoint's key goes in this private file, never on the command line.
   const settings = claudeSettingsFile(
-    claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv, o.guard),
+    claudeRunSettings(
+      o.permission,
+      o.nativeOff,
+      pluginIds,
+      nativeItems,
+      process.platform,
+      protectedPaths,
+      endpointEnv,
+      o.guard,
+      o.nativeOn,
+    ),
   );
   try {
     const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
@@ -1372,6 +1430,7 @@ async function runClaudeTurn(
     mcpConfig: run.mcpConfig,
     nativeOff: o.nativeOff,
     nativeItems: run.nativeItems,
+    nativeOn: o.nativeOn,
     pluginIds: run.pluginIds,
     settingsFile: run.settingsFile,
     protectedPaths: run.protectedPaths,
@@ -1444,23 +1503,25 @@ async function runClaudeTurn(
   else o.signal.addEventListener('abort', relayStop, { once: true });
   let failure: AgentRunError | undefined;
   // When its own subagents are left out, the prompt waits until they are denied.
-  const gate = o.nativeOff?.includes('agents')
-    ? claudeAgentsGate({
-        initId,
-        builtins: (version) => claudeBuiltinAgents(o.bin, o.env, version),
-        send,
-        start: sendPrompt,
-        fail: (detail) => {
-          failure ??= new AgentRunError(t().claudeAgentsFailed(detail));
-          stop.abort();
-        },
-      })
-    : undefined;
+  // With all its subagents left out, the `Agent` deny rule takes them all: nothing to wait for.
+  const gate =
+    o.nativeOff?.includes('agents') && !o.nativeOff.includes('subagents')
+      ? claudeAgentsGate({
+          initId,
+          builtins: (version) => claudeBuiltinAgents(o.bin, o.env, version),
+          send,
+          start: sendPrompt,
+          fail: (detail) => {
+            failure ??= new AgentRunError(t().claudeAgentsFailed(detail));
+            stop.abort();
+          },
+        })
+      : undefined;
   const res = await runProcess({
     bin: o.bin,
     args,
     cwd: o.cwd,
-    env: { ...o.env, ...claudeNativeEnv(o.nativeOff) },
+    env: { ...o.env, ...claudeNativeEnv(o.nativeOff), ...claudeFeatureEnv(o.nativeOn) },
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;

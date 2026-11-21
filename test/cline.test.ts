@@ -261,6 +261,12 @@ describe('its home and the config written for each run', () => {
       disabledTools: ['skills', 'fetch_web_content'],
       disabledPlugins: ['/p/a.js'],
     });
+    // Its subagents: the spawn_agent tool, once.
+    expect(clineGlobalSettings({ nativeOff: ['subagents'], nativeItems: { tools: ['spawn_agent'] } })).toEqual({
+      telemetryOptOut: true,
+      autoUpdateEnabled: false,
+      disabledTools: ['spawn_agent'],
+    });
   });
 
   it('writes the tool library in its MCP settings file, stdio and HTTP', () => {

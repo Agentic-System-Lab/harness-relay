@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 44 個 spec 檔、577 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 44 個 spec 檔、578 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -71,7 +71,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [方案用量](#方案用量) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [使用者說明 → 方案用量](../docs/user-guide.zh-TW.md#方案用量)、[架構 → Provider](../docs/architecture.zh-TW.md#provider狀態登入與模型) |
-| [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
+| [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 6 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[Subagent 與 workflow](../docs/user-guide.zh-TW.md#subagent-與-workflow)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 5 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
@@ -241,7 +241,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor、Antigravity 與 Copilot 的 `Read`、Muse Code 的 `Search`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cline 與 Pi 沒有待辦清單可顯示）。 |
+| 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor、Antigravity 與 Copilot 的 `Read`、Muse Code 的 `Search`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cursor 的來自它的 `cursor/update_todos` 請求，Pi 的來自 Harness Relay 的 gate 給它的計畫工具；Cline 沒有待辦清單可顯示）。 |
 | 進行中的步驟在它的列中顯示 app 的載入標示（旋轉的標誌），完成後換回步驟的圖示 | Codex | Codex 在詢問之前就先回報它的指令，所以批准卡片等待時，它的步驟（`Shell`）正在執行：列中顯示標誌的三個圓點（`.logo-spinner`），14px，只有一個動畫：團隊設計卡片的旋轉（`logo-turn`，1.9 秒，一次又一次），從一開始就在軌道上轉，圓點本身沒有動畫（沒有旋入，否則步驟開始、結束時會閃動）。允許後，步驟在回覆仍在串流時完成（`e2e:slow=4`）：載入標示消失，原處換成 ⚙（載入標示代表步驟正在做事，不代表回覆），列中的文字沒有移動；回覆完成後仍是 ⚙。 |
 | Markdown 回答會轉成格式 | Claude Code | 標題、清單、表格與上色的程式碼。 |
 
@@ -598,7 +598,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 各 CLI 自己載入的內容，以及 Grok 的信任
 
-[`native.spec.ts`](specs/native.spec.ts)：帳號框中的**這個 CLI 自己載入的 skill、MCP、hook 與記憶等 → 查詢**，以及 Grok 對專案的信任。
+[`native.spec.ts`](specs/native.spec.ts)：帳號框中的**這個 CLI 自己載入的 skill、MCP、hook 與記憶等 → 查詢**、它的 **Subagent 與 workflow** 框，以及 Grok 對專案的信任。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -606,6 +606,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | Grok 卡片顯示資料夾的信任狀態；信任後載入專案的 skill，設為不載入則影響下一次執行 | Grok | 未信任時卡片會標示，也沒有列出 skill；**信任這個資料夾**會寫入 `$GROK_HOME/trusted_folders.toml`，專案的 skill 隨之出現；**全部不載入**會影響下一回合（`GROK_CLAUDE_SKILLS_ENABLED=false`），它在信任下執行且不載入任何 skill。 |
 | 團隊有 Grok 成員時會說明 Grok 不信任這個資料夾，在那裡信任它就會記錄下來 | Grok | 從團隊卡片信任後記錄下來，Grok 的回合在信任下執行。 |
 | 使用者拒絕時，團隊不信任資料夾就開始 | Grok | 什麼都沒記錄，**確認團隊**仍會開始，Grok 的回合在未信任下執行。 |
+| 預設 subagent 開啟、workflow 關閉；切換後重新載入仍保留，也用在下一次執行；其他 CLI 的框說明它有什麼 | Claude Code（以及 Codex 與 Cursor 的框） | 一回合在有 subagent、沒有 workflow 下執行；**Subagent 與 workflow**：關掉 subagent、打開 workflow 與 **Ultracode**（workflow 打開前 Ultracode 不能勾，關掉 workflow 時一起關掉），重新載入後仍保留，下一回合帶著拒絕 `Agent` 的規則、沒有 `CLAUDE_CODE_DISABLE_WORKFLOWS`、並有 `"ultracode": true`。Codex 的框有 subagent 開關，並說明完全存取以外一律關閉，沒有 workflow 開關；Cursor 的沒有開關，並說明原因。 |
 
 ## Agent 的 session 與 AgentsView
 
@@ -769,7 +770,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | OpenCode | Goose | Cline | OpenHands | Pi |
 | --- | --- | --- | --- | --- | --- |
 | 在完全存取以外執行（其他地方只能以完全存取執行，要求較低權限時會說明） | macOS | macOS、Linux | macOS、Linux | macOS（要打開終端機開關，關掉時也有測）、Linux | macOS、Linux |
-| 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓（沒有待辦清單） | ✓ | ✓（沒有待辦清單） |
+| 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓（沒有待辦清單） | ✓ | ✓（gate 的計畫工具） |
 | 允許指令，以及附註後拒絕 | ✓ | ✓（`env echo`） | ✓（丟掉附註） | ✓（丟掉附註） | ✓（編輯模式下的 `npm publish`，透過它的 gate） |
 | 完全存取：不詢問就執行並寫到任何地方 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 唯讀對話不寫入任何檔案 | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（沒有寫檔的工具） |

@@ -392,7 +392,7 @@ describe('settings', () => {
     const provider = (body: unknown) => app.request('/api/settings/providers/claude', json('PUT', body));
     expect((await provider({ bin: 123 })).status).toBe(400);
     // Defaults and what runs leave out are each account's: named here, the whole request is refused.
-    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }]) {
+    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }, { nativeOn: [] }]) {
       expect((await provider({ bin: '/opt/claude-x', ...field })).status, JSON.stringify(field)).toBe(400);
     }
     const unchanged = (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
@@ -430,6 +430,29 @@ describe('settings', () => {
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
 
+    // What runs turn on (its workflows, and ultracode with them): known parts only, what the CLI has.
+    expect((await account({ nativeOn: 'workflows' })).status).toBe(400);
+    expect((await account({ nativeOn: ['workflows', 'autopilot'] })).status).toBe(400);
+    const ultra = ((await (await account({ nativeOn: ['ultracode'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'claude',
+    )!;
+    expect(ultra.accounts[0]!.nativeOn).toEqual([]); // ultracode needs workflows
+    const flows = ((await (await account({ nativeOn: ['ultracode', 'workflows'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'claude',
+    )!;
+    expect(flows.accounts[0]!.nativeOn).toEqual(['workflows', 'ultracode']);
+    // Its subagents off, as a part of its own: kept beside the rest.
+    const noAgents = (
+      (await (await account({ nativeOff: ['hooks', 'agents', 'plugins', 'subagents'] })).json()) as SettingsView
+    ).providers.find((p) => p.provider === 'claude')!;
+    expect(noAgents.accounts[0]!.nativeOff).toEqual(['hooks', 'agents', 'plugins', 'subagents']);
+    // A CLI with no workflow switch keeps none.
+    const codex = (body: unknown) => app.request('/api/settings/providers/codex/accounts/default', json('PUT', body));
+    const codexView = ((await (await codex({ nativeOn: ['workflows'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'codex',
+    )!;
+    expect(codexView.accounts[0]!.nativeOn).toEqual([]);
+
     // OpenHands' terminal in the sandbox: a boolean, off by default, no secret in it.
     const openhands = (body: unknown) => app.request('/api/settings/providers/openhands', json('PUT', body));
     expect((await openhands({ sandboxTerminal: 'yes' })).status).toBe(400);
@@ -443,7 +466,7 @@ describe('settings', () => {
     const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
     expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
     // Back as they were, for the tests after this one.
-    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} })).status).toBe(200);
+    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] })).status).toBe(200);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {

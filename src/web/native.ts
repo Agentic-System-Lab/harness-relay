@@ -1,9 +1,12 @@
 import {
   NATIVE_ITEM_SUPPORT,
   NATIVE_OFF_SUPPORT,
+  NATIVE_ON_SUPPORT,
+  SUBAGENTS_FULL_ACCESS_ONLY,
   nativeItemCount,
   type NativeItemKind,
   type NativeItemsOff,
+  type NativeOnPart,
   type NativePart,
   type NativeSetup,
   type Provider,
@@ -121,7 +124,8 @@ export const tabPicked = (items: NativeItemsOff, tab: NativeTab) => TAB_KINDS[ta
 export const isPicked = (items: NativeItemsOff, kind: NativeItemKind, id: string | undefined) => Boolean(id && items[kind]?.includes(id));
 
 /** What is left out in all: parts left out whole, and single items. */
-export const nativeOffTotal = (off: readonly NativePart[], items: NativeItemsOff) => off.length + nativeItemCount(items);
+export const nativeOffTotal = (off: readonly NativePart[], items: NativeItemsOff) =>
+  off.filter((p) => p !== 'subagents').length + nativeItemCount(items);
 
 /**
  * How many of the items the CLI loads by itself Harness Relay's runs leave out: an MCP server left
@@ -192,4 +196,43 @@ export function unlistedPicks(setup: NativeSetup, items: NativeItemsOff, tab: Na
 /** `items` without these. */
 export function withoutPicks(items: NativeItemsOff, picks: { kind: NativeItemKind; id: string }[]): NativeItemsOff {
   return picks.reduce((next, p) => withItem(next, p.kind, p.id, false), items);
+}
+
+// --- Subagents and workflows (CliFeatures) -------------------------------------------------------
+
+/** Whether the CLI does subagents at all: Pi has none, so it gets no such box. */
+export const hasSubagents = (provider: Provider): boolean => provider !== 'pi';
+
+/** Whether an account of the CLI can turn its subagents off for Harness Relay's runs (`subagents` in `NATIVE_OFF_SUPPORT`). */
+export const hasSubagentSwitch = (provider: Provider): boolean => NATIVE_OFF_SUPPORT[provider].includes('subagents');
+
+/** Whether an account of the CLI can turn its workflows on for Harness Relay's runs (`NATIVE_ON_SUPPORT`). */
+export const hasWorkflowSwitch = (provider: Provider): boolean => NATIVE_ON_SUPPORT[provider].includes('workflows');
+
+/** Harness Relay turns the CLI's subagents off below full access whatever the switch says (`SUBAGENTS_FULL_ACCESS_ONLY`). */
+export const subagentsFullAccessOnly = (provider: Provider): boolean => SUBAGENTS_FULL_ACCESS_ONLY.includes(provider);
+
+/** What is left out with the CLI's subagents on or off. */
+export function withSubagents(off: readonly NativePart[], on: boolean): NativePart[] {
+  const rest = off.filter((p) => p !== 'subagents');
+  return on ? rest : [...rest, 'subagents'];
+}
+
+/** What is turned on with one part switched: workflows off takes ultracode with them, ultracode on needs workflows. */
+export function withNativeOn(list: readonly NativeOnPart[], part: NativeOnPart, on: boolean): NativeOnPart[] {
+  const rest = list.filter((p) => p !== part && !(part === 'workflows' && !on && p === 'ultracode'));
+  if (!on) return rest;
+  return part === 'ultracode' && !rest.includes('workflows') ? [...rest, 'workflows', part] : [...rest, part];
+}
+
+/** The box's summary: whether subagents are on (undefined for a CLI without a switch) and workflows (undefined without one). */
+export function cliFeaturesState(
+  provider: Provider,
+  off: readonly NativePart[],
+  on: readonly NativeOnPart[],
+): { subagents?: boolean; workflows?: boolean; ultracode?: boolean } {
+  return {
+    ...(hasSubagentSwitch(provider) ? { subagents: !off.includes('subagents') } : {}),
+    ...(hasWorkflowSwitch(provider) ? { workflows: on.includes('workflows'), ultracode: on.includes('ultracode') } : {}),
+  };
 }

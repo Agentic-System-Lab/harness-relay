@@ -6,6 +6,7 @@ import { isPathDetail } from '../src/web/chat';
 import {
   codexApprovalRequest,
   codexApprovalResponse,
+  CODEX_FIXED_CONFIG,
   codexConfig,
   codexEndpointEffort,
   codexElicitationResponse,
@@ -278,19 +279,21 @@ describe('codex approvals', () => {
 describe('codex thread config', () => {
   it('keeps the edit-mode sandbox off the network whatever the user config says', () => {
     expect(codexConfig('edit', 'high')).toEqual({
+      ...CODEX_FIXED_CONFIG,
       model_reasoning_effort: 'high',
       sandbox_workspace_write: { network_access: false },
     });
-    expect(codexConfig('read-only')).toEqual({});
-    expect(codexConfig('full')).toEqual({});
+    expect(codexConfig('read-only')).toEqual({ ...CODEX_FIXED_CONFIG });
+    expect(codexConfig('full')).toEqual({ ...CODEX_FIXED_CONFIG });
   });
 
   it("lets edit mode write the conversation's other working directories too", () => {
     // The legacy sandbox (Windows, nothing to protect): writable roots.
     expect(codexConfig('edit', undefined, [], { off: [] }, ['/docs', '/infra'])).toEqual({
+      ...CODEX_FIXED_CONFIG,
       sandbox_workspace_write: { network_access: false, writable_roots: ['/docs', '/infra'] },
     });
-    expect(codexConfig('read-only', undefined, [], { off: [] }, ['/docs'])).toEqual({});
+    expect(codexConfig('read-only', undefined, [], { off: [] }, ['/docs'])).toEqual({ ...CODEX_FIXED_CONFIG });
     // A permission profile: a write entry each, and a protected path is denied all the same.
     expect(codexProfile('edit', ['/x', '/docs/secret.db'], 'darwin', ['/docs'])).toEqual({
       extends: ':workspace',
@@ -327,6 +330,7 @@ describe('codex thread config', () => {
         },
       ]),
     ).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: {
         gh: { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
         docs: { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
@@ -345,6 +349,7 @@ describe('codex thread config', () => {
   it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {
     const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
     expect(codexConfig('full', undefined, [gh])).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: { gh: { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } },
     });
     // Below full access Codex asks, and the user answers in the chat.
@@ -361,6 +366,7 @@ describe('codex thread config', () => {
         user: { names: ['headroom', 'gh', 'a.b'], disabledTools: {} },
       }),
     ).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'skills.include_instructions': false,
       'features.apps': false,
       project_doc_max_bytes: 0,
@@ -370,6 +376,7 @@ describe('codex thread config', () => {
     });
     // The user's servers stay on unless MCP servers are left out.
     expect(codexConfig('read-only', undefined, [], { off: ['skills'], user: { names: ['headroom'], disabledTools: {} } })).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'skills.include_instructions': false,
     });
     expect(codexNativeConfig([])).toEqual({});
@@ -421,6 +428,7 @@ describe('codex thread config', () => {
     expect(codexMcpOff([], items, user)).toEqual({ turnOff: ['headroom'], toolsOff: { node: ['old', 'js_reset'], 'a.b': ['x/y'] } });
     expect(codexMcpOff(['mcp'], items, user)).toEqual({ turnOff: ['headroom', 'node', 'a.b'], toolsOff: {} });
     expect(codexConfig('read-only', undefined, [], { off: [], items, user })).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: { node: { disabled_tools: ['old', 'js_reset'] }, 'a.b': { disabled_tools: ['x/y'] }, headroom: { enabled: false } },
     });
     expect(codexUserMcpConfig(undefined)).toEqual({ names: [], disabledTools: {} });
@@ -507,11 +515,14 @@ describe('codex thread config', () => {
       params: {
         cwd: '/repo',
         approvalPolicy: 'on-request',
+        // The user answers what is asked, whatever the account's `approvals_reviewer` says.
+        approvalsReviewer: 'user',
         sandbox: 'workspace-write',
         developerInstructions: 'You are @Alice',
         model: 'gpt-5.5',
         config: {
           sandbox_workspace_write: { network_access: false },
+          ...CODEX_FIXED_CONFIG,
           'features.apps': false,
           mcp_servers: { headroom: { enabled: false } },
         },
@@ -528,6 +539,7 @@ describe('codex thread config', () => {
     expect(guarded.params).toMatchObject({ permissions: 'harness-relay-1a2b' });
     expect(guarded.params).not.toHaveProperty('sandbox');
     expect(guarded.params.config).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'features.apps': false,
       mcp_servers: { headroom: { enabled: false } },
       permissions: {
@@ -584,8 +596,18 @@ describe('codex thread config', () => {
     // Single items go in the thread's config as well.
     expect(codexThreadRequest({ ...run, nativeOff: [], nativeItems: { plugins: ['pdf@openai'] } }).params.config).toEqual({
       sandbox_workspace_write: { network_access: false },
+      ...CODEX_FIXED_CONFIG,
       plugins: { 'pdf@openai': { enabled: false } },
     });
+    // All its subagents, the built-in ones too: below full access (the orchestrator's `runNativeOff`), or by the account's switch.
+    expect(codexThreadRequest({ ...run, nativeOff: ['subagents'] }).params.config).toMatchObject({
+      'agents.enabled': false,
+      'features.multi_agent': false,
+      'features.multi_agent_v2': false,
+    });
+    expect(codexThreadRequest({ ...run, nativeOff: [] }).params.config).not.toHaveProperty('agents.enabled');
+    // Goals off and its question form off in every thread, whatever the account's config says.
+    expect(CODEX_FIXED_CONFIG).toEqual({ 'features.goals': false, 'tools.experimental_request_user_input.enabled': false });
   });
 
   it('checks after the thread starts that Codex took the hooks and plugins switches', async () => {

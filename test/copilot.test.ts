@@ -745,8 +745,10 @@ describe("Copilot's home and settings for one run", () => {
   });
 
   it('starts it over ACP: in its sandbox below full access, allowing all with full access, with what the run leaves out', () => {
+    // Its question form is never offered: the agent asks in its reply.
     const secrets = `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`;
-    expect(copilotArgs({ permission: 'edit' })).toEqual(['--acp', '--sandbox', secrets]);
+    const noAsk = '--no-ask-user';
+    expect(copilotArgs({ permission: 'edit' })).toEqual(['--acp', '--sandbox', secrets, noAsk]);
     expect(copilotArgs({ permission: 'full', addDirs: ['/a', '/b'], model: 'gpt-6-luna', effort: 'high' })).toEqual([
       '--acp',
       '--allow-all',
@@ -755,6 +757,7 @@ describe("Copilot's home and settings for one run", () => {
       '--add-dir',
       '/b',
       secrets,
+      noAsk,
       '--model',
       'gpt-6-luna',
       '--reasoning-effort',
@@ -764,6 +767,7 @@ describe("Copilot's home and settings for one run", () => {
       '--acp',
       '--sandbox',
       secrets,
+      noAsk,
       '--excluded-tools',
       'skill',
       '--disable-builtin-mcps',
@@ -772,6 +776,7 @@ describe("Copilot's home and settings for one run", () => {
       '--acp',
       '--sandbox',
       secrets,
+      noAsk,
       '--disable-mcp-server',
       'github',
       '--disable-mcp-server',
@@ -1485,7 +1490,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const result = await withLang('en', () => copilotRunner.run(r.o));
     expect(result).toEqual({ sessionId: 'da742fbc-21c4-4b31-8caa-aa52f7163c96', inputTokens: 30, outputTokens: 15 });
     const start = r.log()[0]!;
-    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     // Its own home: not the account's, without the variable that would allow everything, gone with the run.
     expect(start.env.COPILOT_HOME).not.toBe(r.home);
     expect(start.env.COPILOT_ALLOW_ALL).toBeUndefined();
@@ -1550,7 +1555,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   it('runs everything with full access: no sandbox, allow-all, nothing asked', async () => {
     const r = run('full', { permission: 'full' }, () => ({ allow: false }));
     await copilotRunner.run(r.o);
-    expect(r.log()[0]!.argv).toEqual(['--acp', '--allow-all', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(r.log()[0]!.argv).toEqual(['--acp', '--allow-all', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     expect(JSON.parse(r.log()[0]!.files['settings.json']).sandbox).toEqual({ enabled: false });
     expect(r.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1); // no policy to check
     expect(r.approvals).toEqual([]);
@@ -1630,7 +1635,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   it('gives the model and the effort as flags, and starts again without an effort its model refuses', async () => {
     const r = run(undefined, { model: 'claude-haiku-4.5', effort: 'high' }, undefined, { FAKE_COPILOT_NO_EFFORT: '1' });
     await copilotRunner.run(r.o);
-    const argvs = starts(r).map((s) => s.argv.slice(3));
+    const argvs = starts(r).map((s) => s.argv.slice(4));
     expect(argvs).toEqual([
       ['--model', 'claude-haiku-4.5', '--reasoning-effort', 'high'],
       ['--model', 'claude-haiku-4.5'],
@@ -1646,7 +1651,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const r = run(undefined, { model: 'homelab/gemma4', effort: 'xhigh', backends });
     await copilotRunner.run(r.o);
     const start = r.log()[0]!;
-    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     expect(start.env).toMatchObject({
       COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:11434/v1',
       COPILOT_PROVIDER_TYPE: 'openai',
@@ -1656,7 +1661,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     });
     const high = run(undefined, { model: 'homelab/gemma4', effort: 'high', backends });
     await copilotRunner.run(high.o);
-    expect(high.log()[0]!.argv.slice(3)).toEqual(['--reasoning-effort', 'high']);
+    expect(high.log()[0]!.argv.slice(4)).toEqual(['--reasoning-effort', 'high']);
     // An endpoint deleted in Settings: the model would go to Copilot's own service.
     const gone = run(undefined, { model: 'old/gemma4', backends: { ...backends, deletedEndpoints: ['old'] } });
     await expect(copilotRunner.run(gone.o)).rejects.toThrow(AgentRunError);
@@ -1774,7 +1779,14 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
       images: [{ path: img, mimeType: 'image/png' }],
     });
     await copilotRunner.run(r.o);
-    expect(r.log()[0]!.argv).toEqual(['--acp', '--sandbox', '--add-dir', other, `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(r.log()[0]!.argv).toEqual([
+      '--acp',
+      '--sandbox',
+      '--add-dir',
+      other,
+      `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`,
+      '--no-ask-user',
+    ]);
     expect(JSON.parse(r.log()[0]!.files['settings.json']).sandbox.userPolicy.filesystem.readwritePaths).toEqual([other]);
     expect(r.log().find((l) => l.method === 'session/new')?.params.mcpServers).toEqual([
       { name: 'notes', command: 'notes-mcp', args: ['--x'], env: [{ name: 'TOKEN', value: 't' }] },
