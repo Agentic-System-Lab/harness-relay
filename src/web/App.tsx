@@ -13,6 +13,7 @@ import { GIT_INSTALL_EVENT, SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { Deferred, lazyPart } from './components/Deferred';
+import { DraftAppStatus } from './draftAppStatus';
 import { Home } from './components/Home';
 import { InboxButton } from './components/InboxButton';
 import { GitInstallDialog } from './components/GitInstallDialog';
@@ -186,6 +187,7 @@ function RelayApp() {
   const [tourSince, setTourSince] = useState(pendingTour);
   const tourOpen = tourSince !== null;
   const [route, setRoute] = useState<Route>(parseHash);
+  const [appStatus] = useState(() => new DraftAppStatus());
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
   const [startingChat, setStartingChat] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -219,6 +221,7 @@ function RelayApp() {
     let previous = parseHash();
     const onHash = () => {
       const next = parseHash();
+      if (previous.page === 'settings' && next.page !== 'settings') appStatus.recheck();
       setRoute(next);
       if (next.page !== 'settings') setSettingsReturn(undefined);
       else if (previous.page === 'new' || previous.page === 'schedule') setSettingsReturn({ page: previous.page });
@@ -227,7 +230,24 @@ function RelayApp() {
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+  }, [appStatus]);
+
+  useEffect(() => {
+    let timer = setTimeout(() => appStatus.warm('read-only'), 0);
+    const onReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => appStatus.recheck(), 0);
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+      appStatus.clear();
+    };
+  }, [appStatus]);
 
   // What tells you of replies and needs (notifications and sound, `src/web/alerts.ts`): it hears each
   // list of the conversations, and says with each poll whether this page is in front.
@@ -568,6 +588,7 @@ function RelayApp() {
         )}
         {route.page === 'new' && (
           <NewChat
+            appStatus={appStatus}
             draft={chatDraft}
             onDraft={setChatDraft}
             busy={startingChat}
@@ -584,6 +605,7 @@ function RelayApp() {
         )}
         {route.page === 'schedule' && (
           <NewSchedule
+            appStatus={appStatus}
             draft={scheduleDraft}
             onDraft={setScheduleDraft}
             busy={creatingSchedule}

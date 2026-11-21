@@ -11,6 +11,7 @@ import {
 import { api, orCreateCwd } from '../api';
 import type { DraftApp } from '../../shared/apps';
 import { taskWithApps } from '../draftApps';
+import type { DraftAppStatus } from '../draftAppStatus';
 import { useDraftApps } from '../useDraftApps';
 import { startingChecks } from '../checks';
 import { useI18n } from '../i18n';
@@ -85,6 +86,7 @@ export interface NewChatDraft {
 export const emptyChatDraft: NewChatDraft = { question: '', title: '', files: [] };
 
 interface Props {
+  appStatus: DraftAppStatus;
   draft: NewChatDraft;
   onDraft: (draft: NewChatDraft) => void;
   busy: boolean;
@@ -96,7 +98,7 @@ interface Props {
   onCreated: (c: Conversation) => void;
 }
 
-export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
+export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -104,7 +106,7 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   const [loadError, setLoadError] = useState('');
 
   const team = draft.team ?? defaults;
-  const appChoices = useDraftApps(draft.apps ?? [], (apps) => onDraft({ ...draft, apps }), team?.settings.permission);
+  const appChoices = useDraftApps(appStatus, draft.apps ?? [], (apps) => onDraft({ ...draft, apps }), team?.settings.permission);
 
   useEffect(() => {
     let current = true;

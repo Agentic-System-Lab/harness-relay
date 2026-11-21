@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 570 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 571 tests in 44 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -53,7 +53,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
-| [Available apps in drafts](#available-apps-in-drafts) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 4 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
+| [Available apps in drafts](#available-apps-in-drafts) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 5 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App setup and confirmations](#app-setup-and-confirmations) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App access through a chat](#app-access-through-a-chat) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [Accounts that sign in with OAuth](#accounts-that-sign-in-with-oauth) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [User guide → Harness Relay's tools](../docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar), [Proposals → OAuth](../docs/proposals/oauth.md) |
@@ -347,6 +347,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 
 | Scenario | What is checked |
 | --- | --- |
+| Check in the background at sign-in | The home page starts all four groups. Chat and automation share completed and pending requests. A slow Teams check leaves mail available, and no Slack profile is read. |
 | Choose available apps in New chat | Checkboxes stay disabled until their service answers. A slow or failed remote check leaves verified local choices available. Retrying, reopening the picker, returning to the window and changing file permission refresh the choices. |
 | Recheck before creating an automation | Returning from Settings drops an app that lost access. If the remaining app becomes unavailable before creation, Relay keeps the message and attachment in the draft and creates no automation. |
 | Verify Slack on request | Opening or focusing a draft makes no profile request. Confirming the check enables Slack. A failed check on submission keeps the draft. |

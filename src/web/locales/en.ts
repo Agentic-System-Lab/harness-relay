@@ -2537,7 +2537,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. Select Common apps beside the paperclip to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps beside the paperclip to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
       },
       {
         title: 'A team for every question',

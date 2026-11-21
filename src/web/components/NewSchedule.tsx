@@ -19,6 +19,7 @@ import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
 import type { DraftApp } from '../../shared/apps';
 import { taskWithApps } from '../draftApps';
+import type { DraftAppStatus } from '../draftAppStatus';
 import { useDraftApps } from '../useDraftApps';
 import { settingsHref } from '../route';
 import { CreationPage } from './CreationPage';
@@ -34,6 +35,7 @@ export interface NewAutomationDraft {
 }
 
 interface Props {
+  appStatus: DraftAppStatus;
   draft: NewAutomationDraft | null;
   onDraft: (draft: NewAutomationDraft) => void;
   busy: boolean;
@@ -50,7 +52,18 @@ interface Props {
  * conversation it lives in. Once created, the lead agent designs the team for the message; nothing runs
  * until the schedule sends it.
  */
-export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, onDraft, busy, setBusy, error, setError }: Props) {
+export function NewSchedule({
+  appStatus,
+  providers,
+  catalog,
+  onCreated,
+  draft: savedDraft,
+  onDraft,
+  busy,
+  setBusy,
+  error,
+  setError,
+}: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -59,7 +72,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
   const current = savedDraft ?? initial;
   const { form: draft, title, withHook } = current;
   const team = current.team ?? defaults;
-  const appChoices = useDraftApps(current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
+  const appChoices = useDraftApps(appStatus, current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {

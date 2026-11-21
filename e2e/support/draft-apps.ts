@@ -8,4 +8,6 @@ export function appStates(states: Partial<DraftAppAvailability>): DraftAppAvaila
 /** Deterministic connections for form tests; broader live connector checks run against the server's discovery endpoint. */
 export async function availableDraftApps(page: Page, states: Partial<DraftAppAvailability>) {
   await page.route('**/api/apps/availability?*', (route) => route.fulfill({ json: appStates(states) }));
+  // The signed-in shell starts checking at load, before the test opens either composer.
+  await page.reload();
 }

@@ -4,6 +4,48 @@ import type { ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { appStates } from '../support/draft-apps';
 
+// Install each test's routes before starting a new signed-in app window with the fixture's cookie.
+test.beforeEach(async ({ page }) => {
+  await page.goto('about:blank');
+});
+
+test('signed-in startup checks common apps before either composer opens and shares the answers with both', async ({ page, relay }) => {
+  const requests: string[] = [];
+  let verifyCalls = 0;
+  let finishTeams!: () => void;
+  const teams = new Promise<void>((resolve) => (finishTeams = resolve));
+  await page.route('**/api/apps/availability/slack/verify', (route) => {
+    verifyCalls++;
+    return route.abort();
+  });
+  await page.route('**/api/apps/availability?*', async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const group = params.get('app')!;
+    requests.push(params.get('permission') + '/' + group);
+    if (group === 'teams') await teams;
+    await route.fulfill({ json: appStates({ mail: 'ready', teams: 'needs-connection' }) });
+  });
+  await page.goto(relay.base + '/#/');
+  try {
+    const expected = ['read-only/github', 'read-only/local', 'read-only/slack', 'read-only/teams'];
+    await expect.poll(() => requests.slice().sort()).toEqual(expected);
+    await expect(page.locator('.draft-app-toggle')).toHaveCount(0);
+    for (const name of ['New chat', 'New automation']) {
+      // Navigate through the signed-in shell so both composers use the same window and session.
+      await page.getByRole('button', { name, exact: true }).click();
+      await page.locator('.draft-app-toggle').click();
+      await expect(page.getByRole('checkbox', { name: 'Mail', exact: true })).toBeEnabled();
+      await expect(page.getByRole('checkbox', { name: 'Microsoft Teams', exact: true })).toBeDisabled();
+      expect(requests.slice().sort()).toEqual(expected);
+    }
+    finishTeams();
+    await expect(page.getByRole('checkbox', { name: 'Microsoft Teams', exact: true })).toHaveAccessibleDescription('Connection required');
+    expect(verifyCalls).toBe(0);
+  } finally {
+    finishTeams();
+  }
+});
+
 test('New chat enables only verified apps and refreshes connections and team access without losing the draft', async ({ page, relay }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let finishLocal!: () => void;
