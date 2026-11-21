@@ -49,6 +49,7 @@ import {
   writeGrokSetting,
   grokNativeEnv,
   grokPermissionDecision,
+  GROK_SUBAGENT_CAPS,
   type GrokToolCall,
 } from '../src/server/agents/grok';
 import type { AgentEvent } from '../src/server/agents/types';
@@ -293,6 +294,160 @@ describe('grok session updates', () => {
   });
 });
 
+// Grok's own kinds for its subagents, background tasks and run, as Grok 1.0.92's binary writes them
+// (read there, not recorded from a run): on `_x.ai/session_notification`, a subagent's own updates on
+// its own session.
+const spawnCall = (status: string, more: Record<string, unknown> = {}) => ({
+  sessionUpdate: status === 'pending' ? 'tool_call' : 'tool_call_update',
+  toolCallId: 'spawn-1',
+  title: 'spawn_subagent',
+  kind: 'other',
+  status,
+  rawInput: { description: 'find callers', prompt: 'Find who calls parseDate', subagent_type: 'explore' },
+  _meta: { 'x.ai/tool': { name: 'task' } },
+  ...more,
+});
+const spawned = (id: string, session: string) => ({
+  sessionUpdate: 'subagent_spawned',
+  subagent_id: id,
+  parent_session_id: 's-1',
+  child_session_id: session,
+  subagent_type: 'explore',
+  description: 'find callers',
+  model: 'grok-4.7-fast',
+});
+const finished = (id: string, status: string, will_wake: boolean, output = 'Two callers.') => ({
+  sessionUpdate: 'subagent_finished',
+  subagent_id: id,
+  child_session_id: `child-${id}`,
+  status,
+  error: status === 'failed' ? 'the model refused' : null,
+  output,
+  will_wake,
+});
+const answeredAt = (id: string) => ({
+  content: [{ type: 'content', content: { type: 'text', text: `<subagent_result>\nsubagent_id: ${id}\n</subagent_result>` } }],
+});
+
+describe('grok subagents, background work and notes about its own run', () => {
+  it("folds a background subagent's calls under its spawn call, and ends that with what it reported", () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    h.handle(spawnCall('pending'));
+    h.handle(spawned('sa-1', 'child-sa-1'));
+    h.handle(spawnCall('completed', answeredAt('sa-1')));
+    h.answered();
+    expect(h.busy()).toBe(true);
+    expect(h.child('child-sa-1', { sessionUpdate: 'agent_message_chunk', content: { text: 'Looking.' } })).toBe(true);
+    h.child('child-sa-1', { ...SHELL_CALL, sessionUpdate: 'tool_call', toolCallId: 'c-1', rawInput: { command: 'rg parseDate' } });
+    h.child('child-sa-1', { sessionUpdate: 'tool_call_update', toolCallId: 'c-1', status: 'completed' });
+    expect(h.child('other', { sessionUpdate: 'tool_call', toolCallId: 'x' })).toBe(false);
+    h.handle(finished('sa-1', 'completed', false));
+    expect(h.busy()).toBe(false);
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'spawn-1', name: 'spawn_subagent', detail: 'find callers', agent: 'explore' },
+      { type: 'tool_start', id: 'spawn-1', name: 'task', agent: 'explore', model: 'grok-4.7-fast' },
+      { type: 'tool_start', id: 'c-1', name: 'Execute `npm test`', detail: 'rg parseDate', parentId: 'spawn-1' },
+      { type: 'tool_end', id: 'c-1', ok: true },
+      { type: 'tool_end', id: 'spawn-1', ok: true, output: 'Two callers.' },
+    ]);
+  });
+
+  it("ends a subagent run in the foreground with its call's own result, one that failed as failed", () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    const fg = { rawInput: { description: 'check', prompt: 'Check', run_in_background: false } };
+    h.handle(spawnCall('pending', fg));
+    h.handle(spawned('sa-2', 'child-sa-2'));
+    h.handle(finished('sa-2', 'completed', false));
+    h.handle(spawnCall('completed', { ...fg, content: [{ type: 'content', content: { type: 'text', text: 'All good.' } }] }));
+    h.handle({ ...spawnCall('pending'), toolCallId: 'spawn-3' });
+    h.handle(spawned('sa-3', 'child-sa-3'));
+    h.handle({ ...spawnCall('completed', answeredAt('sa-3')), toolCallId: 'spawn-3' });
+    h.handle(finished('sa-3', 'failed', false));
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'spawn-1', ok: true, output: 'All good.' },
+      { type: 'tool_end', id: 'spawn-3', ok: false, error: 'the model refused' },
+    ]);
+    // The general-purpose subagent, when no type is given.
+    expect(events[0]).toMatchObject({ agent: 'general-purpose' });
+  });
+
+  it('notes compaction, a recovered request and a switched model, in the language of the request', () => {
+    const events: AgentEvent[] = [];
+    const h = createGrokUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.handle({ sessionUpdate: 'agent_message_chunk', content: { text: 'Working' } });
+      h.handle({
+        sessionUpdate: 'auto_compact_completed',
+        tokens_before: 190000,
+        tokens_after: 20000,
+        elapsed_ms: 900,
+        summary_preview: '…',
+      });
+      h.handle({ sessionUpdate: 'auto_recovery_started', attempt: 1, max_retries: 3, error: 'stream reset', delay_ms: 500 });
+      h.handle({ sessionUpdate: 'auto_recovery_exhausted', attempts: 3, error: 'stream reset' });
+      h.handle({
+        sessionUpdate: 'model_auto_switched',
+        previous_model_id: 'grok-4.7',
+        new_model_id: 'grok-4.7-fast',
+        reason: 'unavailable',
+      });
+    });
+    expect(events).toEqual([
+      { type: 'text', text: 'Working' },
+      { type: 'text_end' },
+      { type: 'notice', text: "Grok compacted the conversation's context to make room." },
+      { type: 'notice', text: "Grok's request to its model failed; retrying (attempt 1 of 3): stream reset" },
+      { type: 'notice', text: 'Grok retried and still failed: stream reset' },
+      { type: 'notice', text: 'Grok switched models from grok-4.7 to grok-4.7-fast.' },
+    ]);
+  });
+
+  it('waits for its background work, then for the turn it wakes Grok for, and cuts off what is left', async () => {
+    const h = createGrokUpdateHandler(() => undefined);
+    h.handle(spawnCall('pending'));
+    h.handle(spawned('sa-1', 'child-sa-1'));
+    h.handle(spawnCall('completed', answeredAt('sa-1')));
+    h.handle({ sessionUpdate: 'task_backgrounded', tool_call_id: 'sh-1', task_id: 't-1', command: 'npm run build' });
+    h.handle({ sessionUpdate: 'turn_completed', prompt_id: 'p-1', stop_reason: 'end_turn' });
+    h.answered();
+    let idle = false;
+    const done = h.idle(60_000).then(() => (idle = true));
+    await new Promise((r) => setTimeout(r, 10));
+    h.handle(finished('sa-1', 'completed', true));
+    h.handle({ sessionUpdate: 'task_completed', task_snapshot: { task_id: 't-1', exit_code: 0 }, will_wake: false });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(idle).toBe(false); // the turn it wakes for is still to come
+    h.handle({ sessionUpdate: 'response_started', message_id: 'm-2' });
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { text: 'The subagent found two callers.' } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(idle).toBe(false);
+    h.handle({ sessionUpdate: 'turn_completed', prompt_id: 'p-2', stop_reason: 'end_turn' });
+    await done;
+    expect(h.busy()).toBe(false);
+
+    // Its work done and the turn it would wake for never reporting its end: it stops waiting once Grok is quiet.
+    const quiet = createGrokUpdateHandler(() => undefined);
+    quiet.handle(spawned('sa-9', 'child-sa-9'));
+    quiet.handle(finished('sa-9', 'completed', true));
+    quiet.answered();
+    const started = Date.now();
+    await quiet.idle(50);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(40);
+
+    // A subagent still at work when the turn ends is cut off with it.
+    const events: AgentEvent[] = [];
+    const cut = createGrokUpdateHandler((e) => events.push(e));
+    cut.handle(spawnCall('pending'));
+    cut.handle(spawned('sa-1', 'child-sa-1'));
+    cut.handle(spawnCall('completed', answeredAt('sa-1')));
+    withLang('en', () => cut.cutOff());
+    expect(events.at(-1)).toEqual({ type: 'tool_end', id: 'spawn-1', ok: false, error: 'The turn ended before this work finished.' });
+    expect(GROK_SUBAGENT_CAPS).toEqual({ GROK_MAX_CONCURRENT_SUBAGENTS: '4', GROK_SUBAGENTS_MAX_DEPTH: '1' });
+  });
+});
+
 describe('grok activity and approvals', () => {
   it('streams thinking and plans, hides to-do tool rows, and keeps tool output', () => {
     const events: AgentEvent[] = [];
@@ -421,9 +576,12 @@ describe('leaving out what Grok loads by itself', () => {
   });
 
   it("keeps the user's variables and the sandbox next to them", () => {
-    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: ['memory', 'mcp'], permission: 'edit' }, 'linux')).toEqual({
+    // Below full access a run leaves its subagents out (`runNativeOff()`).
+    const off = ['memory', 'mcp', 'subagents'] as const;
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MEMORY: '1' }, nativeOff: off, permission: 'edit' }, 'linux')).toEqual({
       PATH: '/bin',
       ...ASK,
+      GROK_SUBAGENTS: '0',
       GROK_MEMORY: '0',
       GROK_CLAUDE_MCPS_ENABLED: 'false',
       GROK_CURSOR_MCPS_ENABLED: 'false',
@@ -431,14 +589,26 @@ describe('leaving out what Grok loads by itself', () => {
     });
     // Read-only runs in the same profile: Grok's `read-only` one refuses to start on some machines,
     // and a session resumes only under the profile it started with.
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'read-only' }, 'darwin')).toEqual({
+    expect(grokEnv({ env: { PATH: '/bin' }, nativeOff: ['subagents'], permission: 'read-only' }, 'darwin')).toEqual({
       PATH: '/bin',
       ...ASK,
+      GROK_SUBAGENTS: '0',
       GROK_SANDBOX: 'harness-relay',
     });
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'full' }, 'linux')).toEqual({ PATH: '/bin', ...ASK });
+    // Its subagents on (full access): bounded, whatever the user's variables say.
+    expect(grokEnv({ env: { PATH: '/bin', GROK_MAX_CONCURRENT_SUBAGENTS: '64' }, permission: 'full' }, 'linux')).toEqual({
+      PATH: '/bin',
+      ...ASK,
+      GROK_MAX_CONCURRENT_SUBAGENTS: '4',
+      GROK_SUBAGENTS_MAX_DEPTH: '1',
+    });
     // Windows: no sandbox to give a deny list to; the built-in profile as before.
-    expect(grokEnv({ env: { PATH: '/bin' }, permission: 'edit' }, 'win32')).toEqual({ PATH: '/bin', ...ASK, GROK_SANDBOX: 'workspace' });
+    expect(grokEnv({ env: { PATH: '/bin' }, nativeOff: ['subagents'], permission: 'edit' }, 'win32')).toEqual({
+      PATH: '/bin',
+      ...ASK,
+      GROK_SUBAGENTS: '0',
+      GROK_SANDBOX: 'workspace',
+    });
   });
 });
 
@@ -890,6 +1060,83 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       }
     },
   );
+});
+
+// POSIX paths and a stand-in started by its `#!` line: tried on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('a Grok turn that started background work (stand-in grok)', () => {
+  it('reads on after the prompt answered, until the subagent ended and the turn it woke Grok for did', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-wake-')));
+    // A stand-in for `grok agent stdio`: a background subagent, then the turn its end wakes Grok for,
+    // in the kinds Grok 1.0.92 writes (its binary); it exits when its stdin closes.
+    const bin = join(dir, 'grok');
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...o }) + '\\n');
+const note = (sessionId, update) => out({ method: '_x.ai/session_notification', params: { sessionId, update } });
+const update = (sessionId, u) => out({ method: 'session/update', params: { sessionId, update: u } });
+const rl = require('node:readline').createInterface({ input: process.stdin });
+rl.on('close', () => process.exit(0));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  const reply = (result) => out({ id: m.id, result });
+  if (m.method === 'initialize') return reply({ protocolVersion: 1, agentCapabilities: {} });
+  if (m.method === 'session/new') return reply({ sessionId: 's-1', configOptions: [] });
+  if (m.method !== 'session/prompt') return;
+  const input = { description: 'find callers', prompt: 'Find them', subagent_type: 'explore' };
+  update('s-1', { sessionUpdate: 'tool_call', toolCallId: 'spawn-1', title: 'spawn_subagent', status: 'pending', rawInput: input, _meta: { 'x.ai/tool': { name: 'task' } } });
+  note('s-1', { sessionUpdate: 'subagent_spawned', subagent_id: 'sa-1', child_session_id: 'child-1', subagent_type: 'explore', model: 'grok-fast' });
+  update('s-1', { sessionUpdate: 'tool_call_update', toolCallId: 'spawn-1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'subagent_id: sa-1' } }] });
+  update('s-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Started a subagent. ' } });
+  note('s-1', { sessionUpdate: 'turn_completed', prompt_id: 'p-1', stop_reason: 'end_turn' });
+  reply({ stopReason: 'end_turn', _meta: { usage: { inputTokens: 5, outputTokens: 2 } } });
+  setTimeout(() => {
+    update('child-1', { sessionUpdate: 'tool_call', toolCallId: 'c-1', title: 'grep', kind: 'search', status: 'pending', rawInput: { pattern: 'parseDate' } });
+    update('child-1', { sessionUpdate: 'tool_call_update', toolCallId: 'c-1', status: 'completed' });
+    note('s-1', { sessionUpdate: 'subagent_finished', subagent_id: 'sa-1', status: 'completed', output: 'Two callers.', will_wake: true });
+  }, 150);
+  setTimeout(() => {
+    note('s-1', { sessionUpdate: 'response_started', message_id: 'm-2' });
+    update('s-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'It found two callers.' } });
+    note('s-1', { sessionUpdate: 'turn_completed', prompt_id: 'p-2', stop_reason: 'end_turn' });
+  }, 300);
+});
+`,
+      { mode: 0o755 },
+    );
+    const home = join(dir, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, 'config.toml'), '');
+    try {
+      const events: AgentEvent[] = [];
+      const result = await grokRunner.run({
+        bin,
+        env: { ...process.env, GROK_HOME: home },
+        prompt: 'hello',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'full',
+        signal: new AbortController().signal,
+        onEvent: (e) => void events.push(e),
+      });
+      expect(result).toMatchObject({ sessionId: 's-1', inputTokens: 5, outputTokens: 2 });
+      expect(
+        events
+          .filter((e) => e.type === 'text')
+          .map((e) => (e as { text: string }).text)
+          .join(''),
+      ).toBe('Started a subagent. It found two callers.');
+      expect(events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end')).toEqual([
+        { type: 'tool_start', id: 'spawn-1', name: 'spawn_subagent', detail: 'find callers', agent: 'explore' },
+        { type: 'tool_start', id: 'spawn-1', name: 'task', agent: 'explore', model: 'grok-fast' },
+        { type: 'tool_start', id: 'c-1', name: 'grep', detail: 'parseDate', parentId: 'spawn-1' },
+        { type: 'tool_end', id: 'c-1', ok: true },
+        { type: 'tool_end', id: 'spawn-1', ok: true, output: 'Two callers.' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Grok's own folder in its sandbox", () => {

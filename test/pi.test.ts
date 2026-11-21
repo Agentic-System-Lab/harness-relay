@@ -903,6 +903,48 @@ describe('Pi: events from recorded runs', () => {
     expect(piRunUsage(g.usage, { kind: 'openai' })).toEqual({});
   });
 
+  // As Pi 1.5.1's `AgentSessionEvent` has them (its `dist/core/agent-session.d.ts`, `docs/json.md`), not recorded from a run.
+  it("notes what Pi reports about its own run, and puts a tool's own calls under it", () => {
+    const events: AgentEvent[] = [];
+    const h = createPiEventHandler((e) => events.push(e));
+    return en(async () => {
+      h.handle({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Working' } });
+      h.handle({ type: 'compaction_start', reason: 'threshold' });
+      h.handle({
+        type: 'compaction_end',
+        reason: 'threshold',
+        result: { summary: '…', firstKeptEntryId: 'e9', tokensBefore: 120000 },
+        aborted: false,
+        willRetry: false,
+      });
+      h.handle({ type: 'compaction_end', reason: 'manual', aborted: true, willRetry: false });
+      h.handle({
+        type: 'compaction_end',
+        reason: 'overflow',
+        aborted: false,
+        willRetry: false,
+        errorMessage: 'Context overflow recovery failed',
+      });
+      h.handle({ type: 'auto_retry_start', attempt: 2, maxAttempts: 3, delayMs: 4000, errorMessage: '529 overloaded' });
+      h.handle({ type: 'auto_retry_end', success: true, attempt: 2 });
+      h.handle({ type: 'auto_retry_end', success: false, attempt: 3, finalError: '529 overloaded' });
+      h.handle({ type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: 'timeout' });
+      h.handle({ type: 'tool_execution_start', toolCallId: 'x1', toolName: 'review', args: { path: 'a.ts' } });
+      h.handle({ type: 'tool_execution_start', toolCallId: 'x2', toolName: 'read', args: { path: 'a.ts' }, parentToolCallId: 'x1' });
+      expect(events).toEqual([
+        { type: 'text', text: 'Working' },
+        { type: 'text_end' },
+        { type: 'notice', text: "Pi compacted the conversation's context to make room." },
+        { type: 'notice', text: "Pi could not compact the conversation's context: Context overflow recovery failed" },
+        { type: 'notice', text: "Pi's request to its model failed; retrying (attempt 2 of 3): 529 overloaded" },
+        { type: 'notice', text: 'Pi retried and still failed: 529 overloaded' },
+        { type: 'notice', text: "Pi's request to its model failed; retrying (attempt 1 of 3): timeout" },
+        { type: 'tool_start', id: 'x1', name: 'review', detail: 'a.ts' },
+        { type: 'tool_start', id: 'x2', name: 'Read', detail: 'a.ts', kind: 'read', parentId: 'x1' },
+      ]);
+    });
+  });
+
   it('turns provider errors into what the user can act on', () => {
     const errorOf = (name: string) =>
       piRecords(name)

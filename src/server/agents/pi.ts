@@ -919,7 +919,16 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
         const name = String(msg.toolName ?? 'tool');
         const detail = piToolDetail(name, msg.args);
         const kind = piToolKind(name);
-        emit({ type: 'tool_start', id, name: piToolName(name), ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
+        // A call a tool made itself (an extension's, through `ctx.executeTool()`) goes under that tool's.
+        const parentId = typeof msg.parentToolCallId === 'string' && msg.parentToolCallId ? msg.parentToolCallId : undefined;
+        emit({
+          type: 'tool_start',
+          id,
+          name: piToolName(name),
+          ...(detail ? { detail } : {}),
+          ...(kind ? { kind } : {}),
+          ...(parentId ? { parentId } : {}),
+        });
         break;
       }
       case 'tool_execution_end': {
@@ -936,6 +945,31 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
         }
         break;
       }
+      // What Pi reports about its own run, as Pi 1.5.1's `AgentSessionEvent` has it (its
+      // `dist/core/agent-session.d.ts` and `docs/json.md`): a compaction once it ended (none for one
+      // that was aborted), a retried request, and a retried summary (of a compaction or a branch).
+      case 'compaction_end':
+        closeText();
+        if (typeof msg.errorMessage === 'string' && msg.errorMessage)
+          emit({ type: 'notice', text: t().cliCompactFailed('Pi', clip(msg.errorMessage, 240)) });
+        else if (msg.result && !msg.aborted) emit({ type: 'notice', text: t().cliCompacted('Pi') });
+        break;
+      case 'auto_retry_start':
+      case 'summarization_retry_scheduled': {
+        closeText();
+        const why = typeof msg.errorMessage === 'string' && msg.errorMessage ? clip(msg.errorMessage, 240) : undefined;
+        emit({ type: 'notice', text: t().cliRetrying('Pi', num(msg.attempt) || undefined, num(msg.maxAttempts) || undefined, why) });
+        break;
+      }
+      case 'auto_retry_end':
+        if (msg.success === false) {
+          closeText();
+          emit({
+            type: 'notice',
+            text: t().cliRetryFailed('Pi', typeof msg.finalError === 'string' && msg.finalError ? clip(msg.finalError, 240) : undefined),
+          });
+        }
+        break;
     }
   }
 

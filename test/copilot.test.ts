@@ -59,6 +59,7 @@ import {
   copilotSignedInAs,
   copilotSignedOut,
   createCopilotUpdateHandler,
+  COPILOT_EVENTS,
   parseCopilotModels,
   prepareCopilotProbeHome,
   prepareCopilotRun,
@@ -491,6 +492,126 @@ describe('Copilot session updates', () => {
       'Error: Could not connect to local model provider at http://127.0.0.1:9/v1.',
     );
     expect(run([say('Info: Operation cancelled by user'), say('Error: x')], false)).toEqual({ failed: 'Error: x', texts: [] });
+  });
+});
+
+// The runtime events of Copilot 1.0.112 (its `schemas/session-events.schema.json` and `copilot help
+// acp`, not recorded from a run): `{ sessionId, type, data, agentId? }`, sent for the types a client
+// names in `initialize`.
+describe("Copilot's subagents and notes about its own run (its runtime events)", () => {
+  const event = (type: string, data: Record<string, unknown>, agentId?: string) => ({
+    sessionId: 's',
+    type,
+    data,
+    ...(agentId ? { agentId } : {}),
+  });
+  const task = (status: string) => ({
+    sessionUpdate: status === 'pending' ? 'tool_call' : 'tool_call_update',
+    toolCallId: 'task-1',
+    kind: 'other',
+    title: 'Explore the repo',
+    status,
+    rawInput: { description: 'Explore the repo', prompt: 'Look around', agent_type: 'explore' },
+  });
+
+  it("folds a subagent's calls under the call that started it, named and with its model, wherever Copilot reports them", () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    h.handle(task('pending'));
+    h.runtime(
+      event('subagent.started', {
+        toolCallId: 'task-1',
+        agentName: 'explore',
+        agentDisplayName: 'Explore',
+        agentDescription: '…',
+        model: 'gpt-5.5-mini',
+        executionMode: 'sync',
+      }),
+    );
+    // A call of the subagent's that Copilot reports in its runtime events only.
+    h.runtime(
+      event(
+        'tool.execution_start',
+        { toolCallId: 'r1', toolName: 'view', arguments: { path: '/work/a.ts' }, parentToolCallId: 'task-1' },
+        'agent-1',
+      ),
+    );
+    h.runtime(
+      event(
+        'tool.execution_complete',
+        { toolCallId: 'r1', success: true, result: { content: 'export {}' }, parentToolCallId: 'task-1' },
+        'agent-1',
+      ),
+    );
+    // One it reports as a call of its own too: put under its subagent, and ended once.
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 's1',
+      kind: 'execute',
+      title: 'ls',
+      status: 'pending',
+      rawInput: { command: 'ls' },
+    });
+    h.runtime(event('tool.execution_start', { toolCallId: 's1', toolName: 'bash', parentToolCallId: 'task-1' }, 'agent-1'));
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 's1', status: 'completed', rawOutput: { content: 'a.ts' } });
+    h.runtime(event('tool.execution_complete', { toolCallId: 's1', success: true, parentToolCallId: 'task-1' }, 'agent-1'));
+    // A call the agent itself made is not a subagent's.
+    h.runtime(event('tool.execution_start', { toolCallId: 'own', toolName: 'view' }));
+    h.handle({ ...task('completed'), content: [{ type: 'content', content: { type: 'text', text: 'It is a small app.' } }] });
+    h.runtime(event('subagent.completed', { toolCallId: 'task-1', agentName: 'explore', agentDisplayName: 'Explore', totalToolCalls: 2 }));
+    expect(events.filter((e) => e.type !== 'text' && e.type !== 'text_end')).toEqual([
+      { type: 'tool_start', id: 'task-1', name: 'Explore the repo', detail: 'Explore the repo', kind: 'other' },
+      { type: 'tool_start', id: 'task-1', name: 'task', agent: 'Explore', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'r1', name: 'view', detail: '/work/a.ts', parentId: 'task-1' },
+      { type: 'tool_end', id: 'r1', ok: true, output: 'export {}' },
+      { type: 'tool_start', id: 's1', name: 'Shell', detail: 'ls', kind: 'execute' },
+      { type: 'tool_start', id: 's1', name: 'bash', parentId: 'task-1' },
+      { type: 'tool_end', id: 's1', ok: true, output: 'a.ts' },
+      { type: 'tool_end', id: 'task-1', ok: true, output: 'It is a small app.' },
+    ]);
+  });
+
+  it('keeps a background subagent at work until it ends, and cuts off one still at work with the turn', () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.handle(task('pending'));
+      h.runtime(
+        event('subagent.started', { toolCallId: 'task-1', agentName: 'task', agentDisplayName: 'Task', executionMode: 'background' }),
+      );
+      h.handle(task('completed'));
+      h.runtime(event('subagent.failed', { toolCallId: 'task-1', agentName: 'task', agentDisplayName: 'Task', error: 'rate limited' }));
+      h.handle({ ...task('pending'), toolCallId: 'task-2' });
+      h.runtime(
+        event('subagent.started', { toolCallId: 'task-2', agentName: 'task', agentDisplayName: 'Task', executionMode: 'background' }),
+      );
+      h.handle({ ...task('completed'), toolCallId: 'task-2' });
+      h.cutOff();
+    });
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'task-1', ok: false, error: 'rate limited' },
+      { type: 'tool_end', id: 'task-2', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it("notes a compaction, a retry and its own model switch, not a subagent's nor the model the turn set", () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.runtime(event('session.compaction_complete', { success: true, preCompactionTokens: 120000, postCompactionTokens: 9000 }));
+      h.runtime(event('session.compaction_complete', { success: false, error: 'summary too long' }));
+      h.runtime(event('session.compaction_complete', { success: true }, 'agent-1'));
+      h.runtime(event('assistant.turn_retry', { turnId: 't-1', reason: 'server overloaded' }));
+      h.runtime(event('session.model_change', { newModel: 'gpt-5.5-mini', previousModel: 'gpt-5.5', cause: 'rate_limit_auto_switch' }));
+      h.runtime(event('session.model_change', { newModel: 'gpt-5.5', previousModel: 'auto', source: 'sdk' }));
+    });
+    expect(events).toEqual([
+      { type: 'notice', text: "Copilot compacted the conversation's context to make room." },
+      { type: 'notice', text: "Copilot could not compact the conversation's context: summary too long" },
+      { type: 'notice', text: "Copilot's request to its model failed; retrying: server overloaded" },
+      { type: 'notice', text: 'Copilot switched models from gpt-5.5 to gpt-5.5-mini.' },
+    ]);
+    expect(COPILOT_EVENTS).toContain('subagent.started');
   });
 });
 

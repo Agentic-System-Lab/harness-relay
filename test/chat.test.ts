@@ -15,6 +15,7 @@ import {
   FOLLOW_AGAIN,
   followsAfterScroll,
   isPathDetail,
+  isSubagent,
   reviseRequest,
   revisedTeam,
   revisionOutcome,
@@ -28,6 +29,8 @@ import {
   thoughtTail,
   thoughtTitle,
   restoredText,
+  runningStep,
+  subagentName,
   onlyLeadReview,
   savesLeadReviewAlone,
 } from '../src/web/chat';
@@ -516,6 +519,72 @@ describe("an agent's work between its words", () => {
     expect(first[1]).toMatchObject({ kind: 'activity', key: 1, last: true });
     expect(later[1]).toMatchObject({ kind: 'activity', key: 1, last: true });
     expect(segments([tool('a'), text('Done.')])[0]).toMatchObject({ kind: 'activity', last: false });
+  });
+
+  it("folds a subagent's calls under the call that started it, one subagent within another, wherever they come", () => {
+    const call = (id: string, more: Partial<Extract<MessagePart, { type: 'tool' }>> = {}): MessagePart => ({
+      type: 'tool',
+      id,
+      name: 'Read',
+      status: 'done',
+      ...more,
+    });
+    const segs = segments([
+      text('Let me look around.'),
+      call('agent', { name: 'Agent', agent: 'Explore', model: 'haiku', status: 'running' }),
+      call('c1', { parentId: 'agent' }),
+      // The agent's own words between the subagent's calls do not take them out of it.
+      text('While it looks, a note.'),
+      call('c2', { parentId: 'agent', status: 'error' }),
+      call('inner', { name: 'Agent', parentId: 'agent', agent: 'general-purpose', status: 'running' }),
+      call('c3', { parentId: 'inner', status: 'running' }),
+      // A call whose parent is not in the message stands on its own.
+      call('lost', { parentId: 'elsewhere' }),
+    ]);
+    expect(segs.map((s) => s.kind)).toEqual(['text', 'activity', 'text', 'activity']);
+    const [, first, , second] = segs;
+    if (first.kind !== 'activity' || second.kind !== 'activity') throw new Error('expected activity');
+    // The block holds the subagent alone, as one action; its calls are its own, and never the block's.
+    expect(first.items.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['agent']);
+    expect(activityCounts(first.items)).toEqual({ actions: 1, thoughts: 0, failed: 0 });
+    const agent = first.items[0];
+    if (agent.kind !== 'tool') throw new Error('expected a call');
+    expect(isSubagent(agent)).toBe(true);
+    expect(agent.steps?.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['c1', 'c2', 'inner']);
+    expect(activityCounts(agent.steps ?? [])).toEqual({ actions: 3, thoughts: 0, failed: 1 });
+    const inner = agent.steps?.[2];
+    expect(inner?.kind === 'tool' && inner.steps?.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['c3']);
+    expect(second.items.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['lost']);
+
+    // Folded while it runs, the row shows the step the innermost subagent is on.
+    const at = runningStep(first.items);
+    expect(at?.agents).toEqual(['Explore', 'general-purpose']);
+    expect(at?.part.id).toBe('c3');
+    expect(subagentName(agent.part)).toBe('Explore');
+  });
+
+  it('shows a subagent between its calls by its own name, and an ordinary call as before', () => {
+    const agent: MessagePart = { type: 'tool', id: 'a', name: 'Agent', agent: 'Explore', status: 'running' };
+    const done: MessagePart = { type: 'tool', id: 'c1', name: 'Read', status: 'done', parentId: 'a' };
+    const between = segments([agent, done])[0];
+    if (between.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(between.items)).toEqual({ agents: [], part: agent });
+    // A subagent the CLI did not name yet, with no calls of its own, is an ordinary call.
+    const plain = segments([{ type: 'tool', id: 'x', name: 'Agent', status: 'running' }])[0];
+    if (plain.kind !== 'activity') throw new Error('expected activity');
+    expect(isSubagent(plain.items[0])).toBe(false);
+    expect(subagentName({ type: 'tool', id: 'x', name: 'Agent', status: 'running' })).toBe('Agent');
+    // Nothing at work: no step to show.
+    const over = segments([tool('a'), tool('b', 'error')])[0];
+    if (over.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(over.items)).toBeUndefined();
+    // A subagent its CLI already ended while a call of its own still runs (a background one) is still at work.
+    const background = segments([
+      { ...agent, status: 'done' },
+      { ...done, status: 'running' },
+    ])[0];
+    if (background.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(background.items)?.part.id).toBe('c1');
   });
 
   it('names a stretch of thinking by its first line and follows its latest line', () => {

@@ -3485,6 +3485,28 @@ a.branch-source:hover {
   text-align: left;
 }
 
+/*
+ * A call that started a subagent: its name and model, how many actions it took; open, its own calls,
+ * joined to it by a line down their left (a subagent of its own one level further in), then what it
+ * reported back.
+ */
+.tool-group ul.subagent-steps {
+  margin: 3px 0 2px 5px;
+  padding: 0 0 0 13px;
+  border-top: none;
+  border-left: 1px solid var(--border);
+}
+
+.subagent-model {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.subagent-row .tool-line .activity-count {
+  color: var(--muted);
+}
+
 /* File changes */
 
 .changes-card {
