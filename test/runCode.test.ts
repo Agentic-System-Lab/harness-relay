@@ -1023,9 +1023,23 @@ return out;`,
 describe('run_code: whether it can run here', () => {
   it("says so when Harness Relay's sandbox cannot start, as its last check found", async () => {
     const t = runCodeTool(deps({ available: async () => ({ ok: false, reason: 'bubblewrap is not installed' }) }));
+    // Listed: checked in the background, said from then on.
+    expect(t.unavailable!()).toBeUndefined();
     await new Promise((r) => setTimeout(r, 10));
     expect(t.unavailable!()).toBe("Harness Relay's sandbox cannot start here: bubblewrap is not installed");
     expect(runCodeTool(deps({ available: async () => ({ ok: true }) })).unavailable!()).toBeUndefined();
+  });
+
+  it('checks the sandbox only once it is offered, never as the server starts', async () => {
+    // A check as the server starts would race its sweep of the sandbox's leftover folders, fail, and that
+    // failure, kept a while, would refuse every open agent's run below full access meanwhile.
+    let checks = 0;
+    const t = runCodeTool(deps({ available: async () => (checks++, { ok: true }) }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(checks).toBe(0);
+    t.unavailable!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(checks).toBe(1);
   });
 
   it('refuses to run while Settings → Labs has it off', async () => {

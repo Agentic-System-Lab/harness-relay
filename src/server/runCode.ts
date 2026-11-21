@@ -932,13 +932,15 @@ export async function runCode(
 export function runCodeTool(deps: RunCodeDeps): GatewayTool {
   let running = 0;
   // Whether the sandbox starts here, checked in the background and kept (the check is kept a while itself).
+  // Only once the tool is offered (listed with a mode of Labs on) or has run, never when it is made: a
+  // check while the server starts would race its sweep of the sandbox's leftover folders, fail, and that
+  // failure, kept a while, would refuse every other run in Harness Relay's own sandbox meanwhile.
   let sandbox: SandboxAvailability | undefined;
   const check = () =>
     void deps.available?.().then(
       (a) => (sandbox = a),
       () => undefined,
     );
-  check();
   // RLM mode: each turn's state, by its context (the same object for every call of a turn's grant), and
   // the run going on in it, so that one run at a time reads and writes it. Gone with the turn.
   const turns = new WeakMap<GatewayContext, { kept: RlmTurn; queue: Promise<void> }>();
@@ -995,7 +997,10 @@ export function runCodeTool(deps: RunCodeDeps): GatewayTool {
       };
     },
     describe: (args) => ({ title: `Run code (${typeof args.code === 'string' ? args.code.split('\n').length : 0} lines)` }),
-    unavailable: () => runCodeUnavailable(deps, sandbox),
+    unavailable: () => {
+      check();
+      return runCodeUnavailable(deps, sandbox);
+    },
     run: async (args, ctx, scope) => {
       const mode = deps.mode();
       if (mode.mode === 'off') return { text: `${RUN_CODE_TOOL} is turned off in Settings → Labs.`, isError: true };
