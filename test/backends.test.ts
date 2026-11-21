@@ -967,13 +967,17 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
 
   it('bounds the combined size of individual model records and stops checking on the first over-budget response', async () => {
     const { app, settings } = setup();
+    const models = ['one', 'two', 'three', 'four'];
     const padding = ' '.repeat(3 * 1024 * 1024);
     const paths: string[] = [];
     await withModelServer(
       (req, res) => {
         paths.push(req.url!);
+        res.setHeader('Content-Type', 'application/json');
         if (req.url === '/v1/models') return res.end('{"data":[]}');
-        res.end(JSON.stringify({ id: req.url!.split('/').at(-1), padding }));
+        const id = models.find((model) => req.url === `/v1/models/${model}`);
+        if (!id) return res.writeHead(404).end();
+        res.end(JSON.stringify({ id, padding }));
       },
       async (origin) => {
         const res = await app.request(
@@ -982,13 +986,16 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
             ...endpoint,
             baseUrl: origin + '/v1',
             verifyModels: true,
-            models: ['one', 'two', 'three', 'four'],
+            models,
           }),
         );
         expect(res.status).toBe(502);
         expect(await res.text()).toMatch(/three.*8 MiB/);
         expect(paths).toEqual(['/v1/models', '/v1/models/one', '/v1/models/two', '/v1/models/three']);
         expect(settings.backends.forRun().endpoints).toEqual([]);
+        const unknown = await fetch(origin + '/v1/models/unknown');
+        expect(unknown.status).toBe(404);
+        expect(await unknown.text()).toBe('');
       },
     );
   });
