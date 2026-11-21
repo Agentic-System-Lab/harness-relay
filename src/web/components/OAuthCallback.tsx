@@ -24,7 +24,8 @@ let posting: Promise<CallbackAnswer> | undefined;
 export function OAuthCallback() {
   const t = useT();
   const c = t.oauthCallback;
-  const [outcome, setOutcome] = useState<CallbackOutcome>();
+  const [result, setResult] = useState<{ outcome: CallbackOutcome; back: string }>();
+  const outcome = result?.outcome;
 
   useEffect(() => {
     posting ??= api.oauthCallback(GOT).then(
@@ -36,7 +37,7 @@ export function OAuthCallback() {
       if (!live) return;
       const shown = callbackOutcome(answer, Boolean(GOT.state));
       if (shown.clearAddress) history.replaceState(null, '', CALLBACK_PATH);
-      setOutcome(shown.outcome);
+      setResult({ outcome: shown.outcome, back: answer.ok && answer.server ? '/#/settings/tools' : '/#/settings/apps' });
     });
     return () => {
       live = false;
@@ -67,10 +68,10 @@ export function OAuthCallback() {
             <code>{ADDRESS}</code> <CopyButton text={() => ADDRESS} className="ghost small-button" />
           </p>
         )}
-        {outcome && (
+        {result && (
           <p className="small muted">
-            {outcome.kind === 'done' ? `${c.close} ` : ''}
-            <a href="/#/settings/tools">{c.back}</a>
+            {result.outcome.kind === 'done' ? `${c.close} ` : ''}
+            <a href={result.back}>{c.back}</a>
           </p>
         )}
       </section>

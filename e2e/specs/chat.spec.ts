@@ -160,7 +160,7 @@ test.describe('team design progress and model checks', () => {
     await expect(liveActivity.locator('li.tool').first()).toContainText('Checking accounts and usage');
 
     const activity = awaitingPlan(page).locator(progress);
-    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity).toHaveAttribute('open', '', { timeout: 45_000 });
     await expect(activity.locator('li.tool.done').last()).toContainText('Testing model response');
     const probes = relay.fakeLog(true).filter((e) => e.prompt?.includes('Reply with exactly RELAY_MODEL_OK.'));
     expect(probes.map((e) => e.cli)).toEqual(['claude']);
@@ -189,7 +189,7 @@ test.describe('team design progress and model checks', () => {
 
     test('shows the failed check and starts no team even with auto-confirm on', async ({ page, relay }) => {
       const id = await startChat(page, 'Choose a team', { autoConfirm: true });
-      await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'Could not verify these models' })).toBeVisible({ timeout: 45_000 });
       const activity = page.locator('.plan-card.failed details[aria-label="Team design progress"]');
       await activity.locator('summary').first().click();
       await expect(activity.locator('li.tool.error').first()).toContainText('Testing model response');

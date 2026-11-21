@@ -68,7 +68,7 @@ describe('installing Git on request', () => {
     expect(a.method).toBe('winget');
     expect(run).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        bin: 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\winget.EXE',
+        bin: 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe',
         args: [
           'install',
           '--exact',

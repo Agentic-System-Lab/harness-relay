@@ -240,11 +240,37 @@
         <p class="doc-toc-title">On this page</p>
         <ol>
           <li><a href="#list">The conversation list</a></li>
-          <li><a href="#organize">Pin, group and search</a></li>
-          <li><a href="#messages">Copy, edit, retry and branch</a></li>
+          <li>
+            <details>
+              <summary>Pin, group and search</summary>
+              <ol>
+                <li><a href="#organize" aria-label="Pin, group and search overview">Overview</a></li>
+                <li><a href="#pin-a-conversation">Pin a conversation</a></li>
+                <li><a href="#conversation-groups">Groups</a></li>
+                <li><a href="#search-conversations">Search</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Copy, edit, retry and branch</summary>
+              <ol>
+                <li><a href="#messages" aria-label="Copy, edit, retry and branch overview">Overview</a></li>
+                <li><a href="#branch-a-conversation">Branch a conversation</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#files">Browse the files</a></li>
           <li><a href="#share">Share a conversation</a></li>
-          <li><a href="#notifications">Notifications</a></li>
+          <li>
+            <details>
+              <summary>Notifications</summary>
+              <ol>
+                <li><a href="#notifications" aria-label="Notifications overview">Overview</a></li>
+                <li><a href="#notification-bell">The bell</a></li>
+              </ol>
+            </details>
+          </li>
         </ol>
       </nav>
 
@@ -315,13 +341,13 @@
 
         <section id="organize" aria-labelledby="organize-title">
           <h2 id="organize-title">Pin, group and search</h2>
-          <h3>Pin a conversation</h3>
+          <h3 id="pin-a-conversation">Pin a conversation</h3>
           <p>
             Point at a conversation and click the pin at its top-left corner (on a phone or tablet the pin is always
             there). It is then listed under <b>Pinned</b>, above your groups, and stays in its group too. Click the yellow
             pin to unpin it. Pins are the same in every browser you use.
           </p>
-          <h3>Groups</h3>
+          <h3 id="conversation-groups">Groups</h3>
           <ul>
             <li>
               <b>Make a group</b>: click <b>New group</b>, the folder button beside <b>Search</b>, type a name and press
@@ -342,7 +368,7 @@
             the conversation in the group it fits (it says <b>Sorting…</b> meanwhile), or leaves it in <b>Other</b>. It
             does so once per conversation, and never moves one you moved yourself.
           </p>
-          <h3>Search</h3>
+          <h3 id="search-conversations">Search</h3>
           <p>
             Click <b>Search</b> under <b>New chat</b> and type. You get the conversations whose title or messages contain
             every word you typed, ignoring case, with the words highlighted; those whose title matches come first. Click
@@ -370,7 +396,7 @@
               outside relay mode, the agents after it in the same round answer again too.
             </li>
           </ul>
-          <h3>Branch a conversation</h3>
+          <h3 id="branch-a-conversation">Branch a conversation</h3>
           <p>
             To try another direction without losing where you are, click <b>Branch conversation</b> under an agent's
             reply. A new conversation opens, named <b>Branch · </b> and the original's title, with a copy of every message
@@ -496,7 +522,7 @@
               </p>
             </div>
           </div>
-          <h3>The bell</h3>
+          <h3 id="notification-bell">The bell</h3>
           <p>
             The bell at the top of the sidebar keeps every notification, whatever you chose above: replies done or ended
             with an error, approvals and items waiting for you, teams to confirm, questions and goals held up. Its red

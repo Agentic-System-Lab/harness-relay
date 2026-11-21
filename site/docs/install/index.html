@@ -240,10 +240,36 @@
       <nav class="doc-toc" aria-label="On this page">
         <p class="doc-toc-title">On this page</p>
         <ol>
-          <li><a href="#download">Download the app</a></li>
-          <li><a href="#first-open">Open it the first time</a></li>
+          <li>
+            <details>
+              <summary>Download the app</summary>
+              <ol>
+                <li><a href="#download" aria-label="Download the app overview">Overview</a></li>
+                <li><a href="#use-codespaces">No computer to install it on?</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>Open it the first time</summary>
+              <ol>
+                <li><a href="#first-open" aria-label="Open it the first time overview">Overview</a></li>
+                <li><a href="#language-and-appearance">Language, appearance and the tour</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#menu">The window and the menu</a></li>
-          <li><a href="#what-else">What else you need</a></li>
+          <li>
+            <details>
+              <summary>What else you need</summary>
+              <ol>
+                <li><a href="#what-else" aria-label="What else you need overview">Overview</a></li>
+                <li><a href="#install-an-agent">At least one agent</a></li>
+                <li><a href="#install-git">Git, for edit and parallel modes</a></li>
+                <li><a href="#sandbox-requirements">What the sandboxes need</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#updates">Updates</a></li>
           <li><a href="#uninstall">Uninstall</a></li>
         </ol>
@@ -305,7 +331,7 @@
             </li>
             <li><b>Linux</b>: a Linux with a desktop, on x64 or 64-bit Arm. The app is one AppImage file.</li>
           </ul>
-          <h3>No computer to install it on?</h3>
+          <h3 id="use-codespaces">No computer to install it on?</h3>
           <p>
             Try it in GitHub Codespaces: a Linux machine of your own in GitHub's cloud, in your browser, with the seven
             agents that are not open source installed and Harness Relay started. It runs on your GitHub account: a free
@@ -351,7 +377,7 @@
             later works in a folder such as Documents or Desktop, or you use voice input, macOS asks whether Harness Relay
             may do so. The question names the app because the agents run inside it: choose <b>Allow</b>.
           </p>
-          <h3>Language, appearance and the tour</h3>
+          <h3 id="language-and-appearance">Language, appearance and the tour</h3>
           <ul>
             <li>
               The app speaks <b>English</b> and <b>繁體中文</b>. The first time, it follows your browser's language; change it under
@@ -428,7 +454,7 @@
 
         <section id="what-else" aria-labelledby="what-else-title">
           <h2 id="what-else-title">What else you need</h2>
-          <h3>At least one agent</h3>
+          <h3 id="install-an-agent">At least one agent</h3>
           <p>
             Harness Relay works with the coding agents you have: any of the seven you sign in to (Claude Code, Codex, Grok,
             Cursor, Antigravity, Copilot and Muse Code) or the five open-source ones (OpenCode, Goose, Cline, OpenHands and
@@ -443,13 +469,13 @@
             agent yourself in a terminal while the app is open, choose <b>Restart server…</b> in its menu so that it finds
             the agent.
           </p>
-          <h3>Git, for edit and parallel modes</h3>
+          <h3 id="install-git">Git, for edit and parallel modes</h3>
           <p>
             When agents may change files, Harness Relay uses <a href="https://git-scm.com/downloads">Git</a> to record what
             each reply changed and to give each agent a copy of its own in parallel mode. Install it if you don't have it.
             You don't need to know Git: Harness Relay never commits to your branch.
           </p>
-          <h3>What the sandboxes need</h3>
+          <h3 id="sandbox-requirements">What the sandboxes need</h3>
           <p>
             Unless you give a chat full access, the commands most agents run go in your system's sandbox, which lets them
             write only in the chat's folders. When the sandboxes are missing something on your computer, <b>New chat</b> first shows a dialog

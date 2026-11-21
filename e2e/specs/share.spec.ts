@@ -29,11 +29,13 @@ function fakeGist(relay: RelayServer, id: string) {
   return { dir, meta };
 }
 
-const ghCalls = (relay: RelayServer) =>
+/** Gist operations and sign-ins are independent of the app picker's GitHub account checks. */
+const ghCalls = (relay: RelayServer, command: 'gist' | 'auth') =>
   relay
     .fakeLog()
     .filter((e) => e.cli === 'gh')
-    .map((e) => e.args ?? []);
+    .map((e) => e.args ?? [])
+    .filter((args) => args[0] === command);
 
 test.describe('copying', () => {
   test.beforeEach(async ({ context, browserName }) => {
@@ -136,7 +138,8 @@ test.describe('sharing as a secret gist', () => {
     );
 
     // gh made a secret gist (its default: no --public) of one index.html, the page read from stdin.
-    expect(ghCalls(relay)).toEqual([['gist', 'create', '--filename', 'index.html', '--desc', 'Pelican facts · Harness Relay', '-']]);
+    const create = ['gist', 'create', '--filename', 'index.html', '--desc', 'Pelican facts · Harness Relay', '-'];
+    expect(ghCalls(relay, 'gist')).toEqual([create]);
     const gist = fakeGist(relay, gistId);
     expect(gist.meta).toMatchObject({ description: 'Pelican facts · Harness Relay', public: false, files: ['index.html'] });
     // The page the browser made of the chat on screen: a page of its own, with the question and the
@@ -184,7 +187,7 @@ test.describe('sharing as a secret gist', () => {
     await row.getByRole('button', { name: 'Remove' }).click();
     await expect(card.getByText('Removed 1 shared page.')).toBeVisible();
     await expect(card.getByText('Nothing shared yet.')).toBeVisible();
-    expect(ghCalls(relay).at(-1)).toEqual(['gist', 'delete', gistId, '--yes']);
+    expect(ghCalls(relay, 'gist')).toEqual([create, ['gist', 'delete', gistId, '--yes']]);
     expect(existsSync(gist.dir)).toBe(false);
     expect(await relay.api('/api/shares')).toEqual([]);
     // Its link now says so.
@@ -220,7 +223,8 @@ test.describe('sharing as a secret gist', () => {
       // Not the help for a missing gh, and ready for another try.
       await expect(help).not.toContainText('brew install gh');
       await expect(dialog.getByRole('button', { name: 'Create link' })).toBeEnabled();
-      expect(ghCalls(relay)).toEqual([['gist', 'create', '--filename', 'index.html', '--desc', 'Not yet · Harness Relay', '-']]);
+      expect(ghCalls(relay, 'gist')).toEqual([['gist', 'create', '--filename', 'index.html', '--desc', 'Not yet · Harness Relay', '-']]);
+      expect(ghCalls(relay, 'auth')).toEqual([]);
       expect(await relay.api('/api/shares')).toEqual([]);
     });
 
@@ -244,14 +248,14 @@ test.describe('sharing as a secret gist', () => {
         'href',
         'https://github.com/login/device',
       );
-      expect(ghCalls(relay)).toContainEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
+      expect(ghCalls(relay, 'auth')).toContainEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
 
       // Approved on GitHub: gh is signed in, and the dialog makes the link by itself.
       writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
       const link = dialog.getByRole('textbox', { name: 'Public link' });
       await expect(link).toHaveValue(VIEWER_LINK);
       await expect(dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' })).toHaveCount(0);
-      expect(ghCalls(relay).filter((a) => a[0] === 'gist')).toEqual([
+      expect(ghCalls(relay, 'gist')).toEqual([
         ['gist', 'create', '--filename', 'index.html', '--desc', 'Signed in here · Harness Relay', '-'],
         ['gist', 'create', '--filename', 'index.html', '--desc', 'Signed in here · Harness Relay', '-'],
       ]);
@@ -322,7 +326,7 @@ test.describe('sharing as a secret gist', () => {
       help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
       await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
       await expect(help.getByRole('button', { name: 'Sign in to GitHub' })).toHaveCount(0);
-      expect(ghCalls(relay).filter((a) => a[0] === 'auth')).toHaveLength(1);
+      expect(ghCalls(relay, 'auth')).toHaveLength(1);
 
       // One request about it fails: the code stays, and it goes on asking.
       let failedOnce = false;
@@ -360,7 +364,7 @@ test.describe('sharing as a secret gist', () => {
       expect(await relay.api('/api/shares')).toEqual([]);
       await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
       await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
-      expect(ghCalls(relay).filter((a) => a[0] === 'auth')).toHaveLength(2);
+      expect(ghCalls(relay, 'auth')).toHaveLength(2);
       await help.getByRole('button', { name: 'Cancel' }).click();
       await expect(help.getByText('Cancelled')).toBeVisible();
     });
@@ -404,7 +408,7 @@ test.describe('sharing as a secret gist', () => {
       // Answers still on their way when it was signed in make no second link.
       await page.waitForTimeout(6000);
       expect(await relay.api('/api/shares')).toHaveLength(1);
-      expect(ghCalls(relay).filter((a) => a[0] === 'gist')).toHaveLength(2);
+      expect(ghCalls(relay, 'gist')).toHaveLength(2);
     });
   });
 

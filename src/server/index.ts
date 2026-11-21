@@ -24,12 +24,15 @@ import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { messagingTools } from './connectors/messaging';
+import { TeamsGraph } from './connectors/teams';
+import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
+import { agentFolderOptions, clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
@@ -48,6 +51,7 @@ import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
+import { commonAppDependencies } from './appDependencies';
 import { GitInstall } from './gitInstall';
 import { serveWebApp, webAppDir } from './web';
 import { NativeSetupService } from './native';
@@ -136,6 +140,7 @@ const orchestrator = new Orchestrator(
 
 // Harness Relay's own tools (browser, mail, calendar), which agents reach through one MCP server of
 // Harness Relay's (the gateway), and the outbox of what they asked to send.
+const teams = new TeamsGraph();
 const outbox = new Outbox(db);
 const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
 const browser = new BrowserService({
@@ -146,7 +151,19 @@ const browser = new BrowserService({
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
 });
-gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors, settings.oauth)]);
+gateway.register([
+  outboxTool((id) => outbox.list(id)),
+  ...browserTools(browser),
+  ...messagingTools(settings.slackPosting, teams),
+  ...connectorTools(settings.connectors, settings.oauth),
+  ...appTools(
+    settings.oauth,
+    () => settings.tools.obsidianVaults(),
+    () => agentFolderOptions(settings),
+    undefined,
+    teams,
+  ),
+]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
@@ -173,6 +190,7 @@ const idle = new IdleWatcher({
   watching: () => store.mailWatches(),
   check: (id, key) => scheduler.mailArrived(id, key),
 });
+settings.oauth.onClientAvailabilityChange = () => idle.sync();
 scheduler.listening = (id, trigger) => idle.live(id, trigger);
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
@@ -219,9 +237,11 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
+const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using));
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
 const app = createApp({
+  teams,
   auth,
   store,
   settings,
@@ -232,6 +252,7 @@ const app = createApp({
   clis,
   sandboxSetup,
   gitInstall,
+  appDependencies,
   agentsView,
   native,
   extraHosts,
@@ -359,7 +380,13 @@ async function shutdown(code = 0): Promise<void> {
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
-  const installsStopped = Promise.all([clis.shutdown(), sandboxSetup.shutdown(), gitInstall.shutdown()]);
+  const installsStopped = Promise.all([
+    clis.shutdown(),
+    sandboxSetup.shutdown(),
+    gitInstall.shutdown(),
+    appDependencies.shutdown(),
+    teams.shutdown(),
+  ]);
   // Let stopped runs write their final state while the database is still open.
   await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);
   // And give AgentsView the last turns (each request times out on its own).
@@ -375,4 +402,6 @@ process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
 // Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
-parent?.onBusy(() => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running());
+parent?.onBusy(
+  () => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running() + appDependencies.running() + teams.running(),
+);

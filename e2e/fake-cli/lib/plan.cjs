@@ -38,6 +38,7 @@ const DIRECTIVES = {
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
   progress:
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
+  mcpserver: 'choose the server for an e2e:mcp call; defaults to the Relay gateway',
   mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
 };
 
@@ -259,7 +260,7 @@ function plan(prompt, turn) {
     } catch {
       /* no arguments */
     }
-    steps.push({ type: 'mcp', server: 'relay', tool: d.mcp, args });
+    steps.push({ type: 'mcp', server: typeof d.mcpserver === 'string' ? d.mcpserver : 'relay', tool: d.mcp, args });
   }
   const content = `Written by ${me} (${self.label()}).\n`;
   if (typeof d.write === 'string') steps.push({ type: 'write', path: d.write, content });

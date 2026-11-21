@@ -3,7 +3,7 @@ import { openDatabase } from '../src/server/db';
 import type { GatewayTool } from '../src/server/gateway';
 import { Outbox } from '../src/server/outbox';
 import { Store } from '../src/server/store';
-import { withLang } from '../src/server/i18n';
+import { t, withLang } from '../src/server/i18n';
 import type { Conversation } from '../src/shared/types';
 
 /** A database with one conversation (`c1`), whose outbox items need it (foreign key). */
@@ -102,6 +102,29 @@ describe('the outbox', () => {
       release();
       await first;
     }));
+
+  it('keeps an interrupted Obsidian save as uncertain across restarts and refuses another send', async () => {
+    const { db } = setup();
+    const { item } = new Outbox(db).add(
+      {
+        ...base,
+        tool: 'obsidian_edit',
+        preview: { fields: [], note: { vault: '/notes', path: 'note.md', before: 'old', after: 'new' } },
+      },
+      {},
+    );
+    db.prepare("UPDATE outbox SET status='sending' WHERE id=?").run(item.id);
+    const restarted = new Outbox(db);
+    expect(restarted.interrupted).toEqual([expect.objectContaining({ id: item.id, status: 'failed', result: t().obsidianInterrupted })]);
+    const again = new Outbox(db);
+    expect(again.interrupted).toEqual([]);
+    await expect(
+      again.answer('c1', item.id, 'send', () => {
+        throw new Error('unexpected replay');
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    db.close();
+  });
 
   it('discards what waits for replies taken back, and only that', () =>
     withLang('en', () => {

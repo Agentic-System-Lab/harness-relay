@@ -15,6 +15,7 @@ import {
   type NodeBuild,
 } from './cliInstall';
 import { HttpError } from './errors';
+import { portableInstallEnv } from './portableInstall';
 import { isProgram } from './executable';
 import { t } from './i18n';
 import { runProcess, runShellScript, runSync } from './process';
@@ -112,6 +113,15 @@ const SYSTEM_DIRS = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin
 
 /** The PATH the administrator's script runs with: the system's folders only. */
 const ADMIN_PATH = SYSTEM_DIRS.join(':');
+
+// System helpers and package scripts receive the host settings needed for downloads and desktop authorization.
+function packageEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...portableInstallEnv(source), PATH: ADMIN_PATH, NO_COLOR: '1' } as NodeJS.ProcessEnv;
+  for (const key of ['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR', 'XDG_SESSION_TYPE']) {
+    if (source[key]) env[key] = source[key];
+  }
+  return env;
+}
 
 /** Whether programs may make user namespaces only when AppArmor lets them (Ubuntu 23.10 and later): `1`. */
 export const USERNS_RESTRICTION = '/proc/sys/kernel/apparmor_restrict_unprivileged_userns';
@@ -246,8 +256,12 @@ export class LinuxPackages {
     return undefined;
   }
 
+  private systemProgram(name: string): string | undefined {
+    return SYSTEM_DIRS.map((dir) => posix.join(dir, name)).find((path) => this.host.isProgram(path));
+  }
+
   packageManager(): PackageManager | undefined {
-    return PACKAGE_MANAGERS.find((m) => this.find(m.program))?.pm;
+    return PACKAGE_MANAGERS.find((m) => this.systemProgram(m.program))?.pm;
   }
 
   /**
@@ -256,7 +270,7 @@ export class LinuxPackages {
    */
   adminWay(): SandboxSetupView['admin'] {
     if (this.host.uid === 0) return 'root';
-    const sudo = this.find('sudo');
+    const sudo = this.systemProgram('sudo');
     if (sudo) {
       const at = Date.now();
       if (!this.sudoChecked || this.sudoChecked.sudo !== sudo || at - this.sudoChecked.at > SUDO_CHECK_MS) {
@@ -266,7 +280,7 @@ export class LinuxPackages {
     }
     const env = this.host.env;
     const desktop = Boolean(env.WAYLAND_DISPLAY || env.DISPLAY) || /^(x11|wayland)$/i.test(env.XDG_SESSION_TYPE ?? '');
-    return this.find('pkexec') && desktop ? 'pkexec' : undefined;
+    return this.systemProgram('pkexec') && desktop ? 'pkexec' : undefined;
   }
 
   /** Package managers own system-wide state. Git and sandbox setup wait for one another. */
@@ -285,7 +299,7 @@ export class LinuxPackages {
     if (!admin) throw new InstallError(() => t().sandboxSetupNoAdmin);
     const pm = this.packageManager();
     if (packages.some((p) => !PACKAGE_NAME.test(p))) throw new Error(`Not a package name: ${packages.join(' ')}`);
-    const base = installerEnv(this.host.env);
+    const base = packageEnvironment(this.host.env);
     const vars: Record<string, string> = {
       PATH: ADMIN_PATH,
       HARNESS_RELAY_PM: pm ?? '',
@@ -301,13 +315,19 @@ export class LinuxPackages {
     if (admin === 'pkexec') job.append('Asking for the administrator password: the desktop shows its prompt\n');
     try {
       if (admin === 'root') {
-        await runStep(this.host, job, shown, { bin: this.find('sh') ?? '/bin/sh', args: [], env: { ...base, ...vars } }, ADMIN_SCRIPT);
+        await runStep(
+          this.host,
+          job,
+          shown,
+          { bin: this.systemProgram('sh') ?? '/bin/sh', args: [], env: { ...base, ...vars } },
+          ADMIN_SCRIPT,
+        );
       } else {
         // sudo and pkexec give the script their own environment: `env` sets what it works on.
-        const via = this.find(admin)!;
+        const via = this.systemProgram(admin)!;
         const args = [
           ...(admin === 'sudo' ? ['-n'] : []),
-          this.find('env') ?? '/usr/bin/env',
+          this.systemProgram('env') ?? '/usr/bin/env',
           ...Object.entries(vars).map(([k, v]) => `${k}=${v}`),
           '/bin/sh',
           '-c',
@@ -356,7 +376,8 @@ export class SandboxSetup {
       list,
       run: runProcess,
       runScript: runShellScript,
-      sudoWorks: (sudo) => runSync(sudo, ['-n', 'true'], { timeoutMs: 5000, quiet: true }).status === 0,
+      sudoWorks: (sudo) =>
+        runSync(sudo, ['-n', '/bin/true'], { env: packageEnvironment(this.host.env), timeoutMs: 5000, quiet: true }).status === 0,
       pathNode: () => pathHostNode(this.host.env.PATH ?? ''),
       installedNode: () => sandboxNode(),
       nodeDir: sandboxNodeFolder(),

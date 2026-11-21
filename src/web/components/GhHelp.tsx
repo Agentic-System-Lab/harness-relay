@@ -31,7 +31,7 @@ function Link({ href, children }: { href: string; children: string }) {
  * code and the page to enter it on, without a terminal (a phone, a codespace, a server). Once GitHub
  * has it, `onSignedIn`, once (the share dialog creates its link again).
  */
-function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
+export function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   const t = useT();
   const g = t.share.gh;
   const [login, setLogin] = useState<CliLoginView | null>(null);

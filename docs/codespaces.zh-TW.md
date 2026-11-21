@@ -23,7 +23,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 codespace 會停在建立時的那一版，之後再按按鈕，它會讓你回到同一個（「**Resume this codespace**」）。要用較新的版本，就在那裡選「**Create a new one**」（再到 [github.com/codespaces](https://github.com/codespaces) 刪掉舊的）：新的 codespace 也會裝上較新的 dev container 要裝的東西。或者在舊的那個的終端機裡停止伺服器，執行 `git pull && npm ci && npm run build`，再啟動它。
 
-已安裝：Claude Code、Codex 和 Copilot 由 npm 安裝，Grok、Cursor、Antigravity 和 Muse Code 則用各家自己的安裝程式，它們會自己保持在最新版。開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）沒有預裝：想用哪個，就在「**設定與登入**」裡它的卡片上按 **安裝**（[從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)），再到「**設定 → 模型來源**」給它[模型來源](open-agents.zh-TW.md)。OpenHands 用 [uv](https://docs.astral.sh/uv/) 安裝，而 codespace 沒有 uv：Harness Relay 會先把 uv 裝進 OpenHands 的資料夾。也可以照[安裝 agent 的 CLI](user-guide.zh-TW.md#安裝-agent-的-cli) 在終端機安裝（那裡用 Homebrew 安裝 Goose，而 codespace 沒有 Homebrew）；這樣裝到 `~/.local/bin` 的 CLI，要從新開的終端機（它的 shell 會把那個資料夾放上 `PATH`）重新啟動伺服器後才找得到。
+已安裝：Claude Code、Codex 和 Copilot 由 npm 安裝，Grok、Cursor、Antigravity 和 Muse Code 則用各家自己的安裝程式，它們會自己保持在最新版。開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）沒有預裝：想用哪個，就在「**設定與登入**」裡它的卡片上按 **安裝**（[從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)），再到「**設定 → 模型連線**」給它[模型來源](open-agents.zh-TW.md)。OpenHands 用 [uv](https://docs.astral.sh/uv/) 安裝，而 codespace 沒有 uv：Harness Relay 會先把 uv 裝進 OpenHands 的資料夾。也可以照[安裝 agent 的 CLI](user-guide.zh-TW.md#安裝-agent-的-cli) 在終端機安裝（那裡用 Homebrew 安裝 Goose，而 codespace 沒有 Homebrew）；這樣裝到 `~/.local/bin` 的 CLI，要從新開的終端機（它的 shell 會把那個資料夾放上 `PATH`）重新啟動伺服器後才找得到。
 
 ## 在那裡有什麼不同
 
@@ -62,7 +62,7 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型連線**」裡設定的 key。
 
 ## 在你自己的電腦上
 

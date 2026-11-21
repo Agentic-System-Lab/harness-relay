@@ -41,11 +41,8 @@ export function nearbyAddress(address: string, own: readonly string[] = localAdd
   return isLocalHost(address, own) || isPrivateAddress(address);
 }
 
-/**
- * The addresses a request to `url` may go to, for a server that is not on this computer: its host's, each
- * on the internet (one on this computer or the local network refuses it all). Throws, saying why.
- */
-export async function checkedAddresses(url: URL, net: McpNet, own: readonly string[] = localAddresses()): Promise<string[]> {
+/** Resolve once, with a deadline, so the caller can check and pin the exact addresses used for its request. */
+export async function resolveAddresses(url: URL, net: McpNet): Promise<string[]> {
   const host = url.hostname.replace(/^\[|\]$/g, '');
   let addresses: string[];
   if (isIP(host)) addresses = [host];
@@ -63,6 +60,12 @@ export async function checkedAddresses(url: URL, net: McpNet, own: readonly stri
     }
   }
   if (!addresses.length) throw new Error(t().mcpUnresolved(url.host, ''));
+  return addresses;
+}
+
+/** The addresses a remote MCP server may contact: refuse the whole lookup if any address is nearby. */
+export async function checkedAddresses(url: URL, net: McpNet, own: readonly string[] = localAddresses()): Promise<string[]> {
+  const addresses = await resolveAddresses(url, net);
   if (addresses.some((a) => nearbyAddress(a, own))) throw new Error(t().mcpNearbyAddress(url.host));
   return addresses;
 }

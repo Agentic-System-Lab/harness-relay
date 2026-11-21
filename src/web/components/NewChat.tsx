@@ -9,6 +9,10 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
+import type { DraftApp } from '../../shared/apps';
+import { taskWithApps } from '../draftApps';
+import type { DraftAppStatus } from '../draftAppStatus';
+import { useDraftApps } from '../useDraftApps';
 import { startingChecks } from '../checks';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
@@ -73,6 +77,7 @@ export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: C
 
 /** Kept by the signed-in application while the user visits settings or another chat. */
 export interface NewChatDraft {
+  apps?: DraftApp[];
   files: PendingFile[];
   question: string;
   title: string;
@@ -81,6 +86,7 @@ export interface NewChatDraft {
 export const emptyChatDraft: NewChatDraft = { question: '', title: '', files: [] };
 
 interface Props {
+  appStatus: DraftAppStatus;
   draft: NewChatDraft;
   onDraft: (draft: NewChatDraft) => void;
   busy: boolean;
@@ -92,7 +98,7 @@ interface Props {
   onCreated: (c: Conversation) => void;
 }
 
-export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
+export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -100,6 +106,7 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   const [loadError, setLoadError] = useState('');
 
   const team = draft.team ?? defaults;
+  const appChoices = useDraftApps(appStatus, draft.apps ?? [], (apps) => onDraft({ ...draft, apps }), team?.settings.permission);
 
   useEffect(() => {
     let current = true;
@@ -126,8 +133,8 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
   const leadText = leadLabel(lead);
 
-  const firstMessage = draft.question.trim();
-  const canStart = Boolean(firstMessage) && !busy && problems.length === 0;
+  const firstMessage = taskWithApps(draft.question, draft.apps ?? [], t);
+  const canStart = Boolean(firstMessage) && !busy && !appChoices.checkingSelection && problems.length === 0;
   const start = async () => {
     if (!canStart) return;
     setBusy(true);
@@ -135,15 +142,17 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
     try {
       const attachments = await readUploads(draft.files, t.composer.readFailed);
       const conv = await orCreateCwd(
-        (createCwd) =>
-          api.createConversation({
+        async (createCwd) => {
+          await appChoices.verify();
+          return api.createConversation({
             title: draft.title,
             firstMessage,
             ...(attachments.length ? { attachments } : {}),
             agents: [],
             settings: team.settings,
             createCwd,
-          }),
+          });
+        },
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -175,7 +184,9 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, err
       </label>
       <TaskInput
         id="first-question"
+        placeholder={t.newChat.example}
         creation
+        apps={appChoices.selection}
         text={draft.question}
         onText={(question) => onDraft({ ...draft, question })}
         files={draft.files}

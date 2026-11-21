@@ -235,10 +235,36 @@
       <nav class="doc-toc" aria-label="本頁內容">
         <p class="doc-toc-title">本頁內容</p>
         <ol>
-          <li><a href="#download">下載 app</a></li>
-          <li><a href="#first-open">第一次打開</a></li>
+          <li>
+            <details>
+              <summary>下載 app</summary>
+              <ol>
+                <li><a href="#download" aria-label="下載 app概覽">概覽</a></li>
+                <li><a href="#use-codespaces">手邊沒有能安裝它的電腦？</a></li>
+              </ol>
+            </details>
+          </li>
+          <li>
+            <details>
+              <summary>第一次打開</summary>
+              <ol>
+                <li><a href="#first-open" aria-label="第一次打開概覽">概覽</a></li>
+                <li><a href="#language-and-appearance">介面語言、外觀與使用導覽</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#menu">視窗與選單</a></li>
-          <li><a href="#what-else">還需要什麼</a></li>
+          <li>
+            <details>
+              <summary>還需要什麼</summary>
+              <ol>
+                <li><a href="#what-else" aria-label="還需要什麼概覽">概覽</a></li>
+                <li><a href="#install-an-agent">至少一個 agent</a></li>
+                <li><a href="#install-git">Git，給可編輯與平行模式用</a></li>
+                <li><a href="#sandbox-requirements">沙箱需要的東西</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#updates">更新</a></li>
           <li><a href="#uninstall">解除安裝</a></li>
         </ol>
@@ -298,7 +324,7 @@
             </li>
             <li><b>Linux</b>：有桌面環境的 Linux，x64 或 64 位元 Arm。App 就是一個 AppImage 檔案。</li>
           </ul>
-          <h3>手邊沒有能安裝它的電腦？</h3>
+          <h3 id="use-codespaces">手邊沒有能安裝它的電腦？</h3>
           <p>
             可以在 GitHub Codespaces 試用：GitHub 雲端上一台屬於你的 Linux 機器，在瀏覽器裡就能用，已經裝好七個非開源的 agent 並啟動 Harness Relay。它用你的 GitHub
             帳號執行：免費的個人帳號每月大約包含 60 小時。請從<a href="../../#start">首頁的快速開始</a>進入，那裡會先說明要注意什麼，或閱讀<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">在 GitHub Codespaces 試用</a>。
@@ -337,7 +363,7 @@
             接著 Harness Relay 會在它自己的視窗打開對話，已經登入，不用輸入代碼。在 Mac 上，之後 agent 第一次在「文件」或「桌面」等資料夾工作，或你第一次使用語音輸入時，macOS
             會詢問 Harness Relay 能否這樣做。詢問裡寫的是這個 app 的名稱，因為 agent 在它裡面執行：請選<b>允許</b>。
           </p>
-          <h3>介面語言、外觀與使用導覽</h3>
+          <h3 id="language-and-appearance">介面語言、外觀與使用導覽</h3>
           <ul>
             <li>
               介面提供 <b>English</b> 與<b>繁體中文</b>。第一次會跟著瀏覽器的語言，之後可以在<b>設定與登入 → 介面語言</b>切換。App 自己的選單會跟著它視窗裡的介面語言。
@@ -406,7 +432,7 @@
 
         <section id="what-else" aria-labelledby="what-else-title">
           <h2 id="what-else-title">還需要什麼</h2>
-          <h3>至少一個 agent</h3>
+          <h3 id="install-an-agent">至少一個 agent</h3>
           <p>
             Harness Relay 使用你手上的 coding agent：七個要登入的（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code），或五個開源的（OpenCode、Goose、Cline、OpenHands
             與 Pi），任意組合都可以。有一個就能開始。怎麼登入各個 agent，見<a href="../agents/">連接你的 agent</a>。
@@ -415,12 +441,12 @@
             不必自己安裝。Harness Relay 找不到某個 agent 時，它在<b>設定與登入</b>的卡片會出現安裝按鈕。按一下就會把它裝進專屬的資料夾、只給 Harness Relay 用，一邊安裝一邊顯示安裝程式的輸出，並確認它能執行；按<b>移除</b>就會再拿掉。Claude
             Code、Codex 與 Copilot 即使電腦上沒有 Node.js 也能這樣安裝。如果你在 app 開著時自己在終端機裝了 agent，請在選單選<b>重新啟動伺服器…</b>，它才找得到。
           </p>
-          <h3>Git，給可編輯與平行模式用</h3>
+          <h3 id="install-git">Git，給可編輯與平行模式用</h3>
           <p>
             agent 可以修改檔案時，Harness Relay 用 <a href="https://git-scm.com/downloads">Git</a> 記錄每則回覆改了什麼，並在平行模式下給每個 agent 一份自己的副本。還沒有的話請安裝。你不需要會用
             Git：Harness Relay 絕不會 commit 到你的分支。
           </p>
-          <h3>沙箱需要的東西</h3>
+          <h3 id="sandbox-requirements">沙箱需要的東西</h3>
           <p>
             除非你給對話完全存取，大多數 agent 執行的指令都在系統的沙箱裡，只能寫入對話的資料夾。這台電腦缺少沙箱需要的東西時，按<b>新對話</b>會先跳出一個列出缺少項目的對話框。請選<b>安裝（強烈建議）</b>：在
             Linux 上它會詢問系統管理員密碼（或給你一行在終端機執行的指令），再安裝套件；按<b>先不要</b>則關掉它。同樣的清單與<b>安裝</b>按鈕，一直都在<b>設定與登入 → 沙箱</b>。在 Windows

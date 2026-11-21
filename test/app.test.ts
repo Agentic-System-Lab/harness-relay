@@ -110,6 +110,21 @@ const json = (method: string, body: unknown, headers: Record<string, string> = {
 });
 const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers: { ...HOST, ...headers } });
 
+it('validates common app picker queries and returns only non-cacheable readiness states', async () => {
+  expect((await get('/api/apps/availability?app=other')).status).toBe(400);
+  expect((await get('/api/apps/availability?app=local&permission=other')).status).toBe(400);
+  expect((await app.request('/api/apps/availability/slack/verify', json('POST', { permission: 'other' }))).status).toBe(400);
+  const result = await get('/api/apps/availability?app=local');
+  expect(result.status).toBe(200);
+  expect(result.headers.get('cache-control')).toBe('no-store');
+  expect(await result.json()).toMatchObject({
+    mail: 'needs-connection',
+    calendar: 'needs-connection',
+    teams: 'unavailable',
+    slack: 'unavailable',
+  });
+});
+
 async function createConversation(settings: Record<string, unknown> = {}): Promise<Conversation> {
   const res = await app.request(
     '/api/conversations',
@@ -121,6 +136,36 @@ async function createConversation(settings: Record<string, unknown> = {}): Promi
   expect(res.status).toBe(200);
   return (await res.json()) as Conversation;
 }
+
+describe('hosted account status', () => {
+  it('validates the service and provider account and requires an explicit boolean for a profile check', async () => {
+    const { HostedAppChecks } = await import('../src/server/connectors/hostedApps');
+    const probe = vi.spyOn(HostedAppChecks.prototype, 'check').mockResolvedValue('available');
+    try {
+      const post = (path: string, input: unknown) => app.request('/api/apps/' + path, json('POST', input));
+      expect(await (await post('slack/hosted/codex', {})).json()).toEqual({ status: 'available' });
+      expect(probe).toHaveBeenLastCalledWith('slack', 'codex', '', false);
+      expect((await post('slack/hosted/claude?account=default', { verify: true })).status).toBe(200);
+      expect(probe).toHaveBeenLastCalledWith('slack', 'claude', '', true);
+      expect((await post('slack/hosted/codex', { verify: 'true' })).status).toBe(400);
+      for (const path of [
+        'teams/hosted/codex',
+        'teams/hosted/claude',
+        'drive/hosted/codex',
+        'drive/hosted/claude',
+        'slack/hosted/codex?account=missing',
+        'unknown/hosted/codex',
+        'slack/hosted/grok',
+        'constructor/hosted/claude',
+      ]) {
+        expect((await post(path, {})).status).toBe(404);
+      }
+      expect(probe).toHaveBeenCalledTimes(2);
+    } finally {
+      probe.mockRestore();
+    }
+  });
+});
 
 describe('creating a chat with its first question', () => {
   const create = (firstMessage: unknown, attachments?: unknown) =>
@@ -2678,10 +2723,64 @@ describe('tool library', () => {
       { group: 'browser', providers: ['claude', 'codex'] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
+      ...['drive', 'obsidian', 'github', 'teams', 'slack'].map((group) => ({ group, providers: [] })),
     ]);
     expect(relay.gateway).toEqual({ available: false, reason: 'not-started' });
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
+  });
+
+  it('links complete Obsidian batches, deduplicates canonical paths and disconnects exactly one vault', async () => {
+    const first = join(project, 'work', 'Notes'),
+      second = join(project, 'home', 'Notes'),
+      inner = join(first, 'Nested');
+    for (const path of [first, second, inner]) mkdirSync(join(path, '.obsidian'), { recursive: true });
+    writeFileSync(join(first, 'Keep.md'), 'original');
+    const route = '/api/apps/obsidian';
+    const add = (paths: unknown) => app.request(route, json('POST', { paths }));
+    const view = async () => (await get('/api/tools')).json();
+    expect((await view()).obsidianVaults).toEqual([]);
+    for (const invalid of [[], null, first, [first, ''], [first, 23], [first, join(project, 'missing')], [inner, second, first]]) {
+      expect((await add(invalid)).status).toBe(400);
+      expect((await view()).obsidianVaults).toEqual([]);
+    }
+    const alias = join(project, 'vault-alias');
+    symlinkSync(first, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const firstResult = await (await add([first, first, alias])).json();
+    const old = firstResult.obsidianVaults[0];
+    expect(firstResult.obsidianVaults).toEqual([{ id: expect.any(String), path: realpathSync.native(first) }]);
+    expect(firstResult.obsidianVault).toBe(old.path);
+    expect((await add([second, inner])).status).toBe(400);
+    expect((await view()).obsidianVaults).toEqual([old]);
+    const both = await (await add([second, first])).json();
+    const latest = both.obsidianVaults[1];
+    expect(both.obsidianVaults).toEqual([old, { id: expect.any(String), path: realpathSync.native(second) }]);
+    expect(latest.id).not.toBe(old.id);
+    expect(both.obsidianVault).toBeUndefined();
+    for (const path of ['', first]) expect((await app.request(route, json('PUT', { path }))).status).toBe(409);
+    expect((await app.request(route + '/unknown', json('DELETE', {}))).status).toBe(404);
+    expect((await view()).obsidianVaults).toEqual(both.obsidianVaults);
+    const remaining = await (await app.request(route + '/' + old.id, json('DELETE', {}))).json();
+    expect(remaining.obsidianVaults).toEqual([latest]);
+    expect(remaining.obsidianVault).toBe(latest.path);
+    expect(readFileSync(join(first, 'Keep.md'), 'utf8')).toBe('original');
+    const readded = (await (await add([first])).json()).obsidianVaults;
+    expect(readded[0]).toEqual(latest);
+    expect(readded[1].path).toBe(old.path);
+    expect(readded[1].id).not.toBe(old.id);
+  });
+
+  it('links only an existing Obsidian vault and forgets it without deleting notes', async () => {
+    const path = join(project, 'notes');
+    mkdirSync(path, { recursive: true });
+    expect((await app.request('/api/apps/obsidian', json('PUT', { path }))).status).toBe(400);
+    mkdirSync(join(path, '.obsidian'));
+    writeFileSync(join(path, 'Note.md'), 'A note');
+    expect((await (await app.request('/api/apps/obsidian', json('PUT', { path }))).json()).obsidianVault).toBe(realpathSync.native(path));
+    expect((await (await get('/api/tools')).json()).obsidianVault).toBe(realpathSync.native(path));
+    expect((await (await app.request('/api/apps/obsidian', json('PUT', { path: '' }))).json()).obsidianVault).toBeUndefined();
+    expect(readFileSync(join(path, 'Note.md'), 'utf8')).toBe('A note');
+    expect((await app.request('/api/apps/other/signin', json('POST', {}))).status).toBe(404);
   });
 
   it('lists the skills under a folder without adding them', async () => {
@@ -3957,6 +4056,83 @@ describe('sharing conversations', () => {
     });
   }
 
+  it('opens, observes and cancels a Teams device sign-in without a publisher registration', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    let state: import('../src/shared/types').TeamsConnection = { status: 'missing-module' };
+    const teams = {
+      status: async () => state,
+      install: async () => (state = { status: 'installing' }),
+      connect: async () => (state = { status: 'signing-in', code: 'ABC123' }),
+      connectPosting: async () => (state = { status: 'connected', account: 'sender', posting: { status: 'signing-in' } }),
+      disconnectPosting: () => {
+        state = { status: 'connected', account: 'sender' };
+      },
+      disconnect: () => {
+        state = { status: 'signed-out' };
+      },
+    };
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), teams });
+    const request = async (path = '', method = 'GET') => {
+      const res = await own.request('/api/apps/teams' + path, {
+        method,
+        headers: { ...HOST, 'content-type': 'application/json' },
+        body: method === 'POST' ? '{}' : undefined,
+      });
+      expect(res.status).toBe(200);
+      return res.json();
+    };
+    expect(await request()).toEqual({ status: 'missing-module' });
+    expect(await request('/install', 'POST')).toEqual({ status: 'installing' });
+    expect(await request('/signin', 'POST')).toEqual({ status: 'signing-in', code: 'ABC123' });
+    expect(await request()).toEqual({ status: 'signing-in', code: 'ABC123' });
+    state = { status: 'connected', account: 'sender' };
+    expect(await request('/posting', 'POST')).toEqual({ status: 'connected', account: 'sender', posting: { status: 'signing-in' } });
+    expect(await request('/posting', 'DELETE')).toEqual({ status: 'connected', account: 'sender' });
+    expect(await request('/signin', 'DELETE')).toEqual({ status: 'signed-out' });
+  });
+  it('installs only the requested common-app prerequisite through an explicit authenticated write', async () => {
+    const { AppDependencies } = await import('../src/server/appDependencies');
+    const installed = new Set<string>();
+    const dep = (name: string) => ({
+      available: () => installed.has(name),
+      plan: () => ({
+        install: async () => {
+          installed.add(name);
+        },
+      }),
+    });
+    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser') });
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      appDependencies,
+    });
+    for (const name of ['github', 'browser']) {
+      const path = '/api/apps/' + name + '/install';
+      expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: false, canInstall: true });
+      expect(installed.has(name)).toBe(false);
+      const bad = await own.request(path, { method: 'POST', headers: { ...HOST, origin: 'https://unrelated.example' } });
+      expect(bad.ok).toBe(false);
+      expect(installed.has(name)).toBe(false);
+      const accepted = await own.request(path, { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' }, body: '{}' });
+      expect(accepted.ok).toBe(true);
+      expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: true, job: { state: 'success' } });
+    }
+    expect(
+      (
+        await own.request('/api/apps/arbitrary/install', {
+          method: 'POST',
+          headers: { ...HOST, 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
+  });
   it("runs gh's own sign-in for sharing when the dialog asks, shows it, and stops it", async () => {
     const view = (state: CliLoginView['state']): CliLoginView => ({
       id: 'l1',

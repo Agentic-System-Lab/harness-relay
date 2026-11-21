@@ -242,7 +242,16 @@
           <li><a href="#templates">Templates</a></li>
           <li><a href="#members">Team members</a></li>
           <li><a href="#modes">The three modes</a></li>
-          <li><a href="#checks">Team checks</a></li>
+          <li>
+            <details>
+              <summary>Team checks</summary>
+              <ol>
+                <li><a href="#checks" aria-label="Team checks overview">Overview</a></li>
+                <li><a href="#configure-checks">Configure checks and hooks</a></li>
+                <li><a href="#review-check-results">Review check results</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#change-the-team">Change the team mid-chat</a></li>
           <li><a href="#writing-roles">Writing good roles</a></li>
         </ol>
@@ -437,6 +446,7 @@
             Team checks give the whole team one set of rules in <b>Edit</b> and <b>Full access</b> chats. Harness Relay
             checks the files on disk and the commits, and runs the commands itself. In <b>Team settings</b>, open <b>Advanced settings</b> to edit the rules. In <b>New chat</b> or <b>New automation</b>, open <b>Workspace and chat settings</b> first. In a template, open <b>Team checks</b>.
           </p>
+          <h3 id="configure-checks">Configure checks and hooks</h3>
           <dl class="doc-terms">
             <dt>Protected paths</dt>
             <dd>
@@ -465,6 +475,7 @@
               Claude Code, Codex, Copilot, Muse Code and Pi. The reply records when a member runs without team hooks.
             </dd>
           </dl>
+          <h3 id="review-check-results">Review check results</h3>
           <p>
             The agents are told the rules from the start. In a chat that can change files, a <b>Team checks</b> card after
             the replies says how each rule went: <b>Passed</b>, <b>Failed</b> (with the files or commits, and whose turn it
@@ -487,7 +498,7 @@
             <a href="../permissions/#changes">Reviewing and applying changes</a>
           </p>
           <p>
-            In <b>Settings → Tool library</b>, <b>Hooks</b> and <b>Default team checks</b> hold the rules every new chat and automation starts with.
+            In <b>Settings → Apps and tools → Tool library</b>, <b>Hooks</b> and <b>Default team checks</b> hold the rules every new chat and automation starts with.
             When an automation runs with nobody watching, a failure is that run's result, and nothing waits for you.
           </p>
           <div class="doc-note">

@@ -1,7 +1,13 @@
+import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
 import type {
   AboutInfo,
+  AppDependency,
+  AppDependencyView,
+  HostedApp,
+  HostedProvider,
+  HostedAppStatus,
   AccountUsage,
   AlertPrefs,
   ApiBackend,
@@ -431,14 +437,22 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
   saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
+  addDiscoveredCalendar: (b: CalendarAccountUpdate) => request<ConnectorsView>('POST', '/api/connectors/calendar', b),
   saveCalendarAccount: (id: string, b: CalendarAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/calendar/${id}`, b),
   deleteConnector: (kind: 'mail' | 'calendar', id: string) => request<ConnectorsView>('DELETE', `/api/connectors/${kind}/${id}`),
   testConnector: (kind: 'mail' | 'calendar', id: string) =>
     request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
-  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
-    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
+  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }, signal?: AbortSignal) =>
+    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>(
+      'POST',
+      '/api/connectors/calendar/discover',
+      b,
+      signal,
+    ),
   /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
   oauth: () => request<OAuthView>('GET', '/api/oauth'),
+  setOAuthClientDisabled: (provider: OAuthProviderId, disabled: boolean) =>
+    request<OAuthView>('PATCH', `/api/oauth/clients/${provider}`, { disabled }),
   saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
   /** A sign-in for its uses: the provider's page sends the browser back to this page's own origin when it is on this computer. */
   /** `account`: the account signing in again, or for another use (its uses are asked for too, its address is the page's hint). */
@@ -467,6 +481,7 @@ export const api = {
     request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),
   /** An account's mail account, for the mail tools (it must have signed in for mail). */
   addOAuthMail: (id: string) => request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/mail`, {}),
+  removeOAuthDrive: (id: string) => request<OAuthView>('DELETE', `/api/oauth/accounts/${id}/drive`),
   removeOAuthAccount: (id: string) =>
     request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
@@ -526,6 +541,34 @@ export const api = {
   // Tool library
   tools: () => request<ToolLibraryView>('GET', '/api/tools'),
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
+  startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
+    request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
+  addObsidianVaults: (paths: string[]) => request<ToolLibraryView>('POST', '/api/apps/obsidian', { paths }),
+  removeObsidianVault: (id: string) => request<ToolLibraryView>('DELETE', '/api/apps/obsidian/' + encodeURIComponent(id)),
+  hostedAppStatus: (app: HostedApp, provider: HostedProvider, account: string, verify = false) =>
+    request<{ status: HostedAppStatus }>('POST', '/api/apps/' + app + '/hosted/' + provider + accountQuery(account), { verify }),
+  slackPosting: () => request<import('../shared/types').SlackPostingConnection>('GET', '/api/apps/slack/posting'),
+  connectSlackPosting: (token: string) =>
+    request<import('../shared/types').SlackPostingConnection>('PUT', '/api/apps/slack/posting', { token }),
+  disconnectSlackPosting: () => request<import('../shared/types').SlackPostingConnection>('DELETE', '/api/apps/slack/posting'),
+  teamsPosting: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/posting'),
+  disconnectTeamsPosting: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/posting'),
+  teamsStatus: () => request<import('../shared/types').TeamsConnection>('GET', '/api/apps/teams'),
+  teamsInstall: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/install'),
+  teamsConnect: () => request<import('../shared/types').TeamsConnection>('POST', '/api/apps/teams/signin'),
+  teamsDisconnect: () => request<import('../shared/types').TeamsConnection>('DELETE', '/api/apps/teams/signin'),
+  githubSignOut: (login: string) => request<{ ok: true }>('POST', '/api/apps/github/signout', { login }),
+  verifyDraftSlack: (permission: Permission, signal?: AbortSignal) =>
+    request<DraftAppAvailability>('POST', '/api/apps/availability/slack/verify', { permission }, signal),
+  draftAppAvailability: (signal?: AbortSignal, permission: Permission = 'read-only', app?: DraftApp | 'local') => {
+    const query = new URLSearchParams({ permission });
+    if (app) query.set('app', app);
+    return request<DraftAppAvailability>('GET', '/api/apps/availability?' + query, undefined, signal);
+  },
+  appDependency: (name: AppDependency, signal?: AbortSignal) =>
+    request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
+  installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),
+  githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
   /** An HTTP server's own sign-in, followed as an account's is (`oauthSignIn`, `pasteOAuthAddress`, `cancelOAuthSignIn`). */
@@ -552,9 +595,11 @@ export const api = {
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  endpointModels: (b: { baseUrl: string; endpointId?: string; apiKey?: string | null }, signal?: AbortSignal) =>
+    request<{ models: string[] }>('POST', '/api/backends/endpoint-models', b, signal),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),
   saveEndpoint: (id: string, b: ModelEndpointUpdate) =>
-    request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
+    request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, { ...b, verifyModels: true }),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
   updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault'>) => request<CheckList>('PATCH', '/api/settings/checks-default', patch),

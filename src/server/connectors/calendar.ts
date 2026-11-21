@@ -24,7 +24,7 @@ export interface CalendarOAuth {
   /** Its provider's API for calendars, and a fetch with the account's token (only to its hosts). */
   via(oauthAccount: string): { api: 'graph' | 'caldav'; fetch: AuthorizedFetch };
   /** Why the account cannot be used now (it needs signing in again, or is gone); undefined when it can. */
-  problem(oauthAccount: string): string | undefined;
+  problem(oauthAccount: string, use?: 'calendar'): string | undefined;
 }
 
 function caldav(url: string, auth: CalDavAuth): CalendarBackend {
@@ -41,7 +41,7 @@ function caldav(url: string, auth: CalDavAuth): CalendarBackend {
 export function calendarBackend(account: Omit<CalendarAccountView, 'password'>, password: string, oauth?: CalendarOAuth): CalendarBackend {
   if (!account.oauth) return caldav(account.url, { username: account.username, password });
   if (!oauth) throw new Error(`The calendar "${account.name}" signs in with OAuth, which is not set up here`);
-  const problem = oauth.problem(account.oauth);
+  const problem = oauth.problem(account.oauth, 'calendar');
   if (problem) throw new Error(problem);
   const { api, fetch } = oauth.via(account.oauth);
   if (api === 'caldav') return caldav(account.url, { fetch });

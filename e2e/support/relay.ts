@@ -19,6 +19,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -85,8 +86,8 @@ export interface FakeLogEntry {
 
 /**
  * The test's fake model endpoint, a small HTTP server of its own: Harness Relay's endpoint `e2e`
- * (Settings → Model backends) with its models, unless the test asks for none (`openBackend: false`).
- * No model answers there: it lists its models (`GET /v1/models`), and takes the log lines of fakes
+ * (Settings → Model connections) with its models, unless the test asks for none (`openBackend: false`).
+ * It lists two models (`GET /v1/models`), serves one more by ID, and takes the log lines of fakes
  * that run in Harness Relay's own sandbox (`POST /e2e-log`), the run's backend being the one host
  * the sandbox lets a run reach.
  */
@@ -95,8 +96,10 @@ export interface FakeEndpoint {
   url: string;
   /** The endpoint's id in Harness Relay, its models' prefix (`e2e/e2e-model`). */
   id: 'e2e';
-  /** Its models, the first the open agents' default. */
+  /** Its listed models, the first the open agents' default. */
   models: string[];
+  /** A model the endpoint serves by ID but omits from its list. */
+  unlistedModel: string;
 }
 
 export interface RelayServer {
@@ -185,6 +188,7 @@ function testRootBase(): string {
 
 /** The fake endpoint's models (`FakeEndpoint`). */
 const FAKE_MODELS = ['e2e-model', 'e2e-model-mini'];
+const UNLISTED_MODEL = 'unlisted-model';
 
 /** Starts the fake endpoint, which adds the log lines it is sent to `log`. */
 async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint; logUrl: string; close(): Promise<void> }> {
@@ -210,6 +214,10 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
       const data = FAKE_MODELS.map((id) => ({ id, object: 'model', created: 0, owned_by: 'e2e' }));
       return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ object: 'list', data }));
     }
+    if (req.method === 'GET' && path.startsWith('/v1/models/')) {
+      const id = [...FAKE_MODELS, UNLISTED_MODEL].find((model) => path === '/v1/models/' + encodeURIComponent(model));
+      if (id) return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id, object: 'model' }));
+    }
     res.writeHead(404).end();
   });
   await new Promise<void>((resolve, reject) => {
@@ -218,7 +226,7 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
   });
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
-    endpoint: { url: `${origin}/v1`, id: 'e2e', models: [...FAKE_MODELS] },
+    endpoint: { url: `${origin}/v1`, id: 'e2e', models: [...FAKE_MODELS], unlistedModel: UNLISTED_MODEL },
     logUrl: `${origin}/e2e-log`,
     close: () =>
       new Promise<void>((resolve) => {
@@ -234,7 +242,12 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!o.live) {
     // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
     const exe = process.platform === 'win32' ? '.exe' : '';
-    const wanted = [...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin), `gh${exe}`, `npm${exe}`];
+    const wanted = [
+      ...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin),
+      `gh${exe}`,
+      `npm${exe}`,
+      join('powershell', `pwsh${exe}`),
+    ];
     const missing = wanted.map((name) => join(o.fakeBinDir, name)).filter((bin) => !existsSync(bin));
     if (missing.length) throw new Error(`The fake CLIs are missing (${missing.join(', ')}): run the tests again to build them.`);
     // In use as long as servers start with it, so that a run of a changed script leaves it alone.
@@ -265,6 +278,11 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     ...Object.values(xdg),
   ])
     mkdirSync(d, { recursive: true });
+  // Teams omits node_modules from PATH. A link outside the cache exposes only the fake pwsh,
+  // even when Windows keeps its large test executables and temporary folders on different drives.
+  const pwshDir = join(root, 'bin');
+  if (!o.live)
+    symlinkSync(realpathSync.native(join(o.fakeBinDir, 'powershell')), pwshDir, process.platform === 'win32' ? 'junction' : 'dir');
   seedProject(workDir);
   const fake = await startFakeEndpoint(fakeLog);
 
@@ -328,7 +346,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     // Where a fake in Harness Relay's own sandbox sends its log lines (lib/log.cjs).
     E2E_FAKE_LOG_URL: fake.logUrl,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
-    PATH: [...(o.live ? [] : [o.fakeBinDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
+    PATH: [...(o.live ? [] : [o.fakeBinDir, pwshDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
     NO_COLOR: '1',
     ...o.env,
   });

@@ -238,9 +238,26 @@
         <ol>
           <li><a href="#share">分享到手機</a></li>
           <li><a href="#sign-in">讓手機登入</a></li>
-          <li><a href="#home-screen">加到主畫面</a></li>
+          <li>
+            <details>
+              <summary>加到主畫面</summary>
+              <ol>
+                <li><a href="#home-screen" aria-label="加到主畫面概覽">概覽</a></li>
+                <li><a href="#iphone-and-ipad">iPhone 與 iPad</a></li>
+                <li><a href="#android">Android</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#notifications">手機上的通知</a></li>
-          <li><a href="#keep-running">讓它一直連得到</a></li>
+          <li>
+            <details>
+              <summary>讓它一直連得到</summary>
+              <ol>
+                <li><a href="#keep-running" aria-label="讓它一直連得到概覽">概覽</a></li>
+                <li><a href="#keep-running-from-source">不用桌面 app 時</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#security">誰連得到它</a></li>
         </ol>
       </nav>
@@ -285,13 +302,13 @@
         <section id="home-screen" aria-labelledby="home-screen-title">
           <h2 id="home-screen-title">加到主畫面</h2>
           <p>把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就會像 App 一樣全螢幕打開對話。手機的 Tailscale 要開著、而且連得到那台電腦，圖示才能用。</p>
-          <h3>iPhone 與 iPad</h3>
+          <h3 id="iphone-and-ipad">iPhone 與 iPad</h3>
           <ol class="doc-steps">
             <li>用 Safari 打開網址。</li>
             <li>點<b>分享</b>（看不到的話，先點有三個點的按鈕），再點<b>加入主畫面</b>。</li>
             <li>如果有<b>以網頁 App 開啟</b>，保持開啟，然後點<b>加入</b>。</li>
           </ol>
-          <h3>Android</h3>
+          <h3 id="android">Android</h3>
           <ol class="doc-steps">
             <li>用 Chrome 打開網址。</li>
             <li>點右上角的選單按鈕（三個點），再點<b>安裝應用程式</b>（有些版本叫<b>加到主畫面</b>或<b>安裝並建立捷徑</b>）。</li>
@@ -319,7 +336,7 @@
           <p>
             只有電腦醒著、Harness Relay 在執行時，手機才連得到它。在 app 的選單開啟<b>登入時自動啟動</b>，重新開機後它就會再啟動；再開啟<b>執行時不讓電腦睡著</b>。MacBook 闔上螢幕時仍會睡著。
           </p>
-          <h3>不用桌面 app 時</h3>
+          <h3 id="keep-running-from-source">不用桌面 app 時</h3>
           <p>
             如果你從原始碼執行 Harness Relay，或在沒有桌面的伺服器上執行，就要自己用 <code>tailscale serve</code> 分享，再用那個網址的名稱啟動 Harness Relay。
             <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">GitHub 上的手機連線說明</a>有這些指令，以及怎麼讓它在 Mac 或 Linux 伺服器上一直執行。

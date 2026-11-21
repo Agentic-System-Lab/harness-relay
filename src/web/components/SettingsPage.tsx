@@ -45,6 +45,7 @@ import {
   revealLink,
   scrollToSection,
   sectionId,
+  settingsCard,
   hashFor,
   settingsHref,
   type SettingsSection,
@@ -132,6 +133,11 @@ export function SettingsPage({
   onInstallUpdate,
 }: Props) {
   const { t, lang, setLang } = useI18n();
+  const [lastToolsTab, setLastToolsTab] = useState<'apps' | 'tools'>('apps');
+  const requestedTab = section === 'tools' || section === 'apps' ? section : undefined;
+  useEffect(() => {
+    if (requestedTab) setLastToolsTab(requestedTab);
+  }, [requestedTab]);
   /** A language chosen whose words could not be loaded. */
   const [langFailed, setLangFailed] = useState<Lang | null>(null);
   const returnText = settingsReturn?.page === 'new' ? t.newChat : t.newSchedule;
@@ -155,7 +161,7 @@ export function SettingsPage({
   // as its offset changes, until the reader takes over scrolling or follows a different link.
   const loaded = settings !== null;
   useEffect(() => {
-    if (!section || !loaded) return;
+    if (!section || section === 'agents' || !loaded) return;
     const card = document.getElementById(sectionId(section));
     const layout = card?.closest('.page-inner');
     if (!card || !layout) return;
@@ -235,7 +241,7 @@ export function SettingsPage({
           </div>
         </header>
 
-        {section !== 'lead' && section !== 'tools' && draftLink}
+        {section !== 'lead' && section !== 'apps' && section !== 'tools' && draftLink}
         <SettingsNav section={section} />
 
         <AssistantOverview providers={providers} installs={installs.views} />
@@ -338,7 +344,12 @@ export function SettingsPage({
           />
         )}
 
-        <ToolsCard settings={settings} draftLink={section === 'tools' ? draftLink : undefined} />
+        <ToolsCard
+          activeApps={section === 'apps'}
+          settings={settings}
+          tab={requestedTab ?? lastToolsTab}
+          draftLink={section === 'tools' || section === 'apps' ? draftLink : undefined}
+        />
 
         <VoiceCard />
 
@@ -538,7 +549,7 @@ function LeadCard({
       />
       {status && accountState(status, lead.account) !== 'ok' && (
         <p className="warn-line">
-          {/* Not installed: its card (the executable path). An open agent without a backend: Model backends. Else: sign in. */}
+          {/* Not installed: its card (the executable path). An open agent without a backend: API Key. Else: sign in. */}
           {!status.installed ? (
             <>
               {t.settings.leadNotInstalled(PROVIDER_LABEL[lead.provider])}{' '}
@@ -1235,7 +1246,7 @@ function OpenAgentCard({
               t.settings.cliDefault(catalog?.cliDefaultEffort ? t.effortLabel(catalog.cliDefaultEffort) : t.settings.unknown)
             }
           />
-          <label className="field inline">
+          <label className="field">
             <span>{t.settings.bin}</span>
             <input value={bin} placeholder={provider} onChange={(e) => setBin(e.target.value)} spellCheck={false} />
           </label>
@@ -1395,7 +1406,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     setActive(s);
   };
   useEffect(() => {
-    if (section) pick(section);
+    if (section) pick(settingsCard(section));
   }, [section]);
   useEffect(() => {
     const scroller = marker.current?.closest<HTMLElement>('.scroll');
@@ -1500,6 +1511,22 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   const menuId = useId();
   const agentsButton = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback((refocus: boolean) => {
+    setMenuOpen(false);
+    if (refocus) agentsButton.current?.focus({ preventScroll: true });
+  }, []);
+  // The Tool library links to the same picker as the navigation. A bookmarked link
+  // or a return with Back opens it with the keyboard focus on a choice.
+  useLayoutEffect(() => {
+    if (section === 'agents') {
+      agentsButton.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      focusOnOpen.current = 'first';
+      setMenuOpen(true);
+    } else if (section && isAgentSection(section) && menu.current) {
+      // Close when the chosen card becomes current. A quick Back can already be opening the picker again.
+      closeMenu(true);
+    }
+  }, [section, closeMenu]);
   const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   /** Focuses an item, scrolling the menu (and only it) just far enough to show it. */
   const focusItem = (item: HTMLElement | undefined) => {
@@ -1515,10 +1542,6 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     focusOnOpen.current = focus;
     setMenuOpen(true);
   };
-  const closeMenu = useCallback((refocus: boolean) => {
-    setMenuOpen(false);
-    if (refocus) agentsButton.current?.focus({ preventScroll: true });
-  }, []);
   useLayoutEffect(() => {
     if (!menuOpen) return setMenuAt(undefined);
     const place = () => {
@@ -1631,8 +1654,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
       onClick={() => {
         pick(p);
         scrollToSection(p);
-        // Closed once the link is followed: the item stays in the page until the browser has.
-        window.setTimeout(() => closeMenu(true));
+        if (section === p) closeMenu(true);
       }}
     >
       <i style={{ background: PROVIDER_COLOR[p] }} aria-hidden="true" />

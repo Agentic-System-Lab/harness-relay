@@ -32,6 +32,7 @@ import { transaction, type Database } from './db';
 import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
+import { SlackPosting } from './connectors/slack';
 import { ConnectorStore } from './connectors/accounts';
 import { McpOAuth } from './oauth/mcp';
 import { OAuthService } from './oauth/service';
@@ -279,6 +280,7 @@ export class SettingsStore {
   readonly tools: ToolLibrary;
   /** The mail accounts and calendars Harness Relay's mail and calendar tools use. */
   readonly connectors: ConnectorStore;
+  readonly slackPosting: SlackPosting;
   /** Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far. */
   readonly oauth: OAuthService;
   /** The tool library HTTP MCP servers' own sign-ins (MCP's authorization), through the same sign-ins. */
@@ -290,6 +292,7 @@ export class SettingsStore {
     private db: Database,
     private keyring?: SecretStore,
   ) {
+    this.slackPosting = new SlackPosting(keyring);
     const empty = (): ProviderSettings => ({
       bin: '',
       apiKey: '',

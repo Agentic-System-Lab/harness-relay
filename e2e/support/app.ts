@@ -38,6 +38,16 @@ export async function countPages(page: Page): Promise<() => Promise<number>> {
 /** The home page (#/), where the app opens: the logo and its tagline. Shows once the browser is signed in. */
 export const homePage = (page: Page) => page.getByRole('heading', { name: 'From now on, let your agent team work for you' });
 
+/** Opens a category on the Tool library settings card, including after a reload. */
+export async function openToolCategory(page: Page, name: string): Promise<Locator> {
+  const category = page.locator('#settings-tools .library-category').and(page.getByRole('group', { name, exact: true }));
+  await expect(category).toBeVisible();
+  if (!(await category.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await category.locator(':scope > summary').click();
+  }
+  return category;
+}
+
 /** Opens the New chat page from the sidebar. */
 export async function openNewChat(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'New chat' }).first().click();

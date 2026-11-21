@@ -63,7 +63,7 @@ Run `npm run build` before `npm test`: the tests read dist/web.
 - briefing 的 `# Memory` 段落依序放：給所有人的、給這個專案的、給這個 CLI 的。
 - agent 可以像其他部分一樣把它關掉：`AgentConfig.tools` 裡的例外鍵 `memory:project`。
 - 存在新資料表 `project_memory`（主鍵 `root`、`text`、`updated_at`），而不是 `tool_library` 的 JSON，因為專案數量會一直增加。
-- 設定 → 工具 → 記憶加上專案清單：有記憶的專案，加上預設工作目錄。對話標題列有連結可以打開該專案的記憶。
+- 設定 → App 與工具 → 工具庫 → 記憶加上專案清單：有記憶的專案，加上預設工作目錄。對話標題列有連結可以打開該專案的記憶。
 
 ### 3. 大小
 

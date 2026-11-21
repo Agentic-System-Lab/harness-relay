@@ -172,7 +172,7 @@ export function VoiceCard() {
       <details className="sub">
         <summary>{t.voice.advanced}</summary>
         <div className="sub-body">
-          <label className="field inline">
+          <label className="field">
             <span>{t.voice.bin}</span>
             <input value={bin} placeholder="whisper-server" onChange={(e) => setBin(e.target.value)} spellCheck={false} />
           </label>

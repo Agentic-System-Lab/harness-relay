@@ -91,17 +91,19 @@ function eventLine(e: CalendarEvent): string {
 
 export function connectorTools(store: ConnectorStore, oauth?: ConnectorOAuth): GatewayTool[] {
   const noMail = () => {
-    if (!store.hasMail()) return 'no mail account is set up (Settings → Tool library → Mail and calendar)';
+    if (!store.hasMail()) return 'no mail account is set up (Settings → Apps and tools → Common apps → Mail)';
     // Every mail account is reached through a sign-in that needs renewing: none can be used until the user signs in again.
-    const problems = store.mailAccounts().map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth) : t().oauthNotHere(m.name)) : undefined));
+    const problems = store
+      .mailAccounts()
+      .map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth, 'mail') : t().oauthNotHere(m.name)) : undefined));
     return problems.every(Boolean) ? problems[0] : undefined;
   };
   const noCalendar = () => {
-    if (!store.hasCalendar()) return 'no calendar is set up (Settings → Tool library → Mail and calendar)';
+    if (!store.hasCalendar()) return 'no calendar is set up (Settings → Apps and tools → Common apps → Calendar)';
     // Every calendar is reached through a sign-in that needs renewing: none can be used until the user signs in again.
     const problems = store
       .calendarAccounts()
-      .map((c) => (c.oauth ? (oauth ? oauth.problem(c.oauth) : t().oauthNotHere(c.name)) : undefined));
+      .map((c) => (c.oauth ? (oauth ? oauth.problem(c.oauth, 'calendar') : t().oauthNotHere(c.name)) : undefined));
     return problems.every(Boolean) ? problems[0] : undefined;
   };
   const mailbox = (which: unknown) => {

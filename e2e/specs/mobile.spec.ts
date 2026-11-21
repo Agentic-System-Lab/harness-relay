@@ -764,7 +764,7 @@ test.describe('on a phone', () => {
         await when.selectOption(kind);
         if (kind === 'interval') {
           // The interval's unit is only "hours", next to its box; its hint, a line of its own, still describes the box.
-          await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(s.hoursUnit);
+          await expect(page.locator('.schedule-form .field-with-unit .unit')).toHaveText(s.hoursUnit);
           await expect(page.locator('.schedule-form input[type="number"]')).toHaveAccessibleDescription(s.intervalHint);
         }
         for (const width of widthsOf[lang]) {

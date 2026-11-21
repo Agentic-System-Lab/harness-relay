@@ -5,13 +5,29 @@
 
 import {
   OAUTH_USES,
+  MAIL_CALENDAR_USES,
   type McpOAuthState,
   type OAuthAccountView,
+  type OAuthClientView,
   type OAuthProviderId,
   type OAuthSignInView,
   type OAuthUse,
 } from '../shared/types';
 import type { Messages } from './i18n';
+
+/** Google desktop token exchanges need the client secret. Microsoft desktop clients use PKCE without one. */
+export function oauthClientStatus(client: OAuthClientView | undefined): 'disabled' | 'ready' | 'missing' {
+  if (client?.disabled) return 'disabled';
+  return client?.clientId && (client.provider === 'microsoft' || client.secret) ? 'ready' : 'missing';
+}
+
+/** The services this shared sign-in will disconnect, in the order shown by the provider's account view. */
+export function accountServices(account: Pick<OAuthAccountView, 'provider' | 'uses'>, t: Messages): string {
+  const o = t.connectors.oauth;
+  return account.uses
+    .map((use) => (use === 'mail' || use === 'calendar' ? o.accountServices[account.provider][use] : o.uses[use]))
+    .join(t.common.listSeparator);
+}
 
 /** Where the provider's page sends the browser back: this web app's own page for it. */
 export const CALLBACK_PATH = '/oauth/callback';
@@ -27,7 +43,7 @@ export function redirectAddresses(provider: OAuthProviderId, origin: string): st
   const own = (() => {
     try {
       const u = new URL(origin);
-      return /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname) ? `http://${u.hostname}${CALLBACK_PATH}` : undefined;
+      return /^(127\.0\.0\.1|localhost)$/.test(u.hostname) ? `http://${u.hostname}${CALLBACK_PATH}` : undefined;
     } catch {
       return undefined;
     }
@@ -116,7 +132,7 @@ export function accountActions(
     return { calendars: has('calendar'), signInAgain: OAUTH_USES.filter(has), signInFor: [], addMail: false };
   return {
     calendars: has('calendar'),
-    signInFor: OAUTH_USES.filter((u) => !has(u)).map((use) => ({ use, uses: OAUTH_USES.filter((u) => u === use || has(u)) })),
+    signInFor: MAIL_CALENDAR_USES.filter((u) => !has(u)).map((use) => ({ use, uses: OAUTH_USES.filter((u) => u === use || has(u)) })),
     addMail: has('mail') && !hasMailAccount,
   };
 }

@@ -309,10 +309,10 @@ export function composeEvent(e: NewEvent, now = Date.now()): { uid: string; ics:
 export const CALDAV_MAX_ANSWER = 16 * 1024 * 1024;
 
 /** A calendar's answer as text, refused once it is longer than `max` (read no further). */
-export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promise<string> {
+export async function answerText(res: Response, max = CALDAV_MAX_ANSWER, tooLarge = t().conn.calTooMuch): Promise<string> {
   if (Number(res.headers.get('content-length') ?? 0) > max) {
     await res.body?.cancel().catch(() => undefined);
-    throw new Error(t().conn.calTooMuch);
+    throw new Error(tooLarge);
   }
   const reader = res.body?.getReader();
   if (!reader) return '';
@@ -324,7 +324,7 @@ export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promis
     size += value.byteLength;
     if (size > max) {
       await reader.cancel().catch(() => undefined);
-      throw new Error(t().conn.calTooMuch);
+      throw new Error(tooLarge);
     }
     chunks.push(value);
   }

@@ -528,16 +528,23 @@ esac
     const service = new ProviderService(settings);
 
     // Asked before the account is added (and the status invalidated, as the route does), answered after.
-    const asking = service.status('claude', true);
+    const asking = service.status('claude');
+    expect(service.status('claude')).toBe(asking);
     const work = settings.addAccount('claude', 'Work');
     service.invalidate('claude');
+    const afterChange = service.status('claude');
+    expect(afterChange).not.toBe(asking);
+    expect(service.status('claude')).toBe(afterChange);
     expect((await asking).accounts.map((a) => a.id)).toEqual(['']);
     // Not kept: the next status, not forced, asks again instead of giving that answer for 20 s.
     const next = await service.status('claude');
     expect(next.accounts.map((a) => a.id)).toEqual(['', work]);
     // A cached answer keeps the time of the check it came from; a forced one is checked anew.
     expect((await service.status('claude')).checkedAt).toBe(next.checkedAt);
-    expect((await service.status('claude', true)).checkedAt).toBeGreaterThanOrEqual(next.checkedAt!);
+    const forced = service.status('claude', true);
+    expect(forced).not.toBe(afterChange);
+    expect(service.status('claude')).toBe(forced);
+    expect((await forced).checkedAt).toBeGreaterThan(next.checkedAt!);
     expect((await asking).checkedAt).toBeLessThanOrEqual(next.checkedAt!);
 
     // The clock set back: each new check is still dated later, so it still wins in the chat.

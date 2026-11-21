@@ -55,7 +55,7 @@ describe('needsOf', () => {
   it('skips every gated job for the docs, the landing page and the dev container alone', () => {
     expect(runs('README.md', 'README.zh-TW.md', 'docs/developer-guide.md', 'docs/media/demo-en.mp4')).toEqual([]);
     expect(runs('e2e/README.md', 'desktop/README.zh-TW.md', 'site/DESIGN-GUIDELINES.md', '.github/pull_request_template.md')).toEqual([]);
-    expect(runs('site/index.html', 'site/zh-TW/index.html', 'site/assets/site.css')).toEqual([]);
+    expect(runs('site/index.html', 'site/zh-TW/index.html')).toEqual([]);
     expect(runs('.devcontainer/setup.sh', '.github/ISSUE_TEMPLATE/bug_report.yml', '.github/workflows/pages.yml')).toEqual([]);
   });
 
@@ -69,6 +69,14 @@ describe('needsOf', () => {
       'package-lock.json',
       'tsconfig.json',
       'vite.config.ts',
+      'scripts/oauth-guides.ts',
+      'site/docs/tools/index.html',
+      'site/zh-TW/docs/tools/index.html',
+      'site/assets/media/docs/google-cloud-client-details.png',
+      'site/assets/media/docs/microsoft-entra-desktop-platform.png',
+      'site/assets/media/docs/tools-gmail-setup-en.webp',
+      'site/assets/media/docs/tools-oauth-settings-zh-TW.webp',
+      'site/assets/media/docs/tools-oauth-microsoft-en.webp',
       '.gitattributes',
     ]) {
       expect(runs(file), file).toEqual(['windows', 'desktop', 'e2e']);
@@ -97,7 +105,15 @@ describe('needsOf', () => {
   it("runs the end-to-end tests for the website's viewer of shared conversations, which they open shares on", () => {
     expect(runs('site/share/index.html')).toEqual(['e2e']);
     expect(runs('site/assets/share.js')).toEqual(['e2e']);
-    expect(runs('site/assets/share.d.ts', 'site/assets/site.css')).toEqual([]);
+    expect(runs('site/assets/share.d.ts')).toEqual([]);
+    for (const file of [
+      'site/docs/phone/index.html',
+      'site/assets/site.css',
+      'site/assets/site.js',
+      'site/assets/docs.js',
+      'site/assets/theme.js',
+    ])
+      expect(runs(file)).toEqual(['e2e']);
   });
 
   it('runs the end-to-end tests for the specs, and the packaged app too for the fake CLIs its checks start', () => {

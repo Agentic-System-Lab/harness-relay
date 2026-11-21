@@ -1357,7 +1357,7 @@ describe('its errors', () => {
 
   it('says what the user can do for a refused key, a missing model, a rate limit, an unreachable backend, its terminal', () => {
     expect(msg(rpc('litellm.AuthenticationError: AuthenticationError: OpenAIException - Error code: 401'))).toBe(
-      'Anthropic refused the API key OpenHands used (401). Check the key under Settings → Model backends.',
+      'Anthropic refused the API key OpenHands used (401). Check the key under Settings → Model connections.',
     );
     expect(msg(rpc('litellm.NotFoundError: The model `no-such` does not exist.'), { model: 'homelab/no-such', backends: BACKENDS })).toBe(
       'Homelab has no model "no-such", or this key cannot use it. Pick another model for this member.',
@@ -2190,7 +2190,7 @@ describe('turns replayed from the real CLI', () => {
     async () => {
       const bad = turn('bad-key-vllm', { model: 'homelab/muse-glimmer-30b-nvfp4' });
       await expect(withLang('en', () => play(bad))).rejects.toThrow(
-        'Homelab refused the API key OpenHands used (401). Check the key under Settings → Model backends.',
+        'Homelab refused the API key OpenHands used (401). Check the key under Settings → Model connections.',
       );
       expect(bad.events.filter((e) => e.type === 'text')).toEqual([]);
       const missing = turn('missing-key-anthropic');

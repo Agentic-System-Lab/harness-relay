@@ -1217,7 +1217,7 @@ describe("Goose's failures, said plainly", () => {
       withLang('en', () => (gooseError(new AgentRunError(m), { model, backends: BACKENDS }) as Error).message);
     // A wrong port: the proxy's own error, with no body.
     expect(err('Ran into this error: Request failed: Bad request (400): .')).toBe(
-      "Goose could not reach Homelab vLLM (vllm.example:8000). Check the network, or the endpoint's address under Settings → Model backends.",
+      "Goose could not reach Homelab vLLM (vllm.example:8000). Check the network, or the endpoint's address under Settings → Model connections.",
     );
     expect(
       err(
@@ -1238,7 +1238,7 @@ describe("Goose's failures, said plainly", () => {
             }) as Error
           ).message,
       ),
-    ).toBe('Goose 連不上 Homelab vLLM（vllm.example:8000）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。');
+    ).toBe('Goose 連不上 Homelab vLLM（vllm.example:8000）。請檢查網路，或在「設定 → 模型連線」檢查端點的網址。');
     // A model API's own 400 says why: it stays as it is.
     const real = 'Ran into this error: Request failed: Bad request (400): {"code":"invalid-argument","error":"max_tokens is too large"}.';
     expect(err(real, 'xai/grok-4.3')).toBe(real);

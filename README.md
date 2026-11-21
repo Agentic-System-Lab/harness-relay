@@ -22,7 +22,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
-  - [Open-source agents and model backends](#open-source-agents-and-model-backends)
+  - [Model connections](#model-connections)
 - [Desktop app](#desktop-app)
 - [Safety](#safety)
 - [Scripts](#scripts)
@@ -49,7 +49,7 @@ These twelve examples are just a starting point. Bring your curiosity and a task
 
 ## Features
 
-- **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [model backends](docs/user-guide.md#open-source-agents-and-model-backends))
+- **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [API keys and endpoints](docs/user-guide.md#model-connections))
 - **A team for every question**: the lead agent picks or designs the team (roles, models, reasoning effort, turn order) from your templates, you confirm it, and once the team has answered it reviews the replies and marks what needs your attention. ([Auto team](docs/user-guide.md#auto-team), [templates](docs/user-guide.md#templates), [lead review](docs/user-guide.md#lead-review))
 - **Team checks**: set protected paths, a commit format and commands such as `npm test` for your whole team in Edit and Full access chats. Harness Relay checks the work itself, and runs hooks around supported tool calls. ([Team checks](docs/user-guide.md#team-checks))
 - **Agents talk to each other**: roundtable, parallel or relay, and `@mentions` to address one of them. ([Conversation rules](docs/user-guide.md#conversation-rules))
@@ -60,6 +60,7 @@ These twelve examples are just a starting point. Bring your curiosity and a task
 - **Automations**: send the team a message when you run one, at set times (a review of yesterday's commits every weekday at 9:00), when something happens (a new mail, an event about to begin, a pull request or a failed CI run, a file; Harness Relay checks it itself), or when a program on this computer calls its webhook; an automation can track a goal across days until an agent says it is reached, and tries a failed run again. ([Automations](docs/user-guide.md#automations))
 - **Files, voice and sharing**: attach files and screenshots, browse the working directory, dictate with voice input that stays on your computer, and share a chat as Markdown or a link. ([Browsing files](docs/user-guide.md#browsing-files), [voice input](docs/user-guide.md#voice-input), [sharing](docs/user-guide.md#sharing-a-conversation))
 - **Organised**: groups, pinned chats at the top, search, each chat's status in the sidebar, notifications and sound, as push notifications on a phone, and a bell that keeps every notification, the same in every browser. ([Groups](docs/user-guide.md#groups), [pinned chats](docs/user-guide.md#pinned-conversations), [search](docs/user-guide.md#search), [notifications](docs/user-guide.md#notifications-and-sound), [notification inbox](docs/user-guide.md#notification-inbox))
+- **Apps and tools** lets you connect common apps, choose which assistants can use them, and review proposed messages, Google Docs edits and Obsidian note changes in the outbox. [Connect common apps](docs/user-guide.md#common-apps)
 - **Set up once for every CLI**: a CLI not found installs from its card in one click (and removes again), a tool library of MCP servers (those that sign in with OAuth signed in from it), skills and memory, several accounts per CLI, each account's plan usage, what each CLI loads by itself, and the agents' sessions in [AgentsView](https://www.agentsview.io). ([Installing a CLI](docs/user-guide.md#installing-a-cli-from-settings), [tool library](docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [accounts](docs/user-guide.md#more-than-one-account), [plan usage](docs/user-guide.md#plan-usage), [AgentsView](docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview))
 - **Local-first, on your devices**: one SQLite file and a server on `127.0.0.1`; your phone through Tailscale; an optional desktop app; English and 繁體中文. ([Use it from your phone](docs/remote-access.md#1-share-the-server-with-your-tailnet), [desktop app](#desktop-app))
 
@@ -87,11 +88,15 @@ Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787
 - To use it from your phone, share it with your tailnet: [Use it from your phone (Tailscale)](docs/remote-access.md#1-share-the-server-with-your-tailnet).
 - Working on Harness Relay itself? Run `npm run dev` instead (at http://localhost:5173): see [Running](docs/developer-guide.md#running) in the developer guide.
 
-### Open-source agents and model backends
+<a id="open-source-agents-and-model-backends"></a>
+<a id="open-source-agents-and-custom-models"></a>
+<a id="api-keys-and-endpoints-for-open-source-agents"></a>
 
-OpenCode, Goose, Cline, OpenHands and Pi have no sign-in: they run on the model backends you set up under **Settings → Model backends**, an API key for OpenAI, Anthropic or xAI, or your own OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp). Give a member a model as `backend/model`, such as `openai/gpt-5.4-nano` or `homelab/muse-glimmer-30b-nvfp4`. The Claude subscription and Grok's sign-in cannot be used by these CLIs. Claude Code, Codex, Grok and Copilot can run on your own endpoints too.
+### Model connections
 
-How to set them up, and what to expect from each agent: [Open-source agents and model backends](docs/user-guide.md#open-source-agents-and-model-backends) in the user guide. How each one works: [OpenCode](docs/open-agents.md#opencode), [Goose](docs/open-agents.md#goose), [Cline](docs/open-agents.md#cline), [OpenHands](docs/open-agents.md#openhands) and [Pi](docs/open-agents.md#pi), in Open agents.
+In **Settings → Model connections**, **API keys for open-source assistants** lets OpenCode, Goose, Cline, OpenHands and Pi use an OpenAI, Anthropic or xAI key. Those five agents and Claude Code, Codex, Grok and GitHub Copilot can also use **Custom endpoints**. Expand it to connect your own OpenAI-compatible server (vLLM, Ollama, LM Studio or llama.cpp). Enter its base URL and optional key, click **Load models**, select the models you want and click **Save**. Relay checks selected and manually entered IDs. If the server offers no model metadata, Relay asks before saving the IDs unverified. Give a member a model as `backend/model`, such as `openai/gpt-5.4-nano` or `homelab/muse-glimmer-30b-nvfp4`. The Claude subscription and Grok sign-in are unavailable to these five open-source agents.
+
+How to set them up, and what to expect from each agent: [Model connections](docs/user-guide.md#model-connections) in the user guide. How each one works: [OpenCode](docs/open-agents.md#opencode), [Goose](docs/open-agents.md#goose), [Cline](docs/open-agents.md#cline), [OpenHands](docs/open-agents.md#openhands) and [Pi](docs/open-agents.md#pi), in Open agents.
 
 ## Desktop app
 

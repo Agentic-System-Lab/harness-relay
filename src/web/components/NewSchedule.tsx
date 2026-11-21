@@ -17,12 +17,17 @@ import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
+import type { DraftApp } from '../../shared/apps';
+import { taskWithApps } from '../draftApps';
+import type { DraftAppStatus } from '../draftAppStatus';
+import { useDraftApps } from '../useDraftApps';
 import { settingsHref } from '../route';
 import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
 export interface NewAutomationDraft {
+  apps?: DraftApp[];
   form: ScheduleDraft;
   title: string;
   withHook: boolean;
@@ -30,6 +35,7 @@ export interface NewAutomationDraft {
 }
 
 interface Props {
+  appStatus: DraftAppStatus;
   draft: NewAutomationDraft | null;
   onDraft: (draft: NewAutomationDraft) => void;
   busy: boolean;
@@ -46,7 +52,18 @@ interface Props {
  * conversation it lives in. Once created, the lead agent designs the team for the message; nothing runs
  * until the schedule sends it.
  */
-export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, onDraft, busy, setBusy, error, setError }: Props) {
+export function NewSchedule({
+  appStatus,
+  providers,
+  catalog,
+  onCreated,
+  draft: savedDraft,
+  onDraft,
+  busy,
+  setBusy,
+  error,
+  setError,
+}: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -55,6 +72,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
   const current = savedDraft ?? initial;
   const { form: draft, title, withHook } = current;
   const team = current.team ?? defaults;
+  const appChoices = useDraftApps(appStatus, current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -83,10 +101,11 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
     onDraft({ ...current, form: { ...draft, ...patch } });
     setError('');
   };
-  const problems = [...draftProblems(draft, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
+  const task = { ...draft, text: taskWithApps(draft.text, current.apps ?? [], t) };
+  const problems = [...draftProblems(task, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
   const automatic = Boolean(team.settings.autoConfirm);
   // What the team editor warns about: the runs this schedule starts may have nobody watching.
-  const schedule: ConversationSchedule = { ...toUpdate(draft), lang, updatedAt: 0 };
+  const schedule: ConversationSchedule = { ...toUpdate(task), lang, updatedAt: 0 };
 
   const create = async () => {
     setBusy(true);
@@ -97,14 +116,16 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       if (withHook) await loadPart(() => import('./ScheduleDrawer'));
       const attachments = await readUploads(draft.files, t.composer.readFailed);
       const { newHook, ...conv } = await orCreateCwd(
-        (createCwd) =>
-          api.createSchedule({
+        async (createCwd) => {
+          await appChoices.verify();
+          return api.createSchedule({
             title: title.trim() || undefined,
             settings: team.settings,
             createCwd,
-            schedule: { ...toUpdate(draft), ...(attachments.length ? { attachments } : {}) },
+            schedule: { ...toUpdate(task), ...(attachments.length ? { attachments } : {}) },
             ...(withHook ? { hook: true } : {}),
-          }),
+          });
+        },
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -131,14 +152,18 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
       automation
       onSubmit={create}
       submitLabel={busy ? t.newSchedule.creating : t.newSchedule.create}
-      disabled={problems.length > 0}
+      disabled={problems.length > 0 || appChoices.checkingSelection}
     >
       <ScheduleForm
         draft={draft}
         disabled={busy}
         onEdit={edit}
         settings={team.settings}
-        creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
+        creation={{
+          apps: appChoices.selection,
+          withHook,
+          onHook: (checked) => onDraft({ ...current, withHook: checked }),
+        }}
       >
         <CreationOptions
           team={team}

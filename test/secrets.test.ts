@@ -290,7 +290,9 @@ describe('secrets encrypted in the database (no credential store)', () => {
     ).toThrow(/讀不到 MCP 伺服器「github」.*加密它們的金鑰檔不見了/);
     after.update('codex', { bin: '/opt/codex' });
     after.backends.putEndpoint('lab', { name: 'Lab', baseUrl: 'http://lab:8000/v1', models: ['m'] });
-    expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', expect.stringMatching(/^mcp-/)]);
+    // The new endpoint masks any orphan key of its ID in an offline native credential store.
+    expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', 'endpoint-lab-api-key', expect.stringMatching(/^mcp-/)]);
+    expect(open().get('endpoint-lab-api-key')).toBe('');
     // Set again, it is read with the new key.
     after.backends.setApiKey('openai', 'sk-openai-new');
     expect(new SettingsStore(db, open()).backends.forRun().apis).toEqual({ openai: 'sk-openai-new' });
@@ -299,11 +301,13 @@ describe('secrets encrypted in the database (no credential store)', () => {
   it('moves what it kept into the credential store once there is one, and reads what it could not move from the database until that is set again', () => {
     const encrypted = open();
     encrypted.set('claude-api-key', 'sk-ant-moved');
+    encrypted.set('endpoint-lab-api-key', '');
     encrypted.set('mcp-github', '{"env":{"T":"x"},"headers":{}}');
     encrypted.set('grok-api-key', 'xai-stuck');
     encrypted.set('cursor-api-key', 'crsr-stuck');
     const kept = new Map<string, string>([
       ['claude-api-key', 'sk-ant-older-in-the-keyring'],
+      ['endpoint-lab-api-key', 'orphan-key'],
       ['grok-api-key', 'xai-older-in-the-keyring'],
     ]);
     const keyring: SecretStore = {
@@ -320,6 +324,8 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(store.storage).toBe('secret-service');
     // What it kept is newer than what the keyring had from before.
     expect(kept.get('claude-api-key')).toBe('sk-ant-moved');
+    expect(kept.has('endpoint-lab-api-key')).toBe(false);
+    expect(store.get('endpoint-lab-api-key')).toBeNull();
     expect(kept.get('mcp-github')).toBe('{"env":{"T":"x"},"headers":{}}');
     expect(rows().map((r) => r.name)).toEqual(['cursor-api-key', 'grok-api-key']);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not move grok-api-key'));

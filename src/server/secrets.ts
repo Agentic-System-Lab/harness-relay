@@ -303,8 +303,10 @@ export function openSecretStore(
   for (const name of movable ? kept : []) {
     try {
       const value = encrypted.get(name)!;
-      keyring.set(name, value);
-      if (keyring.get(name) !== value) throw new Error('the stored secret reads back differently');
+      // An empty encrypted value clears a key that may still be in this previously unavailable store.
+      if (value === '') keyring.delete(name);
+      else keyring.set(name, value);
+      if ((keyring.get(name) ?? '') !== value) throw new Error('the stored secret reads back differently');
       encrypted.delete(name);
     } catch (err) {
       left.add(name);
@@ -314,17 +316,22 @@ export function openSecretStore(
   // Write the emptied pages into the database file now, rather than at some later checkpoint.
   if (left.size < kept.length) db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   if (!left.size) return keyring;
+  const clearFallback = (name: string) => {
+    if (!left.has(name)) return;
+    encrypted.delete(name);
+    left.delete(name);
+  };
   return {
     storage: keyring.storage,
     // One that could not be moved is newer than what the credential store may have of it from before.
     get: (name) => (left.has(name) ? encrypted.get(name) : keyring.get(name)),
     set(name, value) {
       keyring.set(name, value);
-      if (left.delete(name)) encrypted.delete(name);
+      clearFallback(name);
     },
     delete(name) {
       keyring.delete(name);
-      if (left.delete(name)) encrypted.delete(name);
+      clearFallback(name);
     },
   };
 }

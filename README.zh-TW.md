@@ -22,7 +22,7 @@
 - [功能](#功能)
 - [需求](#需求)
 - [快速開始](#快速開始)
-  - [開源 agent 與模型來源](#開源-agent-與模型來源)
+  - [模型連線](#模型連線)
 - [桌面 app](#桌面-app)
 - [安全性](#安全性)
 - [指令](#指令)
@@ -49,7 +49,7 @@
 
 ## 功能
 
-- **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#開源-agent-與模型來源)）
+- **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#模型連線)）
 - **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），你確認後才開始；團隊回答完，它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)）
@@ -60,6 +60,7 @@
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
+- **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
 - **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器（用 OAuth 登入的也在這裡登入）、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
 - **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
@@ -87,11 +88,15 @@ npm start
 - 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)。
 - 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
 
-### 開源 agent 與模型來源
+<a id="開源-agent-與模型來源"></a>
+<a id="開源-agent-與自定義模型"></a>
+<a id="開源-agent-的-api-key-與端點"></a>
 
-OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你在 **設定 → 模型來源** 設定的模型來源：OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI。Claude Code、Codex、Grok 與 Copilot 也能在你自己的端點上執行。
+### 模型連線
 
-怎麼設定，以及每個 agent 要注意的地方：使用者說明的[開源 agent 與模型來源](docs/user-guide.zh-TW.md#開源-agent-與模型來源)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
+在 **設定 → 模型連線** 中，**開源助理的 API Key** 可為 OpenCode、Goose、Cline、OpenHands 與 Pi 設定 OpenAI、Anthropic 或 xAI 的金鑰。這五個助理，加上 Claude Code、Codex、Grok 與 GitHub Copilot，也能使用 **自訂端點**。展開後即可連接自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio 或 llama.cpp）。輸入端點網址與金鑰（選填），按 **載入模型**，勾選需要的模型，再按 **儲存**。Relay 會檢查每個勾選或手動輸入的模型 ID。伺服器未提供任何模型資料時，會詢問是否仍要儲存未驗證的 ID。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。這五個開源助理需要 API key 或自訂端點，不能使用 Claude 訂閱帳號或 Grok 的登入。
+
+怎麼設定，以及每個 agent 要注意的地方：使用者說明的[模型連線](docs/user-guide.zh-TW.md#模型連線)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
 
 ## 桌面 app
 

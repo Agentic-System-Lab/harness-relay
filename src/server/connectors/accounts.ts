@@ -8,6 +8,7 @@ import {
   type MailAccountView,
   type MailServer,
 } from '../../shared/types';
+import { discoveredCalendar, newAccountId } from '../../shared/connectorAccounts';
 import type { Database } from '../db';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -15,7 +16,7 @@ import type { SecretStore } from '../secrets';
 import { sameProvider } from './caldav';
 
 /*
- * The mail accounts and calendars the mail and calendar tools use (Settings → Tool library), kept
+ * The mail accounts and calendars the mail and calendar tools use (Settings → Apps and tools → Common apps), kept
  * under `connectors` in `app_settings` without their passwords, which go to the OS credential store
  * (or the database encrypted, `secrets.ts`), one entry each: `mail-<id>`, `calendar-<id>`. The UI only
  * sees them masked, and no CLI ever gets them: the tools run in the server. A mail account or calendar
@@ -143,6 +144,13 @@ export class ConnectorStore {
     else list[i] = account;
     this.save();
     return this.view();
+  }
+
+  /** Resolve identity and name inside the same synchronous create, even when two browsers save together. */
+  addDiscoveredCalendar(u: CalendarAccountUpdate): ConnectorsView {
+    const choice = discoveredCalendar(this.data.calendar, u, u.username);
+    if (choice.added) return this.view();
+    return this.saveCalendar(newAccountId(choice.name, this.calendarIds()), { ...u, name: choice.name });
   }
 
   /**

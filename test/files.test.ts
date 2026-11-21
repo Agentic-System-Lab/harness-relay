@@ -1,10 +1,21 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  statSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dataLockFile, lockDataDir, openDatabase } from '../src/server/db';
-import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, resolveInRoot, zipPlan } from '../src/server/files';
+import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, resolveInRoot, zipPlan } from '../src/server/files';
 import { FILE_LIMITS, type Conversation } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-files-')));
@@ -107,6 +118,15 @@ describe('listFolder', () => {
 });
 
 describe('previewFile', () => {
+  it('rechecks the authorized note with the file open and refuses an identity change before reading', () => {
+    const note = join(project, 'file2.txt');
+    let checks = 0;
+    expect(() =>
+      readPreview(note, 'file2.txt', 'Note changed', () => statSync(++checks === 1 ? note : join(project, 'file10.txt'))),
+    ).toThrow('Note changed');
+    expect(checks).toBe(2);
+  });
+
   it('returns text, and only marks images, videos and binary files', () => {
     expect(previewFile(project, 'src/app.ts')).toMatchObject({ path: 'src/app.ts', kind: 'text', text: 'export const a = 1;\n', size: 20 });
     expect(previewFile(project, 'logo.png')).toMatchObject({ kind: 'image' });

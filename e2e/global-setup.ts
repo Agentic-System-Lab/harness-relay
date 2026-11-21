@@ -33,7 +33,16 @@ function uiIsCurrent(dir: string): boolean {
   const index = join(dir, 'index.html');
   if (!existsSync(index)) return false;
   const built = statSync(index).mtimeMs;
-  const sources = ['src/web', 'src/shared', 'vite.config.ts', 'package-lock.json'].map((p) => newest(join(ROOT, p)));
+  const sources = [
+    'src/web',
+    'src/shared',
+    'vite.config.ts',
+    'package-lock.json',
+    'scripts/oauth-guides.ts',
+    'site/docs/tools/index.html',
+    'site/zh-TW/docs/tools/index.html',
+    'site/assets/media/docs',
+  ].map((p) => newest(join(ROOT, p)));
   return Math.max(...sources) <= built;
 }
 

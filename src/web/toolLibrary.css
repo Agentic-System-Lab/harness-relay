@@ -1,0 +1,389 @@
+.apps-tools-tabs {
+  align-self: flex-start;
+}
+.apps-tools-tabs button {
+  min-width: 100px;
+}
+.apps-tools-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .apps-tools-tabs {
+    align-self: stretch;
+  }
+  .apps-tools-tabs button {
+    min-height: 44px;
+  }
+}
+
+.library-categories {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.library-category + .library-category {
+  border-top: 1px solid var(--border);
+}
+
+.library-category > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.library-category > summary::-webkit-details-marker {
+  display: none;
+}
+
+.library-category > summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin-inline: auto 3px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+}
+
+.library-category[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+.library-category > summary:hover {
+  background: var(--surface);
+}
+
+.library-category > summary h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.library-category-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.library-category > .library-category-body {
+  padding: 2px 14px 14px;
+  border: 0;
+}
+
+.library-connectors,
+.app-chat-access .sub-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.library-connectors {
+  gap: 8px;
+}
+.connector-account,
+.connector-resources {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.connector-account .lib-name {
+  overflow-wrap: anywhere;
+}
+.connector-resources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.connector-resource {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.connector-resource > [role='status'] {
+  flex-basis: 100%;
+}
+.app-access-controls {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.app-chat-access,
+.app-row-body > .library-connectors {
+  width: 100%;
+}
+/* Keep supporting text and its next action apart in all common app panels. */
+.common-apps .app-row-body {
+  gap: 16px;
+}
+.common-apps .app-secondary > .app-row-body {
+  padding-inline: 0;
+}
+
+.common-apps .app-secondary > summary,
+.common-apps .sub > summary {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+
+  min-height: 36px;
+  align-content: center;
+}
+.library-access {
+  flex-basis: 100%;
+}
+
+.library-access[open] > summary {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 600px) {
+  .library-category > summary h4 {
+    flex-direction: column;
+  }
+}
+
+.oauth-settings {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.oauth-settings-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+
+.teams-setup,
+.oauth-client-list,
+.oauth-setup-hint {
+  display: grid;
+  gap: 16px;
+}
+.teams-setup {
+  justify-items: start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.drive-accounts {
+  width: 100%;
+}
+.drive-account,
+.drive-account-signin,
+.drive-account-identity {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.drive-account {
+  width: 100%;
+  gap: 10px;
+}
+.drive-account-signin {
+  gap: 16px;
+  justify-items: start;
+}
+.drive-account-identity {
+  gap: 4px;
+}
+.drive-account .form-actions {
+  margin: 0;
+  align-items: flex-start;
+}
+.drive-permission-form {
+  display: grid;
+  gap: 16px;
+  max-width: 100%;
+}
+.drive-permission-form select {
+  max-width: 100%;
+}
+.drive-permission-form[hidden] {
+  display: none;
+}
+.drive-account .mcp-signin {
+  flex-basis: auto;
+}
+.drive-account .mcp-signin,
+.drive-account-signin .mcp-signin {
+  max-width: 100%;
+}
+.oauth-client-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.oauth-client-accounts {
+  margin-top: 8px;
+}
+.oauth-setup-hint > .form-actions {
+  margin: 0;
+}
+.service-setup {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.library-connectors > .oauth-accounts {
+  width: 100%;
+}
+.service-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.service-choices h5 {
+  flex-basis: 100%;
+}
+.common-apps .service-choices .service-choice {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.service-choice[aria-pressed='true'] {
+  color: var(--text);
+  border-color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+.library-connectors .oauth-providers:empty,
+.connector-account > .lib-row-actions:empty,
+.drive-account > .form-actions:empty {
+  display: none;
+}
+
+/* Service choices, hosted sign-in links and local account actions share the settings button size. */
+.common-apps {
+  --app-button-height: 36px;
+}
+.common-apps :is(.ghost, .primary, button.link-button, .provider-picks button) {
+  min-height: var(--app-button-height);
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.common-apps button.link-button {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: transparent;
+  text-decoration: none;
+  text-align: center;
+}
+.common-apps :is(.ghost, button.link-button):hover:not(:disabled) {
+  background: var(--surface);
+}
+.common-apps :is(.ghost, .primary, button.link-button, .provider-picks button):focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.common-apps .hosted-actions a {
+  justify-content: center;
+  text-align: center;
+}
+.vault-list,
+.library-connectors .oauth-accounts > .lib-list {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.library-connectors .lib-detail {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.vault-list > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+.vault-list > li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.vault-list > li + li {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+  .common-apps {
+    --app-button-height: 44px;
+  }
+  .library-connectors .lib-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-connectors .lib-row-actions {
+    flex-wrap: wrap;
+  }
+}
+.hosted-connections {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+.hosted-connection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 20px;
+  padding-block: 8px;
+}
+.hosted-connection + .hosted-connection {
+  border-top: 1px solid var(--border);
+}
+.hosted-identity {
+  display: grid;
+  gap: 4px;
+}
+.hosted-account,
+.hosted-help {
+  grid-column: 1 / -1;
+}
+.hosted-account {
+  grid-row: 2;
+}
+.hosted-connection .hosted-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .hosted-connection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hosted-connection .hosted-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+.app-dependency {
+  display: grid;
+  gap: 12px;
+}
+.app-dependency p {
+  margin: 0;
+}

@@ -28,6 +28,19 @@ export function parseLang(explicit?: string, acceptLanguage?: string): Lang {
   return 'zh-TW';
 }
 
+/** A provider account is managed in its app row. A library MCP server signs in on its own row. */
+function signInSettings(lang: Lang, use?: OAuthUse): string {
+  if (!use) return lang === 'en' ? 'Settings → Apps and tools → Tool library → MCP servers' : '設定 → App 與工具 → 工具庫 → MCP 伺服器';
+  const name = {
+    mail: lang === 'en' ? 'Mail' : '郵件',
+    calendar: lang === 'en' ? 'Calendar' : '行事曆',
+    drive: 'Google Drive',
+    documents: 'Google Drive',
+    teams: 'Microsoft Teams',
+  }[use];
+  return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
+}
+
 const zhTW = {
   // Runs and adapters
   stopped: '已停止',
@@ -229,11 +242,11 @@ const zhTW = {
   openBadModel: (cli: string, id: string) =>
     `${cli} 的模型「${id}」不是「模型來源/模型」的格式（例如 anthropic/claude-haiku-5-5、xai/grok-4.3，或你的端點 id 加上模型名稱）。`,
   openBackendMissing: (cli: string, backend: string, id: string) =>
-    `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 模型來源」設定，或改選其他模型。`,
+    `${cli} 要用模型「${id}」，但還沒有設定 ${backend} 的 API key。請到「設定 → 模型連線」設定，或改選其他模型。`,
   openEndpointMissing: (cli: string, endpoint: string, id: string) =>
-    `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型來源」新增，或改選其他模型。`,
+    `${cli} 要用模型「${id}」，但沒有 id 為「${endpoint}」的自訂端點。請到「設定 → 模型連線」新增，或改選其他模型。`,
   endpointDeleted: (cli: string, endpoint: string, id: string) =>
-    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型來源」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 模型來源 → 已刪除的端點」忘掉「${endpoint}」。`,
+    `${cli} 要用模型「${id}」，但它的自訂端點「${endpoint}」已在「設定 → 模型連線」刪除。這一輪沒有執行，也沒有改送到 ${cli} 自己的服務。請改選其他模型，或重新新增這個端點；如果「${id}」是 ${cli} 自己的模型，到「設定 → 模型連線 → 已刪除的端點」忘掉「${endpoint}」。`,
   openNoHome: 'Harness Relay 沒有給這個 agent 它自己的家目錄。',
   openNoWindowsSandbox: (cli: string) =>
     `在 Windows 上，Harness Relay 的沙箱還不能保護 ${cli}，所以它只能以「完全存取」執行。請改用完全存取（只在你信任的資料夾），或在 WSL 中執行 Harness Relay。`,
@@ -258,17 +271,17 @@ const zhTW = {
   openRejectedModel: (cli: string, model: string, e: string) => `${cli} 不接受模型「${model}」：${e}`,
   openRejectedEffort: (cli: string, effort: string, e: string) => `${cli} 不接受推理強度「${effort}」：${e}`,
   openNativeNotYet: (cli: string) => `Harness Relay 還不能列出 ${cli} 自己載入的項目。`,
-  openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 模型來源」裡的 API key 與端點。`,
-  openBackendsReady: (names: string) => `模型來源：${names}`,
-  openNoBackend: '尚未設定模型來源（設定 → 模型來源）',
+  openNoLogin: (cli: string) => `${cli} 不需要登入：它使用「設定 → 模型連線」裡的 API key 與端點。`,
+  openBackendsReady: (names: string) => `模型連線：${names}`,
+  openNoBackend: '請到「設定 → 模型連線」加入 API 金鑰或端點',
 
   // Goose (src/server/agents/goose.ts)
   gooseSessionNotChecked: (detail: string) =>
     `Harness Relay 無法檢查 Goose 這個 session 存的擴充功能清單（${detail}），所以沒有接續它：先前執行的指令可能在裡面加了不經詢問就會啟動的程式。這一輪改用新的 session。`,
-  gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型來源」檢查這把 key。`,
+  gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型連線」檢查這把 key。`,
   gooseModelNotFound: (backend: string, model: string) => `${backend} 沒有模型「${model}」（404）。請在成員設定換一個模型。`,
   gooseUnreachable: (backend: string, host: string) =>
-    `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。`,
+    `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型連線」檢查端點的網址。`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id: string) => `找不到 session ${id} 的檔案（可能已被刪除）`,
   piSessionMoved: (then: string, now: string) => `這個 session 的工作目錄是 ${then}，這一輪的是 ${now}`,
@@ -280,7 +293,7 @@ const zhTW = {
   piModelMismatch: (want: string, got: string) => `Pi 選了模型「${got}」，不是指定的「${want}」`,
   piEffortLevels: (levels: string) => `這個模型可用的強度：${levels}`,
   piPromptRejected: (e: string) => `Pi 沒有接受這一輪的訊息：${e}`,
-  piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 模型來源」檢查金鑰。`,
+  piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 模型連線」檢查金鑰。`,
   piModelRejected: (model: string, backend: string, e: string) => `${backend} 沒有可用的模型「${model}」（${e}）。請改選其他模型。`,
   piUnreachable: (backend: string, e: string) => `連不上 ${backend}：${e}`,
   piEndpointUnreachable: (name: string, url: string, e: string) =>
@@ -288,16 +301,16 @@ const zhTW = {
   piModelError: (e: string) => `模型回報錯誤：${e}`,
 
   // Cline (src/server/agents/cline.ts)
-  clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 模型來源」檢查這把 key。`,
+  clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 模型連線」檢查這把 key。`,
   clineBadModel: (model: string, where: string, e: string) =>
     `模型來源「${where}」沒有 Cline 要用的模型「${model}」：${e}。請改選這個來源提供的模型。`,
   clineUnreachable: (where: string, e: string) =>
-    `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型來源）。`,
+    `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型連線）。`,
   clineFailed: (e: string) => `Cline 沒有完成這一輪：${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: '完全存取以外不允許：OpenHands 的 subagent 會不經詢問執行指令與修改檔案',
   openhandsNoSuchSession: '它的 session 資料夾裡沒有這個 session',
-  openhandsBadKey: (backend: string) => `${backend} 不接受 OpenHands 用的 API key（401）。請到「設定 → 模型來源」檢查金鑰。`,
+  openhandsBadKey: (backend: string) => `${backend} 不接受 OpenHands 用的 API key（401）。請到「設定 → 模型連線」檢查金鑰。`,
   openhandsBadModel: (backend: string, model: string) => `${backend} 沒有模型「${model}」，或這把金鑰不能用它。請為這位成員選另一個模型。`,
   openhandsUnreachable: (backend: string, e: string) => `OpenHands 連不到模型來源 ${backend}：${e}`,
   openhandsRateLimited: (backend: string, e: string) => `${backend} 暫時拒絕了 OpenHands 的請求（額度或速率限制）：${e}`,
@@ -331,8 +344,23 @@ const zhTW = {
   endpointIdInvalid: (id: string) => `端點 id「${id}」只能用小寫英文字母、數字與 -（開頭與結尾不能是 -，最多 32 個字元）。`,
   endpointIdReserved: (id: string) => `「${id}」是內建模型來源的名稱，請為端點取別的 id。`,
   endpointNameMissing: '請輸入端點的名稱',
-  endpointUrlInvalid: (url: string) => `「${url}」不是可用的端點網址：需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。`,
-  endpointUrlRelay: (url: string) => `「${url}」是 Harness Relay 自己的位址，不能當成模型端點。`,
+  endpointUrlInvalid: '請輸入以 http:// 或 https:// 開頭的端點網址，不含帳號密碼、查詢字串或 #。',
+  endpointUrlRelay: '這是 Harness Relay 自己的位址，不能當成模型端點。',
+  endpointCatalogKeyUnreadable: '無法讀取已儲存的 API key。請重新輸入，或解鎖憑證庫後重新啟動 Harness Relay。',
+  endpointNoMetadata: '伺服器未提供模型清單或個別模型資料。Relay 已連到伺服器，但無法確認模型 ID 或金鑰能否用於對話。',
+  endpointVerifyNeedsModel: '端點不支援列出模型。請輸入至少一個模型 ID，讓 Harness Relay 在儲存前確認端點。',
+  endpointVerifyMismatch: (id: string) => `端點未回傳符合「${id}」的模型資料。請檢查模型 ID。`,
+  endpointVerifyModelHttp: (id: string, status: number) => `無法確認模型「${id}」（HTTP ${status}）。請檢查模型 ID 與 API key 的存取權限。`,
+  endpointVerifyModelError: (id: string, reason: string) => `無法確認模型「${id}」。${reason}`,
+  endpointVerifyChanged: '確認模型時，端點設定已有變更。請重新開啟設定，確認後再儲存。',
+  endpointVerifyTimeout: '模型檢查逾時。請確認端點可連線後再試一次。',
+  endpointCatalogConnection: '無法讀取端點回應。請確認網址與連線後再試一次。',
+  endpointResponseTooLarge: (single: number, total: number) =>
+    `模型資料超過大小上限。每個回應最多 ${single} MiB，每次驗證總計最多 ${total} MiB。`,
+  endpointCatalogDenied: (status: number) => `端點拒絕讀取模型清單（HTTP ${status}）。請檢查 API key 與存取權限。`,
+  endpointCatalogHttp: (status: number) => `端點的 /models 回傳 HTTP ${status}。請檢查 OpenAI 相容 API 的基底網址。`,
+  endpointCatalogInvalid: (mib: number) =>
+    `/models 需要回傳含有 data 陣列的 JSON 模型清單，每個模型以 id 標示，回應大小上限為 ${mib} MiB。`,
   endpointModelsInvalid: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元，不能含空白。`,
   backendUnknown: (id: string) => `未知的模型來源：${id}`,
   claudeReopens: (file: string, entry: string) =>
@@ -343,8 +371,8 @@ const zhTW = {
     `工作目錄「${dir}」包含 Harness Relay 本身（它的程式或資料）。可編輯模式下，agent 不經詢問就能修改這裡的檔案，也就能改動 Harness Relay 的程式碼或資料庫，繞過它的沙箱與登入。請改用其他資料夾或唯讀模式；要開發 Harness Relay 本身，請從另一個資料夾執行你使用的那份 Harness Relay。`,
   // OpenCode (agents/opencode.ts)
   opencodeBackendError: (backend: string, e: string) =>
-    `模型來源 ${backend} 回報錯誤，OpenCode 無法完成這一輪：${e}。請檢查「設定 → 模型來源」裡的 API key、端點網址與模型名稱。`,
-  opencodeAuthRequired: (backend: string) => `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 模型來源」檢查。`,
+    `模型來源 ${backend} 回報錯誤，OpenCode 無法完成這一輪：${e}。請檢查「設定 → 模型連線」裡的 API key、端點網址與模型名稱。`,
+  opencodeAuthRequired: (backend: string) => `OpenCode 無法使用模型來源 ${backend}：缺少 API key 或它被拒絕。請到「設定 → 模型連線」檢查。`,
   opencodeForeignControl: (detail: string) =>
     `安全問題，這次執行已停止：OpenCode 自己的伺服器被 Harness Relay 以外的程式操作了（${detail}）。agent 執行的指令可能讀到了它伺服器的密碼。沙箱的檔案與網路限制仍然有效；請檢查這一輪做了什麼。`,
   opencodeNoLinuxSandbox:
@@ -420,6 +448,8 @@ const zhTW = {
   busySettings: '團隊回覆中，無法修改設定',
   busyApply: '團隊還在回覆中，請等回覆結束再套用',
   shuttingDown: '伺服器正在關閉',
+  appInstallManual: '這台電腦需要手動安裝。請依畫面上的指引安裝後重新檢查。',
+  appInstallMissing: '安裝程式已結束，但 Relay 還找不到這項工具。請查看安裝紀錄後重試。',
   noAgents: '這個對話沒有任何 agent',
   runFailed: (msg: string) => `執行失敗：${msg}`,
   stoppedNote: '已停止。',
@@ -575,13 +605,14 @@ const zhTW = {
   trackingRestartNote: (when: string) => `自動任務 ${when} 的執行在 Harness Relay 停止時中斷，馬上重試。`,
   trackingRunFailed: '這次執行的回覆全都失敗了',
   hookNotFound: '找不到這個 webhook',
-  oauthNoClient: (provider: string) =>
-    `還沒有登入 ${provider} 用的 app：請到「設定 → 工具庫 → 郵件與行事曆」填入你在 ${provider} 註冊的 app 的用戶端 ID`,
+  oauthClientDisabled: (provider: string) => `${provider} 登入已停用。請在「常用 App → 帳號登入設定」重新啟用。`,
+  oauthNoClient: (provider: string) => `請先在「常用 App → 帳號登入設定」設定 ${provider} 的 OAuth 用戶端。`,
   oauthTokenNotSaved: (why: string) => `無法把登入的權杖存進憑證儲存區：${why}`,
   oauthHostRefused: (host: string) => `登入的權杖不會送到「${host}」：它只送到這個帳號的服務`,
   oauthAccountGone: '找不到這個登入的帳號：它可能已經被移除了',
-  oauthSignInAgain: (email: string, why: string) => `${email} 的登入已經失效，請到「設定 → 工具庫」重新登入${why ? `（${why}）` : ''}`,
-  oauthNoToken: (email: string) => `讀不到 ${email} 的登入權杖：請到「設定 → 工具庫」重新登入`,
+  oauthSignInAgain: (email: string, why: string, use?: OAuthUse) =>
+    `${email} 的登入已經失效，請到「${signInSettings('zh-TW', use)}」重新登入${why ? `（${why}）` : ''}`,
+  oauthNoToken: (email: string, use?: OAuthUse) => `讀不到 ${email} 的登入權杖：請到「${signInSettings('zh-TW', use)}」重新登入`,
   oauthRefreshFailed: (email: string, why: string) => `無法更新 ${email} 的登入：${why}`,
   oauthBadAddress: '這不是一個網址：請貼上登入頁面最後帶你去的完整網址',
   oauthWrongAddress: '這個網址不是這次登入的：請貼上這次登入最後帶你去的網址',
@@ -597,10 +628,88 @@ const zhTW = {
   oauthCallbackTooOften: '登入的回呼太多次失敗了：請稍後再試',
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
+  oauthNoTeamsAccess: '請用 Microsoft 工作或學校帳號登入，並允許讀取 Teams 頻道。',
+  oauthNoDocumentsAccess: '若要建立或編輯 Google 文件，請重新登入 Google 並授權文件編輯。',
+  oauthNoDriveAccess: '請用 Google 重新登入，並允許讀取雲端硬碟。',
+  chromePublishFailed: (dest: string) => `無法將 Google Chrome 安裝到 ${dest}。`,
+  chromeDestinationExists: (dest: string) => `${dest} 已有應用程式。`,
+  chromeMissingBundle: '下載的磁碟映像檔中找不到 Google Chrome。',
+  githubArchiveDownload: '無法下載或驗證 GitHub CLI。請檢查網路連線和磁碟空間後重試。',
+  githubArchiveRun: '無法解壓縮或啟動下載的 GitHub CLI。請重新安裝或使用 GitHub 的官方安裝方式。',
+  teamsRuntimeUnsupported: '這個系統或處理器沒有可自動安裝的 PowerShell 7 版本。請依 Microsoft 的指示手動安裝，再重試。',
+  teamsRuntimeDownload: '無法從 Microsoft 的 PowerShell 發行頁下載或驗證套件。請檢查連線和磁碟空間，再重試。',
+  teamsRuntimeTools: '安裝 PowerShell 7 需要系統的 curl 與 tar。請安裝這兩個工具，或手動安裝 PowerShell 7，再重試。',
+  teamsRuntimeRun: '無法解壓縮或啟動 PowerShell 7。請確認系統支援 Microsoft 的 PowerShell 發行版本，且已安裝其原生相依套件。',
+  teamsSetupFailed: '無法設定 Microsoft Graph。請確認已安裝 PowerShell 7 並可連至 PowerShell Gallery，再試一次。',
+  teamsForbidden: 'Teams 拒絕存取這個目的地（HTTP 403）。請檢查該頻道或聊天的存取權限。',
+  teamsPostingConnect: '請先在「設定 → App 與工具 → 常用 App → Microsoft Teams」允許發送訊息。',
+  teamsPostingTarget: '請貼上現有 Teams 頻道、聊天或訊息的連結，並確認此帳號可開啟該目的地。',
+  teamsPostingChanged: 'Teams 的傳送帳號或目的地與預覽不符。請重新準備訊息。',
+  teamsPostFailed: '無法確認 Teams 是否已發送訊息。請先查看目的地，再決定是否重試。',
+  teamsReadFailed: '無法讀取 Teams。請確認網路連線和帳號權限，再試一次。',
+  appsGithubChanged: 'GitHub 帳號已變更。請確認目前顯示的帳號，再選擇是否登出。',
+  appsGithubToken: (name: string) => `請從啟動 Relay 的環境移除 ${name}，然後重新啟動 Relay。`,
+  appsGithubSignOutFailed: 'GitHub CLI 無法登出這個帳號。請重新檢查帳號後再試一次。',
+  appsGithubFailed: '無法讀取 GitHub。請確認網路連線和帳號權限，再試一次。',
+  appsTooLarge: '內容太大，請縮小讀取範圍。',
+  appsConnectFirst: '請先在「設定 → App 與工具 → 常用 App」連結帳號。',
+  obsidianChoose: '請用 obsidian_list_vaults 查詢筆記庫，並以 vault 參數指定其中一個 ID。',
+  obsidianMultiple: '已連結多個筆記庫。請選擇要管理的個別筆記庫。',
+  obsidianOverlap: '不能同時連結一個筆記庫及其上層或下層筆記庫。',
+  obsidianVaultMissing: '找不到這個已連結的筆記庫。',
+  docsGrant: '請先在「常用 App」的 Google Drive 帳號授權 Google 文件編輯。',
+  docsAccount: '請指定一個已授權 Google 文件編輯的 Google 帳號電子郵件。',
+  docsChanged: '文件、帳號、授權或版本已變更。請重新預覽。',
+  docsInvalid: 'Google 文件回應的檔案、分頁或版本無法驗證。',
+  docsMatch: '請提供一般內文段落中唯一符合的完整文字。涉及建議修訂或其他文件結構的文字無法修改。',
+  docsTabs: (tabs: string) => `請指定要編輯的分頁 ID（${tabs}）。`,
+  docsCreate: (title: string) => `建立 Google 文件「${title}」`,
+  docsEdit: (title: string) => `編輯 Google 文件「${title}」`,
+  docsSaved: (title: string, link: string) => `已儲存 Google 文件「${title}」。\n${link}`,
+  docsFailed: (title: string, why: string) => `Google 文件「${title}」的變更未確認完成。${why}`,
+  docsDiscarded: (title: string) => `已捨棄 Google 文件「${title}」的變更。`,
+  docsUnknown: (target: string) => `無法確認最後結果。請在 Google 文件中檢查「${target}」後再提出新要求。`,
+  docsCreatedCheck: (title: string, link: string) => `已建立 Google 文件「${title}」。請開啟檢查內容後再提出新要求。\n${link}`,
+  docsHttp: (code: number) => `Google 文件回應 HTTP ${code}。請檢查文件權限及版本後再試。`,
+  obsidianPath: '請指定現有資料夾中的 .md 筆記，路徑須相對於筆記庫，且不得包含隱藏項目。',
+  obsidianWriteFailed: '無法完成筆記寫入。請檢查檔案系統的狀態。',
+  obsidianContent: '每份筆記的原文與新內容都必須是 48 KiB 以內的 UTF-8 文字。',
+  obsidianChanged: '筆記、資料夾或所選筆記庫已變更。請重新預覽後儲存。',
+  obsidianExists: '這個筆記路徑已被使用。請選擇其他檔名，或提出編輯現有筆記的預覽。',
+  obsidianCreate: (path: string) => `建立筆記「${path}」`,
+  obsidianEdit: (path: string) => `編輯筆記「${path}」`,
+  obsidianSaved: (path: string) => `已儲存筆記「${path}」。`,
+  obsidianFailed: (path: string, why: string) => `未儲存「${path}」。${why}`,
+  obsidianDiscarded: (path: string) => `已捨棄「${path}」的變更。`,
+  obsidianInterrupted: '儲存途中 Harness Relay 已停止。請先檢查筆記，再提出新的變更。',
+  messageSetup: (app: string) => `請先在「常用 App」的 ${app} 開啟 Relay 發送訊息。`,
+  messageChanged: '連線或目的地已變更，請重新產生預覽。',
+  messageUnknown: (app: string) => `無法確認是否已送達。請先到 ${app} 檢查，Relay 不會重送。`,
+  slackToken: 'Slack 權杖無效或已失效。請輸入工作區 App 的 OAuth 權杖。',
+  slackScope: '請在 Slack App 開啟 chat:write 與目的地的讀取權限，重新安裝後再連結。',
+  slackDestination: '請使用此工作區中 App 能存取的頻道或對話連結或 ID。請確認 App 已加入。',
+  slackStorage: '無法存取這台電腦的憑證儲存區。',
+  slackCheck: '無法向 Slack 確認連線或對話，請再試一次。',
+  messageNewPost: '新頻道貼文',
+  messageChat: '聊天對象',
+  messageFrom: '發送身分',
+  messageTo: '目的地',
+  messageWorkspace: '工作區',
+  messageTenant: '組織',
+  messageTitle: (app: string) => `傳送 ${app} 訊息`,
+  messageSent: (app: string) => `已送達 ${app}。`,
+  appsVault: '請選擇 Obsidian 筆記庫的資料夾（裡面有 .obsidian）。',
+  appsSlackInAssistant: '請到「設定 → App 與工具 → 常用 App → Slack」，在 Claude 或 Codex 連結 Slack。',
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
   oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
-    `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+    use === 'documents'
+      ? `請為 ${email} 開啟 Google 文件編輯。`
+      : use === 'teams'
+        ? `請為 ${email} 連結 Teams`
+        : use === 'drive'
+          ? `請為 ${email} 連結 Google Drive`
+          : `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「${signInSettings('zh-TW', use)}」選擇服務並登入同一個帳號`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
@@ -638,17 +747,17 @@ const zhTW = {
   mcpNoSignIn: (name: string) => `MCP 伺服器「${name}」沒有要求登入：不登入就能用它`,
   mcpServerChanged: (name: string) => `登入的時候，MCP 伺服器「${name}」被移除了，或是它的網址改了：請重新登入`,
   mcpLeftOutSignIn: (name: string, why: string) =>
-    `這一輪沒有給 MCP 伺服器「${name}」：它的登入已經失效${why ? `（${why}）` : ''}。請到「設定 → 工具庫」重新登入。`,
+    `這一輪沒有給 MCP 伺服器「${name}」：它的登入已經失效${why ? `（${why}）` : ''}。請到「設定 → App 與工具 → 工具庫 → MCP 伺服器」重新登入。`,
   mcpLeftOut: (name: string, why: string) => `這一輪沒有給 MCP 伺服器「${name}」：${why}`,
-  watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
-  watchNoPassword: (name: string) => `讀不到郵件帳號「${name}」的密碼：請到「設定 → 工具庫」重新輸入`,
+  watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → App 與工具 → 常用 App → 郵件」新增，或重新選一個',
+  watchNoPassword: (name: string) => `讀不到郵件帳號「${name}」的密碼：請到「設定 → App 與工具 → 常用 App → 郵件」重新輸入`,
   watchNoFolder: (folder: string, why: string) => `打不開資料夾「${folder}」：${why}`,
   watchBadTrigger: '要等待的事情設定得不完整：請選一個來源，以及它的帳號或行事曆',
   watchNotEvent: '這個自動任務不是「當某件事發生時」，沒有東西可以檢查',
   watchNoScheduler: '這個伺服器沒有在檢查自動任務等待的事情：請重新啟動 Harness Relay',
   watchFailedNote: (why: string) => `自動任務等待的事情發生了，但它的訊息無法送出：${why}`,
-  watchNoCalendar: '找不到這個自動任務要檢查的行事曆：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
-  watchNoCalendarPassword: (name: string) => `讀不到行事曆「${name}」的密碼：請到「設定 → 工具庫」重新輸入`,
+  watchNoCalendar: '找不到這個自動任務要檢查的行事曆：請到「設定 → App 與工具 → 常用 App → 行事曆」新增，或重新選一個',
+  watchNoCalendarPassword: (name: string) => `讀不到行事曆「${name}」的密碼：請到「設定 → App 與工具 → 常用 App → 行事曆」重新輸入`,
   watchBadMinutes: (max: number) => `行程開始前的分鐘數要是 1 到 ${max} 的整數`,
   watchBadRepo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」，例如 octocat/hello-world',
   watchBadPattern: '請填工作目錄中的檔案樣式，例如 reports/*.csv（不能是絕對路徑，也不能有 ..）',
@@ -1157,11 +1266,11 @@ const en: ServerMessages = {
   openBadModel: (cli, id) =>
     `${cli}'s model "${id}" is not "backend/model" (such as anthropic/claude-haiku-5-5, xai/grok-4.3, or your endpoint's id and a model name).`,
   openBackendMissing: (cli, backend, id) =>
-    `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Model backends, or pick another model.`,
+    `${cli} is to use the model "${id}", but no ${backend} API key is set up. Add one under Settings → Model connections, or pick another model.`,
   openEndpointMissing: (cli, endpoint, id) =>
-    `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model backends, or pick another model.`,
+    `${cli} is to use the model "${id}", but there is no custom endpoint with the id "${endpoint}". Add it under Settings → Model connections, or pick another model.`,
   endpointDeleted: (cli, endpoint, id) =>
-    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model backends. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Model backends → Deleted endpoints.`,
+    `${cli} is to use the model "${id}", but its custom endpoint "${endpoint}" was deleted under Settings → Model connections. The turn did not run, and was not sent to ${cli}'s own service instead. Pick another model, or add the endpoint again; if "${id}" is a model of ${cli}'s own, forget "${endpoint}" under Settings → Model connections → Deleted endpoints.`,
   openNoHome: 'Harness Relay gave this agent no home of its own.',
   openNoWindowsSandbox: (cli) =>
     `On Windows, Harness Relay's sandbox cannot protect ${cli} yet, so it only runs with full access. Use full access (only in a folder you trust), or run Harness Relay in WSL.`,
@@ -1185,17 +1294,17 @@ const en: ServerMessages = {
   openRejectedModel: (cli, model, e) => `${cli} does not accept the model "${model}": ${e}`,
   openRejectedEffort: (cli, effort, e) => `${cli} does not accept the reasoning effort "${effort}": ${e}`,
   openNativeNotYet: (cli) => `Harness Relay cannot list what ${cli} loads by itself yet.`,
-  openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Model backends.`,
-  openBackendsReady: (names) => `Model backends: ${names}`,
-  openNoBackend: 'No model backend set up yet (Settings → Model backends)',
+  openNoLogin: (cli) => `${cli} needs no sign-in: it uses the API keys and endpoints under Settings → Model connections.`,
+  openBackendsReady: (names) => `Model connections: ${names}`,
+  openNoBackend: 'No model connection set up yet (Settings → Model connections)',
 
   // Goose (src/server/agents/goose.ts)
   gooseSessionNotChecked: (detail) =>
     `Harness Relay could not check the extension list Goose keeps for this session (${detail}), so it did not resume it: an earlier run's command could have added a program there that starts without asking. The turn starts a fresh session instead.`,
-  gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model backends.`,
+  gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model connections.`,
   gooseModelNotFound: (backend, model) => `${backend} has no model "${model}" (404). Pick another model in the member's settings.`,
   gooseUnreachable: (backend, host) =>
-    `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model backends.`,
+    `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model connections.`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id) => `The file of session ${id} is gone (it may have been deleted)`,
   piSessionMoved: (then, now) => `the session's working directory is ${then}, this turn's is ${now}`,
@@ -1207,7 +1316,7 @@ const en: ServerMessages = {
   piModelMismatch: (want, got) => `Pi picked the model "${got}", not "${want}"`,
   piEffortLevels: (levels) => `this model takes: ${levels}`,
   piPromptRejected: (e) => `Pi did not take this turn's message: ${e}`,
-  piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Model backends.`,
+  piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Model connections.`,
   piModelRejected: (model, backend, e) => `${backend} has no model "${model}" it can use (${e}). Pick another model.`,
   piUnreachable: (backend, e) => `Could not reach ${backend}: ${e}`,
   piEndpointUnreachable: (name, url, e) =>
@@ -1215,16 +1324,16 @@ const en: ServerMessages = {
   piModelError: (e) => `The model reported an error: ${e}`,
 
   // Cline (src/server/agents/cline.ts)
-  clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Model backends.`,
+  clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Model connections.`,
   clineBadModel: (model, where, e) =>
     `The model backend "${where}" has no model "${model}" for Cline: ${e}. Pick a model this backend offers.`,
   clineUnreachable: (where, e) =>
-    `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model backends).`,
+    `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model connections).`,
   clineFailed: (e) => `Cline did not finish this turn: ${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: "Not allowed below full access: OpenHands' subagents run commands and edit files without asking",
   openhandsNoSuchSession: 'its session folder holds no such session',
-  openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Model backends.`,
+  openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Model connections.`,
   openhandsBadModel: (backend, model) =>
     `${backend} has no model "${model}", or this key cannot use it. Pick another model for this member.`,
   openhandsUnreachable: (backend, e) => `OpenHands could not reach the model backend ${backend}: ${e}`,
@@ -1261,9 +1370,27 @@ const en: ServerMessages = {
     `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
   endpointIdReserved: (id) => `"${id}" is the name of a built-in model backend; give the endpoint another id.`,
   endpointNameMissing: 'Enter a name for the endpoint',
-  endpointUrlInvalid: (url) =>
-    `"${url}" is not an endpoint address that can be used: it must start with http:// or https://, without a user name, password, query or #.`,
-  endpointUrlRelay: (url) => `"${url}" is Harness Relay's own address; it cannot be a model endpoint.`,
+  endpointUrlInvalid:
+    'This is not an endpoint address that can be used. Enter an http:// or https:// address without a username, password, query or fragment.',
+  endpointUrlRelay: "This is Harness Relay's own address. Choose a model endpoint.",
+  endpointCatalogKeyUnreadable:
+    'The saved API key could not be read. Enter it again, or unlock the credential store and restart Harness Relay.',
+  endpointNoMetadata:
+    'The server returned no catalog or individual model records. Relay reached the server but could not verify the model IDs or credentials for chat.',
+  endpointVerifyNeedsModel:
+    'This endpoint does not support listing models. Enter at least one model ID so Harness Relay can verify it before saving.',
+  endpointVerifyMismatch: (id) => `The endpoint did not return a matching record for model "${id}". Check the model ID.`,
+  endpointVerifyModelHttp: (id, status) => `Could not verify model "${id}" (HTTP ${status}). Check the model ID and API key permissions.`,
+  endpointVerifyModelError: (id, reason) => `Could not verify model "${id}". ${reason}`,
+  endpointVerifyChanged: 'The endpoint settings changed during verification. Reopen the settings and review them before saving.',
+  endpointVerifyTimeout: 'The model check timed out. Check the endpoint connection and try again.',
+  endpointCatalogConnection: 'Could not read the endpoint response. Check the address and connection, then try again.',
+  endpointResponseTooLarge: (single, total) =>
+    `Model metadata exceeded the size limit of ${single} MiB per response and ${total} MiB per verification.`,
+  endpointCatalogDenied: (status) =>
+    `The endpoint denied access to its model list (HTTP ${status}). Check the API key and its permissions.`,
+  endpointCatalogHttp: (status) => `The endpoint returned HTTP ${status} for /models. Check the OpenAI-compatible API base URL.`,
+  endpointCatalogInvalid: (mib) => `Expected /models to return a JSON object with a data array of model IDs, within ${mib} MiB.`,
   endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
   backendUnknown: (id) => `Unknown model backend: ${id}`,
   claudeReopens: (file, entry) =>
@@ -1273,9 +1400,9 @@ const en: ServerMessages = {
   cwdIsRelay: (dir) =>
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   opencodeBackendError: (backend, e) =>
-    `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Model backends.`,
+    `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Model connections.`,
   opencodeAuthRequired: (backend) =>
-    `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model backends.`,
+    `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model connections.`,
   opencodeForeignControl: (detail) =>
     `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
   opencodeNoLinuxSandbox:
@@ -1353,6 +1480,8 @@ const en: ServerMessages = {
   busySettings: 'The team is replying; settings cannot be changed now',
   busyApply: 'The team is still replying — apply once it has finished',
   shuttingDown: 'The server is shutting down',
+  appInstallManual: 'This computer needs manual installation. Follow the instructions and check again.',
+  appInstallMissing: 'The installer finished, but Relay still cannot find the tool. Check the installation log and try again.',
   noAgents: 'This conversation has no agents',
   runFailed: (msg) => `Run failed: ${msg}`,
   stoppedNote: 'Stopped.',
@@ -1517,14 +1646,14 @@ const en: ServerMessages = {
   trackingRestartNote: (when) => `The automation run of ${when} was cut off when Harness Relay stopped; trying again now.`,
   trackingRunFailed: 'every reply of the run failed',
   hookNotFound: 'No such webhook',
-  oauthNoClient: (provider) =>
-    `There is no app to sign in to ${provider} with yet: give the client ID of the app you registered with ${provider} in Settings → Tool library → Mail and calendar`,
+  oauthClientDisabled: (provider) => `${provider} sign-in is disabled. Enable it in Common apps → Account sign-in settings.`,
+  oauthNoClient: (provider) => `Set up your ${provider} OAuth client in Common apps → Account sign-in settings.`,
   oauthTokenNotSaved: (why) => `The sign-in's token could not be saved in the credential store: ${why}`,
   oauthHostRefused: (host) => `The sign-in's token is not sent to "${host}": it goes only to the account's own service`,
   oauthAccountGone: 'The account that signed in is not there any more: it may have been removed',
-  oauthSignInAgain: (email, why) =>
-    `The sign-in of ${email} no longer works: sign in again in Settings → Tool library${why ? ` (${why})` : ''}`,
-  oauthNoToken: (email) => `The sign-in token of ${email} cannot be read: sign in again in Settings → Tool library`,
+  oauthSignInAgain: (email, why, use) =>
+    `The sign-in of ${email} no longer works: sign in again in ${signInSettings('en', use)}${why ? ` (${why})` : ''}`,
+  oauthNoToken: (email, use) => `The sign-in token of ${email} cannot be read: sign in again in ${signInSettings('en', use)}`,
   oauthRefreshFailed: (email, why) => `The sign-in of ${email} could not be renewed: ${why}`,
   oauthBadAddress: 'That is not an address: paste the whole address the sign-in page took you to last',
   oauthWrongAddress: 'That address is not from this sign-in: paste the one this sign-in took you to last',
@@ -1542,11 +1671,95 @@ const en: ServerMessages = {
   oauthAppChanged: 'the app it signed in with was changed in Settings',
   oauthNoCalendarAccess: (provider) =>
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
+  oauthNoTeamsAccess: 'Sign in with a Microsoft work or school account and allow access to your Teams channels.',
+  oauthNoDocumentsAccess: 'To create or edit Google documents, sign in again and allow document editing.',
+  oauthNoDriveAccess: 'Sign in with Google again and allow read access to Drive.',
+  chromePublishFailed: (dest) => `Google Chrome could not be installed at ${dest}.`,
+  chromeDestinationExists: (dest) => `An application already exists at ${dest}.`,
+  chromeMissingBundle: 'The downloaded disk image does not contain Google Chrome.',
+  githubArchiveDownload: 'Relay could not download or verify GitHub CLI. Check your connection and available disk space, then try again.',
+  githubArchiveRun: 'Relay could not unpack or start the downloaded GitHub CLI. Retry or install it using GitHub’s instructions.',
+  teamsRuntimeUnsupported:
+    'A portable PowerShell 7 build is unavailable for this system or processor. Install PowerShell using Microsoft’s instructions, then retry.',
+  teamsRuntimeDownload:
+    'Relay could not download or verify the package from Microsoft’s PowerShell release. Check the connection and available disk space, then retry.',
+  teamsRuntimeTools:
+    'Installing PowerShell 7 requires the system curl and tar tools. Install these tools or install PowerShell 7 manually, then retry.',
+  teamsRuntimeRun:
+    'Relay could not unpack or start PowerShell 7. Check that your system supports Microsoft’s PowerShell build and has its native dependencies installed.',
+  teamsSetupFailed:
+    'Could not set up Microsoft Graph. Check that PowerShell 7 is installed and can reach the PowerShell Gallery, then try again.',
+  teamsForbidden: 'Teams refused access to this destination (HTTP 403). Check the channel or chat permissions.',
+  teamsPostingConnect: 'Allow posting in Settings → Apps and tools → Common apps → Microsoft Teams first.',
+  teamsPostingTarget: 'Paste a link to an existing Teams channel, chat or message that this account can open.',
+  teamsPostingChanged: 'The Teams sender or destination differs from the preview. Prepare a new message.',
+  teamsPostFailed: 'Could not confirm delivery to Teams. Check the destination before trying again.',
+  teamsReadFailed: 'Could not read Teams. Check your connection and account access, then try again.',
+  appsGithubChanged: 'The GitHub account changed. Check the current account before signing out.',
+  appsGithubToken: (name) => `Remove ${name} from the environment that starts Relay, then restart Relay.`,
+  appsGithubSignOutFailed: 'GitHub CLI could not sign out this account. Check the current account and try again.',
+  appsGithubFailed: 'Could not read GitHub. Check the connection and account access, then try again.',
+  appsTooLarge: 'This response is too large. Request less content.',
+  appsConnectFirst: 'Connect an account in Settings → Apps and tools → Common apps first.',
+  obsidianChoose: 'Use obsidian_list_vaults to find a connected vault, then pass its ID as vault.',
+  obsidianMultiple: 'Several vaults are connected. Manage each vault separately.',
+  obsidianOverlap: 'A connected vault cannot contain another connected vault.',
+  obsidianVaultMissing: 'No such connected Obsidian vault.',
+  docsGrant: 'Enable document editing for your Google account in Common apps → Google Drive.',
+  docsAccount: 'Specify the email of one connected Google account with document editing enabled.',
+  docsChanged: 'The document, revision, account or grant changed. Request a fresh preview.',
+  docsInvalid: 'Google Docs returned a document, tab or revision that could not be verified.',
+  docsMatch:
+    'Choose a unique literal passage in a regular body paragraph. Suggested changes and other document structures cannot be edited.',
+  docsTabs: (tabs) => `Specify the tab ID to edit (${tabs}).`,
+  docsCreate: (title) => `Create Google Doc “${title}”`,
+  docsEdit: (title) => `Edit Google Doc “${title}”`,
+  docsSaved: (title, link) => `Saved Google Doc “${title}”.\n${link}`,
+  docsFailed: (title, why) => `The change to Google Doc “${title}” could not be confirmed. ${why}`,
+  docsDiscarded: (title) => `Discarded the change to Google Doc “${title}”.`,
+  docsUnknown: (target) => `The outcome is uncertain. Check “${target}” in Google Docs before requesting another change.`,
+  docsCreatedCheck: (title, link) => `Google Doc “${title}” was created. Check its contents before requesting another change.\n${link}`,
+  docsHttp: (code) => `Google Docs returned HTTP ${code}. Check the document permission and revision before retrying.`,
+  obsidianPath: 'Choose a vault-relative .md note path under an existing folder, with no hidden entries.',
+  obsidianWriteFailed: 'The note could not be written. Check the filesystem.',
+  obsidianContent: 'Each original and proposed note must be UTF-8 text of at most 48 KiB.',
+  obsidianChanged: 'The note, its folder or the selected vault changed. Request a fresh preview before saving.',
+  obsidianExists: 'This note path is already in use. Choose another filename or propose an edit to the existing note.',
+  obsidianCreate: (path) => `Create note “${path}”`,
+  obsidianEdit: (path) => `Edit note “${path}”`,
+  obsidianSaved: (path) => `Saved note “${path}”.`,
+  obsidianFailed: (path, why) => `Could not save “${path}”. ${why}`,
+  obsidianDiscarded: (path) => `Discarded the change to “${path}”.`,
+  obsidianInterrupted: 'Harness Relay stopped during the save. Check the note before requesting another change.',
+  messageSetup: (app: string) => `Enable sending from Relay in Common apps → ${app} first.`,
+  messageChanged: 'The connection or destination changed. Ask for a new preview.',
+  messageUnknown: (app: string) => `Delivery is unconfirmed. Check ${app} before proposing another message. Relay will not retry.`,
+  slackToken: 'Enter a valid OAuth token from the Slack app installed in your workspace.',
+  slackScope: 'Grant the Slack app chat:write and permission to read the destination details, then reinstall it and reconnect.',
+  slackDestination: 'Use a conversation link or ID from this workspace that the Slack app can access. Check that the app is a member.',
+  slackStorage: 'The credential store on this computer is unavailable.',
+  slackCheck: 'Relay could not verify the Slack connection or conversation. Try again.',
+  messageNewPost: 'New channel post',
+  messageChat: 'Chat',
+  messageFrom: 'Send as',
+  messageTo: 'Destination',
+  messageWorkspace: 'Workspace',
+  messageTenant: 'Organization',
+  messageTitle: (app: string) => `Send a ${app} message`,
+  messageSent: (app: string) => `Delivered to ${app}.`,
+  appsVault: 'Choose the folder of an Obsidian vault (it contains .obsidian).',
+  appsSlackInAssistant: 'Connect Slack in Claude or Codex from Settings → Apps and tools → Common apps → Slack.',
   oauthNoMailAccess: (provider) =>
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
   oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,
   oauthNotFor: (email, use) =>
-    `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
+    use === 'documents'
+      ? `Enable Google document editing for ${email}.`
+      : use === 'teams'
+        ? `Connect Teams for ${email}`
+        : use === 'drive'
+          ? `Connect Google Drive for ${email}`
+          : `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: select your service in ${signInSettings('en', use)} and sign in with the same account`,
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
@@ -1587,18 +1800,21 @@ const en: ServerMessages = {
   mcpNoSignIn: (name) => `The MCP server "${name}" asks for no sign-in: it works without one`,
   mcpServerChanged: (name) => `The MCP server "${name}" was removed, or its URL changed, while it signed in: sign in again`,
   mcpLeftOutSignIn: (name, why) =>
-    `The MCP server "${name}" was left out of this turn: its sign-in no longer works${why ? ` (${why})` : ''}. Sign in to it again in Settings → Tool library.`,
+    `The MCP server "${name}" was left out of this turn: its sign-in no longer works${why ? ` (${why})` : ''}. Sign in to it again in Settings → Apps and tools → Tool library → MCP servers.`,
   mcpLeftOut: (name, why) => `The MCP server "${name}" was left out of this turn: ${why}`,
   watchNoAccount:
-    'The mail account this automation checks is gone: add one in Settings → Tool library → Mail and calendar, or pick another',
-  watchNoPassword: (name) => `The password of the mail account "${name}" cannot be read: type it again in Settings → Tool library`,
+    'The mail account this automation checks is gone: add one in Settings → Apps and tools → Common apps → Mail, or pick another',
+  watchNoPassword: (name) =>
+    `The password of the mail account "${name}" cannot be read: type it again in Settings → Apps and tools → Common apps → Mail`,
   watchNoFolder: (folder, why) => `The folder "${folder}" cannot be opened: ${why}`,
   watchBadTrigger: 'What to wait for is not complete: pick a source, and its account or calendar',
   watchNotEvent: 'This automation does not start when something happens: there is nothing to check',
   watchNoScheduler: 'This server does not check what automations wait for: restart Harness Relay',
   watchFailedNote: (why) => `What the automation waits for happened, but its message could not be sent: ${why}`,
-  watchNoCalendar: 'The calendar this automation checks is gone: add one in Settings → Tool library → Mail and calendar, or pick another',
-  watchNoCalendarPassword: (name) => `The password of the calendar "${name}" cannot be read: type it again in Settings → Tool library`,
+  watchNoCalendar:
+    'The calendar this automation checks is gone: add one in Settings → Apps and tools → Common apps → Calendar, or pick another',
+  watchNoCalendarPassword: (name) =>
+    `The password of the calendar "${name}" cannot be read: type it again in Settings → Apps and tools → Common apps → Calendar`,
   watchBadMinutes: (max) => `The minutes before an event begins are a whole number from 1 to ${max}`,
   watchBadRepo: 'Give the GitHub repository as owner/name, such as octocat/hello-world',
   watchBadPattern: 'Give a pattern for files in the working directory, such as reports/*.csv (not a full path, and without ..)',

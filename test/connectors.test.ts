@@ -490,6 +490,34 @@ describe('mail accounts and calendars in Settings', () => {
       await expect(tools.calendar_invite!.send!(invite, {} as OutboxItem)).rejects.toThrow('The account the card showed is gone');
     }));
 
+  it('adds discovered calendar collections without renaming existing calendars or changing a saved password on retry', () => {
+    const store = new ConnectorStore(openDatabase(':memory:'), fakeKeyring());
+    const first = { name: 'Family', url: 'https://p42-caldav.icloud.com/work/', username: 'me@example.test', password: 'original' };
+    store.saveCalendar('manually-chosen-id', first);
+    const retried = store.addDiscoveredCalendar({
+      ...first,
+      name: 'Renamed at Apple',
+      username: 'ME@example.test',
+      url: first.url.slice(0, -1),
+      password: 'new',
+    });
+    expect(retried.calendar).toHaveLength(1);
+    expect(store.calendar('manually-chosen-id')!.password).toBe('original');
+    store.saveOAuthCalendar('other-service', {
+      name: 'Family · other@example.test',
+      url: 'https://example.com/my-calendar',
+      oauth: 'google',
+      email: 'other@example.test',
+    });
+    const another = { ...first, username: 'other@example.test', name: 'family' };
+    const added = store.addDiscoveredCalendar(another).calendar;
+    expect(added.map((c) => c.name)).toEqual(['Family', 'Family · other@example.test', 'family · other@example.test (2)']);
+    expect(store.addDiscoveredCalendar(another).calendar).toEqual(added);
+    const otherUrl = store.addDiscoveredCalendar({ ...first, url: first.url + 'team/' });
+    expect(otherUrl.calendar.at(-1)?.name).toBe('Family · me@example.test');
+    expect(new Set(otherUrl.calendar.map((c) => c.id)).size).toBe(4);
+  });
+
   it('asks for the password again before sending the kept one to another server', () =>
     withLang('en', () => {
       const store = new ConnectorStore(openDatabase(':memory:'), fakeKeyring());

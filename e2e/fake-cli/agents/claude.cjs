@@ -63,6 +63,16 @@ function claudeStatic() {
   }
   if (args[0] === 'plugin' && args[1] === 'list') return void process.stdout.write('[]\n');
   if (args[0] === 'mcp' && args[1] === 'list') return void process.stdout.write('No MCP servers configured.\n');
+  if (args.length === 3 && args[0] === 'mcp' && args[1] === 'get') {
+    // Hosted connector settings for this test account, as reported by the real CLI, keyed by the exact connector name it is asked for.
+    const fixture = path.join(home(), 'e2e-hosted-connectors.json');
+    const inventory = fs.existsSync(fixture) ? JSON.parse(fs.readFileSync(fixture, 'utf8')) : {};
+    const result = inventory[args[2]] || { code: 1, stderr: `No MCP server named "${args[2]}".\n` };
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.code;
+    return;
+  }
   process.stderr.write(`fake claude: unknown command ${args.join(' ')}\n`);
   process.exitCode = 1;
 }
@@ -78,14 +88,16 @@ function claudeMcp() {
   });
 }
 
-/** Each `--mcp-config` stdio server as it is given (command, args, env), by name: to call one. */
+/** The stdio and HTTP MCP servers this test turn can call, as Claude Code received them. */
 function claudeMcpSpecs() {
   const out = {};
   for (const file of values('--mcp-config')) {
     try {
       const servers = JSON.parse(file.trim().startsWith('{') ? file : fs.readFileSync(file, 'utf8')).mcpServers || {};
-      for (const [name, s] of Object.entries(servers))
+      for (const [name, s] of Object.entries(servers)) {
         if (s.command) out[name] = { command: s.command, args: s.args || [], env: s.env || {} };
+        else if (s.type === 'http' && s.url) out[name] = { url: s.url, headers: s.headers || {} };
+      }
     } catch {
       /* not one to read */
     }

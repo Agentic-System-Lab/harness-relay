@@ -19,7 +19,7 @@ export interface MailOAuth {
   /** An access token for mail (`fresh`: a new one, the server refused the one kept). */
   mailToken(oauthAccount: string, fresh?: boolean): Promise<string>;
   /** Why the account cannot be used now (it needs signing in again, or is gone); undefined when it can. */
-  problem(oauthAccount: string): string | undefined;
+  problem(oauthAccount: string, use?: 'mail'): string | undefined;
   /** What changes whenever its sign-in does (it came to need a new one, or was signed in again): IDLE connects again then. */
   signInState(oauthAccount: string): string;
 }
@@ -54,7 +54,7 @@ export function mailLogin(account: Account, password: string, oauth?: MailOAuth)
   }
   const id = account.oauth;
   if (!oauth) throw new MailSignInError(t().oauthNotHere(account.name));
-  const problem = oauth.problem(id);
+  const problem = oauth.problem(id, 'mail');
   if (problem) throw new MailSignInError(problem);
   const via = oauth.mailVia(id);
   // The token never goes in the clear but to a stand-in on this computer.
@@ -68,7 +68,7 @@ export function mailLogin(account: Account, password: string, oauth?: MailOAuth)
         return { username: via.username, token: await oauth.mailToken(id, fresh) };
       } catch (err) {
         // Its refresh was refused just now: it needs a new sign-in, which it says.
-        const now = oauth.problem(id);
+        const now = oauth.problem(id, 'mail');
         throw now ? new MailSignInError(now) : err;
       }
     },

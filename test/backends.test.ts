@@ -1,4 +1,6 @@
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type RequestListener } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,12 +13,22 @@ import {
   type ProviderModels,
 } from '../src/shared/types';
 import type { SecretStore } from '../src/server/secrets';
-import { endpointDraft, endpointProblems, endpointSlug, endpointUpdate, parseModelList, validBaseUrl } from '../src/web/backends';
+import {
+  endpointDraft,
+  endpointProblems,
+  endpointSlug,
+  endpointUpdate,
+  normalizedBaseUrl,
+  parseModelList,
+  validBaseUrl,
+} from '../src/web/backends';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-backends-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
+const { AuthStore } = await import('../src/server/auth');
+const { SYSTEM_NET } = await import('../src/server/oauth/net');
 const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, endpointRunModel, urlHost } =
   await import('../src/server/backends');
 const { discoverModels, withEndpointModels } = await import('../src/server/models');
@@ -30,7 +42,7 @@ const { openAgents } = await import('../src/server/agents');
 const { opencodeAcp } = await import('../src/server/agents/opencode');
 const { withLang } = await import('../src/server/i18n');
 const { AgentRunError } = await import('../src/server/agents/types');
-const { maskSecret } = await import('../src/server/secrets');
+const { maskSecret, openSecretStore } = await import('../src/server/secrets');
 const { validEndpointUrl } = await import('../src/server/validate');
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -197,6 +209,126 @@ describe('ModelBackendStore', () => {
         .endpoints.map((e) => e.id)
         .slice(0, 3),
     ).toEqual(['lab-0', 'lab-1', 'lab-2']);
+  });
+
+  it('keeps keys tied to their saved URL when moving an endpoint, also if the credential store fails', () => {
+    const keyring = fakeKeyring();
+    const s = new ModelBackendStore(db, keyring);
+    const moved = { ...endpoint, baseUrl: 'http://other.test/v1' };
+    s.putEndpoint('lab', { ...endpoint, apiKey: 'first-key' });
+    const remove = keyring.delete;
+    const set = keyring.set;
+    const restarted = () => new ModelBackendStore(db, keyring).forRun().endpoints[0];
+    const old = { id: 'lab', ...endpoint };
+    const next = { id: 'lab', ...moved };
+    keyring.delete = () => {
+      throw new Error('locked');
+    };
+    expect(() => s.putEndpoint('lab', { ...moved, apiKey: 'replacement' })).toThrow(/locked/);
+    expect(restarted()).toEqual({ ...old, apiKey: 'first-key' });
+
+    // Read the durable state at each boundary as a process starting after a crash would.
+    keyring.delete = (name) => {
+      remove(name);
+      expect(restarted()).toEqual(old);
+    };
+    keyring.set = () => {
+      expect(restarted()).toEqual(next);
+      throw new Error('locked');
+    };
+    expect(() => s.putEndpoint('lab', { ...moved, apiKey: 'replacement' })).toThrow(/locked/);
+    expect(s.forRun().endpoints[0]).toEqual(next);
+    expect(restarted()).toEqual(next);
+    keyring.delete = remove;
+    keyring.set = set;
+    s.putEndpoint('lab', { ...endpoint, apiKey: 'first-key' });
+    keyring.set = (name, value) => {
+      expect(restarted()).toEqual(next);
+      set(name, value);
+      expect(restarted()).toEqual({ ...next, apiKey: 'replacement' });
+    };
+    s.putEndpoint('lab', { ...moved, apiKey: 'replacement' });
+    expect(s.forRun().endpoints[0]).toEqual({ ...next, apiKey: 'replacement' });
+  });
+
+  it('keeps database-backed keys with their URL when the system credential store is unavailable during a move', () => {
+    const keyring = fakeKeyring();
+    new ModelBackendStore(db, keyring).putEndpoint('lab', { ...endpoint, apiKey: 'old-system-key' });
+    const moved = { ...endpoint, baseUrl: 'http://other.test/v1' };
+    const options = { dataDir: root, env: {} };
+    const offline = new ModelBackendStore(db, openSecretStore(db, undefined, options));
+    offline.putEndpoint('lab', moved);
+    offline.putEndpoint('lab', { ...moved, apiKey: null });
+    expect(keyring.get('endpoint-lab-api-key')).toBe('old-system-key');
+    const online = new ModelBackendStore(reopen(), openSecretStore(db, keyring, options));
+    expect(keyring.get('endpoint-lab-api-key')).toBeNull();
+    expect(online.forRun().endpoints[0]).toEqual({ id: 'lab', ...moved });
+    expect(online.endpointCatalogKey('lab', moved.baseUrl)).toBeUndefined();
+    const plain = new ModelBackendStore(db);
+    plain.putEndpoint('lab', { ...endpoint, apiKey: 'original' });
+    plain.putEndpoint('lab', { ...moved, apiKey: 'replacement' });
+    expect(new ModelBackendStore(reopen()).forRun().endpoints[0]).toEqual({ id: 'lab', ...moved, apiKey: 'replacement' });
+  });
+
+  it('lets Settings retry the same new ID after a key write fails and preserves a previous deletion', () => {
+    const ring = fakeKeyring();
+    const store = new ModelBackendStore(db, ring);
+    store.putEndpoint('lab', endpoint);
+    store.deleteEndpoint('lab');
+    const putKey = vi.spyOn(ring, 'set').mockImplementationOnce(() => {
+      throw new Error('locked');
+    });
+    const draft = { ...endpoint, apiKey: 'fixture-key', verifyModels: true };
+    expect(() => store.putEndpoint('lab', draft)).toThrow(/locked/);
+    expect(store.view()).toMatchObject({ endpoints: [], deletedEndpoints: ['lab'] });
+    expect(new ModelBackendStore(db, ring).view()).toMatchObject({ endpoints: [], deletedEndpoints: ['lab'] });
+    putKey.mockRestore();
+    store.putEndpoint('lab', draft);
+    expect(store.view().endpoints[0]?.id).toBe('lab');
+    expect(store.endpointCatalogKey('lab', endpoint.baseUrl)).toBe('fixture-key');
+  });
+
+  it('clears an orphan key before adding an endpoint and writes its replacement only after the URL is durable', () => {
+    const ring = fakeKeyring();
+    const name = 'endpoint-lab-api-key';
+    ring.set(name, 'orphan');
+    const s = new ModelBackendStore(db, ring);
+    const restarted = () => new ModelBackendStore(db, ring).forRun().endpoints;
+    const remove = ring.delete;
+    const set = ring.set;
+    ring.delete = (account) => {
+      remove(account);
+      expect(restarted()).toEqual([]);
+    };
+    ring.set = (account, key) => {
+      expect(restarted()).toEqual([{ id: 'lab', ...endpoint }]);
+      set(account, key);
+      expect(restarted()).toEqual([{ id: 'lab', ...endpoint, apiKey: 'replacement' }]);
+    };
+    s.putEndpoint('lab', { ...endpoint, apiKey: 'replacement' });
+    expect(s.forRun().endpoints).toEqual(restarted());
+  });
+
+  it('retries clearing the encrypted copy after a move fails part way through clearing both credential stores', () => {
+    const options = { dataDir: root, env: {} };
+    const encrypted = openSecretStore(db, undefined, options);
+    new ModelBackendStore(db, encrypted).putEndpoint('lab', { ...endpoint, apiKey: 'previous' });
+    const native = fakeKeyring();
+    const migration = vi.spyOn(native, 'set').mockImplementationOnce(() => {
+      throw new Error('locked');
+    });
+    const s = new ModelBackendStore(db, openSecretStore(db, native, options));
+    migration.mockRestore();
+    db.exec("CREATE TRIGGER cannot_clear BEFORE DELETE ON secrets BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+    const move = { ...endpoint, baseUrl: 'http://elsewhere.test/v1' };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(() => s.putEndpoint('lab', move)).toThrow(/disk full/);
+      expect(s.forRun().endpoints[0]).toEqual({ id: 'lab', ...endpoint, apiKey: 'previous' });
+    }
+    db.exec('DROP TRIGGER cannot_clear');
+    s.putEndpoint('lab', move);
+    const restarted = new ModelBackendStore(reopen(), openSecretStore(db, native, options));
+    expect(restarted.forRun().endpoints[0]).toEqual({ id: 'lab', ...move });
   });
 
   it('remembers a deleted endpoint, also after a restart, until one of its id is added again', () => {
@@ -429,7 +561,7 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
   it('fails a run on a model of an endpoint deleted in Settings, instead of sending it to the CLI’s own service', () => {
     const gone = { ...backends, deletedEndpoints: ['lab2'] };
     expect(() => withLang('en', () => endpointRunModel(gone, ' lab2/x ', 'Claude Code'))).toThrow(
-      'Claude Code is to use the model "lab2/x", but its custom endpoint "lab2" was deleted under Settings → Model backends.',
+      'Claude Code is to use the model "lab2/x", but its custom endpoint "lab2" was deleted under Settings → Model connections.',
     );
     expect(() => endpointRunModel(gone, 'lab2/x', 'Codex')).toThrow(AgentRunError);
     // An endpoint set up runs there; any other model, one with a slash too, goes to the CLI as it is.
@@ -594,15 +726,416 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
-  function setup() {
-    const keyring = fakeKeyring();
+  function setup(auth: InstanceType<typeof AuthStore> | null = null, keyring = fakeKeyring()) {
     const settings = new SettingsStore(db, keyring);
     const store = new Store(db);
     const hub = new Hub();
     const providers = new ProviderService(settings);
-    const app = createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
+    const app = createApp({ auth, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers });
     return { app, settings, keyring, providers };
   }
+
+  async function withModelServer(handler: RequestListener, run: (origin: string) => Promise<void>) {
+    const server = createServer(handler);
+    try {
+      await new Promise<void>((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+      await run(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  it('lists unique catalog IDs in server order and uses a saved key only for the same endpoint and address', async () => {
+    const { app, settings } = setup();
+    const ids = Array.from({ length: 125 }, (_, i) => `org/model-${i}`);
+    const seen: [string | undefined, string | undefined, string | undefined][] = [];
+    await withModelServer(
+      (req, res) => {
+        seen.push([req.method, req.url, req.headers.authorization]);
+        res.end(
+          JSON.stringify({
+            data: [
+              ...ids.map((id) => ({ id })),
+              { id: ids[0] },
+              { id: 'has space' },
+              { id: 'bad\u0000id' },
+              { id: 'x'.repeat(201) },
+              null,
+              {},
+            ],
+          }),
+        );
+      },
+      async (origin) => {
+        const baseUrl = origin + '/v1';
+        const put = await app.request(
+          '/api/backends/endpoints/lab',
+          json('PUT', { ...endpoint, baseUrl: baseUrl + '/', apiKey: 'saved-key' }),
+        );
+        expect(put.status).toBe(200);
+        const catalog = (input: object) => app.request('/api/backends/endpoint-models', json('POST', { baseUrl, ...input }));
+        const found = await catalog({ endpointId: 'lab', baseUrl: baseUrl + '//' });
+        expect(found.status).toBe(200);
+        expect(await found.json()).toEqual({ models: ids });
+        for (const input of [
+          {},
+          { endpointId: 'other' },
+          { endpointId: 'lab', baseUrl: origin + '/other' },
+          { endpointId: 'lab', apiKey: ' new-key ' },
+          { endpointId: 'lab', apiKey: null },
+        ])
+          expect((await catalog(input)).status).toBe(200);
+        expect(seen).toEqual([
+          ['GET', '/v1/models', 'Bearer saved-key'],
+          ['GET', '/v1/models', undefined],
+          ['GET', '/v1/models', undefined],
+          ['GET', '/other/models', undefined],
+          ['GET', '/v1/models', 'Bearer new-key'],
+          ['GET', '/v1/models', undefined],
+        ]);
+        expect(settings.backends.forRun().endpoints[0]).toEqual({ id: 'lab', ...endpoint, baseUrl, apiKey: 'saved-key' });
+        const save = await app.request(
+          '/api/backends/endpoints/lab',
+          json('PUT', { ...endpoint, baseUrl: origin + '/other', models: [ids[124]] }),
+        );
+        expect(save.status).toBe(200);
+        await catalog({ endpointId: 'lab', baseUrl: origin + '/other' });
+        expect(seen.at(-1)).toEqual(['GET', '/other/models', undefined]);
+      },
+    );
+  });
+
+  it('checks sign-in, rejects Relay addresses and malformed input, and handles an unreadable key without guessing', async () => {
+    const ask = (app: ReturnType<typeof createApp>, input: object) => app.request('/api/backends/endpoint-models', json('POST', input));
+    const { app: protectedApp } = setup(new AuthStore(db));
+    expect((await ask(protectedApp, { baseUrl: endpoint.baseUrl })).status).toBe(401);
+    const lookup = vi.spyOn(SYSTEM_NET, 'lookup').mockResolvedValue(['127.0.0.1']);
+    try {
+      expect((await ask(setup().app, { baseUrl: 'http://relay-alias.test:8787' })).status).toBe(400);
+      expect(lookup).toHaveBeenCalledWith('relay-alias.test');
+    } finally {
+      lookup.mockRestore();
+    }
+    const keyring = fakeKeyring();
+    await withModelServer(
+      (_req, res) => res.end('{"data":[]}'),
+      async (origin) => {
+        const baseUrl = origin + '/v1';
+        new ModelBackendStore(db, keyring).putEndpoint('lab', { ...endpoint, baseUrl, apiKey: 'saved-key' });
+        const get = keyring.get;
+        keyring.get = (name) => {
+          if (name === 'endpoint-lab-api-key') throw new Error('locked');
+          return get(name);
+        };
+        const { app } = setup(null, keyring);
+        const unreadable = await ask(app, { baseUrl, endpointId: 'lab' });
+        expect(unreadable.status).toBe(409);
+        expect(await unreadable.text()).toContain('saved API key could not be read');
+        for (const input of [{ baseUrl, apiKey: null }, { baseUrl, apiKey: 'replacement' }, { baseUrl: origin + '/v2' }]) {
+          const found = await ask(app, { ...input, endpointId: 'lab' });
+          expect(await found.json()).toEqual({ models: [] });
+        }
+        for (const input of [
+          {},
+          { baseUrl: 'http://user:sensitive@localhost/' },
+          { baseUrl: 'http://localhost/?key=sensitive' },
+          { baseUrl: 'http://127.0.0.1:8787' },
+          { baseUrl, apiKey: 2 },
+          { baseUrl, apiKey: 'a'.repeat(4097) },
+          { baseUrl, endpointId: {} },
+          { baseUrl, endpointId: 'openai' },
+        ]) {
+          const rejected = await ask(app, input);
+          expect(rejected.status).toBe(400);
+          expect(await rejected.text()).not.toContain('sensitive');
+        }
+      },
+    );
+  });
+
+  it('returns localized, bounded catalog errors without following redirects or relaying upstream error bodies', async () => {
+    const { app } = setup();
+    const requests: string[] = [];
+    await withModelServer(
+      (req, res) => {
+        requests.push(req.url!);
+        if (req.url === '/redirect/models') res.writeHead(302, { location: '/target/models' });
+        if (req.url === '/auth/models') res.writeHead(401);
+        if (req.url === '/large/models') {
+          res.write('{"data":[],"padding":"');
+          return res.end(' '.repeat(4 * 1024 * 1024) + '"}');
+        }
+        res.end('sensitive upstream detail');
+      },
+      async (origin) => {
+        for (const [path, error] of [
+          ['redirect', /HTTP 302/],
+          ['auth', /API key/],
+          ['bad', /JSON/],
+          ['large', /4 MiB/],
+        ] as const) {
+          const res = await app.request(
+            '/api/backends/endpoint-models',
+            json('POST', { baseUrl: origin + '/' + path, apiKey: 'request-key' }),
+          );
+          expect(res.status).toBe(502);
+          const message = await res.text();
+          expect(message).toMatch(error);
+          expect(message).not.toMatch(/sensitive|request-key/);
+        }
+        expect(requests).toEqual(['/redirect/models', '/auth/models', '/bad/models', '/large/models']);
+      },
+    );
+  });
+
+  it('verifies a save against the catalog and the exact per-model resource before changing any settings', async () => {
+    const { app, settings } = setup();
+    const seen: [string, string | undefined][] = [];
+    await withModelServer(
+      (req, res) => {
+        seen.push([req.url!, req.headers.authorization]);
+        switch (req.url) {
+          case '/v1/models':
+            return res.end(JSON.stringify({ data: [{ id: 'listed' }] }));
+          case '/v1/models/org%2Funlisted':
+            return res.end(JSON.stringify({ id: 'org/unlisted' }));
+          case '/v1/models/alias':
+            return res.end(JSON.stringify({ id: 'another' }));
+          case '/v1/models/private':
+            res.writeHead(401);
+            break;
+          case '/v2/models':
+            res.writeHead(405);
+            break;
+          case '/v2/models/only':
+            return res.end(JSON.stringify({ id: 'only' }));
+          case '/private/models':
+            res.writeHead(403);
+            break;
+          case '/bad/models':
+            return res.end('upstream-secret');
+          case '/offline/models':
+            return req.socket.destroy();
+          default:
+            res.writeHead(404);
+        }
+        res.end('upstream-secret');
+      },
+      async (origin) => {
+        const put = (body: object) =>
+          app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, baseUrl: origin + '/v1', verifyModels: true, ...body }));
+        const original = { ...endpoint, baseUrl: origin + '/v1', models: ['listed'], apiKey: 'first' };
+        settings.backends.putEndpoint('lab', original);
+        expect((await put({ models: ['listed', 'org/unlisted', 'org/unlisted'] })).status).toBe(200);
+        expect(seen.splice(0)).toEqual([
+          ['/v1/models', 'Bearer first'],
+          ['/v1/models/org%2Funlisted', 'Bearer first'],
+        ]);
+        const saved = settings.backends.forRun();
+        for (const [input, paths, message] of [
+          [{ models: ['listed', 'alias'] }, ['/v1/models', '/v1/models/alias'], /alias/],
+          [{ models: ['unknown', 'never-probed'], apiKey: 'replacement' }, ['/v1/models', '/v1/models/unknown'], /unknown.*404/],
+          [{ models: ['private', 'never-probed'] }, ['/v1/models', '/v1/models/private'], /private.*401/],
+          [{ models: [], baseUrl: origin + '/v2' }, ['/v2/models'], /at least one model ID/],
+          [{ models: ['x'], baseUrl: origin + '/private' }, ['/private/models'], /403/],
+          [{ models: [], baseUrl: origin + '/bad' }, ['/bad/models'], /JSON/],
+          [{ models: [], baseUrl: origin + '/offline' }, ['/offline/models'], /connection/],
+        ] as const) {
+          const refused = await put(input);
+          expect(refused.status).toBeGreaterThanOrEqual(400);
+          const text = await refused.text();
+          expect(text).toMatch(message);
+          expect(text).not.toMatch(/upstream-secret|replacement/);
+          expect(seen.splice(0).map(([path]) => path)).toEqual(paths);
+          expect(settings.backends.forRun()).toEqual(saved);
+        }
+        expect((await put({ verifyModels: 1 })).status).toBe(400);
+        expect((await put({ models: [] })).status).toBe(200);
+        expect(seen.splice(0)).toEqual([['/v1/models', 'Bearer first']]);
+        expect((await put({ baseUrl: origin + '/v2', models: ['only'] })).status).toBe(200);
+        expect(seen.splice(0)).toEqual([
+          ['/v2/models', undefined],
+          ['/v2/models/only', undefined],
+        ]);
+        expect(settings.backends.forRun().endpoints[0]).toEqual({ id: 'lab', ...endpoint, baseUrl: origin + '/v2', models: ['only'] });
+        expect((await put({ baseUrl: origin + '/v2', verifyModels: false, models: ['unchecked'] })).status).toBe(200);
+        expect(seen).toEqual([]);
+      },
+    );
+  });
+
+  it('requires explicit consent when both metadata routes are absent and never overrides an actual verification failure', async () => {
+    const { app, settings } = setup();
+    const requests: string[] = [];
+    let canceledRecord = false;
+    await withModelServer(
+      (req, res) => {
+        requests.push(req.method + ' ' + req.url);
+        switch (req.url) {
+          case '/v1/models':
+            return res.writeHead(405).end();
+          case '/v1/models/streaming':
+            res.on('close', () => {
+              canceledRecord = true;
+            });
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.flushHeaders();
+            return;
+          case '/v1/models/known':
+            return res.end('{"id":"known"}');
+          case '/v1/models/mismatch':
+            return res.end('{"id":"other"}');
+          case '/v1/models/denied':
+            return res.writeHead(403).end();
+          case '/v1/models/offline':
+            return req.socket.destroy();
+          default:
+            return res.writeHead(404).end();
+        }
+      },
+      async (origin) => {
+        const baseUrl = origin + '/v1';
+        const put = (models: string[], extra: object = {}) =>
+          app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, baseUrl, verifyModels: true, models, ...extra }));
+        const ids = ['first', 'second'];
+        const first = await put(ids);
+        expect(first.status).toBe(409);
+        expect(await first.json()).toMatchObject({ code: 'endpoint-metadata-unavailable' });
+        expect(settings.backends.forRun().endpoints).toEqual([]);
+        const probes = ['GET /v1/models', 'GET /v1/models/first', 'GET /v1/models/second'];
+        expect(requests.splice(0)).toEqual(probes);
+        expect((await put(ids, { allowMissingMetadata: true })).status).toBe(200);
+        expect(requests.splice(0)).toEqual(probes);
+        for (const [models, expected] of [
+          [['first', 'known'], /first.*404/],
+          [['first', 'streaming'], /first.*404/],
+          [['known', 'second'], /second.*404/],
+          [['first', 'denied'], /403/],
+          [['first', 'offline'], /offline.*connection/],
+          [['mismatch'], /matching record/],
+        ] as const) {
+          const failed = await put([...models], { allowMissingMetadata: true, name: 'Rejected' });
+          expect(failed.status).toBeGreaterThanOrEqual(400);
+          expect(await failed.json()).toEqual({ error: expect.stringMatching(expected) });
+          expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: endpoint.name, models: ids });
+        }
+        await vi.waitFor(() => expect(canceledRecord).toBe(true));
+        expect((await put(ids, { allowMissingMetadata: 'yes' })).status).toBe(400);
+        expect((await put(ids, { verifyModels: false, allowMissingMetadata: true })).status).toBe(400);
+        // A legacy chat backend can have no catalog and no saved IDs. A label-only change is local.
+        settings.backends.putEndpoint('lab', { ...endpoint, baseUrl, models: [], apiKey: 'existing' });
+        requests.length = 0;
+        expect((await put([], { name: 'New label' })).status).toBe(200);
+        expect(requests).toEqual([]);
+        expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: 'New label', apiKey: 'existing' });
+        expect((await put([], { name: 'Changed key', apiKey: 'new' })).status).toBe(400);
+        expect(requests).toEqual(['GET /v1/models']);
+        expect(settings.backends.forRun().endpoints[0]).toMatchObject({ name: 'New label', apiKey: 'existing' });
+      },
+    );
+  });
+
+  it('applies the same deadline to individual records after a slow catalog', async () => {
+    const { app, settings } = setup();
+    const now = Date.now.bind(Date);
+    let elapsed = 0;
+    const time = vi.spyOn(Date, 'now').mockImplementation(() => now() + elapsed);
+    const paths: string[] = [];
+    try {
+      await withModelServer(
+        (req, res) => {
+          paths.push(req.url!);
+          elapsed = 11_000;
+          res.end('{"data":[]}');
+        },
+        async (origin) => {
+          const response = await app.request(
+            '/api/backends/endpoints/lab',
+            json('PUT', {
+              ...endpoint,
+              baseUrl: origin + '/v1',
+              models: ['manual'],
+              verifyModels: true,
+              allowMissingMetadata: true,
+            }),
+          );
+          expect(response.status).toBe(502);
+          expect(await response.text()).toMatch(/manual.*timed out/);
+          expect(paths).toEqual(['/v1/models']);
+          expect(settings.backends.forRun().endpoints).toEqual([]);
+        },
+      );
+    } finally {
+      time.mockRestore();
+    }
+  });
+
+  it('bounds the combined size of individual model records and stops checking on the first over-budget response', async () => {
+    const { app, settings } = setup();
+    const models = ['one', 'two', 'three', 'four'];
+    const padding = ' '.repeat(3 * 1024 * 1024);
+    const paths: string[] = [];
+    await withModelServer(
+      (req, res) => {
+        paths.push(req.url!);
+        res.setHeader('Content-Type', 'application/json');
+        if (req.url === '/v1/models') return res.end('{"data":[]}');
+        const id = models.find((model) => req.url === `/v1/models/${model}`);
+        if (!id) return res.writeHead(404).end();
+        res.end(JSON.stringify({ id, padding }));
+      },
+      async (origin) => {
+        const res = await app.request(
+          '/api/backends/endpoints/lab',
+          json('PUT', {
+            ...endpoint,
+            baseUrl: origin + '/v1',
+            verifyModels: true,
+            models,
+          }),
+        );
+        expect(res.status).toBe(502);
+        expect(await res.text()).toMatch(/three.*8 MiB/);
+        expect(paths).toEqual(['/v1/models', '/v1/models/one', '/v1/models/two', '/v1/models/three']);
+        expect(settings.backends.forRun().endpoints).toEqual([]);
+        const unknown = await fetch(origin + '/v1/models/unknown');
+        expect(unknown.status).toBe(404);
+        expect(await unknown.text()).toBe('');
+      },
+    );
+  });
+
+  it('refuses a stale verified save after the same endpoint ID was deleted and recreated during the lookup', async () => {
+    const { app, settings } = setup();
+    let replace!: () => void;
+    await withModelServer(
+      (_req, res) => {
+        replace();
+        res.end(JSON.stringify({ data: [{ id: 'new-selection' }] }));
+      },
+      async (origin) => {
+        const saved = { ...endpoint, baseUrl: origin + '/v1', apiKey: 'same-key' };
+        settings.backends.putEndpoint('lab', saved);
+        replace = () => {
+          settings.backends.deleteEndpoint('lab');
+          settings.backends.putEndpoint('lab', saved);
+        };
+        const res = await app.request(
+          '/api/backends/endpoints/lab',
+          json('PUT', {
+            ...saved,
+            name: 'stale edit',
+            models: ['new-selection'],
+            verifyModels: true,
+          }),
+        );
+        expect(res.status).toBe(409);
+        expect(await res.text()).toContain('settings changed');
+        expect(settings.backends.forRun().endpoints).toEqual([{ id: 'lab', ...saved }]);
+      },
+    );
+  });
 
   it('sets and removes API keys, shown masked only', async () => {
     const { app, keyring } = setup();
@@ -710,11 +1243,11 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
           auth: { loggedIn: false, detail: expect.stringMatching(/not implemented yet/) },
         });
         opencodeAcp.implemented = true;
-        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Model backends)' });
+        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model connection set up yet (Settings → Model connections)' });
         await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
         await app.request('/api/backends/xai', json('PUT', { apiKey: 'xai-key-0000' }));
         // A change of backends is seen at once (the status cache is dropped).
-        expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model backends: xAI, Homelab' });
+        expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model connections: xAI, Homelab' });
       } finally {
         opencodeAcp.implemented = done;
       }
@@ -788,15 +1321,17 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
   });
 });
 
-describe('the endpoint form (Settings → Model backends)', () => {
+describe('the endpoint form (Settings → Model connections)', () => {
   it('makes an id from the name, reads the models typed, and checks the form as the server does', () => {
     expect(endpointSlug('Homelab vLLM')).toBe('homelab-vllm');
     expect(endpointSlug('  Ollama @ home!!  ')).toBe('ollama-home');
     expect(endpointSlug('é'.repeat(3) + 'x'.repeat(40))).toHaveLength(32);
     expect(parseModelList('a\nb, c  a\n')).toEqual(['a', 'b', 'c']);
+    expect(normalizedBaseUrl(' https://EXAMPLE.com:443/v1/ ')).toBe('https://example.com/v1');
+    expect(normalizedBaseUrl('https://example.com:8443/v1')).toBe('https://example.com:8443/v1');
     expect(validBaseUrl('http://10.0.0.5:8000/v1')).toBe(true);
     expect(validBaseUrl('http://10.0.0.5/v1?x=1')).toBe(false);
-    const d = { ...endpointDraft(), name: 'Lab', id: 'lab', baseUrl: 'http://h:1/v1', models: 'm1\nm2' };
+    const d = { ...endpointDraft(), name: 'Lab', id: 'lab', baseUrl: 'http://h:1/v1', models: ['m1', 'm2'] };
     expect(endpointProblems(d, [])).toEqual([]);
     expect(endpointProblems({ ...d, id: 'xai' }, [])).toEqual(['idReserved']);
     expect(endpointProblems(d, [{ id: 'lab' }])).toEqual(['idTaken']);
@@ -805,8 +1340,8 @@ describe('the endpoint form (Settings → Model backends)', () => {
     expect(endpointProblems({ ...d, name: ' ', baseUrl: 'x', id: 'Bad' }, [])).toEqual(['name', 'id', 'url']);
     // A name too long says so (not "enter a name"); too many models, or one too long, is one problem.
     expect(endpointProblems({ ...d, name: 'x'.repeat(61) }, [])).toEqual(['nameLong']);
-    expect(endpointProblems({ ...d, models: Array.from({ length: 101 }, (_, i) => `m${i}`).join('\n') }, [])).toEqual(['models']);
-    expect(endpointProblems({ ...d, models: 'x'.repeat(201) }, [])).toEqual(['models']);
+    expect(endpointProblems({ ...d, models: Array.from({ length: 101 }, (_, i) => `m${i}`) }, [])).toEqual(['models']);
+    expect(endpointProblems({ ...d, models: ['x'.repeat(201)] }, [])).toEqual(['models']);
     expect(endpointUpdate({ ...d, apiKey: ' k ' })).toEqual({ name: 'Lab', baseUrl: 'http://h:1/v1', models: ['m1', 'm2'], apiKey: 'k' });
     expect(endpointUpdate({ ...d, removeKey: true })).toMatchObject({ apiKey: null });
     expect('apiKey' in endpointUpdate(d)).toBe(false);

@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto';
 import {
-  createReadStream,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -36,7 +34,7 @@ import { cliFolder } from './protect';
 import { parseVersion } from './providers';
 import type { SettingsStore } from './settings';
 import { windowsGitRoots } from './gitProcess';
-import { BREW_DIRS, findOnPath } from './executable';
+import { BREW_DIRS, findOnPath, sha256Of } from './executable';
 
 /*
  * Installing a CLI from Settings, for anyone who does not have it yet (a GitHub codespace has the
@@ -328,13 +326,6 @@ export function folderNpm(dir: string, platform: NodeJS.Platform): { bin: string
   return platform === 'win32'
     ? { bin: join(dir, 'node.exe'), args: [join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')] }
     : { bin: join(dir, 'bin', 'node'), args: [join(dir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')] };
-}
-
-/** A file's SHA-256 checksum, in hex. */
-async function sha256Of(path: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
-  return hash.digest('hex');
 }
 
 /** A script as one would run it from its address. */

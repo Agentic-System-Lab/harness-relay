@@ -64,6 +64,13 @@ export interface GatewayContext {
   signal: AbortSignal;
 }
 
+/** The exact action paired with the preview the user is asked to approve. */
+export interface PreparedOutboxCall {
+  title: string;
+  preview: OutboxPreview;
+  args: Record<string, unknown>;
+}
+
 /** One of Harness Relay's tools. */
 export interface GatewayTool {
   /** As agents see it (`mcp__relay__<name>` in Claude Code). */
@@ -76,10 +83,12 @@ export interface GatewayTool {
   inputSchema: Record<string, unknown>;
   /** What a call does, for the approval card or the outbox: a line, and what it will send. */
   describe(args: Record<string, unknown>, ctx?: GatewayContext): { title: string; detail?: string; preview?: OutboxPreview };
+  /** `send`: prepare the preview and frozen arguments together when they depend on the same snapshot. */
+  prepare?(args: Record<string, unknown>, ctx: GatewayContext): PreparedOutboxCall | Promise<PreparedOutboxCall>;
   /** `read` and `act`: what the call does now. */
   run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
-  send?(args: Record<string, unknown>, item: OutboxItem): Promise<string>;
+  send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
    * `send`: the arguments kept with the outbox item, with what the card showed pinned (the account
    * it is sent from), so that Send does what the card said even if the settings change meanwhile.
@@ -755,18 +764,28 @@ export class ToolGateway {
       };
     if (decision === 'outbox') {
       if (!ctx.toOutbox) return { text: `${tool.name} cannot be used in this run.`, isError: true };
-      let described: ReturnType<GatewayTool['describe']>;
+      let proposal: PreparedOutboxCall;
       try {
-        described = tool.describe(args, ctx);
+        if (tool.prepare) {
+          proposal = await tool.prepare(args, ctx);
+        } else {
+          const described = tool.describe(args, ctx);
+          proposal = { title: described.title, preview: described.preview ?? { fields: [] }, args: tool.bind ? tool.bind(args) : args };
+        }
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }
-      const item = ctx.toOutbox({
-        tool: tool.name,
-        title: described.title,
-        preview: described.preview ?? { fields: [] },
-        args: tool.bind ? tool.bind(args) : args,
-      });
+      if (ctx.signal.aborted || gone?.()) return { text: 'The turn ended before the item could be queued.', isError: true };
+      const item = ctx.toOutbox({ tool: tool.name, ...proposal });
+      if (item.preview.document)
+        return {
+          text: `No Google document has been written. Proposal ${item.id} is ready for the user to review and confirm in the chat. Do not perform the change another way.`,
+        };
+      if (item.preview.note) {
+        return {
+          text: `No note has been written. "${item.title}" is waiting for the user to review and save in the chat (item ${item.id}). Tell the user the preview is ready. Do not write the note another way.`,
+        };
+      }
       return {
         text: `Not sent yet: "${item.title}" is waiting in the user's outbox (item ${item.id}). Only the user can send it, with its Send button in the chat; it may happen later. Do not try to send it another way. Tell the user it is waiting for them.`,
       };
@@ -892,7 +911,7 @@ export function outboxTool(list: (convId: string) => OutboxItem[]): GatewayTool 
     name: 'outbox_status',
     tier: 'read',
     description:
-      "List what is in this conversation's outbox: what you or a teammate asked to send (a mail, an invitation) and whether the user sent it, discarded it, or it is still waiting for them.",
+      "List what is in this conversation's outbox: messages and invitations to send, and Google Docs or Obsidian changes to save. Shows which are waiting, completed, failed or discarded.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     describe: () => ({ title: 'List the outbox' }),
     run: async (_args, ctx) => {
@@ -900,7 +919,10 @@ export function outboxTool(list: (convId: string) => OutboxItem[]): GatewayTool 
       if (!items.length) return { text: 'The outbox is empty.' };
       return {
         text: items
-          .map((i) => `- ${i.id}: ${i.title} — ${i.status}${i.result ? ` (${i.result})` : ''}, asked by @${i.agentName}`)
+          .map(
+            (i) =>
+              `- ${i.id}: ${i.title} — ${(i.preview.note || i.preview.document) && i.status === 'sent' ? 'saved' : i.status}${i.result ? ` (${i.result})` : ''}, asked by @${i.agentName}`,
+          )
           .join('\n'),
       };
     },
