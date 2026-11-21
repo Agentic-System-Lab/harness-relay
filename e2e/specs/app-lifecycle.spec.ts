@@ -89,9 +89,11 @@ test('Browser starts the selected Chromium, reads a local page, then withholds t
     const row = await openCommonApp(page, relay, 'Browser');
     const pathEditor = row.locator('.browser-path');
     if (!(await pathEditor.evaluate((element) => (element as HTMLDetailsElement).open))) await pathEditor.locator('summary').click();
-    // Use CI's Chromium build by default. A developer can choose another, and Firefox/WebKit-only runs may have just a system Chromium.
+    // On Linux the installed browser runs with the runner's sandbox profile. On Windows
+    // use the Chromium that CI installed, without depending on a separately updated Chrome.
     const configured = process.env.RELAY_BROWSER;
-    let executable = configured || browserName !== 'chromium' ? findBrowser({ configured }) : undefined;
+    const usePlaywright = process.platform === 'win32' && browserName === 'chromium' && !configured;
+    let executable = usePlaywright ? undefined : findBrowser({ configured });
     if (!executable) {
       // CI may install only Playwright's headless shell. executablePath() names the full download.
       const shell = await chromium.launchServer();

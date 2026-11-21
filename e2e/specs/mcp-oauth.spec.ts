@@ -313,6 +313,16 @@ base('Slack checks and disconnects Claude and Codex independently', async ({ pag
       (res) =>
         new URL(res.url()).pathname === '/api/apps/' + app.id + '/hosted/' + provider.toLowerCase() && res.request().method() === 'POST',
     );
+  // Each click checks both providers. Finish the pair before changing the simulated grants
+  // so a response from the previous check cannot satisfy the next one.
+  const checkConnections = async (app: HostedApp) => {
+    const [claude, codex] = await Promise.all([
+      check(app, 'Claude'),
+      check(app, 'Codex'),
+      row(app).getByRole('button', { name: 'Check connections' }).click(),
+    ]);
+    return { claude, codex };
+  };
   const change = async (
     app: HostedApp,
     provider: HostedProvider,
@@ -378,7 +388,7 @@ base('Slack checks and disconnects Claude and Codex independently', async ({ pag
       await expect(row(app).getByLabel('Slack OAuth token')).toBeVisible();
       await expect(row(app).getByText('Assistants who can draft messages', { exact: true })).toHaveCount(0);
       const previousCalls = calls().length;
-      const [verified] = await Promise.all([check(app, 'Codex'), row(app).getByRole('button', { name: 'Check connections' }).click()]);
+      const { codex: verified } = await checkConnections(app);
       expect(verified.request().postDataJSON()).toEqual({ verify: true });
       expect(await verified.json()).toEqual({ status: 'connected' });
       expect(calls()).toHaveLength(previousCalls + 1);
@@ -397,17 +407,17 @@ base('Slack checks and disconnects Claude and Codex independently', async ({ pag
   const slack = hostedApps.find((item) => item.id === 'slack')!;
   // Removing upstream consent can leave the Codex app callable until its read-only profile is checked.
   set(slack, 'Codex', 'available-without-account');
-  const [revoked] = await Promise.all([check(slack, 'Codex'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  const { codex: revoked } = await checkConnections(slack);
   expect(await revoked.json()).toEqual({ status: 'needs-auth' });
   await expect(group(slack, 'Codex').getByRole('status')).toContainText('Slack needs authorization in Codex');
   set(slack, 'Codex', 'not-found');
   set(slack, 'Claude', 'unknown');
-  const [response] = await Promise.all([check(slack, 'Claude'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  const { claude: response } = await checkConnections(slack);
   expect(await response.json()).toEqual({ status: 'unknown' });
   await expect(group(slack, 'Claude').getByRole('status')).toContainText('Could not verify the connection in Claude');
   await expect(group(slack, 'Codex').getByRole('status')).toContainText('does not list Slack');
   set(slack, 'Codex', 'unknown');
-  const [codex] = await Promise.all([check(slack, 'Codex'), row(slack).getByRole('button', { name: 'Check connections' }).click()]);
+  const { codex } = await checkConnections(slack);
   expect(await codex.json()).toEqual({ status: 'unknown' });
   await expect(group(slack, 'Codex').getByRole('status')).toContainText('Could not verify the connection in Codex');
   for (const internal of ['private-helper', 'e2e-private']) await expect(row(slack)).not.toContainText(internal);
