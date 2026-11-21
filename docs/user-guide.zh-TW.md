@@ -744,7 +744,11 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ![手機寬度下，應用程式預覽面板顯示可操作的網頁](media/app-preview-zh-TW.png)
 
-Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。Relay 使用固定版本的 Node 映像，取得鎖定的相依套件時需要連到公開的 npm registry。建置和後端都在離線環境中執行。需要外部 API、私有套件庫、獨立資料庫伺服器或主機上的 `.env` 檔的專案，要先調整這些相依項目。用手機或遠端瀏覽器時，請先設定專用的預覽網域。[遠端使用應用程式預覽](remote-access.zh-TW.md#應用程式預覽)
+Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。
+
+![「設定 Docker」視窗中的「安裝 Docker」、「重新檢查」與「取消」按鈕。](../site/assets/media/docs/app-preview-docker-setup-zh-TW.webp)
+
+Relay 使用固定版本的 Node 映像，取得鎖定的相依套件時需要連到公開的 npm registry。建置和後端都在離線環境中執行。需要外部 API、私有套件庫、獨立資料庫伺服器或主機上的 `.env` 檔的專案，要先調整這些相依項目。用手機或遠端瀏覽器時，請先設定專用的預覽網域。[遠端使用應用程式預覽](remote-access.zh-TW.md#應用程式預覽)
 
 ### 複製、編輯與重試
 

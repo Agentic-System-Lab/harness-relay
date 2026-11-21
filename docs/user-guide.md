@@ -741,7 +741,11 @@ When the preview starts, Relay copies the current files, including edits the age
 
 ![An interactive app in the preview panel beside the conversation](media/app-preview-en.png)
 
-Relay checks the project for a supported `package-lock.json` before it offers Docker setup. An npm preview waits for a local Docker engine on the computer running Relay. If Docker is missing, **Set up Docker** offers **Install Docker** on supported systems. You can cancel and return to setup later. If Docker is already installed, start the engine and use Linux container mode on Windows. Relay continues the pending preview when the engine is ready. Choose **Check again** to check immediately. Relay uses a pinned Node image and needs access to the public npm registry for locked dependencies. The build and backend run offline. Projects requiring an external API, a private package registry, a separate database server or a host `.env` file need different inputs to run here. For a phone or a remote browser, set up the separate preview hostname first. [Remote preview access](remote-access.md#app-previews)
+Relay checks the project for a supported `package-lock.json` before it offers Docker setup. An npm preview waits for a local Docker engine on the computer running Relay. If Docker is missing, **Set up Docker** offers **Install Docker** on supported systems. You can cancel and return to setup later. If Docker is already installed, start the engine and use Linux container mode on Windows. Relay continues the pending preview when the engine is ready. Choose **Check again** to check immediately.
+
+![The Set up Docker dialog with Install Docker, Check again and Cancel.](../site/assets/media/docs/app-preview-docker-setup-en.webp)
+
+Relay uses a pinned Node image and needs access to the public npm registry for locked dependencies. The build and backend run offline. Projects requiring an external API, a private package registry, a separate database server or a host `.env` file need different inputs to run here. For a phone or a remote browser, set up the separate preview hostname first. [Remote preview access](remote-access.md#app-previews)
 
 ### Copying, editing and retrying
 
