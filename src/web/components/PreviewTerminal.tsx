@@ -59,7 +59,7 @@ export function PreviewTerminal({
     term.loadAddon(fitter);
     term.open(element);
     const stopped = new AbortController();
-    const decoder = new TextDecoder();
+    let decoder = new TextDecoder();
 
     // Keystrokes in order, a batch at a time.
     let pending = '';
@@ -106,6 +106,7 @@ export function PreviewTerminal({
                 if (event.replay) {
                   term.reset();
                   output.current = '';
+                  decoder = new TextDecoder();
                 }
                 term.write(bytes);
                 output.current = (output.current + decoder.decode(bytes, { stream: true })).slice(-KEPT_TEXT);
@@ -120,9 +121,19 @@ export function PreviewTerminal({
           // The preview is gone (stopped, expired, another browser's): nothing to reconnect to.
           if ((error as { status?: number }).status === 404 || (error as { status?: number }).status === 403) closed = true;
         }
-        if (closed || stopped.signal.aborted) return;
+        if (stopped.signal.aborted) return;
+        if (closed) {
+          // Gone without saying so (stopped, expired, another browser's): the panel offers no more runs.
+          setReconnecting(false);
+          report.current({ type: 'closed' });
+          return;
+        }
         setReconnecting(true);
         await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+      if (!stopped.signal.aborted) {
+        setReconnecting(false);
+        report.current({ type: 'closed' });
       }
     };
     void read();

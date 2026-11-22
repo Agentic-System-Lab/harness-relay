@@ -5,7 +5,7 @@
  * it serves HTTP, the panel shows its page too. A forwarder (the pinned Node image) owns the main
  * service's network namespace and carries both the page and the port check.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
@@ -197,6 +197,72 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
   const model = (command?: string[]) =>
     composeModel(plan, { project, labels, images, forwarderImage: PREVIEW_NODE_IMAGE, port, setPort, ...(command ? { command } : {}) });
 
+  /**
+   * A BuildKit builder of Relay's own on the pinned engine, one per engine. A build on the user's
+   * default builder would share its cache mounts (`RUN --mount=type=cache`) with the user's own
+   * builds, and an environment or a `buildx use` could send the snapshot to another builder.
+   */
+  let builderName: string | undefined;
+  async function builder(): Promise<string> {
+    const name =
+      'harness-relay-preview-' +
+      createHash('sha256')
+        .update(docker!.endpoint ?? '')
+        .digest('hex')
+        .slice(0, 12);
+    const found = await docker!(['buildx', 'inspect', name], { signal });
+    if (found.code === 0) {
+      // Its node must be on the engine every other call goes to.
+      const endpoints = [...found.stdout.matchAll(/^Endpoint:\s+(\S+)\s*$/gm)].map((m) => m[1]);
+      if (!endpoints.length || endpoints.some((endpoint) => endpoint !== docker!.endpoint))
+        throw new Error(t().previewDocker.builderEndpoint(name));
+      return name;
+    }
+    say(t().previewDocker.builder + '…', '1');
+    await run(
+      [
+        'buildx',
+        'create',
+        '--name',
+        name,
+        '--driver',
+        'docker-container',
+        '--driver-opt',
+        'memory=4g',
+        '--driver-opt',
+        'memory-swap=4g',
+        '--driver-opt',
+        'cpu-period=100000',
+        '--driver-opt',
+        'cpu-quota=200000',
+        '--bootstrap',
+      ],
+      t().previewDocker.builder,
+      streamed({ timeoutMs: UP_TIMEOUT }),
+    );
+    return name;
+  }
+  /**
+   * `docker buildx build`, the image loaded into the engine and labelled: a project's Dockerfile on
+   * Relay's builder; Relay's own (a mount's `FROM` and `COPY`, nothing of the project's to run) on
+   * the engine's default builder, named so that no environment chooses another, as only that one
+   * sees the images just built.
+   */
+  const buildArgs = (tag: string, on: string) => [
+    'buildx',
+    'build',
+    '--builder',
+    on,
+    '--load',
+    '--progress=plain',
+    '--label',
+    label,
+    '--label',
+    `${SESSION_LABEL}=${project}`,
+    '-t',
+    tag,
+  ];
+
   async function build(service: PreviewService, index: number): Promise<void> {
     let base = service.image;
     if (service.build) {
@@ -207,14 +273,7 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       say(t().previewDocker.imageBuild(service.name) + '…', '1');
       await run(
         [
-          'build',
-          '--progress=plain',
-          '--label',
-          label,
-          '--label',
-          `${SESSION_LABEL}=${project}`,
-          '-t',
-          tag,
+          ...buildArgs(tag, builderName!),
           '-f',
           b.dockerfile,
           ...Object.entries(b.args).flatMap(([key, value]) => ['--build-arg', `${key}=${value}`]),
@@ -239,7 +298,7 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       const tag = `${project}-${index}:mounts`;
       say(t().previewDocker.mountCopy(service.name) + '…', '1');
       await run(
-        ['build', '--progress=plain', '--label', label, '--label', `${SESSION_LABEL}=${project}`, '-t', tag, '-'],
+        [...buildArgs(tag, 'default'), '-'],
         t().previewDocker.mountCopy(service.name),
         streamed({ stdin: tarFiles(context), timeoutMs: BUILD_TIMEOUT }),
       );
@@ -247,10 +306,8 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     }
   }
 
-  /** The image's one EXPOSEd TCP port, for a Dockerfile project that does not say which port it serves. */
-  async function exposed(): Promise<number[]> {
-    const tag = images.get(plan.main);
-    if (!tag) return [];
+  /** The image's EXPOSEd TCP ports, for a main service whose file does not say which port it serves. */
+  async function exposed(tag: string): Promise<number[]> {
     const r = await run(['image', 'inspect', '--format', '{{json .Config.ExposedPorts}}', tag], t().previewDocker.inspect);
     try {
       const ports = JSON.parse(r.stdout.trim() || 'null') as Record<string, unknown> | null;
@@ -311,12 +368,23 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     });
     await engine!.resize(container, size.rows, size.cols);
     phase({ type: 'phase', phase: 'running', command: await command(container) });
-    void docker!(['exec', forwarder, ...NODE, WAIT_PORT, String(port)], { signal: watching, timeoutMs: 2 * 60 * 60_000 }).then((r) => {
-      if (r.code === 0 && !watching.aborted && !closed) {
-        page = true;
-        emit({ type: 'page' });
+    // A check of half a minute at a time: stopping `docker exec` leaves what it ran in the container.
+    void (async () => {
+      while (!watching.aborted && !closed) {
+        const r = await docker!(['exec', '-i', forwarder, ...NODE, WAIT_PORT, String(port), '30'], {
+          signal: watching,
+          keepStdinOpen: true,
+          timeoutMs: 60_000,
+        });
+        if (watching.aborted || closed) return;
+        if (r.code === 0) {
+          page = true;
+          emit({ type: 'page' });
+        }
+        // Up, or the forwarder cannot check any more: either way this watch is done.
+        if (r.code !== 3) return;
       }
-    });
+    })();
     void docker!(['wait', container], { signal: watching, timeoutMs: 2 * 60 * 60_000 }).then(async (r) => {
       if (watching.aborted || closed || r.code !== 0) return;
       // The last bytes it wrote may still be on their way.
@@ -340,6 +408,11 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     await checkDockerEngine(docker, signal);
     const version = await docker(['compose', 'version', '--short'], { signal });
     if (version.code !== 0) throw new Error(t().previewDocker.composeMissing);
+    if (plan.services.some((s) => s.build || s.mounts.length)) {
+      const buildx = await docker(['buildx', 'version'], { signal });
+      if (buildx.code !== 0) throw new Error(t().previewDocker.buildxMissing);
+      if (plan.services.some((s) => s.build)) builderName = await builder();
+    }
     projectDir = mkdtempSync(join(tmpdir(), 'relay-compose-'));
     for (const note of plan.notes) say(note);
     let index = 0;
@@ -347,7 +420,12 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     signal.throwIfAborted();
     // The image's EXPOSE matters only when the file does not say which port the app serves.
     const shown = plan.services.find((s) => s.name === plan.main)!;
-    ({ port, setPort } = previewPort(plan, shown.build && !shown.ports.length ? await exposed() : []));
+    let tag = images.get(shown.name);
+    if (!shown.ports.length && !tag && shown.image) {
+      await run(['pull', shown.image], t().previewDocker.imagePull(shown.image), streamed({ timeoutMs: UP_TIMEOUT }));
+      tag = shown.image;
+    }
+    ({ port, setPort } = previewPort(plan, !shown.ports.length && tag ? await exposed(tag) : []));
     phase({ type: 'phase', phase: 'starting' });
     // The forwarder first, alone: it proves the engine enforces the limits before any project code runs.
     await compose(['up', '-d', '--no-build', FORWARDER], model(), streamed({ timeoutMs: UP_TIMEOUT }));
@@ -363,12 +441,16 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     await attach(() => compose(['up', '-d', '--no-build'], model(), streamed({ timeoutMs: UP_TIMEOUT })));
   }
 
-  /** Everything this preview made, found by its session label: containers, networks, volumes, images. */
-  const sweepAll = async () => {
-    const cleaner = docker ?? (await (opts.docker ?? localDocker)());
-    await sweepPreviewResources(cleaner, `label=${SESSION_LABEL}=${project}`);
-    if (projectDir) rmSync(projectDir, { recursive: true, force: true });
-  };
+  /** Everything this preview made, found by its session label: containers, networks, volumes, images. One sweep at a time. */
+  let sweeping: Promise<void> | undefined;
+  const sweepAll = () =>
+    (sweeping ??= (async () => {
+      const cleaner = docker ?? (await (opts.docker ?? localDocker)());
+      await sweepPreviewResources(cleaner, `label=${SESSION_LABEL}=${project}`);
+      if (projectDir) rmSync(projectDir, { recursive: true, force: true });
+    })().finally(() => {
+      sweeping = undefined;
+    }));
   const fail = (error: unknown) => {
     if (closed) return;
     const message = error instanceof Error ? error.message : String(error);
@@ -396,13 +478,12 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     attached = undefined;
     emit({ type: 'closed' });
     listeners.clear();
+    // What a failed sweep leaves still carries the owner label, which the next start sweeps: the
+    // preview itself is gone either way, and no session waits on the engine to come back.
     stopped ??= (async () => {
       await busy?.catch(() => {});
-      await sweepAll();
-    })().catch((error) => {
-      stopped = undefined;
-      throw error;
-    });
+      await sweepAll().catch((error: unknown) => console.error('[preview] cleanup:', error));
+    })();
     return stopped;
   };
   opts.signal.addEventListener('abort', () => void stop().catch(() => {}), { once: true });
@@ -438,7 +519,8 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
         if (attached && main && engine) await engine.resize(main, size.rows, size.cols);
       },
       async run(line) {
-        if (closed || busy || !forwarder) throw new HttpError(409, t().previewBusy);
+        if (busy && !closed) throw new HttpError(409, t().previewDocker.runBusy);
+        if (closed || !forwarder) throw new HttpError(409, t().previewDocker.runFailed);
         let words: string[] | undefined;
         try {
           words = line === undefined ? undefined : commandWords(line, 'command');
@@ -459,7 +541,14 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
           });
           await attach((container) => run(['start', container], t().previewDocker.start));
         })()
-          .catch(fail)
+          // A command that cannot start (a typo, no /bin/sh in the image) ends this run, not the
+          // preview: its other services and their data stay, and it can run again.
+          .catch((error: unknown) => {
+            if (closed) return;
+            const message = error instanceof Error ? error.message : String(error);
+            say(message, '31');
+            phase({ type: 'phase', phase: 'exited', code: -1, error: message.slice(0, 4000) });
+          })
           .finally(() => {
             busy = undefined;
           });

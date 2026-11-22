@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 588 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 589 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -50,7 +50,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 12 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
+| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 13 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
@@ -294,10 +294,11 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Build and SQLite backend through the signed-in panel | Claude Code | With `E2E_PREVIEW_DOCKER=1` and local Docker running Linux containers, opens two project links directly, shows built HTML, writes an entry through the backend API, keeps it on refresh, starts empty after a rebuild and closes the frame on Stop. |
 | Container preview of a Dockerfile, simulated | Claude Code | With a simulated engine and terminal stream: the panel says the app has no network, opens the page when the app serves one, shows the build and the app's output in its terminal, offers the running command, sends keystrokes (Escape and Tab too, on a phone where the panel is a dialog), and runs it again as it is, with an edited command line, and as a shell. |
 | A failed container build, simulated | Claude Code | A compose file from Files: a failed build says so, offers no Run again, and the terminal's last lines, without their colours, go into the report with the existing draft. |
+| A preview gone while its terminal reconnects, simulated | Claude Code | The stream ends and the reconnection finds no preview: the panel stops offering Run again and says nothing more about reconnecting. |
 | A folder with nothing to run | Claude Code | A Go folder without a Dockerfile: the panel names the Dockerfile and **Ask the agent for a Dockerfile** puts a draft for the team in the composer. |
 | A Python Dockerfile app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the panel opens on its terminal, then the page, which has no network and is served on the image's `EXPOSE`d port; the terminal holds the server's output. |
 | A terminal app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`, from Files: the prompt appears, typed input is answered, the exit code shows; an edited command runs it again with arguments, a failing exit goes into the report, and **Open a shell** gives a shell with `PORT` set. |
-| A compose app with Redis through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the web service built from the project reaches Redis by its service name once it is healthy, reads a project file mounted into it, takes a variable's default, and has no network outside. |
+| A compose app with Redis through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the web service built from the project reaches Redis by its service name once it is healthy, reads a project file mounted into it, takes a variable's default, and has no network outside and no gateway to the computer. After Stop, nothing with its labels is left: containers, networks, images, and Redis's anonymous volume. |
 
 ## Working directories and other folders
 

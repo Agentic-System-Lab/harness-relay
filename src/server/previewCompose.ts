@@ -539,10 +539,23 @@ function readService(
   };
 }
 
-/** The service the panel shows: the first that publishes a port, then one meant for a terminal, then one built here, then the first. */
-function mainService(services: PreviewService[]): string {
+/** Images that serve a database or a broker, not a page, even when the file publishes their port. */
+const BACKING =
+  /^(?:[^/]+\/)*(?:postgres|postgis|mysql|mariadb|redis|valkey|mongo|memcached|rabbitmq|elasticsearch|opensearch|cassandra|zookeeper|kafka|nats|minio|clickhouse|cockroach|neo4j|influxdb|timescaledb)(?:[:@]|$)/i;
+
+/**
+ * The service the panel shows: among those that publish a port, one built here, then one that is
+ * not a database's image; else one meant for a terminal, then one built here, then the first.
+ */
+export function mainService(services: PreviewService[]): string {
+  const serving = services.filter((s) => s.ports.length);
   const pick =
-    services.find((s) => s.ports.length) ?? services.find((s) => s.tty || s.stdinOpen) ?? services.find((s) => s.build) ?? services[0]!;
+    serving.find((s) => s.build) ??
+    serving.find((s) => !s.image || !BACKING.test(s.image)) ??
+    services.find((s) => s.tty || s.stdinOpen) ??
+    services.find((s) => s.build) ??
+    serving[0] ??
+    services[0]!;
   return pick.name;
 }
 
@@ -717,7 +730,11 @@ export function composeModel(plan: PreviewPlan, o: ModelOptions): Record<string,
   return literal({
     name: o.project,
     services,
-    ...(shared ? { networks: { relay: { internal: true, labels: o.labels } } } : {}),
+    // Internal, and without even a gateway: an internal bridge still has an address on the host's
+    // side, where any service of the host listening on every address would answer.
+    ...(shared
+      ? { networks: { relay: { internal: true, driver_opts: { 'com.docker.network.bridge.inhibit_ipv4': 'true' }, labels: o.labels } } }
+      : {}),
     ...(plan.volumes.length ? { volumes: Object.fromEntries(plan.volumes.map((v) => [v, { labels: o.labels }])) } : {}),
   }) as Record<string, unknown>;
 }

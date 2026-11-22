@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 46 個 spec 檔、588 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 46 個 spec 檔、589 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 12 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 13 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -296,10 +296,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 從登入後的面板建置前端與執行 SQLite 後端 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1` 且本機有能執行 Linux 容器的 Docker 時，從兩個專案連結直接預覽，先檢查前端建置的 HTML，再用另一個專案的後端 API 儲存資料。重新整理後資料仍在，重建後變回空白，停止後關閉 frame。 |
 | Dockerfile 的容器預覽（模擬） | Claude Code | 用模擬的引擎與終端機串流：面板說明應用程式沒有網路，應用程式提供網頁時開啟網頁，終端機顯示建置與應用程式的輸出，提供正在執行的指令，送出按鍵（手機上面板是對話框時，Escape 與 Tab 也一樣），並能原樣、用修改後的指令列，以及以 shell 再執行一次。 |
 | 容器建置失敗（模擬） | Claude Code | 從「檔案」開啟 compose 檔：建置失敗時說明，不提供再執行一次，終端機最後幾行（去掉顏色）連同原本的草稿放進回報。 |
+| 終端機重新連線時預覽已不在（模擬） | Claude Code | 串流結束，重新連線找不到預覽：面板不再提供再執行一次，也不再顯示重新連線。 |
 | 沒有執行方式的資料夾 | Claude Code | 沒有 Dockerfile 的 Go 資料夾：面板提到 Dockerfile，**請 agent 加上 Dockerfile** 會在輸入框放一份給團隊的草稿。 |
 | 透過 Docker 執行 Python 的 Dockerfile 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：面板先顯示終端機，再顯示網頁；網頁沒有網路，由映像檔 `EXPOSE` 的 port 提供；終端機有伺服器的輸出。 |
 | 透過 Docker 執行終端機程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`，從「檔案」開啟：出現提示，輸入得到回應，顯示結束代碼；修改後的指令會帶參數再執行，以錯誤結束時放進回報，**開啟 shell** 得到設有 `PORT` 的 shell。 |
-| 透過 Docker 執行有 Redis 的 compose 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：從專案建置的網頁服務在 Redis 健康後用服務名稱連到它，讀到掛載進來的專案檔案，套用變數的預設值，且連不到外部。 |
+| 透過 Docker 執行有 Redis 的 compose 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：從專案建置的網頁服務在 Redis 健康後用服務名稱連到它，讀到掛載進來的專案檔案，套用變數的預設值，且連不到外部，也沒有通往這台電腦的閘道。停止後，帶它標籤的東西都不會留下：容器、網路、映像檔，以及 Redis 的匿名 volume。 |
 
 ## 工作目錄與其他資料夾
 

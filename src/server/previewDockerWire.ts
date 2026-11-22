@@ -116,11 +116,20 @@ visit(root,0);
 
 export const APP_PORT = 4173;
 
-/** Waits until something accepts connections on the port given after the program, as long as it takes. */
+/**
+ * Waits until something accepts connections on the port given after the program: exit 0. After the
+ * seconds given second it gives up with exit 3, for Relay to ask again. Stopping \`docker exec\` stops
+ * only the CLI, never what it started in the container: this also ends when its stdin does.
+ */
 export const WAIT_PORT = `
 import net from 'node:net';
 import {setTimeout as sleep} from 'node:timers/promises';
 const port = Number(process.argv[1]);
+const deadline = Date.now() + 1000 * Number(process.argv[2] || 30);
+// Relay holds stdin open while it waits: when it stops waiting, this ends with it.
+process.stdin.on('end', () => process.exit(4));
+process.stdin.on('error', () => process.exit(4));
+process.stdin.resume();
 for (;;) {
   const up = await new Promise(resolve => {
     const socket = net.connect(port,'127.0.0.1');
@@ -128,6 +137,7 @@ for (;;) {
     socket.once('error',()=>{socket.destroy();resolve(false)});
   });
   if (up) break;
+  if (Date.now() > deadline) process.exit(3);
   await sleep(300);
 }
 `;

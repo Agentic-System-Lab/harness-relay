@@ -2,7 +2,7 @@
 
 # 每種應用程式都用同一種方式預覽
 
-**狀態。** 第 1 到 3 步已完成（`Dockerfile` 應用程式、終端機、compose），也做了第 4 步 agent 說明裡的那一行與給 agent 的草稿；[使用說明](../user-guide.zh-TW.md#預覽應用程式)、[架構](../architecture.zh-TW.md#容器預覽)與[開發者說明](../developer-guide.zh-TW.md#應用程式預覽執行環境)描述了它們。尚未完成：第 4 步 Relay 自己有上限的 builder 與只允許 registry 的 proxy，以及自動產生的建置。未決問題依建議決定，實作時改了一點（見下方「未決問題」）。它延伸[應用程式預覽的執行環境](app-preview-runtime.zh-TW.md)，原有的靜態與 npm 路徑維持不變。
+**狀態。** 第 1 到 3 步已完成（`Dockerfile` 應用程式、終端機、compose），也做了第 4 步 agent 說明裡的那一行與給 agent 的草稿；[使用說明](../user-guide.zh-TW.md#預覽應用程式)、[架構](../architecture.zh-TW.md#容器預覽)與[開發者說明](../developer-guide.zh-TW.md#應用程式預覽執行環境)描述了它們。第 4 步中，Relay 自己有 CPU 與記憶體上限的 builder 也已完成，因為使用者預設的 builder 會和預覽共用 cache mount；尚未完成：它只允許 registry 的 proxy，以及自動產生的建置。未決問題依建議決定，實作時改了一點（見下方「未決問題」）。它延伸[應用程式預覽的執行環境](app-preview-runtime.zh-TW.md)，原有的靜態與 npm 路徑維持不變。
 
 ## 現在有什麼、缺什麼
 
@@ -39,14 +39,15 @@ HTTP port 是映像用 `EXPOSE` 宣告的那一個（剛好宣告一個時），
 
 ## 建置
 
-Relay 把快照（排除項目與上限都和現在一樣：沒有 `.git`、`.env*`、憑證、已安裝的相依套件或連結）以 tar 的形式從標準輸入交給 `docker build` 當作建置內容。主機上的任何東西都不會被掛載或指名。映像會加上 Relay 的擁有者標籤，預覽停止時移除；BuildKit 的快取會保留，Relay 依標籤在磁碟上限內清理。
+Relay 把快照（排除項目與上限都和現在一樣：沒有 `.git`、`.env*`、憑證、已安裝的相依套件或連結）以 tar 的形式從標準輸入交給 `docker build` 當作建置內容。主機上的任何東西都不會被掛載或指名。映像會加上 Relay 的擁有者標籤，預覽停止時移除；builder 的快取會保留，交給 Docker 清理。
 
 和 npm 路徑不同，建置需要網路：`pip install`、`go mod download` 和 `cargo build` 都要下載套件，而且沒有一個地方能把它們全部核對。這是唯一真正放寬的地方，但有界線：
 
 - 只有建置有網路，應用程式本身永遠沒有。
 - 建置只看得到快照：沒有主機路徑、Docker socket、Relay 的資料、CLI 憑證，也沒有使用者的環境變數。
 - 它能連到的範圍，不超過 agent 在完全存取下於主機執行 `npm install` 或 `pip install` 時，那個 todo app 的 `node_modules` 就是這樣來的。
-- **第 4 步** 會再縮小：一個 Relay 自己的 BuildKit builder（buildx 的 `docker-container` driver），有 CPU 和記憶體上限，放在內部網路上，唯一的出口是只允許套件與映像 registry 的 proxy。
+- 建置在 Relay 自己的 BuildKit builder（buildx 的 `docker-container` driver）上執行，有 CPU 和記憶體上限，位在其他呼叫所用的同一個引擎：使用者預設的 builder 會和使用者自己的建置共用 cache mount（`RUN --mount=type=cache`），而環境變數或 `docker buildx use` 也可能把快照送到別處。它仍連得到這台電腦上的服務（例如本機的資料庫），就像使用者自己執行的 `docker build` 一樣。
+- **第 4 步** 會再縮小：把那個 builder 放在內部網路上，唯一的出口是只允許套件與映像 registry 的 proxy。
 
 ## 執行
 
@@ -68,14 +69,14 @@ Relay 透過 Docker Engine API 和終端機溝通，用的是它已經檢查過�
 
 ## 改寫 compose
 
-Relay 絕不直接執行 compose 檔。它讀取正規化後的模型（`docker compose config --format json`），保留應用程式需要的、改寫會碰到主機的、拒絕其餘的：
+Relay 絕不直接執行 compose 檔。它自己解析檔案、用空的環境變數插值，保留應用程式需要的、改寫會碰到主機的、拒絕其餘的：
 
 - **保留：** `image`、`build`（建置內容在快照內）、`command`、`entrypoint`、`environment`、`depends_on`、`healthcheck`、`working_dir`、`user`、`tmpfs`。
 - **改寫：** 每個網路都換成這個預覽的內部網路；`ports` 變成 sidecar 轉送的目標，絕不發布到主機。專案檔案的 bind mount 變成從快照複製的唯讀副本，todo app 的 `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` 就是常見的例子。具名 volume 變成這個預覽自己的 volume，**停止** 時移除。
 - **拒絕，並在面板說明原因：** `privileged`、`cap_add`、`devices`、設為 `host` 的 `network_mode`、`pid` 或 `ipc`、外部網路或 volume、Docker socket，以及專案以外的 bind mount。
 - **環境變數：** 只來自檔案本身，絕不取自使用者的環境變數或 `.env` 檔（快照不會帶它）。缺少的變數就是空的。
 
-上限同時適用於每個服務和整個預覽。
+上限適用於每個服務；一次預覽最多八個服務，Relay 最多同時四個預覽。
 
 ## 不採用的做法
 
@@ -91,7 +92,7 @@ Relay 絕不直接執行 compose 檔。它讀取正規化後的模型（`docker 
 2. **容器裡的 root：** 允許，但保留上述五項 capability 而不是完全沒有，因為官方映像需要它們。
 3. **基底映像：** 目前任何 registry 都可以。
 4. **完全沒有做法時：** 目前只提供給 agent 的草稿；自動產生的建置（Railpack）仍未決定。
-5. **磁碟：** 每次預覽的映像在停止時移除，當機留下的則在啟動時移除；BuildKit 的快取交給 Docker。設定裡是否要顯示用量並提供清除按鈕仍未決定。
+5. **磁碟：** 每次預覽的映像、容器的匿名 volume 與具名 volume 都在停止時移除，當機留下的則在啟動時移除；builder 的快取交給 Docker。設定裡是否要顯示用量並提供清除按鈕仍未決定。
 
 ## 交付順序
 

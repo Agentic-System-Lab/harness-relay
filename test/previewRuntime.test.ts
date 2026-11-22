@@ -132,11 +132,27 @@ it('sweeps only IDs returned by the persistent installation owner label, contain
   expect(calls.find((a) => a[0] === 'ps')).toEqual(expect.arrayContaining(filter));
   const removals = calls.filter((a) => a.includes('rm'));
   expect(removals).toEqual([
-    ['rm', '-f', id],
+    ['rm', '-f', '-v', id],
     ['network', 'rm', 'net1'],
     ['volume', 'rm', '-f', 'relay-preview-x_data'],
     ['image', 'rm', '-f', 'sha256:' + 'c'.repeat(64)],
   ]);
+});
+it('takes a network another sweep removed meanwhile as removed, and reports one still there', async () => {
+  const network = (listed: string, failure: string) =>
+    command.mockImplementation(async (o) => {
+      if (o.args.includes('network') && o.args.includes('ls')) return result(listed + '\n');
+      if (o.args.includes('network') && o.args.includes('rm')) {
+        listed = failure.includes('not found') ? '' : listed;
+        return result('', 1, failure);
+      }
+      return o.args.includes('ls') || o.args.includes('ps') ? result('\n') : docker(o);
+    });
+  network('net1', 'Error response from daemon: network net1 not found');
+  await cleanupPreviewRuntimes(owner);
+  command.mockClear();
+  network('net1', 'Error response from daemon: error while removing network: network net1 has active endpoints');
+  await expect(cleanupPreviewRuntimes(owner)).rejects.toThrow(/active endpoints/);
 });
 it('refuses a listed name that could be read as an option before removing anything of its kind', async () => {
   command.mockImplementation(async (o) => (o.args.includes('ls') && o.args.includes('network') ? result('--force\n') : docker(o)));

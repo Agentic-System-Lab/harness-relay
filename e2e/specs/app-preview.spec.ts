@@ -258,7 +258,7 @@ test.describe('Docker setup for previews', () => {
 
 test.describe('container previews', () => {
   /** Docker ready, the start answered as a container preview, its terminal stream played once from `events`. */
-  async function mockContainer(page: Page, events: object[]) {
+  async function mockContainer(page: Page, events: object[], gone = false) {
     const runs: unknown[] = [];
     const typed: unknown[] = [];
     await page.route('**/api/apps/docker/install', (route) =>
@@ -278,8 +278,9 @@ test.describe('container previews', () => {
         typed.push(route.request().postDataJSON());
         return route.fulfill({ json: { ok: true } });
       }
-      // The first stream plays the events; a reconnection waits, as a live stream does.
-      if (streams++) return new Promise(() => {});
+      // The first stream plays the events; a reconnection waits, as a live stream does, or finds
+      // the preview gone.
+      if (streams++) return gone ? route.fulfill({ status: 404, json: { error: 'The preview entry is missing' } }) : new Promise(() => {});
       return route.fulfill({
         contentType: 'text/event-stream',
         body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''),
@@ -354,6 +355,19 @@ test.describe('container previews', () => {
     await expect(composer(page)).toHaveValue(
       /#5 RUN pip install nothing-here\n\s+ERROR: No matching distribution found for nothing-here[\s\S]*My draft/,
     );
+  });
+
+  test('a terminal that finds its preview gone stops offering to run it', async ({ page, relay }) => {
+    writeFileSync(join(relay.workDir, 'Dockerfile'), 'FROM python:3.13-slim\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await mockContainer(page, [output('Your name? ', true), { type: 'phase', phase: 'running', command: 'python app.py' }], true);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.locator('.xterm-rows')).toContainText('Your name?');
+    // The stream ended and its reconnection found nothing: no Run again, nothing reconnecting.
+    await expect(panel.getByRole('button', { name: 'Run again' })).toHaveCount(0);
+    await expect(panel.getByText('Reconnecting')).toHaveCount(0);
   });
 
   test('a folder with no way to run it offers to ask the agent for a Dockerfile', async ({ page, relay }) => {

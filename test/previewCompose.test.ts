@@ -190,6 +190,16 @@ networks:
     expect(plan('services:\n  db:\n    image: x\n  cli:\n    image: y\n    stdin_open: true').main).toBe('cli');
     expect(plan('services:\n  db:\n    image: x\n  app:\n    build: web').main).toBe('app');
     expect(plan('services:\n  first:\n    image: x\n  second:\n    image: y').main).toBe('first');
+    // A database that publishes its port is not the page, as in the todo app that started this.
+    expect(
+      plan('services:\n  db:\n    image: postgres:16\n    ports: ["5432:5432"]\n  web:\n    build: web\n    ports: ["3000:3000"]').main,
+    ).toBe('web');
+    expect(
+      plan(
+        'services:\n  db:\n    image: docker.io/library/postgres:16\n    ports: ["5432:5432"]\n  ui:\n    image: nginx\n    ports: ["80:80"]',
+      ).main,
+    ).toBe('ui');
+    expect(plan('services:\n  cache:\n    image: redis\n    ports: ["6379:6379"]').main).toBe('cache');
   });
 
   it('copies project folders and files a service mounts, and skips what the snapshot does not hold', () => {
@@ -247,7 +257,14 @@ describe('the model Relay runs', () => {
       'services:\n  web:\n    build: ./web\n    ports: ["8080:80"]\n    hostname: web\n  cache:\n    image: redis\n    tty: false',
     );
     const model = composeModel(p, options(p)) as { services: Record<string, Record<string, unknown>>; networks: unknown };
-    expect(model.networks).toEqual({ relay: { internal: true, labels: { owner: 'me', session: 'relay-preview-abc' } } });
+    // Internal, and without a gateway: no address on the host's side to reach its services through.
+    expect(model.networks).toEqual({
+      relay: {
+        internal: true,
+        driver_opts: { 'com.docker.network.bridge.inhibit_ipv4': 'true' },
+        labels: { owner: 'me', session: 'relay-preview-abc' },
+      },
+    });
     const forwarder = model.services[FORWARDER]!;
     expect(forwarder).toMatchObject({
       image: 'node@sha256:1',

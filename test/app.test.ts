@@ -535,6 +535,42 @@ describe('app preview control and content', () => {
     expect((await send({ input: 'x' })).status).toBe(404);
   });
 
+  it('ends a terminal stream whose browser stopped reading instead of queueing without end', async () => {
+    const big = Buffer.alloc(900 * 1024, 120).toString('base64');
+    const terminal = {
+      subscribe: vi.fn((listener: (e: object) => void) => {
+        // An app writing faster than this stream is read: all of it before the first write.
+        for (let i = 0; i < 4; i++) listener({ type: 'output', data: big });
+        return () => {};
+      }),
+      input: vi.fn(() => true),
+      resize: vi.fn(async () => {}),
+      run: vi.fn(async () => {}),
+    };
+    const container = vi.fn(() => ({ request: async () => new Response(), stop: async () => {}, terminal }));
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    app = createApp({
+      auth: null,
+      store,
+      settings,
+      hub,
+      orchestrator,
+      providers: new ProviderService(settings),
+      folderPicker: noPicker,
+      previews: new AppPreviews('test', undefined, Date.now, container),
+    });
+    const conv = await createConversation();
+    writeFileSync(join(project, 'Dockerfile'), 'FROM scratch');
+    const route = '/api/conversations/' + conv.id + '/preview';
+    const session = (await (await app.request(route, json('POST', { mode: 'container', folder: '', entry: 'Dockerfile' }))).json()) as {
+      id: string;
+    };
+    const text = await (await get(route + '/' + session.id + '/terminal')).text();
+    // It ended by itself, before the 3.6 MB were all held, without saying the preview closed.
+    expect(text.length).toBeLessThan(2 * 1024 * 1024);
+    expect(text).not.toContain('"closed"');
+  });
+
   it('recognizes literal imports of local source in inline modules without running them or reading other script text as imports', async () => {
     const conv = await createConversation();
     const target = async (script: string) => {

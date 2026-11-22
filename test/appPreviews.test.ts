@@ -142,6 +142,26 @@ describe('container previews', () => {
   });
 });
 
+describe('a preview still closing', () => {
+  it('makes a new start for the same chat wait for it, not refuse', async () => {
+    const closing = deferred<void>();
+    const stops = [vi.fn(() => closing.promise), vi.fn(async () => {})];
+    let made = 0;
+    const runtime = vi.fn(async () => ({ request: async () => new Response(), stop: stops[made++]! }));
+    const service = new AppPreviews('relay', runtime);
+    const first = await service.start('chat', target, address(), parent, new AbortController().signal);
+    const stopping = service.stop('chat', first.id);
+    const second = service.start('chat', target, address(), parent, new AbortController().signal);
+    await Promise.resolve();
+    expect(runtime).toHaveBeenCalledTimes(1);
+    closing.resolve();
+    await stopping;
+    expect((await second).id).not.toBe(first.id);
+    expect(runtime).toHaveBeenCalledTimes(2);
+    await service.close();
+  });
+});
+
 describe('npm workspaces', () => {
   it('copies the workspace root with its lockfile and runs the selected member', async () => {
     for (const [name, text] of Object.entries({

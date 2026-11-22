@@ -108,6 +108,13 @@ const zhTW = {
     inspect: '讀取預覽容器狀態',
     attach: '連接應用程式的終端機',
     notRunning: '應用程式目前沒有在執行。',
+    buildxMissing:
+      '建置 Dockerfile 需要 Docker buildx，這台電腦的 Docker 沒有它。請安裝 Docker Desktop，或在 Linux 安裝 docker-buildx-plugin。',
+    builder: '準備預覽專用的建置器',
+    builderEndpoint: (name: string) => `建置器 ${name} 指向另一個 Docker 引擎。請用 docker buildx rm ${name} 移除它，再重試預覽。`,
+    imagePull: (image: string) => `下載 ${image}`,
+    runBusy: '應用程式正在啟動，請稍候再執行。',
+    runFailed: '這次預覽已失敗或已停止。請重建預覽。',
   },
   previewCompose: {
     yaml: (detail: string) => `無法讀取 compose 檔：${detail}`,
@@ -1235,6 +1242,14 @@ const en: ServerMessages = {
     inspect: 'Reading the preview container state',
     attach: "Connecting to the app's terminal",
     notRunning: 'The app is not running.',
+    buildxMissing:
+      "Building a Dockerfile needs Docker buildx, which this computer's Docker lacks. Install Docker Desktop, or docker-buildx-plugin on Linux.",
+    builder: 'Preparing the preview builder',
+    builderEndpoint: (name: string) =>
+      `The builder ${name} is on another Docker engine. Remove it with docker buildx rm ${name}, then retry the preview.`,
+    imagePull: (image: string) => `Downloading ${image}`,
+    runBusy: 'The app is starting. Run it again in a moment.',
+    runFailed: 'This preview failed or stopped. Rebuild the preview.',
   },
   previewCompose: {
     yaml: (detail: string) => `Cannot read the compose file: ${detail}`,

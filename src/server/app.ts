@@ -2118,6 +2118,7 @@ export function createApp({
     );
   });
   // A container preview's terminal: what it shows, as SSE, for the browser that started it.
+  const PREVIEW_STREAM_QUEUE = 2 * 1024 * 1024;
   app.get('/api/conversations/:id/preview/:previewId/terminal', (c) => {
     previewParent(c.req.header('host') ?? '', c.req.header('origin'));
     const conv = getConv(c.req.param('id'));
@@ -2128,10 +2129,18 @@ export function createApp({
     return streamSSE(c, async (stream) => {
       let closed = false;
       const queue: PreviewTerminalEvent[] = [];
+      let queued = 0;
       let wake: (() => void) | undefined;
       const unsubscribe = terminal.subscribe((event) => {
-        queue.push(event);
-        if (event.type === 'closed') closed = true;
+        // A browser that stops reading (a phone asleep) while the app keeps writing: past this, the
+        // stream ends instead of growing, and the browser's next one starts from the replay.
+        if (event.type === 'output' && (queued += event.data.length) > PREVIEW_STREAM_QUEUE) {
+          queue.length = 0;
+          closed = true;
+        } else {
+          queue.push(event);
+          if (event.type === 'closed') closed = true;
+        }
         wake?.();
       });
       stream.onAbort(() => {
@@ -2140,7 +2149,11 @@ export function createApp({
       });
       let ping = Date.now();
       while (!stream.aborted) {
-        while (queue.length) await stream.writeSSE({ data: JSON.stringify(queue.shift()) });
+        while (queue.length) {
+          const event = queue.shift()!;
+          if (event.type === 'output') queued -= event.data.length;
+          await stream.writeSSE({ data: JSON.stringify(event) });
+        }
         if (closed) break;
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 15_000);

@@ -85,7 +85,8 @@ export function ownerLabel(owner: string): string {
 }
 
 async function remove(docker: Docker, id: string): Promise<void> {
-  const r = await docker(['rm', '-f', id]);
+  // With its anonymous volumes: an image's VOLUME (postgres, redis…) has no label to sweep it by later.
+  const r = await docker(['rm', '-f', '-v', id]);
   // Some Docker versions return a nonzero exit for an already-removed ID. Daemon failures and
   // unrelated diagnostics must survive so the owner of this handle can retry.
   if (r.code === 1 && !r.aborted && !r.timedOut && r.stderr.trim().toLowerCase() === 'error response from daemon: no such container: ' + id)
@@ -118,8 +119,13 @@ export async function sweepPreviewResources(docker: Docker, filter: string): Pro
     }
     if (!ids.length) continue;
     const r = await docker([...removal, ...ids]);
-    // An image another preview still uses, or one already gone, is left for the next sweep.
-    if (r.code !== 0 && kind !== 'image') checked(r, t().previewDocker.remove);
+    // An image another preview still uses is left for the next sweep. Another sweep may have
+    // removed some meanwhile (a network's `rm` fails on one already gone): only what is still
+    // there after a failure is one.
+    if (r.code !== 0 && kind !== 'image') {
+      const left = checked(await docker([...list, '--filter', filter]), t().previewDocker.find);
+      if (left.stdout.trim()) checked(r, t().previewDocker.remove);
+    }
   }
 }
 

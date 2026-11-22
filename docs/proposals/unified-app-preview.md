@@ -2,7 +2,7 @@
 
 # One preview for every app
 
-**Status.** Steps 1 to 3 are built (a `Dockerfile` app, the terminal, compose), with step 4's line in the agents' briefing and the draft to the agent; the [user guide](../user-guide.md#previewing-an-app), [architecture](../architecture.md#container-previews) and [developer guide](../developer-guide.md#app-preview-runtime) describe them. Still open: step 4's builder of Relay's own with limits and a registry-only proxy, and generated builds. The open questions were settled as recommended, with one change found while building it (below, "Open questions"). It extends the [app preview runtime](app-preview-runtime.md), whose static and npm paths stay as they are.
+**Status.** Steps 1 to 3 are built (a `Dockerfile` app, the terminal, compose), with step 4's line in the agents' briefing and the draft to the agent; the [user guide](../user-guide.md#previewing-an-app), [architecture](../architecture.md#container-previews) and [developer guide](../developer-guide.md#app-preview-runtime) describe them. Of step 4, the builder of Relay's own with CPU and memory limits is built too, since the user's default builder would share its cache mounts with previews; still open: its registry-only proxy, and generated builds. The open questions were settled as recommended, with one change found while building it (below, "Open questions"). It extends the [app preview runtime](app-preview-runtime.md), whose static and npm paths stay as they are.
 
 ## What exists, and what is missing
 
@@ -39,14 +39,15 @@ Desktop GUI apps (windows drawn with Tk, Qt or Electron) are out of scope. A rem
 
 ## Build
 
-Relay sends the snapshot, with the same exclusions and limits as today (no `.git`, `.env*`, credentials, installed dependencies or links), to `docker build` as a tar context on stdin. Nothing on the host is mounted or named. The image is labelled with Relay's owner label and removed when the preview stops; BuildKit's cache stays, within a disk budget Relay prunes by label.
+Relay sends the snapshot, with the same exclusions and limits as today (no `.git`, `.env*`, credentials, installed dependencies or links), to `docker build` as a tar context on stdin. Nothing on the host is mounted or named. The image is labelled with Relay's owner label and removed when the preview stops; the builder's cache stays, for Docker to prune.
 
 Unlike the npm path, the build needs the network: `pip install`, `go mod download` and `cargo build` fetch packages, and there is no single place to verify them all. This is the one real loosening, and it is bounded:
 
 - Only the build has a network. The app itself never does.
 - The build sees the snapshot only: no host paths, Docker socket, Relay data, CLI credentials or the user's environment.
 - It reaches no further than an agent does when it runs `npm install` or `pip install` on the host in full access, which is how the todo app got its `node_modules`.
-- **Step 4** narrows it further: a BuildKit builder of Relay's own (buildx with the `docker-container` driver) with CPU and memory limits, on an internal network whose only exit is a proxy that allows the package and image registries.
+- The build runs on a BuildKit builder of Relay's own (buildx with the `docker-container` driver) with CPU and memory limits, on the engine every other call goes to: the user's default builder would share its cache mounts (`RUN --mount=type=cache`) with the user's own builds, and an environment variable or `docker buildx use` could send the snapshot elsewhere. It can still reach services on the computer, such as a local database, as a `docker build` of the user's own can.
+- **Step 4** narrows it further: that builder on an internal network whose only exit is a proxy that allows the package and image registries.
 
 ## Run
 
@@ -68,14 +69,14 @@ The browser gets the output over SSE, as it gets the rest of the chat, bounded a
 
 ## Compose, rewritten
 
-Relay never runs a compose file as it is. It reads the normalized model (`docker compose config --format json`), keeps what an app needs, rewrites what would reach the host and refuses the rest:
+Relay never runs a compose file as it is. It parses the file itself, interpolates it with an empty environment, keeps what an app needs, rewrites what would reach the host and refuses the rest:
 
 - **Kept:** `image`, `build` (with a context inside the snapshot), `command`, `entrypoint`, `environment`, `depends_on`, `healthcheck`, `working_dir`, `user`, `tmpfs`.
 - **Rewritten:** every network becomes the preview's internal network, and `ports` become the target the sidecar forwards to, never a published port. A bind mount of a project file becomes a read-only copy from the snapshot. The todo app's `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` is the common case. Named volumes become volumes of this preview, removed at **Stop**.
 - **Refused, with the reason in the panel:** `privileged`, `cap_add`, `devices`, `network_mode`, `pid` or `ipc` set to `host`, external networks or volumes, the Docker socket, and bind mounts outside the project.
 - **Environment:** variables come from the file, never from the user's environment or a `.env` file, which the snapshot withholds. A missing variable stays empty.
 
-Limits apply per service and to the preview as a whole.
+Limits apply per service; a preview runs at most eight, and Relay at most four previews.
 
 ## Alternatives not taken
 
@@ -91,7 +92,7 @@ Limits apply per service and to the preview as a whole.
 2. **Root in the container:** allowed, with the five capabilities above rather than none, since official images need them.
 3. **Base images:** any registry, for now.
 4. **No recipe at all:** only the draft to the agent, for now; a generated build (Railpack) is still open.
-5. **Disk:** each preview's images are removed when it stops, and at startup those a crash left; BuildKit's cache is left to Docker. Whether Settings shows it with a button to clear it is still open.
+5. **Disk:** each preview's images, containers' anonymous volumes and named volumes are removed when it stops, and at startup those a crash left; the builder's cache is left to Docker. Whether Settings shows it with a button to clear it is still open.
 
 ## Delivery
 
