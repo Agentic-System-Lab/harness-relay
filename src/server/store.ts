@@ -44,6 +44,8 @@ import type {
   MemoryNote,
   MemoryPartNote,
   SecretAsk,
+  StepItem,
+  StepsAnswer,
   SearchResult,
   SharedPage,
 } from '../shared/types';
@@ -323,6 +325,9 @@ function toolData(json: string | null): ToolData {
   return out;
 }
 
+/** A steps card's words, one step a line: its `text` column, which search reads. */
+const stepsSearchText = (items: readonly StepItem[]) => items.map((i) => i.text).join('\n');
+
 /** A tool part's `data` column (`toolData()` reads it back), or null when it has none of it. */
 function toolDataJson(p: Extract<MessagePart, { type: 'tool' }>): string | null {
   const data: ToolData = {
@@ -385,6 +390,16 @@ function toPart(r: PartRow): MessagePart {
       const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
       return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
     }
+    case 'steps': {
+      const data = parseJson<{ items?: unknown; answer?: unknown }>(r.data, {});
+      const items = Array.isArray(data.items)
+        ? data.items.flatMap((i: { text?: unknown; done?: unknown }) =>
+            typeof i?.text === 'string' ? [{ text: i.text, ...(i.done === true ? { done: true } : {}) }] : [],
+          )
+        : [];
+      const answer = data.answer && typeof data.answer === 'object' ? (data.answer as StepsAnswer) : undefined;
+      return { type: 'steps', items, ...(answer ? { answer } : {}) };
+    }
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
       return {
@@ -411,6 +426,9 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
     case 'progress':
       return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
+    // The steps' words in `text` too, which search reads.
+    case 'steps':
+      return [stepsSearchText(p.items), null, null, null, null, null, null, JSON.stringify({ items: p.items, answer: p.answer })];
     case 'approval':
     case 'attachment':
     case 'memory':
@@ -1882,7 +1900,7 @@ export class Store {
     const hits = this.db
       .prepare(
         `SELECT m.conversation_id, m.id AS message_id, p.text FROM message_parts p JOIN messages m ON m.id = p.message_id
-         WHERE p.type = 'text' AND m.author_kind IN ('user', 'agent') AND (${like.map(() => "p.text LIKE ? ESCAPE '\\'").join(' OR ')})
+         WHERE p.type IN ('text', 'steps') AND m.author_kind IN ('user', 'agent') AND (${like.map(() => "p.text LIKE ? ESCAPE '\\'").join(' OR ')})
          ORDER BY m.conversation_id, m.seq, p.idx`,
       )
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];

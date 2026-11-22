@@ -91,6 +91,31 @@ describe('the thread transcript', () => {
     expect(r[3]).toEqual({ type: 'custom-title', customTitle: 'Plan the release', sessionId: conv.id });
   });
 
+  it("shows a reply's steps for the user as it left them: done, not done, stuck", () => {
+    const steps: MessagePart = {
+      type: 'steps',
+      items: [{ text: 'Sign in', done: true }, { text: 'Create a key\nunder Settings', done: true }, { text: 'Copy it' }],
+      answer: { at: 1, stuckAt: 1 },
+    };
+    const conv = conversation({
+      messages: [message('m1', { kind: 'agent', agentId: 'a' }, 'Do these:', { parts: [{ type: 'text', text: 'Do these:' }, steps] })],
+    });
+    const r = records(threadTranscript(conv));
+    expect(r[0]!.message.content[0].text).toBe(
+      '**Claude** · claude\n\nDo these:\n\n1. [x] Sign in\n2. [!] Create a key\n   under Settings\n3. [ ] Copy it',
+    );
+    const member = conversation({
+      agents: [{ id: 'g', name: 'Goose', provider: 'goose', role: '' }],
+      messages: [message('m1', { kind: 'user' }, 'Go'), message('m2', { kind: 'agent', agentId: 'g' }, '', { parts: [steps] })],
+    });
+    expect(records(memberTranscript(member, 'g'))[1]!.message.content).toEqual([
+      {
+        type: 'text',
+        text: '[Steps for the user to take outside Harness Relay, answered:\n1. [x] Sign in\n2. [!] Create a key\n   under Settings\n3. [ ] Copy it]',
+      },
+    ]);
+  });
+
   it('is empty while nothing has been said', () => {
     expect(threadTranscript(conversation({ messages: [] }))).toBe('');
     expect(threadTranscript(conversation({ messages: [message('m1', { kind: 'system' }, 'note')] }))).toBe('');

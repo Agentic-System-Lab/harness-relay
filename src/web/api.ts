@@ -544,6 +544,12 @@ export const api = {
     request<{ ok: true }>('PUT', '/api/handoffs/secrets', { folder, name, value }),
   deleteHandoffSecret: (folder: string, name: string) => request<{ ok: true }>('POST', '/api/handoffs/secrets/delete', { folder, name }),
   deleteFixedCommand: (commandId: string) => request<{ ok: true }>('DELETE', `/api/handoffs/commands/${encodeURIComponent(commandId)}`),
+  /** A steps card, while the team waits for the user: tick a step (by index) or untick it. */
+  tickStep: (id: string, messageId: string, index: number, done: boolean) =>
+    request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}/steps/${index}`, { done }),
+  /** Answer it: posted as the user's message, and the team goes on with the agent that asked. */
+  answerSteps: (id: string, messageId: string, answer: { done: number[]; stuckAt?: number; note?: string }) =>
+    request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/messages/${messageId}/steps/answer`, answer),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),

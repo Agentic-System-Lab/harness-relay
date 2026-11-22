@@ -3,6 +3,7 @@
 // (`src/server/push.ts`). Both decide what happened the same way, here, from the sidebar's summaries.
 
 import { splitAsk } from './ask';
+import { stepsOfMessage } from './steps';
 import type { AlertKind, AlertPrefs, ChatMessage, Conversation, ConversationSummary } from './types';
 
 /** The kinds that need the user, in the order the sidebar puts them. */
@@ -155,7 +156,8 @@ const agentName = (conv: Pick<Conversation, 'agents'>, m: ChatMessage) =>
 
 /**
  * The agent an alert is about and what it said: the latest agent reply (its error, for `error`); the
- * approval waiting (its command, file or address), or what waits in the outbox (its card's title); the question asked;
+ * approval waiting (its command, file or address), or what waits in the outbox (its card's title); the question asked
+ * (the steps it gave, when it said nothing else);
  * what holds a tracked goal up (the reply's progress block). Nothing for a team to confirm
  * (the lead agent designed it).
  */
@@ -184,7 +186,10 @@ export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kin
       return { ...(agent ? { agent } : {}), ...(held.text ? { text: snippet(held.text) } : {}) };
     }
     if (kind === 'answer' && !m.asked) continue;
-    const text = snippet(kind === 'error' && m.error ? m.error : textOf(m));
+    // A reply that gave the user steps to take and said nothing else: its steps.
+    const steps = kind === 'answer' ? stepsOfMessage(m) : undefined;
+    const said = textOf(m).trim() || (steps?.items.map((s) => s.text).join(' · ') ?? '');
+    const text = snippet(kind === 'error' && m.error ? m.error : said);
     return { ...(agent ? { agent } : {}), ...(text ? { text } : {}) };
   }
   return {};

@@ -291,6 +291,18 @@ export function CheckIcon({ size }: { size?: number }) {
   );
 }
 
+/** A list with a tick: steps for the user to take. */
+export function StepsIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="m3.5 6.5 1.5 1.5 3-3" />
+      <path d="M11 6.5h9.5M11 12h9.5M11 17.5h9.5" />
+      <rect x="3.5" y="10" width="4" height="4" rx="1" />
+      <rect x="3.5" y="15.5" width="4" height="4" rx="1" />
+    </Svg>
+  );
+}
+
 /** Two people: the team. */
 export function UsersIcon({ size }: { size?: number }) {
   return (

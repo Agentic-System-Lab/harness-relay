@@ -2658,6 +2658,33 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // A steps card (an agent's <steps> block), while the team waits for the user: tick a step as they go
+  // (or untick it), kept for every browser.
+  app.put('/api/conversations/:id/messages/:messageId/steps/:index', async (c) => {
+    const { done } = await body<{ done?: unknown }>(c);
+    if (typeof done !== 'boolean') throw new HttpError(400, t().invalidField('done'));
+    const index = Number(c.req.param('index'));
+    if (!Number.isSafeInteger(index) || index < 0) throw new HttpError(400, t().invalidField('index'));
+    orchestrator.tickStep(c.req.param('id'), c.req.param('messageId'), index, done);
+    return c.json({ ok: true });
+  });
+
+  // Answer it: the steps done (by index), the one the user is stuck at, a note. Their answer is posted as
+  // their message, and the team goes on as after an answer to a question: the agent that asked first.
+  app.post('/api/conversations/:id/messages/:messageId/steps/answer', async (c) => {
+    const b = await body<{ done?: unknown; stuckAt?: unknown; note?: unknown }>(c);
+    const index = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+    if (!Array.isArray(b.done) || !b.done.every(index)) throw new HttpError(400, t().invalidField('done'));
+    if (b.stuckAt !== undefined && !index(b.stuckAt)) throw new HttpError(400, t().invalidField('stuckAt'));
+    if (b.note !== undefined && typeof b.note !== 'string') throw new HttpError(400, t().invalidField('note'));
+    const { queued } = await orchestrator.answerSteps(c.req.param('id'), c.req.param('messageId'), {
+      done: [...new Set(b.done as number[])],
+      ...(b.stuckAt !== undefined ? { stuckAt: b.stuckAt as number } : {}),
+      ...(b.note !== undefined ? { note: b.note } : {}),
+    });
+    return c.json({ ok: true, queued }, 202);
+  });
+
   // Let an agent answer again: its reply and everything after it are dropped.
   app.post('/api/conversations/:id/messages/:messageId/retry', async (c) => {
     await orchestrator.retry(c.req.param('id'), c.req.param('messageId'));

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 619 tests in 49 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 619 tests in 50 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -47,6 +47,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [Sending a message into a running turn](#sending-a-message-into-a-running-turn) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [User guide → Chat](../docs/user-guide.md#4-chat), [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes) |
+| [Steps for the user](#steps-for-the-user) | [`steps.spec.ts`](specs/steps.spec.ts) | 4 | [User guide → Chat](../docs/user-guide.md#4-chat), [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
@@ -247,6 +248,17 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | With steering on, a message sent while the member works goes into its running turn | Claude Code, Codex | Once the member has answered and its turn waits (`e2e:steer=20`: its CLI's turn runs, so it can take one), the message box says **(goes into the running turn when it can)**; the message sent shows in the chat at once, marked **Sent into @<name>'s turn**, with no tray; the reply says it heard it, and no other run answers it (one reply; the message's `steered` is the member). |
 | With steering off (the default), it waits in the queue and the next turn answers it | Claude Code | The message box says **(delivered before the next turn)**; the message waits in the tray, the first reply does not have it, a second run answers it, and it is marked **Added mid-reply**. |
 | Steering is switched on in Team settings while the team replies | Claude Code | While the turn runs, the box in **Team settings** is ticked (its note says where messages go) and saved on its own; the next message goes into the running turn. |
+
+## Steps for the user
+
+[`steps.spec.ts`](specs/steps.spec.ts): a member that gives the user steps to take outside Harness Relay. The fake ends its reply with a `<steps>` block of three steps, the first with a link, with `e2e:steps` (`@claude` here, so that Grok, after it, waits).
+
+| Scenario | CLI | What is checked |
+| --- | --- | --- |
+| The steps are ticked as the user goes, kept for a reload and another tab, then Done goes on with that member first | Claude Code, Grok | The reply shows a **Steps from @Claude** card instead of the block (**0 of 3 done**, a box for each step named by its number and words, its link to `https://example.com/console` in a new tab) and no question card; Grok has not spoken; the banner says **Steps waiting for you: @Claude**, the sidebar **Answer needed**, the composer **Answer @Claude…**. A box ticked with the keyboard (Space) is saved on the server and still ticked after a reload; one ticked in another tab shows in the first. With a note, **Send (2 of 3 done)** (the hint says unticked steps are reported as not done) posts the user's answer, each step marked, with the note; Claude answers again first, then Grok, who reads the answer; the card says **Answered**, has no box or button left, two steps done and the note. |
+| "I'm stuck" says at which step, with a note | Claude Code, Grok | With step 1 ticked, **I'm stuck** focuses **Stuck at** on the first step not ticked; step 3 chosen and the reason typed, **Send** posts "I'm stuck at step 3 of the 3 steps @Claude gave me (1 done)." with that step marked **stuck here**; Claude's next reply has the reason; the card says **Stuck at step 3** and marks that step. |
+| A free-text answer instead leaves the card as it was, no longer waited for | Claude Code, Grok | With step 2 ticked, an answer typed in the message box goes on as any answer; the card then says the team is no longer waiting, keeps step 2 ticked and has no box left. |
+| On a phone, the card fits the screen, and its steps are ticked and answered by touch | Claude Code, Grok | On a Pixel 7's screen the card and the page are no wider than it, each box is at least 40 px to tap, the three are tapped ticked, and **Done** (all done) posts "I did all 3 steps @Claude gave me." |
 
 ## What an agent does on its way to a reply
 
@@ -816,6 +828,7 @@ The scenarios tried with each CLI (most of them as a test per CLI, the rest with
 | Common app access enabled and revoked in Settings, verified by two turns in the same chat | ✓ | — | — | — | — | — | — |
 | A signed-in Drive account can search files and stops providing access when Google is turned off. In full access, Google Docs and Obsidian wait for confirmation before writing. Direct Teams and Slack posts wait for Send. | ✓ | — | — | — | — | — | — |
 | A long-term memory note saved in its reply, shown in a card, and given to a later chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Steps for the user in its reply, a card ticked and answered, then it goes on first | ✓ | — | ✓ (goes on after it) | — | — | — | — |
 | An attached image | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A reply stopped; an error inside the protocol; a failed reply and Retry | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A message sent into the running turn (steering) | ✓ | ✓ | — (offline only) | — (cannot) | — (offline only) | — (cannot yet) | — (cannot yet) |
@@ -880,6 +893,7 @@ The app preview panel is shared by all CLIs. The Files and draft scenarios use C
 - The folder dialog tests run on Linux only: Linux finds its dialog on the PATH, where the fake one stands in; macOS and Windows open their own by their full paths.
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).
 - Copilot runs below full access on macOS, Linux and Windows alike, as its own sandbox does: its fake keeps to the policy its run's settings give, so its tests need no sandbox on the computer that runs them.
+- The phone test of [Steps for the user](#steps-for-the-user) is skipped in Firefox, which has no phone emulation.
 - [On a phone](#on-a-phone) is skipped in Firefox, and its test with the browser's own touches runs in Chromium only (they are sent through its DevTools protocol).
 - The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), "Without gh" is skipped on Windows, and the viewer's download test is skipped in WebKit, which under Playwright downloads nothing a link opens (also on a page without a frame, sent as an attachment).
@@ -890,6 +904,7 @@ The local preview scenarios use loopback hostnames and a phone-sized browser vie
 ## What they do not cover
 
 - **Most of long-term memory.** End-to-end tests save, recall, set aside, restore, pin and tidy notes, and switch memory off. The following cases are covered offline (`test/memory.test.ts`, `test/orchestrator-memory.test.ts`): corrections and forgets, notes waiting for the user (review), the user's own notes kept from agents, a note of one folder, recall once per session, automatic tidying and the rules its changes follow.
+- **Most of steps cards.** End-to-end tests give steps with Claude Code's fake only: the block is plain text the server reads, so every CLI's reply is read the same way. Offline: the block's shapes and what stays text (`test/steps.test.ts`), parallel and relay modes, a reply of steps alone, an ask marker beside them, ticks after a restart and the answer that cannot be posted (`test/orchestrator-steps.test.ts`), what the routes refuse (`test/steps-api.test.ts`), and the steps on a shared page, in the copy and the transcript (`test/steps-web.test.ts`) and in AgentsView (`test/agentsview.test.ts`).
 - **Physical phones and production preview domains.** Browser checks use a phone viewport and a synthetic HTTPS setup for remote mode. Check physical devices, DNS, certificates and proxy routing in the deployment. The standalone Docker check, `npx tsx scripts/preview-runtime-check.ts`, also runs on Linux CI.
 - **A container the team made starting by itself in full access.** The specs try a page that starts by itself and a Dockerfile that waits below full access; which modes start by themselves in full access is in `test/webPreview.test.ts`.
 - **Container previews on Windows and macOS CI.** Their live Docker tests run on Linux CI and by hand (OrbStack on macOS); the Engine API over Windows' named pipe has not been tried. Elsewhere the panel's terminal is tested with a simulated stream.

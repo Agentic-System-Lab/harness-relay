@@ -16,6 +16,7 @@ import type {
   MessageChanges,
 } from '../shared/types';
 import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
+import type { StepsPart } from '../shared/steps';
 import { ApiError } from './api';
 import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
@@ -394,7 +395,9 @@ export type Segment =
   /** The secrets the reply asks the user for. */
   | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
   /** A fixed command the reply proposes. */
-  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number };
+  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
+  /** Steps the reply asks the user to take outside Harness Relay. */
+  | { kind: 'steps'; part: StepsPart; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -463,6 +466,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'command':
         out.push({ kind: 'command', part: p, key: i });
+        break;
+      case 'steps':
+        if (p.items.length) out.push({ kind: 'steps', part: p, key: i });
         break;
     }
   });

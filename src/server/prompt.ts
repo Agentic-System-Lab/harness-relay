@@ -27,6 +27,7 @@ import {
   cwdsOf,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
+import { stepsBlock, stepsOfMessage } from '../shared/steps';
 import { checksFailed, hasChecks, needsFix, protectedPatterns } from '../shared/checks';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
@@ -511,6 +512,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
+- When the work needs something only the user can do outside this chat, and you cannot do it for them (sign in to a site, create an app or a key in a developer console, approve a payment, press a button on a device), end your reply with the steps in a block on lines of its own: <steps>, then one short step per line, in order ("1. Open [the app dashboard](https://example.com/apps) and click Create app."), then </steps>. The user gets a box to tick for each step and answers with the steps they did, those they did not, where they got stuck and a note; the team waits for them as for ${ASK_TOKEN} (no need to add it), and once they answer you go on first. Use it only for such steps, never for questions (ask those with ${ASK_TOKEN}). Never ask the user for a password, token, API key or other secret, in a step or anywhere else in the chat, nor to paste one into it.
 - Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - An app you build or change (a site, a web app, an API with a page, a game, a terminal program) is done only when the user can open it in Harness Relay's preview:
@@ -556,11 +558,16 @@ export function isForwardable(m: ChatMessage): boolean {
   return Boolean(m.changes?.some((c) => c.files.length)) || m.parts.some((p) => p.type === 'text' && p.text.trim());
 }
 
-/** Text of a message as shown to other agents: reply text plus a compact log of actions taken. */
+/**
+ * Text of a message as shown to other agents: reply text plus a compact log of actions taken. Steps the
+ * reply gave the user come as the block it wrote; the user's answer to them is a message of its own.
+ */
 export function forwardText(m: ChatMessage): string {
-  const text = m.parts
-    .filter((p) => p.type === 'text')
-    .map((p) => (p as { text: string }).text.trim())
+  const steps = stepsOfMessage(m);
+  const text = [
+    ...m.parts.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text.trim()),
+    steps ? stepsBlock(steps.items) : '',
+  ]
     .filter(Boolean)
     .join('\n\n');
   const actions = m.parts

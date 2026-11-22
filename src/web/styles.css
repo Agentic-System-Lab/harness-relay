@@ -7471,6 +7471,196 @@ summary + .checks-editor-body {
   flex: 1 1 240px;
 }
 
+/* A steps card: what an agent asks the user to do outside Harness Relay, a box ticked for each step */
+.steps-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.steps-card-waiting {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg));
+}
+
+.steps-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.steps-icon {
+  display: inline-grid;
+  color: var(--muted);
+}
+
+.steps-card-waiting .steps-icon {
+  color: var(--warn);
+}
+
+.steps-status {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.steps-card-waiting .steps-status {
+  color: var(--warn);
+}
+
+.steps-wait {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.step-item {
+  display: grid;
+  grid-template-columns: 28px auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  padding: 5px 0;
+}
+
+.step-item + .step-item {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* The box: the checkbox itself lies over it, unseen, with a larger area to tap. */
+.step-check {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.step-input {
+  position: absolute;
+  inset: -8px;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.step-input:disabled {
+  cursor: not-allowed;
+}
+
+.step-box {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid color-mix(in srgb, var(--text) 35%, var(--border));
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--primary-contrast);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.step-input:hover:not(:disabled) + .step-box {
+  border-color: var(--text);
+}
+
+.step-input:focus-visible + .step-box {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+.step-done .step-box {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+/* Answered, or no longer waited for: a step not done is no box to tick. */
+.steps-card:not(.steps-card-waiting) .step-open .step-box {
+  border-style: dashed;
+  background: transparent;
+}
+
+.step-stuck .step-box {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
+.step-num {
+  padding-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-text {
+  padding-top: 2px;
+  min-width: 0;
+  font-size: 14.5px;
+}
+
+.step-text .markdown p {
+  margin-bottom: 4px;
+}
+
+.step-text .markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.step-done .step-text {
+  color: var(--muted);
+}
+
+.steps-note {
+  font-size: 13.5px;
+}
+
+.steps-note-text {
+  white-space: pre-wrap;
+}
+
+.steps-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.steps-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.steps-field textarea,
+.steps-field select {
+  width: 100%;
+  font-size: 14px;
+  color: var(--text);
+}
+
 /* Conversation states in the sidebar ------------------------------------------------ */
 
 .status-dot {
