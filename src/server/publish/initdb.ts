@@ -13,8 +13,8 @@ export const PSQL_IMAGE = 'docker.io/library/postgres@sha256:0115267ab5a509022df
 
 /**
  * What runs in the container: the connection's address without its password from the first line of
- * stdin, the password from the second (into `PGPASSWORD`, an environment only its user and root can
- * read, never a command line, which `ps` shows anyone), the script from the rest, then `psql -c` with it. psql sends a `-c` string
+ * stdin, the password from the second (into `PGPASSWORD`, an environment only processes of the same
+ * user, `nobody` here, and root can read, never a command line, which `ps` shows anyone), the script from the rest, then `psql -c` with it. psql sends a `-c` string
  * to the server as it is, in one request: none of psql's own commands, variables or backticks are
  * read in it (only a string that begins with a backslash would be one command, which the comment in
  * front of it rules out), and the server runs its statements as one transaction, so that a script
@@ -77,7 +77,7 @@ export function checkInitScript(name: string, sql: Buffer): void {
  * (PL/pgSQL's `BEGIN` and `END;` in a function's body are neither, and stay.)
  */
 const TRANSACTION =
-  /^[ \t]*(BEGIN(?=[ \t]*;)|START[ \t]+TRANSACTION|COMMIT(?=[ \t]*;)|ROLLBACK(?=[ \t]*;)|CREATE[ \t]+DATABASE|DROP[ \t]+DATABASE|VACUUM|CREATE[ \t]+(?:UNIQUE[ \t]+)?INDEX[ \t]+CONCURRENTLY)\b/im;
+  /^[ \t]*((?:BEGIN|COMMIT|ROLLBACK)(?:[ \t]+(?:WORK|TRANSACTION))?(?=[ \t]*;)|START[ \t]+TRANSACTION|CREATE[ \t]+DATABASE|DROP[ \t]+DATABASE|VACUUM|CREATE[ \t]+(?:UNIQUE[ \t]+)?INDEX[ \t]+CONCURRENTLY)\b/im;
 
 /** A script's identity: its name and contents. One that committed is never run again; one changed after it is refused. */
 export function scriptKey(script: { name: string; sql: Buffer }): string {
@@ -92,7 +92,12 @@ export function splitPassword(uri: string): { uri: string; password: string } {
   } catch {
     throw new HttpError(502, t().publish.badAnswer);
   }
-  const password = decodeURIComponent(url.password);
+  let password: string;
+  try {
+    password = decodeURIComponent(url.password);
+  } catch {
+    throw new HttpError(502, t().publish.badAnswer);
+  }
   url.password = '';
   return { uri: url.href, password };
 }

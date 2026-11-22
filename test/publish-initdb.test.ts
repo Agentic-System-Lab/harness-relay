@@ -59,6 +59,7 @@ describe("a compose file's init scripts on Neon", () => {
     // psql reads a -c string beginning with a backslash as one of its own commands: a comment comes first.
     expect(PSQL_SCRIPT).toMatch(/ -c "-- [^\n"]*\n\$SQL"$/);
     expect(PSQL_SCRIPT).not.toContain(' -f ');
+    expect(() => splitPassword('postgresql://todo:bad%zz@ep-1.neon.test/todo')).toThrow(expect.objectContaining({ status: 502 }));
     expect(splitPassword('postgresql://todo:p%40ss@ep-1.neon.test/todo?sslmode=require')).toEqual({
       uri: 'postgresql://todo@ep-1.neon.test/todo?sslmode=require',
       password: 'p@ss',
@@ -202,6 +203,8 @@ describe("a compose file's init scripts on Neon", () => {
       ['CREATE TABLE a ();\nCOMMIT;', 'COMMIT'],
       ['BEGIN;\nCREATE TABLE a ();', 'BEGIN'],
       ['start transaction;', 'START TRANSACTION'],
+      ['COMMIT WORK;', 'COMMIT WORK'],
+      ['begin transaction ;', 'BEGIN TRANSACTION'],
       ['CREATE DATABASE other;', 'CREATE DATABASE'],
       ['VACUUM ANALYZE;', 'VACUUM'],
       ['CREATE UNIQUE INDEX CONCURRENTLY i ON t (a);', 'CREATE UNIQUE INDEX CONCURRENTLY'],
