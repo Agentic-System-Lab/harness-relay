@@ -134,6 +134,39 @@ test.describe('steps cards', () => {
     await expect(card.locator('.step-done')).toHaveCount(1);
   });
 
+  test('with another member waiting too, the card answers its own member alone, and the other question keeps waiting', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(
+      page,
+      relay,
+      [
+        { name: 'Claude', provider: 'claude' },
+        { name: 'Grok', provider: 'grok' },
+      ],
+      { mode: 'parallel' },
+    );
+    await send(page, 'Connect the app e2e:steps@claude e2e:ask@grok');
+    await expect(await finishedReply(page, 'Grok')).toContainText('Which option do you prefer, A or B?');
+    const card = page.locator('.steps-card').first();
+    await expect(card).toContainText('Also waiting for you: @Grok. An answer here goes to @Claude alone; they keep waiting.');
+    await card.getByRole('button', { name: 'Send (0 of 3 done)' }).click();
+
+    // Claude alone goes on with the answer; Grok's question still waits for one of its own.
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    await expect(await finishedReply(page, 'Claude')).toContainText('Thanks, Claude got your answer');
+    await expect(replies(page, 'Grok')).toHaveCount(1);
+    await expect(replies(page, 'Grok').locator('.ask-card')).toContainText('Waiting for your answer');
+    await expect(page.locator('.approval-banner')).toHaveText('❓ Waiting for your answer: @Grok');
+    await expect(composer(page)).toHaveAttribute('placeholder', 'Answer @Grok…');
+
+    await send(page, 'Option A');
+    await expect(replies(page, 'Grok')).toHaveCount(2);
+    await expect(await finishedReply(page, 'Grok')).toContainText('Thanks, Grok got your answer: “Option A”.');
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+  });
+
   test.describe('on a phone', () => {
     const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['Pixel 7'];
     test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });

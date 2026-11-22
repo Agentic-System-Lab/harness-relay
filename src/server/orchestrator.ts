@@ -426,6 +426,11 @@ interface StartOptions {
   question?: 'new' | 'edited';
   /** The current team answers: no team design (the team was just confirmed, or a schedule or a waiting message starts the run). */
   keepTeam?: boolean;
+  /**
+   * The user's message answers this agent alone (its steps card): while others wait for the user too,
+   * only it goes on, and the team keeps waiting for theirs (`takePause`).
+   */
+  answers?: string;
   /** Attached files of the new user message (already saved). */
   files?: AttachmentPart[];
   /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
@@ -812,6 +817,11 @@ interface Schedule {
   hopsLeft: number;
   /** Agents whose question the user just answered: told so on their next turn. */
   answering: Set<string>;
+  /**
+   * The user answered one of several agents that wait for them (a steps card): only it speaks, then
+   * the team waits again, for these agents and any that ask now.
+   */
+  waiting?: RunPause;
 }
 
 /**
@@ -1737,8 +1747,8 @@ export class Orchestrator {
   }
 
   /**
-   * A reply's steps card while its team waits for the user (`askingReplies`, the conversation paused
-   * and idle): the message and its steps. 404 for none; 409 once answered or no longer waited for.
+   * A reply's steps card while its team waits for the user (`askingReplies`: an agent the pause waits
+   * for, the run idle): the message and its steps. 404 for none; 409 once answered or no longer waited for.
    */
   private waitingSteps(convId: string, messageId: string): { conv: Conversation; msg: ChatMessage; part: StepsPart } {
     const conv = this.store.get(convId);
@@ -1747,7 +1757,7 @@ export class Orchestrator {
     const part = msg && stepsOfMessage(msg);
     if (!msg || !part) throw new HttpError(404, t().steps.notFound);
     if (part.answer) throw new HttpError(409, t().steps.answered);
-    if (!conv.pause || this.isRunning(convId) || !askingReplies(conv.messages).includes(msg)) {
+    if (this.isRunning(convId) || !askingReplies(conv.messages, conv.pause).includes(msg)) {
       throw new HttpError(409, t().steps.notWaiting);
     }
     return { conv, msg, part };
@@ -1773,7 +1783,8 @@ export class Orchestrator {
   /**
    * The user's answer to a steps card: the steps they did (`done`, by index; the others are not done),
    * the one they are stuck at, their note. It is posted as their message (`stepsAnswerText`), which the
-   * team takes as an answer to a question: the agents that asked go first. The card keeps the answer
+   * team takes as an answer to the agent that gave the steps: it goes on first, and when other agents
+   * wait for the user too, it alone, and the team keeps waiting for theirs. The card keeps the answer
    * and no longer changes; one that could not be posted is as it was.
    */
   async answerSteps(
@@ -1801,7 +1812,7 @@ export class Orchestrator {
     // Answered on the card at once, so that a second click (here or in another browser) finds it so.
     this.saveSteps(conv, msg);
     try {
-      return await this.send(convId, text);
+      return await this.send(convId, text, undefined, false, undefined, agentId);
     } catch (err) {
       part.items = before;
       delete part.answer;
@@ -1978,6 +1989,8 @@ export class Orchestrator {
     uploads?: AttachmentUpload[],
     interrupt = false,
     request?: TaskRequest,
+    /** The message answers this agent alone (`StartOptions.answers`). */
+    answers?: string,
   ): Promise<{ queued: boolean }> {
     const text = rawText.trim();
     const content = Boolean(text || uploads?.length);
@@ -2009,7 +2022,13 @@ export class Orchestrator {
       }
       const files = saveAttachments(conv.id, uploads);
       try {
-        await this.start(conv, text, { files, queue: true, request, ...(content ? { question: 'new' as const } : {}) });
+        await this.start(conv, text, {
+          files,
+          queue: true,
+          request,
+          ...(content ? { question: 'new' as const } : {}),
+          ...(answers ? { answers } : {}),
+        });
       } catch (err) {
         removeAttachments(conv.id, files);
         throw err;
@@ -2744,7 +2763,7 @@ export class Orchestrator {
     const messages = copyMessages(copied);
     const pause = branchPause(conv, index);
     // The branch waits for its own answer: a steps card answered here is to be answered again there.
-    if (pause) for (const m of askingReplies(messages)) if (stepsOfMessage(m)) delete stepsOfMessage(m)!.answer;
+    for (const m of askingReplies(messages, pause)) if (stepsOfMessage(m)) delete stepsOfMessage(m)!.answer;
     // A branch of the conversation the reply was written in (this one, or one it was copied from).
     const titleOf = (from: string) => this.store.titleOf(from);
     let branch = branchOrigin(conv, index, messages, titleOf);
@@ -2970,7 +2989,7 @@ export class Orchestrator {
       else if (opts.request) this.store.recordTask(opts.request, convId, false);
       if (teamNote) this.systemNote(conv, teamNote);
       const pausedTracked = conv.pause?.tracked;
-      const resumed = this.takePause(conv, posted, only, planning);
+      const resumed = this.takePause(conv, posted, only, planning, opts.answers);
       resume = resumed?.schedule;
       const pausedChecks = resumed ? this.pendingPauseChecks(conv) : undefined;
       tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
@@ -5381,6 +5400,9 @@ export class Orchestrator {
     const ids = (agents: AgentConfig[]) => agents.map((a) => a.id);
     /** The user's reply answers this agent's question (it is told on this turn only). */
     const answered = (a: AgentConfig) => s.answering.delete(a.id);
+    /** After an answer to one of several agents that wait: the team waits again, for them and any that asked now. */
+    const waitAgain = (waiting: RunPause, asked: AgentConfig[]) =>
+      this.pauseFor(conv, { ...waiting, askers: [...new Set([...waiting.askers, ...ids(asked)])] }, run);
 
     if (mode === 'relay') {
       const queue = [...s.first];
@@ -5443,6 +5465,7 @@ export class Orchestrator {
         msgs.push(...settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value));
         // The others answered already; the ones that asked answer again once the user replied.
         const askers = speakers.filter((_, i) => msgs[i]!.asked);
+        if (s.waiting) return waitAgain(s.waiting, askers);
         if (askers.length) return pause(askers, []);
       } else {
         for (const [i, a] of speakers.entries()) {
@@ -5451,8 +5474,13 @@ export class Orchestrator {
           const msg = await this.turn(conv, a, run, info(a));
           await run.checks?.checkpoint(a.name);
           msgs.push(msg);
-          if (msg.asked) return pause([a], speakers.slice(i + 1));
+          if (msg.asked && !s.waiting) return pause([a], speakers.slice(i + 1));
         }
+        if (s.waiting)
+          return waitAgain(
+            s.waiting,
+            speakers.filter((_, i) => msgs[i]?.asked),
+          );
       }
       if (msgs.length && !msgs.some(spoke)) break; // everyone passed: the discussion has converged
     }
@@ -5510,6 +5538,8 @@ export class Orchestrator {
     posted: ChatMessage[],
     only: AgentConfig[] | undefined,
     planning: boolean,
+    /** The user's message answers this agent alone (its steps card). */
+    answers?: string,
   ): { schedule?: Schedule } | undefined {
     const pause = conv.pause;
     if (!pause) return undefined;
@@ -5520,6 +5550,26 @@ export class Orchestrator {
     const replies = posted.filter((m) => !m.scheduled);
     if (replies.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
     const byId = (id: string) => conv.agents.find((a) => a.id === id);
+    // An answer to one of several agents that wait (a steps card): it alone goes on, in the round it
+    // asked in, and the team keeps waiting for the others.
+    const alone = answers && replies.length && pause.mode !== 'relay' && pause.askers.length > 1 ? byId(answers) : undefined;
+    if (alone && pause.askers.includes(alone.id)) {
+      conv.pause = { ...pause, askers: pause.askers.filter((id) => id !== alone.id) };
+      this.store.saveMeta(conv);
+      this.emitConversation(conv);
+      const participants = pause.participants.flatMap((id) => byId(id) ?? []);
+      return {
+        schedule: {
+          participants: participants.length ? participants : conv.agents,
+          round: pause.round,
+          rounds: pause.rounds,
+          first: [{ agent: alone }],
+          hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+          answering: new Set([alone.id]),
+          waiting: conv.pause,
+        },
+      };
+    }
     const askers = pause.askers.flatMap((id) => byId(id) ?? []);
     const skip = replies.length === 0;
     const rest = pause.rest.flatMap((r) => {

@@ -39,6 +39,7 @@ export function StepsCard({
   messageId,
   agentName,
   waiting,
+  othersWaiting,
   mentions,
   mediaBase,
   downloadBase,
@@ -50,6 +51,8 @@ export function StepsCard({
   agentName: string;
   /** The team waits for this reply's answer now. */
   waiting: boolean;
+  /** Other agents that wait for the user too, as `@name`s: an answer here goes to this one alone. */
+  othersWaiting?: string;
   mentions: string[];
   mediaBase?: string;
   downloadBase?: string;
@@ -129,6 +132,7 @@ export function StepsCard({
         <span className="steps-status">{status}</span>
       </header>
       {editable && <p className="steps-wait">{c.waiting(agentName)}</p>}
+      {editable && othersWaiting && <p className="steps-wait steps-others">{c.othersWaiting(othersWaiting, agentName)}</p>}
       <ol className="steps-list">
         {part.items.map((s, i) => {
           const mark = stepMark(part, done, i);

@@ -646,6 +646,8 @@ interface Props {
   onRetry: (messageId: string) => Promise<void>;
   /** This reply's question waits for the user's answer (the team stopped for it). */
   waitingAnswer?: boolean;
+  /** The other agents that wait for the user's answer too, as `@name`s (its steps card says an answer there is this reply's alone). */
+  othersWaiting?: string;
   /** Let the team go on without answering. */
   onSkipQuestion?: () => void;
   /** Copy or share the conversation up to and including this reply. */
@@ -1296,6 +1298,7 @@ export const MessageItem = memo(function MessageItem({
   onApproval,
   onRetry,
   waitingAnswer,
+  othersWaiting,
   onSkipQuestion,
   onShare,
   onBranch,
@@ -1373,6 +1376,7 @@ export const MessageItem = memo(function MessageItem({
       onApproval={onApproval}
       onRetry={onRetry}
       waitingAnswer={waitingAnswer}
+      othersWaiting={othersWaiting}
       onSkipQuestion={onSkipQuestion}
       onShare={onShare}
       onBranch={onBranch}
@@ -1396,6 +1400,7 @@ function AgentMessage({
   onApproval,
   onRetry,
   waitingAnswer,
+  othersWaiting,
   onSkipQuestion,
   onShare,
   onBranch,
@@ -1415,6 +1420,7 @@ function AgentMessage({
   | 'onApproval'
   | 'onRetry'
   | 'waitingAnswer'
+  | 'othersWaiting'
   | 'onSkipQuestion'
   | 'onShare'
   | 'onBranch'
@@ -1523,6 +1529,7 @@ function AgentMessage({
                   messageId={msg.id}
                   agentName={name}
                   waiting={Boolean(waitingAnswer)}
+                  othersWaiting={othersWaiting}
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}

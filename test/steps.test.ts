@@ -41,9 +41,37 @@ describe('splitSteps', () => {
     expect(steps('<STEPS title="Setup">\n1. one\n</Steps >')).toEqual(['one']);
   });
 
-  it('takes a block a code fence holds alone, fence and all', () => {
+  it('takes a block a code fence holds alone at the end of the reply, fence and all', () => {
     expect(splitSteps('Here:\n\n```text\n<steps>\n1. one\n2. two\n</steps>\n```')).toEqual({ text: 'Here:', steps: ['one', 'two'] });
-    expect(splitSteps('Here:\n~~~\n\n<steps>\n1. one\n</steps>\n\n~~~\nThanks.')).toEqual({ text: 'Here:\n\nThanks.', steps: ['one'] });
+    expect(splitSteps('Here:\n~~~\n\n<steps>\n1. one\n</steps>\n\n~~~\n\n')).toEqual({ text: 'Here:', steps: ['one'] });
+  });
+
+  it('leaves a fenced example of the syntax as text: a fence with more of the reply after it', () => {
+    const example = 'The syntax is:\n```\n<steps>\n1. Open the console\n</steps>\n```\nUse it for steps only you can take.';
+    expect(splitSteps(example)).toEqual({ text: example });
+    const tilde = 'Here:\n~~~\n<steps>\n1. one\n</steps>\n~~~\nThanks.';
+    expect(splitSteps(tilde)).toEqual({ text: tilde });
+  });
+
+  it('takes no prose that names the tag: the opening tag is followed by nothing or a step', () => {
+    const prose = 'Sure.\n<steps> blocks are how I give you steps.\nAnything else?';
+    expect(splitSteps(prose)).toEqual({ text: prose });
+    expect(withoutStepsTail(prose)).toBe(prose);
+    const closed = '<steps>Open the console</steps>';
+    expect(splitSteps(closed)).toEqual({ text: closed });
+    // Unclosed, its first line must be a numbered or bulleted step.
+    const unclosed = 'Notes:\n<steps>\nThis is how it works\nand more';
+    expect(splitSteps(unclosed)).toEqual({ text: unclosed });
+    expect(splitSteps('Notes:\n<steps>\n\n- Sign in\nthen come back')).toEqual({ text: 'Notes:', steps: ['Sign in\nthen come back'] });
+  });
+
+  it('is never closed by a tag inside inline code', () => {
+    expect(steps('<steps>\n1. Type `</steps>` in the box\n2. Press Enter\n</steps>')).toEqual([
+      'Type `</steps>` in the box',
+      'Press Enter',
+    ]);
+    expect(steps('<steps>\n1. Run `echo </steps>`\n</steps>')).toEqual(['Run `echo </steps>`']);
+    expect(steps('<steps>\n1. Type ``a `</steps>` b`` there\n2. Done</steps>')).toEqual(['Type ``a `</steps>` b`` there', 'Done']);
   });
 
   it('leaves a block among other code, or one running across a fence, as text', () => {
@@ -110,23 +138,34 @@ describe('the user’s answer', () => {
     stuck: 'stuck here',
     note: 'Note: ',
   };
-  const items = [{ text: 'Open the console', done: true }, { text: 'Ask @Bob for the key\nin the team chat' }, { text: 'Paste the ID' }];
+  const items = [
+    { text: 'Open [the console](https://example.com/apps)', done: true },
+    { text: 'Ask @Bob for the **key**\nin the team chat' },
+    { text: 'Run `npm i @Bob/cli`' },
+  ];
 
-  it('marks each step and adds the note, mentions in the steps addressing no one', () => {
+  it('marks each step in a few plain words of the agent’s, and adds the note; mentions in them address no one', () => {
     expect(stepsAnswerText({ agent: '@Alice', items, note: '  It asked for 2FA.  ', names: ['Alice', 'Bob'] }, words)).toBe(
-      '@Alice: 1/3\n\n1. [done] Open the console\n2. [not done] Ask Bob for the key\n   in the team chat\n3. [not done] Paste the ID\n\nNote: It asked for 2FA.',
+      '@Alice: 1/3\n\n1. [done] Open the console\n2. [not done] Ask Bob for the key in the team chat\n3. [not done] Run npm i Bob/cli\n\nNote: It asked for 2FA.',
     );
+    // Its words cut short: the agent has its steps whole.
+    const long = stepsAnswerText({ agent: '@Alice', items: [{ text: 'x'.repeat(300) }], names: [] }, words);
+    expect(long.split('\n').at(-1)).toHaveLength('1. [not done] '.length + 120);
   });
 
   it('marks the step the user is stuck at, never counted done', () => {
     const ticked = items.map((i) => ({ ...i, done: true }));
     expect(stepsAnswerText({ agent: '@Alice', items: ticked, stuckAt: 1, names: [] }, words)).toBe(
-      '@Alice: 2/3 stuck 2\n\n1. [done] Open the console\n2. [stuck here] Ask @Bob for the key\n   in the team chat\n3. [done] Paste the ID',
+      '@Alice: 2/3 stuck 2\n\n1. [done] Open the console\n2. [stuck here] Ask @Bob for the key in the team chat\n3. [done] Run npm i @Bob/cli',
     );
   });
 
-  it('takes the @ off the mentions of a text that mentions anyone', () => {
-    expect(unmention('Ask @Bob, not `@Bob` in code', ['Bob'])).toBe('Ask Bob, not `Bob` in code');
+  it('takes the @ off the mentions in prose only, never in code, links or addresses', () => {
+    expect(unmention('Ask @Bob, not `@Bob` in code', ['Bob'])).toBe('Ask Bob, not `@Bob` in code');
+    expect(unmention('Ask @Bob\n```\n@Bob\n```', ['Bob'])).toBe('Ask Bob\n```\n@Bob\n```');
+    expect(unmention('Ask @Bob, see [@Bob](https://x.test/@Bob) and https://x.test/@Bob', ['Bob'])).toBe(
+      'Ask Bob, see [@Bob](https://x.test/@Bob) and https://x.test/@Bob',
+    );
     expect(unmention('mail bob@Bob.dev', ['Bob'])).toBe('mail bob@Bob.dev');
     expect(unmention('Only `@Bob` in code', ['Bob'])).toBe('Only `@Bob` in code');
   });
@@ -153,13 +192,17 @@ describe('steps in the rest of the app', () => {
     expect(splitSteps(stepsBlock(stepsOfMessage(msg)!.items)).steps).toEqual(['one', 'two\nmore']);
   });
 
-  it('lists the replies the team waits on: those that asked since the user last wrote', () => {
+  it('lists the replies the team waits on: the latest that asked of each agent its pause waits for', () => {
     const user: ChatMessage = { id: 'u', author: { kind: 'user' }, createdAt: 0, parts: [], status: 'done' };
     const old = { ...agentReply([]), id: 'old' };
     const now = { ...agentReply([]), id: 'now' };
     const other = { ...agentReply([], false), id: 'other' };
-    expect(askingReplies([old, user, now, other]).map((m) => m.id)).toEqual(['now']);
-    expect(askingReplies([now, user])).toEqual([]);
+    const bob = { ...agentReply([]), id: 'bob', author: { kind: 'agent' as const, agentId: 'b' } };
+    expect(askingReplies([old, user, now, other], { askers: ['a'] }).map((m) => m.id)).toEqual(['now']);
+    // One answered alone (its steps card): the other still waits, also before the user's answer.
+    expect(askingReplies([bob, now, user], { askers: ['b'] }).map((m) => m.id)).toEqual(['bob']);
+    expect(askingReplies([bob, now], { askers: ['a', 'b'] }).map((m) => m.id)).toEqual(['bob', 'now']);
+    expect(askingReplies([now, user], undefined)).toEqual([]);
   });
 
   it('tells a notification what the steps are when the reply said nothing else', () => {

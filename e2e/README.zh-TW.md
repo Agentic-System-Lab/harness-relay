@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 53 個 spec 檔、632 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 53 個 spec 檔、633 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -47,7 +47,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
-| [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 4 | [使用者說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
+| [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 5 | [使用者說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
@@ -263,6 +263,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 使用者做一步勾一步，重新載入與另一個分頁都保留，按「完成」後由那位成員先繼續 | Claude Code、Grok | 回覆顯示 **@Claude 給你的步驟**（Steps from @Claude）卡片而不是區塊（**完成 0 / 3**，每一步有一個以編號與文字命名的方框，連結到 `https://example.com/console` 並在新分頁開啟），沒有提問卡片；Grok 還沒發言；橫幅寫著 **@Claude 給了你要做的步驟**（Steps waiting for you: @Claude），側邊欄 **等你回答**，輸入框 **回答 @Claude…**。用鍵盤（空白鍵）勾的方框會存到伺服器，重新載入後仍是勾選的；在另一個分頁勾的，第一個分頁也看得到。附上備註後，**送出（完成 2 / 3）**（提示說沒勾的步驟會說成未完成）送出使用者的回答，逐步標示並附上備註；Claude 先再回答一次，接著是讀到這個回答的 Grok；卡片顯示 **已回覆**，不再有方框或按鈕，兩步完成並顯示備註。 |
 | 「我卡住了」指出卡在哪一步，並附上備註 | Claude Code、Grok | 勾了第 1 步後，**我卡住了** 讓焦點移到 **卡在**，預設是第一個沒勾的步驟；選了第 3 步、寫下原因，**送出** 送出「I'm stuck at step 3 of the 3 steps @Claude gave me (1 done).」，那一步標成 **stuck here**；Claude 的下一則回覆有那個原因；卡片顯示 **卡在第 3 步** 並標出那一步。 |
 | 改在輸入框用文字回覆時，卡片保持原樣，不再被等待 | Claude Code、Grok | 勾了第 2 步後，在輸入框打的回答照一般的回答繼續；之後卡片說團隊已不再等這些步驟，第 2 步仍是勾選的，也不再有方框。 |
+| 另一位成員也在等時，卡片只回答它自己的成員，另一個問題繼續等 | Claude Code、Grok | 平行模式中，Claude 給步驟、Grok 提問（`e2e:ask@grok`）；卡片寫著 **Also waiting for you: @Grok. An answer here goes to @Claude alone; they keep waiting.**（也在等你的：@Grok。在這裡回覆只會交給 @Claude，其他的仍會等你。）**送出（完成 0 / 3）**：Claude 帶著回答再回覆一次；Grok 沒有，它的問題仍在等（它的卡片、橫幅 **@Grok 在等你回答**（Waiting for your answer: @Grok）、輸入框 **回答 @Grok 的問題…**（Answer @Grok…））；之後使用者在輸入框的回答交給 Grok，它帶著回答回覆。 |
 | 在手機上卡片不超出螢幕，用觸控勾選並回覆 | Claude Code、Grok | 在 Pixel 7 的螢幕上，卡片與頁面都不比螢幕寬，每個方框至少 40 px 可以點，三個都點成勾選，**完成**（全部完成）送出「I did all 3 steps @Claude gave me.」。 |
 
 ## agent 回答前做了什麼

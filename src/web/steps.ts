@@ -1,7 +1,7 @@
 // A steps card's logic (components/StepsCard.tsx): what an agent asked the user to do outside
 // Harness Relay, each step ticked as they go, then their answer. Pure, so it can be tested.
 
-import type { StepsPart } from '../shared/steps';
+import { plainStep, type StepsPart } from '../shared/steps';
 
 /** Where a card stands: waiting for the user (they tick and answer), answered, or no longer waited for. */
 export type StepsCardState = 'waiting' | 'answered' | 'closed';
@@ -55,13 +55,7 @@ export function answerBody(
 
 /** A step in a few plain words, for the list of steps to be stuck at: links' words, no Markdown marks, cut short. */
 export function stepWords(text: string, max = 60): string {
-  const plain = text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/`+|\*\*|__|~~/g, '')
-    .replace(/(^|\s)[*_]+(?=\S)|(?<=\S)[*_]+(?=\s|$|[.,;:!?。，、！？])/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
+  return plainStep(text, max);
 }
 
 /** The steps as a Markdown task list (a reply's copy, the transcript): ticked ones checked. */

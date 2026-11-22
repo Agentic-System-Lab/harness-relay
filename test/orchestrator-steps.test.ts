@@ -81,7 +81,7 @@ describe('steps cards', () => {
     const answer = conv.messages[2]!;
     expect(textOf(answer)).toBe(
       "I'm stuck at step 2 of the 3 steps @Alice gave me (2 done).\n\n" +
-        '1. [done] Open the [console](https://example.com/apps).\n2. [stuck here] Ask Bob for the key.\n3. [done] Copy the app ID.\n\nNote: No key yet.',
+        '1. [done] Open the console.\n2. [stuck here] Ask Bob for the key.\n3. [done] Copy the app ID.\n\nNote: No key yet.',
     );
     expect(told('Alice')).toEqual([false, true]);
     expect(told('Bob')).toEqual([false]);
@@ -104,7 +104,7 @@ describe('steps cards', () => {
     await withLang('zh-TW', () => orchestrator.answerSteps(conv.id, reply.id, { done: [0, 1, 2] }));
     await finish(conv.id);
     expect(textOf(conv.messages[2]!)).toBe(
-      '@Alice 給我的 3 個步驟都完成了。\n\n1. [完成] Open the [console](https://example.com/apps).\n2. [完成] Ask Bob for the key.\n3. [完成] Copy the app ID.',
+      '@Alice 給我的 3 個步驟都完成了。\n\n1. [完成] Open the console.\n2. [完成] Ask Bob for the key.\n3. [完成] Copy the app ID.',
     );
   });
 
@@ -127,6 +127,92 @@ describe('steps cards', () => {
     expect(() => orchestrator.tickStep(conv.id, reply.id, 0, true)).toThrow(expect.objectContaining({ status: 409 }));
     await expect(orchestrator.answerSteps(conv.id, reply.id, { done: [0] })).rejects.toMatchObject({ status: 409 });
     expect(stepsOf(reply)).not.toHaveProperty('answer');
+  });
+
+  describe('with other agents waiting too (parallel mode)', () => {
+    /** Each agent named gives the user steps on its first turn only; `asks` asks with [ASK_USER] until answered. */
+    function firstTurns(steps: string[], asks: string[] = []) {
+      const turns = new Map<string, number>();
+      fake.asking = new Set(asks);
+      fake.reply = (name) => {
+        const n = (turns.get(name) ?? 0) + 1;
+        turns.set(name, n);
+        return steps.includes(name) && n === 1 ? `${name}'s steps:\n<steps>\n1. Sign in\n2. Create a key\n</steps>` : undefined;
+      };
+    }
+    const replyOf = (conv: Conversation, name: string) => agentMessages(conv).find((m) => m.agentName === name)!;
+
+    it('answers the card’s own agent alone; the other question keeps waiting, then goes on with its own answer', async () => {
+      const conv = conversation({ mode: 'parallel', permission: 'read-only', rounds: 2 });
+      firstTurns(['Alice'], ['Bob']);
+      await orchestrator.send(conv.id, 'set it up');
+      await finish(conv.id);
+      expect(conv.pause).toMatchObject({ askers: ['a', 'b'], round: 1, rounds: 2 });
+
+      await orchestrator.answerSteps(conv.id, replyOf(conv, 'Alice').id, { done: [0, 1] });
+      await finish(conv.id);
+      // Alice alone went on, told she was answered; Bob was not asked again, and still waits.
+      expect(said(conv)).toEqual(['user', '@Alice', '@Bob', 'user', '@Alice']);
+      expect(told('Alice')).toEqual([false, true]);
+      expect(told('Bob')).toEqual([false]);
+      expect(conv.pause).toMatchObject({ askers: ['b'], round: 1, rounds: 2 });
+      expect(new Store(db).get(conv.id)!.pause).toMatchObject({ askers: ['b'] });
+      expect(store.list(() => false).find((c) => c.id === conv.id)!.asking).toBe(true);
+
+      // Bob's answer: he goes on first, with his own answer, then the next round (where he asks no more).
+      fake.asking = new Set();
+      await orchestrator.send(conv.id, 'ANSWER: B');
+      await finish(conv.id);
+      expect(said(conv).slice(5)).toEqual(['user', '@Bob', '@Alice', '@Bob']);
+      expect(told('Bob')).toEqual([false, true, false]);
+      expect(told('Alice')).toEqual([false, true, false]);
+      expect(conv.pause).toBeUndefined();
+    });
+
+    it('keeps the other card waiting and tickable; one that asks again after its answer waits beside it', async () => {
+      const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+      firstTurns(['Alice', 'Bob']);
+      await orchestrator.send(conv.id, 'set it up');
+      await finish(conv.id);
+      const alice = replyOf(conv, 'Alice');
+      const bob = replyOf(conv, 'Bob');
+      // Alice asks again once answered.
+      fake.reply = (name) => (name === 'Alice' ? 'One more:\n<steps>\n1. Copy the ID\n</steps>' : undefined);
+
+      await orchestrator.answerSteps(conv.id, alice.id, { done: [0] });
+      await finish(conv.id);
+      expect(said(conv)).toEqual(['user', '@Alice', '@Bob', 'user', '@Alice']);
+      expect(conv.pause).toMatchObject({ askers: ['b', 'a'] });
+      // Bob's card still waits for its own answer.
+      orchestrator.tickStep(conv.id, bob.id, 1, true);
+      expect(stepsOf(bob)).toMatchObject({ items: [{}, { done: true }] });
+      expect(() => orchestrator.tickStep(conv.id, alice.id, 1, true)).toThrow(expect.objectContaining({ status: 409 }));
+
+      fake.reply = undefined;
+      await orchestrator.answerSteps(conv.id, bob.id, { done: [0, 1] });
+      await finish(conv.id);
+      expect(said(conv).slice(5)).toEqual(['user', '@Bob']);
+      expect(told('Bob')).toEqual([false, true]);
+      expect(conv.pause).toMatchObject({ askers: ['a'] });
+      // The last one waiting: its answer goes on as any answer.
+      await orchestrator.answerSteps(conv.id, agentMessages(conv).at(-2)!.id, { done: [0] });
+      await finish(conv.id);
+      expect(said(conv).slice(7)).toEqual(['user', '@Alice']);
+      expect(conv.pause).toBeUndefined();
+    });
+
+    it('an answer in the message box still answers every agent that waits, and the card is no longer waited for', async () => {
+      const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+      firstTurns(['Alice'], ['Bob']);
+      await orchestrator.send(conv.id, 'set it up');
+      await finish(conv.id);
+      await orchestrator.send(conv.id, 'ANSWER: B, and I did the steps.');
+      await finish(conv.id);
+      expect(said(conv)).toEqual(['user', '@Alice', '@Bob', 'user', '@Alice', '@Bob']);
+      expect(told('Alice')).toEqual([false, true]);
+      expect(told('Bob')).toEqual([false, true]);
+      expect(() => orchestrator.tickStep(conv.id, replyOf(conv, 'Alice').id, 0, true)).toThrow(expect.objectContaining({ status: 409 }));
+    });
   });
 
   it('a branch from the steps reply waits for an answer of its own, with the ticks as they were', async () => {
