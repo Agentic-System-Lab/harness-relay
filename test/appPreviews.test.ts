@@ -1,6 +1,9 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer as createHttpServer } from 'node:http';
+import { connect, type Socket } from 'node:net';
+import { duplexPair, type Duplex } from 'node:stream';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { AppPreviews } from '../src/server/appPreviews';
 import { previewAddress, previewParent, type PreviewTarget } from '../src/server/previewTarget';
@@ -403,5 +406,221 @@ describe('publishing a running preview', () => {
     );
     expect(await npm.publishSource('chat', member.id, undefined)).toMatchObject({ folder: join(root, 'mono', 'web'), workspace: 'web' });
     await npm.close();
+  });
+});
+
+describe('WebSockets to the app', () => {
+  /** A server that hands its upgrades to the previews, as Relay's does, and a raw client for it. */
+  async function relayWith(service: AppPreviews, loopback = true) {
+    const server = createHttpServer();
+    server.on('upgrade', (request, socket, head) => {
+      void service.upgrade(request, socket, head, request.headers.host ?? '', loopback);
+    });
+    const port = await new Promise<number>((resolve) =>
+      server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)),
+    );
+    const open = (lines: string[]) =>
+      new Promise<{ socket: Socket; head: string }>((resolve) => {
+        const socket = connect(port, '127.0.0.1', () => socket.write(lines.join('\r\n') + '\r\n\r\n'));
+        let text = '';
+        const read = (chunk: Buffer) => {
+          text += chunk.toString('latin1');
+          const end = text.indexOf('\r\n\r\n');
+          if (end < 0) return;
+          socket.off('data', read);
+          resolve({ socket, head: text.slice(0, end) });
+        };
+        socket.on('data', read);
+        socket.on('end', () => resolve({ socket, head: text }));
+      });
+    return { server, open };
+  }
+
+  /** The app at the other end of a tunnel: it keeps the handshake it got, answers it, then echoes. */
+  function fakeApp(
+    answer = 'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: accepted\r\nSec-WebSocket-Protocol: streamlit\r\nSet-Cookie: session=app\r\nX-Powered-By: app\r\n\r\n',
+  ) {
+    const handshakes: string[] = [];
+    const ends: Duplex[] = [];
+    const tunnel = vi.fn(async () => {
+      const [relaySide, appSide] = duplexPair();
+      ends.push(relaySide);
+      let text = '';
+      const read = (chunk: Buffer) => {
+        text += chunk.toString('latin1');
+        const end = text.indexOf('\r\n\r\n');
+        if (end < 0) return;
+        appSide.off('data', read);
+        handshakes.push(text.slice(0, end));
+        appSide.write(answer);
+        appSide.pipe(appSide);
+      };
+      appSide.on('data', read);
+      return relaySide;
+    });
+    return { tunnel, handshakes, ends };
+  }
+
+  it('passes a page’s WebSocket to the app with the WebSocket’s headers only, and back with the app’s WebSocket headers only', async () => {
+    const app = fakeApp();
+    const service = new AppPreviews('relay', async () => ({
+      request: async () => new Response('ok'),
+      stop: async () => {},
+      tunnel: app.tunnel,
+    }));
+    const url = new URL((await service.start('chat', target, address(), parent, new AbortController().signal)).url);
+    const cookie = (await view(service, url, url.pathname)).headers.get('set-cookie')!.split(';')[0]!;
+    const { server, open } = await relayWith(service, false);
+    try {
+      const handshake = (extra: string[]) => [
+        'GET /_stcore/stream?x=1 HTTP/1.1',
+        `Host: ${url.host}`,
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-WebSocket-Version: 13',
+        'Sec-WebSocket-Protocol: streamlit, token',
+        ...extra,
+      ];
+      const { socket, head } = await open(
+        handshake([`Origin: ${url.origin}`, 'Sec-Fetch-Site: same-origin', `Cookie: ${cookie}; other=1`, 'Authorization: secret']),
+      );
+      expect(head.split('\r\n')).toEqual([
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        'Sec-WebSocket-Accept: accepted',
+        'Sec-WebSocket-Protocol: streamlit',
+      ]);
+      // What the app got: Relay's handshake, without the browser's cookie, origin or anything else.
+      expect(app.handshakes[0]!.split('\r\n')).toEqual([
+        'GET /_stcore/stream?x=1 HTTP/1.1',
+        'Host: preview.invalid',
+        'Connection: Upgrade',
+        'Upgrade: websocket',
+        'sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==',
+        'sec-websocket-version: 13',
+        'sec-websocket-protocol: streamlit, token',
+      ]);
+      // The frames pass through as they are, both ways.
+      const echoed = new Promise<Buffer>((resolve) => socket.once('data', resolve));
+      socket.write(Buffer.from([0x81, 0x84, 1, 2, 3, 4, 0x71, 0x6b, 0x6d, 0x63]));
+      expect(await echoed).toEqual(Buffer.from([0x81, 0x84, 1, 2, 3, 4, 0x71, 0x6b, 0x6d, 0x63]));
+      // Stopping the preview closes its WebSockets.
+      const closed = new Promise((resolve) => socket.once('close', resolve));
+      await service.stop('chat');
+      await closed;
+      expect(app.ends[0]!.destroyed).toBe(true);
+    } finally {
+      server.close();
+      await service.close();
+    }
+  });
+
+  it('refuses a WebSocket another site, another origin or a browser without the cookie opens, and says what the app answered', async () => {
+    const app = fakeApp('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
+    const service = new AppPreviews('relay', async () => ({
+      request: async () => new Response('ok'),
+      stop: async () => {},
+      tunnel: app.tunnel,
+    }));
+    const url = new URL((await service.start('chat', target, address(), parent, new AbortController().signal)).url);
+    const cookie = (await view(service, url, url.pathname)).headers.get('set-cookie')!.split(';')[0]!;
+    const { server, open } = await relayWith(service, false);
+    const status = async (lines: string[]) => (await open(lines)).head.split('\r\n')[0];
+    const base = [
+      'GET /ws HTTP/1.1',
+      `Host: ${url.host}`,
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      'Sec-WebSocket-Key: a2V5',
+      'Sec-WebSocket-Version: 13',
+    ];
+    try {
+      expect(await status([...base, `Origin: ${url.origin}`])).toBe('HTTP/1.1 403 Forbidden');
+      expect(await status([...base, 'Origin: http://elsewhere.example', `Cookie: ${cookie}`])).toBe('HTTP/1.1 403 Forbidden');
+      expect(await status([...base, `Origin: ${url.origin}`, `Cookie: ${cookie}`, 'Sec-Fetch-Site: cross-site'])).toBe(
+        'HTTP/1.1 403 Forbidden',
+      );
+      expect(await status([...base.slice(0, 2), 'Connection: Upgrade', 'Upgrade: h2c', `Origin: ${url.origin}`, `Cookie: ${cookie}`])).toBe(
+        'HTTP/1.1 400 Bad Request',
+      );
+      expect(
+        await status([
+          ...base.slice(0, 1).map(() => 'GET /ws HTTP/1.1'),
+          'Host: p-unknown.localhost:8787',
+          ...base.slice(2),
+          `Origin: ${url.origin}`,
+          `Cookie: ${cookie}`,
+        ]),
+      ).toBe('HTTP/1.1 404 Not Found');
+      expect(app.tunnel).not.toHaveBeenCalled();
+      // Let through, the app's own refusal comes back as its status alone.
+      expect(await status([...base, `Origin: ${url.origin}`, `Cookie: ${cookie}`])).toBe('HTTP/1.1 403 Forbidden');
+      expect(app.tunnel).toHaveBeenCalledOnce();
+    } finally {
+      server.close();
+      await service.close();
+    }
+  });
+
+  it('lets the browser that redeemed the ticket on this computer in without a cookie (WebKit), and refuses an app that has no WebSockets', async () => {
+    const app = fakeApp();
+    const service = new AppPreviews('relay', async () => ({
+      request: async () => new Response('ok'),
+      stop: async () => {},
+      tunnel: app.tunnel,
+    }));
+    const url = new URL((await service.start('chat', target, address(), parent, new AbortController().signal)).url);
+    const { server, open } = await relayWith(service, true);
+    const base = [
+      'GET /ws HTTP/1.1',
+      `Host: ${url.host}`,
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      'Sec-WebSocket-Key: a2V5',
+      'Sec-WebSocket-Version: 13',
+      `Origin: ${url.origin}`,
+    ];
+    try {
+      // Before the ticket is spent, nothing gets in without the cookie.
+      expect((await open(base)).head.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden');
+      await view(service, url, url.pathname);
+      const { socket, head } = await open(base);
+      expect(head.split('\r\n')[0]).toBe('HTTP/1.1 101 Switching Protocols');
+      socket.destroy();
+    } finally {
+      server.close();
+      await service.close();
+    }
+    const plain = new AppPreviews('relay', async () => ({ request: async () => new Response('ok'), stop: async () => {} }));
+    const other = new URL((await plain.start('chat', target, address(), parent, new AbortController().signal)).url);
+    const cookie = (await view(plain, other, other.pathname)).headers.get('set-cookie')!.split(';')[0]!;
+    const second = await relayWith(plain, false);
+    try {
+      const lines = [
+        'GET /ws HTTP/1.1',
+        `Host: ${other.host}`,
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Origin: ${other.origin}`,
+        `Cookie: ${cookie}`,
+      ];
+      expect((await second.open(lines)).head.split('\r\n')[0]).toBe('HTTP/1.1 501 Not Implemented');
+    } finally {
+      second.server.close();
+      await plain.close();
+    }
+  });
+
+  it('names its own WebSocket origin in the page’s content security policy', async () => {
+    const service = new AppPreviews('relay', async () => ({
+      request: async () => new Response('<p>page</p>', { headers: { 'content-type': 'text/html' } }),
+      stop: async () => {},
+    }));
+    const url = new URL((await service.start('chat', target, address(), parent, new AbortController().signal)).url);
+    const entry = await view(service, url, url.pathname);
+    expect(entry.headers.get('content-security-policy')).toContain(`connect-src 'self' ws://${url.host};`);
+    await service.close();
   });
 });

@@ -36,6 +36,7 @@ import {
   PREVIEW_NODE_IMAGE,
   ownerLabel,
   previewForwarder,
+  previewTunnel,
   sweepPreviewResources,
   type PreviewRuntime,
 } from './previewRuntime';
@@ -521,6 +522,7 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
   opts.signal.addEventListener('abort', () => void stop().catch(() => {}), { once: true });
 
   let forward: ((request: Request) => Promise<Response>) | undefined;
+  let connect: (() => Promise<Duplex>) | undefined;
   return {
     stop,
     async request(request) {
@@ -528,6 +530,11 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       if (!page || !forwarder) return new Response(null, { status: 503 });
       forward ??= previewForwarder((args, options) => docker!(['exec', '-i', forwarder, ...args], options), signal, port);
       return forward(request);
+    },
+    async tunnel() {
+      if (closed || !page || !forwarder) throw new HttpError(503, t().previewServiceFailed);
+      connect ??= previewTunnel((args, options) => docker!(['exec', '-i', forwarder, ...args], options), signal, port);
+      return connect();
     },
     terminal: {
       subscribe(listener) {

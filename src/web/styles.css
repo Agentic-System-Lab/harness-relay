@@ -10310,7 +10310,13 @@ a.share-action {
   white-space: pre-wrap;
 }
 
-.app-preview-status,
+/* The preview's state (building, starting, running…): centred in its row, between the summary
+   row's line and the page or terminal under it. */
+.app-preview-status {
+  margin: 0;
+  padding: 10px 18px;
+}
+
 .app-preview-error {
   margin: 6px 18px 12px;
 }

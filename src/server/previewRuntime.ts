@@ -1,5 +1,8 @@
 import { t } from './i18n';
+import { Duplex } from 'node:stream';
+import type { ChildProcess } from 'node:child_process';
 import { tail, type SpawnResult } from './process';
+import { HttpError } from './errors';
 import { randomUUID } from 'node:crypto';
 import { checked, localDocker, checkDockerEngine, type Docker, type DockerOptions } from './previewDocker';
 import { lockedPreviewPackages, fetchPreviewPackage, type LockedPreviewPackage } from './previewDockerPackages';
@@ -7,6 +10,7 @@ import {
   APP_PORT,
   EXPORT_DIST,
   FORWARD_HTTP,
+  TCP_PIPE,
   IMPORT_FILES,
   MAX_DIST,
   RESPONSE_LIMIT,
@@ -20,6 +24,8 @@ import { previewFileResponse } from './previewFiles';
 export interface PreviewRuntime {
   request(request: Request): Promise<Response>;
   stop(): Promise<void>;
+  /** A raw connection to the app's port, for a WebSocket (an app that serves one; not a static page). */
+  tunnel?(): Promise<Duplex>;
 }
 
 /** A start failed and Docker has not confirmed cleanup. The manager retains stop until removal succeeds. */
@@ -169,6 +175,69 @@ export function previewForwarder(
       active--;
     }
   };
+}
+
+/** WebSocket connections an app may hold open at once through `previewTunnel`. */
+export const PREVIEW_TUNNELS = 6;
+
+/**
+ * Raw TCP connections to an app's port (for WebSockets), each the fixed pipe program run with `exec`
+ * in a container that shares the app's network namespace, open until either side closes or the
+ * preview ends. Closing one ends the program's stdin, so it exits in the container too (stopping
+ * `docker exec` would leave it running there); it is stopped only if it has not after a moment.
+ */
+export function previewTunnel(
+  exec: (args: string[], options: DockerOptions) => Promise<SpawnResult>,
+  lifetime: AbortSignal,
+  port: number,
+): () => Promise<Duplex> {
+  let open = 0;
+  return () =>
+    new Promise<Duplex>((resolve, reject) => {
+      if (lifetime.aborted) return reject(new HttpError(404, t().previewTarget));
+      if (open >= PREVIEW_TUNNELS) return reject(new HttpError(429, t().previewBusy));
+      open++;
+      const stop = new AbortController();
+      let child: ChildProcess | undefined;
+      const tunnel = new Duplex({
+        read() {},
+        write(chunk: Buffer, _encoding, done) {
+          if (!child?.stdin || child.stdin.destroyed) return done(new Error('closed'));
+          child.stdin.write(chunk, done);
+        },
+        final(done) {
+          child?.stdin?.end();
+          done();
+        },
+        destroy(error, done) {
+          child?.stdin?.end();
+          setTimeout(() => stop.abort(), 2000).unref();
+          done(error);
+        },
+      });
+      void exec([...NODE, TCP_PIPE, String(port)], {
+        keepStdinOpen: true,
+        signal: AbortSignal.any([lifetime, stop.signal]),
+        timeoutMs: 2 * 60 * 60_000,
+        maxCapture: 1,
+        onSpawn(spawned) {
+          child = spawned;
+          spawned.stdout?.on('data', (chunk: Buffer) => tunnel.push(chunk));
+          resolve(tunnel);
+        },
+      }).then(
+        () => {
+          open--;
+          tunnel.push(null);
+          tunnel.destroy();
+        },
+        (error: unknown) => {
+          open--;
+          if (!child) reject(error);
+          tunnel.destroy();
+        },
+      );
+    });
 }
 
 async function seedCache(
@@ -382,12 +451,17 @@ export async function startPreviewRuntime(opts: {
     setup.throwIfAborted();
     signal.addEventListener('abort', onAbort, { once: true });
     const forward = previewForwarder(exec, lifetime.signal, APP_PORT);
+    const connect = previewTunnel(exec, lifetime.signal, APP_PORT);
     return {
       stop,
       async request(request) {
         if (closed || signal.aborted) return new Response(null, { status: 410 });
         if (serverFailure && ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(request.method)) throw serverFailure;
         return forward(request);
+      },
+      async tunnel() {
+        if (closed || signal.aborted || serverFailure) throw new HttpError(503, t().previewServiceFailed);
+        return connect();
       },
     };
   } catch (e) {

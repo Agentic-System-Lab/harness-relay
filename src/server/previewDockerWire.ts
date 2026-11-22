@@ -143,6 +143,20 @@ for (;;) {
 // The open stdin would keep it running: say the port is up now.
 process.exit(0);
 `;
+/**
+ * A raw TCP connection to the app's port inside its namespace, over the program's stdin and stdout:
+ * a WebSocket's handshake and frames pass through it (Relay writes the handshake itself). It ends
+ * when Relay closes its stdin, or the app the connection.
+ */
+export const TCP_PIPE = `
+import net from 'node:net';
+const socket = net.connect(Number(process.argv[1]) || ${APP_PORT}, '127.0.0.1');
+socket.on('error', error => { console.error(error.message); process.exit(1); });
+socket.on('close', () => process.exit(0));
+process.stdin.on('end', () => socket.end());
+process.stdin.pipe(socket);
+socket.pipe(process.stdout);
+`;
 export const REQUEST_LIMIT = 1024 * 1024;
 export const RESPONSE_LIMIT = 8 * 1024 * 1024;
 const RESPONSE_HEADERS = ['content-type', 'etag', 'location'] as const;

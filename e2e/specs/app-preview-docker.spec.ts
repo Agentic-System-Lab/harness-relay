@@ -126,6 +126,44 @@ test('a Dockerfile app in another language shows its build in the terminal, then
   await expect(panel.locator('iframe')).toHaveCount(0);
 });
 
+test('a WebSocket app talks to its page through the preview', async ({ page, relay }) => {
+  test.setTimeout(240_000);
+  const app = join(relay.workDir, 'socket');
+  mkdirSync(app);
+  writeFileSync(join(app, 'Dockerfile'), 'FROM node:22-alpine\nWORKDIR /app\nCOPY server.js .\nEXPOSE 8000\nCMD ["node", "server.js"]\n');
+  // A WebSocket server with no library: its page connects to /live, sends ping and shows the answer.
+  writeFileSync(
+    join(app, 'server.js'),
+    `const http = require('node:http');
+const crypto = require('node:crypto');
+const page = '<!doctype html><h1>Socket</h1><output>connecting</output><script>' +
+  'const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/live");' +
+  'ws.onopen = () => ws.send("ping");' +
+  'ws.onmessage = (e) => { document.querySelector("output").textContent = e.data; };' +
+  'ws.onerror = () => { document.querySelector("output").textContent = "error"; };</script>';
+const server = http.createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(page); });
+server.on('upgrade', (req, socket) => {
+  const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  socket.write('HTTP/1.1 101 Switching Protocols\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Accept: ' + accept + '\\r\\n\\r\\n');
+  socket.on('data', (buf) => {
+    const length = buf[1] & 0x7f;
+    const mask = buf.subarray(2, 6);
+    const text = Buffer.from(buf.subarray(6, 6 + length).map((b, i) => b ^ mask[i % 4])).toString();
+    const reply = Buffer.from('pong: ' + text + ' via ' + req.url + (req.headers.cookie ? ' with a cookie' : ''));
+    socket.write(Buffer.concat([Buffer.from([0x81, reply.length]), reply]));
+  });
+});
+server.listen(Number(process.env.PORT) || 8000);
+`,
+  );
+  await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+  await send(page, 'Try it.\n[Socket app](socket/Dockerfile)');
+  await (await finishedReply(page, 'Claude')).getByRole('button', { name: 'Preview app' }).click();
+  const frame = page.getByLabel('App preview', { exact: true }).frameLocator('iframe');
+  // Through the preview's own origin, without the browser's cookie reaching the app.
+  await expect(frame.locator('output')).toHaveText('pong: ping via /live', { timeout: 180_000 });
+});
+
 test('a terminal app takes typed input, runs again with another command, opens a shell and reports its exit', async ({ page, relay }) => {
   test.setTimeout(240_000);
   const tool = join(relay.workDir, 'greeter');

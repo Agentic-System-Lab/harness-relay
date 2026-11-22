@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { AppPreviews } from './appPreviews';
+import { AppPreviews, isPreviewHost } from './appPreviews';
 import { startContainerPreview } from './previewContainer';
 import { cleanupPreviewRuntimes, startPreviewRuntime } from './previewRuntime';
 import { serve } from '@hono/node-server';
@@ -432,6 +432,17 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   idle.start();
   alerts.start();
   inbox.start();
+});
+// A preview app's WebSockets (see `AppPreviews.upgrade`); no other route of this server upgrades.
+(server as import('node:http').Server).on('upgrade', (request, socket, head) => {
+  const where = (request.headers.host ?? '').toLowerCase();
+  if (!isPreviewHost(where, CONFIG.previewDomain)) return socket.destroy();
+  const peer = request.socket.remoteAddress;
+  // On this computer, unless something in between forwarded it (as the app's middleware decides).
+  const local =
+    (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') &&
+    !['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto'].some((name) => request.headers[name] !== undefined);
+  previews.upgrade(request, socket, head, where, local).catch(() => socket.destroy());
 });
 // Without a listener, a port already in use would end the process with a stack trace.
 server.on('error', (err: NodeJS.ErrnoException) => {

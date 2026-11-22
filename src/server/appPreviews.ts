@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { STATUS_CODES, type IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { join } from 'node:path';
@@ -17,6 +19,8 @@ interface Session {
   ticket: string;
   /** Single-use addresses that open its page in a tab of its own, each until its time (see `tab`). */
   tabTickets: Map<string, number>;
+  /** The app's WebSocket connections now open (see `upgrade`). */
+  tunnels: Set<Duplex>;
   cookie: string;
   cookieMessage: string;
   failedMessage: string;
@@ -54,14 +58,23 @@ const MAX_AGE = 2 * 60 * 60_000;
 const TAB_TICKET = 60_000;
 const TAB_TICKETS = 8;
 
-function headersFor(parent: string) {
+/** A preview hostname: `p-….localhost`, or one under the remote preview domain. */
+export function isPreviewHost(host: string, domain?: string): boolean {
+  const name = host.toLowerCase().split(':')[0]?.replace(/\.$/, '') ?? '';
+  return (name.startsWith('p-') && name.endsWith('.localhost')) || Boolean(domain && name.endsWith('.' + domain));
+}
+
+function headersFor(parent: string, address?: URL) {
   return new Headers({
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'permissions-policy': 'camera=(), microphone=(), geolocation=(), display-capture=(), usb=(), payment=()',
     'content-security-policy':
-      "sandbox allow-scripts allow-forms allow-same-origin; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self'; worker-src 'none'; frame-ancestors " +
+      "sandbox allow-scripts allow-forms allow-same-origin; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'" +
+      // Its own WebSocket origin, spelled out for the browsers whose 'self' leaves ws: out.
+      (address ? ' ' + (address.protocol === 'https:' ? 'wss://' : 'ws://') + address.host : '') +
+      "; form-action 'self'; base-uri 'self'; worker-src 'none'; frame-ancestors " +
       parent,
   });
 }
@@ -77,7 +90,7 @@ function bridge(parent: string): string {
 }
 
 function errorPage(session: Session, status = 403, message = session.cookieMessage): Response {
-  const headers = headersFor(session.parent);
+  const headers = headersFor(session.parent, session.address);
   headers.set('content-type', 'text/html; charset=utf-8');
   return new Response(
     '<!doctype html><meta charset="utf-8"><p>' +
@@ -134,6 +147,7 @@ export class AppPreviews {
       browser,
       ticket: randomBytes(32).toString('hex'),
       tabTickets: new Map(),
+      tunnels: new Set(),
       cookie: randomBytes(32).toString('hex'),
       cookieMessage: t().previewCookie,
       failedMessage: t().previewServiceFailed,
@@ -214,6 +228,8 @@ export class AppPreviews {
       found.map(([key, s]) => {
         if (!s.closing) {
           s.controller.abort();
+          for (const tunnel of s.tunnels) tunnel.destroy();
+          s.tunnels.clear();
           s.unsubscribe?.();
           s.closing = s.pending
             .catch(() => {})
@@ -290,6 +306,103 @@ export class AppPreviews {
     };
   }
 
+  /**
+   * A WebSocket to the app (Streamlit's stream, Socket.IO, a dev server's reload), on the same terms
+   * as its other requests: the browser holding the preview's cookie (or, on this computer, the one
+   * that redeemed its ticket), from a page of the preview itself, whose origin browsers always send
+   * with a WebSocket. Relay writes the app's handshake itself, with the WebSocket's own headers only
+   * (no cookie, no origin), and gives back the app's answer with only its WebSocket headers; the
+   * frames then pass through as they are until either side closes or the preview ends.
+   */
+  async upgrade(request: IncomingMessage, socket: Duplex, head: Buffer, host: string, loopbackPeer = false): Promise<void> {
+    socket.on('error', () => {});
+    const refuse = (status: number) => {
+      if (!socket.destroyed)
+        socket.end(`HTTP/1.1 ${status} ${STATUS_CODES[status] ?? ''}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    };
+    const s = [...this.sessions.values()].find((session) => session.address.host === host);
+    if (!s || !s.service || s.controller.signal.aborted || s.closing || s.live?.() === false || Math.min(s.idle, s.expires) <= this.now())
+      return refuse(404);
+    const header = (name: string) => {
+      const value = request.headers[name];
+      return typeof value === 'string' ? value : undefined;
+    };
+    const path = request.url ?? '';
+    if (
+      request.method !== 'GET' ||
+      header('upgrade')?.toLowerCase() !== 'websocket' ||
+      !path.startsWith('/') ||
+      path.length > 8192 ||
+      /\s/.test(path)
+    )
+      return refuse(400);
+    const site = header('sec-fetch-site');
+    if (header('origin') !== s.address.origin || (site && site !== 'same-origin')) return refuse(403);
+    const cookie = header('cookie')
+      ?.split(/;\s*/)
+      .includes(COOKIE + '=' + s.cookie);
+    // WebKit keeps no Secure cookie on plain-http `*.localhost`: there, after the ticket, the origin answers for it.
+    const local = loopbackPeer && !s.ticket && s.address.hostname.endsWith('.localhost');
+    if (!cookie && !local) return refuse(403);
+    if (!s.service.tunnel) return refuse(501);
+    let upstream: Duplex;
+    try {
+      upstream = await s.service.tunnel();
+    } catch (error) {
+      return refuse(error instanceof HttpError ? error.status : 502);
+    }
+    if (socket.destroyed || s.controller.signal.aborted) {
+      upstream.destroy();
+      return;
+    }
+    s.tunnels.add(upstream);
+    const alive = () => {
+      s.idle = this.now() + IDLE;
+    };
+    alive();
+    const close = () => {
+      s.tunnels.delete(upstream);
+      upstream.destroy();
+      socket.destroy();
+    };
+    upstream.on('error', close);
+    upstream.on('close', close);
+    socket.on('close', close);
+    const lines = [`GET ${path} HTTP/1.1`, 'Host: preview.invalid', 'Connection: Upgrade', 'Upgrade: websocket'];
+    for (const name of ['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions']) {
+      const value = header(name);
+      if (value !== undefined && value.length <= 4096 && !/[\r\n]/.test(value)) lines.push(`${name}: ${value}`);
+    }
+    upstream.write(lines.join('\r\n') + '\r\n\r\n');
+    if (head.length) upstream.write(head);
+    // The app's answer: its status line, and its WebSocket headers only; then the frames as they come.
+    let pending = Buffer.alloc(0);
+    const answer = (chunk: Buffer) => {
+      pending = Buffer.concat([pending, chunk]);
+      const end = pending.indexOf('\r\n\r\n');
+      if (end < 0) {
+        if (pending.length > 16384) close();
+        return;
+      }
+      upstream.off('data', answer);
+      const [status = '', ...fields] = pending.subarray(0, end).toString('latin1').split('\r\n');
+      if (!/^HTTP\/1\.1 101 /.test(status)) {
+        const code = /^HTTP\/1\.[01] ([1-5]\d\d) /.exec(status)?.[1] ?? '502';
+        refuse(Number(code));
+        return close();
+      }
+      const kept = fields.filter((field) => /^(?:upgrade|connection|sec-websocket-(?:accept|protocol|extensions)):/i.test(field));
+      socket.write([status, ...kept].join('\r\n') + '\r\n\r\n');
+      const rest = pending.subarray(end + 4);
+      if (rest.length) socket.write(rest);
+      upstream.on('data', alive);
+      socket.on('data', alive);
+      upstream.pipe(socket);
+      socket.pipe(upstream);
+    };
+    upstream.on('data', answer);
+  }
+
   private expire() {
     for (const [id, s] of this.sessions)
       if (s.controller.signal.aborted || Math.min(s.idle, s.expires) <= this.now() || s.live?.() === false)
@@ -323,7 +436,7 @@ export class AppPreviews {
       if (request.method !== 'GET' || (!frame && !tab)) return new Response(null, { status: 403 });
       if (frame) s.ticket = '';
       else s.tabTickets.delete(token);
-      const headers = headersFor(s.parent);
+      const headers = headersFor(s.parent, s.address);
       headers.set('set-cookie', COOKIE + '=' + s.cookie + '; Path=/; HttpOnly; Secure; SameSite=None; Partitioned');
       headers.set('content-type', 'text/html; charset=utf-8');
       return new Response('<!doctype html><meta charset="utf-8"><script>location.replace("/")</script>', { headers });
@@ -374,7 +487,7 @@ export class AppPreviews {
         init.duplex = 'half';
       }
       const res = await s.service.request(new Request(upstream, init));
-      const safe = headersFor(s.parent);
+      const safe = headersFor(s.parent, s.address);
       for (const name of ['content-type', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
         const value = res.headers.get(name);
         if (value) safe.set(name, value);
@@ -400,7 +513,7 @@ export class AppPreviews {
     } catch {
       return request.headers.get('accept')?.includes('text/html')
         ? errorPage(s, 502, s.failedMessage)
-        : new Response(null, { status: 502, headers: headersFor(s.parent) });
+        : new Response(null, { status: 502, headers: headersFor(s.parent, s.address) });
     } finally {
       s.requests--;
     }

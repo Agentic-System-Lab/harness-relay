@@ -10,7 +10,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
-import { AppPreviews } from './appPreviews';
+import { AppPreviews, isPreviewHost } from './appPreviews';
 import { changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import { AppPublisher } from './publish';
 import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
@@ -387,8 +387,7 @@ export function createApp({
   // Preview hostnames serve only the selected app, even when its paths start with /api.
   app.use('*', async (c, next) => {
     const host = (c.req.header('host') ?? '').toLowerCase();
-    const name = host.split(':')[0]?.replace(/\.$/, '') ?? '';
-    if ((name.startsWith('p-') && name.endsWith('.localhost')) || (CONFIG.previewDomain && name.endsWith('.' + CONFIG.previewDomain))) {
+    if (isPreviewHost(host, CONFIG.previewDomain)) {
       const peer = (c.env as Partial<HttpBindings> | undefined)?.incoming?.socket.remoteAddress;
       const local =
         (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') &&

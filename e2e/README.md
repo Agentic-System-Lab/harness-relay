@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 605 tests in 48 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 606 tests in 48 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -51,7 +51,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 18 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
+| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 19 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
 | [Publishing an app](#publishing-an-app) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [User guide → Publishing an app](../docs/user-guide.md#publishing-an-app), [Architecture → Publishing an app](../docs/architecture.md#publishing-an-app) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
@@ -315,6 +315,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | A failed container build, simulated | Claude Code | A compose file from Files: a failed build says so, offers no Run again, and the terminal's last lines, without their colours, go into the report with the existing draft. |
 | A preview gone while its terminal reconnects, simulated | Claude Code | The stream ends and the reconnection finds no preview: the panel stops offering Run again and says nothing more about reconnecting. |
 | A folder with nothing to run | Claude Code | A Go folder without a Dockerfile: the panel names the Dockerfile and **Ask the agent for a Dockerfile** puts a draft for the team in the composer. |
+| A WebSocket app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: a Node WebSocket server with no library, whose page connects to `/live` through the preview's own origin, sends ping and shows the server's answer, without the browser's cookie reaching the app. |
 | A Python Dockerfile app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the panel opens on its terminal, then the page, which has no network and is served on the image's `EXPOSE`d port; the terminal holds the server's output. |
 | A terminal app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`, from Files: the prompt appears, typed input is answered, the exit code shows; an edited command runs it again with arguments, a failing exit goes into the report, and **Open a shell** gives a shell with `PORT` set. |
 | A compose app with Redis through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the web service built from the project reaches Redis by its service name once it is healthy, reads a project file mounted into it, takes a variable's default, and has no network outside and no gateway to the computer. After Stop, nothing with its labels is left: containers, networks, images, and Redis's anonymous volume. |
@@ -862,7 +863,7 @@ The app preview panel is shared by all CLIs. The Files and draft scenarios use C
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), "Without gh" is skipped on Windows, and the viewer's download test is skipped in WebKit, which under Playwright downloads nothing a link opens (also on a page without a frame, sent as an attachment).
 - The four tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 
-The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel tests: an npm build and backend, a `Dockerfile` app, a terminal app and a compose app.
+The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel tests: an npm build and backend, a `Dockerfile` app, a WebSocket app, a terminal app and a compose app.
 
 ## What they do not cover
 

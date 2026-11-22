@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:net';
 import { afterEach, expect, it } from 'vitest';
-import { WAIT_PORT } from '../src/server/previewDockerWire';
+import { TCP_PIPE, WAIT_PORT } from '../src/server/previewDockerWire';
 import { slow } from './timeouts';
 
 // The port check runs in the forwarder as `node --input-type=module -e WAIT_PORT <port> <seconds>`,
@@ -63,4 +63,32 @@ it('ends with 4 when Relay stops waiting and closes its stdin', async () => {
   const { code, ms } = await waitPort(await freePort(), 30, true);
   expect(code).toBe(4);
   expect(ms).toBeLessThan(slow(5000));
+});
+
+it('pipes a raw connection to the app’s port through its stdin and stdout, and ends with its stdin', async () => {
+  // An echo server stands in for the app's WebSocket.
+  const server = createServer((socket) => socket.pipe(socket));
+  servers.push(server);
+  const port = await new Promise<number>((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)),
+  );
+  const child = spawn(process.execPath, ['--input-type=module', '-e', TCP_PIPE, String(port)], { stdio: ['pipe', 'pipe', 'ignore'] });
+  const echoed = new Promise<string>((resolve) => {
+    let text = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      text += chunk.toString('latin1');
+      if (text.length >= 6) resolve(text);
+    });
+  });
+  child.stdin.write(Buffer.from([0x81, 0x04, 0x70, 0x69, 0x6e, 0x67]));
+  expect(Buffer.from(await echoed, 'latin1')).toEqual(Buffer.from([0x81, 0x04, 0x70, 0x69, 0x6e, 0x67]));
+  const exited = new Promise<number | null>((resolve) => child.on('exit', resolve));
+  child.stdin.end();
+  expect(await exited).toBe(0);
+});
+
+it('ends with 1 when nothing listens on the app’s port', async () => {
+  const port = await freePort();
+  const child = spawn(process.execPath, ['--input-type=module', '-e', TCP_PIPE, String(port)], { stdio: ['pipe', 'ignore', 'ignore'] });
+  expect(await new Promise<number | null>((resolve) => child.on('exit', resolve))).toBe(1);
 });
