@@ -24,6 +24,7 @@ import {
   runCodeTool,
   runCodeDescription,
   runCodeUnavailable,
+  endpointQuestion,
   rlmPromptBudget,
   rlmQuestionLimits,
   runnerArgs,
@@ -1131,5 +1132,41 @@ describe("a reply's tokens with RLM's sub-model's", () => {
     expect(withSubModelTokens({ inputTokens: 100, outputTokens: 10 }, sub)).toEqual({ inputTokens: 105, outputTokens: 11 });
     expect(withSubModelTokens({ inputTokens: 100 }, sub)).toEqual({ inputTokens: 105, outputTokens: undefined });
     expect(withSubModelTokens({}, sub)).toEqual({ inputTokens: undefined, outputTokens: undefined });
+  });
+
+  it("adds a sub-model's cost through a CLI to the CLI's own cost, where it reports one", () => {
+    const sub = { inputTokens: 5, outputTokens: 1, costUsd: 0.25 };
+    expect(withSubModelTokens({ inputTokens: 100, outputTokens: 10, costUsd: 1 }, sub)).toEqual({
+      inputTokens: 105,
+      outputTokens: 11,
+      costUsd: 1.25,
+    });
+    expect(withSubModelTokens({ inputTokens: 100, outputTokens: 10 }, sub).costUsd).toBeUndefined();
+    // A model connection's questions have no cost: the reply's stays the CLI's.
+    expect('costUsd' in withSubModelTokens({ costUsd: 1 }, { inputTokens: 5, outputTokens: 1 })).toBe(false);
+  });
+});
+
+describe("RLM's sub-model through a CLI", () => {
+  it('tells the agent each question starts the CLI and max_tokens is only asked for', () => {
+    const d = runCodeDescription('cli:claude/haiku');
+    expect(d).toContain('asks a sub-model (cli:claude/haiku) one question, with no tools');
+    expect(d).toContain('through Claude Code');
+    expect(runCodeDescription('homelab/tiny')).not.toContain('starts that CLI');
+  });
+
+  it(`answers ${RLM_LIMITS.cliConcurrent} questions at once through one CLI, over every run`, async () => {
+    const signal = new AbortController().signal;
+    const held = await Promise.all(Array.from({ length: RLM_LIMITS.cliConcurrent }, () => endpointQuestion('cli:copilot/x', signal)));
+    let next = false;
+    const waiting = endpointQuestion('cli:copilot:work', signal).then((r) => ((next = true), r));
+    // Another CLI is not held up by it, nor is an API backend.
+    expect(await endpointQuestion('cli:claude', signal)).toBeTypeOf('function');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(next).toBe(false);
+    held[0]!();
+    const release = await waiting;
+    expect(next).toBe(true);
+    for (const r of [...held.slice(1), release]) r!();
   });
 });

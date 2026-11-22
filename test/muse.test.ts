@@ -61,6 +61,8 @@ import {
   musePromptText,
   museRunSettings,
   museReminderSwitches,
+  museToolless,
+  MUSE_REMINDERS,
   museRunner,
   museRunsDir,
   museTrust,
@@ -2312,4 +2314,48 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
       run.done();
     },
   );
+});
+
+describe("RLM's sub-model through Muse Code (a toolless run)", () => {
+  it('starts Muse with its empty preset and no session log, and its system prompt alone', () => {
+    const args = museArgs({ permission: 'read-only', systemPrompt: 'Answer.', model: 'muse-spark-1.3', toolless: true }, 'linux');
+    expect(args.slice(0, 4)).toEqual(['acp', '--preset', 'empty', '--no-session-log']);
+    expect(args).toContain(`run.developer_prompt=${JSON.stringify('Answer.')}`);
+    // Another run gives Harness Relay's briefing, with its notes, and keeps its session.
+    const member = museArgs({ permission: 'read-only', systemPrompt: 'Answer.' }, 'linux');
+    expect(member).not.toContain('--preset');
+    expect(member.join(' ')).toContain('harness-relay-briefing');
+    // Where the system prompt does not fit the command line, it goes on top of the prompt, alone too.
+    const long = 'x'.repeat(40_000);
+    expect(musePromptText('q', long, 'win32', true)).toBe(`${long}\n\nq`);
+  });
+
+  it("turns every reminder of Muse's own off, over what the account says", () => {
+    const own = { runtime_capabilities: { [MUSE_REMINDERS[0]!]: { enabled: true }, 'plugin:x:reminder:mine': { enabled: true } } };
+    const caps = museRunSettings(own, 'read-only', [], ['mcp', 'hooks'], {}, true).runtime_capabilities as Record<
+      string,
+      { enabled: boolean }
+    >;
+    for (const id of MUSE_REMINDERS) expect(caps[id]).toEqual({ enabled: false });
+    expect(caps['plugin:x:reminder:mine']).toEqual({ enabled: true });
+    // Another run keeps the account's switches only.
+    expect(museRunSettings(own, 'read-only', []).runtime_capabilities).toEqual(own.runtime_capabilities);
+  });
+
+  it("leaves out its MCP servers and hooks, and all of Harness Relay's", () => {
+    const o = museToolless({
+      bin: 'muse',
+      env: {},
+      prompt: 'q',
+      systemPrompt: 's',
+      cwd: '/tmp/x',
+      permission: 'read-only',
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+      toolless: true,
+      mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+      sessionId: 'old',
+    });
+    expect(o).toMatchObject({ mcpServers: [], nativeOff: ['mcp', 'hooks'], sessionId: undefined });
+  });
 });

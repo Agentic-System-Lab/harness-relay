@@ -819,7 +819,7 @@ test('missing GitHub CLI and browser install in their rows and refresh after com
   }
 });
 
-test('Labs: off by default, one mode at a time, reading in parts only with a model on a connection, kept after a reload', async ({
+test('Labs: off by default, one mode at a time, reading in parts with a model on a connection or through a CLI account, kept after a reload', async ({
   page,
   relay,
 }) => {
@@ -833,7 +833,7 @@ test('Labs: off by default, one mode at a time, reading in parts only with a mod
   await expect(save).toBeDisabled();
   // Each mode says what it costs.
   await expect(code).toHaveAccessibleDescription(/no network, and it cannot change any file/);
-  await expect(rlm).toHaveAccessibleDescription(/billed on that model's key/);
+  await expect(rlm).toHaveAccessibleDescription(/billed on the model connection's key or the CLI account's plan/);
 
   // Reading in parts needs a model on a connection of Model connections: none is set up here.
   await rlm.check();
@@ -844,6 +844,22 @@ test('Labs: off by default, one mode at a time, reading in parts only with a mod
   await model.fill('anthropic/claude-haiku-5-5');
   await expect(card.getByText('That backend is not in Model connections')).toBeVisible();
   await expect(save).toBeDisabled();
+
+  // Or through a CLI account, on its plan: any model, or the account's default.
+  const source = card.getByLabel('Ask through');
+  await expect(source.locator('option').first()).toHaveText(/A model connection/);
+  await expect(source.locator('option', { hasText: /^Claude Code/ })).toHaveCount(1);
+  // Only the CLIs whose runs can have no tool at all: never Codex, whatever is installed.
+  await expect(source).not.toContainText('Codex');
+  await source.selectOption('cli:claude:');
+  await expect(model).toHaveValue('');
+  await expect(model).toHaveAttribute('placeholder', "Empty: this account's default model");
+  await expect(card.getByText(/Each question starts Claude Code with all its tools/)).toBeVisible();
+  await save.click();
+  await expect(card.getByText("Saved. It applies from the assistant's next turn.")).toBeVisible();
+  await page.reload();
+  await expect(rlm).toBeChecked();
+  await expect(source).toHaveValue('cli:claude:');
 
   await code.check();
   await expect(model).toBeHidden();

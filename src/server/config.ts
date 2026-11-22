@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, parseBackendModel, type MailServer, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, parseBackendModel, parseCliSubModel, SUB_MODEL_CLIS, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -176,14 +176,15 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return false;
   };
 
-  // RLM mode: off, or the sub-model as `<backend>/<model>`. Whether that connection is set up is found
-  // out when the code asks it (Settings can change it meanwhile).
+  // RLM mode: off, or the sub-model as `<backend>/<model>`, or through a CLI as
+  // `cli:<provider>[:<account>][/<model>]`. Whether that connection or account is set up is found out
+  // when the code asks it (Settings can change it meanwhile).
   const rlm = (): string | undefined => {
     const raw = env.RELAY_RLM?.trim();
     if (!raw || raw.toLowerCase() === 'off') return undefined;
-    if (parseBackendModel(raw)) return raw;
+    if (parseBackendModel(raw) || parseCliSubModel(raw)) return raw;
     problems.push(
-      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5, or through ${SUB_MODEL_CLIS.join(', ')} as cli:<provider>[:<account>][/<model>], such as cli:claude/haiku.`,
     );
     return undefined;
   };
