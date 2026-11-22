@@ -5,7 +5,7 @@
   "license": "SUL-1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
+    "dev": "node --import tsx scripts/dev.ts",
     "build": "vite build",
     "start": "tsx src/server/index.ts",
     "login": "tsx scripts/login.ts",

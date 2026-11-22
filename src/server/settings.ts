@@ -38,6 +38,7 @@ import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backend
 import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
 import { t } from './i18n';
+import { devRunVars } from './ports';
 import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
 import { SlackPosting } from './connectors/slack';
@@ -954,7 +955,8 @@ export class SettingsStore {
   }
 
   /**
-   * Environment for a spawned CLI: the server's env, minus nesting markers, plus stored API keys.
+   * Environment for a spawned CLI: the server's env, minus nesting markers and the ports `npm run dev`
+   * set for itself (`devRunVars()`), plus stored API keys.
    * With an agent home set, the CLI's home variable points into it, replacing any the server was
    * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
    *
@@ -969,6 +971,7 @@ export class SettingsStore {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (process.platform === 'win32') addWindowsGitToPath(env);
     for (const k of NESTED_AGENT_VARS) delete env[k];
+    for (const k of devRunVars()) delete env[k];
     if (isOpenProvider(p)) {
       // Only the backends set up in Settings: not a key or an address the server inherited.
       for (const k of INHERITED_BACKEND_VARS) delete env[k];
