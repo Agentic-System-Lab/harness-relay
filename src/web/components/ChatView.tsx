@@ -705,12 +705,17 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   // Approval requests still waiting for an answer (only while the agent's turn is running), but those
-  // the lead agent still reviews ("Approve for me"): they wait for nobody yet.
+  // the lead agent still reviews ("Approve for me"): they wait for nobody yet. And the browser handed to
+  // the user (`browser_hand_over`), waiting for them to take it over.
   const pending = conv.messages.flatMap((m) =>
     m.status === 'streaming'
-      ? m.parts
-          .filter((p) => p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing')
-          .map((p) => ({ id: (p as { id: string }).id, agent: m.agentName ?? 'agent' }))
+      ? m.parts.flatMap((p) =>
+          p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing'
+            ? [{ anchor: `approval-${p.id}`, agent: m.agentName ?? 'agent' }]
+            : p.type === 'handover' && p.status === 'pending'
+              ? [{ anchor: `handover-${p.id}`, agent: m.agentName ?? 'agent' }]
+              : [],
+        )
       : [],
   );
   const hasUserMessage = conv.messages.some((m) => m.author.kind === 'user');
@@ -1054,7 +1059,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             onClick={() => {
               // Stop following first: another agent's output would pull the list back down mid-scroll.
               stopFollowing();
-              document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              document.getElementById(pending[0]!.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
           >
             ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}

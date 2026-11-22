@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 49 個 spec 檔、615 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 50 個 spec 檔、618 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -61,6 +61,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
+| [接手瀏覽器](#接手瀏覽器) | [`handover.spec.ts`](specs/handover.spec.ts) | 3 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[架構 → Harness Relay 自己的工具](../docs/architecture.zh-TW.md#工具庫) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
@@ -456,6 +457,18 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 [Google 文件與 Slack 的確認案例](#app-設定與確認)也會在確認寫入後關閉工具，再讓助理嘗試一次，並核對文件內容或已送出的訊息筆數仍維持原值。
 
+## 接手瀏覽器
+
+[`handover.spec.ts`](specs/handover.spec.ts) 讓 Claude Code 的假 CLI 用 `browser_hand_over`（`e2e:mcp`）把對話的瀏覽器（系統的 Chromium，否則是 Playwright 的）交給使用者，網頁是測試自己的登入頁：上半部是一個欄位、下半部是一個按鈕，它會記下送出的內容。在完全存取中執行，所以不會詢問主機。
+
+| 情境 | 檢查的內容 |
+| --- | --- |
+| 用滑鼠與按鍵透過畫面串流登入，附上給助理的話交回 | 卡片（agent 的原因、網頁、使用者登入的帳號會留在對話的瀏覽器中）、側邊欄的**需要你**；**在這裡顯示** 開啟面板，網址就是那個網頁；在畫面上點一下讓欄位取得焦點，在打字框打的按鍵和輸入法的文字會送到欄位，點按鈕送出（網頁的伺服器收到 `someone注音`），網址也跟著變；**先隱藏**、在卡片上寫給助理的話、**完成，交回給助理**；回覆只說使用者交回了，附上那句話，絕不包含打的字；卡片顯示**已交回（在聊天中）**。 |
+| 婉拒 | 附上一句話按**不用了**：agent 會聽到，卡片顯示**已婉拒**，沒有送出任何東西。 |
+| 在手機上，中文介面 | 390 像素寬、繁體中文的觸控螢幕：面板佔滿螢幕，在畫面上點一下就是點擊，在打字框打的字會送到網頁，**完成，交回給助理** 交回。 |
+
+這裡不會在執行 Harness Relay 的電腦上開視窗（它會開在開發者的螢幕上）：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流則在 `test/browser.test.ts`。
+
 ## 用 OAuth 登入的帳號
 
 [`oauth.spec.ts`](specs/oauth.spec.ts)：在**設定 → App 與工具 → 常用 App** 選**郵件 → Outlook** 或**行事曆 → Outlook**，對這台電腦上 Microsoft 登入頁面與 Graph 的替身，以及只接受替身給的 Exchange Online 權杖、以 XOAUTH2 登入的 Exchange Online IMAP 與 SMTP 替身測試，測試的伺服器指向它們（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`、`RELAY_MICROSOFT_IMAP`、`RELAY_MICROSOFT_SMTP`）。
@@ -810,6 +823,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
 | 工具庫 HTTP MCP 伺服器自己的登入（登入頁面在另一台主機時先經過確認）：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
 | 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正、無法預覽的應用程式自動交回，指令（完整權限，和在 Harness Relay 自己的沙箱裡），以及平行模式的結果在仍要套用前不套用 | ✓ | — | — | — | — | — | — |
+| 接手瀏覽器（`browser_hand_over`）：用滑鼠、按鍵與觸控操作畫面串流，以及婉拒 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
@@ -887,6 +901,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
+- **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會在執行 Harness Relay 的電腦上開視窗（它會開在開發者的螢幕上）：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。

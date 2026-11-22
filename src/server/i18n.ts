@@ -748,6 +748,8 @@ const zhTW = {
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
+  handoverNotFound: '這次交接已經結束或已失效',
+  handoverNotNow: '這次交接現在不能這樣做（可能已經有人回覆，或還沒開始）',
   approvalDeclined: '使用者拒絕了這個操作。',
   retryAgentGone: (name: string) => `@${name} 已不在團隊中，無法重試這則回覆`,
 
@@ -1048,6 +1050,7 @@ const zhTW = {
     mailSent: (id: string, host: string, answer: string) => `${host} 已收下 ${id}${answer ? `（${answer}）` : ''}`,
     inviteSent: (calendar: string) => `已加到「${calendar}」，邀請由行事曆寄出`,
     click: (what: string) => `在開啟的網頁上點擊${what}`,
+    handOver: (reason: string) => `把瀏覽器交給你：${reason}`,
     refLink: (label: string, href: string) => `連結「${label}」（${href}）`,
     refButton: (label: string) => `按鈕「${label}」`,
     refField: (name: string, label: string) => `欄位${name ? ` ${name}` : ''}${label ? `「${label}」` : ''}`,
@@ -2032,6 +2035,8 @@ const en: ServerMessages = {
   cliModelSwitched: (cli, from, to) => (from ? `${cli} switched models from ${from} to ${to}.` : `${cli} switched to the model ${to}.`),
 
   approvalNotFound: 'This request was already answered or has expired',
+  handoverNotFound: 'This hand-over is over or has expired',
+  handoverNotNow: 'This hand-over cannot do that now (someone may have answered it already, or it has not started)',
   approvalDeclined: 'The user declined this action.',
   retryAgentGone: (name) => `@${name} is no longer on the team, so this reply cannot be retried`,
 
@@ -2351,6 +2356,7 @@ const en: ServerMessages = {
     mailSent: (id, host, answer) => `${id} accepted by ${host}${answer ? ` (${answer})` : ''}`,
     inviteSent: (calendar) => `Added to ${calendar}; the calendar sends the invitations`,
     click: (what) => `Click ${what} on the open page`,
+    handOver: (reason) => `Hand the browser to you: ${reason}`,
     refLink: (label, href) => `link "${label}" (${href})`,
     refButton: (label) => `button "${label}"`,
     refField: (name, label) => `field${name ? ` ${name}` : ''}${label ? ` "${label}"` : ''}`,

@@ -171,10 +171,18 @@ export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kin
       const pending = m.parts.find(
         (p) =>
           (p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing') ||
-          (p.type === 'outbox' && p.status === 'pending'),
+          (p.type === 'outbox' && p.status === 'pending') ||
+          (p.type === 'handover' && p.status === 'pending'),
       );
       if (!pending) continue;
-      const what = pending.type === 'approval' ? pending.detail || pending.tool : pending.type === 'outbox' ? pending.title : '';
+      const what =
+        pending.type === 'approval'
+          ? pending.detail || pending.tool
+          : pending.type === 'outbox'
+            ? pending.title
+            : pending.type === 'handover'
+              ? pending.reason
+              : '';
       return { ...(agent ? { agent } : {}), ...(what ? { text: snippet(what) } : {}) };
     }
     if (kind === 'blocked') {

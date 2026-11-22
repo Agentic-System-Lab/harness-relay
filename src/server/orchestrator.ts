@@ -25,6 +25,7 @@ import type {
   MessageChanges,
   MessagePart,
   MemoryPartNote,
+  HandoverPart,
   OutboxItem,
   ProgressStatus,
   Provider,
@@ -790,6 +791,8 @@ export class Orchestrator {
     string,
     { convId: string; reviewing?: boolean; resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => void }
   >();
+  /** Hand-overs of the chat's browser waiting for the user or in their hands (`browser_hand_over`), by card id: their conversation. */
+  private handovers = new Map<string, string>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
   /** Long-term memory: the notes agents keep across conversations, and the lead agent's tidying of them. */
@@ -1027,6 +1030,8 @@ export class Orchestrator {
   /** An agent in this conversation is waiting for the user to approve something. */
   isWaiting(id: string): boolean {
     for (const a of this.approvals.values()) if (a.convId === id && !a.reviewing) return true;
+    // An agent handed the browser to the user (a sign-in), and waits for it back.
+    for (const c of this.handovers.values()) if (c === id) return true;
     // Something an agent asked to send waits in the outbox for the user.
     return (this.outbox?.waiting(id) ?? 0) > 0;
   }
@@ -5138,6 +5143,36 @@ export class Orchestrator {
       return item;
     };
 
+    // A hand-over of the chat's browser (`browser_hand_over`): its card in the reply, which the browser keeps
+    // up to date; the conversation waits for the user while it is pending or in their hands. Only where
+    // someone may be asked, as approvals are: never in a run nobody watches.
+    const turnHandovers = new Map<string, HandoverPart>();
+    const handoverCard =
+      requestApproval && !run.refuseApprovals
+        ? (part: HandoverPart) => {
+            textOpen = false;
+            msg.parts.push(part);
+            this.handovers.set(part.id, conv.id);
+            turnHandovers.set(part.id, part);
+            this.hub.emit(conv.id, { type: 'message', message: msg });
+            this.store.saveMessage(conv.id, msg, true);
+            this.emitStatus(conv.id);
+            return {
+              update: (change: Partial<HandoverPart>) => {
+                Object.assign(part, change);
+                if (change.deadline === undefined && 'deadline' in change) delete part.deadline;
+                if (part.status !== 'pending' && part.status !== 'active') {
+                  this.handovers.delete(part.id);
+                  turnHandovers.delete(part.id);
+                }
+                this.hub.emit(conv.id, { type: 'message', message: msg });
+                this.store.saveMessage(conv.id, msg, true);
+                this.emitStatus(conv.id);
+              },
+            };
+          }
+        : undefined;
+
     // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
     const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
     const attempt = async (fresh: boolean): Promise<RunResult> => {
@@ -5220,6 +5255,7 @@ export class Orchestrator {
                 lang: currentLang(),
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
+                ...(handoverCard ? { handoverCard } : {}),
                 toOutbox,
                 usage: (u) => {
                   subModel.inputTokens += u.inputTokens;
@@ -5361,6 +5397,13 @@ export class Orchestrator {
       // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.
       turnOver = true;
       for (const id of waiting) this.approvals.get(id)?.resolve({ allow: false, expired: true });
+      // A hand-over the browser has not ended yet ends with the turn (the browser hears it from the turn's signal too).
+      for (const part of turnHandovers.values()) {
+        Object.assign(part, { status: 'expired', ended: 'turn' });
+        delete part.deadline;
+        this.handovers.delete(part.id);
+      }
+      turnHandovers.clear();
       // Record file changes even when the turn failed or was stopped: the files changed anyway.
       if (before) {
         try {

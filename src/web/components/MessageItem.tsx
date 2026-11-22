@@ -45,6 +45,7 @@ import { fallbackExplanation, mentionWarning, messageText, planChecksMentions, p
 import { useI18n, useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
+import { HandoverCard } from './HandoverCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
@@ -1489,6 +1490,18 @@ function AgentMessage({
               return <ProgressCard key={s.key} status={s.status} text={s.text} />;
             case 'outbox':
               return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+            case 'handover':
+              return (
+                <HandoverCard
+                  key={s.key}
+                  part={s.part}
+                  convId={convId}
+                  agentName={name}
+                  live={live}
+                  asks={msg.parts.filter((p): p is ApprovalPart => p.type === 'approval' && p.status === 'pending')}
+                  onApproval={onApproval}
+                />
+              );
             case 'memory':
               return <MemoryCard key={s.key} part={s.part} />;
             case 'notice':

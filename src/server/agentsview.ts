@@ -188,6 +188,14 @@ const APPROVAL_ANSWER: Record<Extract<MessagePart, { type: 'approval' }>['status
   expired: 'expired',
 };
 const PLAN_MARK = { pending: '[ ]', in_progress: '[~]', completed: '[x]' } as const;
+const HANDOVER_END: Record<Extract<MessagePart, { type: 'handover' }>['status'], string> = {
+  pending: 'not answered',
+  active: 'not handed back',
+  done: 'handed back',
+  declined: 'declined',
+  cancelled: 'cancelled',
+  expired: 'expired',
+};
 
 /** A part of a reply that is not a tool call, as a block of a Claude Code assistant message (none for nothing). */
 function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, unknown> | undefined {
@@ -224,6 +232,11 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     }
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
+    case 'handover':
+      return {
+        type: 'text',
+        text: `[Handed the browser to the user${p.mode ? ` (${p.mode === 'window' ? 'in a window' : 'in the chat'})` : ''}: ${p.reason} — ${HANDOVER_END[p.status]}${p.note ? `: "${p.note}"` : ''}]`,
+      };
   }
 }
 

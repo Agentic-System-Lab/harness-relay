@@ -419,6 +419,36 @@ describe('Store (SQLite)', () => {
     expect(after.find((m) => m.id === 'm6')!.parts[0]).toMatchObject({ status: 'pending' });
   });
 
+  it("keeps a hand-over of the browser with its reply, and ends one a crashed server left waiting or in the user's hands", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const handover = (id: string, status: 'pending' | 'active' | 'done') => ({
+      type: 'handover' as const,
+      id,
+      reason: 'Sign in to the dashboard',
+      url: 'https://example.com/login',
+      modes: ['window' as const, 'screencast' as const],
+      windowAt: 'server' as const,
+      status,
+      ...(status === 'done' ? { mode: 'screencast' as const, note: 'Signed in' } : { deadline: 1234 }),
+    });
+    const live: ChatMessage = { ...agentMsg, id: 'm7', status: 'streaming', parts: [handover('h1', 'pending'), handover('h2', 'active')] };
+    const done: ChatMessage = { ...agentMsg, id: 'm8', status: 'done', parts: [handover('h3', 'done')] };
+    conv.messages.push(live, done);
+    store.saveMessage(conv.id, live, true);
+    store.saveMessage(conv.id, done, true);
+
+    const after = new Store(reopen()).get(conv.id)!.messages;
+    expect(after.find((m) => m.id === 'm7')!.parts).toEqual(
+      [
+        { ...handover('h1', 'pending'), status: 'expired', ended: 'turn', deadline: undefined },
+        { ...handover('h2', 'active'), status: 'expired', ended: 'turn', deadline: undefined },
+      ].map(({ deadline: _d, ...p }) => p),
+    );
+    expect(after.find((m) => m.id === 'm8')!.parts).toEqual([handover('h3', 'done')]);
+  });
+
   it('ends the tool calls a crashed server left running, so no row shows them running forever', () => {
     const store = new Store(db);
     const conv = sampleConversation();

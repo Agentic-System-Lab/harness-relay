@@ -29,6 +29,7 @@ import { GatewaySocketPathError, ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { handoverWindowAt, macGuiSession } from './browser/handover';
 import { messagingTools } from './connectors/messaging';
 import { TeamsGraph } from './connectors/teams';
 import { appTools } from './connectors/apps';
@@ -171,6 +172,8 @@ const browser = new BrowserService({
   // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
+  // Where a hand-over's window opens (`browser_hand_over`): beside the desktop app, or on this computer when it can show one.
+  windowAt: () => handoverWindowAt({ desktop: Boolean(parent), platform: process.platform, env: process.env, macGui: macGuiSession }),
 });
 gateway.register([
   outboxTool((id) => outbox.list(id)),
@@ -346,6 +349,7 @@ const app = createApp({
   push,
   alerts,
   scheduler,
+  handovers: browser.handovers,
 });
 
 // --- Static web app (production build) ------------------------------------------
