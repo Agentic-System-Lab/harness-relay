@@ -43,8 +43,7 @@ const MAX_BODY: Record<Tag, number> = {
 };
 
 /** A host a command may reach: a name or an address, with a port or not. */
-const HOST_RE =
-  /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*|\[[0-9a-f:.]+\])(?::(\d{1,5}))?$/;
+const HOST_RE = /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*|\[[0-9a-f:.]+\])(?::(\d{1,5}))?$/;
 
 /** A value of the attributes of an opening tag, quoted or not. */
 function attr(attrs: string, name: string): string | undefined {
@@ -85,7 +84,11 @@ export function hostName(value: string): string | undefined {
  */
 export function commandFolder(value: string | undefined): string | undefined {
   if (value === undefined) return '';
-  const parts = value.trim().replace(/\\/g, '/').split('/').filter((p) => p && p !== '.');
+  const parts = value
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((p) => p && p !== '.');
   if (/^(?:[a-z]:|\/)/i.test(value.trim())) return undefined;
   if (parts.some((p) => p === '..' || p.toLowerCase() === '.git' || /[\u0000-\u001f]/.test(p))) return undefined;
   return parts.join('/');

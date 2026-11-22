@@ -40,6 +40,11 @@ const DIRECTIVES = {
   remember:
     'end the reply with a <remember> block saving what the user said (without the directives) as a long-term memory note for every conversation',
   recall: 'say the long-term memory notes its turn was given: the pinned ones its briefing loads and those its prompt recalls',
+  secret: 'end the reply with a <secret> block asking the user for the secret named (`E2E_TOKEN` by default)',
+  command:
+    'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, and gets `E2E_TOKEN`',
+  commandrun:
+    'end the reply with a <command-run> block putting one run of the fixed command named (`e2e-check` by default) in the outbox, with a line of input',
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
   progress:
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
@@ -321,6 +326,18 @@ function plan(prompt, turn) {
     text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
   }
   if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
+  if (d.secret) {
+    const name = typeof d.secret === 'string' ? d.secret : 'E2E_TOKEN';
+    text += `\n\n<secret name="${name}" label="E2E token">The fake needs it for the e2e check.</secret>`;
+  }
+  if (d.command) {
+    const name = typeof d.command === 'string' ? d.command : 'e2e-check';
+    text += `\n\n<command name="${name}" secrets="E2E_TOKEN">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
+  }
+  if (d.commandrun) {
+    const name = typeof d.commandrun === 'string' ? d.commandrun : 'e2e-check';
+    text += `\n\n<command-run name="${name}">hello from the outbox</command-run>`;
+  }
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   // After its answer, the turn waits for a message sent into it, and answers that too.
   if (d.steer) steps.push({ type: 'steer', wait: slowMs(d.steer) });

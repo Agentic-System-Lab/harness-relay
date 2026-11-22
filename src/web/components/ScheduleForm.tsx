@@ -235,7 +235,12 @@ export function ScheduleForm({
       {commands && commands.length > 0 && draft.kind !== 'event' && (
         <div className="field">
           <label htmlFor={commandId}>{t.schedule.command}</label>
-          <select id={commandId} aria-describedby={commandHintId} value={draft.command} onChange={(e) => onEdit({ command: e.target.value })}>
+          <select
+            id={commandId}
+            aria-describedby={commandHintId}
+            value={draft.command}
+            onChange={(e) => onEdit({ command: e.target.value })}
+          >
             <option value="">{t.schedule.noCommand}</option>
             {commands.map((c) => (
               <option key={c.id} value={c.id}>

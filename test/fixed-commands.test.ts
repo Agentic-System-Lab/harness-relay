@@ -144,7 +144,12 @@ describe('a fixed command run', () => {
 
   it('says what an exit code means: news, a failure with the hosts the sandbox refused, a missing program', async () => {
     const dir = folder();
-    const news = await runFixedCommand(command(dir), 'schedule', input({ TOKEN: 'abcdef' }), stand(() => ({ code: FIXED_COMMAND_NEWS, stdout: 'new item' })).deps);
+    const news = await runFixedCommand(
+      command(dir),
+      'schedule',
+      input({ TOKEN: 'abcdef' }),
+      stand(() => ({ code: FIXED_COMMAND_NEWS, stdout: 'new item' })).deps,
+    );
     expect(news.run).toMatchObject({ status: 'news', exitCode: FIXED_COMMAND_NEWS, output: 'new item' });
     const refused = await withLang('en', () =>
       runFixedCommand(command(dir), 'try', input({ TOKEN: 'abcdef' }), stand(() => ({ code: 1 }), { refused: ['api.other.com'] }).deps),
@@ -153,7 +158,12 @@ describe('a fixed command run', () => {
     expect(refused.run.reason).toContain('api.other.com');
     const missing = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'abcdef' }), stand(() => ({ code: 127 })).deps);
     expect(missing.run.status).toBe('error');
-    const stopped = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'abcdef' }), stand(() => ({ code: null, aborted: true })).deps);
+    const stopped = await runFixedCommand(
+      command(dir),
+      'try',
+      input({ TOKEN: 'abcdef' }),
+      stand(() => ({ code: null, aborted: true })).deps,
+    );
     expect(stopped.run.status).toBe('error');
   });
 

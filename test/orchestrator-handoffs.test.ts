@@ -17,7 +17,20 @@ import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
 import { Outbox } from '../src/server/outbox';
-import { agentMessages, calls, conversation, db, fake, finish, orchestrator, project, root, settings, store, textOf } from './orchestrator-harness';
+import {
+  agentMessages,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  orchestrator,
+  project,
+  root,
+  settings,
+  store,
+  textOf,
+} from './orchestrator-harness';
 
 const keys = new Map<string, string>();
 let ran: { env: NodeJS.ProcessEnv; stdin?: string }[] = [];
@@ -79,7 +92,11 @@ const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
   return { msg, part: msg.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type)! };
 };
 
-const userTexts = (convId: string) => store.get(convId)!.messages.filter((m) => m.author.kind === 'user').map(textOf);
+const userTexts = (convId: string) =>
+  store
+    .get(convId)!
+    .messages.filter((m) => m.author.kind === 'user')
+    .map(textOf);
 
 describe('secrets cards', () => {
   it("takes a reply's secret blocks into a card that waits, and tells every member how to ask", async () => {
@@ -219,7 +236,8 @@ describe('fixed command cards', () => {
   it('puts one run of a saved command in the outbox, which Send runs with its input', async () => {
     const { conv, msg, part } = await propose();
     await orchestrator.saveCommand(conv.id, msg.id, part.id);
-    fake.reply = () => 'Ready to post.\n\n<command-run name="post">\nHello, Threads!\n</command-run>\n<command-run name="nope">x</command-run>';
+    fake.reply = () =>
+      'Ready to post.\n\n<command-run name="post">\nHello, Threads!\n</command-run>\n<command-run name="nope">x</command-run>';
     await orchestrator.send(conv.id, 'post it');
     await finish(conv.id);
     const last = agentMessages(store.get(conv.id)!).at(-1)!;
@@ -241,7 +259,12 @@ describe('a schedule that runs a fixed command first', () => {
     const folder = orchestrator.handoffFolder(conv);
     const { takePin } = await import('../src/server/fixedCommands');
     const id = settings.handoffs.commandId(folder, 'check');
-    settings.handoffs.saveCommand(folder, id, { name: 'check', run: 'python3 check.py', hosts: [], secrets: [] }, await takePin(folder, id));
+    settings.handoffs.saveCommand(
+      folder,
+      id,
+      { name: 'check', run: 'python3 check.py', hosts: [], secrets: [] },
+      await takePin(folder, id),
+    );
     conv.schedule = {
       text: 'Post what the check found.',
       repeat: { kind: 'interval', hours: 1 },
@@ -288,7 +311,12 @@ describe('a schedule that runs a fixed command first', () => {
     play = () => ({ code: 2, stdout: 'Traceback' });
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
     await finish(conv.id);
-    expect(store.get(conv.id)!.messages.filter((m) => m.author.kind === 'user').at(-1)!.event).toContain('failed (exit code 2)');
+    expect(
+      store
+        .get(conv.id)!
+        .messages.filter((m) => m.author.kind === 'user')
+        .at(-1)!.event,
+    ).toContain('failed (exit code 2)');
   });
 
   it('does not run, nor send, once its code changed; and fails for a command that is gone', async () => {

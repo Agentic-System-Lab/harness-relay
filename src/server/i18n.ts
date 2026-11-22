@@ -91,11 +91,7 @@ const zhTW = {
     storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',
     badName: (name: string) => `「${name}」不是有效的密鑰名稱：只能用大寫英文字母、數字和底線，而且不能以數字開頭。`,
     badValue: (name: string, problem: 'empty' | 'long' | 'lines') =>
-      problem === 'empty'
-        ? `${name} 是空的。`
-        : problem === 'long'
-          ? `${name} 太長了（最多 16 KB）。`
-          : `${name} 不能有換行。`,
+      problem === 'empty' ? `${name} 是空的。` : problem === 'long' ? `${name} 太長了（最多 16 KB）。` : `${name} 不能有換行。`,
     tooManySecrets: (n: number) => `一個工作目錄最多保存 ${n} 個密鑰。`,
     secretNotFound: (name: string) => `這個工作目錄沒有叫 ${name} 的密鑰。`,
     commandNotFound: '找不到這個固定指令，可能已經刪除了。',
@@ -1382,7 +1378,11 @@ const en: ServerMessages = {
     storage: 'There is no credential store on this computer to keep secrets in.',
     badName: (name) => `"${name}" is not a valid secret name: capital letters, digits and underscores only, not starting with a digit.`,
     badValue: (name, problem) =>
-      problem === 'empty' ? `${name} is empty.` : problem === 'long' ? `${name} is too long (16 KB at most).` : `${name} cannot have line breaks.`,
+      problem === 'empty'
+        ? `${name} is empty.`
+        : problem === 'long'
+          ? `${name} is too long (16 KB at most).`
+          : `${name} cannot have line breaks.`,
     tooManySecrets: (n) => `A working directory keeps ${n} secrets at most.`,
     secretNotFound: (name) => `This working directory has no secret named ${name}.`,
     commandNotFound: 'This fixed command was not found; it may have been removed.',

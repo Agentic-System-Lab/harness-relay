@@ -1053,7 +1053,7 @@ export const en: Messages = {
       hostsHint: 'Separated by commas, such as api.example.com',
       secretsHint: "Secrets' names, separated by commas",
       cwdHint: 'A folder in the working directory; empty for its top',
-      hint: "Harness Relay runs it in its own sandbox, not an agent: it may write only in the working directory and reach only the hosts listed, and its secrets are in a file only it can read. Once it is saved, a change to the code in its folder makes it wait for you to approve before it runs again.",
+      hint: 'Harness Relay runs it in its own sandbox, not an agent: it may write only in the working directory and reach only the hosts listed, and its secrets are in a file only it can read. Once it is saved, a change to the code in its folder makes it wait for you to approve before it runs again.',
       save: 'Save',
       edit: 'Edit',
       cancel: 'Cancel',
@@ -1072,7 +1072,8 @@ export const en: Messages = {
       },
       exitCode: (code) => `exit code ${code ?? '?'}`,
       output: 'Output (secrets masked)',
-      changedHint: 'These files changed since it was saved, so it did not run. Look at the changes; approving pins its code again and runs it.',
+      changedHint:
+        'These files changed since it was saved, so it did not run. Look at the changes; approving pins its code again and runs it.',
       showDiff: 'Show the changes',
       hideDiff: 'Hide the changes',
       noDiff: 'No diff to show (git may ignore these files).',
@@ -1082,7 +1083,8 @@ export const en: Messages = {
       windows: 'Fixed commands cannot run on native Windows yet.',
     },
     settings: {
-      intro: 'Agents ask you for secrets and propose fixed commands with cards in the chat. Here they are by working directory; secrets show their names only, never their values again.',
+      intro:
+        'Agents ask you for secrets and propose fixed commands with cards in the chat. Here they are by working directory; secrets show their names only, never their values again.',
       empty: 'No working directory keeps secrets or fixed commands yet.',
       noStorage: 'There is no credential store on this computer to keep secrets in.',
       secrets: 'Secrets',

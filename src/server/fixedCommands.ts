@@ -9,7 +9,14 @@ import { CONFIG_FILE, checkEnv, commandCwd, keptOutput, sandboxDenial } from './
 import type { CommandPin } from './handoffs';
 import { t } from './i18n';
 import { runProcess, type SpawnResult } from './process';
-import { makeRunDirs, removeRunDirs, sandboxAvailable, sandboxCommand, type RelaySandboxRunDirs, type SandboxAvailability } from './relaySandbox';
+import {
+  makeRunDirs,
+  removeRunDirs,
+  sandboxAvailable,
+  sandboxCommand,
+  type RelaySandboxRunDirs,
+  type SandboxAvailability,
+} from './relaySandbox';
 import { diffText, keepCommits, dropKeptCommits, repoRoot, snapshot } from './workspace';
 
 /*
@@ -35,11 +42,41 @@ const SCRIPT = 'exec 2>&1; eval "$RELAY_CHECK_COMMAND"';
 
 /** File endings of code a command may run or load: scripts, compiled modules and native libraries. */
 const CODE_ENDINGS = [
-  'sh', 'bash', 'zsh', 'fish', 'ps1',
-  'js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'node', 'wasm',
-  'py', 'pyw', 'pyc', 'pyo', 'pth', 'pyd',
-  'rb', 'pl', 'pm', 'php', 'lua', 'r', 'jl', 'tcl', 'awk',
-  'so', 'dylib', 'dll', 'jar', 'class',
+  'sh',
+  'bash',
+  'zsh',
+  'fish',
+  'ps1',
+  'js',
+  'mjs',
+  'cjs',
+  'jsx',
+  'ts',
+  'mts',
+  'cts',
+  'tsx',
+  'node',
+  'wasm',
+  'py',
+  'pyw',
+  'pyc',
+  'pyo',
+  'pth',
+  'pyd',
+  'rb',
+  'pl',
+  'pm',
+  'php',
+  'lua',
+  'r',
+  'jl',
+  'tcl',
+  'awk',
+  'so',
+  'dylib',
+  'dll',
+  'jar',
+  'class',
 ];
 
 /**
@@ -69,7 +106,8 @@ export async function takePin(folder: string, id: string): Promise<CommandPin> {
     if (err instanceof TooManyFiles) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
     throw err;
   }
-  if (Object.keys(manifest).length > HANDOFF_LIMITS.pinnedFiles) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
+  if (Object.keys(manifest).length > HANDOFF_LIMITS.pinnedFiles)
+    throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
   const root = (await repoRoot(folder).catch(() => null)) ?? undefined;
   if (!root) return { manifest };
   try {
@@ -174,7 +212,10 @@ export async function runFixedCommand(
 ): Promise<FixedRunResult> {
   const at = Date.now();
   const allValues = Object.values(input.values);
-  const errorRun = (reason: string): FixedRunResult => ({ run: { at, source, status: 'error', reason: maskValues(reason, allValues) }, written: {} });
+  const errorRun = (reason: string): FixedRunResult => ({
+    run: { at, source, status: 'error', reason: maskValues(reason, allValues) },
+    written: {},
+  });
   if (deps.platform === 'win32') return errorRun(t().handoffs.windows);
   const missing = cmd.secrets.filter((n) => input.values[n] === undefined);
   if (missing.length) return errorRun(t().handoffs.missingSecrets(missing.join(', ')));

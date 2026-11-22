@@ -50,7 +50,9 @@ describe('hand-off blocks in a reply', () => {
   });
 
   it('takes a self-closing secret and a command with a folder, and several blocks on one line', () => {
-    const { blocks, text } = splitHandoffs('<secret name="A_KEY"/> <secret name="B_KEY" />\n<command name="sync" cwd="./bot/">./run.sh</command>');
+    const { blocks, text } = splitHandoffs(
+      '<secret name="A_KEY"/> <secret name="B_KEY" />\n<command name="sync" cwd="./bot/">./run.sh</command>',
+    );
     expect(text).toBe('');
     expect(blocks).toEqual([
       { kind: 'secret', name: 'A_KEY' },
@@ -114,9 +116,7 @@ describe('hand-off blocks in a reply', () => {
   });
 
   it('masks every value, the longest first, and leaves values too short to mask safely', () => {
-    expect(maskValues('token=abcd1234 and abcd1234xyz, key=ab', ['abcd1234', 'abcd1234xyz', 'ab'])).toBe(
-      'token=•••• and ••••, key=ab',
-    );
+    expect(maskValues('token=abcd1234 and abcd1234xyz, key=ab', ['abcd1234', 'abcd1234xyz', 'ab'])).toBe('token=•••• and ••••, key=ab');
   });
 });
 
@@ -133,7 +133,15 @@ describe("the cards' logic", () => {
 
   it('turns what the user typed into what the server takes', () => {
     expect(wordsOf('a.com, b.com，c.com  a.com')).toEqual(['a.com', 'b.com', 'c.com']);
-    expect(filledValues([{ name: 'A', status: 'waiting' }, { name: 'B', status: 'waiting' }], { A: ' x ', B: ' ' })).toEqual({ A: 'x' });
+    expect(
+      filledValues(
+        [
+          { name: 'A', status: 'waiting' },
+          { name: 'B', status: 'waiting' },
+        ],
+        { A: ' x ', B: ' ' },
+      ),
+    ).toEqual({ A: 'x' });
     const form = formOf(part().proposal);
     expect(form).toEqual({ name: 'post', run: 'python3 post.py', hosts: 'a.com', secrets: 'K', cwd: '' });
     expect(proposalOf({ ...form, hosts: 'a.com b.com', cwd: 'bot' })).toEqual({
@@ -212,7 +220,12 @@ describe('the store of secrets and fixed commands', () => {
     const saved = store.saveCommand('/w', id, { name: 'post', run: 'python3 post.py', hosts: ['a.com'], secrets: ['K'] }, pin);
     expect(saved).toMatchObject({ id, folder: '/w', name: 'post' });
     expect(store.commandId('/w', 'post')).toBe(id);
-    store.saveCommand('/w', id, { name: 'post', run: 'python3 post.py --v2', hosts: [], secrets: [] }, { manifest: { 'post.py': { kind: 'file' } } });
+    store.saveCommand(
+      '/w',
+      id,
+      { name: 'post', run: 'python3 post.py --v2', hosts: [], secrets: [] },
+      { manifest: { 'post.py': { kind: 'file' } } },
+    );
     expect(store.commands('/w')).toHaveLength(1);
     expect(store.command(id)!.run).toBe('python3 post.py --v2');
     expect(store.pin(id)!.manifest).toHaveProperty(['post.py']);

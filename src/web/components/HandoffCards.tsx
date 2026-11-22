@@ -111,7 +111,12 @@ export function SecretsCard({
           <p className="muted small">{c.hint}</p>
           {error && <p className="error-line">{error}</p>}
           <div className="approval-actions">
-            <button type="button" className="primary small-button" disabled={busy || !Object.keys(filled).length} onClick={() => void answer(false)}>
+            <button
+              type="button"
+              className="primary small-button"
+              disabled={busy || !Object.keys(filled).length}
+              onClick={() => void answer(false)}
+            >
               {c.save}
             </button>
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => void answer(true)}>
@@ -157,8 +162,7 @@ export function CommandCard({
       await api.tryCommand(convId, part.commandId!, { ...(extra.trim() ? { extra } : {}), ...(approve ? { approve: true } : {}) });
       setDiff(null);
     });
-  const toggleDiff = () =>
-    diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!)));
+  const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!))));
   const field = (key: keyof typeof form, label: string, hint?: string, multiline = false) => (
     <label className="field">
       <span>{label}</span>
@@ -239,7 +243,8 @@ export function CommandCard({
               <button type="button" className="ghost small-button" disabled={busy} onClick={toggleDiff}>
                 {diff ? c.hideDiff : c.showDiff}
               </button>
-              {diff && (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
+              {diff &&
+                (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
             </>
           )}
           {run.output && (

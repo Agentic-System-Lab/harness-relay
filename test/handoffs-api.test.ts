@@ -91,7 +91,9 @@ function chatAsking(): { conv: Conversation; partId: string } {
 describe('secrets and fixed commands API', () => {
   it("takes a secrets card's answer, and Settings lists the name, never the value", async () => {
     const { conv, partId } = chatAsking();
-    const res = await send('POST', `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`, { values: { TOKEN: 'tok-123456', N: 5 } });
+    const res = await send('POST', `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`, {
+      values: { TOKEN: 'tok-123456', N: 5 },
+    });
     expect(res.status).toBe(200);
     expect(settings.handoffs.values(root)).toEqual({ TOKEN: 'tok-123456' });
     const view = (await (await app.request('/api/handoffs', { headers: HOST })).json()) as { storage: boolean; folders: FolderHandoffs[] };
