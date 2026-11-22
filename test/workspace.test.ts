@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -386,8 +396,9 @@ describe("a repository's own config that would run commands", () => {
     const ran = join(dir, 'ran.txt').replaceAll('\\', '/');
     git(repo, 'config', 'filter.evil.clean', `sh -c 'echo clean >> "${ran}"; cat'`);
     writeFileSync(join(repo, '.gitattributes'), '*.md filter=evil\n');
-    // More than the 64 KB a process's output is kept to by default, after the driver.
-    git(repo, 'config', 'diff.pad.note', 'x'.repeat(70 * 1024));
+    // More than the 64 KB a process's output is kept to by default, after the driver (written into the
+    // file: on Windows a command line that long is refused).
+    appendFileSync(join(repo, '.git', 'config'), `[diff "pad"]\n\tnote = ${'x'.repeat(70 * 1024)}\n`);
     expect(await repoDriverGuards(repo, process.env)).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=']));
     writeFileSync(join(repo, 'README.md'), 'changed\n');
     await snapshot(repo);
