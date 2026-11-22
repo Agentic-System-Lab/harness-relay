@@ -496,8 +496,8 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/conversations/:id/messages/:messageId/secrets/:partId/browser` | `{ name? }`：為還在等的密鑰卡片開一個只給使用者的瀏覽器，開在那個要求指出的網址（它的 `url`），否則是空白頁；回傳 `{ handoverId }`，給交接的畫面串流路由用（開著的時候回傳同一個；卡片已回覆、卡片沒在等那個要求、沒有瀏覽器可啟動或已經開了三個時回 409） |
 | `POST /api/conversations/:id/messages/:messageId/secrets/:partId/selection` | `{ handoverId, name }`：把選取的文字存成密鑰：伺服器讀取那個瀏覽器網頁上選取的內容，以 `name` 為卡片的資料夾保存，那個要求標為從網頁儲存；回應不含任何值的內容（沒有選取或值無效時回 400，那個瀏覽器已關閉時回 404，卡片沒在等那個要求時回 409） |
 | `POST /api/conversations/:id/messages/:messageId/commands/:partId` | `{ action: 'save', edits? }` → `FixedCommand`：儲存提議的固定指令（帶卡片上的修改：`name`、`run`、`hosts`、`secrets`、`cwd`，會再檢查一次），並鎖定資料夾的程式碼；`{ action: 'dismiss' }` 告訴團隊沒有儲存；`{ action: 'continue' \| 'share' }` 送出使用者的回答，`share` 會附上上次執行遮蔽過的輸出。指令或 action 無效時 400，找不到卡片時 404，已經決定或正在執行時 409 |
-| `POST /api/conversations/:id/commands/:commandId/try` | `{ extra?, approve? }` → 202 `{ ok }`：在背景執行一次這個對話自己工作目錄的固定指令（卡片會跟著更新）：`extra` 是這次額外加在指令後的參數；`approve` 表示使用者核准改過的程式碼，會先重新鎖定。別的資料夾的指令 404，正在執行時 409 |
-| `GET /api/conversations/:id/commands/:commandId/diff` | → `{ changed, diff }`：固定指令鎖定之後改過的檔案，以及它們的 git diff（密鑰已遮蔽） |
+| `POST /api/conversations/:id/commands/:commandId/try` | `{ extra?, approve? }` → 202 `{ ok }`：在背景執行一次這個對話自己工作目錄的固定指令（卡片會跟著更新）：`extra` 是這次額外加在指令後的參數；`approve` 是使用者看過的變更的 `digest`：只有程式碼還是那一版時，才會先重新鎖定再執行。`approve` 不是 digest 時 400，別的資料夾的指令 404，正在執行或看過變更之後又改過時 409 |
+| `GET /api/conversations/:id/commands/:commandId/diff` | → `{ changed, diff, digest }`：固定指令鎖定之後改過的檔案和連結、它們的 git diff（密鑰已遮蔽），以及這份程式碼的 digest，「確認變更並執行」會把它送回來 |
 | `GET /api/conversations/:id/commands` | → `FixedCommand[]`：這個對話工作目錄的固定指令（自動任務的表單會列出它們） |
 | `GET /api/handoffs` | → `{ storage, folders: FolderHandoffs[] }`：設定 →「密鑰與固定指令」：依工作目錄列出密鑰的名稱（和各自的設定時間）與固定指令；從不含值 |
 | `PUT /api/handoffs/secrets` | `{ folder, name, value }` → `{ ok }`：取代設定頁列出的某個資料夾的密鑰（其他資料夾 404，名稱或值無效時 400） |

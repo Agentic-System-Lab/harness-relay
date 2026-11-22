@@ -1737,7 +1737,9 @@ export class Orchestrator {
           isDeepStrictEqual(args.secrets, cmd.secrets) &&
           args.cwd === (cmd.cwd ?? '');
         if (!same) throw new Error(t().handoffs.commandChangedSince(cmd.name));
-        const run = await this.trackCommand(this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' }));
+        const run = await this.trackCommand(
+          this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' }),
+        );
         const text = t().handoffs.runLine(run);
         if (run.status === 'passed' || run.status === 'news') return text;
         throw new Error(text);

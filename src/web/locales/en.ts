@@ -1078,7 +1078,8 @@ export const en: Messages = {
       noDiff: 'No diff to show (git may ignore these files).',
       approve: 'Approve the changes and run',
       approveNeedsDiff: 'Look at the changes first',
-      replaces: 'A fixed command of this name is saved: saving replaces it, and the automations and outbox runs that use it then run this one.',
+      replaces:
+        'A fixed command of this name is saved: saving replaces it, and the automations and outbox runs that use it then run this one.',
       share: 'Send the result to the team',
       continue: 'Tell the team it is saved',
       windows: 'Fixed commands cannot run on native Windows yet.',

@@ -5,18 +5,21 @@
  * folder (not to its data) breaks. The sandbox and the process are stand-ins here; `takePin` runs on a
  * real temporary git repository.
  */
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { FIXED_COMMAND_NEWS, type FixedCommand } from '../src/shared/types';
+import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, type FixedCommand } from '../src/shared/types';
 import {
   PIN_PATTERN,
   pinChanges,
   pinDiff,
+  readBack,
   readSecretsFile,
   runFixedCommand,
   secretsFile,
+  manifestDigest,
+  pinManifest,
   takePin,
   type FixedCommandDeps,
 } from '../src/server/fixedCommands';
@@ -204,6 +207,64 @@ describe('a fixed command run', () => {
   });
 });
 
+describe('what a fixed command run leaves behind', () => {
+  it.skipIf(process.platform === 'win32')(
+    'reads its secrets file back without following a link, blocking on a pipe or reading without end',
+    async () => {
+      const dir = folder();
+      const secret = join(dir, 'protected.env');
+      writeFileSync(secret, 'TOKEN=from-a-protected-file\n');
+      const linked = join(dir, 'linked.env');
+      symlinkSync(secret, linked);
+      expect(readBack(linked)).toEqual({});
+      const { execFileSync } = await import('node:child_process');
+      const fifo = join(dir, 'pipe.env');
+      execFileSync('mkfifo', [fifo]);
+      expect(readBack(fifo)).toEqual({});
+      const big = join(dir, 'big.env');
+      writeFileSync(big, `TOKEN=${'x'.repeat(200 * 1024)}\nOTHER=late\n`);
+      expect(readBack(big)).not.toHaveProperty('OTHER');
+      expect(readBack(join(dir, 'missing.env'))).toEqual({});
+    },
+  );
+
+  it('removes its secrets file itself, and keeps a renewed value when the sandbox reports a failure', async () => {
+    const dir = folder();
+    let file = '';
+    const s = stand((env) => {
+      file = env.RELAY_SECRETS_FILE!;
+      writeFileSync(file, 'TOKEN=tok-renewed-999\n');
+      return { code: 0 };
+    });
+    (s.deps.sandboxCommand as unknown as { mockImplementationOnce: (f: unknown) => void }).mockImplementationOnce(
+      async (_b: string, _a: string[], env: NodeJS.ProcessEnv, spec: RelaySandboxSpec) => ({
+        bin: 'host',
+        args: [],
+        env,
+        channel: {} as never,
+        failure: () => 'the sandbox stopped',
+        dispose: async () => undefined,
+        run: { refusedHosts: [] } as never,
+        spec,
+      }),
+    );
+    const { run, written } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-123456' }), s.deps);
+    expect(run.status).toBe('error');
+    expect(written).toEqual({ TOKEN: 'tok-renewed-999' });
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('masks a value the output limit cut in two', async () => {
+    const dir = folder();
+    const token = 'tok-0123456789abcdefghijklmnopq';
+    // The output kept is its end: put the token across where it is cut.
+    const s = stand(() => ({ code: 0, stdout: `${token}${'y'.repeat(HANDOFF_LIMITS.output - 10)}` }));
+    const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: token }), s.deps);
+    expect(run.output).not.toContain(token.slice(-10));
+    expect(run.output).not.toContain(token.slice(-6));
+  });
+});
+
 describe("a fixed command's pin", () => {
   it('matches code and configuration at any depth, not data', () => {
     for (const p of ['post.py', 'lib/threads_common.py', 'json.pyc', 'a/b/native.so', 'package.json', 'pyproject.toml', '.env', 'run.sh'])
@@ -229,6 +290,39 @@ describe("a fixed command's pin", () => {
     expect(diff).toContain('-print("v1")');
     expect(diff).toContain('+print("v2")');
     expect(diff).not.toContain('json.py');
+  });
+
+  it('sees a same-size edit whose time was put back, a link anywhere, and code in a folder of packages below the top', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print("aaa")\n');
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    const pin = await takePin(dir, 'c2');
+    // The same size, its times put back as they were.
+    const before = statSync(join(dir, 'post.py'));
+    writeFileSync(join(dir, 'post.py'), 'print("bbb")\n');
+    utimesSync(join(dir, 'post.py'), before.atime, before.mtime);
+    expect(await pinChanges(dir, pin)).toEqual(['post.py']);
+    const again = await takePin(dir, 'c2');
+    // A link, whatever its name: one to a folder can put a module in a script's way.
+    mkdirSync(join(dir, 'elsewhere', 'evil'), { recursive: true });
+    symlinkSync(join(dir, 'elsewhere', 'evil'), join(dir, 'json'));
+    expect(await pinChanges(dir, again)).toContain('json');
+    const third = await takePin(dir, 'c2');
+    // `target` and `node_modules` are passed over at the top only.
+    mkdirSync(join(dir, 'lib', 'target'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'target', 'x.py'), 'x = 1\n');
+    mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', 'pkg', 'index.js'), '1\n');
+    expect(await pinChanges(dir, third)).toEqual(['lib/target/x.py']);
+  });
+
+  it('gives the same digest for the same code, another once it changes', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    const a = manifestDigest(await pinManifest(dir));
+    expect(manifestDigest(await pinManifest(dir))).toBe(a);
+    writeFileSync(join(dir, 'post.py'), 'print(2)\n');
+    expect(manifestDigest(await pinManifest(dir))).not.toBe(a);
   });
 });
 

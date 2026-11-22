@@ -6,7 +6,7 @@
  * for the user alone and its Save selection (with a stand-in for the browser); and the middleware's
  * checks on these writes.
  */
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -155,6 +155,26 @@ describe('secrets and fixed commands API', () => {
     expect((await send('POST', `/api/conversations/${conv.id}/messages/m2/commands/x`, { action: 'run' })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { extra: 5 })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, {})).status).toBe(404);
+  });
+
+  it("shows a command's changes with the digest Approve sends, and approves only with that digest", async () => {
+    const { conv } = chatAsking();
+    writeFileSync(join(root, 'check.py'), 'print(1)\n');
+    const id = settings.handoffs.commandId(root, 'check');
+    // Pinned before check.py existed: it is a change.
+    settings.handoffs.saveCommand(root, id, { name: 'check', run: 'python3 check.py', hosts: [], secrets: [] }, { manifest: {} });
+    const res = await app.request(`/api/conversations/${conv.id}/commands/${id}/diff`, { headers: HOST });
+    expect(res.status).toBe(200);
+    const diff = (await res.json()) as { changed: string[]; digest: string };
+    expect(diff.changed).toContain('check.py');
+    expect(diff.digest).toMatch(/^[0-9a-f]{32}$/);
+    // Approve is the digest the user saw, never a yes.
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: true })).status).toBe(400);
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: 'not-a-digest' })).status).toBe(400);
+    const stale = await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: '0'.repeat(32) });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { error: string }).error).toMatch(/changed again/);
+    expect(settings.handoffs.pin(id)!.manifest).toEqual({});
   });
 
   it("opens a secrets card's browser for the user alone, and keeps what is selected there without sending any of it back", async () => {

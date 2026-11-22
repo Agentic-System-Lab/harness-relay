@@ -8,7 +8,9 @@ import { HANDOFF_LIMITS, type FixedCommandRun } from '../src/shared/types';
 import {
   checkProposal,
   commandFolder,
+  hiddenCharacters,
   hostName,
+  maskEdges,
   maskValues,
   secretName,
   secretUrl,
@@ -22,6 +24,7 @@ import { openDatabase } from '../src/server/db';
 import { HandoffStore, secretEntry } from '../src/server/handoffs';
 import type { SecretStore } from '../src/server/secrets';
 import { withLang } from '../src/server/i18n';
+import { handoffSection } from '../src/server/prompt';
 
 describe('hand-off blocks in a reply', () => {
   it('takes secrets, commands and runs on lines of their own, in order, and keeps the rest of the text', () => {
@@ -130,6 +133,15 @@ describe('hand-off blocks in a reply', () => {
     expect(secretValueProblem('a\nb')).toBe('lines');
     expect(secretValueProblem('x'.repeat(HANDOFF_LIMITS.secretValue + 1))).toBe('long');
     expect(secretValueProblem(' tok-123 ')).toBeUndefined();
+    expect(secretValueProblem('abc')).toBe('short');
+    // What would make a command line read other than it runs is refused.
+    for (const run of ['echo a\u202e', 'rm \u200b-rf', 'echo \u0007', 'x\ufeffy'])
+      expect(checkProposal({ name: 'post', run }), JSON.stringify(run)).toBeUndefined();
+    expect(checkProposal({ name: 'post', run: 'echo a\tb' })).toBeDefined();
+    expect(hiddenCharacters('plain line')).toBe(false);
+    // Not from inside a folder of installed packages, whose code is not pinned.
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'node_modules/pkg' })).toBeUndefined();
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'lib/node_modules' })).toMatchObject({ cwd: 'lib/node_modules' });
     expect(checkProposal({ name: 'post', run: '  ', hosts: [] })).toBeUndefined();
     expect(checkProposal({ name: 'post', run: 'x', hosts: Array.from({ length: 11 }, (_, i) => `h${i}.com`) })).toBeUndefined();
     expect(checkProposal({ name: 'post', run: 'x', hosts: ['a.com', 'A.com'], secrets: ['k', 'K'] })).toEqual({
@@ -142,6 +154,10 @@ describe('hand-off blocks in a reply', () => {
 
   it('masks every value, the longest first, and leaves values too short to mask safely', () => {
     expect(maskValues('token=abcd1234 and abcd1234xyz, key=ab', ['abcd1234', 'abcd1234xyz', 'ab'])).toBe('token=•••• and ••••, key=ab');
+    // A value cut in two at the output's ends shows neither part.
+    expect(maskEdges('…\nz-123456 then done', ['tok-xyz-123456'])).toBe('…\n•••• then done');
+    expect(maskEdges('it was tok-xy', ['tok-xyz-123456'])).toBe('it was ••••');
+    expect(maskEdges('nothing here', ['tok-xyz-123456'])).toBe('nothing here');
   });
 });
 
@@ -206,12 +222,13 @@ describe('the store of secrets and fixed commands', () => {
   };
   const pin = { manifest: {} };
 
-  it('keeps values in the credential store, one entry a folder, and only names and times in the database', () => {
+  it('keeps values in the credential store, one entry a secret, and only names and times in the database', () => {
     const { db, values, store } = make();
     store.setSecrets('/w', { TOKEN: ' tok-123 ', APP_SECRET: 'sec-456' });
     expect(store.values('/w')).toEqual({ TOKEN: 'tok-123', APP_SECRET: 'sec-456' });
-    expect([...values.keys()]).toEqual([secretEntry('/w')]);
-    expect(secretEntry('/w')).not.toContain('/w');
+    expect([...values.keys()].sort()).toEqual([secretEntry('/w', 'APP_SECRET'), secretEntry('/w', 'TOKEN')].sort());
+    expect(values.get(secretEntry('/w', 'TOKEN'))).toBe('tok-123');
+    expect(secretEntry('/w', 'TOKEN')).not.toContain('/w');
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'handoffs'").get() as { value: string };
     expect(row.value).not.toContain('tok-123');
     expect(row.value).not.toContain('sec-456');
@@ -230,12 +247,14 @@ describe('the store of secrets and fixed commands', () => {
     withLang('en', () => {
       expect(() => store.setSecrets('/w', { 'bad-name': 'x' })).toThrow(/not a valid secret name/);
       expect(() => store.setSecrets('/w', { GOOD: 'a\nb' })).toThrow(/line breaks/);
-      const many = Object.fromEntries(Array.from({ length: HANDOFF_LIMITS.secretsPerFolder + 1 }, (_, i) => [`K${i}`, 'v']));
+      // Shorter than four characters, it could not be masked in output.
+      expect(() => store.setSecrets('/w', { GOOD: 'abc' })).toThrow(/too short/);
+      const many = Object.fromEntries(Array.from({ length: HANDOFF_LIMITS.secretsPerFolder + 1 }, (_, i) => [`K${i}`, 'value']));
       expect(() => store.setSecrets('/w', many)).toThrow(/at most/);
       expect(store.folders()).toEqual([]);
       const { store: bare } = make(false);
       expect(bare.storage).toBe(false);
-      expect(() => bare.setSecrets('/w', { K: 'v' })).toThrow(/no credential store/);
+      expect(() => bare.setSecrets('/w', { K: 'value' })).toThrow(/no credential store/);
     });
   });
 
@@ -249,7 +268,7 @@ describe('the store of secrets and fixed commands', () => {
       '/w',
       id,
       { name: 'post', run: 'python3 post.py --v2', hosts: [], secrets: [] },
-      { manifest: { 'post.py': { kind: 'file' } } },
+      { manifest: { 'post.py': { kind: 'file', size: 1, hash: 'h' } } },
     );
     expect(store.commands('/w')).toHaveLength(1);
     expect(store.command(id)!.run).toBe('python3 post.py --v2');
@@ -273,5 +292,14 @@ describe('the store of secrets and fixed commands', () => {
     expect(() => withLang('en', () => store.commandId('/w', 'one-more'))).toThrow(/at most/);
     // A namesake still replaces.
     expect(store.commandId('/w', 'c0')).toBe(store.commandByName('/w', 'c0')!.id);
+  });
+});
+
+describe('the briefing on secrets and fixed commands', () => {
+  it('says on native Windows that fixed and interactive commands do not run there yet', () => {
+    const none = { secrets: [], commands: [] };
+    expect(handoffSection(none, 'win32')).toContain('native Windows');
+    expect(handoffSection(none, 'linux')).not.toContain('native Windows');
+    expect(handoffSection({ secrets: ['TOKEN'], commands: [] }, 'darwin')).toContain('TOKEN');
   });
 });

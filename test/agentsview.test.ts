@@ -116,6 +116,51 @@ describe('the thread transcript', () => {
     ]);
   });
 
+  it("records the hand-off cards by name and outcome, never a value or an interactive command's output", () => {
+    const parts: MessagePart[] = [
+      {
+        type: 'secrets',
+        id: 's1',
+        folder: '/w',
+        asks: [
+          { name: 'TOKEN', status: 'saved' },
+          { name: 'APP_SECRET', status: 'declined' },
+        ],
+      },
+      {
+        type: 'command',
+        id: 'c1',
+        folder: '/w',
+        proposal: { name: 'post', run: 'python3 post.py', hosts: ['graph.threads.net'], secrets: ['TOKEN'] },
+        status: 'saved',
+        commandId: 'x',
+        run: { at: 1, source: 'try', status: 'passed', exitCode: 0, output: 'posted with ••••' },
+      },
+      { type: 'handover', id: 'h1', reason: 'Sign in', modes: ['screencast'], status: 'done', mode: 'screencast', note: 'Done' },
+      {
+        type: 'interactive',
+        id: 'i1',
+        folder: '/w',
+        run: 'gcloud auth login',
+        configFiles: [],
+        status: 'started',
+        session: { state: 'exited', startedAt: 1, endsAt: 2, exitCode: 0, inWorkdir: false, output: 'the code is 4815-1623' } as never,
+      },
+    ];
+    const member = conversation({
+      agents: [{ id: 'g', name: 'Goose', provider: 'goose', role: '' }],
+      messages: [message('m1', { kind: 'user' }, 'Go'), message('m2', { kind: 'agent', agentId: 'g' }, '', { parts })],
+    });
+    const text = JSON.stringify(records(memberTranscript(member, 'g'))[1]!.message.content);
+    expect(text).toContain('[Asked the user for secrets: TOKEN (saved), APP_SECRET (declined)]');
+    expect(text).toContain('[Proposed the fixed command \\"post\\": `python3 post.py` — saved, last run passed]');
+    expect(text).toContain('[Handed the browser to the user (in the chat): Sign in — handed back: \\"Done\\"]');
+    expect(text).toContain('[Asked the user to run `gcloud auth login` themselves — started, exited]');
+    // The run's output stays on its card: it reaches the team only when the user sends it.
+    expect(text).not.toContain('posted with');
+    expect(text).not.toContain('4815-1623');
+  });
+
   it('is empty while nothing has been said', () => {
     expect(threadTranscript(conversation({ messages: [] }))).toBe('');
     expect(threadTranscript(conversation({ messages: [message('m1', { kind: 'system' }, 'note')] }))).toBe('');

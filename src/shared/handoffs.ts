@@ -341,10 +341,10 @@ export function withoutHandoffBlocks(text: string): string {
 export function secretValueProblem(value: string): 'empty' | 'short' | 'long' | 'lines' | undefined {
   const v = value.trim();
   if (!v) return 'empty';
+  if (/[\r\n\u0000]/.test(v)) return 'lines';
+  if (new TextEncoder().encode(v).length > HANDOFF_LIMITS.secretValue) return 'long';
   // Shorter, it could not be masked in output without masking ordinary words (`maskValues`).
   if ([...v].length < 4) return 'short';
-  if (new TextEncoder().encode(v).length > HANDOFF_LIMITS.secretValue) return 'long';
-  if (/[\r\n\u0000]/.test(v)) return 'lines';
   return undefined;
 }
 

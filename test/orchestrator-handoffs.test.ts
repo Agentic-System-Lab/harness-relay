@@ -359,9 +359,88 @@ describe('fixed command cards', () => {
     const diff = await orchestrator.commandDiff(conv.id, id);
     expect(diff.changed).toEqual(['post.py']);
     expect(diff.diff).toContain('+print("leak")');
-    await orchestrator.tryCommand(conv.id, id, { approve: true });
+    expect(diff.digest).toMatch(/^[0-9a-f]{32}$/);
+    // Changed again after the user looked: their approval is of other code, and is refused.
+    writeFileSync(join(project, 'post.py'), 'print("leak more")\n');
+    await expect(orchestrator.tryCommand(conv.id, id, { approve: diff.digest })).rejects.toMatchObject({ status: 409 });
+    expect(ran).toHaveLength(1);
+    const seen = await orchestrator.commandDiff(conv.id, id);
+    expect(seen.diff).toContain('+print("leak more")');
+    await orchestrator.tryCommand(conv.id, id, { approve: seen.digest });
     await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
     expect(ran).toHaveLength(2);
+    expect((await orchestrator.commandDiff(conv.id, id)).changed).toEqual([]);
+  });
+
+  it('does not run while a run may be writing in its folder', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const locks = (orchestrator as unknown as { dirLocks: Map<string, string> }).dirLocks;
+    locks.set(orchestrator.handoffFolder(conv), 'another-conversation');
+    try {
+      await withLang('en', () => orchestrator.tryCommand(conv.id, id));
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('error'));
+      expect(partOf(conv.id, 'command').part.run!.reason).toMatch(/writing in its folder/);
+      expect(ran).toHaveLength(0);
+    } finally {
+      locks.delete(orchestrator.handoffFolder(conv));
+    }
+  });
+
+  it('marks a proposal that would replace a saved command of the same name', async () => {
+    const { conv, msg, part } = await propose();
+    expect(part.replaces).toBeUndefined();
+    await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    fake.reply = () => 'Another.\n\n<command name="post" hosts="evil.example">python3 other.py</command>';
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    const last = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(last.parts.find((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command')!.replaces).toBe(true);
+  });
+
+  it('stops its runs at shutdown', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    let aborted = false;
+    const deps = orchestrator.fixedCommandDeps;
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      runProcess: (async (p: { signal?: AbortSignal }) =>
+        new Promise((done) =>
+          p.signal!.addEventListener('abort', () => {
+            aborted = true;
+            done({
+              code: null,
+              signal: 'SIGTERM',
+              stdout: '',
+              stdoutBytes: Buffer.alloc(0),
+              stdoutTruncated: false,
+              stdoutSize: 0,
+              stderr: '',
+              aborted: true,
+              timedOut: false,
+            });
+          }),
+        )) as never,
+    };
+    const closing = orchestrator as unknown as { closing: boolean };
+    try {
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      // A server that stopped during it starts with the card ended, so that it can be tried again.
+      const { Store } = await import('../src/server/store');
+      const after = new Store(db).get(conv.id)!;
+      const card = agentMessages(after)
+        .flatMap((m) => m.parts)
+        .find((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command')!;
+      expect(card.run).toMatchObject({ status: 'error' });
+      orchestrator.stopAll();
+      await vi.waitFor(() => expect(aborted).toBe(true));
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).not.toBe('running'));
+    } finally {
+      closing.closing = false;
+      orchestrator.fixedCommandDeps = deps;
+    }
   });
 
   it('dismisses a proposal, telling the team', async () => {
@@ -396,6 +475,23 @@ describe('fixed command cards', () => {
     const sent = await orchestrator.answerOutbox(conv.id, item.id, 'send');
     expect(sent.status).toBe('sent');
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
+  });
+
+  it('refuses an outbox run once the command it was queued for changed its hosts or secrets', async () => {
+    const { conv, msg, part } = await propose();
+    const saved = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    fake.reply = () => 'Ready.\n\n<command-run name="post">Hi</command-run>';
+    await orchestrator.send(conv.id, 'post it');
+    await finish(conv.id);
+    const item = agentMessages(store.get(conv.id)!)
+      .at(-1)!
+      .parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox')!;
+    // The same name and line, another host: what the user would send is not what they saw.
+    const folder = orchestrator.handoffFolder(conv);
+    settings.handoffs.saveCommand(folder, saved.id, { ...saved, hosts: ['evil.example'] }, settings.handoffs.pin(saved.id)!);
+    const result = await orchestrator.answerOutbox(conv.id, item.id, 'send');
+    expect(result.status).not.toBe('sent');
+    expect(ran).toHaveLength(0);
   });
 });
 
@@ -476,6 +572,37 @@ describe('a schedule that runs a fixed command first', () => {
     expect(calls).toHaveLength(0);
     settings.handoffs.deleteCommand(id);
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('failed');
+  });
+
+  it('runs only when its message could go now, and keeps what it found for the retry when the team turned busy', async () => {
+    const { conv } = await scheduled();
+    const reserved = (orchestrator as unknown as { reserved: Map<string, Promise<void>> }).reserved;
+    // Busy before: nothing runs.
+    reserved.set(conv.id, Promise.resolve());
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('busy');
+    expect(ran).toHaveLength(0);
+    // Busy only once it ran: what it found waits for the retry, which does not run it again.
+    reserved.delete(conv.id);
+    play = () => {
+      reserved.set(conv.id, Promise.resolve());
+      return { code: 10, stdout: '1 new item' };
+    };
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('busy');
+    expect(ran).toHaveLength(1);
+    reserved.delete(conv.id);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    expect(ran).toHaveLength(1);
+    expect(store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!.event).toContain('1 new item');
+  });
+
+  it('does not run while the conversation waits for the user', async () => {
+    const { conv } = await scheduled();
+    const c = store.get(conv.id)!;
+    c.pause = { mode: 'relay', askers: ['x'], rest: [], participants: [], round: 1 } as never;
+    store.saveMeta(c);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('skipped');
+    expect(ran).toHaveLength(0);
   });
 });
 

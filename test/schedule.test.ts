@@ -206,6 +206,12 @@ describe('validateSchedule', () => {
     expect(message({ ...valid, timeZone: 'Mars/Olympus' })).toMatch(/Unknown time zone/);
   });
 
+  it('keeps a fixed command only for an automation on its own times, never for one that waits for something', () => {
+    const at = (repeat: unknown) => withLang('en', () => validateSchedule({ ...valid, repeat, command: 'cmd-1' }, MON));
+    expect(at({ kind: 'interval', hours: 1 }).command).toBe('cmd-1');
+    expect(at({ kind: 'event', triggers: [{ source: 'mail', account: 'work' }] }).command).toBeUndefined();
+  });
+
   it('takes what an automation waits for: a new mail in a folder of an account, with conditions', () => {
     const repeat = (trigger: unknown) =>
       withLang('en', () => validateSchedule({ ...valid, repeat: { kind: 'event', trigger } }, MON).repeat);
