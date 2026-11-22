@@ -10149,6 +10149,18 @@ a.share-action {
   margin: 0;
 }
 
+/* New tab, right beside the title; Close stays at the end. */
+.app-preview .drawer-head {
+  gap: 10px;
+}
+
+.app-preview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: auto;
+}
+
 .app-preview-settings,
 .app-preview-problems {
   display: grid;

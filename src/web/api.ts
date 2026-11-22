@@ -591,6 +591,17 @@ export const api = {
       target,
       signal,
     ),
+  /** The app a finished turn made, from the files it added or changed (404: none that runs). */
+  appPreviewChanged: (id: string, messageId: string, signal?: AbortSignal) =>
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/changed`,
+      { messageId },
+      signal,
+    ),
+  /** A single-use address that opens a running preview's page in a tab of its own. */
+  appPreviewTab: (id: string, session: string) =>
+    request<{ url: string }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/tab`, {}),
   startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
     request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
   /**

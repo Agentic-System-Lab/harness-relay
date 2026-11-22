@@ -11,7 +11,7 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews } from './appPreviews';
-import { detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
+import { changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import type { AppPreviewRequest, PreviewTerminalEvent } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
@@ -2096,6 +2096,12 @@ export function createApp({
     const input = await body<Partial<AppPreviewRequest>>(c);
     return c.json(detectPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
   });
+  // The app a finished turn made, from the files it added or changed (the card, the header's button and the panel opening by itself).
+  app.post('/api/conversations/:id/preview/changed', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const input = await body<{ messageId?: unknown }>(c);
+    return c.json(changedPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
+  });
   app.post('/api/conversations/:id/preview', async (c) => {
     const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));
     const address = previewAddress(parent, servingPort(), CONFIG.previewDomain);
@@ -2194,6 +2200,12 @@ export function createApp({
       await terminal.resize(cols, rows);
     }
     return c.json({ ok: true });
+  });
+  // A single-use address that opens the preview's page in a tab of its own, for the browser that started it.
+  app.post('/api/conversations/:id/preview/:previewId/tab', (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    return c.json({ url: previews.tab(conv.id, c.req.param('previewId'), sessions.get(c.req.raw)) });
   });
   // Runs the main service again: with its own command, or with the command line given.
   app.post('/api/conversations/:id/preview/:previewId/run', async (c) => {

@@ -235,7 +235,9 @@ describe('preview request and response boundaries', () => {
       expect((await view(service, url, '/', { headers: { ...reload, cookie } })).status).toBe(200);
       expect((await view(service, url, '/', { headers: reload })).status).toBe(403);
       expect((await view(service, url, '/', { headers: { ...reload, cookie, 'sec-fetch-site': 'cross-site' } })).status).toBe(403);
-      expect((await view(service, url, '/', { headers: { ...reload, cookie, 'sec-fetch-dest': 'document' } })).status).toBe(403);
+      // The page's own tab (see `tab`): the user's navigation there, with its cookie.
+      expect((await view(service, url, '/', { headers: { ...reload, cookie, 'sec-fetch-dest': 'document' } })).status).toBe(200);
+      expect((await view(service, url, '/', { headers: { ...reload, 'sec-fetch-dest': 'document' } })).status).toBe(403);
       const form = await view(service, url, '/api/todos', { method: 'POST', headers, body: '{}' });
       expect(form.headers.get('set-cookie')).toBeNull();
       expect(form.headers.get('access-control-allow-origin')).toBeNull();
@@ -264,6 +266,46 @@ describe('preview request and response boundaries', () => {
       await service.close();
     }
   });
+  it('opens the page in a tab of its own: a single-use address for the browser that started it, for a minute', async () => {
+    let now = 0;
+    const request = async () => new Response('<p>the app</p>', { headers: { 'content-type': 'text/html' } });
+    const service = new AppPreviews(
+      'relay',
+      async () => ({ request, stop: async () => {} }),
+      () => now,
+    );
+    const s = await service.start('chat', target, address(), parent, new AbortController().signal, undefined, undefined, 'browser-1');
+    const frame = new URL(s.url);
+    expect((await view(service, frame, frame.pathname)).status).toBe(200);
+    expect(() => service.tab('chat', s.id, 'browser-2')).toThrow(expect.objectContaining({ status: 403 }));
+    expect(() => service.tab('chat', s.id, undefined)).toThrow(expect.objectContaining({ status: 403 }));
+    expect(() => service.tab('other', s.id, 'browser-1')).toThrow(expect.objectContaining({ status: 404 }));
+    const tab = new URL(service.tab('chat', s.id, 'browser-1'));
+    expect(tab.origin).toBe(frame.origin);
+    expect(tab.pathname).not.toBe(frame.pathname);
+    // Opened from Relay's page, as a new tab is: cross-site, once.
+    const navigate = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+    const opened = await view(service, tab, tab.pathname, { headers: { ...navigate, 'sec-fetch-site': 'cross-site' } });
+    expect(opened.status).toBe(200);
+    const cookie = opened.headers.get('set-cookie')!.split(';')[0]!;
+    expect((await view(service, tab, tab.pathname)).status).toBe(403);
+    // The tab's reload and address bar are the user's own: with its cookie, the page; without, nothing.
+    expect(await (await view(service, tab, '/', { headers: { ...navigate, 'sec-fetch-site': 'none', cookie } })).text()).toContain(
+      'the app',
+    );
+    expect((await view(service, tab, '/', { headers: { ...navigate, 'sec-fetch-site': 'none' } })).status).toBe(403);
+    expect((await view(service, tab, '/', { headers: { ...navigate, 'sec-fetch-site': 'cross-site', cookie } })).status).toBe(403);
+    // Good for a minute, and at most eight waiting at once.
+    const late = new URL(service.tab('chat', s.id, 'browser-1'));
+    now += 61_000;
+    expect((await view(service, late, late.pathname)).status).toBe(403);
+    for (let i = 0; i < 8; i++) service.tab('chat', s.id, 'browser-1');
+    expect(() => service.tab('chat', s.id, 'browser-1')).toThrow(expect.objectContaining({ status: 429 }));
+    await service.stop('chat', s.id);
+    expect(() => service.tab('chat', s.id, 'browser-1')).toThrow(expect.objectContaining({ status: 404 }));
+    await service.close();
+  });
+
   it('lets a browser without loopback cookies use its redeemed local hostname only for same-origin requests', async () => {
     const service = new AppPreviews('relay', async () => ({ request: async () => new Response('ok'), stop: async () => {} }));
     try {

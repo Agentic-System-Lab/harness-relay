@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
 import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES } from '../shared/types';
@@ -284,6 +284,88 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
   }
   if (kind === 'truncated') return { folder, entry, mode: 'static' as const };
   throw new HttpError(400, t().previewProjectEntry, PREVIEW_NO_RECIPE);
+}
+
+/** A file or folder at or below a root. */
+function inside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** A regular file there, not a link (what `hasEntry` accepts, before its finer checks). */
+function regularFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Where the files a turn added or changed are now: the member's own worktree for an isolated change. */
+function changedFiles(conv: Conversation, msg: Conversation['messages'][number], lookup: Lookup): string[] {
+  const worktrees = replyWorktrees(conv, msg, lookup);
+  const files: string[] = [];
+  for (const c of msg.changes ?? []) {
+    const base = c.isolated ? worktrees.find((w) => w.root === c.root && (!c.branch || w.branch === c.branch))?.path : c.root;
+    if (!base) continue;
+    for (const f of c.files) if (f.status !== 'D') files.push(join(base, ...f.path.split('/')));
+  }
+  return files;
+}
+
+/**
+ * The app a finished turn made, from the files it added or changed: a compose file, a Dockerfile or
+ * a package.json says its folder runs; a page belongs to the nearest folder above it, inside the
+ * same working directory, that has one of those, or else opens as it is. The shallowest such folder
+ * is the app (the more telling file first at the same depth), as `detectPreviewTarget` then confirms.
+ */
+export function changedPreviewTarget(conv: Conversation, input: { messageId?: unknown }, lookup: Lookup, settings?: SettingsStore) {
+  const { messageId } = input;
+  if (typeof messageId !== 'string' || messageId.length > 256) throw new HttpError(400, t().previewTarget);
+  const msg = conv.messages.find((m) => m.id === messageId && m.author.kind === 'agent');
+  if (!msg) throw missing();
+  const roots = mediaRoots(conv, msg, lookup)
+    .slice(0, -1)
+    .flatMap((dir) => {
+      try {
+        return [realpathSync.native(dir)];
+      } catch {
+        return [];
+      }
+    });
+  const runs = [...CONTAINER_ENTRIES, 'package.json'];
+  const found = new Map<string, { entry?: string; depth: number; rank: number }>();
+  for (const file of changedFiles(conv, msg, lookup)) {
+    const name = basename(file);
+    const page = /\.html?$/i.test(name);
+    if ((!page && !runs.includes(name)) || file.split(sep).includes('node_modules')) continue;
+    const root = roots.find((r) => inside(r, file));
+    if (!root) continue;
+    let folder = dirname(file);
+    let entry: string | undefined;
+    if (page) {
+      let dir = folder;
+      while (!runs.some((n) => regularFile(join(dir, n)))) {
+        if (dir === root || !inside(root, dirname(dir))) break;
+        dir = dirname(dir);
+      }
+      if (runs.some((n) => regularFile(join(dir, n)))) folder = dir;
+      else entry = name;
+    }
+    const rank = entry ? 3 : runs.findIndex((n) => regularFile(join(folder, n))) < CONTAINER_ENTRIES.length ? 0 : 1;
+    const depth = relative(root, folder).split(sep).filter(Boolean).length;
+    const known = found.get(folder);
+    if (!known || rank < known.rank) found.set(folder, { entry, depth, rank });
+  }
+  const ranked = [...found].sort(([, a], [, b]) => a.depth - b.depth || a.rank - b.rank);
+  for (const [folder, { entry }] of ranked) {
+    try {
+      return detectPreviewTarget(conv, { folder, messageId, ...(entry && { entry }) }, lookup, settings);
+    } catch {
+      /* Not one that runs (no lockfile, no script): the next. */
+    }
+  }
+  throw missing();
 }
 
 /** Browser writes show their own Origin. Proxies (including Vite's) preserve the UI Host. */

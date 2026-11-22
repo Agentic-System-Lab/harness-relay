@@ -6,10 +6,12 @@ import {
   NO_TERMINAL,
   PREVIEW_MIN_WIDTH,
   bestPreviewPath,
-  changedFilePath,
   filePreviewTarget,
+  finishedReplies,
   linkedFiles,
+  localPage,
   nextTerminalState,
+  opensByItself,
   previewSuggestion,
   previewWidth,
   startsByItself,
@@ -18,6 +20,7 @@ import {
   previewFrameError,
   recordPreviewError,
   safePreviewSession,
+  shownApp,
   sseMessages,
   terminalEvent,
   terminalTail,
@@ -155,8 +158,14 @@ describe('the app the team made', () => {
     parts: [{ type: 'text', text: 'Go' }],
     status: 'done',
   });
-  const changes = (root: string, ...paths: string[]): MessageChanges[] => [
-    { root, base: 'a', head: 'b', isolated: false, files: paths.map((path) => ({ path, status: 'A' as const, added: 1, deleted: 0 })) },
+  const changes = (...paths: string[]): MessageChanges[] => [
+    {
+      root: '/w',
+      base: 'a',
+      head: 'b',
+      isolated: false,
+      files: paths.map((path) => ({ path, status: 'A' as const, added: 1, deleted: 0 })),
+    },
   ];
 
   it('reads the local files a reply links to, as the chat makes links: outside code', () => {
@@ -172,7 +181,7 @@ describe('the app the team made', () => {
     expect(linkedFiles(text)).toEqual(['shots/a b.png', 'site/index.html', 'todo-app/Dockerfile', '/Users/me/app/compose.yaml']);
   });
 
-  it('picks the file a preview starts from: the shallowest folder, then a recipe, npm, an index page', () => {
+  it('picks the linked file a preview starts from: the shallowest folder, then a recipe, npm, an index page', () => {
     expect(bestPreviewPath(['todo-app/public/index.html', 'todo-app/package.json', 'todo-app/Dockerfile', 'README.md'])).toBe(
       'todo-app/Dockerfile',
     );
@@ -182,44 +191,69 @@ describe('the app the team made', () => {
     expect(bestPreviewPath([])).toBeUndefined();
   });
 
-  it('names a changed file as a reply would: relative to the working directory it is in', () => {
-    expect(changedFilePath('/w', 'todo-app/Dockerfile', ['/w'])).toBe('todo-app/Dockerfile');
-    // A working directory inside a larger repository, and Windows paths.
-    expect(changedFilePath('/repo', 'apps/web/index.html', ['/repo/apps'])).toBe('web/index.html');
-    expect(changedFilePath('C:\\repo', 'site\\index.html', ['C:\\repo\\'])).toBe('site/index.html');
-    expect(changedFilePath('/repo', 'other/index.html', ['/repo/apps'])).toBeUndefined();
-  });
-
-  it('suggests the newest finished reply that links or made an app, a link first', () => {
+  it('suggests the newest finished reply that links an app or whose turn made one, a link first', () => {
     const messages = [
       user('u1'),
       reply('r1', 'Planned it.'),
-      reply('r2', 'Built it.', { changes: changes('/w', 'todo-app/src/server.js', 'todo-app/Dockerfile', 'todo-app/package.json') }),
-      reply('r3', 'Reviewed [the server](todo-app/src/server.js).'),
+      reply('r2', 'Built it.', { changes: changes('todo-app/src/server.js', 'todo-app/Dockerfile') }),
+      reply('r3', 'Reviewed [the server](todo-app/src/server.js).', { changes: changes('todo-app/src/server.js') }),
     ];
-    expect(previewSuggestion(messages, ['/w'])).toEqual({ messageId: 'r2', agentName: 'Builder', path: 'todo-app/Dockerfile', index: 2 });
-    const linked = [...messages, reply('r4', 'Try [it](todo-app/public/index.html).', { changes: changes('/w', 'todo-app/Dockerfile') })];
-    expect(previewSuggestion(linked, ['/w'])).toMatchObject({ messageId: 'r4', path: 'todo-app/public/index.html', index: 4 });
-    // Not a reply still being written, nor one that failed, nor a deleted file.
+    // The server finds the app among r2's files; r3 changed none that says how one runs.
+    expect(previewSuggestion(messages)).toEqual({ messageId: 'r2', agentName: 'Builder', index: 2, changed: true });
+    const linked = [...messages, reply('r4', 'Try [it](todo-app/public/index.html).')];
+    // A link alone: suggested, but its turn changed nothing, so it never opens by itself.
+    expect(previewSuggestion(linked)).toEqual({
+      messageId: 'r4',
+      agentName: 'Builder',
+      index: 4,
+      path: 'todo-app/public/index.html',
+      changed: false,
+    });
+    // Not a reply still being written, nor one that failed, nor a deleted file, nor one in node_modules.
     const unfinished = [
       ...messages,
       reply('r5', '[page](next/index.html)', { status: 'streaming' }),
       reply('r6', '[page](broken/index.html)', { status: 'error' }),
       reply('r7', 'Removed it.', {
-        changes: [{ ...changes('/w', 'old/index.html')[0]!, files: [{ path: 'old/index.html', status: 'D', added: 0, deleted: 1 }] }],
+        changes: [{ ...changes('old/index.html')[0]!, files: [{ path: 'old/index.html', status: 'D', added: 0, deleted: 1 }] }],
       }),
+      reply('r8', 'Installed.', { changes: changes('app/node_modules/x/package.json') }),
     ];
-    expect(previewSuggestion(unfinished, ['/w'])?.messageId).toBe('r2');
-    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')], ['/w'])).toBeUndefined();
+    expect(previewSuggestion(unfinished)?.messageId).toBe('r2');
+    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')])).toBeUndefined();
   });
 
-  it('reads a reply again once its changes arrive, and when the working directories change', () => {
+  it('reads a reply again once its changes arrive', () => {
     const first = reply('r1', 'Done.');
-    expect(previewSuggestion([first], ['/w'])).toBeUndefined();
+    expect(previewSuggestion([first])).toBeUndefined();
     // The server sends the reply again with its changes: a new object.
-    const withChanges = { ...first, changes: changes('/w', 'site/index.html') };
-    expect(previewSuggestion([withChanges], ['/w'])?.path).toBe('site/index.html');
-    expect(previewSuggestion([withChanges], ['/w/site'])?.path).toBe('index.html');
+    expect(previewSuggestion([{ ...first, changes: changes('site\\index.html') }])).toMatchObject({ messageId: 'r1', changed: true });
+  });
+
+  it('opens by itself only an app a new turn changed, once per folder, on a wide screen on this computer, over nothing', () => {
+    const app = { changed: true, fresh: true, folder: '/w/site' };
+    const o = { opened: new Set<string>(), panelOpen: false, narrow: false, local: true };
+    expect(opensByItself(app, o)).toBe(true);
+    expect(opensByItself({ ...app, changed: false }, o)).toBe(false);
+    expect(opensByItself({ ...app, fresh: false }, o)).toBe(false);
+    expect(opensByItself(app, { ...o, opened: new Set(['/w/site']) })).toBe(false);
+    expect(opensByItself(app, { ...o, panelOpen: true })).toBe(false);
+    expect(opensByItself(app, { ...o, narrow: true })).toBe(false);
+    expect(opensByItself(app, { ...o, local: false })).toBe(false);
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) expect(localPage(host)).toBe(true);
+    for (const host of ['relay.tail1234.ts.net', '192.168.1.20', 'localhost.example']) expect(localPage(host)).toBe(false);
+  });
+
+  it('lists the finished replies, by id', () => {
+    expect(finishedReplies([user('u1'), reply('r1', ''), reply('r2', '', { status: 'streaming' }), reply('r3', '')])).toEqual(['r1', 'r3']);
+  });
+
+  it('shows an app by its folder in the working directory and its entry', () => {
+    expect(shownApp('/w/todo-app', 'Dockerfile', ['/w'])).toBe('todo-app/Dockerfile');
+    expect(shownApp('/w', 'index.html', ['/w/'])).toBe('index.html');
+    expect(shownApp('C:\\w\\site', 'index.html', ['C:\\w'])).toBe('site/index.html');
+    // In a member's worktree, or a working directory reached by another path: all of it.
+    expect(shownApp('/data/worktrees/a/site', 'index.html', ['/w'])).toBe('/data/worktrees/a/site/index.html');
   });
 
   it('starts by itself only what runs offline, or anything in full access', () => {

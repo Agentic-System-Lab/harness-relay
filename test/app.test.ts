@@ -20,6 +20,7 @@ import { HttpError } from '../src/server/errors';
 import { removeTree } from '../src/server/fsRemove';
 import { triggerKey } from '../src/shared/schedule';
 import {
+  type MessageChanges,
   ATTACHMENT_LIMITS,
   FILE_LIMITS,
   OPEN_PROVIDERS,
@@ -662,6 +663,109 @@ describe('app preview control and content', () => {
     writeFileSync(join(worktree, 'package.json'), '{}');
     expect((await target({ messageId: 'isolated', entry: 'package.json' })).status).toBe(400);
   });
+  it('finds the app a turn made from the files it changed: the nearest folder that says how it runs, in the files of its own', async () => {
+    const second = join(root, 'second-' + n);
+    mkdirSync(second);
+    const conv = await createConversation({ extraCwds: [second] });
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const changed = (id: string, repo: string, files: string[], extra: Partial<MessageChanges> = {}) =>
+      live.messages.push({
+        id,
+        author: { kind: 'agent', agentId },
+        createdAt: Date.now(),
+        parts: [],
+        status: 'done',
+        changes: [
+          {
+            root: repo,
+            base: 'b',
+            head: 'h',
+            isolated: false,
+            files: files.map((path) => ({ path, status: 'A' as const, added: 1, deleted: 0 })),
+            ...extra,
+          },
+        ],
+      });
+    const find = (body: object) => app.request('/api/conversations/' + conv.id + '/preview/changed', json('POST', body));
+    const found = async (messageId: string) => (await find({ messageId })).json();
+    // A page in an npm project's public/: the project, which runs its start script.
+    mkdirSync(join(project, 'shop', 'public'), { recursive: true });
+    writeFileSync(join(project, 'shop', 'public', 'index.html'), '<h1>shop</h1>');
+    writeFileSync(join(project, 'shop', 'package.json'), JSON.stringify({ scripts: { start: 'node server.js' } }));
+    writeFileSync(join(project, 'shop', 'package-lock.json'), emptyLockfile);
+    changed('page', project, ['shop/public/index.html']);
+    expect(await found('page')).toEqual({ folder: join(project, 'shop'), entry: 'package.json', mode: 'server' });
+    // At the same depth, a Dockerfile says more than a package.json; what runs nothing does not count.
+    mkdirSync(join(project, 'api'));
+    writeFileSync(join(project, 'api', 'Dockerfile'), 'FROM scratch');
+    changed('both', project, ['shop/public/index.html', 'api/Dockerfile', 'notes.md']);
+    expect(await found('both')).toEqual({ folder: join(project, 'api'), entry: 'Dockerfile', mode: 'container' });
+    // A page with nothing above it that runs: the page as it is.
+    mkdirSync(join(project, 'docs'));
+    writeFileSync(join(project, 'docs', 'guide.html'), '<h1>guide</h1>');
+    changed('guide', project, ['docs/guide.html']);
+    expect(await found('guide')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static' });
+    // A project without a lockfile does not run: the next candidate, or none.
+    mkdirSync(join(project, 'lib'));
+    writeFileSync(join(project, 'lib', 'package.json'), JSON.stringify({ scripts: { start: 'node .' } }));
+    changed('unlocked', project, ['lib/package.json', 'docs/guide.html']);
+    expect(await found('unlocked')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static' });
+    changed('nothing', project, ['lib/package.json']);
+    expect((await find({ messageId: 'nothing' })).status).toBe(404);
+    // The second working directory: its own project, though the first has one at the same place.
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { start: 'node a.js' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    writeFileSync(join(second, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(second, 'package-lock.json'), emptyLockfile);
+    changed('second', second, ['package.json']);
+    expect(await found('second')).toEqual({ folder: second, entry: 'package.json', mode: 'build' });
+    // A parallel member's change: the files in its own worktree, not the working directory's.
+    const worktree = join(root, 'changed-worktree-' + n);
+    mkdirSync(join(worktree, 'site'), { recursive: true });
+    writeFileSync(join(worktree, 'site', 'index.html'), '<h1>mine</h1>');
+    live.worktrees[agentId] = [{ root: project, path: worktree, branch: 'relay/mine', base: 'b', needsReset: false }];
+    changed('isolated', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
+    expect(await found('isolated')).toEqual({ folder: join(worktree, 'site'), entry: 'index.html', mode: 'static' });
+    // A deleted file, another's reply, or no reply at all.
+    live.messages.push({
+      id: 'gone',
+      author: { kind: 'agent', agentId },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'done',
+      changes: [
+        { root: project, base: 'b', head: 'h', isolated: false, files: [{ path: 'api/Dockerfile', status: 'D', added: 0, deleted: 1 }] },
+      ],
+    });
+    expect((await find({ messageId: 'gone' })).status).toBe(404);
+    expect((await find({ messageId: 'missing' })).status).toBe(404);
+    expect((await find({})).status).toBe(400);
+  });
+
+  it('gives the browser that started a preview a single-use address that opens its page in a tab of its own', async () => {
+    const conv = await createConversation();
+    writeFileSync(join(project, 'index.html'), '<h1>in a tab</h1>');
+    const route = '/api/conversations/' + conv.id + '/preview';
+    const preview = (await (await app.request(route, json('POST', { mode: 'static', folder: '', entry: 'index.html' }))).json()) as {
+      url: string;
+      id: string;
+    };
+    const res = await app.request(route + '/' + preview.id + '/tab', json('POST', {}));
+    expect(res.status).toBe(200);
+    const tab = new URL(((await res.json()) as { url: string }).url);
+    expect(tab.host).toBe(new URL(preview.url).host);
+    const open = (path: string, headers = {}) => app.request(tab.origin + path, { headers: { host: tab.host, ...headers } });
+    const opened = await open(tab.pathname);
+    expect(opened.status).toBe(200);
+    const cookie = opened.headers.get('set-cookie')!.split(';')[0]!;
+    expect((await open(tab.pathname)).status).toBe(403);
+    const reload = { cookie, 'sec-fetch-site': 'none', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+    expect(await (await open('/', reload)).text()).toContain('in a tab');
+    expect((await app.request(route + '/unknown/tab', json('POST', {}))).status).toBe(404);
+    expect((await app.request(route + '/' + preview.id + '/tab', json('POST', {}, { origin: 'http://localhost:5555' }))).status).toBe(403);
+  });
+
   it('serves only the selected snapshot at its preview origin and revokes it when the conversation is deleted', async () => {
     const conv = await createConversation();
     writeFileSync(join(project, 'index.html'), '<h1>my preview</h1>');

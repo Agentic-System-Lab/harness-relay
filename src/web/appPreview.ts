@@ -116,6 +116,8 @@ export interface PreviewSelection {
   auto?: boolean;
   /** False: the panel shows the target and waits for Start preview (see `startsByItself`). */
   autoStart?: boolean;
+  /** The chat's permission when Relay opened it: what the panel finds is checked against it again. */
+  permission?: Permission;
 }
 
 // --- The app the team made: what the panel opens by itself, the card and the header's button ---
@@ -163,53 +165,91 @@ export function bestPreviewPath(paths: readonly string[]): string | undefined {
   return candidates.sort((a, b) => depth(a) - depth(b) || entryRank(entry(a)) - entryRank(entry(b)))[0];
 }
 
-/** A file a turn changed, as a reply would link it: relative to the working directory it is in. */
-export function changedFilePath(root: string, file: string, cwds: readonly string[]): string | undefined {
-  const clean = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
-  const absolute = `${clean(root)}/${clean(file)}`;
-  for (const cwd of cwds.map(clean)) if (cwd && absolute.startsWith(cwd + '/')) return absolute.slice(cwd.length + 1);
-  return undefined;
-}
-
 export interface PreviewSuggestion {
   /** The reply it comes from: its author's files (its own worktree in parallel mode). */
   messageId: string;
   agentName: string;
-  /** As a reply links it (see `filePreviewTarget`). */
-  path: string;
   /** Where the reply is in the conversation. */
   index: number;
+  /** A file the reply links to, as written (see `filePreviewTarget`); none: the app is in the files its turn changed, which the server finds (`changedPreviewTarget`). */
+  path?: string;
+  /** Its turn added or changed files: only such a reply may open by itself (a link alone may not). */
+  changed: boolean;
+}
+
+/** A file a turn added or changed that may say how an app runs, or be its page. */
+function appFile(path: string): boolean {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  return Boolean(filePreviewTarget(name)) && !path.split('/').includes('node_modules');
 }
 
 /**
  * The app the team made last: the newest finished reply that links a page, a package.json, a
- * Dockerfile or a compose file, or whose turn added or changed one (a link first, as its author
- * pointed at it).
+ * Dockerfile or a compose file (a link first, as its author pointed at it), or whose turn added or
+ * changed one.
  */
-export function previewSuggestion(messages: readonly ChatMessage[], cwds: readonly string[]): PreviewSuggestion | undefined {
-  const dirs = cwds.join('\0');
+export function previewSuggestion(messages: readonly ChatMessage[]): PreviewSuggestion | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const msg = messages[index]!;
     if (msg.author.kind !== 'agent' || msg.status !== 'done') continue;
-    let read = replyPaths.get(msg);
-    if (read?.dirs !== dirs) {
-      read = { dirs, path: replyPreviewPath(msg, cwds) };
-      replyPaths.set(msg, read);
+    let read = replyApps.get(msg);
+    if (!read) {
+      read = replyApp(msg);
+      replyApps.set(msg, read);
     }
-    if (read.path) return { messageId: msg.id, agentName: msg.agentName ?? '', path: read.path, index };
+    if (read.path || read.changedApp)
+      return {
+        messageId: msg.id,
+        agentName: msg.agentName ?? '',
+        index,
+        ...(read.path !== undefined && { path: read.path }),
+        changed: read.changed,
+      };
   }
   return undefined;
 }
 
 /** Each finished reply read once: the conversation is a new object with every word streamed. */
-const replyPaths = new WeakMap<ChatMessage, { dirs: string; path?: string }>();
+const replyApps = new WeakMap<ChatMessage, { path?: string; changed: boolean; changedApp: boolean }>();
 
-function replyPreviewPath(msg: ChatMessage, cwds: readonly string[]): string | undefined {
+function replyApp(msg: ChatMessage): { path?: string; changed: boolean; changedApp: boolean } {
   const text = msg.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-  const changed = (msg.changes ?? []).flatMap((c) =>
-    c.files.filter((f) => f.status !== 'D').flatMap((f) => changedFilePath(c.root, f.path, cwds) ?? []),
-  );
-  return bestPreviewPath(linkedFiles(text)) ?? bestPreviewPath(changed);
+  const files = (msg.changes ?? []).flatMap((c) => c.files.filter((f) => f.status !== 'D').map((f) => f.path.replace(/\\/g, '/')));
+  return { path: bestPreviewPath(linkedFiles(text)), changed: files.length > 0, changedApp: files.some(appFile) };
+}
+
+/** The conversation's finished replies, by id. */
+export function finishedReplies(messages: readonly ChatMessage[]): string[] {
+  return messages.filter((m) => m.author.kind === 'agent' && m.status === 'done').map((m) => m.id);
+}
+
+/**
+ * Whether the app a reply made opens by itself: only from a turn that changed files, only a reply
+ * the page had not dealt with yet (never one there when it opened, nor one a Retry or an edit falls
+ * back to), each folder once, never over another preview, nor on a phone or tablet, where it would
+ * cover the chat, nor in a browser elsewhere, which may not reach the preview's hostname.
+ */
+export function opensByItself(
+  app: { changed: boolean; fresh: boolean; folder: string },
+  o: { opened: ReadonlySet<string>; panelOpen: boolean; narrow: boolean; local: boolean },
+): boolean {
+  return app.changed && app.fresh && !o.opened.has(app.folder) && !o.panelOpen && !o.narrow && o.local;
+}
+
+/** This page was opened on the computer running Relay (its own hostnames reach the previews). */
+export function localPage(hostname: string): boolean {
+  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
+}
+
+/** What the card shows of an app: its folder relative to the working directory it is in, and its entry. */
+export function shownApp(folder: string, entry: string, cwds: readonly string[]): string {
+  const clean = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const where = clean(folder);
+  for (const cwd of cwds.map(clean)) {
+    if (where === cwd) return entry;
+    if (cwd && where.startsWith(cwd + '/')) return `${where.slice(cwd.length + 1)}/${entry}`;
+  }
+  return `${where}/${entry}`;
 }
 
 /**

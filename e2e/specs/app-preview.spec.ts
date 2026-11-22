@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, previewControls, send } from '../support/app';
+import { composer, finishedReply, openTeamChat, previewControls, replies, send } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
 
 test('Files previews a static site, rebuilds edits, stops it and copies errors to an editable draft', async ({ page, relay }) => {
@@ -116,6 +116,13 @@ test.describe('the app the team made', () => {
     // Once the team has answered, a card offers it.
     const card = page.getByRole('region', { name: 'The app is ready to preview' });
     await expect(card).toContainText('site/index.html · @Claude');
+    // New tab, beside the title: the page alone in a tab of its own, cut off from this one, and its own reload works.
+    const [tab] = await Promise.all([page.context().waitForEvent('page'), panel.getByRole('button', { name: 'New tab' }).click()]);
+    await expect(tab.locator('body')).toContainText('Written by Claude');
+    expect(await tab.evaluate(() => window.opener)).toBeNull();
+    await tab.reload();
+    await expect(tab.locator('body')).toContainText('Written by Claude');
+    await tab.close();
     // The header's button hides it without stopping it: shown again, it is the same run.
     const src = await panel.locator('iframe').getAttribute('src');
     await toggle.click();
@@ -139,9 +146,39 @@ test.describe('the app the team made', () => {
     await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
     // The next question puts the card away until the team has answered it.
     await send(page, 'Thanks');
+    await expect(replies(page, 'Claude')).toHaveCount(2);
     await finishedReply(page, 'Claude');
-    await expect(page.locator('.msg-user')).toHaveCount(2);
     await expect(card).toHaveCount(0);
+  });
+
+  test('an app opens by itself once, and never over another preview', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'site'));
+    writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>Mine</h1>');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    const panel = page.getByLabel('App preview', { exact: true });
+    // A preview the user opened stays: the page the team writes waits in the card.
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const files = page.getByRole('dialog', { name: 'Files' });
+    await files.getByRole('button', { name: 'site', exact: true }).click();
+    await files.getByRole('button', { name: 'Preview this folder' }).click();
+    await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Mine');
+    await send(page, 'Make a page e2e:write=app/index.html');
+    await finishedReply(page, 'Claude');
+    await expect(page.getByRole('region', { name: 'The app is ready to preview' })).toContainText('app/index.html');
+    await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Mine');
+    await panel.getByRole('button', { name: 'Close' }).click();
+    // Another app opens by itself; closed, it does not open again when the next turn changes it.
+    await send(page, 'Make another e2e:write=other/index.html');
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    await finishedReply(page, 'Claude');
+    await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
+    await expect(panel.locator('.app-preview-summary')).toHaveText('other · @Claude');
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await send(page, 'Change it e2e:write=other/index.html');
+    await expect(replies(page, 'Claude')).toHaveCount(3);
+    await finishedReply(page, 'Claude');
+    await expect(page.getByRole('region', { name: 'The app is ready to preview' })).toBeVisible();
+    await expect(panel).toHaveCount(0);
   });
 
   test('a Dockerfile the team writes opens by itself but waits for Start preview below full access', async ({ page, relay }) => {
@@ -360,6 +397,24 @@ test.describe('Docker setup for previews', () => {
     expect(docker.installs).toBe(2);
   });
 
+  test('an npm project the team makes opens by itself and waits for Docker without opening its setup', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'web'));
+    writeFileSync(join(relay.workDir, 'web', 'package.json'), JSON.stringify({ scripts: { build: 'node build.cjs' } }));
+    writeLockfile(join(relay.workDir, 'web'));
+    const docker = await mockDocker(page);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    // The page it writes belongs to the project above it.
+    await send(page, 'Add the page e2e:write=web/public/index.html');
+    await finishedReply(page, 'Claude');
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel).toContainText(join(relay.workDir, 'web'));
+    await expect(panel.getByRole('button', { name: 'Set up Docker' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Set up Docker' })).toHaveCount(0);
+    expect(docker.starts).toEqual([]);
+    await panel.getByRole('button', { name: 'Set up Docker' }).click();
+    await expect(page.getByRole('dialog', { name: 'Set up Docker' }).getByRole('button', { name: 'Install Docker' })).toBeVisible();
+  });
+
   test('an installed engine can be checked again and the pending backend opens once when it becomes ready', async ({ page, relay }) => {
     writeFileSync(join(relay.workDir, 'package.json'), JSON.stringify({ scripts: { build: 'node build.cjs', start: 'node server.cjs' } }));
     writeLockfile(relay.workDir);
@@ -442,13 +497,13 @@ test.describe('container previews', () => {
     await send(page, 'Try the API.\n[API](api/Dockerfile)');
     await (await finishedReply(page, 'Claude')).getByRole('button', { name: 'Preview app' }).click();
     const panel = page.getByLabel('App preview', { exact: true });
-    await expect(panel).toContainText('The app runs in a Docker container with no network.');
     await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Served from a container');
     await expect(panel.getByRole('radio', { name: 'Page' })).toBeChecked();
     await panel.getByRole('radio', { name: 'Terminal' }).click();
     await expect(panel.locator('.xterm-rows')).toContainText('#1 building');
     await expect(panel.locator('.xterm-rows')).toContainText('serving on 8000');
     await previewControls(panel);
+    await expect(panel).toContainText('The app runs in a Docker container with no network.');
     await expect(panel.getByRole('textbox', { name: 'Command' })).toHaveValue('python app.py');
     await panel.locator('.xterm-screen').click();
     await page.keyboard.type('hi');

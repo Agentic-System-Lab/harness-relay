@@ -134,10 +134,6 @@ export function replies(page: Page, name: string): Locator {
 }
 
 /**
- * A member's latest reply, once it has finished streaming (within `timeoutMs`: a turn in Harness
- * Relay's own sandbox starts the sandbox first, and the first of a server checks that it works).
- */
-/**
  * Open the app preview panel's source and controls, which fold away while a preview runs or starts
  * (its summary row: the folder and who made it).
  */
@@ -148,6 +144,10 @@ export async function previewControls(panel: Locator): Promise<void> {
   await expect(summary).toHaveAttribute('aria-expanded', 'true');
 }
 
+/**
+ * A member's latest reply, once it has finished streaming (within `timeoutMs`: a turn in Harness
+ * Relay's own sandbox starts the sandbox first, and the first of a server checks that it works).
+ */
 export async function finishedReply(page: Page, name: string, timeoutMs = 45_000): Promise<Locator> {
   const reply = replies(page, name).last();
   await expect(reply).toBeVisible();

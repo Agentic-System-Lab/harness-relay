@@ -3,6 +3,7 @@ import {
   PROVIDER_LABEL,
   cwdsOf,
   pendingPlan,
+  type AppPreviewRequest,
   type ApprovalAnswer,
   type ChatMessage,
   type Conversation,
@@ -16,11 +17,16 @@ import {
 import { api, ApiError, orCreateCwd, type AttachmentUpload } from '../api';
 import {
   filePreviewTarget,
+  finishedReplies,
+  localPage,
+  opensByItself,
   PREVIEW_WIDTH_KEY,
   previewSuggestion,
+  shownApp,
   startsByItself,
   storedPreviewWidth,
   type PreviewSelection,
+  type PreviewSuggestion,
 } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
@@ -109,6 +115,9 @@ function reducer(s: State, e: ServerEvent): State {
   return s;
 }
 
+/** The app the team made, as the server found it runs. */
+type PreviewReady = PreviewSuggestion & { request: AppPreviewRequest & { entry: string } };
+
 interface Props {
   id: string;
   providers: ProviderStatus[];
@@ -150,8 +159,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       return undefined;
     }
   });
-  const resizePreview = useCallback((width: number | undefined) => {
+  const resizePreview = useCallback((width: number | undefined, final: boolean) => {
     setPreviewWidth(width);
+    if (!final) return;
     try {
       if (width === undefined) localStorage.removeItem(PREVIEW_WIDTH_KEY);
       else localStorage.setItem(PREVIEW_WIDTH_KEY, String(width));
@@ -589,50 +599,85 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     await api.fixChecks(c.id, messageId, agentId);
   }, []);
 
-  // The app the team made last: the card, the header's button, and the panel opening by itself.
-  const suggestion = useMemo(
-    () => (state.conv ? previewSuggestion(state.conv.messages, cwdsOf(state.conv.settings)) : undefined),
-    [state.conv],
-  );
+  // The app the team made last (see `previewSuggestion`), once the server says it runs: the card,
+  // the header's button, and the panel opening by itself.
+  const suggestion = useMemo(() => (state.conv ? previewSuggestion(state.conv.messages) : undefined), [state.conv]);
+  const [ready, setReady] = useState<PreviewReady>();
   const previewOpen = useRef(false);
   previewOpen.current = appPreview !== null;
-  /** The suggestion last seen: undefined until the conversation has loaded. */
-  const seenSuggestion = useRef<string | null | undefined>(undefined);
+  const latest = useRef(state.conv);
+  latest.current = state.conv;
+  /** The finished replies the page has dealt with: those there when it opened, then each looked up. */
+  const handled = useRef<Set<string> | undefined>(undefined);
   /** The folders opened by themselves already: each app opens once by itself. */
   const autoOpened = useRef(new Set<string>());
   useEffect(() => {
-    const c = state.conv;
-    if (!c) return;
-    const key = suggestion ? `${suggestion.messageId}\0${suggestion.path}` : null;
-    // What the conversation held when it was opened never opens by itself: only what the team makes now.
-    if (seenSuggestion.current === undefined || seenSuggestion.current === key) {
-      seenSuggestion.current = key;
+    if (state.conv && !handled.current) handled.current = new Set(finishedReplies(state.conv.messages));
+  }, [state.conv]);
+  const finished = state.conv ? finishedReplies(state.conv.messages).length : 0;
+  // Looked up again after every finished reply: the next turn may add what this one lacked (a lockfile).
+  const lookKey = state.conv && suggestion ? `${state.conv.id}\0${suggestion.messageId}\0${suggestion.path ?? ''}\0${finished}` : '';
+  useEffect(() => {
+    const c = latest.current;
+    if (!c || !suggestion) {
+      setReady(undefined);
       return;
     }
-    seenSuggestion.current = key;
-    const request = suggestion && filePreviewTarget(suggestion.path);
-    // Not over another preview, and not on a phone or tablet, where the panel would cover the chat.
-    if (!suggestion || !request || previewOpen.current || autoOpened.current.has(request.folder)) return;
-    if (matchMedia('(max-width: 1100px)').matches) return;
-    autoOpened.current.add(request.folder);
-    const selection = { ...request, messageId: suggestion.messageId };
-    api.appPreviewTarget(c.id, selection).then(
+    const fresh = !handled.current?.has(suggestion.messageId);
+    const messageId = suggestion.messageId;
+    const link = suggestion.path !== undefined ? filePreviewTarget(suggestion.path) : undefined;
+    const lookup = new AbortController();
+    const found =
+      suggestion.path !== undefined
+        ? link
+          ? api.appPreviewTarget(c.id, { ...link, messageId }, lookup.signal)
+          : Promise.reject(new Error('not an app'))
+        : api.appPreviewChanged(c.id, messageId, lookup.signal);
+    const dealt = () => {
+      for (const id of finishedReplies(latest.current?.messages ?? [])) handled.current?.add(id);
+    };
+    found.then(
       (resolved) => {
-        if (previewOpen.current) return;
+        if (lookup.signal.aborted) return;
+        const request = { mode: resolved.mode, folder: resolved.folder, entry: resolved.entry, messageId };
+        setReady({ ...suggestion, request });
+        const opens = opensByItself(
+          { changed: suggestion.changed, fresh, folder: resolved.folder },
+          {
+            opened: autoOpened.current,
+            panelOpen: previewOpen.current,
+            narrow: matchMedia('(max-width: 1100px)').matches,
+            local: localPage(location.hostname),
+          },
+        );
+        dealt();
+        if (!opens) return;
+        autoOpened.current.add(resolved.folder);
         setPreviewHidden(false);
         setAppPreview({
-          request: selection,
+          request,
           label: '@' + suggestion.agentName,
           agentName: suggestion.agentName,
           auto: true,
           autoStart: startsByItself(resolved.mode, c.settings.permission),
+          permission: c.settings.permission,
         });
       },
       () => {
-        /* Nothing to run there (yet): the card and the header's button still offer it. */
+        if (lookup.signal.aborted) return;
+        // Nothing that runs there (yet): no card, nothing in the header.
+        setReady(undefined);
+        dealt();
       },
     );
-  }, [state.conv, suggestion]);
+    return () => lookup.abort();
+    // The key says when to look again; the reply it names is read through `latest`.
+  }, [lookKey]);
+  const openReady = useCallback(() => {
+    if (!ready) return;
+    setPreviewHidden(false);
+    setAppPreview({ request: ready.request, label: '@' + ready.agentName, agentName: ready.agentName });
+  }, [ready]);
 
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
@@ -665,7 +710,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
   const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
   // The team has answered, and made or pointed at an app since the user last wrote.
-  const readyCard = !running && suggestion !== undefined && suggestion.index > lastUser;
+  const readyCard = !running && ready !== undefined && ready.index > lastUser;
   const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
@@ -787,11 +832,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             <button
               className={`ghost small-button head-button preview-head-button ${previewShown ? 'on' : ''}`}
               aria-pressed={previewShown}
-              disabled={!appPreview && !suggestion}
-              title={appPreview || suggestion ? t.appPreview.headTitle : t.appPreview.headNothing}
+              disabled={!appPreview && !ready}
+              title={appPreview || ready ? t.appPreview.headTitle : t.appPreview.headNothing}
               onClick={openFromHead(() => {
                 if (appPreview) setPreviewHidden((hidden) => !hidden);
-                else if (suggestion) openReplyPreview(suggestion.messageId, suggestion.agentName, suggestion.path);
+                else openReady();
               })}
             >
               <PreviewIcon size={16} />
@@ -926,7 +971,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               item
             );
           })}
-          {readyCard && suggestion && (
+          {readyCard && ready && (
             <section className="preview-ready" aria-label={t.appPreview.readyTitle}>
               <span className="preview-ready-icon" aria-hidden="true">
                 <PreviewIcon size={22} />
@@ -934,14 +979,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               <div className="preview-ready-text">
                 <strong>{t.appPreview.readyTitle}</strong>
                 <span className="muted small">
-                  <code dir="auto">{suggestion.path}</code> · @{suggestion.agentName}
+                  <code dir="auto">{shownApp(ready.request.folder, ready.request.entry, cwdsOf(conv.settings))}</code> · @{ready.agentName}
                 </span>
               </div>
-              <button
-                type="button"
-                className="primary"
-                onClick={() => openReplyPreview(suggestion.messageId, suggestion.agentName, suggestion.path)}
-              >
+              <button type="button" className="primary" onClick={openReady}>
                 {t.appPreview.open}
               </button>
             </section>
@@ -1082,7 +1123,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             convId={conv.id}
             target={appPreview}
             collapsed={previewHidden}
-            width={previewWidth}
+            onCollapse={setPreviewHidden}
             onResize={resizePreview}
             onClose={() => {
               setAppPreview(null);

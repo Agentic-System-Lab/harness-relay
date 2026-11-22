@@ -2085,7 +2085,10 @@ export const en: Messages = {
     showDetails: 'Show the source and controls',
     hideDetails: 'Hide the source and controls',
     waitsForYou:
-      'Relay opened this for you. Its build runs the project’s Dockerfile, which can reach the network, so it starts when you choose Start preview.',
+      'Relay opened this for you. Its build runs the project’s Dockerfile or compose file, which can reach the network, so it starts when you choose Start preview.',
+    openTab: 'New tab',
+    openTabTitle: 'Open the page in a new tab, the whole window for it',
+    tabBlocked: 'The browser blocked the new tab. Allow pop-ups for Relay, then try again.',
     title: 'App preview',
     open: 'Preview app',
     openFolder: 'Preview this folder',

@@ -3,6 +3,7 @@ import { PREVIEW_NO_RECIPE, type AppPreviewRequest, type AppPreviewSession, type
 import { api, ApiError } from '../api';
 import {
   NO_TERMINAL,
+  CHAT_MIN_WIDTH,
   nextTerminalState,
   PREVIEW_MIN_WIDTH,
   previewErrorDraft,
@@ -10,6 +11,7 @@ import {
   previewWidth,
   recordPreviewError,
   safePreviewSession,
+  startsByItself,
   terminalTail,
   type PreviewSelection,
   type TerminalState,
@@ -18,7 +20,7 @@ import { useT } from '../i18n';
 import { Deferred, lazyPart } from './Deferred';
 import { useDialog } from './useDialog';
 import { PreviewDockerDialog } from './PreviewDockerDialog';
-import { ChevronIcon } from './icons';
+import { ChevronIcon, ExternalIcon } from './icons';
 
 // xterm.js comes only with a container preview's terminal.
 const PreviewTerminal = lazyPart(() => import('./PreviewTerminal').then((m) => m.PreviewTerminal));
@@ -27,19 +29,18 @@ export function AppPreview({
   convId,
   target,
   collapsed = false,
-  width,
+  onCollapse,
   onResize,
   onClose,
   onFeedback,
 }: {
   convId: string;
   target: PreviewSelection;
-  /** Hidden from the chat's header: it keeps running, and the header's button shows it again. */
+  /** Hidden: from the chat's header, or on a phone while the user edits a report. It keeps running. */
   collapsed?: boolean;
-  /** The width dragged on this browser, if any (wide screens). */
-  width?: number;
-  /** The divider was dragged: a width, or undefined to go back to the default one. */
-  onResize?: (width: number | undefined) => void;
+  onCollapse?: (hidden: boolean) => void;
+  /** The divider was moved: a width (`final` once the drag ends, to keep it), or undefined for the default one. */
+  onResize?: (width: number | undefined, final: boolean) => void;
   onClose: () => void;
   onFeedback: (text: string) => void;
 }) {
@@ -48,11 +49,13 @@ export function AppPreview({
   const panel = useRef<HTMLElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 1100px)').matches);
-  // Keep the frame and its backend state while the phone's user edits an error report.
-  const [inChat, setInChat] = useState(false);
-  const hidden = collapsed || (narrow && inChat);
+  /** The panel's width and the most it may take, for the divider's value. */
+  const [measured, setMeasured] = useState<{ width: number; max: number }>();
+  /** Ends a drag of the divider under way. */
+  const dragEnd = useRef<(() => void) | null>(null);
+  // Hidden, it keeps the frame and its backend state (on a phone, while the user edits a report).
+  const hidden = collapsed;
   useDialog(panel, onClose, narrow && !hidden);
-  useEffect(() => setInChat(false), [target]);
   useEffect(() => {
     const media = matchMedia('(max-width: 1100px)');
     const changed = () => setNarrow(media.matches);
@@ -61,6 +64,29 @@ export function AppPreview({
     if (!media.matches && !target.auto) panel.current?.focus();
     return () => media.removeEventListener('change', changed);
   }, []);
+
+  useEffect(() => {
+    const box = panel.current;
+    if (!box || narrow || collapsed) {
+      dragEnd.current?.();
+      return;
+    }
+    const measure = () => {
+      const container = box.offsetParent;
+      if (container)
+        setMeasured({
+          width: Math.round(box.getBoundingClientRect().width),
+          max: Math.max(PREVIEW_MIN_WIDTH, Math.round(container.getBoundingClientRect().width) - CHAT_MIN_WIDTH),
+        });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    if (box.offsetParent) observer.observe(box.offsetParent);
+    return () => {
+      observer.disconnect();
+      dragEnd.current?.();
+    };
+  }, [narrow, collapsed]);
 
   const [mode, setMode] = useState<AppPreviewRequest['mode']>();
   const [folder, setFolder] = useState(target.folder);
@@ -79,6 +105,8 @@ export function AppPreview({
   const active = useRef<AppPreviewSession | undefined>(undefined);
   // What it runs from and its buttons fold away while it runs: the page gets the room.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** Opened by Relay itself, it waits for Start preview (see `startsByItself`). */
+  const [held, setHeld] = useState(target.autoStart === false);
   // A container preview: its terminal, its page once it serves one, and the command it runs.
   const [term, setTerm] = useState<TerminalState>(NO_TERMINAL);
   const [view, setView] = useState<'page' | 'terminal'>('terminal');
@@ -99,6 +127,7 @@ export function AppPreview({
 
   const change = async (start: boolean, quiet = false) => {
     if (start && pending.current) return;
+    if (start && !quiet) setHeld(false);
     looking.current?.abort();
     pending.current?.abort();
     const operation = new AbortController();
@@ -116,6 +145,13 @@ export function AppPreview({
         pinnedFolder.current = resolved.folder;
         setFolder(resolved.folder);
         setMode(resolved.mode);
+        // Opened by Relay itself, it found another way to run than the chat looked up (a Dockerfile
+        // since): what may not start by itself waits for the user.
+        if (quiet && !startsByItself(resolved.mode, target.permission ?? 'read-only')) {
+          setHeld(true);
+          setPhase('idle');
+          return;
+        }
         if (resolved.mode !== 'static') {
           const status = await api.previewDocker(operation.signal);
           if (operation.signal.aborted) return;
@@ -203,6 +239,7 @@ export function AppPreview({
     setSetupOpen(false);
     setSession(undefined);
     setDetailsOpen(false);
+    setHeld(target.autoStart === false);
     if (target.autoStart === false) void lookSelected.current();
     else void startSelected.current(true, target.auto);
     const release = () => {
@@ -278,7 +315,8 @@ export function AppPreview({
   const canRun = container && !term.closed && (term.phase === 'running' || term.phase === 'exited') && !running;
   const collapsible = Boolean(session) || busy;
   const showDetails = detailsOpen || !collapsible;
-  const waiting = target.autoStart === false && !session && !busy && phase === 'idle' && !failure && !docker;
+  const waiting = held && !session && !busy && phase === 'idle' && !failure && !docker;
+  const pageShown = Boolean(session) && (!container || framed);
   const shownFolder = folder ?? target.request.folder;
   const folderName = shownFolder?.split(/[\\/]/).filter(Boolean).pop() || shownFolder || '.';
   const detailsId = 'app-preview-details';
@@ -287,7 +325,7 @@ export function AppPreview({
     const box = panel.current;
     const container = box?.offsetParent;
     if (!box || !container || !onResize) return;
-    onResize(previewWidth(box.getBoundingClientRect().width + delta, container.getBoundingClientRect().width));
+    onResize(previewWidth(box.getBoundingClientRect().width + delta, container.getBoundingClientRect().width), true);
   };
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
     const container = panel.current?.offsetParent;
@@ -297,9 +335,11 @@ export function AppPreview({
     handle.setPointerCapture(event.pointerId);
     // The page and the terminal would take the pointer over them: see .resizing-preview.
     document.body.classList.add('resizing-preview');
+    let last: number | undefined;
     const move = (e: PointerEvent) => {
       const box = container.getBoundingClientRect();
-      onResize(previewWidth(box.right - e.clientX, box.width));
+      last = previewWidth(box.right - e.clientX, box.width);
+      onResize(last, false);
     };
     const end = () => {
       document.body.classList.remove('resizing-preview');
@@ -307,16 +347,36 @@ export function AppPreview({
       handle.removeEventListener('pointerup', end);
       handle.removeEventListener('pointercancel', end);
       handle.removeEventListener('lostpointercapture', end);
+      dragEnd.current = null;
+      // Kept once, when the drag ends.
+      if (last !== undefined) onResize(last, true);
     };
+    dragEnd.current = end;
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', end);
     handle.addEventListener('pointercancel', end);
     handle.addEventListener('lostpointercapture', end);
   };
+  // A new tab for the page: opened within the click (one opened after waiting for the server is a
+  // blocked popup), cut off from this page, then sent to its single-use address.
+  const openTab = async () => {
+    if (!session) return;
+    const tab = window.open('', '_blank');
+    if (!tab) return setFailure(p.tabBlocked);
+    tab.opener = null;
+    try {
+      const { url } = await api.appPreviewTab(convId, session.id);
+      if (!safePreviewSession({ ...session, url }, location.origin)) throw new Error(p.invalid);
+      tab.location.replace(url);
+    } catch (error) {
+      tab.close();
+      setFailure((error as Error).message.slice(0, 4000));
+    }
+  };
   return (
     <>
-      {hidden && !collapsed && (
-        <button type="button" className="ghost app-preview-return" onClick={() => setInChat(false)}>
+      {hidden && narrow && (
+        <button type="button" className="ghost app-preview-return" onClick={() => onCollapse?.(false)}>
           {p.returnToPreview}
         </button>
       )}
@@ -327,16 +387,17 @@ export function AppPreview({
           aria-orientation="vertical"
           aria-label={p.resize}
           aria-valuemin={PREVIEW_MIN_WIDTH}
-          aria-valuenow={width}
+          aria-valuemax={measured?.max}
+          aria-valuenow={measured?.width}
           title={p.resizeTitle}
           tabIndex={0}
           onPointerDown={startResize}
-          onDoubleClick={() => onResize(undefined)}
+          onDoubleClick={() => onResize(undefined, true)}
           onKeyDown={(e) => {
             const step = e.shiftKey ? 128 : 32;
             if (e.key === 'ArrowLeft') resizeBy(step);
             else if (e.key === 'ArrowRight') resizeBy(-step);
-            else if (e.key === 'Home' || e.key === 'Enter') onResize(undefined);
+            else if (e.key === 'Home' || e.key === 'Enter') onResize(undefined, true);
             else return;
             e.preventDefault();
           }}
@@ -353,6 +414,12 @@ export function AppPreview({
       >
         <header className="drawer-head">
           <h2>{p.title}</h2>
+          {pageShown && (
+            <button type="button" className="ghost small-button app-preview-tab" title={p.openTabTitle} onClick={() => void openTab()}>
+              <ExternalIcon size={14} />
+              {p.openTab}
+            </button>
+          )}
           <button type="button" className="icon-button" aria-label={t.common.close} onClick={onClose}>
             ×
           </button>
@@ -412,7 +479,16 @@ export function AppPreview({
             {waiting && <p className="muted small app-preview-waiting">{p.waitsForYou}</p>}
             <div className="app-preview-actions">
               {(!busy || session) && (
-                <button type="button" className="primary small-button" disabled={busy || !!docker} onClick={() => void change(true)}>
+                <button
+                  type="button"
+                  className="primary small-button"
+                  disabled={busy || !!docker}
+                  onClick={() => {
+                    // The details stay open: the button the user just pressed keeps the focus.
+                    setDetailsOpen(true);
+                    void change(true);
+                  }}
+                >
                   {session ? p.rebuild : failure ? p.retry : p.start}
                 </button>
               )}
@@ -495,7 +571,7 @@ export function AppPreview({
               type="button"
               className="ghost small-button"
               onClick={() => {
-                if (narrow) setInChat(true);
+                if (narrow) onCollapse?.(true);
                 const where = folder || target.request.folder || '.';
                 onFeedback(`${target.agentName ? '@' + target.agentName + ' ' : ''}${p.noRecipeDraft(where)}`);
               }}
@@ -545,7 +621,7 @@ export function AppPreview({
               type="button"
               className="ghost small-button"
               onClick={() => {
-                if (narrow) setInChat(true);
+                if (narrow) onCollapse?.(true);
                 onFeedback(previewErrorDraft(p.errors, folder || target.request.folder || '.', issues, target.agentName));
               }}
             >
