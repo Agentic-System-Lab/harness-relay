@@ -29,6 +29,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   DEFAULT_LIMITS,
+  TEAM_WORKTREE,
   type ChatMessage,
   type CliLoginView,
   type Conversation,
@@ -954,8 +955,20 @@ describe('settings', () => {
       apply.mockResolvedValueOnce({ files: [] });
       await at({ confirm: true });
       expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: true });
+      // The team's own worktrees, by their key as the page encodes it.
+      apply.mockResolvedValueOnce({ files: [] });
+      await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/apply`, json('POST', {}));
+      expect(apply).toHaveBeenLastCalledWith('conv', TEAM_WORKTREE, { force: false, confirm: false });
     } finally {
       apply.mockRestore();
+    }
+    const diff = vi.spyOn(orchestrator, 'agentDiff').mockResolvedValue('diff');
+    try {
+      const res = await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/diff`, { headers: HOST });
+      expect(await res.text()).toBe('diff');
+      expect(diff).toHaveBeenCalledWith('conv', TEAM_WORKTREE);
+    } finally {
+      diff.mockRestore();
     }
   });
 
@@ -3037,6 +3050,16 @@ describe('browsing files', () => {
     // Its ZIP file is named after the folder and the agent.
     const check = await get(`${base}/zip/check?root=${encodeURIComponent(`${agentId}:1`)}&path=`);
     expect(check.status).toBe(200);
+
+    // The team's own worktree (a run while another conversation wrote in the folder): listed first, as `@team`.
+    const wtT = join(root, `wt-team-${n}`);
+    mkdirSync(wtT);
+    writeFileSync(join(wtT, 'team.md'), '# Team\n');
+    live.worktrees[TEAM_WORKTREE] = [{ root: project, path: wtT, branch: `relay/x/${TEAM_WORKTREE}`, base: 'b', needsReset: false }];
+    expect((await (await get(base)).json()).roots).toContainEqual({ id: TEAM_WORKTREE, path: wtT, agentId: TEAM_WORKTREE });
+    const teamZip = await get(`${base}/zip?root=${encodeURIComponent(TEAM_WORKTREE)}&path=`);
+    expect(teamZip.status).toBe(200);
+    expect(teamZip.headers.get('content-disposition')).toContain(`filename*=UTF-8''${basename(project)}-team.zip`);
   });
 
   it('downloads a folder, or the whole working directory, as a ZIP file', async () => {

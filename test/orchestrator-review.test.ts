@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PushSubscriptionRecord } from '../src/server/push';
-import type { AlertPayload, ChatMessage, Conversation } from '../src/shared/types';
+import { TEAM_WORKTREE, type AlertPayload, type ChatMessage, type Conversation } from '../src/shared/types';
 import {
   agentMessages,
   agents,
@@ -602,9 +602,10 @@ describe('after the review', () => {
     ).toEqual(['Alice', 'Alice', 'Bob']);
   });
 
-  it('refuses a message sent while it reviews when another conversation took the folder meanwhile, and goes on reviewing', async () => {
+  it('sends a message while it reviews when another conversation took the folder meanwhile: the team works in its own worktree', async () => {
     const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
     const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = [other.agents[0]!];
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(first.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
@@ -612,35 +613,39 @@ describe('after the review', () => {
     // The other conversation takes the folder while the lead agent reviews.
     let releaseOther!: () => void;
     fake.gate = new Promise((r) => (releaseOther = r));
+    const before = calls.length;
     await orchestrator.send(other.id, 'other');
-    // Its run could not start: refused, saying who is changing the folder, and the review goes on.
-    await expect(withLang('en', () => orchestrator.send(first.id, 'next'))).rejects.toMatchObject({
-      status: 409,
-      message: expect.stringContaining('is changing'),
-    });
-    expect(orchestrator.isRunning(first.id)).toBe(true);
-    expect(reviews(first)[0]!.review!.status).toBe('reviewing');
-    expect(first.queue ?? []).toHaveLength(0);
-    expect(userTexts(first)).toEqual(['first']);
-    // Stop ends it; once the folder is free, the message is sent and reviewed from where it started.
-    orchestrator.stop(first.id);
-    await finish(first.id);
-    expect(stoppedNote(first)).toBe(false);
+    await vi.waitFor(() => expect(calls).toHaveLength(before + 1));
     fake.gate = Promise.resolve();
-    releaseOther();
-    await finish(other.id);
-    await orchestrator.send(first.id, 'next');
+    // The review stops, and the team answers in a worktree of its own, saying why.
+    await expect(withLang('en', () => orchestrator.send(first.id, 'next'))).resolves.toEqual({ queued: false });
     await finish(first.id);
     expect(userTexts(first)).toEqual(['first', 'next']);
+    expect(reviews(first)[0]!.status).toBe('aborted');
+    const team = first.worktrees[TEAM_WORKTREE]!;
+    expect(
+      calls
+        .slice(before + 1)
+        .filter((c) => c.name !== 'reviewer')
+        .map((c) => c.cwd),
+    ).toEqual([team[0]!.path, team[0]!.path]);
+    expect(first.messages.some((m) => m.author.kind === 'system' && textOf(m).includes('is changing'))).toBe(true);
+    // Its review is told where the team's changes are.
     expect(reviewerCalls()).toHaveLength(2);
+    expect(reviewerCalls()[1]!.prompt).toContain(`this conversation's own git worktree`);
+    // From where the stopped review started: both questions.
     const recent = recentOf(reviewerCalls()[1]!.prompt);
     expect(recent).toContain('<message from="user">\nfirst\n</message>');
     expect(recent).toContain('<message from="user">\nnext\n</message>');
+    expect(reviewerCalls()[1]!.addDirs).toEqual([team[0]!.path]);
+    releaseOther();
+    await finish(other.id);
   });
 
-  it('refuses "Skip the review and send now" too when another conversation took the folder, and goes on reviewing', async () => {
+  it('sends what waits ("Skip the review and send now") when another conversation took the folder: in the team\'s own worktree', async () => {
     const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
     const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = [other.agents[0]!];
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(first.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
@@ -648,41 +653,43 @@ describe('after the review', () => {
     expect(await orchestrator.sendScheduled(first.id)).toEqual({ result: 'queued' });
     let releaseOther!: () => void;
     fake.gate = new Promise((r) => (releaseOther = r));
+    const before = calls.length;
     await orchestrator.send(other.id, 'other');
-    // The tray's button: nothing typed, what waits sent now.
-    await expect(withLang('en', () => orchestrator.send(first.id, '', undefined, true))).rejects.toMatchObject({
-      status: 409,
-      message: expect.stringContaining('is changing'),
-    });
-    expect(reviews(first)[0]!.review!.status).toBe('reviewing');
-    expect(first.queue).toHaveLength(1);
-    fake.reviewGate = undefined;
-    orchestrator.stop(first.id);
+    await vi.waitFor(() => expect(calls).toHaveLength(before + 1));
     fake.gate = Promise.resolve();
+    fake.reviewGate = undefined;
+    // The tray's button: nothing typed, what waits sent now.
+    await expect(withLang('en', () => orchestrator.send(first.id, '', undefined, true))).resolves.toEqual({ queued: false });
+    await finish(first.id);
+    expect(first.queue ?? []).toHaveLength(0);
+    expect(calls.slice(before + 1).find((c) => c.name === 'Alice')!.cwd).toBe(first.worktrees[TEAM_WORKTREE]![0]!.path);
     releaseOther();
     await finish(other.id);
-    await finish(first.id);
   });
 
-  it('keeps the folder while it stops the review for a message, so another conversation cannot take it meanwhile', async () => {
+  it('keeps the folder while it stops the review for a message: another conversation that comes meanwhile works in its own worktree', async () => {
     const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
     const other = conversation({ mode: 'roundtable', permission: 'edit' });
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(first.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
     fake.reviewGate = undefined;
+    const before = calls.length;
     // Both at once: the message that stops the review holds the folder before it does.
     const mine = orchestrator.send(first.id, 'next');
     const theirs = withLang('en', () => orchestrator.send(other.id, 'other'));
-    await expect(theirs).rejects.toMatchObject({ status: 409, message: expect.stringContaining('is changing') });
+    await expect(theirs).resolves.toEqual({ queued: false });
     await expect(mine).resolves.toEqual({ queued: false });
     await finish(first.id);
+    await finish(other.id);
     expect(userTexts(first)).toEqual(['first', 'next']);
     expect(reviews(first).map((m) => m.review!.status)).toEqual(['reviewing', 'ready']);
     expect(reviews(first)[0]!.status).toBe('aborted');
-    // Once its run is over, the folder is free again.
-    await orchestrator.send(other.id, 'other');
-    await finish(other.id);
+    expect(first.worktrees[TEAM_WORKTREE]).toBeUndefined();
+    const team = other.worktrees[TEAM_WORKTREE]!;
+    const turns = calls.slice(before).filter((c) => c.name !== 'reviewer');
+    expect(turns.filter((c) => c.cwd === project)).toHaveLength(2);
+    expect(turns.filter((c) => c.cwd === team[0]!.path)).toHaveLength(2);
   });
 
   it('reads, after a restart, from where a review stopped before it started', async () => {

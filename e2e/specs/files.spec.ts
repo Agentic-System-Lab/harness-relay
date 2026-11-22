@@ -4,7 +4,7 @@ import { inflateRawSync } from 'node:zlib';
 import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, send, startChat, confirmTeam } from '../support/app';
+import { acceptNextDialog, finishedReply, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
 import { CLIS, eachCli, eachHalf, endsTurnNote, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
@@ -152,6 +152,44 @@ test.describe('files and changes', () => {
     await codex.getByRole('button', { name: 'Apply to working directory' }).click();
     await expect.poll(() => existsSync(join(relay.workDir, 'result.txt'))).toBe(true);
     expect(readFileSync(join(relay.workDir, 'result.txt'), 'utf8')).toBe('Written by Codex (Codex).\n');
+  });
+
+  test('a second chat writing in the same folder meanwhile works in a worktree of its own, and Apply brings its changes in', async ({
+    page,
+    relay,
+  }) => {
+    // The first chat writes in the folder, and takes its time.
+    const first = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'First chat');
+    await send(page, 'Take your time e2e:write=first.txt e2e:slow=120');
+    await expect.poll(() => existsSync(join(relay.workDir, 'first.txt'))).toBe(true);
+
+    // The second one, meanwhile, in the same folder: not refused, in a worktree of its own, saying why.
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], { permission: 'edit' }, 'Second chat');
+    await send(page, 'Meanwhile e2e:write=second.txt');
+    await expect(page.locator('.msg-system').filter({ hasText: 'Conversation "First chat" is changing' })).toBeVisible();
+    const codex = await finishedReply(page, 'Codex');
+    const card = codex.locator('.changes-card');
+    await expect(card).toContainText("in this chat's worktree · relay/");
+    expect(existsSync(join(relay.workDir, 'second.txt'))).toBe(false);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const browser = page.getByRole('dialog', { name: 'Files' });
+    await expect(browser.getByRole('combobox', { name: 'Folder' }).locator('option', { hasText: "This chat's worktree" })).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(browser).toHaveCount(0);
+
+    // Not applied while the first chat writes there; once it is done, it is.
+    acceptNextDialog(page);
+    await card.getByRole('button', { name: 'Apply to working directory' }).click();
+    await expect(page.getByRole('alert')).toContainText('Conversation "First chat" is changing');
+    expect(existsSync(join(relay.workDir, 'second.txt'))).toBe(false);
+    await relay.api(`/api/conversations/${first}/stop`, { method: 'POST', body: {} });
+    await settled(relay, first);
+    acceptNextDialog(page);
+    await card.getByRole('button', { name: 'Apply to working directory' }).click();
+    await expect.poll(() => existsSync(join(relay.workDir, 'second.txt'))).toBe(true);
+    expect(readFileSync(join(relay.workDir, 'second.txt'), 'utf8')).toBe('Written by Codex (Codex).\n');
+    await expect(page.locator('.msg-system').filter({ hasText: "Applied the team's changes" })).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Apply to working directory' })).toHaveCount(0);
   });
 
   test('the file browser shows the working directory and previews a file', async ({ page, relay }) => {

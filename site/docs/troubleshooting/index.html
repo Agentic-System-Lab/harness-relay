@@ -354,8 +354,12 @@
             </thead>
             <tbody>
               <tr>
-                <th scope="row">Sending says another conversation <i>is changing</i> the folder</th>
-                <td>Another chat is writing in the same working directory. Wait until it finishes, stop it, or use read-only or parallel mode.</td>
+                <th scope="row">A chat says another conversation <i>is changing</i> its folder</th>
+                <td>
+                  Both chats work at once: this one's team works in a copy of the folder, its own worktree. Once the other chat is
+                  done, apply its result (<b>Apply to working directory</b>); until then, <b>Apply</b> says which chat is still
+                  changing the folder.
+                </td>
               </tr>
               <tr>
                 <th scope="row">Applying a result says there is a conflict</th>

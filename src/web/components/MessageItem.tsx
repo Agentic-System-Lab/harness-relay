@@ -22,7 +22,9 @@ import {
   enterSends,
   isPathDetail,
   isSubagent,
+  isTeamResult,
   isTouchScreen,
+  resultOwner,
   runningStep,
   segments,
   shownSegments,
@@ -1391,9 +1393,10 @@ function AgentMessage({
           <ChangesCard
             changes={msg.changes}
             agentName={name}
+            team={isTeamResult(msg.changes)}
             applyState={applyState}
             onDiff={(scope) => onDiff(msg, scope)}
-            onApply={() => onApply(agentId)}
+            onApply={() => onApply(resultOwner(msg) ?? agentId)}
           />
         )}
         {waitingAnswer && (

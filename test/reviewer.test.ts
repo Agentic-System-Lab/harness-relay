@@ -482,6 +482,20 @@ describe('where a first review starts', () => {
     expect(prompt).toContain("or a member's worktrees above");
     expect(buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' })).not.toContain('worktrees');
   });
+
+  it("tells the lead where the team's changes are when it worked in the conversation's own worktrees", () => {
+    const m = reviewMaterial([user('u', 'go'), reply('r', 'Alice', 'done')]);
+    const one = buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' }, [], ['/wt/team/w']);
+    expect(one).toContain(
+      "The team worked in this conversation's own git worktree (another conversation was changing the working directories)",
+    );
+    expect(one).toContain('You may read it: /wt/team/w');
+    expect(one).toContain("or the team's worktree above");
+    expect(one).not.toContain('each member in git worktrees of its own');
+    const two = buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w', extraCwds: ['/d'] }, [], ['/wt/team/w', '/wt/team2/d']);
+    expect(two).toContain('own git worktrees');
+    expect(two).toContain('You may read them: /wt/team/w, /wt/team2/d');
+  });
 });
 
 describe('small things of the review', () => {

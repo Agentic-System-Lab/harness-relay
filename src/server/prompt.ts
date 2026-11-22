@@ -2,6 +2,7 @@ import {
   CHECK_RESULT_LIMITS,
   HOOK_PROVIDERS,
   PROVIDER_LABEL,
+  TEAM_WORKTREE,
   TRACKING_LIMITS,
   isInlineImage,
   type AgentConfig,
@@ -55,6 +56,15 @@ function roleSummary(role: string): string {
   return first.length > 160 ? first.slice(0, 159) + '…' : first || '(no specific role)';
 }
 
+/**
+ * Whether the team works in the conversation's own worktrees (`TEAM_WORKTREE`) and not in the working
+ * directories: it has some not marked for a reset, outside parallel mode, with write access.
+ */
+function teamWorksApart(conv: Conversation): boolean {
+  if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return false;
+  return Boolean(conv.worktrees[TEAM_WORKTREE]?.some((w) => !w.needsReset));
+}
+
 /** Where an agent works this turn. */
 export type BriefingWorkspace =
   | { kind: 'shared' }
@@ -71,21 +81,32 @@ export type BriefingWorkspace =
        * repository (named by its first working directory).
        */
       teammates: { name: string; branch: string; bases: { folder: string; base: string }[] }[];
+    }
+  | {
+      /**
+       * The conversation's own worktrees, which every member works in, taking turns: another
+       * conversation was changing its working directories (`TEAM_WORKTREE`). The folders as in `isolated`.
+       */
+      kind: 'team';
+      folders: { cwd: string; userCwd: string; branch: string; base: string }[];
     };
 
 /**
  * The team checks, for agents that may write: what Harness Relay checks once the team has answered, so
  * that they keep to it from the start.
  */
-function checksRules(conv: Conversation): string {
+function checksRules(conv: Conversation, ws: BriefingWorkspace): string {
   const list = conv.settings.checks;
   if (conv.settings.permission === 'read-only' || !hasChecks(list)) return '';
-  const lines = checkRuleLines(list, conv.settings.mode);
+  const lines = checkRuleLines(list, ws.kind === 'team' ? 'team' : conv.settings.mode);
   return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
 }
 
-/** Each rule of a check list, in a line (commands not on native Windows, which runs none). */
-export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Platform = process.platform): string[] {
+/**
+ * Each rule of a check list, in a line (commands not on native Windows, which runs none). `team`: the
+ * team works in the conversation's own worktrees, whose result is applied as a parallel one is.
+ */
+export function checkRuleLines(list: CheckList, mode: Mode | 'team', platform: NodeJS.Platform = process.platform): string[] {
   const lines: string[] = [];
   const paths = protectedPatterns(list);
   if (paths.length) {
@@ -93,7 +114,7 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
       `Do not create, change or delete files matching these patterns (gitignore-like, in every working directory, ignored files too): ${paths.join(', ')}`,
     );
   }
-  if (list.commitPattern && mode !== 'parallel') {
+  if (list.commitPattern && mode !== 'parallel' && mode !== 'team') {
     lines.push(`Every commit's subject must match this regular expression: /${list.commitPattern}/`);
   }
   if (list.commands?.length && platform !== 'win32') {
@@ -101,14 +122,16 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
     const when =
       mode === 'parallel'
         ? "when a member's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
-        : 'in the working directory, below full access without network';
+        : mode === 'team'
+          ? "when the team's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
+          : 'in the working directory, below full access without network';
     lines.push(`These commands must succeed, run by Harness Relay with CI=1 ${when}: ${each}`);
   }
   return lines;
 }
 
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace, provider: Provider): string {
-  return workspaceAccess(conv, ws) + checksRules(conv) + hooksRules(conv, provider);
+  return workspaceAccess(conv, ws) + checksRules(conv, ws) + hooksRules(conv, provider);
 }
 
 const HOOK_KINDS: Record<CheckHook['tools'], string> = {
@@ -148,6 +171,18 @@ ${access}
   }
   const short = (c: string) => c.slice(0, 12);
   const one = ws.folders.length === 1;
+  if (ws.kind === 'team') {
+    const own = one
+      ? `- Another conversation was changing the user's working directory, so this conversation's team works in its OWN git worktree, a copy of it: ${ws.folders[0]!.cwd} (branch ${ws.folders[0]!.branch}), from a snapshot (${short(ws.folders[0]!.base)}) of the user's working directory ${ws.folders[0]!.userCwd}, which you must not modify.`
+      : `- Another conversation was changing the user's working directories, so this conversation's team works in its OWN git worktrees, copies of them, which you must not modify:
+${ws.folders.map((f) => `  - ${f.cwd} (branch ${f.branch}), from a snapshot (${short(f.base)}) of ${f.userCwd}`).join('\n')}
+  You start in ${ws.folders[0]!.cwd}; use full paths for the others.`;
+    return `${own}
+- All agents of this conversation share ${one ? 'this worktree' : 'these worktrees'} and take turns in ${one ? 'it' : 'them'}. Teammates may be changing the same files. Name the files you changed in your reply so others can review them.
+- Files git ignores (installed dependencies, build output) are not in the copy: install or build them there if you need them.
+${access}
+- Your changes are committed to the branch${one ? '' : 'es'} automatically after each turn; the user reviews them and applies the team's result to the working director${one ? 'y' : 'ies'} when ready. Do not commit, merge, rebase or switch branches yourself.`;
+  }
   const mates = ws.teammates.length
     ? ws.teammates
         .map((t) =>
@@ -507,7 +542,7 @@ function commandLines(o: ChecksResult['outcomes'][number]): string[] {
 /** A team checks result that did not pass, as agents read it: what failed, and that the team is to fix it. */
 export function renderChecks(conv: Conversation, c: ChecksResult): string {
   const list = conv.settings.checks;
-  const rules = list ? checkRuleLines(list, conv.settings.mode) : [];
+  const rules = list ? checkRuleLines(list, teamWorksApart(conv) ? 'team' : conv.settings.mode) : [];
   const lines: string[] = [];
   for (const o of c.outcomes) {
     if (o.status === 'passed' || o.status === 'na') continue;

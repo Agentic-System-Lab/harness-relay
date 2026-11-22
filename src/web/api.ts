@@ -527,12 +527,13 @@ export const api = {
   /** Delete a share's gist (its link stops working) and forget it. */
   deleteShare: (id: string) => request<{ ok: true }>('DELETE', `/api/shares/${id}`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
-  agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
+  /** `agentId`: an agent's, or `TEAM_WORKTREE` for the team's own worktrees. */
+  agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${encodeURIComponent(agentId)}/diff`),
   /** Team checks run first: one that does not pass applies nothing (`held`, its card's id), unless `force`. */
   applyAgent: (id: string, agentId: string, o: { force?: boolean; confirm?: boolean } = {}) =>
     request<{ ok: true; files: FileChange[]; held?: string }>(
       'POST',
-      `/api/conversations/${id}/agents/${agentId}/apply`,
+      `/api/conversations/${id}/agents/${encodeURIComponent(agentId)}/apply`,
       o.force || o.confirm ? o : undefined,
     ),
 

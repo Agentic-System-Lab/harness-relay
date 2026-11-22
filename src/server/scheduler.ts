@@ -68,9 +68,9 @@ export const MISSED_AFTER_MS = 10 * 60_000;
 
 /**
  * How long a time the conversation cannot take yet (`busy`) is tried again, from the first try: long
- * enough for a settings change, an apply or the lead agent's design to end, and for many a run of
- * another conversation in the same folder; a run that goes on longer (it may take many turns, each up
- * to the turn timeout) has the time skipped, with a note.
+ * enough for a settings change, an apply or the lead agent's design to end; one held up longer has the
+ * time skipped, with a note. (Another conversation writing in the same folder holds nothing up: the
+ * team then works in a worktree of its own.)
  */
 export const BUSY_RETRY_MS = 30 * 60_000;
 

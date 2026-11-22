@@ -12,7 +12,16 @@ import {
 } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
+import {
+  FILE_LIMITS,
+  TEAM_WORKTREE,
+  cwdsOf,
+  type Conversation,
+  type FileEntry,
+  type FilePreview,
+  type FileRoot,
+  type ZipSize,
+} from '../shared/types';
 import { mediaType } from '../shared/media';
 import { fileKey, withheldFileKeys } from './db';
 import { HttpError } from './errors';
@@ -29,21 +38,21 @@ import type { ZipEntry } from './zip';
  */
 
 /**
- * The folders of a conversation that can be browsed: its working directories, then each agent's
- * worktrees of them (see `FileRoot.id`).
+ * The folders of a conversation that can be browsed: its working directories, then the team's own
+ * worktrees of them (`TEAM_WORKTREE`), then each agent's (see `FileRoot.id`).
  */
 export function fileRoots(conv: Conversation): FileRoot[] {
   const cwds = cwdsOf(conv.settings);
   const key = (base: string, i: number) => (i ? `${base}:${i}` : base);
   const roots: FileRoot[] = cwds.map((path, i) => ({ id: key('cwd', i), path, ...(i ? { cwd: i } : {}) }));
-  for (const a of conv.agents) {
+  for (const id of [TEAM_WORKTREE, ...conv.agents.map((a) => a.id)]) {
     cwds.forEach((cwd, i) => {
       // The worktree of the repository the folder is in: the innermost, when one is inside another.
-      const wt = (conv.worktrees[a.id] ?? []).filter((w) => inRepo(w.root, cwd)).sort((x, y) => y.root.length - x.root.length)[0];
+      const wt = (conv.worktrees[id] ?? []).filter((w) => inRepo(w.root, cwd)).sort((x, y) => y.root.length - x.root.length)[0];
       if (!wt) return;
       try {
         const dir = worktreeDir(wt.root, cwd, wt.path);
-        if (existsSync(dir)) roots.push({ id: key(a.id, i), path: dir, agentId: a.id, ...(i ? { cwd: i } : {}) });
+        if (existsSync(dir)) roots.push({ id: key(id, i), path: dir, agentId: id, ...(i ? { cwd: i } : {}) });
       } catch {
         /* not a usable worktree */
       }

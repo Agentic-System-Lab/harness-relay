@@ -502,6 +502,15 @@ export async function worktreeHead(path: string): Promise<string> {
   return out(await git(path, ['rev-parse', 'HEAD']));
 }
 
+/**
+ * Whether a worktree holds anything since `base`, the snapshot it was made from: a commit on top of
+ * it, or a change not committed yet (a turn the server did not see through).
+ */
+export async function worktreeChanged(path: string, base: string): Promise<boolean> {
+  if ((await worktreeHead(path)) !== base) return true;
+  return out(await git(path, ['status', '--porcelain', '--untracked-files=all'])) !== '';
+}
+
 /** Commit everything in a worktree; returns the new HEAD, or null when nothing changed. */
 export async function commitWorktree(path: string, message: string): Promise<string | null> {
   await git(path, ['add', '-A']);
