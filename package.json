@@ -5,7 +5,7 @@
   "license": "SUL-1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,magenta \"tsx watch --clear-screen=false src/server/index.ts\" \"vite\"",
+    "dev": "tsx scripts/dev.ts",
     "build": "vite build",
     "start": "tsx src/server/index.ts",
     "login": "tsx scripts/login.ts",

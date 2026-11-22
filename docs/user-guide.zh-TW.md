@@ -129,7 +129,7 @@ npm run desktop:dist
 - **它有自己的資料夾。** App 把檔案放在 macOS 的 `~/Library/Application Support/Harness Relay`、Windows 的 `%APPDATA%\Harness Relay`、Linux 的 `~/.config/Harness Relay`：對話與設定在其中的 `data` 資料夾，app 自己的設定在 `desktop.json`。它不使用 clone 資料夾裡的 `data/`。要沿用原本的對話，先把兩者都結束，再把 clone 資料夾裡 `data/` 的內容複製到 app 的 `data` 資料夾，並在設定中重新輸入 API key 與 MCP 伺服器的祕密值（它們在金鑰儲存區裡另一個名稱下：見下一點）。或者在 shell 設定檔裡設定 `RELAY_DATA_DIR`，app 也會讀取。絕對不要讓兩者同時使用同一份資料。
 - **它有自己的 API key。** 使用自己的資料夾時，app 把 API key 存在金鑰儲存區的 `harness-relay-desktop` 名下，跟 `npm start` 的（`harness-relay`）分開，所以在其中一邊儲存或移除 key，不會影響另一邊。設定了 `RELAY_DATA_DIR` 時，兩者共用資料，也都使用 `harness-relay`。
 - **你的 shell 環境。** 在 macOS 與 Linux 上，app 會讀取登入 shell 設定好的環境（`~/.zshrc`、`~/.bashrc` 等檔案裡的 PATH、API key 與其他變數），所以會像終端機一樣找到 CLI。**重新啟動伺服器…** 與 **啟動伺服器** 時會再讀一次：安裝新的 CLI 或修改設定檔之後，選其中一個。在 Windows 上，app 在打開時從系統取得 PATH，並在 **重新啟動伺服器…** 與 **啟動伺服器** 時，從 Windows 重新讀取 PATH 與你的使用者變數。
-- **一律使用 127.0.0.1、port 8787。** Shell 設定檔裡的 `PORT` 或 `HOST` 是給其他程式用的，app 不會採用。要改用其他 port，先結束 app，再修改它的 `desktop.json` 裡的 `"port"`（檔案不存在時就建立它：`{ "port": 8790 }`）。`npm start` 也使用 port 8787，所以除非其中一個改用其他 port，兩者不能同時執行（`npm run dev` 使用 8789，所以能和 app 同時執行；和 `npm start` 同時執行則要在另一個 checkout，因為一個資料夾只能有一個伺服器）。如果 port 已被佔用（例如被用 `npm start` 啟動的 Harness Relay），app 會告訴你，並讓你再試一次。
+- **一律使用 127.0.0.1、port 8787。** Shell 設定檔裡的 `PORT` 或 `HOST` 是給其他程式用的，app 不會採用。要改用其他 port，先結束 app，再修改它的 `desktop.json` 裡的 `"port"`（檔案不存在時就建立它：`{ "port": 8790 }`）。`npm start` 也使用 port 8787，所以除非其中一個改用其他 port，兩者不能同時執行（`npm run dev` 使用 8789，被佔用時改用下一個空的，絕不用 8787，所以能和 app 同時執行；和 `npm start` 同時執行則要在另一個 checkout，因為一個資料夾只能有一個伺服器）。如果 port 已被佔用（例如被用 `npm start` 啟動的 Harness Relay），app 會告訴你，並讓你再試一次。
 - **上限、回合逾時與語音下載。** 有些設定是環境變數，在伺服器啟動時讀取：每個 CLI 能有幾個帳號（`RELAY_MAX_ACCOUNTS`）、一個隊伍能有幾位成員（`RELAY_MAX_TEAM_AGENTS`）、一個 agent 回合最久多長（`RELAY_TURN_TIMEOUT_MIN`），以及語音輸入從哪裡下載、檔案放在哪裡（`RELAY_VOICE_MODEL_BASE_URL`、`RELAY_VOICE_ENGINE_BASE_URL`、`RELAY_VOICE_DIR`）；[開發者指南](developer-guide.zh-TW.md#環境變數)列出了它們的預設值與範圍。在 macOS 與 Linux 上，把它們 `export` 在 shell 設定檔裡（`~/.zprofile`、`~/.bashrc` 等）。在 Windows 上，請設成*使用者*變數：在 PowerShell 執行 `setx RELAY_MAX_TEAM_AGENTS 16`，或到 **系統內容 → 環境變數 → 使用者變數**；系統變數中，app 只會重新讀取 PATH。接著選 **重新啟動伺服器…**（進行中的回覆會停止）。在 Windows 上，刪掉的變數或系統變數，要結束 app 再重新打開才會生效。值不合法時伺服器不會啟動，app 的訊息會說明是哪一個。
 - **預設工作目錄**是你的家目錄，直到你在設定中修改。編輯模式不接受家目錄本身（agent 會在不詢問的情況下修改你的 shell 與工具設定）：編輯模式的對話請選一個專案資料夾。
 - **伺服器的記錄檔**在 macOS 是 `~/Library/Logs/Harness Relay/server.log`，在 Windows 與 Linux 是 app 資料夾裡的 `logs/server.log`。
@@ -227,7 +227,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 使用你在 **設定 → 模型連�
 - **自訂端點** 預設收合，標題旁會列出支援的助理，包括 OpenCode、Goose、Cline、OpenHands、Pi、Claude Code、Codex、Grok 與 GitHub Copilot。展開後即可連接自己的 OpenAI 相容伺服器，例如 vLLM、Ollama、LM Studio 或 llama.cpp。按 **＋ 新增端點**，填寫以下欄位。
   - **名稱**：設定頁上顯示的名字，例如 *Homelab vLLM*。
   - **id**：它的模型 id 的開頭，例如 `homelab`：只能有小寫字母、數字與 `-`（不能在開頭或結尾），最多 32 個字元，也不能是 `openai`、`anthropic` 或 `xai`。在你自己輸入之前，它會跟著名稱產生；建立後不能修改（端點改名時 id 不變）。
-  - **網址（base URL）**：`http://` 或 `https://`，不含帳號、密碼、查詢字串或 `#`，例如 `http://10.0.0.5:8000/v1`。在這台電腦上的伺服器，網址必須寫出埠號（Ollama 是 `http://localhost:11434/v1`），也不能是 Harness Relay 自己的位址，不論怎麼寫（`localhost`、`127.0.0.1`、`[::1]`、這台電腦的網路位址）：那裡的 `PORT`、8787、8789 與 5173 埠（`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）都會被拒絕，所以本機的模型伺服器請用其他埠。
+  - **網址（base URL）**：`http://` 或 `https://`，不含帳號、密碼、查詢字串或 `#`，例如 `http://10.0.0.5:8000/v1`。在這台電腦上的伺服器，網址必須寫出埠號（Ollama 是 `http://localhost:11434/v1`），也不能是 Harness Relay 自己的位址，不論怎麼寫（`localhost`、`127.0.0.1`、`[::1]`、這台電腦的網路位址）：那裡的 `PORT`、8787、8789 與 5173 埠（`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite，或它們被佔用時 `npm run dev` 改用的下一個空的埠）都會被拒絕，所以本機的模型伺服器請用其他埠。
   - **API key（選填）**：伺服器需要金鑰時才填。修改端點時，如果網址相同，留空即可沿用已儲存的金鑰。若變更網址，請填入新網址使用的金鑰。
 
   按 **載入模型** 向端點取得清單（以上面的 Ollama 為例，會送出 `GET http://localhost:11434/v1/models`）。勾選要在助理選單中顯示的 ID。修改端點時，先前已儲存的 ID 仍會保持勾選。要加入其他 ID，可展開 **手動輸入模型 ID**，每行填一個。
@@ -969,7 +969,7 @@ diff 會把改到的每個檔案各列成一個區塊，預設收合：顯示狀
 | 設定各 CLI 自己的資料夾後，每個 agent 都顯示「未登入」 | 正常現象：新的家目錄一開始是空的（Cursor 仍是登入狀態：它的登入屬於你的電腦使用者）。到設定頁重新登入各 CLI，或設定 API key。 |
 | 設定頁顯示「上次更新 AgentsView 失敗」 | 啟動 AgentsView，或檢查 **設定 → Agent 的 session** 中的網址與 port。`ECONNREFUSED` 表示那裡沒有程式在接收。對話會在下一回合結束後再送一次。 |
 | AgentsView 裡找不到某個對話 | AgentsView 會隱藏使用者只說了一則訊息的 session：在它的 session 篩選中開啟 **Include single-turn**。 |
-| 桌面 app 說 port 已被佔用 | 結束用 `npm start` 啟動的 Harness Relay（或其他程式；`npm run dev` 用的是 8789，不是 app 的 port），再按 **再試一次**。也可以先結束 app，在它的 `desktop.json` 設定其他 `"port"`（見[桌面 app](#桌面-app)）。 |
+| 桌面 app 說 port 已被佔用 | 結束用 `npm start` 啟動的 Harness Relay（或其他程式；`npm run dev` 用的是 8789 或下一個空的 port，絕不是 app 的），再按 **再試一次**。也可以先結束 app，在它的 `desktop.json` 設定其他 `"port"`（見[桌面 app](#桌面-app)）。 |
 | 伺服器一啟動就停止：*Another Harness Relay server is using the data folder* | 兩個伺服器不能共用同一個資料夾（各自啟動時會停掉另一個的執行）。結束另一個（例如同一個資料夾的 `npm start`），或用 `RELAY_DATA_DIR` 給這一個自己的資料夾。 |
 | 桌面 app 顯示某個 CLI「找不到指令」，但它在終端機裡能用 | App 在啟動伺服器時讀取登入 shell 的環境（在 Windows 上是系統的 PATH）：安裝 CLI 之後，在選單選 **重新啟動伺服器…**。如果還是找不到，在設定中把 **執行檔** 設為 CLI 的完整路徑（在終端機執行 `which claude` 查看；Windows 上用 `where claude`，npm 的 `.cmd` 也可以）。 |
 | 桌面 app 的 AppImage 在 Linux 上一啟動就結束 | 加上 `--no-sandbox` 啟動（見[桌面 app](#桌面-app)）。 |
