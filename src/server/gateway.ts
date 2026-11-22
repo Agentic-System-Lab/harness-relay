@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import {
   GATEWAY_SERVER_NAME,
   OPEN_PROVIDERS,
@@ -17,7 +17,7 @@ import {
 } from '../shared/types';
 import { currentLang, t, withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
-import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
+import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE, socketPathMax } from './gatewayShim';
 import { HOOK_INLINE_TOKEN_ENV, HOOK_SHIM_SOURCE } from './hookShim';
 import { realPath, RUN_TMP_PREFIXES } from './protect';
 
@@ -65,7 +65,7 @@ export interface GatewayContext {
    * Counts tokens a tool spent itself for the turn (RLM's sub-model, `llm_query()`), which go into the
    * turn's reply with the CLI's own (`withSubModelTokens()` in `runCode.ts`).
    */
-  usage?: (tokens: { inputTokens: number; outputTokens: number }) => void;
+  usage?: (tokens: { inputTokens: number; outputTokens: number; costUsd?: number }) => void;
   signal: AbortSignal;
 }
 
@@ -234,6 +234,48 @@ export interface GrantOptions {
 /** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
 export type GatewayUnavailable = 'not-started' | 'no-node' | 'no-node-path';
 
+/** The socket's path, under the data folder. */
+const SOCKET_IN_DATA = ['gateway', 'relay.sock'];
+
+/** The gateway cannot listen: its socket's path does not fit (`gatewayListenPath`), a setting to change, not a fault. */
+export class GatewaySocketPathError extends Error {}
+
+/**
+ * Where the gateway listens for its socket in `dataDir`: the socket's own path; or, where that is too
+ * long for a Unix socket's (`socketPathMax`: Node on macOS would cut it, so the socket would land
+ * under another name, `relay.so`, or outside its folder, and the next start would find it in its way),
+ * the same path from the server's working folder (`cwd`, which the server never changes), as
+ * `npm run dev` in an agent's worktree has it (`data/gateway/relay.sock`). The programs that connect
+ * reach a long path from its own folder (`SOCKET_REACH_SOURCE`). `refusal`, in the log's words, when
+ * neither fits. Not for Windows, whose gateway is a named pipe.
+ */
+export function gatewayListenPath(
+  dataDir: string,
+  platform: NodeJS.Platform,
+  cwd: string | undefined,
+): { path: string; refusal?: undefined } | { path?: undefined; refusal: string } {
+  const path = join(dataDir, ...SOCKET_IN_DATA);
+  const max = socketPathMax(platform);
+  // Bytes, not characters: a path in Chinese takes three for each of its characters.
+  const bytes = Buffer.byteLength(path);
+  if (bytes <= max) return { path };
+  const near = cwd === undefined ? '' : relative(cwd, path);
+  if (near && !isAbsolute(near) && Buffer.byteLength(near) <= max) return { path: near };
+  const folderMax = max - (bytes - Buffer.byteLength(dataDir));
+  return {
+    refusal: `its socket's path (${path}) is ${bytes} bytes, longer than the ${max} a Unix socket's path may have here, also from the server's working folder: set RELAY_DATA_DIR to a folder whose path is at most ${folderMax} bytes (UTF-8: a character outside ASCII takes 2 to 4), or start Harness Relay from a folder near its data folder, and restart it`,
+  };
+}
+
+/** The server's working folder, or undefined when it is gone. */
+function workingFolder(): string | undefined {
+  try {
+    return process.cwd();
+  } catch {
+    return undefined;
+  }
+}
+
 /** A line the server and the shim exchange, after the token. */
 type Request =
   | { id: number; method: 'list' }
@@ -302,7 +344,7 @@ export class ToolGateway {
     this.socketPath =
       platform === 'win32'
         ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}`
-        : join(dataDir, 'gateway', 'relay.sock');
+        : join(dataDir, ...SOCKET_IN_DATA);
   }
 
   /** Adds tools (by name; a later one with the same name replaces an earlier one). */
@@ -341,10 +383,20 @@ export class ToolGateway {
     return this.httpAt;
   }
 
-  /** Listens on the socket, in a folder only the owner may enter. */
+  /**
+   * Listens on the socket, in a folder only the owner may enter: by a path short enough for a Unix
+   * socket's (`gatewayListenPath`), or not at all (`GatewaySocketPathError`, before it makes anything),
+   * never on a cut one somewhere else.
+   */
   async start(): Promise<void> {
     if (this.server) return;
-    const dir = join(this.dataDir, 'gateway');
+    let listenAt = this.socketPath;
+    if (!this.socketPath.startsWith('\\\\')) {
+      const at = gatewayListenPath(this.dataDir, this.platform, workingFolder());
+      if (at.refusal !== undefined) throw new GatewaySocketPathError(at.refusal);
+      listenAt = at.path;
+    }
+    const dir = join(this.dataDir, SOCKET_IN_DATA[0]!);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (process.platform !== 'win32') chmodSync(dir, 0o700);
     mkdirSync(this.tokenDir, { recursive: true, mode: 0o700 });
@@ -352,7 +404,7 @@ export class ToolGateway {
     const server = createServer((sock) => this.serve(sock));
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(this.socketPath, () => {
+      server.listen(listenAt, () => {
         server.off('error', reject);
         resolve();
       });

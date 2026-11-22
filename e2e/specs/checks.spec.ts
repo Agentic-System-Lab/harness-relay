@@ -107,6 +107,35 @@ test.describe('team checks', () => {
     await expect(checkCards(page)).toHaveCount(2);
   });
 
+  test('an app the team makes must open in the preview, set in Team settings, and what fails goes back to the team by itself', async ({
+    page,
+    relay,
+  }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await lastTeamField(page).locator('summary').click();
+    await drawer.getByRole('checkbox', { name: 'The app the team builds must open in the preview' }).check();
+    await drawer.getByRole('checkbox', { name: 'Send what did not pass back to the team to fix' }).check();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    expect((await settled(relay, id)).settings.checks).toEqual({ previewApp: true, autoFix: true });
+
+    await send(page, 'Make a snake game e2e:write=snake/main.py');
+    const fix = page.locator('.msg-user').filter({ hasText: '@Claude the team checks did not pass' });
+    await expect(fix).toContainText('sent by Relay automatically, attempt 1 of 3');
+    await expect(fix.locator('.queued-tag')).toHaveText("Relay's fix 1/3");
+    await settled(relay, id);
+    const card = checkCards(page).last();
+    await expect(card.locator('.plan-head .checks-status')).toHaveText('Failed');
+    await expect(card).toContainText('App preview');
+    await expect(card.locator('.checks-findings')).toContainText('snake It has no Dockerfile');
+    await expect(card).toContainText('Sent back to @Claude automatically (1 of 3)');
+    // Its turn changed nothing, so there is nothing new to check: it waits for the user.
+    await expect(checkCards(page)).toHaveCount(1);
+    await expect(page.locator('.msg-user')).toHaveCount(2);
+  });
+
   test('Team settings preserves updated checks when an open drawer refreshes its draft', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
       permission: 'edit',

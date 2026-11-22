@@ -19,7 +19,14 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { CHECK_RESULT_LIMITS, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
+import {
+  CHECK_RESULT_LIMITS,
+  NATIVE_OFF_SUPPORT,
+  PROVIDER_LABEL,
+  type NativeItemsOff,
+  type NativePart,
+  type Permission,
+} from '../../shared/types';
 import { keptOutput } from '../checkCommands';
 import type { HookHandler, HookProgram } from '../gateway';
 import { HOOK_WAIT, commandHookHandler, shellWords, type HookResult, type TurnHooks } from '../hooks';
@@ -162,6 +169,14 @@ export const MUSE_KEPT_SETTINGS = [
 const REMINDER_CAPABILITY = /^plugin:[^:]+:reminder:[^:]+$/;
 
 /**
+ * Muse's own reminders (muse 1.4.23's `plugin:tbh-reminders` capabilities): RLM's sub-model turns each one
+ * off, since each sends model requests of its own beside the turn (eight beside one question, tried).
+ */
+export const MUSE_REMINDERS = ['goal-reminder', 'memory', 'scope-reminder', 'skill-reminder', 'todo-reminder', 'verify-reminder'].map(
+  (id) => `plugin:tbh-reminders:reminder:${id}`,
+);
+
+/**
  * Of the account's `runtime_capabilities`, its reminders' switches only (`{ enabled }`), so that a reminder
  * the user turned off stays off in Harness Relay's runs (each one sends model requests of its own: with
  * muse 1.4.18 more of a short turn's requests than the turn itself), and no other capability is turned on.
@@ -223,11 +238,16 @@ export function museRunSettings(
   protectedPaths: readonly string[],
   nativeOff: readonly NativePart[] = [],
   nativeItems: NativeItemsOff = {},
+  /** RLM's sub-model (`RunOptions.toolless`): every reminder of Muse's own off too (`MUSE_REMINDERS`). */
+  toolless = false,
 ): Record<string, unknown> {
   const base: Record<string, any> = isObject(own) ? own : {};
   const out: Record<string, any> = Object.fromEntries(MUSE_KEPT_SETTINGS.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
-  const reminders = museReminderSwitches(base.runtime_capabilities);
-  if (reminders) out.runtime_capabilities = reminders;
+  const reminders = {
+    ...museReminderSwitches(base.runtime_capabilities),
+    ...(toolless ? Object.fromEntries(MUSE_REMINDERS.map((id) => [id, { enabled: false }])) : {}),
+  };
+  if (Object.keys(reminders).length) out.runtime_capabilities = reminders;
   if (nativeOff.includes('hooks')) {
     delete out.hooks;
     delete out.managed_hooks_path;
@@ -452,6 +472,8 @@ export function prepareMuseRun(
     userConfig?: string;
     /** The team's hooks, and the program that runs them (`museHooksWith`). */
     hooks?: { turn: TurnHooks; program: HookProgram };
+    /** RLM's sub-model (`RunOptions.toolless`): its reminders off (`museRunSettings`). */
+    toolless?: boolean;
   } = {},
 ): MuseRun {
   const platform = opts.platform ?? process.platform;
@@ -492,7 +514,7 @@ export function prepareMuseRun(
     // Read in here, so that a sign-in it cannot read leaves no folder behind.
     if (authLinked || authCopied) original = readFileSync(auth);
     mkdirSync(cfg, { mode: 0o700 });
-    const runSettings = museRunSettings(settings, permission, protectedPaths, opts.nativeOff, opts.nativeItems);
+    const runSettings = museRunSettings(settings, permission, protectedPaths, opts.nativeOff, opts.nativeItems, opts.toolless);
     if (opts.hooks) runSettings.hooks = museHooksWith(runSettings.hooks, opts.hooks.program, opts.hooks.turn);
     writeFileSync(join(cfg, 'settings.json'), `${JSON.stringify(runSettings, null, 2)}\n`, { mode: 0o600 });
     if (authLinked) symlinkSync(auth, runAuth, 'file');
@@ -610,13 +632,17 @@ export const MUSE_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
  * the command line), and in full access no sandbox and a trusted workspace.
  */
 export function museArgs(
-  o: Pick<RunOptions, 'permission' | 'model' | 'effort' | 'systemPrompt'>,
+  o: Pick<RunOptions, 'permission' | 'model' | 'effort' | 'systemPrompt' | 'toolless'>,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   const effort = o.effort?.trim();
-  const briefing = o.systemPrompt.trim() && briefingOnCommandLine(o.systemPrompt, platform) ? museBriefing(o.systemPrompt) : '';
+  // RLM's sub-model's system prompt, which may hold the code's own text, never goes on the command line (`musePromptText`).
+  const briefing =
+    !o.toolless && o.systemPrompt.trim() && briefingOnCommandLine(o.systemPrompt, platform) ? museBriefing(o.systemPrompt) : '';
   return [
     'acp',
+    // RLM's sub-model: no tool at all (Muse's empty preset), and no session kept (memory only).
+    ...(o.toolless ? ['--preset', 'empty', '--no-session-log'] : []),
     ...(o.model?.trim() ? ['--model', o.model.trim()] : []),
     ...(effort && (MUSE_EFFORTS as readonly string[]).includes(effort) ? ['-c', `reasoning_effort=${JSON.stringify(effort)}`] : []),
     ...(briefing ? ['-c', `run.developer_prompt=${JSON.stringify(briefing)}`] : []),
@@ -631,9 +657,38 @@ export function museMode(permission: Permission): string {
 }
 
 /** The prompt text: the briefing on top when it does not go on the command line. */
-export function musePromptText(prompt: string, briefing: string, platform: NodeJS.Platform = process.platform): string {
-  if (!briefing.trim() || briefingOnCommandLine(briefing, platform)) return prompt;
-  return `${museBriefing(briefing)}\n\n${prompt}`;
+export function musePromptText(prompt: string, briefing: string, platform: NodeJS.Platform = process.platform, toolless = false): string {
+  if (!briefing.trim() || (!toolless && briefingOnCommandLine(briefing, platform))) return prompt;
+  return `${museInstructions(briefing, toolless)}\n\n${prompt}`;
+}
+
+/** The instructions a run gives Muse: Harness Relay's briefing (`museBriefing`), or for RLM's sub-model its system prompt alone. */
+function museInstructions(systemPrompt: string, toolless = false): string {
+  return toolless ? systemPrompt.trim() : museBriefing(systemPrompt);
+}
+
+/**
+ * A run of RLM's sub-model (`RunOptions.toolless`) as the other runs' options say it: the MCP servers and
+ * hooks Muse would load left out, and nothing of Harness Relay's (no MCP servers, hooks, guard, folders
+ * besides the working directory or session).
+ */
+export function museToolless(o: RunOptions): RunOptions {
+  return {
+    ...o,
+    mcpServers: [],
+    nativeOff: [...NATIVE_OFF_SUPPORT.muse],
+    nativeItems: {},
+    nativeOn: [],
+    addDirs: [],
+    readDirs: [],
+    attachmentsDir: undefined,
+    hooks: undefined,
+    guard: undefined,
+    sessionId: undefined,
+    onSteer: undefined,
+    // Nothing is asked of anyone: every permission Muse asks for is refused (`museTurn`).
+    requestApproval: undefined,
+  };
 }
 
 /**
@@ -1044,8 +1099,9 @@ function deniedPaths(o: RunOptions): string[] {
 
 export const museRunner: AgentRunner = {
   provider: 'muse',
-  async run(o): Promise<RunResult> {
-    if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+  async run(given): Promise<RunResult> {
+    if (given.signal.aborted) throw new AgentRunError(t().stopped, true);
+    const o = given.toolless ? museToolless(given) : given;
     const denied = deniedPaths(o);
     const grant = museGrant(o.permission, denied);
     // Before anything is said, so that the orchestrator starts a fresh session.
@@ -1061,6 +1117,7 @@ export const museRunner: AgentRunner = {
         nativeItems: o.nativeItems,
         dirs: [o.cwd, ...(o.addDirs ?? [])],
         ...(o.hooks && program ? { hooks: { turn: o.hooks, program } } : {}),
+        ...(o.toolless ? { toolless: true } : {}),
       });
     } catch (err) {
       throw new AgentRunError(t().museConfigFailed((err as Error).message));
@@ -1110,6 +1167,8 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const id = String(params?.toolCall?.toolCallId ?? '');
     const once = (x: { optionId: string; kind: string }) => x.kind !== 'allow_always' && x.kind !== 'reject_always';
+    // RLM's sub-model has no tool to call: whatever Muse asks about is refused, reads too.
+    if (o.toolless) return answerPermission({ allow: false, reason: 'No tools here.' }, options.filter(once));
     const call: MuseToolCall = { ...updates.call(id), ...(params?.toolCall ?? {}) };
     // The same call asked about again gets the same answer; its network is asked of its own, every time
     // (each host it would reach).
@@ -1195,7 +1254,7 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
 
     const result = await conn.request('session/prompt', {
       sessionId,
-      prompt: acpPrompt(musePromptText(o.prompt, o.systemPrompt), o.images),
+      prompt: acpPrompt(musePromptText(o.prompt, o.systemPrompt, process.platform, o.toolless), o.images),
     });
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);

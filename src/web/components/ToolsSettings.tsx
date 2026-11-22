@@ -882,7 +882,13 @@ function ChecksDefaultSection({
     try {
       const patch = hooksOnly
         ? { hooks: draft?.hooks ?? [] }
-        : { protectedPaths: draft?.protectedPaths ?? [], commitPattern: draft?.commitPattern ?? '', commands: draft?.commands ?? [] };
+        : {
+            protectedPaths: draft?.protectedPaths ?? [],
+            commitPattern: draft?.commitPattern ?? '',
+            commands: draft?.commands ?? [],
+            previewApp: Boolean(draft?.previewApp),
+            autoFix: Boolean(draft?.autoFix),
+          };
       const kept = sectionOf(await api.updateCheckDefaults(patch));
       setSaved(kept);
       setDraft(kept);

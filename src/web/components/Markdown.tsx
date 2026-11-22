@@ -6,6 +6,7 @@ import { endBareUrls } from '../../shared/links';
 import { fileName, localFilePath, localMediaPath } from '../../shared/media';
 import { findMentions } from '../../shared/mentions';
 import { checkDownload, checkLater, fileClicks, type DownloadState } from '../download';
+import { filePreviewTarget } from '../appPreview';
 import { useT } from '../i18n';
 import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
@@ -195,12 +196,14 @@ export function FileLink({
   className,
   children,
   initial = 'unknown',
+  onPreview,
 }: {
   href: string;
   path: string;
   className?: string;
   children: ReactNode;
   initial?: DownloadState;
+  onPreview?: (path: string) => void;
 }) {
   const t = useT();
   // The state belongs to one URL: another one (a reference definition still streaming in) starts over.
@@ -232,6 +235,11 @@ export function FileLink({
         {children}
         <DownloadIcon size={14} />
       </a>
+      {onPreview && filePreviewTarget(path) && (
+        <button className="link-button reply-preview-button" type="button" onClick={() => onPreview(path)}>
+          {t.appPreview.open}
+        </button>
+      )}
       {state === 'missing' && (
         <span className="media-missing file-missing" title={path}>
           {' '}
@@ -242,7 +250,7 @@ export function FileLink({
   );
 }
 
-function makeComponents(mediaBase: string | undefined, downloadBase: string | undefined): Components {
+function makeComponents(mediaBase: string | undefined, downloadBase: string | undefined, onPreview?: (path: string) => void): Components {
   return {
     th: ({ node, ...props }) => <th {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
     td: ({ node, ...props }) => <td {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
@@ -250,7 +258,7 @@ function makeComponents(mediaBase: string | undefined, downloadBase: string | un
       // Marked by remarkRelay (only with a download URL): its href would point into this app, or nowhere.
       const file = (node as HtmlNode | undefined)?.properties?.dataFile;
       return typeof file === 'string' && downloadBase ? (
-        <FileLink href={`${downloadBase}?path=${encodeURIComponent(file)}`} path={file} className={className}>
+        <FileLink href={`${downloadBase}?path=${encodeURIComponent(file)}`} path={file} className={className} onPreview={onPreview}>
           {children}
         </FileLink>
       ) : (
@@ -284,15 +292,17 @@ export const Markdown = memo(function Markdown({
   mentions = [],
   mediaBase,
   downloadBase,
+  onPreview,
   breaks = false,
 }: {
   text: string;
   mentions?: string[];
   mediaBase?: string;
   downloadBase?: string;
+  onPreview?: (path: string) => void;
   breaks?: boolean;
 }) {
-  const components = useMemo(() => makeComponents(mediaBase, downloadBase), [mediaBase, downloadBase]);
+  const components = useMemo(() => makeComponents(mediaBase, downloadBase, onPreview), [mediaBase, downloadBase, onPreview]);
   return (
     <div className="markdown">
       <ReactMarkdown

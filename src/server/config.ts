@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, parseBackendModel, type MailServer, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, parseBackendModel, parseCliSubModel, SUB_MODEL_CLIS, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -11,6 +11,7 @@ import { DEFAULT_LIMITS, parseBackendModel, type MailServer, type ServerLimits }
  */
 export interface ServerConfig extends ServerLimits {
   turnTimeoutMs: number;
+  previewDomain?: string;
   /** The folder the voice models are in (`<base>/<file>`); undefined = Hugging Face, pinned to one commit. */
   voiceModelBaseUrl?: string;
   /** The folder the voice engine's archives are in (`<base>/<asset>`); undefined = whisper.cpp's release on GitHub. */
@@ -55,6 +56,15 @@ export interface ServerConfig extends ServerLimits {
    * turns `run_code` on. undefined = off.
    */
   rlmModel?: string;
+  /**
+   * Stand-ins on this computer for publishing a previewed app, in the end-to-end tests only: Render's
+   * API (`RELAY_RENDER_API_URL`), Neon's (`RELAY_NEON_API_URL`) and a folder of bare repositories in
+   * GitHub's place (`RELAY_PUBLISH_GIT_DIR`, `<folder>/<owner>/<name>.git`). undefined =
+   * `https://api.render.com/v1`, `https://console.neon.tech/api/v2` and `https://github.com`.
+   */
+  renderApiUrl?: string;
+  neonApiUrl?: string;
+  publishGitDir?: string;
 }
 
 /**
@@ -131,6 +141,15 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return undefined;
   };
 
+  // A stand-in on this computer, and nothing else: an API a key goes to that is not the host's own.
+  const local = (name: string): string | undefined => {
+    const url = base(name);
+    if (!url) return undefined;
+    if (/^(127\.0\.0\.1|localhost|\[::1\])$/.test(new URL(url).hostname)) return url;
+    problems.push(`${name} must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).`);
+    return undefined;
+  };
+
   // A mail server a token goes to, as `host:port`: TLS, or STARTTLS on the port that asks for it
   // (IMAP's 143, SMTP's 587 and 25); plain TCP to this computer only (a stand-in).
   const mailServer = (name: string, kind: 'imap' | 'smtp'): MailServer | undefined => {
@@ -157,14 +176,15 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return false;
   };
 
-  // RLM mode: off, or the sub-model as `<backend>/<model>`. Whether that connection is set up is found
-  // out when the code asks it (Settings can change it meanwhile).
+  // RLM mode: off, or the sub-model as `<backend>/<model>`, or through a CLI as
+  // `cli:<provider>[:<account>][/<model>]`. Whether that connection or account is set up is found out
+  // when the code asks it (Settings can change it meanwhile).
   const rlm = (): string | undefined => {
     const raw = env.RELAY_RLM?.trim();
     if (!raw || raw.toLowerCase() === 'off') return undefined;
-    if (parseBackendModel(raw)) return raw;
+    if (parseBackendModel(raw) || parseCliSubModel(raw)) return raw;
     problems.push(
-      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5, or through ${SUB_MODEL_CLIS.join(', ')} as cli:<provider>[:<account>][/<model>], such as cli:claude/haiku.`,
     );
     return undefined;
   };
@@ -174,7 +194,17 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     problems.push('RELAY_RLM needs run_code: leave RELAY_RUN_CODE unset, or set it to on.');
 
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
+  const previewDomain = env.RELAY_PREVIEW_DOMAIN?.trim().toLowerCase();
+  if (
+    previewDomain &&
+    (previewDomain.length > 240 ||
+      !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(previewDomain) ||
+      previewDomain.endsWith('.localhost'))
+  )
+    problems.push('RELAY_PREVIEW_DOMAIN must be a DNS domain for the dedicated HTTPS preview hosts.');
+
   const config: ServerConfig = {
+    ...(previewDomain ? { previewDomain } : {}),
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
     maxTeamAgents: whole('RELAY_MAX_TEAM_AGENTS', DEFAULT_LIMITS.maxTeamAgents),
     turnTimeoutMinutes,
@@ -189,6 +219,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
     runCode: runCode || Boolean(rlmModel),
     ...(rlmModel ? { rlmModel } : {}),
+    renderApiUrl: local('RELAY_RENDER_API_URL'),
+    neonApiUrl: local('RELAY_NEON_API_URL'),
+    publishGitDir: folder('RELAY_PUBLISH_GIT_DIR'),
   };
   return { config, problems };
 }

@@ -195,6 +195,28 @@ export function ChevronIcon({ size }: { size?: number }) {
   );
 }
 
+/** A window with a play mark: the app preview. */
+export function PreviewIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <path d="M3 9h18" />
+      <path d="M10.5 12.2v4.6l3.8-2.3Z" />
+    </Svg>
+  );
+}
+
+/** A box with an arrow out of it: open in a new tab. */
+export function ExternalIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M14 4h6v6" />
+      <path d="m20 4-9 9" />
+      <path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />
+    </Svg>
+  );
+}
+
 /** Two sheets: copy. */
 export function CopyIcon({ size }: { size?: number }) {
   return (

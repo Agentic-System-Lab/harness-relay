@@ -119,6 +119,9 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Team checks');
     await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Browse the working directory');
+    await expect(update).toContainText('Preview app');
+    await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Connect apps to your chats');
@@ -141,6 +144,9 @@ test.describe('the guided tour', () => {
     await expect(update).toHaveAccessibleName('A team for every question');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('While the team replies');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Browse the working directory');
+    await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
     await update.getByRole('button', { name: 'Next' }).click();

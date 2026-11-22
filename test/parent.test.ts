@@ -122,6 +122,8 @@ describe('the server, run as the desktop app runs it', () => {
         "signs a browser in with the link's code",
         'answers the signed-in browser',
         'starts a read-only chat with claude, codex and grok',
+        'opens the static app on its own preview origin',
+        'stops the static preview',
         'sends them a question',
         expect.stringMatching(/^the team's run ends within \d+ s$/),
         'claude answers it',

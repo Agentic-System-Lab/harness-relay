@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTH_KEY_HEADER, SIGNED_OUT, browserLabel, codeFromBytes, codeFromHash, normalizeCode } from '../src/shared/auth';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-auth-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const { AuthStore, CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S } = await import('../src/server/auth');
+const { AuthStore, CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, sessionCookieName } = await import('../src/server/auth');
 const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
@@ -39,6 +39,26 @@ describe('sign-in codes', () => {
     expect(signInLink('ABCD-EFGH', { host: '0.0.0.0', port: 9000 })).toBe('http://127.0.0.1:9000/#code=ABCD-EFGH');
     expect(signInLink('ABCD-EFGH', { host: '::1', port: 8787 })).toBe('http://[::1]:8787/#code=ABCD-EFGH');
     expect(signInLink('ABCD-EFGH', { host: '127.0.0.1', port: 8787, dev: true })).toBe('http://localhost:5173/#code=ABCD-EFGH');
+  });
+
+  it("are kept in a cookie named after the port npm run dev's Vite took, so that two on localhost keep their own", () => {
+    expect(SESSION_COOKIE).toBe('relay_session');
+    expect(sessionCookieName({})).toBe('relay_session');
+    expect(sessionCookieName({ npm_lifecycle_event: 'start', RELAY_DEV_WEB_PORT: '5174' })).toBe('relay_session');
+    expect(sessionCookieName({ npm_lifecycle_event: 'dev' })).toBe('relay_session');
+    expect(sessionCookieName({ npm_lifecycle_event: 'dev', RELAY_DEV_WEB_PORT: '5173' })).toBe('relay_session');
+    expect(sessionCookieName({ npm_lifecycle_event: 'dev', RELAY_DEV_WEB_PORT: '5174' })).toBe('relay_session_5174');
+  });
+
+  it("point to the port npm run dev's Vite took when 5173 was in use", () => {
+    vi.stubEnv('RELAY_DEV_WEB_PORT', '5174');
+    try {
+      expect(signInLink('ABCD-EFGH', { host: '127.0.0.1', port: 8790, dev: true })).toBe('http://localhost:5174/#code=ABCD-EFGH');
+      // The built UI is the server's own, wherever Vite is.
+      expect(signInLink('ABCD-EFGH', { host: '127.0.0.1', port: 8790 })).toBe('http://127.0.0.1:8790/#code=ABCD-EFGH');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('name a browser by its User-Agent', () => {

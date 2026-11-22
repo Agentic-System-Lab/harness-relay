@@ -48,6 +48,8 @@ import {
   claudeSandboxWrites,
   claudeSessionFile,
   claudeSessionTally,
+  claudeToolless,
+  forgetToollessPlugins,
   claudeTurnUsage,
   createClaudeParser,
   parseClaudePluginList,
@@ -1950,6 +1952,129 @@ describe("the answer's shape, a budget and a stop", () => {
       expect(err.usage).toBeUndefined();
       expect(r.lines().some((l) => l.interrupt)).toBe(true);
       setClaudeStopGrace();
+    });
+  });
+});
+
+describe("RLM's sub-model through Claude Code (a toolless run)", () => {
+  const base = { systemPrompt: 'Answer.', ask: false, newSessionId: 'new-id', permission: 'read-only' as const };
+
+  it("gives its system prompt from a file in place of Claude Code's own, only the user's settings, nothing pre-approved, and keeps no session", () => {
+    const args = claudeArgs({ ...base, toolless: true, systemPromptFile: '/data/tmp/claude-x/system-prompt.md', sessionId: 'old-id' });
+    expect(args[args.indexOf('--system-prompt-file') + 1]).toBe('/data/tmp/claude-x/system-prompt.md');
+    expect(args).not.toContain('Answer.');
+    expect(args).not.toContain('--append-system-prompt');
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('user');
+    expect(args).not.toContain('--allowedTools');
+    expect(args).toContain('--no-session-persistence');
+    expect(args).not.toContain('--session-id');
+    expect(args).not.toContain('--resume');
+    // Another run appends its briefing, pre-approves the reads its permission allows and names its session.
+    const member = claudeArgs(base);
+    expect(member).toContain('--append-system-prompt');
+    expect(member).toContain('--allowedTools');
+    expect(member).not.toContain('--setting-sources');
+    expect(member).not.toContain('--no-session-persistence');
+  });
+
+  it("leaves out everything Claude Code loads by itself, its built-in tools among them, and all of Harness Relay's", () => {
+    const o = claudeToolless({
+      bin: 'claude',
+      env: {},
+      prompt: 'q',
+      systemPrompt: 's',
+      cwd: '/tmp/x',
+      permission: 'read-only',
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+      toolless: true,
+      mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+      nativeOff: [],
+      nativeOn: ['workflows'],
+      addDirs: ['/docs'],
+      sessionId: 'old',
+      outputSchema: { type: 'object' },
+      requestApproval: async () => ({ allow: true }),
+    });
+    expect(o.nativeOff).toEqual(
+      expect.arrayContaining(['tools', 'mcp', 'skills', 'hooks', 'plugins', 'instructions', 'memory', 'agents', 'subagents']),
+    );
+    expect(o).toMatchObject({ mcpServers: [], nativeOn: [], addDirs: [], sessionId: undefined, outputSchema: undefined });
+    // Nothing is asked of anyone: Claude Code refuses what it would ask about.
+    expect(o.requestApproval).toBeUndefined();
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-toolless-')));
+    afterAll(() => {
+      forgetToollessPlugins();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    let n = 0;
+    const run = async (more: Partial<Parameters<typeof claudeRunner.run>[0]> = {}) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      writeFileSync(log, '');
+      await withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_PLUGIN_LOG: join(dir, 'plugins.log') },
+          prompt: 'hello',
+          systemPrompt: 'Answer from the text.',
+          cwd: dir,
+          permission: 'read-only',
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+          toolless: true,
+          mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+          addDirs: ['/docs'],
+          ...more,
+        }),
+      );
+      return readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map(
+          (l) => JSON.parse(l) as { args?: string[]; settings?: Record<string, any>; systemPromptFile?: string; env?: Record<string, any> },
+        )
+        .find((l) => l.args?.includes('-p'))!;
+    };
+
+    it('starts claude with no tools, MCP servers, folders, project settings or session, whatever the options said', async () => {
+      const turn = await run({ requestApproval: async () => ({ allow: true }) });
+      const args = turn.args!;
+      expect(args[args.indexOf('--tools') + 1]).toBe('');
+      expect(args).toContain('--strict-mcp-config');
+      expect(args).toContain('--disable-slash-commands');
+      expect(args).not.toContain('--mcp-config');
+      expect(args).not.toContain('--add-dir');
+      expect(args).not.toContain('--allowedTools');
+      expect(args).not.toContain('--permission-prompt-tool');
+      expect(args[args.indexOf('--setting-sources') + 1]).toBe('user');
+      expect(args).toContain('--no-session-persistence');
+      // The system prompt in a private file, removed after the run: nothing of it on the command line.
+      const file = args[args.indexOf('--system-prompt-file') + 1]!;
+      expect(turn.systemPromptFile).toBe('Answer from the text.');
+      expect(args).not.toContain('Answer from the text.');
+      expect(existsSync(file)).toBe(false);
+      // Its hooks and subagents off, and no instruction files.
+      expect(turn.settings).toMatchObject({ disableAllHooks: true });
+      expect(JSON.stringify(turn.settings)).toContain('Agent');
+      expect(turn.env!.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBeTruthy();
+    });
+
+    it('lists the plugins once a minute for its runs, not once a question', async () => {
+      forgetToollessPlugins();
+      const listed = () =>
+        existsSync(join(dir, 'plugins.log')) ? readFileSync(join(dir, 'plugins.log'), 'utf8').split('\n').filter(Boolean).length : 0;
+      const before = listed();
+      await run();
+      await run();
+      expect(listed() - before).toBe(1);
+      forgetToollessPlugins();
+      await run();
+      expect(listed() - before).toBe(2);
     });
   });
 });

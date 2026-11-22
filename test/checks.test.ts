@@ -450,6 +450,15 @@ describe("a template's rules with Settings' default", () => {
     expect(mergeDefaultChecks({ hooks: many, fromDefault: true }, { hooks: [{ ...own, run: 'more' }] }).hooks).toEqual(many);
   });
 
+  it('takes the app preview rule and fixing by itself from either, and keeps the mark when the template adds neither', () => {
+    expect(mergeDefaultChecks({ previewApp: true, fromDefault: true }, { autoFix: true })).toEqual({ previewApp: true, autoFix: true });
+    expect(mergeDefaultChecks({ previewApp: true, autoFix: true, fromDefault: true }, { previewApp: true })).toEqual({
+      previewApp: true,
+      autoFix: true,
+      fromDefault: true,
+    });
+  });
+
   it('opens the sandbox for a command both have only where both open it', () => {
     const merged = mergeDefaultChecks(
       { commands: [{ id: 'a', run: 'npm test', unixSockets: true }], fromDefault: true },

@@ -38,7 +38,9 @@ import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backend
 import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
 import { t } from './i18n';
+import { devRunVars } from './ports';
 import { maskSecret, type SecretStore } from './secrets';
+import { PublishStore } from './publish/store';
 import { ToolLibrary } from './tools';
 import { SlackPosting } from './connectors/slack';
 import { ConnectorStore } from './connectors/accounts';
@@ -290,6 +292,8 @@ export class SettingsStore {
   /** The mail accounts and calendars Harness Relay's mail and calendar tools use. */
   readonly connectors: ConnectorStore;
   readonly slackPosting: SlackPosting;
+  /** Settings → Publish to the cloud: the Render and Neon keys and the apps published from previews. */
+  readonly publish: PublishStore;
   /** Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far. */
   readonly oauth: OAuthService;
   /** The tool library HTTP MCP servers' own sign-ins (MCP's authorization), through the same sign-ins. */
@@ -302,6 +306,7 @@ export class SettingsStore {
     private keyring?: SecretStore,
   ) {
     this.slackPosting = new SlackPosting(keyring);
+    this.publish = new PublishStore(db, keyring);
     const empty = (): ProviderSettings => ({
       bin: '',
       apiKey: '',
@@ -954,7 +959,8 @@ export class SettingsStore {
   }
 
   /**
-   * Environment for a spawned CLI: the server's env, minus nesting markers, plus stored API keys.
+   * Environment for a spawned CLI: the server's env, minus nesting markers and the ports `npm run dev`
+   * set for itself (`devRunVars()`), plus stored API keys.
    * With an agent home set, the CLI's home variable points into it, replacing any the server was
    * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
    *
@@ -969,6 +975,7 @@ export class SettingsStore {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (process.platform === 'win32') addWindowsGitToPath(env);
     for (const k of NESTED_AGENT_VARS) delete env[k];
+    for (const k of devRunVars()) delete env[k];
     if (isOpenProvider(p)) {
       // Only the backends set up in Settings: not a key or an address the server inherited.
       for (const k of INHERITED_BACKEND_VARS) delete env[k];

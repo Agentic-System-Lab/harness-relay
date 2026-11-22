@@ -46,12 +46,15 @@ describe('server configuration from the environment', () => {
       expect(read.config.rlmModel).toBeUndefined();
       expect(read.config.runCode).toBe(false);
     }
-    // Not a model: `on` names none.
-    for (const raw of ['on', 'claude-haiku-5-5', '/model', 'openai/']) {
+    // Through a CLI that can run with no tool, as one of its accounts.
+    expect(readConfig({ RELAY_RLM: 'cli:claude/haiku' }).config).toMatchObject({ runCode: true, rlmModel: 'cli:claude/haiku' });
+    expect(readConfig({ RELAY_RLM: 'cli:copilot:work' }).problems).toEqual([]);
+    // Not a model: `on` names none; nor a CLI whose runs keep a tool.
+    for (const raw of ['on', 'claude-haiku-5-5', '/model', 'openai/', 'cli:codex/gpt-6.2-sol']) {
       const read = readConfig({ RELAY_RLM: raw });
       expect(read.config.rlmModel).toBeUndefined();
       expect(read.problems).toEqual([
-        `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+        `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5, or through claude, copilot, muse as cli:<provider>[:<account>][/<model>], such as cli:claude/haiku.`,
       ]);
     }
     // RLM mode is run_code's: turning run_code off with it is refused rather than one of them ignored.
@@ -91,6 +94,29 @@ describe('server configuration from the environment', () => {
       'RELAY_MICROSOFT_LOGIN_URL must be an https URL (plain http only to this computer).',
       'RELAY_MICROSOFT_GRAPH_URL is not a URL.',
     ]);
+  });
+
+  it("takes publishing's stand-ins on this computer only, and a folder of stand-in repositories", () => {
+    const local = readConfig({
+      RELAY_RENDER_API_URL: 'http://127.0.0.1:9100/v1',
+      RELAY_NEON_API_URL: 'http://localhost:9101/api/v2',
+      RELAY_PUBLISH_GIT_DIR: '/tmp/github',
+    });
+    expect(local.problems).toEqual([]);
+    expect(local.config).toMatchObject({
+      renderApiUrl: 'http://127.0.0.1:9100/v1',
+      neonApiUrl: 'http://localhost:9101/api/v2',
+      publishGitDir: resolve('/tmp/github'),
+    });
+    // A key goes there: never to another host, not even over https.
+    const elsewhere = readConfig({ RELAY_RENDER_API_URL: 'https://api.render.example', RELAY_NEON_API_URL: 'http://10.0.0.2' });
+    expect(elsewhere.config.renderApiUrl).toBeUndefined();
+    expect(elsewhere.config.neonApiUrl).toBeUndefined();
+    expect(elsewhere.problems).toEqual([
+      "RELAY_RENDER_API_URL must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).",
+      "RELAY_NEON_API_URL must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).",
+    ]);
+    expect(readConfig({ RELAY_PUBLISH_GIT_DIR: 'relative' }).problems).toHaveLength(1);
   });
 
   it("takes Microsoft's mail servers as host:port, TLS or STARTTLS as the port says, plain TCP only to this computer", () => {

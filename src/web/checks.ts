@@ -117,17 +117,21 @@ export function listFrom(
   before: CheckList | undefined,
   commands: readonly CheckCommand[] = [],
   hooks: readonly CheckHook[] = [],
+  flags: Pick<CheckList, 'previewApp' | 'autoFix'> = {},
 ): CheckList | undefined {
   const protectedPaths = pathsFromText(paths);
   const pattern = commitPattern.trim();
   const kept = commands.filter((c) => c.run.trim()).map(keptCommand);
   const keptHooks = hooksFromRows(hooks);
-  if (!protectedPaths.length && !pattern && !kept.length && !keptHooks.length) return before === undefined ? undefined : {};
+  if (!protectedPaths.length && !pattern && !kept.length && !keptHooks.length && !flags.previewApp && !flags.autoFix)
+    return before === undefined ? undefined : {};
   return {
     ...(protectedPaths.length ? { protectedPaths } : {}),
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(kept.length ? { commands: kept } : {}),
     ...(keptHooks.length ? { hooks: keptHooks } : {}),
+    ...(flags.previewApp ? { previewApp: true as const } : {}),
+    ...(flags.autoFix ? { autoFix: true as const } : {}),
   };
 }
 
@@ -153,13 +157,21 @@ export function sameChecks(a: CheckList | undefined, b: CheckList | undefined): 
         const k = keptHook(h);
         return [k.when, k.tools, k.run, k.cwd ?? '', k.timeoutSec ?? 0];
       }),
+      Boolean(l?.previewApp),
+      Boolean(l?.autoFix),
     ]);
   return key(a) === key(b);
 }
 
 /** How many rules a list has (the editor's summary). */
 export function ruleCount(list: CheckList | undefined): number {
-  return (list?.protectedPaths?.length ?? 0) + (list?.commitPattern ? 1 : 0) + (list?.commands?.length ?? 0) + (list?.hooks?.length ?? 0);
+  return (
+    (list?.protectedPaths?.length ?? 0) +
+    (list?.commitPattern ? 1 : 0) +
+    (list?.commands?.length ?? 0) +
+    (list?.hooks?.length ?? 0) +
+    (list?.previewApp ? 1 : 0)
+  );
 }
 
 /** The files a result's commands were kept from running for (the run changed what they read), if any. */

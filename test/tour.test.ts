@@ -45,6 +45,7 @@ describe('guided tour', () => {
         'While the team replies',
         'Notifications and sound',
         'Team checks',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
@@ -57,6 +58,7 @@ describe('guided tour', () => {
         'A team for every question',
         'While the team replies',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
@@ -69,6 +71,7 @@ describe('guided tour', () => {
         'A team for every question',
         'While the team replies',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
@@ -80,6 +83,7 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
           'Long-term memory',
@@ -92,22 +96,26 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'Browse the working directory',
           'Automations',
           'Long-term memory',
           'Adjust any time',
         ]);
       }
-      for (let version = 37; version <= 38; version++) {
+      for (const version of [37, 38])
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
           'A team for every question',
           'While the team replies',
+          'Browse the working directory',
           'Long-term memory',
           'Adjust any time',
         ]);
-      }
-      expect(titles(39)).toEqual(['Long-term memory']);
-      expect(tourIndices(40)).toEqual([]);
+      expect(titles(39)).toEqual(['Browse the working directory', 'Long-term memory']);
+      // Publishing a preview came to the files step.
+      expect(titles(40)).toEqual(['Browse the working directory', 'Long-term memory']);
+      expect(titles(41)).toEqual(['Long-term memory']);
+      expect(tourIndices(42)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -151,6 +159,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 40, fingerprint: '2d942051d001' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: 'e66ea3645c88' });
   });
 });

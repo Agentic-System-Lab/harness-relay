@@ -55,10 +55,12 @@
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作，另一個對話正在修改同一個資料夾時開始的對話也在自己的 worktree 裡工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)、[兩個對話同一個資料夾](docs/user-guide.zh-TW.md#兩個對話同一個資料夾)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、完全存取），超出範圍的動作在對話中請你核准；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
-- **團隊檢查**：在可編輯與完全存取的對話中，為整個團隊設定受保護路徑、commit 格式和 `npm test` 這類指令。Harness Relay 會自行檢查成果，也會在支援的工具呼叫前後執行 hook。（[團隊檢查](docs/user-guide.zh-TW.md#團隊檢查)）
+- **團隊檢查**：在可編輯與完全存取的對話中，為整個團隊設定受保護路徑、commit 格式、`npm test` 這類指令，以及應用程式要能在預覽中開啟。Harness Relay 會自行檢查成果，可以把沒通過的自動交回團隊，也會在支援的工具呼叫前後執行 hook。（[團隊檢查](docs/user-guide.zh-TW.md#團隊檢查)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；任何一則回覆都能複製、編輯、重試或分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
 - **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；會送到別人那裡的東西在待送出匣等你送出。Microsoft 365、Outlook.com 與 Google 的行事曆與郵件在瀏覽器中登入（OAuth），權杖不會交給 agent。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
+- **應用程式預覽**：從回覆或「檔案」按一下就能試用應用程式，團隊做出應用程式時也會自動打開。Relay 直接開啟靜態 HTML、依 npm 指令建置前端或執行後端，或在 Docker 中執行任何語言的 `Dockerfile` 或 compose 檔，顯示它的網頁，終端機程式則顯示它的終端機。遇到錯誤時，可以把錯誤文字加入聊天草稿。[預覽應用程式](docs/user-guide.zh-TW.md#預覽應用程式)
+- **發布到雲端**：預覽沒問題後，一鍵發布到你自己的 Render（網站與後端）和 Neon（PostgreSQL）免費帳號，經由你 GitHub 帳號裡的私人儲存庫。[發布應用程式](docs/user-guide.zh-TW.md#發布應用程式)
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
 - **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
@@ -90,7 +92,7 @@ npm start
 
 - `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 - 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)。
-- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
+- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>；那個 port 被佔用時是下一個空的）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
 
 <a id="開源-agent-與模型來源"></a>
 <a id="開源-agent-與自定義模型"></a>
@@ -124,7 +126,7 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 | --- | --- |
 | `npm start` | 由同一個程序在 <http://127.0.0.1:8787> 提供建置好的介面與 API |
 | `npm run login` | 印出另一個一次性的登入連結，用在 `npm start` 印出的那個已經用過或太舊時 |
-| `npm run dev` | 開發用：API 伺服器（port 8789，自動重啟）與 Vite（port 5173） |
+| `npm run dev` | 開發用：API 伺服器（port 8789，自動重啟）與 Vite（port 5173），各自的 port 被佔用時改用下一個空的 |
 | `npm run format:check`、`npm run typecheck`、`npm test`、`npm run build` | CI 對每個 pull request 執行的檢查（`npm run format` 用 Prettier 排版程式碼） |
 
 其他指令（端對端測試、桌面 app、網站、示範影片、[檢查 agent CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）都在[開發者說明](docs/developer-guide.zh-TW.md#執行)，也說明了 [CI](docs/developer-guide.zh-TW.md#持續整合ci) 會執行什麼。

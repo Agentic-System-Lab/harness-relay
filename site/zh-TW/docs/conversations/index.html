@@ -6,7 +6,7 @@
     <title>你的對話 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、分享對話，並在團隊完成或需要你時收到通知。"
+      content="Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、試用與發布應用程式、分享對話，並在團隊完成或需要你時收到通知。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="你的對話 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="怎麼找到、釘選、分組與搜尋你的 Harness Relay 對話，分支對話換個方式再試，瀏覽與下載 agent 做出來的檔案，把對話分享成連結，並在團隊完成或需要你時收到通知。"
+      content="怎麼找到、釘選、分組與搜尋你的 Harness Relay 對話，分支對話換個方式再試，瀏覽與下載 agent 做出來的檔案，在預覽面板試用團隊做的應用程式並發布到你自己的雲端帳號，把對話分享成連結，並在團隊完成或需要你時收到通知。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/",
         "name": "你的對話 · Harness Relay 文件",
-        "description": "Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、分享對話，並在團隊完成或需要你時收到通知。",
+        "description": "Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、試用與發布應用程式、分享對話，並在團隊完成或需要你時收到通知。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -255,7 +255,18 @@
               </ol>
             </details>
           </li>
-          <li><a href="#files">瀏覽檔案</a></li>
+          <li>
+            <details>
+              <summary>瀏覽檔案</summary>
+              <ol>
+                <li><a href="#files" aria-label="瀏覽檔案概覽">概覽</a></li>
+                <li><a href="#app-preview">試用團隊做的應用程式</a></li>
+                <li><a href="#app-publish">發布應用程式</a></li>
+                <li><a href="#render-setup">一步步設定 Render</a></li>
+                <li><a href="#neon-setup">一步步設定 Neon</a></li>
+              </ol>
+            </details>
+          </li>
           <li><a href="#share">分享對話</a></li>
           <li>
             <details>
@@ -391,6 +402,172 @@
             <li>平行模式下，也可以選某位 agent 自己的那份資料夾，在套用前先看它的結果。</li>
           </ul>
           <p>agent 為你做出的檔案，也會在它的回覆裡顯示成附有下載箭頭的連結：點一下就能存下檔案。在手機上，列表和預覽輪流顯示，按 <b>返回列表</b> 回去。</p>
+          <h3 id="app-preview">試用團隊做的應用程式</h3>
+          <p>選取 HTML 頁面、Node.js 專案的 <code>package.json</code>，或 <code>Dockerfile</code>、compose 檔，再按 <b>預覽應用程式</b>。也可以按回覆中連結旁的同一個按鈕，或進入資料夾後按 <b>預覽這個資料夾</b>。平行模式下，回覆中的連結會使用該成員的檔案。</p>
+          <p>團隊在某一輪修改了檔案，並做出或連結了應用程式時，面板會自動在對話旁打開（手機和平板上不會）。網頁或 npm 專案會直接開始；<code>Dockerfile</code> 或 compose 應用程式除非對話是完全存取，否則會等你按 <b>開始預覽</b>。團隊回覆完後，最後一則回覆下方的卡片可以按 <b>預覽應用程式</b>。新做的應用程式還無法執行時，卡片會改為說明原因，按 <b>請 @… 修正</b> 會替寫它的成員擬好請求。對話右上角的 <b>預覽</b> 可以顯示或隱藏面板。面板標題右邊的 <b>新分頁</b> 會在自己的分頁單獨開啟網頁。預覽執行時，按鈕會收成一列，點一下就會展開。拖曳聊天與面板之間的分隔線可以調整寬度，按兩下恢復預設寬度。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-preview-running-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-preview-running-zh-TW.webp" width="390" height="844" alt="手機上的應用程式預覽面板，顯示可操作的網頁。" loading="lazy" />
+            </a>
+            <figcaption>在手機上也能直接操作預覽中的網頁。</figcaption>
+          </figure>
+          <p>Relay 會自動判斷如何啟動應用程式。靜態 HTML 或含 <code>index.html</code> 的靜態資料夾會直接開啟。若 npm 專案含有 lockfile，並提供 start 指令或預設的 <code>server.js</code>，就會執行 <code>npm start</code>；只有建置指令的前端會執行 <code>npm run build</code>。<code>Dockerfile</code> 或 <code>compose.yaml</code> 可以是任何語言：面板先在終端機顯示建置過程，應用程式提供網頁後就顯示網頁；在終端機執行的程式則留在終端機，可以在裡面輸入、用其他參數再執行一次，或開啟 shell。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-preview-terminal-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-preview-terminal-zh-TW.webp" width="768" height="450" alt="預覽面板中由 Dockerfile 建置的終端機程式，上方有「再執行一次」、「指令」與「開啟 shell」。" loading="lazy" />
+            </a>
+            <figcaption>在終端機執行的程式會留在終端機：可以直接輸入、用其他參數再執行一次，或開啟 shell。</figcaption>
+          </figure>
+          <p>只有建置會連網。沒有任何執行方式的資料夾，會提供 <b>請 agent 加上 Dockerfile</b>。這類預覽需要 Docker Compose v2，Docker Desktop 與 OrbStack 都已內建。執行 Relay 的電腦若缺少 Docker，在支援的系統上可按 <b>安裝 Docker</b>。若已安裝，請啟動本機的 Linux 容器引擎。Docker 就緒後，Relay 會自動繼續預覽。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-preview-docker-setup-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-preview-docker-setup-zh-TW.webp" width="460" height="191" alt="「設定 Docker」視窗中的「安裝 Docker」、「重新檢查」與「取消」按鈕。" loading="lazy" />
+            </a>
+            <figcaption>按「安裝 Docker」在執行 Relay 的電腦上安裝。引擎就緒後，預覽會自動開啟。</figcaption>
+          </figure>
+          <p>按 <b>將錯誤加入訊息</b>，寫下剛才的操作後再送出。按 <b>重新載入頁面</b> 會重新載入這次執行的頁面。修改完成後，按 <b>重建預覽</b> 載入新副本。重新整理 Relay 聊天頁面會關閉預覽。按 <b>停止預覽</b> 會關閉這次執行並清除後端暫存資料。手機另外需要<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md#應用程式預覽">專用的 HTTPS 預覽網域</a>。</p>
+          <h3 id="app-publish">發布應用程式</h3>
+          <p>預覽沒問題之後，按預覽面板的 <b>發布…</b>，就能放上你自己的免費帳號：<a href="https://render.com">Render</a> 執行網站或後端，<a href="https://neon.com">Neon</a> 存放它的 PostgreSQL 資料庫。先在 <b>設定 → 發布到雲端</b> 填入它們的 API 金鑰（一步步說明：<a href="#render-setup">Render</a>、<a href="#neon-setup">Neon</a>），並和分享一樣登入 GitHub CLI（<code>gh</code>）。Render 從你 GitHub 帳號裡的私人儲存庫建置每個應用程式，所以請讓 <a href="https://github.com/apps/render/installations/new">Render 的 GitHub App</a> 能存取你的儲存庫。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-publish-settings-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-publish-settings-zh-TW.webp" width="952" height="807" alt="設定 → 發布到雲端：已儲存 Render 與 Neon 的金鑰，並列出一個已發布的應用程式。" loading="lazy" />
+            </a>
+            <figcaption>Render 與 Neon 只要設定一次。已發布的應用程式列在這裡，各有「取消發布」。</figcaption>
+          </figure>
+          <p>動手之前，對話框會先說明要建立什麼：私人儲存庫、免費的靜態網站或 web service，以及 compose 檔裡每個 PostgreSQL 服務各一個 Neon 資料庫，並執行一次它的 <code>.sql</code> 初始化腳本。它會列出應用程式的環境變數，指向資料庫服務的換成 Neon 的位址，你也可以新增自己的；這些只送到 Render。確認任何拿到網址的人都能開啟它，按 <b>發布</b>，就能看著每個步驟直到上線。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-publish-dialog-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-publish-dialog-zh-TW.webp" width="620" height="856" alt="待辦應用程式加 PostgreSQL 的發布對話框：私人儲存庫、Render web service、執行初始化腳本的 Neon 資料庫，以及環境變數。" loading="lazy" />
+            </a>
+            <figcaption>有 PostgreSQL 的 compose 應用程式：Render 執行應用程式，Neon 存放資料庫。</figcaption>
+          </figure>
+          <p>上線的就是你試過的內容：預覽開始後檔案若有改變，請先重建預覽並試過。<b>發布更新</b> 會在同一個服務上部署新的 commit。免費 web service 閒置 15 分鐘會休眠，喚醒約需一分鐘。在設定按 <b>取消發布</b> 會刪除 Render 服務，勾選時也刪除它的 Neon 資料庫；儲存庫會留在 GitHub。</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>金鑰保存在憑證儲存區，不會交給 agent。只有你的點擊會發布：agent 不能發布、取消發布或讀取這些設定。</p>
+            </div>
+          </div>
+          <h3 id="render-setup">一步步設定 Render</h3>
+          <p>第一次發布前做一次就好。免費的 <a href="https://render.com">Render</a> 帳號就夠了；用 GitHub 註冊最簡單，因為 Render 是從你的 GitHub 建置每個應用程式。這些截圖是為 Harness Relay 設定一個真正的帳號時拍的，用這把金鑰也真的發布了一個靜態網頁和一個用 PostgreSQL 的 Node 應用程式。</p>
+          <ol class="doc-steps">
+            <li>
+              <p>在 Render 的 dashboard 右上角打開帳號選單，選 <b>Account settings</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-1-menu.webp">
+                  <img src="../../../assets/media/docs/publish-render-1-menu.webp" width="560" height="322" alt="Render 右上角的帳號選單已打開，框起 Account settings。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>在 <b>API Keys</b>（右側清單也有），選 <b>Create API key</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-2-api-keys.webp">
+                  <img src="../../../assets/media/docs/publish-render-2-api-keys.webp" width="958" height="446" alt="Render 的 Account settings 停在 API Keys，框起 Create API key 按鈕。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>幫金鑰取一個認得出來的名字，例如 <code>Harness Relay</code>，選 <b>Continue</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-3-name.webp">
+                  <img src="../../../assets/media/docs/publish-render-3-name.webp" width="592" height="280" alt="建立 API 金鑰：名稱填了 Harness Relay，框起 Continue。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>選應用程式要放的工作區。一把金鑰只能用在這個工作區。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-4-workspace.webp">
+                  <img src="../../../assets/media/docs/publish-render-4-workspace.webp" width="608" height="616" alt="建立 API 金鑰時選工作區，框起那個工作區。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>只給發布需要的權限。打開 <b>Services</b>：服務選 <b>Read &amp; write</b>，它的環境變數選 <b>Write</b>（Harness Relay 建立服務時會一起設定應用程式的環境變數）。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-5-services.webp">
+                  <img src="../../../assets/media/docs/publish-render-5-services.webp" width="592" height="600" alt="權限步驟：Services 已打開，服務設為 Read and write，環境變數設為 Write。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>打開 <b>Deploys</b>，把 <b>Run deployments</b> 設為 <b>Run</b>。其他都不用開，選 <b>Generate API key</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-6-deploys.webp">
+                  <img src="../../../assets/media/docs/publish-render-6-deploys.webp" width="592" height="600" alt="權限步驟：Deploys 已打開，Run deployments 設為 Run，框起 Generate API key。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>現在就複製金鑰：Render 只會顯示這一次。然後選 <b>Done</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-7-key.webp">
+                  <img src="../../../assets/media/docs/publish-render-7-key.webp" width="592" height="275" alt="API key created，金鑰本身已模糊處理，框起 Done。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>讓 Render 讀得到 Harness Relay 建立的私人儲存庫。在 GitHub 打開 <a href="https://github.com/settings/installations">Settings → Applications</a>，在 Render 旁選 <b>Configure</b>（還沒有的話，先<a href="https://github.com/apps/render/installations/new">安裝 Render 的 GitHub App</a>），把 <b>Repository access</b> 設為 <b>All repositories</b>（或保留 <b>Only select repositories</b>，每次加入 Harness Relay 建立的儲存庫），再選 <b>Save</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-8-github.webp">
+                  <img src="../../../assets/media/docs/publish-render-8-github.webp" width="964" height="300" alt="GitHub 上 Render 的 GitHub App 設定，Repository access 設為 All repositories，已框起。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>在 Harness Relay 打開 <b>設定 → 發布到雲端</b>，把金鑰貼進 <b>Render</b> 區，選 <b>儲存</b>。Relay 會檢查金鑰並顯示它的工作區；再選應用程式要跑的區域。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-render-relay-zh-TW.webp">
+                  <img src="../../../assets/media/docs/publish-render-relay-zh-TW.webp" width="934" height="265" alt="設定的發布到雲端：Render 區已儲存金鑰、顯示工作區，並可選擇區域。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+          </ol>
+          <h3 id="neon-setup">一步步設定 Neon</h3>
+          <p>只有用 PostgreSQL 資料庫的應用程式需要。免費的 <a href="https://neon.com">Neon</a> 帳號就夠了。Harness Relay 需要的是<b>個人</b> API 金鑰：組織的金鑰列不出你所在的組織。</p>
+          <ol class="doc-steps">
+            <li>
+              <p>在 <a href="https://console.neon.tech">Neon 的 console</a> 右上角打開帳號選單，選 <b>Account</b> 底下的 <b>Settings</b>（不是組織的 <b>Manage</b>）。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-neon-1-menu.webp">
+                  <img src="../../../assets/media/docs/publish-neon-1-menu.webp" width="520" height="442" alt="Neon 的帳號選單已打開，框起 Account 底下的 Settings。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>在 <b>Personal API keys</b>，選 <b>Create new API key</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-neon-2-api-keys.webp">
+                  <img src="../../../assets/media/docs/publish-neon-2-api-keys.webp" width="822" height="136" alt="Neon 的帳號設定停在 Personal API keys，框起 Create new API key。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>幫金鑰取名，例如 <code>Harness Relay</code>，選 <b>Create</b>。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-neon-3-name.webp">
+                  <img src="../../../assets/media/docs/publish-neon-3-name.webp" width="424" height="244" alt="建立新的 API 金鑰：名稱為 Harness Relay，框起 Create。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>現在就複製 token：Neon 只會顯示這一次。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-neon-4-key.webp">
+                  <img src="../../../assets/media/docs/publish-neon-4-key.webp" width="524" height="343" alt="API key successfully created，token 已模糊處理，框起 Copy and close。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>在 Harness Relay 把它貼進 <b>設定 → 發布到雲端</b> 的 <b>Neon</b> 區，選 <b>儲存</b>。如果金鑰能用在好幾個組織（例如一個由 Vercel 管理的），選資料庫要放的那一個。</p>
+              <figure class="doc-figure">
+                <a href="../../../assets/media/docs/publish-neon-relay-zh-TW.webp">
+                  <img src="../../../assets/media/docs/publish-neon-relay-zh-TW.webp" width="934" height="246" alt="設定的發布到雲端：Neon 區已儲存金鑰，並可選擇組織。" loading="lazy" />
+                </a>
+              </figure>
+            </li>
+          </ol>
         </section>
 
         <section id="share" aria-labelledby="share-title">

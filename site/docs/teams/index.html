@@ -481,6 +481,19 @@
               each with its folder and a time limit; <b>Try it</b> runs one now, to see that it works. Below full access they
               run in Harness Relay's own sandbox, with no network. They do not run on native Windows yet.
             </dd>
+            <dt>The app the team builds must open in the preview</dt>
+            <dd>
+              Every app a turn adds or changes must run in the <a href="../conversations/#app-preview">app preview</a>: from a
+              <code>Dockerfile</code> or compose file, as an npm project with its lockfile and a script, or as an index page.
+              Harness Relay reads the files and builds nothing. The agents are told to give a server or a terminal program a
+              <code>Dockerfile</code> and to link it in their reply.
+            </dd>
+            <dt>Send what did not pass back to the team to fix</dt>
+            <dd>
+              A result that fails goes back by itself to the member whose turn broke it, in a message marked
+              <b>Relay's fix 1/3</b>, at most three times in a row. Then the card waits for you. It is not sent while the team
+              waits for your answer or a message you wrote waits, after <b>■ Stop</b>, or in an automation nobody watched.
+            </dd>
             <dt>Hooks</dt>
             <dd>
               Commands that run around each member's own tool calls as they happen (<b>Add a hook</b>): <b>Before</b> a
@@ -494,8 +507,8 @@
           <h3 id="review-check-results">Review check results</h3>
           <p>
             The agents are told the rules from the start. In a chat that can change files, a <b>Team checks</b> card after
-            the replies says how each rule went: <b>Passed</b>, <b>Failed</b> (with the files or commits, and whose turn it
-            was), <b>Could not run</b> (never a pass; the card says why) or <b>Not applicable</b>. A run that changed nothing
+            the replies says how each rule went: <b>Passed</b>, <b>Failed</b> (with the files, commits or app, and whose
+            turn it was), <b>Could not run</b> (never a pass; the card says why) or <b>Not applicable</b>. A run that changed nothing
             the rules cover gets no card. While the latest result fails:
           </p>
           <ul>

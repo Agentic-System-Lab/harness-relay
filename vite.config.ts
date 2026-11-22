@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import react from '@vitejs/plugin-react';
 import { oauthGuides } from './scripts/oauth-guides.ts';
-import { DEV_WEB_PORT, apiPort } from './src/server/ports.ts';
+import { apiPort, devWebPort, previewFramePolicy } from './src/server/ports.ts';
 
 /** The most a chunk loaded at startup may weigh (minified, in kB): the page waits for all of them. */
 const STARTUP_CHUNK_LIMIT_KB = 500;
@@ -83,7 +83,11 @@ export default defineConfig({
   root: 'src/web',
   plugins: [react(), oauthGuides(), startupChunkLimit(STARTUP_CHUNK_LIMIT_KB), languagePreload()],
   server: {
-    port: DEV_WEB_PORT,
+    // The port scripts/dev.ts found free (5173, else the next free one), and only that one: the server's
+    // sign-in link and the relay sandbox name it, so Vite never moves to another by itself.
+    port: devWebPort(),
+    strictPort: true,
+    headers: { 'Content-Security-Policy': previewFramePolicy(apiPort(), process.env.RELAY_PREVIEW_DOMAIN) },
     // Trailing slash matters: a bare '/api' prefix would also swallow the client module '/api.ts'.
     proxy: { '/api/': { target: `http://localhost:${apiPort()}`, changeOrigin: false } },
   },

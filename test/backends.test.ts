@@ -795,6 +795,25 @@ describe('an open agent’s environment', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("never gets the ports npm run dev set for its own server and Vite, which another checkout's npm run dev would take for its own", () => {
+    vi.stubEnv('npm_lifecycle_event', 'dev');
+    vi.stubEnv('PORT', '8790');
+    vi.stubEnv('RELAY_DEV_WEB_PORT', '5174');
+    try {
+      const s = new SettingsStore(db);
+      for (const p of ['claude', 'codex', 'goose'] as const) {
+        expect(s.env(p).PORT, p).toBeUndefined();
+        expect(s.env(p).RELAY_DEV_WEB_PORT, p).toBeUndefined();
+      }
+      // Under npm start (and in the desktop app), PORT reaches the CLIs as it always did.
+      vi.stubEnv('npm_lifecycle_event', 'start');
+      expect(s.env('claude').PORT).toBe('8790');
+      expect(s.env('claude').RELAY_DEV_WEB_PORT).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('masked keys and endpoint addresses', () => {
@@ -825,6 +844,18 @@ describe('masked keys and endpoint addresses', () => {
       expect(() => withLang('en', () => validEndpointUrl(url, 8787, own)), url).toThrow(/Harness Relay's own address/);
     expect(validEndpointUrl('http://10.0.0.5:8787/v1', 8787, own)).toBe('http://10.0.0.5:8787/v1');
     expect(validEndpointUrl('http://localhost:11434/v1', 8787, own)).toBe('http://localhost:11434/v1');
+  });
+
+  it("refuses the port npm run dev's Vite took when 5173 was in use", () => {
+    const own = ['192.168.1.20'];
+    expect(validEndpointUrl('http://localhost:5174/v1', 8790, own)).toBe('http://localhost:5174/v1');
+    vi.stubEnv('RELAY_DEV_WEB_PORT', '5174');
+    try {
+      expect(() => withLang('en', () => validEndpointUrl('http://localhost:5174/v1', 8790, own))).toThrow(/Harness Relay's own address/);
+      expect(() => withLang('en', () => validEndpointUrl('http://127.0.0.1:8790', 8790, own))).toThrow(/Harness Relay's own address/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

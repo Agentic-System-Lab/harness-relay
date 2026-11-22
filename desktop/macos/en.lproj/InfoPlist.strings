@@ -1,2 +1,3 @@
 /* Why Harness Relay asks for the microphone: voice input in the chat. */
 "NSMicrophoneUsageDescription" = "Harness Relay uses the microphone for voice input: your speech is turned into text on this computer.";
+"NSAppleEventsUsageDescription" = "Harness Relay asks Finder to install Docker Desktop when your Mac needs administrator approval.";

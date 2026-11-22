@@ -445,6 +445,30 @@ describe("the desktop app's decisions", () => {
       expect(opened).toEqual(['https://example.com/', 'https://evil.example/']);
     });
 
+    it('keeps in-preview redirects inside the frame and blocks external redirects without opening a browser', () => {
+      const { contents, opened } = setup();
+      const origin = 'http://p-' + 'a'.repeat(32) + '.localhost:8787';
+      const redirect = (url: string) => {
+        let prevented = false;
+        contents.emit(
+          'will-redirect',
+          {
+            isMainFrame: false,
+            frame: { url: origin + '/' },
+            url,
+            preventDefault: () => {
+              prevented = true;
+            },
+          },
+          url,
+        );
+        return prevented;
+      };
+      expect(redirect(origin + '/account')).toBe(false);
+      expect(redirect('https://example.com/')).toBe(true);
+      expect(opened).toEqual([]);
+    });
+
     it('guards the windows a page opens too', () => {
       const { contents, opened } = setup();
       const child = fakeContents();

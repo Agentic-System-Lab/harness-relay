@@ -48,6 +48,19 @@ describe('team checks editor', () => {
     expect(ruleCount({ protectedPaths: ['a', 'b'], commitPattern: 'x' })).toBe(3);
     expect(ruleCount(undefined)).toBe(0);
   });
+
+  it('keeps the app preview rule and fixing by itself, counting the rule only', () => {
+    expect(listFrom('', '', undefined, [], [], { previewApp: true })).toEqual({ previewApp: true });
+    expect(listFrom('.env', '', undefined, [], [], { previewApp: true, autoFix: true })).toEqual({
+      protectedPaths: ['.env'],
+      previewApp: true,
+      autoFix: true,
+    });
+    expect(listFrom('', '', { previewApp: true }, [], [], {})).toEqual({});
+    expect(ruleCount({ previewApp: true, autoFix: true })).toBe(1);
+    expect(sameChecks({ previewApp: true }, {})).toBe(false);
+    expect(sameChecks({ autoFix: true }, { autoFix: true, fromDefault: true })).toBe(true);
+  });
 });
 
 describe('team checks card', () => {
@@ -109,6 +122,7 @@ describe('team checks as Markdown', async () => {
         outcomes: [
           { rule: 'paths', status: 'failed', findings: [{ path: '.env', change: 'changed', by: 'Bob' }], more: 2 },
           { rule: 'commits', status: 'na', reason: 'No new commit in this run.' },
+          { rule: 'preview', status: 'failed', findings: [{ path: 'snake', problem: 'It has no Dockerfile.', by: 'Alice' }] },
         ],
       },
       en,
@@ -120,6 +134,8 @@ describe('team checks as Markdown', async () => {
         "  - `.env` changed · in @Bob's turn",
         '  - 2 more',
         '- **Commit format**: Not applicable · No new commit in this run.',
+        '- **App preview**: Failed',
+        "  - `snake` It has no Dockerfile. · in @Alice's turn",
       ].join('\n'),
     );
   });

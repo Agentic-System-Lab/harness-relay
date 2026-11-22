@@ -113,7 +113,19 @@ export function guardContents(
     if (action === 'external') o.openExternal(url);
   };
   contents.on('will-navigate', stay);
-  contents.on('will-redirect', stay);
+  contents.on(
+    'will-redirect',
+    (event: { isMainFrame?: boolean; frame?: { url: string } | null; preventDefault: () => void }, url: string) => {
+      if (event.isMainFrame !== false) return stay(event, url);
+      // Keep redirects within an embedded app's origin. A subframe cannot launch the system browser.
+      try {
+        if (event.frame && new URL(url).origin === new URL(event.frame.url).origin) return;
+      } catch {
+        /* unknown frame */
+      }
+      event.preventDefault();
+    },
+  );
 }
 
 /**

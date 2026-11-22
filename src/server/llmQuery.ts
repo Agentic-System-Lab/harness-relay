@@ -35,12 +35,16 @@ export interface LlmRequest {
   maxTokens: number;
 }
 
-/** Its answer: the text, what it cost in tokens as the backend reports them, and whether it was cut at `maxTokens`. */
+/**
+ * Its answer: the text, what it cost in tokens as the backend reports them, and whether it was cut at
+ * `maxTokens`; through a CLI (`cliSubModel.ts`), also its cost in US dollars where the CLI reports one.
+ */
 export interface LlmAnswer {
   text: string;
   inputTokens: number;
   outputTokens: number;
   truncated: boolean;
+  costUsd?: number;
 }
 
 /** How long one question may take. */

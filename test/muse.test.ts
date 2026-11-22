@@ -61,6 +61,8 @@ import {
   musePromptText,
   museRunSettings,
   museReminderSwitches,
+  museToolless,
+  MUSE_REMINDERS,
   museRunner,
   museRunsDir,
   museTrust,
@@ -1778,6 +1780,26 @@ describe.skipIf(process.platform === 'win32')(
       expect(ends(r)).toEqual([expect.objectContaining({ ok: true, output: expect.stringContaining('Example Domain') })]);
     });
 
+    it("RLM's sub-model (toolless): refuses even the fetch a read-only run lets Muse make, with no MCP server, its empty preset and no command-line prompt", async () => {
+      const r = run('ro-fetch', {
+        permission: 'read-only',
+        prompt: 'FETCH: http://example.com/',
+        systemPrompt: 'Answer from the text.',
+        toolless: true,
+        mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+      });
+      await withLang('en', () => museRunner.run(r.o)).catch(() => undefined);
+      expect(answers(r)).toHaveLength(1);
+      expect(answers(r)).not.toContain('allow_once');
+      const start = r.log().find((l) => l.start)!;
+      expect(start.argv.slice(0, 4)).toEqual(['acp', '--preset', 'empty', '--no-session-log']);
+      expect(start.argv.join(' ')).not.toContain('Answer from the text');
+      for (const id of MUSE_REMINDERS) expect(start.settings.runtime_capabilities[id]).toEqual({ enabled: false });
+      expect(sent(r, 'session/new')?.params.mcpServers).toEqual([]);
+      const prompt = sent(r, 'session/prompt')?.params.prompt[0].text as string;
+      expect(prompt.startsWith('Answer from the text.\n\nFETCH:')).toBe(true);
+    });
+
     const CURL = "curl -s -o /dev/null -w '%{http_code}' http://example.com/";
 
     it('edit: asks the user before a command reaches the network, though the command itself runs without asking, and shows the note it was declined with', async () => {
@@ -2312,4 +2334,50 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
       run.done();
     },
   );
+});
+
+describe("RLM's sub-model through Muse Code (a toolless run)", () => {
+  it('starts Muse with its empty preset and no session log, and its system prompt alone, on top of the prompt', () => {
+    const args = museArgs({ permission: 'read-only', systemPrompt: 'Answer.', model: 'muse-spark-1.3', toolless: true }, 'linux');
+    expect(args.slice(0, 4)).toEqual(['acp', '--preset', 'empty', '--no-session-log']);
+    // Nothing of the question on the command line: the system prompt goes on top of the prompt.
+    expect(args.join(' ')).not.toContain('developer_prompt');
+    expect(musePromptText('q', 'Answer.', 'linux', true)).toBe('Answer.\n\nq');
+    // Another run gives Harness Relay's briefing, with its notes, and keeps its session.
+    const member = museArgs({ permission: 'read-only', systemPrompt: 'Answer.' }, 'linux');
+    expect(member).not.toContain('--preset');
+    expect(member.join(' ')).toContain('harness-relay-briefing');
+    // Where the system prompt does not fit the command line, it goes on top of the prompt, alone too.
+    const long = 'x'.repeat(40_000);
+    expect(musePromptText('q', long, 'win32', true)).toBe(`${long}\n\nq`);
+  });
+
+  it("turns every reminder of Muse's own off, over what the account says", () => {
+    const own = { runtime_capabilities: { [MUSE_REMINDERS[0]!]: { enabled: true }, 'plugin:x:reminder:mine': { enabled: true } } };
+    const caps = museRunSettings(own, 'read-only', [], ['mcp', 'hooks'], {}, true).runtime_capabilities as Record<
+      string,
+      { enabled: boolean }
+    >;
+    for (const id of MUSE_REMINDERS) expect(caps[id]).toEqual({ enabled: false });
+    expect(caps['plugin:x:reminder:mine']).toEqual({ enabled: true });
+    // Another run keeps the account's switches only.
+    expect(museRunSettings(own, 'read-only', []).runtime_capabilities).toEqual(own.runtime_capabilities);
+  });
+
+  it("leaves out its MCP servers and hooks, and all of Harness Relay's", () => {
+    const o = museToolless({
+      bin: 'muse',
+      env: {},
+      prompt: 'q',
+      systemPrompt: 's',
+      cwd: '/tmp/x',
+      permission: 'read-only',
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+      toolless: true,
+      mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+      sessionId: 'old',
+    });
+    expect(o).toMatchObject({ mcpServers: [], nativeOff: ['mcp', 'hooks'], sessionId: undefined });
+  });
 });

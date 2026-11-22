@@ -2,9 +2,9 @@
 
 # Website previews and generative UI
 
-> **Status: proposal, not implemented.** See [Proposals](README.md).
+> **Status: app previews implemented, interactive replies proposed.** Current setup and behaviour are in the [user guide](../user-guide.md#previewing-an-app) and [runtime design](app-preview-runtime.md). The sections below record the original baseline and proposal, including its earlier host process, shared origin and delivery sequence.
 
-Two things a reply cannot do today:
+The original proposal had two goals.
 
 1. **Try what an agent built.** When the team makes a website, the user opens it in a panel next to the chat and uses it there, on this computer or on a phone, and sends what went wrong back to an agent with one click.
 2. **Reply with UI.** An agent puts choices, a form, a chart or a small interactive page in its reply, and the user answers by clicking instead of typing.

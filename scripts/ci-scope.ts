@@ -111,6 +111,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'playwright.live.config.ts',
     'vitest.config.ts',
     'scripts/demo/**',
+    'scripts/dev.ts',
+    'scripts/dev/**',
     'scripts/login.ts',
     'scripts/preview-site.ts',
     'scripts/sandbox-check.ts',

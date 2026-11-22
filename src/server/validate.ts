@@ -35,7 +35,10 @@ import {
   VOICE_LANGUAGES,
   agentLimitValid,
   cwdSettings,
+  cliSubModelId,
   parseBackendModel,
+  parseCliSubModel,
+  PROVIDER_LABEL,
   VOICE_MODELS,
   type AgentConfig,
   type AlertPrefs,
@@ -290,15 +293,27 @@ export function validateLead(input: unknown): LeadAgentSettings {
 
 /**
  * Settings → Labs: one of its modes; with RLM, its sub-model as `<backend>/<model>` on a model connection
- * set up now (`configured`: the API backends with a key and the endpoints, by id).
+ * set up now (`configured`: the API backends with a key and the endpoints, by id), or through one of the
+ * accounts of a CLI of `SUB_MODEL_CLIS` (`cli:<provider>[:<account>][/<model>]`, `hasAccount`).
  */
-export function validLabs(input: unknown, configured: readonly string[]): LabSettings {
+export function validLabs(
+  input: unknown,
+  configured: readonly string[],
+  hasAccount: (p: Provider, account: string) => boolean = () => false,
+): LabSettings {
   const l = (input ?? {}) as Partial<LabSettings>;
   if (!(LAB_MODES as readonly unknown[]).includes(l.mode)) bad(t().labsBadMode);
   if (l.mode !== 'rlm') return { mode: l.mode as LabSettings['mode'] };
   const id = typeof l.rlmModel === 'string' ? l.rlmModel.trim() : '';
   if (!id) bad(t().labsNoModel);
   if (id.length > 300) bad(t().labsBadModel(id.slice(0, 40)));
+  const cli = parseCliSubModel(id);
+  if (cli) {
+    if (!hasAccount(cli.provider, cli.account)) bad(t().labsNoCliAccount(PROVIDER_LABEL[cli.provider], cli.account));
+    // A model of the user's own endpoints or API keys would go to the CLI's maker: asked on its connection instead.
+    if (cli.model && parseBackendModel(cli.model)) bad(t().labsCliConnectionModel(PROVIDER_LABEL[cli.provider], cli.model));
+    return { mode: 'rlm', rlmModel: cliSubModelId(cli) };
+  }
   const parsed = parseBackendModel(id);
   if (!parsed) bad(t().labsBadModel(id));
   if (!configured.includes(parsed.backend)) bad(t().labsNoConnection(parsed.backend));
@@ -775,6 +790,10 @@ export function validateChecks(input: unknown): CheckList {
     }
     if (hooks.length) out.hooks = hooks;
   }
+  if (c.previewApp !== undefined && typeof c.previewApp !== 'boolean') bad(t().invalidField('checks.previewApp'));
+  if (c.previewApp === true) out.previewApp = true;
+  if (c.autoFix !== undefined && typeof c.autoFix !== 'boolean') bad(t().invalidField('checks.autoFix'));
+  if (c.autoFix === true) out.autoFix = true;
   // Settings' default, unchanged since it was copied in (a list with rules only).
   if (c.fromDefault === true && hasRules(out)) out.fromDefault = true;
   return out;

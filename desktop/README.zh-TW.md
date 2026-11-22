@@ -62,6 +62,8 @@ electron-builder.yml 安裝檔；entitlements.mac.plist 與 macos/（各語言�
 
 伺服器這一端是 `src/server/parent.ts`（透過 Electron 的 `parentPort` 傳的訊息：開始監聽、登入連結、忙碌狀態、關閉、更新）與 `src/server/updates.ts`（聊天中的更新）。
 
+桌面版的應用程式預覽使用聊天視窗中的獨立 frame。於 `src/lifecycle.ts`，`guardContents()` 只允許子 frame 重新導向到自己的 origin；跨 origin 的子 frame 重新導向會被阻擋，且無法開啟系統瀏覽器。主視窗仍由原本的導覽規則處理。打包驗證會透過伺服器開啟靜態預覽、確認其專屬 origin，並停止預覽。詳見[預覽架構](../docs/architecture.zh-TW.md#應用程式預覽)。
+
 ## 測試與檢查
 
 - **單元測試。**除了 `main.ts`，這裡的程式都不需要 Electron，和其他程式一樣在根目錄的 `test/` 測試（`npm test`）：`desktop-app.test.ts`、`desktop-env.test.ts`、`desktop-supervisor.test.ts`、`desktop-tailscale.test.ts`、`desktop-traymenu.test.ts`、`desktop-update.test.ts`，以及測試伺服器這一端的 `parent.test.ts`。`electron` 只在 `main.ts` 匯入，其他檔案才能這樣測試。

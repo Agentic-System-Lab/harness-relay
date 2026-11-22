@@ -537,7 +537,12 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversation_agents ADD COLUMN limits TEXT;
   ALTER TABLE preset_agents ADD COLUMN limits TEXT;
   `,
-  // 40: long-term memory (memories): the notes agents and the user keep across conversations, one row
+  // 40: a user message Relay sent by itself to fix the team checks (messages.auto_fix, JSON: which
+  // attempt of how many, ChatMessage.autoFix).
+  `
+  ALTER TABLE messages ADD COLUMN auto_fix TEXT;
+  `,
+  // 41: long-term memory (memories): the notes agents and the user keep across conversations, one row
   // each (MemoryNote; author JSON). A note outlives the conversation it came from: deleting that
   // conversation clears conversation_id and message_id, nothing else. Its settings and the last
   // tidying are kept under the `memory` key of app_settings (JSON).

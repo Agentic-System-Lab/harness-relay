@@ -220,7 +220,11 @@ export function checksMarkdown(c: ChecksResult, t: Messages): string {
     const exit = o.rule === 'command' && o.status === 'failed' && o.exitCode !== undefined ? ` (${t.checks.exit(o.exitCode)})` : '';
     lines.push(`- **${t.checks.rules[o.rule]}**${command}: ${t.checks.status[o.status]}${exit}${o.reason ? ` · ${o.reason}` : ''}`);
     for (const f of o.findings ?? []) {
-      const what = f.commit ? `\`${f.commit}\` ${f.subject ?? ''}` : `\`${f.path}\` ${f.change ? t.checks.change[f.change] : ''}`;
+      const what = f.commit
+        ? `\`${f.commit}\` ${f.subject ?? ''}`
+        : f.problem
+          ? `\`${f.path}\` ${f.problem}`
+          : `\`${f.path}\` ${f.change ? t.checks.change[f.change] : ''}`;
       const by = f.by ? ` · ${f.worktree ? t.checks.inWorktree(f.by) : t.checks.by(f.by)}` : '';
       lines.push(`  - ${what.trim()}${f.folder ? ` · ${f.folder}` : ''}${by}`);
     }

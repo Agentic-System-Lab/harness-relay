@@ -74,6 +74,10 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Exercise app previews with real Linux containers
+        if: matrix.node == 24
+        run: npx tsx scripts/preview-runtime-check.ts
+
       - name: Build
         run: npm run build
 
