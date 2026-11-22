@@ -280,21 +280,25 @@ export function HandoverPanel({
 
   // The input waiting to go: one request at a time, in order, the moves merged.
   const queue = useRef<HandoverInput[]>([]);
-  const sending = useRef(false);
+  /** The input being sent, while it is: what reads the page (Save selection) waits for it, so it sees what the user did. */
+  const sending = useRef<Promise<void> | undefined>(undefined);
   const send = (e: HandoverInput) => {
     queue.current.push(e);
     if (sending.current) return;
-    sending.current = true;
-    void (async () => {
+    sending.current = (async () => {
       try {
         while (queue.current.length) {
           const batch = mergeInputs(queue.current.splice(0)).slice(0, HANDOVER_LIMITS.eventsMax);
           await api.handoverInput(convId, handoverId, batch).catch(() => undefined);
         }
       } finally {
-        sending.current = false;
+        sending.current = undefined;
       }
     })();
+  };
+  /** Once every input the user gave has reached the page. */
+  const inputSent = async () => {
+    while (sending.current) await sending.current;
   };
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -632,6 +636,8 @@ export function HandoverPanel({
                 onClick={async () => {
                   setSaving({ busy: true });
                   try {
+                    // The clicks that made the selection go first.
+                    await inputSent();
                     await saveAs.onSave(a.name);
                     setSaving({ done: a.name });
                   } catch (err) {
