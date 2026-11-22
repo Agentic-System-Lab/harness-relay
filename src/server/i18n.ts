@@ -42,6 +42,59 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
 }
 
 const zhTW = {
+  publish: {
+    unreachable: (host: string) => `無法連到 ${host}，或它的回應無法讀取。請稍後再試。`,
+    badAnswer: '雲端服務的回應不是預期的格式。',
+    renderKey: 'Render API 金鑰無效或已失效。請在 Render 的 Account Settings → API Keys 建立一把，再貼上。',
+    renderPayment: 'Render 要求這個工作區先加上付款資訊，才能建立服務。',
+    renderNoOwner: '這把 Render 金鑰沒有可用的工作區。',
+    rateLimited: (host: string) => `${host} 暫時限制了請求次數。請稍等一下再試。`,
+    renderFailed: (detail: string) => `Render 拒絕了這個請求：${detail}`,
+    repoAccess: (link: string) =>
+      `Render 讀不到這個 GitHub 儲存庫。請讓 Render 的 GitHub App 能存取它（所有儲存庫，或加入這一個）：${link}，然後再發布一次。`,
+    renderName: (name: string) => `Render 上已經有叫做「${name}」的服務。請換一個名稱。`,
+    serviceGone: '這個應用程式在 Render 上的服務已被刪除。請先取消發布，再重新發布。',
+    neonKey: 'Neon API 金鑰無效或已失效。請在 Neon 的 Account settings → API keys 建立一把，再貼上。',
+    neonFailed: (detail: string) => `Neon 無法建立或讀取資料庫：${detail}`,
+    workspace: '這個 npm workspace 成員的資料夾名稱無法用在 Render 的指令裡。',
+    onlyDatabase: '這個 compose 檔只執行資料庫，沒有可以發布的應用程式服務。',
+    composeService: (name: string) =>
+      `Render 的免費方案只執行一個服務，而這個 compose 檔還有「${name}」。只有一個應用程式服務加上 PostgreSQL 的 compose 檔可以發布。`,
+    composeBuild: (name: string) => `服務「${name}」沒有 build：Render 要從這個專案的 Dockerfile 建置它。`,
+    composeBuildOptions: (name: string) => `服務「${name}」的 build 用了 build 參數、target 或內嵌的 Dockerfile，Render 的建置不支援。`,
+    composeMounts: (name: string) => `服務「${name}」掛載了專案檔案；Render 只從 Dockerfile 建置映像，那些檔案不會在裡面。`,
+    composeEntrypoint: (name: string) => `服務「${name}」改寫了 entrypoint，Render 不支援。請改在 Dockerfile 裡設定。`,
+    noGh: '發布需要 GitHub CLI（gh），用來建立私人儲存庫並推送檔案。',
+    github: (detail: string) => `GitHub 沒有完成這個請求：${detail || '沒有說明'}`,
+    repoExists: (name: string) => `你的 GitHub 帳號已經有名為「${name}」的儲存庫。請換一個名稱。`,
+    push: (detail: string) => `無法把檔案推送到 GitHub：${detail || '沒有說明'}`,
+    otherWorkspace: (name: string) =>
+      `「${name}」發布在另一個 Render 工作區，目前的金鑰碰不到它。請改用能存取那個工作區的金鑰，再更新或取消發布。`,
+    databasesChanged: '這個應用程式的資料庫和上次發布時不同（例如 compose 檔多了 PostgreSQL 服務）。請先取消發布，再重新發布。',
+    initMeta: (name: string, command: string) =>
+      `${name} 用了 psql 自己的指令（${command}）。Relay 只把初始化腳本當成一般的 SQL 送到 Neon 執行，所以請改成只有 SQL 的腳本。`,
+    initSize: (name: string, kb: number) => `${name} 超過 ${kb} KB，太長了，無法當成初始化腳本執行。`,
+    initBinary: (name: string) => `${name} 含有 NUL 位元組，不是可以執行的 SQL 文字。`,
+    initTransaction: (name: string, statement: string) =>
+      `${name} 有 ${statement}。Relay 把每個初始化腳本當成一個 transaction 執行，自己結束 transaction 或無法在 transaction 裡執行的陳述式都不支援。`,
+    initChanged: (name: string) => `${name} 在它已經於資料庫上執行之後改變了。要重新執行，請取消發布並勾選刪除資料庫，再重新發布。`,
+    initFailed: (name: string, detail: string) => `在 Neon 上執行 ${name} 失敗：${detail || '沒有說明'}`,
+    storage: '無法存取這台電腦的憑證儲存區，金鑰無法保存。',
+    interrupted: 'Harness Relay 在發布途中停止了。請再發布一次。',
+    setupRender: '請先在 設定 → 發布到雲端 設定 Render 的 API 金鑰與工作區。',
+    setupNeon: '這個應用程式需要資料庫：請先在 設定 → 發布到雲端 設定 Neon 的 API 金鑰與組織。',
+    notFound: '找不到這個已發布的應用程式。',
+    confirmPublic: '請先確認：任何拿到網址的人都能開啟這個應用程式。',
+    busy: '這個應用程式正在發布中。',
+    tooMany: '同時進行的發布太多了。請等其中一個完成。',
+    name: '名稱只能有小寫英文字母、數字和連字號，最多 40 個字元，且不能以連字號開頭或結尾。',
+    nameTaken: (name: string) => `已經有一個叫「${name}」的已發布應用程式。`,
+    kindChanged: '這個資料夾的應用程式類型改變了（例如從靜態網站變成後端），Render 無法直接轉換。請先取消發布，再重新發布。',
+    deployFailed: (status: string) => `Render 的部署沒有成功（${status}）。請到 Render 查看建置記錄。`,
+    failed: '發布失敗。',
+    notReady: '請等預覽的頁面成功開啟，確認沒問題後再發布。',
+    changed: '預覽開始後，這個資料夾的檔案已經改變。請重新建置預覽並確認後再發布。',
+  },
   previewDocker: {
     invalidLock: 'npm 專案或鎖定檔格式無效。',
     standalone: '預覽不支援巢狀的 npm 工作區。',
@@ -1205,6 +1258,65 @@ const zhTW = {
 export type ServerMessages = typeof zhTW;
 
 const en: ServerMessages = {
+  publish: {
+    unreachable: (host: string) => `${host} could not be reached, or its answer could not be read. Try again in a moment.`,
+    badAnswer: 'The cloud service answered in a form Harness Relay does not expect.',
+    renderKey: 'The Render API key is not valid. Create one in Render under Account Settings → API Keys and paste it here.',
+    renderPayment: 'Render asks for payment information in this workspace before it creates a service.',
+    renderNoOwner: 'This Render key reaches no workspace.',
+    rateLimited: (host: string) => `${host} is limiting requests for now. Wait a moment and try again.`,
+    renderFailed: (detail: string) => `Render refused the request: ${detail}`,
+    repoAccess: (link: string) =>
+      `Render cannot read the GitHub repository. Let Render's GitHub app access it (all repositories, or this one added): ${link}, then publish again.`,
+    renderName: (name: string) => `Render already has a service named "${name}". Choose another name.`,
+    serviceGone: "This app's service was deleted on Render. Unpublish it, then publish it again.",
+    neonKey: 'The Neon API key is not valid. Create one in Neon under Account settings → API keys and paste it here.',
+    neonFailed: (detail: string) => `Neon could not make or read the database: ${detail}`,
+    workspace: "This npm workspace member's folder name cannot be used in Render's commands.",
+    onlyDatabase: 'This compose file runs only a database: there is no app service to publish.',
+    composeService: (name: string) =>
+      `Render's free plan runs one service, and this compose file also has "${name}". Only a compose file with one app service and PostgreSQL can be published.`,
+    composeBuild: (name: string) => `The service "${name}" has no build: Render builds it from the project's Dockerfile.`,
+    composeBuildOptions: (name: string) =>
+      `The service "${name}" builds with build arguments, a target or an inline Dockerfile, which Render's build does not take.`,
+    composeMounts: (name: string) =>
+      `The service "${name}" mounts project files. Render builds the image from the Dockerfile alone, so they would be missing.`,
+    composeEntrypoint: (name: string) =>
+      `The service "${name}" overrides its entrypoint, which Render does not take. Set it in the Dockerfile.`,
+    noGh: 'Publishing needs the GitHub CLI (gh), to make a private repository and push the files to it.',
+    github: (detail: string) => `GitHub did not complete the request: ${detail || 'no details'}`,
+    repoExists: (name: string) => `Your GitHub account already has a repository named "${name}". Choose another name.`,
+    push: (detail: string) => `The files could not be pushed to GitHub: ${detail || 'no details'}`,
+    otherWorkspace: (name: string) =>
+      `"${name}" was published in another Render workspace, which the current key does not reach. Use a key for that workspace to update or unpublish it.`,
+    databasesChanged:
+      "This app's databases differ from its last publish (its compose file has another PostgreSQL service, say). Unpublish it, then publish it again.",
+    initMeta: (name: string, command: string) =>
+      `${name} uses psql's own commands (${command}). Relay sends an init script to Neon as plain SQL, so keep it to SQL alone.`,
+    initSize: (name: string, kb: number) => `${name} is over ${kb} KB, too long to run as an init script.`,
+    initBinary: (name: string) => `${name} holds a NUL byte: it is not SQL text that can run.`,
+    initTransaction: (name: string, statement: string) =>
+      `${name} has ${statement}. Relay runs each init script as one transaction, so a statement that ends it, or cannot run inside one, is not supported.`,
+    initChanged: (name: string) =>
+      `${name} changed after it ran on the database. To run it again, unpublish the app with its database ticked, then publish it again.`,
+    initFailed: (name: string, detail: string) => `Running ${name} on Neon failed: ${detail || 'no details'}`,
+    storage: 'The credential store on this computer is unavailable, so the key cannot be kept.',
+    interrupted: 'Harness Relay stopped during the publish. Publish again.',
+    setupRender: 'Set up Render first, in Settings → Publish to the cloud: its API key and workspace.',
+    setupNeon: 'This app needs a database: set up Neon first, in Settings → Publish to the cloud: its API key and organization.',
+    notFound: 'This published app was not found.',
+    confirmPublic: 'Confirm first that anyone with its address can open the app.',
+    busy: 'This app is being published.',
+    tooMany: 'Too many publishes are under way. Wait for one to finish.',
+    name: 'A name has lowercase letters, digits and hyphens, at most 40 characters, and no hyphen at either end.',
+    nameTaken: (name: string) => `A published app is already named "${name}".`,
+    kindChanged:
+      "This folder's app changed kind (from a static site to a backend, say), which Render cannot convert. Unpublish it, then publish it again.",
+    deployFailed: (status: string) => `Render's deploy did not succeed (${status}). See the build logs on Render.`,
+    failed: 'The publish failed.',
+    notReady: "Wait until the preview's page has opened and works, then publish.",
+    changed: "The folder's files changed since the preview started. Rebuild the preview, check it, then publish.",
+  },
   previewDocker: {
     invalidLock: 'Invalid npm project or lockfile.',
     standalone: 'Preview does not support nested npm workspaces.',

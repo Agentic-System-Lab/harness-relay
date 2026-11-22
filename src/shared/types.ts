@@ -957,6 +957,139 @@ export type PreviewTerminalEvent =
   /** The preview stopped. */
   | { type: 'closed' };
 
+// --- Publishing a previewed app (Render, Neon) --------------------------------------------------
+
+/** Render's regions, in the order Settings lists them. Render's own default is the first. */
+export const RENDER_REGIONS = ['oregon', 'ohio', 'virginia', 'frankfurt', 'singapore'] as const;
+export type RenderRegion = (typeof RENDER_REGIONS)[number];
+
+/** The error code of a publish that needs the user's settings first (a key, a workspace, an organization). */
+export const PUBLISH_SETUP = 'publish-setup';
+/** The error code of a publish whose files changed since the preview started: rebuild it and try it first. */
+export const PUBLISH_CHANGED = 'publish-changed';
+/** The error code of a Render workspace that cannot read the new repository through its GitHub app. */
+export const PUBLISH_REPO_ACCESS = 'publish-repo-access';
+
+/** An account Settings → Publish to the cloud names: a Render workspace, a Neon organization. */
+export interface PublishAccount {
+  id: string;
+  name: string;
+}
+
+/** Settings → Publish to the cloud (`GET /api/publish`): never a key, only its masked end. */
+export interface PublishSettingsView {
+  /** Keys can be kept (the credential store, or the database encrypted). */
+  storage: boolean;
+  render: {
+    keyMasked: string;
+    /** The workspaces the key reaches, and the one apps go to. */
+    owners: PublishAccount[];
+    ownerId?: string;
+    region: RenderRegion;
+  };
+  neon: {
+    keyMasked: string;
+    orgs: PublishAccount[];
+    orgId?: string;
+  };
+  apps: PublishedApp[];
+}
+
+/** What a preview publishes as: the preview's mode, a Dockerfile or a compose file. */
+export type PublishKind = 'static' | 'build' | 'server' | 'docker' | 'compose';
+
+/** One step of a publish, in order. `skipped`: not needed this time (the repository exists, say). */
+export interface PublishStep {
+  id: 'repo' | 'push' | 'database' | 'init' | 'service' | 'build';
+  state: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  /** Render's deploy state for `build` (`build_in_progress`…), or what failed. */
+  detail?: string;
+}
+
+/** An app published from a preview, as Settings and the panel show it. */
+export interface PublishedApp {
+  id: string;
+  name: string;
+  conversationId: string;
+  /** Its conversation was deleted: the app stays online until it is unpublished. */
+  conversationGone?: boolean;
+  /** The folder it was published from (the preview's, absolute). */
+  folder: string;
+  kind: PublishKind;
+  serviceType: 'static_site' | 'web_service';
+  /** The private GitHub repository it is pushed to, `owner/name`. */
+  repo: string;
+  repoUrl: string;
+  /** Render's service, once made. */
+  serviceId?: string;
+  dashboardUrl?: string;
+  /** Its address on the internet, once Render gave one. */
+  url?: string;
+  /** The Neon projects of its databases, one per PostgreSQL service. */
+  databases: { service: string; projectId: string; name: string }[];
+  createdAt: number;
+  /** When it last went live. */
+  publishedAt?: number;
+  state: 'publishing' | 'live' | 'failed';
+  error?: string;
+  /** The current or last publish's steps (in memory: none after a restart). */
+  steps?: PublishStep[];
+}
+
+/** A variable the published app gets: from its compose file, its database, or the dialog. */
+export interface PublishEnvVar {
+  key: string;
+  value: string;
+  source: 'compose' | 'database' | 'user';
+}
+
+/** A Neon database a publish makes: for a compose file's PostgreSQL service, or the checkbox. */
+export interface PublishDatabasePlan {
+  /** The compose service it stands for; `DATABASE_URL` for the checkbox. */
+  service: string;
+  database: string;
+  role: string;
+  pgVersion?: number;
+  /** The compose file's init scripts that run on it once, in order. */
+  initScripts: string[];
+  /** Init scripts that are not run (`.sh`, `.sql.gz`). */
+  skippedScripts: string[];
+}
+
+/** What publishing a running preview would do (`POST …/preview/:id/publish/plan`). */
+export interface PublishPlan {
+  kind: PublishKind;
+  serviceType: 'static_site' | 'web_service';
+  /** The name the dialog starts with: the existing app's, else one from the folder. */
+  name: string;
+  folder: string;
+  /** The app published from this folder already: publishing updates it. */
+  existing?: PublishedApp;
+  env: PublishEnvVar[];
+  databases: PublishDatabasePlan[];
+  /** A backend or Dockerfile without compose: a Neon database can be added (`DATABASE_URL`). */
+  databaseOptional: boolean;
+  /** Render's build and start, as Relay sets them (for the dialog). */
+  commands: { build?: string; start?: string; publish?: string; dockerfile?: string };
+  /** What Settings still needs for this publish (Neon only when a compose file has PostgreSQL). */
+  missing: ('render' | 'render-owner' | 'neon' | 'neon-org')[];
+  /** Neon is set up: the checkbox's database can be made. */
+  neonReady: boolean;
+  github: { login?: string; problem?: typeof GH_MISSING | typeof GH_SIGNED_OUT };
+  region: RenderRegion;
+}
+
+/** `POST …/preview/:id/publish`. */
+export interface PublishRequest {
+  name?: string;
+  /** The variables the user added or changed (never the database's, which Neon gives). */
+  env?: { key: string; value: string }[];
+  /** For a backend or Dockerfile without compose: add a Neon database. */
+  database?: boolean;
+  /** The user confirmed that anyone with its address can open it. */
+  public: boolean;
+}
+
 /** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {
   /**

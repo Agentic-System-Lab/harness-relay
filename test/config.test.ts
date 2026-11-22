@@ -93,6 +93,29 @@ describe('server configuration from the environment', () => {
     ]);
   });
 
+  it("takes publishing's stand-ins on this computer only, and a folder of stand-in repositories", () => {
+    const local = readConfig({
+      RELAY_RENDER_API_URL: 'http://127.0.0.1:9100/v1',
+      RELAY_NEON_API_URL: 'http://localhost:9101/api/v2',
+      RELAY_PUBLISH_GIT_DIR: '/tmp/github',
+    });
+    expect(local.problems).toEqual([]);
+    expect(local.config).toMatchObject({
+      renderApiUrl: 'http://127.0.0.1:9100/v1',
+      neonApiUrl: 'http://localhost:9101/api/v2',
+      publishGitDir: resolve('/tmp/github'),
+    });
+    // A key goes there: never to another host, not even over https.
+    const elsewhere = readConfig({ RELAY_RENDER_API_URL: 'https://api.render.example', RELAY_NEON_API_URL: 'http://10.0.0.2' });
+    expect(elsewhere.config.renderApiUrl).toBeUndefined();
+    expect(elsewhere.config.neonApiUrl).toBeUndefined();
+    expect(elsewhere.problems).toEqual([
+      "RELAY_RENDER_API_URL must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).",
+      "RELAY_NEON_API_URL must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).",
+    ]);
+    expect(readConfig({ RELAY_PUBLISH_GIT_DIR: 'relative' }).problems).toHaveLength(1);
+  });
+
   it("takes Microsoft's mail servers as host:port, TLS or STARTTLS as the port says, plain TCP only to this computer", () => {
     const other = readConfig({ RELAY_MICROSOFT_IMAP: 'outlook.office365.us:993', RELAY_MICROSOFT_SMTP: ' smtp.office365.us:587 ' });
     expect(other.problems).toEqual([]);

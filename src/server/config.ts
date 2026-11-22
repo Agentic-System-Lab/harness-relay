@@ -56,6 +56,15 @@ export interface ServerConfig extends ServerLimits {
    * turns `run_code` on. undefined = off.
    */
   rlmModel?: string;
+  /**
+   * Stand-ins on this computer for publishing a previewed app, in the end-to-end tests only: Render's
+   * API (`RELAY_RENDER_API_URL`), Neon's (`RELAY_NEON_API_URL`) and a folder of bare repositories in
+   * GitHub's place (`RELAY_PUBLISH_GIT_DIR`, `<folder>/<owner>/<name>.git`). undefined =
+   * `https://api.render.com/v1`, `https://console.neon.tech/api/v2` and `https://github.com`.
+   */
+  renderApiUrl?: string;
+  neonApiUrl?: string;
+  publishGitDir?: string;
 }
 
 /**
@@ -132,6 +141,15 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return undefined;
   };
 
+  // A stand-in on this computer, and nothing else: an API a key goes to that is not the host's own.
+  const local = (name: string): string | undefined => {
+    const url = base(name);
+    if (!url) return undefined;
+    if (/^(127\.0\.0\.1|localhost|\[::1\])$/.test(new URL(url).hostname)) return url;
+    problems.push(`${name} must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).`);
+    return undefined;
+  };
+
   // A mail server a token goes to, as `host:port`: TLS, or STARTTLS on the port that asks for it
   // (IMAP's 143, SMTP's 587 and 25); plain TCP to this computer only (a stand-in).
   const mailServer = (name: string, kind: 'imap' | 'smtp'): MailServer | undefined => {
@@ -200,6 +218,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
     runCode: runCode || Boolean(rlmModel),
     ...(rlmModel ? { rlmModel } : {}),
+    renderApiUrl: local('RELAY_RENDER_API_URL'),
+    neonApiUrl: local('RELAY_NEON_API_URL'),
+    publishGitDir: folder('RELAY_PUBLISH_GIT_DIR'),
   };
   return { config, problems };
 }

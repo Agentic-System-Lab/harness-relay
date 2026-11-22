@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { constants, type BigIntStats } from 'node:fs';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -91,6 +92,20 @@ const readFlags = constants.O_RDONLY | constants.O_NONBLOCK | (process.platform 
 /** Only the owner's executable bit needs to cross into the unprivileged Linux container. */
 class PreviewSnapshot extends Map<string, Buffer> {
   readonly executables = new Set<string>();
+}
+
+/**
+ * A snapshot's identity: every file's name, executable bit and contents, in name order. Publishing
+ * takes the snapshot again and compares the two, so that what goes online is what was previewed.
+ */
+export function previewDigest(files: ReadonlyMap<string, Buffer>, executables: ReadonlySet<string> = new Set()): string {
+  const hash = createHash('sha256');
+  for (const name of [...files.keys()].sort()) {
+    const data = files.get(name)!;
+    hash.update(name + '\0' + (executables.has(name) ? 'x' : '-') + '\0' + data.length + '\0');
+    hash.update(data);
+  }
+  return hash.digest('hex');
 }
 
 function inside(dir: string, path: string): boolean {

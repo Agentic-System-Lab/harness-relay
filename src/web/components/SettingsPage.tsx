@@ -74,6 +74,7 @@ import { BrowsersCard } from './BrowsersSettings';
 import { HomeScreenGuide } from './HomeScreenGuide';
 import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
+import { PublishCard } from './PublishSettings';
 import { ToolsCard } from './ToolsSettings';
 import { VersionCard } from './VersionSettings';
 import { VoiceCard } from './VoiceSettings';
@@ -378,6 +379,7 @@ export function SettingsPage({
         {settings && <SessionsCard settings={settings} onSettings={setSettings} onHomeChanged={() => void refreshProviders(true)} />}
 
         <SharesCard />
+        <PublishCard />
 
         <BrowsersCard browsers={browsers} />
         <HomeScreenGuide phone={browsers.phone} />

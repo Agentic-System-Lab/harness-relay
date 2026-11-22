@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { AppPreviews } from '../src/server/appPreviews';
 import { previewAddress, previewParent, type PreviewTarget } from '../src/server/previewTarget';
 import { readConfig } from '../src/server/config';
+import { PUBLISH_CHANGED } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-preview-')));
 writeFileSync(join(root, 'package.json'), '{}');
@@ -337,5 +338,70 @@ describe('preview request and response boundaries', () => {
     expect(previewAddress(p, 8787, 'preview.example.net').origin).toMatch(/^https:\/\/p-\w+\.preview\.example\.net$/);
     for (const domain of [undefined, 'relay.example', 'preview.relay.example']) expect(() => previewAddress(p, 8787, domain)).toThrow();
     expect(() => previewAddress(new URL('http://relay.example'), 8787, 'preview.example.net')).toThrow();
+  });
+});
+
+describe('publishing a running preview', () => {
+  it('gives the files it was tried with, once its page answered, to the browser that started it, and refuses them once they changed', async () => {
+    const site = join(root, 'site');
+    mkdirSync(site, { recursive: true });
+    writeFileSync(join(site, 'index.html'), '<h1>v1</h1>');
+    const service = new AppPreviews('relay', vi.fn());
+    const target: PreviewTarget = { root, folder: 'site', entry: 'index.html', mode: 'static' };
+    const s = await service.start('chat', target, address(), parent, new AbortController().signal, undefined, undefined, 'browser-1');
+    const source = await service.publishSource('chat', s.id, 'browser-1');
+    expect(source).toMatchObject({ conversationId: 'chat', folder: site, mode: 'static', entry: 'index.html' });
+    expect([...source.files.keys()]).toEqual(['index.html']);
+    await expect(service.publishSource('chat', s.id, 'browser-2')).rejects.toMatchObject({ status: 403 });
+    await expect(service.publishSource('other', s.id, 'browser-1')).rejects.toMatchObject({ status: 404 });
+    writeFileSync(join(site, 'index.html'), '<h1>v2</h1>');
+    await expect(service.publishSource('chat', s.id, 'browser-1')).rejects.toMatchObject({ status: 409, code: PUBLISH_CHANGED });
+    await service.stop('chat', s.id);
+    await expect(service.publishSource('chat', s.id, 'browser-1')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("waits for a container's page, and gives a workspace member's folder inside its root", async () => {
+    mkdirSync(join(root, 'box'), { recursive: true });
+    writeFileSync(join(root, 'box', 'Dockerfile'), 'FROM scratch');
+    let listener: ((e: { type: string }) => void) | undefined;
+    const terminal = { subscribe: vi.fn((l) => ((listener = l), () => {})), input: vi.fn(), resize: vi.fn(), run: vi.fn() };
+    const service = new AppPreviews('relay', vi.fn(), Date.now, () => ({
+      request: async () => new Response(),
+      stop: async () => {},
+      terminal,
+    }));
+    const s = await service.start(
+      'chat',
+      { root, folder: 'box', entry: 'Dockerfile', mode: 'container' },
+      address(),
+      parent,
+      new AbortController().signal,
+    );
+    await expect(service.publishSource('chat', s.id, undefined)).rejects.toMatchObject({ status: 409 });
+    listener!({ type: 'phase' });
+    await expect(service.publishSource('chat', s.id, undefined)).rejects.toMatchObject({ status: 409 });
+    listener!({ type: 'page' });
+    expect(await service.publishSource('chat', s.id, undefined)).toMatchObject({
+      mode: 'container',
+      entry: 'Dockerfile',
+      folder: join(root, 'box'),
+    });
+    await service.close();
+
+    mkdirSync(join(root, 'mono', 'web'), { recursive: true });
+    writeFileSync(join(root, 'mono', 'package.json'), '{}');
+    const npm = new AppPreviews(
+      'relay',
+      vi.fn(async () => ({ request: async () => new Response(), stop: async () => {} })),
+    );
+    const member = await npm.start(
+      'chat',
+      { root, folder: 'mono/web', entry: 'package.json', mode: 'build', npmRoot: 'mono' },
+      address(),
+      parent,
+      new AbortController().signal,
+    );
+    expect(await npm.publishSource('chat', member.id, undefined)).toMatchObject({ folder: join(root, 'mono', 'web'), workspace: 'web' });
+    await npm.close();
   });
 });

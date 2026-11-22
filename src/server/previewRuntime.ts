@@ -39,6 +39,8 @@ export class PreviewCleanupError extends Error {
 // Official Node 22.23.5 / Debian bookworm, index for Linux amd64 and arm64.
 export const PREVIEW_NODE_IMAGE = 'docker.io/library/node@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee';
 const IMAGE = PREVIEW_NODE_IMAGE;
+/** The pinned image's Node.js major version: a published app's npm steps run on the same one (`NODE_VERSION`). */
+export const PREVIEW_NODE_MAJOR = '22';
 export const PREVIEW_LABEL = 'io.harness-relay.preview.owner';
 const LABEL = PREVIEW_LABEL;
 const DIGEST = /^[a-f0-9]{64}$/;

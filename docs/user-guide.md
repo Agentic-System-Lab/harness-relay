@@ -792,6 +792,32 @@ Relay checks the project for a supported `package-lock.json` before it offers Do
 
 Relay uses a pinned Node image and needs access to the public npm registry for locked dependencies. The build and backend run offline. Projects requiring an external API, a private package registry, a separate database server or a host `.env` file need different inputs to run here. For a phone or a remote browser, set up the separate preview hostname first. [Remote preview access](remote-access.md#app-previews)
 
+### Publishing an app
+
+Once a preview works, **Publish…** in the preview panel puts it online, in your own accounts: [Render](https://render.com) runs it on its free plan, and [Neon](https://neon.com) keeps its PostgreSQL database. Set them up once in **Settings → Publish to the cloud**:
+
+- **Render**: an API key (Render's **Account Settings → API Keys**), and the workspace and region apps go to. Render builds each app from a private repository in your GitHub account, so let [Render's GitHub app](https://github.com/apps/render/installations/new) access all your repositories (or add each new one).
+- **Neon**: an API key (Neon's **Account settings → API keys**), for apps that need a database. Their databases go to Neon's region nearest Render's.
+- **GitHub**: the GitHub CLI (`gh`) signed in on the computer running Relay, as for [sharing a conversation](#sharing-a-conversation). The dialog signs it in when it is not.
+
+The keys stay in the credential store, as every key does, and never go to an agent.
+
+![Settings → Publish to the cloud, with the Render and Neon keys saved and a published app listed.](../site/assets/media/docs/app-publish-settings-en.webp)
+
+**Publish…** appears once the preview's page has opened. The dialog says what it will create before anything happens: a private GitHub repository, a free Render static site (a static page or npm build) or web service (a backend, `Dockerfile` or compose file), and a Neon database for each PostgreSQL service in a compose file, with the compose file's `.sql` init scripts run on it once. A backend or `Dockerfile` without one can tick **Add a Neon PostgreSQL database** to get `DATABASE_URL`. It lists the commands Render will run (the same ones the preview ran) and the app's environment variables: the compose file's, with Neon's address in place of the database service's (set by Neon, never shown), and any you add, such as an API key. They go to Render only, never into the repository. Tick that you understand anyone with its address can open it, then **Publish**.
+
+![The publish dialog for a todo app with PostgreSQL: a private repository, a Render web service, a Neon database with its init script, and the environment variables.](../site/assets/media/docs/app-publish-dialog-en.webp)
+
+The dialog then follows each step (repository, push, database, init SQL, service, Render's build) until the app is live, with its address, its page on Render (with the build's logs) and its repository. What goes online is what you tried: the same files the preview copied, without `.git`, `.env` files, credentials or installed dependencies. If they changed since the preview started, publishing refuses: **Rebuild preview**, try it again, then publish. **Publish update** for a folder published before pushes a new commit and deploys it on the same service; its variables stay as they are on Render, where you change them.
+
+![The publish dialog once the app is live: every step done, with its address, its page on Render and its repository.](../site/assets/media/docs/app-publish-live-en.webp)
+
+If a first publish fails, for example because Render cannot read the new repository yet, fix the cause and choose **Publish…** again: it goes on with what was made. Until the repository exists you can change the name (a name an app here or your GitHub account already has is suggested with `-2`), and until the Render service exists, enter its variables again (Relay keeps none of their values); a database the first try made is used again. Init scripts run as plain SQL, each as one transaction: one that fails leaves nothing, and the next try runs it and those after it, skipping those that succeeded. A script with psql's own commands (a line that begins with a backslash, such as `\c` or `\set`), or a statement that ends the transaction or cannot run in one (`COMMIT;`, `CREATE DATABASE`, `VACUUM`…), is refused before anything is made. If the current Render key no longer reaches the app's workspace, **Remove from the list only** forgets it here and leaves everything online.
+
+A compose file is published when Render's free plan can run it as one service: one app service built from the project's `Dockerfile` (no build arguments, target or mounted project files), with PostgreSQL services beside it. Anything else, such as Redis or a second app service, is refused with the reason before anything is made. On free plans a web service sleeps after 15 minutes without requests and takes about a minute to wake, and files it writes in its container are lost when it restarts; what is in the Neon database stays. Unlike the preview, the published app has a network.
+
+**Unpublish** in **Settings → Publish to the cloud** deletes the app's Render service and, when you tick it, its Neon databases (Neon keeps them 7 days, to restore). It needs a Render key for the workspace the app was published in. The GitHub repository stays: delete it on GitHub when you no longer need it. [How publishing works](architecture.md#publishing-an-app)
+
 ### Copying, editing and retrying
 
 - The buttons under a message are icons (point at one for its name). Under an agent's reply they are always shown; under your own message they appear when you point at it (on a phone or tablet they are always shown). Under an agent's reply, copy, retry, share and branch are on the left and the reply's time, cost and tokens at the right edge; under your own message, copy and edit sit below the bubble.

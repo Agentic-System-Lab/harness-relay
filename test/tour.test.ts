@@ -106,7 +106,9 @@ describe('guided tour', () => {
           'Adjust any time',
         ]);
       expect(titles(39)).toEqual(['Browse the working directory']);
-      expect(tourIndices(40)).toEqual([]);
+      // Publishing a preview came to the files step.
+      expect(titles(40)).toEqual(['Browse the working directory']);
+      expect(tourIndices(41)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -150,6 +152,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 40, fingerprint: '1488ea35cbbf' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 41, fingerprint: 'bc09ac05cd2d' });
   });
 });
