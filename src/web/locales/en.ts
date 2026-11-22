@@ -1288,6 +1288,7 @@ export const en: Messages = {
       refused: (url) => `Not opened: ${url}`,
       asking: 'The page asks to open a site it has not opened yet. Decide first:',
       clipboard: 'The clipboard does not cross over: you can paste text into the page, but not copy from it.',
+      onlyWeb: 'Only http and https pages open here.',
     },
     alone: {
       open: 'Open a browser for you alone',

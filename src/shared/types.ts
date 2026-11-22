@@ -2227,7 +2227,14 @@ export type HandoverWindowAt = 'desktop' | 'server';
  * A hand-over's limits: the minutes the user has to start it, then to hand it back; the longest note to
  * the agent, text typed at once, and events in one request of the screencast's.
  */
-export const HANDOVER_LIMITS = { startMinutes: 15, useMinutes: 30, noteMax: 2000, textMax: 2000, eventsMax: 100 } as const;
+export const HANDOVER_LIMITS = {
+  startMinutes: 15,
+  useMinutes: 30,
+  noteMax: 2000,
+  textMax: 2000,
+  eventsMax: 100,
+  wheelMax: 10_000,
+} as const;
 
 /**
  * What the screencast panel is told (`GET /api/conversations/:id/handovers/:handoverId/screen`): a frame

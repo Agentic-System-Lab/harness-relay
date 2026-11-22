@@ -1306,6 +1306,7 @@ export const zhTW = {
       refused: (url: string) => `沒有開啟 ${url}`,
       asking: '網頁要開啟還沒開過的網站，請先決定：',
       clipboard: '剪貼簿不會跨過去：你可以把文字貼進網頁，但不能從網頁複製出來。',
+      onlyWeb: '這裡只開 http 與 https 網頁。',
     },
     alone: {
       open: '開一個只給你的瀏覽器',

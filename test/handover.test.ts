@@ -368,10 +368,15 @@ describe("a hand-over's ticket", () => {
 });
 
 describe('a browser for the user alone', () => {
-  it("asks nobody about a host: one on the internet opens, one here only at an address the user typed (or the card's)", () => {
-    expect(ownerAllows(false, false)).toBe(true);
-    expect(ownerAllows(true, true)).toBe(true);
-    expect(ownerAllows(true, false)).toBe(false);
+  it("asks nobody: the internet, yes; here, only its own page's host, or the address the user typed for that one opening", () => {
+    expect(ownerAllows({ nearby: false, key: 'example.com' })).toBe(true);
+    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', typed: '192.168.1.20:8080' })).toBe(true);
+    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: '192.168.1.20:8080' })).toBe(true);
+    // A page elsewhere reaching a device on the network (a link, a form, a script), whoever opened it before.
+    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: 'evil.example' })).toBe(false);
+    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: '192.168.1.20:8080', typed: undefined })).toBe(true);
+    expect(ownerAllows({ nearby: true, key: '192.168.1.21', top: '192.168.1.20:8080', typed: '192.168.1.20:8080' })).toBe(false);
+    expect(ownerAllows({ nearby: true })).toBe(false);
   });
 
   it('reads the selection in a field, else on the page, else a focused field but a password', () => {
@@ -588,7 +593,10 @@ describe('the hand-over routes', () => {
 });
 
 describe('a call its CLI gave up', () => {
-  /** A tool that waits for the user until its caller is gone, as the hand-over does, and says when it saw that. */
+  /**
+   * A tool that waits for the user until its caller is gone, as the hand-over does, or until the user
+   * answers (`answerMs`, when given), and says which it saw.
+   */
   const waiting = (seen: string[]) => ({
     name: 'wait_for_user',
     group: 'browser' as const,
@@ -596,10 +604,12 @@ describe('a call its CLI gave up', () => {
     description: '',
     inputSchema: {},
     describe: () => ({ title: '' }),
-    run: async (_a: Record<string, unknown>, _c: unknown, _s: unknown, gone?: () => boolean) => {
-      while (!gone?.()) await new Promise((r) => setTimeout(r, 50));
-      seen.push('gone');
-      return { text: 'given up' };
+    run: async (a: Record<string, unknown>, _c: unknown, _s: unknown, gone?: () => boolean) => {
+      const until = typeof a.answerMs === 'number' ? Date.now() + a.answerMs : Infinity;
+      while (!gone?.() && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      const left = Boolean(gone?.());
+      seen.push(left ? 'gone' : 'answered');
+      return { text: left ? 'given up' : 'the user answered' };
     },
   });
   const ctx = () =>
@@ -634,8 +644,21 @@ describe('a call its CLI gave up', () => {
       expect(
         (await post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 7, reason: 'timed out' } })).status,
       ).toBe(202);
-      expect(((await (await call).json()) as { result: { content: { text: string }[] } }).result.content[0]!.text).toBe('given up');
+      const text = async (r: Promise<Response>) =>
+        ((await (await r).json()) as { result: { content: { text: string }[] } }).result.content[0]!.text;
+      expect(await text(call)).toBe('given up');
       expect(seen).toEqual(['gone']);
+      // A cancellation for a call no longer going on (it came late) is dropped: a later call with the same id
+      // (another session on the turn's token) is not taken for it.
+      const answered = (id: number) =>
+        text(post({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'wait_for_user', arguments: { answerMs: 300 } } }));
+      expect(await answered(1)).toBe('the user answered');
+      await post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1, reason: 'timed out' } });
+      expect(await answered(1)).toBe('the user answered');
+      // Nor is one for an id with no call at all, sent before it.
+      await post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 9 } });
+      expect(await answered(9)).toBe('the user answered');
+      expect(seen).toEqual(['gone', 'answered', 'answered', 'answered']);
       http.revoke();
 
       // Through the program a CLI starts: it passes the cancellation on to the server.
@@ -657,13 +680,19 @@ describe('a call its CLI gave up', () => {
           }
         });
         const write = (m: unknown) => child.stdin!.write(JSON.stringify(m) + '\n');
-        const answered = new Promise((r) => answers.set(3, r));
+        let answered = false;
+        answers.set(3, () => (answered = true));
         write({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'wait_for_user', arguments: {} } });
         await new Promise((r) => setTimeout(r, 500));
-        expect(seen).toEqual(['gone']);
+        expect(seen.at(-1)).toBe('answered');
         write({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 3 } });
-        expect(JSON.stringify(await answered)).toContain('given up');
-        expect(seen).toEqual(['gone', 'gone']);
+        await vi.waitFor(() => expect(seen.at(-1)).toBe('gone'));
+        // A request the CLI cancelled gets no answer (MCP), though the server's came back; the next one does.
+        await new Promise((r) => setTimeout(r, 300));
+        const pong = new Promise((r) => answers.set(4, r));
+        write({ jsonrpc: '2.0', id: 4, method: 'ping' });
+        expect(await pong).toMatchObject({ id: 4, result: {} });
+        expect(answered).toBe(false);
       } finally {
         child.kill();
         stdio.revoke();

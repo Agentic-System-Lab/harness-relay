@@ -4,14 +4,16 @@
  * stream says, and the page's size in the panel.
  */
 import { describe, expect, it } from 'vitest';
-import type { HandoverInput } from '../src/shared/types';
+import { HANDOVER_LIMITS, type HandoverInput } from '../src/shared/types';
 import {
+  addressEntry,
   addressOf,
   framePoint,
   isTap,
   keyInput,
   mergeInputs,
   minutesLeft,
+  nextBatch,
   modifiersOf,
   preferredMode,
   screenEvent,
@@ -54,6 +56,22 @@ describe('where a point of the screencast lands on the page', () => {
 });
 
 describe("what the panel's address bar opens", () => {
+  it('counts as typed only an address the user changed, not one the page put there (a page it was refused)', () => {
+    expect(addressEntry('localhost:3000', 'https://example.com/')).toEqual({ url: 'http://localhost:3000/', typed: true });
+    // After a refused redirect the bar shows the refused address: Enter on it is not the user's.
+    expect(addressEntry('http://192.168.1.20/admin', 'http://192.168.1.20/admin')).toEqual({
+      url: 'http://192.168.1.20/admin',
+      typed: false,
+    });
+    expect(addressEntry('http://192.168.1.20/admin?x=1', 'http://192.168.1.20/admin')).toEqual({
+      url: 'http://192.168.1.20/admin?x=1',
+      typed: true,
+    });
+    expect(addressEntry('file:///etc/hosts', '')).toEqual({ refused: true });
+    expect(addressEntry('javascript:alert(1)', '')).toEqual({ refused: true });
+    expect(addressEntry('  ', 'https://example.com/')).toBeUndefined();
+  });
+
   it('an address with its scheme as it is; this computer and the local network over http, the rest over https', () => {
     expect(addressOf('localhost:3000')).toBe('http://localhost:3000');
     expect(addressOf('127.0.0.1:8080/token')).toBe('http://127.0.0.1:8080/token');
@@ -149,6 +167,24 @@ describe('the input waiting to go', () => {
       { type: 'text', text: 'a' },
       { type: 'text', text: 'b' },
     ]);
+  });
+
+  it('starts a new wheel turn before the sum passes what the server takes of one', () => {
+    const wheels: HandoverInput[] = Array.from({ length: 120 }, () => ({ type: 'wheel', x: 0.5, y: 0.5, dx: 0, dy: 100 }));
+    const merged = mergeInputs([...wheels, { type: 'mouse', action: 'down', x: 0.5, y: 0.5 }]);
+    expect(merged.map((e) => (e.type === 'wheel' ? e.dy : e.type))).toEqual([10_000, 2000, 'mouse']);
+    for (const e of merged) if (e.type === 'wheel') expect(Math.abs(e.dy)).toBeLessThanOrEqual(HANDOVER_LIMITS.wheelMax);
+  });
+
+  it('sends at most a batch at a time, the rest waiting its turn in order', () => {
+    const typed: HandoverInput[] = Array.from({ length: 250 }, (_, i) => ({ type: 'text', text: String(i) }));
+    const first = nextBatch(typed);
+    expect(first.batch).toHaveLength(HANDOVER_LIMITS.eventsMax);
+    expect(first.batch[0]).toEqual({ type: 'text', text: '0' });
+    const second = nextBatch(first.rest);
+    const third = nextBatch(second.rest);
+    expect([...first.batch, ...second.batch, ...third.batch]).toEqual(typed);
+    expect(third.rest).toEqual([]);
   });
 
   it("tells a touch's tap (a click) from its drag (a scroll)", () => {

@@ -2,7 +2,7 @@
 // the page first, where a click on the screencast lands on the page, what a key becomes, how the
 // input waiting to go is merged, and what the screencast's stream says. The card and the panel are
 // `components/HandoverCard.tsx`.
-import type { HandoverInput, HandoverMode, HandoverScreenEvent } from '../shared/types';
+import { HANDOVER_LIMITS, type HandoverInput, type HandoverMode, type HandoverScreenEvent } from '../shared/types';
 
 /**
  * Which way the card offers first: the window when this computer can show one and the chat seems to be on
@@ -123,7 +123,8 @@ export function keyInput(e: KeyLike, mac: boolean): HandoverInput | 'paste' | un
 
 /**
  * The input waiting to go, merged before it is sent: moves of the pointer one after another become the
- * last one (with what it held), wheel turns at the same place add up. Everything else stays, in order.
+ * last one (with what it held), wheel turns add up, but never past what the server takes of one
+ * (`HANDOVER_LIMITS.wheelMax`: a new turn starts before). Everything else stays, in order.
  */
 export function mergeInputs(list: readonly HandoverInput[]): HandoverInput[] {
   const out: HandoverInput[] = [];
@@ -131,11 +132,52 @@ export function mergeInputs(list: readonly HandoverInput[]): HandoverInput[] {
     const last = out[out.length - 1];
     if (e.type === 'mouse' && e.action === 'move' && last?.type === 'mouse' && last.action === 'move' && last.button === e.button) {
       out[out.length - 1] = e;
-    } else if (e.type === 'wheel' && last?.type === 'wheel' && last.modifiers === e.modifiers) {
+    } else if (
+      e.type === 'wheel' &&
+      last?.type === 'wheel' &&
+      last.modifiers === e.modifiers &&
+      Math.abs(last.dx + e.dx) <= HANDOVER_LIMITS.wheelMax &&
+      Math.abs(last.dy + e.dy) <= HANDOVER_LIMITS.wheelMax
+    ) {
       out[out.length - 1] = { ...e, dx: last.dx + e.dx, dy: last.dy + e.dy };
     } else out.push(e);
   }
   return out;
+}
+
+/**
+ * The next request of the input waiting to go: what `mergeInputs()` makes of it, at most
+ * `HANDOVER_LIMITS.eventsMax` events, and the rest, which waits its turn in order.
+ */
+export function nextBatch(queue: readonly HandoverInput[]): { batch: HandoverInput[]; rest: HandoverInput[] } {
+  const merged = mergeInputs(queue);
+  return { batch: merged.slice(0, HANDOVER_LIMITS.eventsMax), rest: merged.slice(HANDOVER_LIMITS.eventsMax) };
+}
+
+/**
+ * What Enter in the panel's address bar sends: the address (`addressOf()`), `typed` only when the user
+ * changed what the bar showed of the page (`shown`, the latest address the page went to: after a page
+ * refused there, it shows that address, which Enter must not open as one the user typed); or `refused`
+ * for another scheme than http and https, which the panel says it does not open.
+ */
+export function addressEntry(text: string, shown: string): { url: string; typed: boolean } | { refused: true } | undefined {
+  const url = addressOf(text);
+  if (!url) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { refused: true };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { refused: true };
+  const same = (() => {
+    try {
+      return new URL(shown).href === parsed.href;
+    } catch {
+      return false;
+    }
+  })();
+  return { url: parsed.href, typed: !same };
 }
 
 /** How far a finger may move, in pixels, and how long it may stay down, for a touch to be a tap (a click) rather than a scroll. */

@@ -66,6 +66,8 @@ const waiting = new Map();
 // The CLI's id of each call going on, and the server's: a call the CLI gives up (MCP's
 // notifications/cancelled, its own time limit) is said to the server, so that one waiting for the user ends.
 const calls = new Map();
+// The calls the CLI gave up: answered no more (MCP: a request cancelled gets no response).
+const dropped = new Set();
 let buffer = '';
 let open = false;
 const queued = [];
@@ -123,8 +125,11 @@ async function handle(msg) {
   if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return fail(null, -32600, 'Invalid Request');
   const { id, method, params } = msg;
   if (method === 'notifications/cancelled') {
-    const target = calls.get(JSON.stringify(params && params.requestId));
-    if (target !== undefined && open) sock.write(JSON.stringify({ method: 'cancel', target }) + '\\n');
+    const key = JSON.stringify(params && params.requestId);
+    const target = calls.get(key);
+    if (target === undefined) return;
+    dropped.add(key);
+    if (open) sock.write(JSON.stringify({ method: 'cancel', target }) + '\\n');
     return;
   }
   if (id === undefined || id === null) return; // a notification: nothing to answer
@@ -147,6 +152,7 @@ async function handle(msg) {
   }
   if (method === 'tools/call') {
     const r = await ask('call', { name: params && params.name, arguments: (params && params.arguments) || {} }, id);
+    if (dropped.delete(JSON.stringify(id))) return;
     if (r.error) return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: r.error }], isError: true } });
     return send({ jsonrpc: '2.0', id, result: r.result });
   }

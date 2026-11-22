@@ -443,6 +443,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<a href="http://localhost:${port}/next" style="position:fixed;left:0;top:30%;width:100%;height:20%;display:block;font-size:30px">Elsewhere</a>` +
             `<input readonly value="ro-field-5678" style="position:fixed;left:0;top:60%;width:100%;height:40%;font-size:30px">`,
         );
+      if (url.pathname === '/csrf')
+        // A page that reaches another host here by itself: a request with no answer read, then a page opened.
+        return res.end(
+          `<title>Reach</title><script>fetch('http://localhost:${port}/csrf-fetch', { mode: 'no-cors', method: 'POST', body: 'x' }).catch(() => {}); setTimeout(() => (location = 'http://localhost:${port}/csrf-nav'), 300)</script>`,
+        );
       if (url.pathname === '/perms')
         // What the page may have of the site permissions: each one's state, in its title.
         return res.end(
@@ -988,6 +993,13 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
       await vi.waitFor(() => expect(hits).toContain('/next'), { timeout: slow(10_000) });
       expect(asked0()).toBe(asked);
+      // Opened before, that host is still not for another page to reach: neither a request nor a page it opens.
+      notices.length = 0;
+      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/csrf`, typed: true }]);
+      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/csrf-nav`), { timeout: slow(10_000) });
+      expect(hits).toContain('/csrf');
+      expect(hits).not.toContain('/csrf-fetch');
+      expect(hits).not.toContain('/csrf-nav');
 
       await browser.closeForUser('conv-alone', id);
       expect(ended).toEqual(['ended']);
@@ -1027,7 +1039,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
         expect(both.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
         expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { why: 'busy' } });
         const opened = both.find((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')!.value;
-        await few.closeForUser(few.userBrowserOpen('conv-few-1', opened) ? 'conv-few-1' : 'conv-few-2', opened);
+        const conv = few.userBrowserOpen('conv-few-1', opened) ? 'conv-few-1' : 'conv-few-2';
+        // Closed from its panel: not open any more at once, while it ends (a card opening again gets another).
+        expect(few.handovers.answer(conv, opened, { action: 'done' })).toBeUndefined();
+        expect(few.userBrowserOpen(conv, opened)).toBe(false);
+        await few.closeForUser(conv, opened);
         // Its place is free again.
         const again = await few.openForUser('conv-few-3');
         await few.closeForUser('conv-few-3', again);
@@ -1069,10 +1085,13 @@ describe.skipIf(!chromium)('the browser itself', () => {
         const failing = browser.handOver(ctx({ convId: 'conv-gone', permission: 'full', handoverCard: card as never }), 'Sign in');
         await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(20_000) });
         browser.handovers.answer('conv-gone', String(cards[1]!.id), { action: 'start', mode: 'screencast' });
-        expect(await failing).toMatchObject({
+        const failed = await failing;
+        expect(failed).toMatchObject({
           isError: true,
           text: expect.stringMatching(/could not be shown to the user: Page.startScreencast/),
         });
+        // Its page is still open: the agent is not told to open it again.
+        expect(failed.text).not.toMatch(/browser_open/);
         expect(cards[1]).toMatchObject({ status: 'expired', ended: 'failed' });
       } finally {
         broken.screencast = screencast;
