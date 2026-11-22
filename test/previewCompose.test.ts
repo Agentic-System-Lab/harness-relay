@@ -6,7 +6,7 @@ import {
   commandWords,
   composeModel,
   interpolate,
-  mountDockerfile,
+  isBacking,
   planCompose,
   planDockerfile,
   previewPort,
@@ -202,7 +202,7 @@ networks:
     expect(plan('services:\n  cache:\n    image: redis\n    ports: ["6379:6379"]').main).toBe('cache');
   });
 
-  it('copies project folders and files a service mounts, and skips what the snapshot does not hold', () => {
+  it('plans the project folders and files a service mounts, and skips what the snapshot does not hold', () => {
     const p = withLang('en', () =>
       plan(
         'services:\n  a:\n    image: nginx\n    volumes: ["./conf:/etc/nginx/conf.d", "./node_modules:/app/node_modules", "./:/src:ro"]',
@@ -213,12 +213,21 @@ networks:
       { source: '', target: '/src', folder: true },
     ]);
     expect(p.notes.join('\n')).toMatch(/\.\/node_modules → \/app\/node_modules/);
-    expect(mountDockerfile('nginx', p.services[0]!.mounts)).toBe(
-      'FROM nginx\nCOPY ["relay-mount-0/","/etc/nginx/conf.d/"]\nCOPY ["relay-mount-1/","/src/"]\n',
-    );
-    expect(mountDockerfile('postgres:16', [{ source: 'db/init.sql', target: '/docker-entrypoint-initdb.d/init.sql', folder: false }])).toBe(
-      'FROM postgres:16\nCOPY ["relay-mount-0/init.sql","/docker-entrypoint-initdb.d/init.sql"]\n',
-    );
+  });
+
+  it('knows the images that serve a database rather than a page', () => {
+    for (const image of [
+      'postgres:16',
+      'docker.io/library/postgres',
+      'bitnami/postgresql:16',
+      'redis/redis-stack:latest',
+      'mysql/mysql-server:8',
+      'mongo@sha256:abc',
+      'timescale/timescaledb-ha:pg16',
+    ])
+      expect(isBacking(image)).toBe(true);
+    for (const image of ['nginx', 'python:3.13-slim', 'ghcr.io/me/postgres-admin-ui-web', 'my/app'])
+      expect(isBacking(image)).toBe(image === 'ghcr.io/me/postgres-admin-ui-web');
   });
 
   it('reads build options, an inline Dockerfile and both forms of a port', () => {

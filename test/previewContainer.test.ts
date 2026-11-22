@@ -13,6 +13,7 @@ import type { SpawnResult } from '../src/server/process';
 const owner = 'b'.repeat(64);
 const forwarderId = 'f'.repeat(64);
 const mainIds = ['a'.repeat(64), 'c'.repeat(64), 'd'.repeat(64)];
+const dbId = 'e'.repeat(64);
 
 function result(stdout = '', code = 0, stderr = ''): SpawnResult {
   const bytes = Buffer.from(stdout);
@@ -64,6 +65,7 @@ function fakeDocker(
     builder?: string;
     sweepFails?: boolean;
     startFails?: (container: string) => boolean;
+    imagePresent?: boolean;
   } = {},
 ) {
   const calls: { args: string[]; options: DockerOptions }[] = [];
@@ -93,6 +95,7 @@ function fakeDocker(
       return o.buildFails ? result('', 1, 'RUN pip install failed') : result();
     }
     if (args[0] === 'pull') return result();
+    if (joined.startsWith('image inspect --format {{.Id}}')) return o.imagePresent ? result('sha256:1') : result('', 1, 'No such image');
     if (joined.startsWith('image inspect')) return result(o.exposed ?? '{"8000/tcp":{}}');
     if (args[0] === 'compose') {
       if (args.includes('--force-recreate')) created++;
@@ -101,6 +104,7 @@ function fakeDocker(
     if (o.sweepFails && args[0] === 'ps' && args.includes('-aq')) return result('', 1, 'Cannot connect to the Docker daemon');
     if (args[0] === 'ps') {
       if (joined.includes('com.docker.compose.service=' + FORWARDER)) return result(forwarderId);
+      if (joined.includes('com.docker.compose.service=db')) return result(dbId);
       if (joined.includes('com.docker.compose.service=')) return result(mainIds[created]!);
       return result(''); // sweeps
     }
@@ -357,7 +361,7 @@ describe('a compose project', () => {
     expect(docker.calls).toEqual([]);
   });
 
-  it('builds each service from its own folder, copies mounted project files into a derived image, and serves the published port', async () => {
+  it('builds each service from its own folder, copies mounted project files into the created containers, and serves the published port', async () => {
     const s = start(
       {
         'compose.yaml':
@@ -373,29 +377,24 @@ describe('a compose project', () => {
     const builds = s.docker.calls.filter((c) => c.args[1] === 'build');
     expect(builds.map((b) => tarNames(b.options.stdin as Buffer))).toEqual([
       { Dockerfile: 'FROM python:3.13-slim\n', 'greeting.txt': 'hi' },
-      {
-        Dockerfile: expect.stringMatching(
-          /^FROM relay-preview-[0-9a-f]+-0:build\nCOPY \["relay-mount-0\/greeting.txt","\/srv\/greeting.txt"\]\n$/,
-        ),
-        'relay-mount-0/greeting.txt': 'hi',
-      },
-      {
-        Dockerfile: 'FROM postgres:16\nCOPY ["relay-mount-0/","/docker-entrypoint-initdb.d/"]\n',
-        'relay-mount-0/init.sql': 'create table t ();',
-      },
     ]);
-    // The project's Dockerfile on Relay's builder; the copies (Relay's own FROM and COPY) on the
-    // engine's default one, which sees the image just built.
-    expect(builds.map((b) => b.args[b.args.indexOf('--builder') + 1])).toEqual([
-      expect.stringMatching(/^harness-relay-preview-/),
-      'default',
-      'default',
+    // No image derived from another (its ONBUILD steps would run): the files go into the created
+    // containers, at their targets, with docker cp, which runs nothing; the main one's before it starts.
+    const copies = s.docker.calls.filter((c) => c.args[0] === 'cp');
+    expect(copies.map((c) => [c.args, tarNames(c.options.stdin as Buffer)])).toEqual([
+      [['cp', '-', dbId + ':/'], { 'docker-entrypoint-initdb.d/init.sql': 'create table t ();' }],
+      [['cp', '-', mainIds[0] + ':/'], { 'srv/greeting.txt': 'hi' }],
     ]);
+    const calls = s.docker.calls.map((c) => c.args.join(' '));
+    expect(calls.findIndex((a) => a.startsWith('cp - ' + mainIds[0]))).toBeLessThan(calls.findIndex((a) => a.endsWith('up -d --no-build')));
     // A port the file publishes: nothing to inspect, no PORT set.
     expect(s.docker.calls.some((c) => c.args[0] === 'image')).toBe(false);
     const model = JSON.parse(String(s.docker.calls.find((c) => c.args[0] === 'compose' && c.args.includes('up'))!.options.stdin));
-    expect(model.services.web).toMatchObject({ image: expect.stringMatching(/-0:mounts$/), environment: {} });
-    expect(model.services.db).toMatchObject({ image: expect.stringMatching(/-1:mounts$/), networks: ['relay'] });
+    expect(model.services.web).toMatchObject({ image: expect.stringMatching(/-0:build$/), environment: {} });
+    expect(model.services.db).toMatchObject({ image: 'postgres:16', pull_policy: 'missing', networks: ['relay'] });
+    // A run again recreates the main container: its files go in again.
+    await s.preview.terminal.run();
+    expect(s.docker.calls.filter((c) => c.args[0] === 'cp').at(-1)!.args).toEqual(['cp', '-', mainIds[1] + ':/']);
     s.docker.openPort();
     await expect.poll(() => s.events.some((e) => e.type === 'page')).toBe(true);
     await s.preview.request(new Request('http://preview/'));
@@ -474,7 +473,9 @@ describe('what the review found', () => {
     await expect.poll(() => s.phases().at(-1)).toBe('running');
     const calls = s.docker.calls.map((c) => c.args.join(' '));
     expect(calls.indexOf('pull nginx:1.27')).toBeGreaterThan(-1);
-    expect(calls.indexOf('pull nginx:1.27')).toBeLessThan(calls.findIndex((a) => a.startsWith('image inspect')));
+    // Looked for first, pulled since the engine does not have it, then read.
+    expect(calls.indexOf('image inspect --format {{.Id}} nginx:1.27')).toBeLessThan(calls.indexOf('pull nginx:1.27'));
+    expect(calls.indexOf('pull nginx:1.27')).toBeLessThan(calls.findIndex((a) => a.includes('ExposedPorts')));
     expect(calls.some((a) => a.startsWith('buildx'))).toBe(false);
     const model = JSON.parse(String(s.docker.calls.find((c) => c.args[0] === 'compose' && c.args.includes('up'))!.options.stdin));
     expect(model.services.web.environment).toEqual({ PORT: '80' });
@@ -542,6 +543,44 @@ describe('what the review found', () => {
     await expect.poll(() => s.screen()).toContain('still here');
     expect(s.preview.terminal.input('x')).toBe(true);
     expect(s.engine.attached[1]!.typed).toEqual(['x']);
+    await s.preview.stop();
+  });
+});
+
+describe('what the second review found', () => {
+  it('makes Relay’s builder once when two previews start together on a fresh engine', async () => {
+    const docker = fakeDocker();
+    const a = start(pythonApp, 'Dockerfile', docker);
+    const b = start(pythonApp, 'Dockerfile', docker);
+    await expect.poll(() => [a.phases().at(-1), b.phases().at(-1)]).toEqual(['running', 'running']);
+    expect(docker.calls.filter((c) => c.args[0] === 'buildx' && c.args[1] === 'create')).toHaveLength(1);
+    await Promise.all([a.preview.stop(), b.preview.stop()]);
+  });
+
+  it('uses an image the engine already has without pulling it', async () => {
+    const s = start(
+      { 'compose.yaml': 'services:\n  tool:\n    image: local-only:1\n' },
+      'compose.yaml',
+      fakeDocker({ imagePresent: true }),
+    );
+    await expect.poll(() => s.phases().at(-1)).toBe('running');
+    expect(s.docker.calls.some((c) => c.args[0] === 'pull')).toBe(false);
+    await s.preview.stop();
+  });
+
+  it('never takes a database’s open port for a page', async () => {
+    const s = start({ 'docker-compose.yml': 'services:\n  db:\n    image: postgres:16\n    ports: ["5432:5432"]\n' }, 'docker-compose.yml');
+    await expect.poll(() => s.phases().at(-1)).toBe('running');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(s.docker.calls.some((c) => c.args[0] === 'exec' && c.args.at(-1) === '30')).toBe(false);
+    await s.preview.stop();
+  });
+
+  it('closes the terminal of a run that could not start', async () => {
+    const s = withLang('en', () => start(pythonApp, 'Dockerfile', fakeDocker({ startFails: (id) => id === mainIds[1] })));
+    await expect.poll(() => s.phases().at(-1)).toBe('running');
+    await s.preview.terminal.run('pyton app.py');
+    expect(s.engine.attached[1]!.terminal.destroyed).toBe(true);
     await s.preview.stop();
   });
 });

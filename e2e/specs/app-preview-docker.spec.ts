@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
@@ -87,10 +88,6 @@ def egress():
         socket.create_connection(("1.1.1.1", 80), timeout=2); return "online"
     except OSError:
         return "offline"
-def gateway():
-    # A default route would lead to the host's side of the network, and its services.
-    routes = open("/proc/net/route").read().splitlines()[1:]
-    return "gateway" if any(line.split()[1] == "00000000" for line in routes) else "no-gateway"
 ${checks}
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -195,7 +192,7 @@ test('a compose app reaches its own Redis service by name, with project files mo
       'Stack',
       `def extra():
     s = socket.create_connection(("cache", 6379), timeout=2); s.sendall(b"PING\\r\\n"); pong = s.recv(64).decode().strip(); s.close()
-    return " " + gateway() + " " + pong + " " + open("/srv/greeting.txt").read() + " " + os.environ["MODE"]`,
+    return " " + pong + " " + open("/srv/greeting.txt").read() + " " + os.environ["MODE"]`,
     ),
   );
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -203,22 +200,31 @@ test('a compose app reaches its own Redis service by name, with project files mo
   await (await finishedReply(page, 'Claude')).getByRole('button', { name: 'Preview app' }).click();
   const panel = page.getByLabel('App preview', { exact: true });
   const frame = panel.frameLocator('iframe');
-  await expect(frame.locator('output')).toHaveText('offline no-gateway +PONG mounted preview', { timeout: 180_000 });
-  // What the preview made, found from its Redis container: its project and Redis's own volume.
+  await expect(frame.locator('output')).toHaveText('offline +PONG mounted preview', { timeout: 180_000 });
+  // What this server's preview made (its owner label, as the server makes it from its data folder),
+  // found from its Redis container: its project, its network and Redis's own volume.
   const docker = (...args: string[]) =>
     execFileSync('docker', args, { env: { ...process.env, ...(existsSync(dockerConfig) ? { DOCKER_CONFIG: dockerConfig } : {}) } })
       .toString()
       .trim();
+  const owner = createHash('sha256').update(realpathSync(relay.dataDir)).digest('hex');
   const cache = docker(
     'ps',
     '-q',
     '--filter',
-    'label=io.harness-relay.preview.session',
+    'label=io.harness-relay.preview.owner=' + owner,
     '--filter',
     'label=com.docker.compose.service=cache',
   );
   expect(cache.split('\n')).toHaveLength(1);
   const project = docker('inspect', '--format', '{{index .Config.Labels "com.docker.compose.project"}}', cache);
+  // Internal, and without even a gateway on the computer's side of it.
+  const network = JSON.parse(docker('network', 'inspect', '--format', '{{json .}}', project + '_relay')) as {
+    Internal: boolean;
+    IPAM: { Config: { Gateway?: string }[] };
+  };
+  expect(network.Internal).toBe(true);
+  expect(network.IPAM.Config.map((c) => c.Gateway ?? '')).toEqual(network.IPAM.Config.map(() => ''));
   const volumes = docker('inspect', '--format', '{{range .Mounts}}{{.Name}} {{end}}', cache).split(' ').filter(Boolean);
   expect(volumes.length).toBeGreaterThan(0);
   await panel.getByRole('button', { name: 'Stop preview' }).click();

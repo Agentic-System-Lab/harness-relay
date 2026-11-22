@@ -38,7 +38,7 @@ export interface PreviewBuild {
   target?: string;
 }
 
-/** A project file or folder a service bind-mounted: copied into an image derived from the service's. */
+/** A project file or folder a service bind-mounted: copied into its container before it starts. */
 export interface PreviewMount {
   /** A snapshot path: a file, or a folder whose files are all copied. */
   source: string;
@@ -541,7 +541,12 @@ function readService(
 
 /** Images that serve a database or a broker, not a page, even when the file publishes their port. */
 const BACKING =
-  /^(?:[^/]+\/)*(?:postgres|postgis|mysql|mariadb|redis|valkey|mongo|memcached|rabbitmq|elasticsearch|opensearch|cassandra|zookeeper|kafka|nats|minio|clickhouse|cockroach|neo4j|influxdb|timescaledb)(?:[:@]|$)/i;
+  /^(?:[^/]+\/)*(?:postgres|postgresql|postgis|mysql|mariadb|redis|valkey|mongo|mongodb|memcached|rabbitmq|elasticsearch|opensearch|cassandra|zookeeper|kafka|nats|minio|clickhouse|cockroach|cockroachdb|neo4j|influxdb|timescaledb)(?:-[a-z0-9-]*)?(?:[:@]|$)/i;
+
+/** Whether an image serves a database or a broker rather than a page. */
+export function isBacking(image: string): boolean {
+  return BACKING.test(image);
+}
 
 /**
  * The service the panel shows: among those that publish a port, one built here, then one that is
@@ -551,7 +556,7 @@ export function mainService(services: PreviewService[]): string {
   const serving = services.filter((s) => s.ports.length);
   const pick =
     serving.find((s) => s.build) ??
-    serving.find((s) => !s.image || !BACKING.test(s.image)) ??
+    serving.find((s) => !s.image || !isBacking(s.image)) ??
     services.find((s) => s.tty || s.stdinOpen) ??
     services.find((s) => s.build) ??
     serving[0] ??
@@ -737,14 +742,4 @@ export function composeModel(plan: PreviewPlan, o: ModelOptions): Record<string,
       : {}),
     ...(plan.volumes.length ? { volumes: Object.fromEntries(plan.volumes.map((v) => [v, { labels: o.labels }])) } : {}),
   }) as Record<string, unknown>;
-}
-
-/** The Dockerfile that copies a service's mounted project files into an image derived from its own. */
-export function mountDockerfile(base: string, mounts: readonly PreviewMount[]): string {
-  const lines = [`FROM ${base}`];
-  mounts.forEach((m, i) => {
-    const from = `relay-mount-${i}` + (m.folder ? '/' : '/' + posix.basename(m.source));
-    lines.push('COPY ' + JSON.stringify([from, m.folder ? m.target.replace(/\/?$/, '/') : m.target]));
-  });
-  return lines.join('\n') + '\n';
 }

@@ -19,7 +19,7 @@ import {
   SERVICE_LIMITS,
   commandWords,
   composeModel,
-  mountDockerfile,
+  isBacking,
   planCompose,
   planDockerfile,
   previewPort,
@@ -73,6 +73,8 @@ const BUILD_TIMEOUT = 15 * 60_000;
 const UP_TIMEOUT = 5 * 60_000;
 const MAX_INPUT = 64 * 1024;
 const CONTAINER_ID = /^[a-f0-9]{64}$/;
+/** Relay's builder being made, by name: two previews starting at once on a fresh engine make it once. */
+const creatingBuilders = new Map<string, Promise<unknown>>();
 
 /** The plan for a recipe, from the snapshot alone, before anything reaches Docker. */
 export function previewPlan(files: ReadonlyMap<string, Buffer>, recipe: string): PreviewPlan {
@@ -116,6 +118,8 @@ function lines(text: string): Buffer {
 
 export function startContainerPreview(opts: ContainerOptions): ContainerPreview {
   const plan = previewPlan(opts.files, opts.recipe);
+  const shownService = plan.services.find((s) => s.name === plan.main)!;
+  const backing = !shownService.build && Boolean(shownService.image && isBacking(shownService.image));
   const label = ownerLabel(opts.owner);
   const id = randomBytes(8).toString('hex');
   const project = 'relay-preview-' + id;
@@ -210,16 +214,32 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
         .update(docker!.endpoint ?? '')
         .digest('hex')
         .slice(0, 12);
-    const found = await docker!(['buildx', 'inspect', name], { signal });
-    if (found.code === 0) {
+    const existing = async () => {
+      const found = await docker!(['buildx', 'inspect', name], { signal });
+      if (found.code !== 0) return false;
       // Its node must be on the engine every other call goes to.
       const endpoints = [...found.stdout.matchAll(/^Endpoint:\s+(\S+)\s*$/gm)].map((m) => m[1]);
       if (!endpoints.length || endpoints.some((endpoint) => endpoint !== docker!.endpoint))
         throw new Error(t().previewDocker.builderEndpoint(name));
-      return name;
+      return true;
+    };
+    if (await existing()) return name;
+    let creating = creatingBuilders.get(name);
+    if (!creating) {
+      say(t().previewDocker.builder + '…', '1');
+      creating = create(name).finally(() => creatingBuilders.delete(name));
+      creatingBuilders.set(name, creating);
     }
-    say(t().previewDocker.builder + '…', '1');
-    await run(
+    try {
+      await creating;
+    } catch (error) {
+      // Another Relay may have made it meanwhile: then it is there, and the same.
+      if (!(await existing())) throw error;
+    }
+    return name;
+  }
+  function create(name: string) {
+    return run(
       [
         'buildx',
         'create',
@@ -240,19 +260,13 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       t().previewDocker.builder,
       streamed({ timeoutMs: UP_TIMEOUT }),
     );
-    return name;
   }
-  /**
-   * `docker buildx build`, the image loaded into the engine and labelled: a project's Dockerfile on
-   * Relay's builder; Relay's own (a mount's `FROM` and `COPY`, nothing of the project's to run) on
-   * the engine's default builder, named so that no environment chooses another, as only that one
-   * sees the images just built.
-   */
-  const buildArgs = (tag: string, on: string) => [
+  /** `docker buildx build` on Relay's builder, the image loaded into the engine and labelled. */
+  const buildArgs = (tag: string) => [
     'buildx',
     'build',
     '--builder',
-    on,
+    builderName!,
     '--load',
     '--progress=plain',
     '--label',
@@ -264,7 +278,6 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
   ];
 
   async function build(service: PreviewService, index: number): Promise<void> {
-    let base = service.image;
     if (service.build) {
       const b = service.build;
       const context = filesUnder(opts.files, b.context, executables);
@@ -273,7 +286,7 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       say(t().previewDocker.imageBuild(service.name) + '…', '1');
       await run(
         [
-          ...buildArgs(tag, builderName!),
+          ...buildArgs(tag),
           '-f',
           b.dockerfile,
           ...Object.entries(b.args).flatMap(([key, value]) => ['--build-arg', `${key}=${value}`]),
@@ -283,27 +296,36 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
         t().previewDocker.imageBuild(service.name),
         streamed({ stdin: tarFiles(context.files, context.executables), timeoutMs: BUILD_TIMEOUT }),
       );
-      base = tag;
       images.set(service.name, tag);
     }
-    if (service.mounts.length) {
-      const context = new Map<string, Buffer>([['Dockerfile', Buffer.from(mountDockerfile(base!, service.mounts))]]);
-      service.mounts.forEach((m, i) => {
-        if (m.folder) {
-          for (const [name, data] of filesUnder(opts.files, m.source, executables).files) context.set(`relay-mount-${i}/${name}`, data);
-        } else {
-          context.set(`relay-mount-${i}/${posix.basename(m.source)}`, opts.files.get(m.source)!);
+  }
+
+  /**
+   * The project files a service bind-mounts, copied into its created container before it starts:
+   * a tar of them at their targets, which `docker cp` unpacks and nothing runs. (An image derived
+   * from the service's would run its base image's ONBUILD steps.)
+   */
+  async function copyMounts(service: PreviewService, container: string): Promise<void> {
+    if (!service.mounts.length) return;
+    const copy = new Map<string, Buffer>();
+    const exec = new Set<string>();
+    for (const m of service.mounts) {
+      const target = posix.normalize(m.target).replace(/^\/+|\/+$/g, '');
+      if (m.folder) {
+        const under = filesUnder(opts.files, m.source, executables);
+        for (const [name, data] of under.files) {
+          copy.set(target + '/' + name, data);
+          if (under.executables.has(name)) exec.add(target + '/' + name);
         }
-      });
-      const tag = `${project}-${index}:mounts`;
-      say(t().previewDocker.mountCopy(service.name) + '…', '1');
-      await run(
-        [...buildArgs(tag, 'default'), '-'],
-        t().previewDocker.mountCopy(service.name),
-        streamed({ stdin: tarFiles(context), timeoutMs: BUILD_TIMEOUT }),
-      );
-      images.set(service.name, tag);
+      } else {
+        copy.set(target, opts.files.get(m.source)!);
+        if (executables.has(m.source)) exec.add(target);
+      }
     }
+    await run(['cp', '-', container + ':/'], t().previewDocker.mountCopy(service.name), {
+      stdin: tarFiles(copy, exec),
+      timeoutMs: UP_TIMEOUT,
+    });
   }
 
   /** The image's EXPOSEd TCP ports, for a main service whose file does not say which port it serves. */
@@ -343,6 +365,7 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
   async function attach(start: (container: string) => Promise<unknown>): Promise<void> {
     const container = await serviceContainer(plan.main, true);
     main = container;
+    await copyMounts(shownService, container);
     // Before it starts: an attach to a running container does not replay what it already wrote,
     // so a prompt printed at once would be lost.
     const socket = await engine!.attach(container, true, signal);
@@ -369,8 +392,9 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     await engine!.resize(container, size.rows, size.cols);
     phase({ type: 'phase', phase: 'running', command: await command(container) });
     // A check of half a minute at a time: stopping `docker exec` leaves what it ran in the container.
+    // A database's port is open but serves no page: its terminal is the preview.
     void (async () => {
-      while (!watching.aborted && !closed) {
+      while (!backing && !watching.aborted && !closed) {
         const r = await docker!(['exec', '-i', forwarder, ...NODE, WAIT_PORT, String(port), '30'], {
           signal: watching,
           keepStdinOpen: true,
@@ -408,10 +432,10 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     await checkDockerEngine(docker, signal);
     const version = await docker(['compose', 'version', '--short'], { signal });
     if (version.code !== 0) throw new Error(t().previewDocker.composeMissing);
-    if (plan.services.some((s) => s.build || s.mounts.length)) {
+    if (plan.services.some((s) => s.build)) {
       const buildx = await docker(['buildx', 'version'], { signal });
       if (buildx.code !== 0) throw new Error(t().previewDocker.buildxMissing);
-      if (plan.services.some((s) => s.build)) builderName = await builder();
+      builderName = await builder();
     }
     projectDir = mkdtempSync(join(tmpdir(), 'relay-compose-'));
     for (const note of plan.notes) say(note);
@@ -419,10 +443,12 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     for (const service of plan.services) await build(service, index++);
     signal.throwIfAborted();
     // The image's EXPOSE matters only when the file does not say which port the app serves.
-    const shown = plan.services.find((s) => s.name === plan.main)!;
+    const shown = shownService;
     let tag = images.get(shown.name);
     if (!shown.ports.length && !tag && shown.image) {
-      await run(['pull', shown.image], t().previewDocker.imagePull(shown.image), streamed({ timeoutMs: UP_TIMEOUT }));
+      // An image the engine has is used as it is, as compose would (a local one, or offline).
+      if ((await docker(['image', 'inspect', '--format', '{{.Id}}', shown.image], { signal })).code !== 0)
+        await run(['pull', shown.image], t().previewDocker.imagePull(shown.image), streamed({ timeoutMs: UP_TIMEOUT }));
       tag = shown.image;
     }
     ({ port, setPort } = previewPort(plan, !shown.ports.length && tag ? await exposed(tag) : []));
@@ -438,6 +464,9 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
     // their order (dependencies and their health checks first).
     await compose(['up', '--no-start', '--no-build'], model(), streamed({ timeoutMs: UP_TIMEOUT }));
     signal.throwIfAborted();
+    for (const service of plan.services) {
+      if (service.name !== plan.main && service.mounts.length) await copyMounts(service, await serviceContainer(service.name, true));
+    }
     await attach(() => compose(['up', '-d', '--no-build'], model(), streamed({ timeoutMs: UP_TIMEOUT })));
   }
 
@@ -545,6 +574,10 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
           // preview: its other services and their data stay, and it can run again.
           .catch((error: unknown) => {
             if (closed) return;
+            watch?.abort();
+            const last = attached;
+            attached = undefined;
+            last?.destroy();
             const message = error instanceof Error ? error.message : String(error);
             say(message, '31');
             phase({ type: 'phase', phase: 'exited', code: -1, error: message.slice(0, 4000) });
