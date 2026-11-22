@@ -1998,6 +1998,16 @@ p {
   max-width: 440px;
 }
 
+/* The permission levels (four in a chat): one row where they fit, else two, each name whole, never
+   wider than the drawer on a narrow phone. */
+.segmented.levels {
+  flex-wrap: wrap;
+}
+
+.segmented.levels button {
+  flex: 1 1 auto;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -7362,6 +7372,15 @@ summary + .checks-editor-body {
   margin: 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+/* "Approve for me": the lead agent still reviews it (the user may answer meanwhile). */
+.approval-waiting.approval-reviewing {
+  color: var(--muted);
+}
+
+.approval-review.flagged {
+  color: var(--warn);
 }
 
 .approval-note {

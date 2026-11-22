@@ -437,7 +437,7 @@ CLI 有這種上限時（`src/shared/types.ts` 的 `AGENT_LIMITS`），成員可
 
 ### 權限對應
 
-權限決定哪些操作**不必詢問**就能執行；其他操作在對話設定為詢問（預設）時交給使用者決定，設定為拒絕（`settings.approvals = "deny"`）時則自動拒絕。
+權限決定哪些操作**不必詢問**就能執行；其他操作在對話設定為詢問（預設）時交給使用者決定，設定為拒絕（`settings.approvals = "deny"`）時則自動拒絕。介面在「可編輯」與「完全存取」之間提供的第四個權限 **替我核准**，是「可編輯」加上 `settings.approvals = "auto"`（只和「可編輯」一起保留：`src/shared/types.ts` 的 `approvalsOf()`、`permissionLevel()`）：每個 CLI 與沙箱都和下表「可編輯」欄完全一樣執行，改變的只有它們詢問的事由誰回答（見[核准](#核准)）。
 
 | Relay 權限 | Claude Code | Codex | Grok（ACP） | Cursor（ACP） | Antigravity（ACP） | Copilot（ACP） | Muse Code（ACP） |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -507,6 +507,13 @@ CLI 有這種上限時（`src/shared/types.ts` 的 `AGENT_LIMITS`），成員可
 5. 在沒有持有目錄鎖的執行中（唯讀）被允許的動作，會先鎖住工作目錄直到這次執行結束；若有其他對話正在寫入，這個動作會被拒絕，並告知 agent 原因。
 
 agent 的 CLI 在這段期間會一直等待；每回合的安全逾時（1 天，除非 `RELAY_TURN_TIMEOUT_MIN` 另有設定）仍然適用。開源 agent 的請求也走同樣的步驟，它們的沙箱要詢問的主機也一樣（種類為 `fetch` 的核准，綁定在它來自的那次執行）。
+
+**替我核准**（`settings.approvals = "auto"`，搭配「可編輯」；`src/server/approvalReview.ts`，以及協調器的 `startReview()` 與 `reviewApproval()`）。在步驟 2 與 3 之間，首席 agent（設定）會在詢問使用者之前先審查請求，每個 CLI 的請求都一樣，包括 Harness Relay 自己的 `act` 工具與開源 agent 要連的主機：
+
+- 什麼都沒指明的請求（沒有指令、檔案、網址或工具）不送審，照原本的方式詢問；推送或發佈的指令（`isPublishCommand()`，看不懂的複雜指令也算）也不送審：它立即標為 `flagged`，等使用者決定。同一次執行中審查已核准過、完全相同的請求（`reviewKey()`：種類、工具、實際執行的指令，以及是否在沙箱外執行），不再審查就核准（`Run.reviewed`）。
+- 其他請求的 part 會帶上 `review: { status: 'reviewing' }`，並立即登記到 `orchestrator.approvals`，讓使用者在審查中也能回答，但標為 `reviewing`：`isWaiting()` 不算它，所以對話不是 `waiting`，也不會發出提醒或推播（`alertDetail()` 也跳過它）。首席 agent 以唯讀執行，沒有 `requestApproval`（所以既不能詢問，也拿不到目錄鎖），沒有 state key（每次都是自己的 session，開源 agent 也有自己的狀態資料夾），使用 `APPROVAL_REVIEWER_BRIEFING` 與 `APPROVAL_SCHEMA`，最多三分鐘。它的 prompt 把使用者最近的訊息（只有文字：不含 agent 的回覆，也不含 `<event>` 區塊的資料）當成使用者要的事，把請求放在 `<request>` 區塊中當成資料，裡面的標籤都先拆除；只有明確的 `"approve"` 才會放行（`parseApprovalReply()`）。
+- 核准：如同使用者回答「允許」（仍會取得目錄鎖），part 為 `review: { status: 'approved', reason }`。標記為可能不安全，或審查失敗（錯誤、沒有決定、超過時間）：part 寫明結果與原因，這筆不再是 `reviewing`，請求如步驟 3 等使用者決定。使用者先回答時審查會停止，part 不保留 `review`。它從不新增 `allowRules`。
+- 在自動任務啟動的執行中（`refuseApprovals`），審查核准的動作會放行；被標記、審查失敗或不送審的（推送）會被拒絕，卡片的說明寫明原因，agent 收到的則和沒有審查時一樣（`UNATTENDED_REFUSAL`）。agent 的簡報會說明超出「可編輯」的動作會被審查，自動任務的規則在拒絕時也會說明。
 
 ## agent 活動
 

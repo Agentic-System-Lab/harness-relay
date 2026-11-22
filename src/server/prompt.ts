@@ -159,7 +159,12 @@ function workspaceAccess(conv: Conversation, ws: BriefingWorkspace): string {
   const cwds = cwdsOf(conv.settings);
   // Edit mode covers every working directory, not only the one the agent starts in.
   const text = PERMISSION_TEXT[conv.settings.permission];
-  const access = `- File access: ${cwds.length > 1 && conv.settings.permission === 'edit' ? text.replace('the working directory', 'the working directories') : text}`;
+  // "Approve for me": the lead agent reads the request, and what the agent said it is for.
+  const reviewed =
+    conv.settings.permission === 'edit' && conv.settings.approvals === 'auto'
+      ? ' Anything beyond that is reviewed by the lead agent before the user is asked: say plainly what it is for.'
+      : '';
+  const access = `- File access: ${cwds.length > 1 && conv.settings.permission === 'edit' ? text.replace('the working directory', 'the working directories') : text}${reviewed}`;
   if (ws.kind === 'shared') {
     const where =
       cwds.length === 1
@@ -279,7 +284,9 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
   // Full access asks nothing, so nothing is refused.
   const refused =
     (unattended || s?.approvals === 'deny') && conv.settings.permission !== 'full'
-      ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically (unless the user always allows it in this chat), so work within it.'
+      ? conv.settings.approvals === 'auto'
+        ? ' In the runs a schedule starts, anything your file access does not cover is reviewed by the lead agent: what it judges safe goes ahead, and the rest is refused automatically (unless the user always allows it in this chat), so work within it.'
+        : ' In the runs a schedule starts, anything your file access does not cover is refused automatically (unless the user always allows it in this chat), so work within it.'
       : '';
   const fromHook = conv.messages.some((m) => m.event !== undefined && !m.eventSource) || Boolean(s?.hook);
   /** The sources an <event> block came from in this conversation, or that its automation waits for (any of them). */

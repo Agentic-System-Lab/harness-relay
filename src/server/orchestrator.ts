@@ -12,6 +12,7 @@ import type {
   AgentConfig,
   AgentSessionState,
   ApprovalAnswer,
+  ApprovalReview,
   AgentWorktree,
   BranchPart,
   ChatMessage,
@@ -121,6 +122,17 @@ import {
 import { endpointModel } from './backends';
 import { checkModel } from './modelCheck';
 import { REVIEWER_BRIEFING, REVIEW_SCHEMA, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
+import {
+  APPROVAL_REVIEWER_BRIEFING,
+  APPROVAL_REVIEW_LIMITS,
+  APPROVAL_SCHEMA,
+  alwaysAsks,
+  buildApprovalPrompt,
+  nothingToReview,
+  parseApprovalReply,
+  reviewKey,
+  type ApprovalVerdict,
+} from './approvalReview';
 import {
   RunCheck,
   baselineIn,
@@ -304,6 +316,11 @@ function folderLabels(roots: string[]): Map<string, string> {
 interface Run {
   abort: AbortController;
   active: Set<string>;
+  /**
+   * "Approve for me": the requests the lead agent approved in this run, by what they would do exactly
+   * (`reviewKey()`), with its reason: the same request again is allowed without another review.
+   */
+  reviewed?: Map<string, string>;
   /** Turns not over yet, by message id: a reply is marked done before its turn records the files it changed. */
   turns: Set<string>;
   ws: RunWorkspace;
@@ -747,7 +764,14 @@ export class Orchestrator {
   /** This server's own: counts from another start are not compared. */
   private readonly writesEpoch = randomUUID();
   /** Approval requests waiting for the user, by approval part id. */
-  private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
+  /**
+   * The approval requests shown in the chat, by id, until they are answered. `reviewing`: the lead agent
+   * reviews it first ("Approve for me"); the user may answer meanwhile, but is not waited for yet.
+   */
+  private approvals = new Map<
+    string,
+    { convId: string; reviewing?: boolean; resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => void }
+  >();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
   /**
@@ -975,7 +999,7 @@ export class Orchestrator {
 
   /** An agent in this conversation is waiting for the user to approve something. */
   isWaiting(id: string): boolean {
-    for (const a of this.approvals.values()) if (a.convId === id) return true;
+    for (const a of this.approvals.values()) if (a.convId === id && !a.reviewing) return true;
     // Something an agent asked to send waits in the outbox for the user.
     return (this.outbox?.waiting(id) ?? 0) > 0;
   }
@@ -1020,6 +1044,83 @@ export class Orchestrator {
       always: Boolean(answer.always),
       note: answer.note ? String(answer.note).slice(0, 2000) : undefined,
     });
+  }
+
+  /**
+   * "Approve for me": how the lead agent's review of one request starts (`approvalReview.ts`). Undefined
+   * when there is nothing to review (the user is asked as without it); flagged at once for pushing and
+   * publishing, which always wait for the user; approved at once for a request the review already
+   * approved in this run; else under way, with its verdict to come (approved, flagged, or failed: the
+   * user is asked) and a way to stop it once the user answered first.
+   */
+  private startReview(
+    conv: Conversation,
+    run: Run,
+    agent: AgentConfig,
+    req: ApprovalRequest,
+  ): { first: ApprovalReview; verdict: Promise<ApprovalReview>; stop: () => void } | undefined {
+    if (nothingToReview(req)) return undefined;
+    const settled = (first: ApprovalReview) => ({ first, verdict: Promise.resolve(first), stop: () => {} });
+    if (alwaysAsks(req)) return settled({ status: 'flagged', reason: t().approvalReviewPublish });
+    const key = reviewKey(req);
+    const known = run.reviewed?.get(key);
+    if (known !== undefined) return settled({ status: 'approved', ...(known ? { reason: known } : {}) });
+    const stop = new AbortController();
+    const verdict = this.reviewApproval(conv, agent, req, AbortSignal.any([run.abort.signal, stop.signal])).then((v): ApprovalReview => {
+      if ('failed' in v) return { status: 'failed', reason: v.failed };
+      if (v.approve) (run.reviewed ??= new Map()).set(key, v.reason);
+      return { status: v.approve ? 'approved' : 'flagged', ...(v.reason ? { reason: v.reason } : {}) };
+    });
+    return { first: { status: 'reviewing' }, verdict, stop: () => stop.abort() };
+  }
+
+  /**
+   * The lead agent's review of one request: read-only, without tools, in a session of its own, within
+   * `APPROVAL_REVIEW_LIMITS.timeoutMs`. A review that could not be done says why (`failed`).
+   */
+  private async reviewApproval(
+    conv: Conversation,
+    agent: AgentConfig,
+    req: ApprovalRequest,
+    signal: AbortSignal,
+  ): Promise<ApprovalVerdict | { failed: string }> {
+    const lead = this.settings.lead;
+    const timeout = AbortSignal.timeout(APPROVAL_REVIEW_LIMITS.timeoutMs);
+    const both = AbortSignal.any([signal, timeout]);
+    try {
+      let reply = '';
+      const result = await runners[lead.provider].run({
+        bin: this.settings.bin(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
+        backends: this.settings.backendsFor(lead.provider),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
+        sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
+        prompt: buildApprovalPrompt({
+          request: req,
+          messages: conv.messages,
+          agent: { name: agent.name, provider: agent.provider },
+          permission: conv.settings.permission,
+          cwds: [conv.settings.cwd, ...(conv.settings.extraCwds ?? [])],
+        }),
+        systemPrompt: APPROVAL_REVIEWER_BRIEFING,
+        outputSchema: APPROVAL_SCHEMA,
+        cwd: conv.settings.cwd,
+        permission: 'read-only',
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
+        signal: both,
+        onEvent: (e) => {
+          if (e.type === 'text') reply += e.text;
+          else if (e.type === 'text_end') reply += '\n';
+        },
+      });
+      if (both.aborted) throw new Error('stopped');
+      return parseApprovalReply(reply, result.structured);
+    } catch (err) {
+      if (!signal.aborted) console.warn('[orchestrator] approval review failed:', (err as Error).message);
+      if (timeout.aborted && !signal.aborted) return { failed: t().approvalReviewTimeout };
+      return { failed: t().approvalReviewFailed((err as Error).message.trim().slice(0, 300)) };
+    }
   }
 
   /**
@@ -4609,6 +4710,8 @@ export class Orchestrator {
 
     // Ask the user in the chat; the CLI waits until they answer (or the run is stopped). In a run a
     // schedule started, only what the conversation always allows goes through; the rest is refused.
+    // With "Approve for me", the lead agent reviews each request first: what it approves goes through
+    // (in a schedule's run too), and the user is asked about the rest as before.
     const requestApproval =
       conv.settings.approvals === 'deny'
         ? undefined
@@ -4640,7 +4743,10 @@ export class Orchestrator {
               this.store.saveMessage(conv.id, msg, true);
               return busy ? { allow: false, note: busy } : { allow: true };
             }
-            if (run.refuseApprovals) {
+            const review = conv.settings.approvals === 'auto' ? this.startReview(conv, run, agent, req) : undefined;
+            if (review) part.review = review.first;
+            const reviewing = part.review?.status === 'reviewing';
+            if (run.refuseApprovals && !reviewing && part.review?.status !== 'approved') {
               Object.assign(part, { status: 'denied', note: t().scheduleRefused });
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
@@ -4650,24 +4756,55 @@ export class Orchestrator {
             this.store.saveMessage(conv.id, msg, true);
 
             waiting.add(part.id);
-            let answer = await new Promise<ApprovalAnswer & { expired?: boolean }>((resolve) => {
+            let answer = await new Promise<ApprovalAnswer & { expired?: boolean; unattended?: boolean }>((resolve) => {
               const onAbort = () => resolve({ allow: false, expired: true });
               run.abort.signal.addEventListener('abort', onAbort, { once: true });
-              this.approvals.set(part.id, {
+              const pending = {
                 convId: conv.id,
-                resolve: (a) => {
+                reviewing,
+                resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => {
                   run.abort.signal.removeEventListener('abort', onAbort);
                   resolve(a);
                 },
-              });
+              };
+              this.approvals.set(part.id, pending);
               this.emitStatus(conv.id);
               if (run.abort.signal.aborted) onAbort();
+              // Approved before it was shown (the same request earlier in the run): it goes through at once.
+              else if (part.review?.status === 'approved') pending.resolve({ allow: true });
+              else if (reviewing)
+                void review!.verdict.then((v) => {
+                  // Answered meanwhile (by the user, or the run ended): the review is moot.
+                  if (this.approvals.get(part.id) !== pending) return;
+                  part.review = v;
+                  if (v.status === 'approved') return pending.resolve({ allow: true });
+                  // Nobody may be watching: what the lead agent did not approve is refused.
+                  if (run.refuseApprovals) return pending.resolve({ allow: false, unattended: true });
+                  // Now it waits for the user.
+                  pending.reviewing = false;
+                  this.hub.emit(conv.id, { type: 'message', message: msg });
+                  this.store.saveMessage(conv.id, msg, true);
+                  this.emitStatus(conv.id);
+                });
             });
+            review?.stop();
+            // The user answered before the lead agent did.
+            if (part.review?.status === 'reviewing') delete part.review;
             waiting.delete(part.id);
             this.approvals.delete(part.id);
             const busy = answer.allow && !req.noLock ? this.lockForApproval(conv, run) : undefined;
             if (busy) answer = { allow: false, note: busy };
+            // What the reviewer would have approved, the lock refused: not approved after all.
+            if (busy && part.review?.status === 'approved') delete part.review;
             part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
+            // Refused unattended after the review: the card says why, and the agent hears what it would without one.
+            if (answer.unattended) {
+              part.note = t().approvalReviewRefused(part.review?.reason ?? '');
+              this.hub.emit(conv.id, { type: 'message', message: msg });
+              this.store.saveMessage(conv.id, msg, true);
+              this.emitStatus(conv.id);
+              return { allow: false, note: UNATTENDED_REFUSAL };
+            }
             if (answer.allow && answer.always) {
               part.always = true;
               const rules = conv.allowRules ?? [];

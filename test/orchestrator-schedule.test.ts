@@ -199,6 +199,50 @@ describe('schedules', () => {
     await finish(conv.id);
   });
 
+  it('with "Approve for me", allows in the runs it starts what the lead agent approves, and refuses what it flags', async () => {
+    const conv = solo({ permission: 'edit', approvals: 'auto' });
+    schedule(conv, { text: 'please install' });
+    now = T0 + HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(textOf(agentMessages(conv).at(-1)!)).toBe('Alice installed');
+    expect(approvalParts(conv)[0]).toMatchObject({ status: 'allowed', review: { status: 'approved' } });
+    expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).toContain('reviewed by the lead agent: what it judges safe goes ahead');
+
+    // Flagged: nobody may be watching, so it is refused, and the card says why.
+    fake.approverReply = '{"decision": "ask", "reason": "Unclear why it is needed."}';
+    schedule(conv, { text: 'please install', nextRunAt: T0 + 2 * HOUR });
+    now = T0 + 2 * HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(textOf(agentMessages(conv).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
+    expect(approvalParts(conv)[1]).toMatchObject({
+      status: 'denied',
+      review: { status: 'flagged', reason: 'Unclear why it is needed.' },
+      note: 'Refused automatically: the lead agent judged it potentially unsafe, and nobody may be watching an automation run (Unclear why it is needed.)',
+    });
+
+    // Pushing is refused at once, never reviewed.
+    const before = calls.filter((c) => c.name === 'approver').length;
+    fake.inTurn = async (_name, o) => void (await o.requestApproval!({ kind: 'command', detail: 'git push' }));
+    schedule(conv, { text: 'push', nextRunAt: T0 + 3 * HOUR });
+    now = T0 + 3 * HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(calls.filter((c) => c.name === 'approver')).toHaveLength(before);
+    expect(approvalParts(conv)[2]).toMatchObject({ status: 'denied', review: { status: 'flagged' } });
+
+    // A schedule that asks: what the lead agent flags waits for the user.
+    fake.inTurn = undefined;
+    schedule(conv, { text: 'please install', approvals: 'ask', nextRunAt: T0 + 4 * HOUR });
+    now = T0 + 4 * HOUR;
+    await scheduler().tick();
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
+    orchestrator.answerApproval(conv.id, approvalParts(conv)[3]!.id, { allow: true });
+    await finish(conv.id);
+    expect(textOf(agentMessages(conv).at(-1)!)).toBe('Alice installed');
+  });
+
   it('waits in the queue while the team replies, and holds a second one back until the first is delivered', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     schedule(conv);

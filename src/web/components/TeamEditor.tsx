@@ -1,17 +1,19 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
+  PERMISSION_LEVELS,
   PROVIDERS,
   PROVIDER_LABEL,
   catalogFor,
   cwdsOf,
   isOpenProvider,
   inheritedEffort,
+  levelSettings,
+  permissionLevel,
   type AgentConfig,
   type RelayToolGroup,
   type ConversationSchedule,
   type ConversationSettings,
   type Mode,
-  type Permission,
   type Provider,
   type ProviderModels,
   type ProviderStatus,
@@ -77,7 +79,6 @@ interface Props {
 
 const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
-const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
 /**
  * What keeps the team from being saved; `members` and `template` as for `TeamEditor`, `maxAgents` the
@@ -185,6 +186,10 @@ export function TeamEditor({
   );
   const setAgents = (next: AgentConfig[]) => onChange({ ...value, agents: next });
   const setSettings = (patch: Partial<ConversationSettings>) => onChange({ ...value, settings: { ...settings, ...patch } });
+  // The permission as the picker shows it ("Approve for me" is Edit reviewed by the lead agent), and
+  // what the other levels do beyond it.
+  const level = permissionLevel(settings);
+  const approvals = settings.approvals === 'deny' ? 'deny' : 'ask';
   const updateAgent = (id: string, patch: Partial<AgentConfig>) => setAgents(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const move = (i: number, d: -1 | 1) => {
     const next = [...agents];
@@ -439,21 +444,20 @@ export function TeamEditor({
         {!template && (
           <div className="field">
             <span>{t.team.permission}</span>
-            <div className="segmented wide">
-              {PERMISSIONS.map((p) => (
+            <div className="segmented wide levels">
+              {/* A template keeps no approvals, so it has no "Approve for me". */}
+              {PERMISSION_LEVELS.filter((p) => !template || p !== 'auto').map((p) => (
                 <button
                   key={p}
-                  className={`${settings.permission === p ? 'on' : ''} ${p === 'full' ? 'danger' : ''}`}
-                  onClick={() => setSettings({ permission: p })}
-                  aria-pressed={settings.permission === p}
+                  className={`${level === p ? 'on' : ''} ${p === 'full' ? 'danger' : ''}`}
+                  onClick={() => setSettings(levelSettings(p, settings))}
+                  aria-pressed={level === p}
                 >
                   {t.permissions[p].label}
                 </button>
               ))}
             </div>
-            <span className={`small ${settings.permission === 'full' ? 'danger-text' : 'muted'}`}>
-              {t.permissions[settings.permission].hint}
-            </span>
+            <span className={`small ${settings.permission === 'full' ? 'danger-text' : 'muted'}`}>{t.permissions[level].hint}</span>
             {schedule?.enabled && settings.permission === 'full' && <span className="small danger-text">{t.schedule.fullWarning}</span>}
             {settings.permission !== 'read-only' && (
               <span className="small muted">
@@ -464,12 +468,12 @@ export function TeamEditor({
           </div>
         )}
 
-        {!template && settings.permission !== 'full' && (
+        {!template && settings.permission !== 'full' && level !== 'auto' && (
           <div className="field">
             <span>{t.team.approvals}</span>
             <div className="segmented wide" role="radiogroup" aria-label={t.team.approvals}>
               {(['ask', 'deny'] as const).map((v) => {
-                const on = (settings.approvals ?? 'ask') === v;
+                const on = approvals === v;
                 return (
                   <button
                     key={v}
@@ -483,8 +487,8 @@ export function TeamEditor({
                 );
               })}
             </div>
-            <span className="small muted">{t.team.approvalsHint[settings.approvals ?? 'ask']}</span>
-            {schedule?.enabled && (settings.approvals ?? 'ask') === 'ask' && (
+            <span className="small muted">{t.team.approvalsHint[approvals]}</span>
+            {schedule?.enabled && approvals === 'ask' && (
               <span className="small muted">{t.schedule.approvalsOverride[schedule.approvals]}</span>
             )}
           </div>

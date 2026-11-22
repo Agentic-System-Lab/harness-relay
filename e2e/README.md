@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 585 tests in 45 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 586 tests in 45 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -49,7 +49,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Sending a message into a running turn](#sending-a-message-into-a-running-turn) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [User guide → Chat](../docs/user-guide.md#4-chat), [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
-| [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
+| [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 40 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
@@ -267,7 +267,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 
 ## Approvals
 
-[`approvals.spec.ts`](specs/approvals.spec.ts): an agent that wants to run a command (`echo e2e-approval`) in a chat that asks the user, a read-only one for every CLI but Pi, which has no command tool there, and Copilot, which runs `echo` without asking (it takes it for read-only): they ask in edit mode, about the one kind of command that asks there (`npm publish e2e-approval`, through `e2e:approve=publish`). Goose asks to run `env echo e2e-approval`, since in read-only Harness Relay lets it run plain reading commands such as `echo` without asking. The answer reaches each CLI's own request: Claude Code's `can_use_tool`, Codex's approval request, the ACP agents' `session/request_permission` (Grok, Cursor, Antigravity, Copilot, Muse Code, OpenCode, Goose, Cline, OpenHands) and the dialog of Pi's gate.
+[`approvals.spec.ts`](specs/approvals.spec.ts): an agent that wants to run a command (`echo e2e-approval`) in a chat that asks the user, a read-only one for every CLI but Pi, which has no command tool there, and Copilot, which runs `echo` without asking (it takes it for read-only): they ask in edit mode, about the one kind of command that asks there (`npm publish e2e-approval`, through `e2e:approve=publish`). Goose asks to run `env echo e2e-approval`, since in read-only Harness Relay lets it run plain reading commands such as `echo` without asking. The answer reaches each CLI's own request: Claude Code's `can_use_tool`, Codex's approval request, the ACP agents' `session/request_permission` (Grok, Cursor, Antigravity, Copilot, Muse Code, OpenCode, Goose, Cline, OpenHands) and the dialog of Pi's gate. With **Approve for me**, the fake lead agent approves each request it reviews, unless the user's latest message says `e2e:flag`.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
@@ -277,6 +277,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Stopping the team while a request waits ends it without running the command | Claude Code | The reply ends "(stopped)" and the request is declined or unanswered. |
 | With full access, the command runs and files are written anywhere without asking | each | The header warns **Full access**; the command runs and a file is written in another folder, with no card (on every system: no sandbox is around a CLI with full access). |
 | A chat that refuses automatically declines without asking | Claude Code | The command is declined, with no card. |
+| "Approve for me", picked in Team settings: the lead agent allows a command, and leaves one it flags to the user | Claude Code | In an edit chat, **Approve for me** is picked in Team settings: its hint shows, the choice about actions beyond the permission goes away, the header's badge says **Approve for me** and the conversation is saved as Edit with `approvals: "auto"`. The fake lead agent approves the first command: it runs with no card waiting, and its line says **Approved for you by the lead agent** with its reason. Told to flag the second (`e2e:flag`), it leaves it to the user: the card waits with the lead agent's reason, the sidebar says **Needs you**, and **Allow** runs it. |
 
 ## Files and changes
 

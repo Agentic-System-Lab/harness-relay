@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Conversation } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, replies, send } from '../support/app';
 import { CLIS, eachCli, endsTurnNote, member, needsBelowFull } from '../support/clis';
@@ -87,6 +88,48 @@ test.describe('approvals', () => {
       await expect(page.locator('.approval-card')).toHaveCount(0);
       expect(existsSync(join(other, 'free.txt'))).toBe(true);
     });
+  });
+
+  test('"Approve for me", picked in Team settings: the lead agent allows a command, and leaves one it flags to the user', async ({
+    page,
+    relay,
+  }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await expect(drawer.getByRole('radiogroup', { name: 'Actions beyond the permission' })).toBeVisible();
+    await drawer.getByRole('button', { name: 'Approve for me', exact: true }).click();
+    await expect(drawer.getByRole('button', { name: 'Approve for me', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(drawer.getByText(/the lead agent reviews each action beyond it first/)).toBeVisible();
+    // The lead agent answers first: there is no separate choice about what is beyond the permission.
+    await expect(drawer.getByRole('radiogroup', { name: 'Actions beyond the permission' })).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.locator('.chat-head .badge', { hasText: 'Approve for me' })).toBeVisible();
+    const saved = await relay.api<Conversation>(`/api/conversations/${id}`);
+    expect(saved.settings).toMatchObject({ permission: 'edit', approvals: 'auto' });
+
+    // Approved: the command runs without a card waiting, and its line says who approved it and why.
+    await send(page, 'Print a line e2e:approve');
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply).toContainText('The command ran: e2e-approval.');
+    await expect(reply.locator('.approval-done')).toContainText('Approved for you by the lead agent: The fake lead agent finds it safe.');
+    await expect(page.locator('.approval-card')).toHaveCount(0);
+
+    // Flagged: it waits for the user, with the lead agent's reason.
+    await send(page, 'Print another line e2e:approve e2e:flag');
+    const card = page.getByRole('region', { name: '@Claude wants to run a command' });
+    await expect(card).toBeVisible();
+    await expect(card.locator('.approval-review')).toHaveText(
+      'The lead agent found it potentially unsafe: The fake lead agent was told to flag it.',
+    );
+    await expect(card.locator('.approval-waiting')).toHaveText('Waiting for you');
+    await expect(page.locator('.conv-item.active .conv-status')).toHaveText('Needs you');
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    const second = await finishedReply(page, 'Claude');
+    await expect(second).toContainText('The command ran: e2e-approval.');
+    await expect(second.locator('.approval-done')).toHaveText(/Allowed$/);
   });
 
   test('a chat that refuses automatically declines without asking', async ({ page, relay }) => {

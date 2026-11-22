@@ -1,4 +1,4 @@
-import { cwdsOf, type ConversationSchedule, type ProviderModels, type ProviderStatus } from '../../shared/types';
+import { cwdsOf, permissionLevel, type ConversationSchedule, type ProviderModels, type ProviderStatus } from '../../shared/types';
 import { useT } from '../i18n';
 import { LeadReviewOption, TeamEditor, type Team } from './TeamEditor';
 
@@ -26,7 +26,7 @@ export function CreationOptions({
     <details className="chat-options">
       <summary>
         <strong>{t.newChat.options}</strong>
-        <span className="muted small">{[t.permissions[team.settings.permission].label, ...cwdsOf(team.settings)].join(' · ')}</span>
+        <span className="muted small">{[t.permissions[permissionLevel(team.settings)].label, ...cwdsOf(team.settings)].join(' · ')}</span>
       </summary>
       <TeamEditor value={team} onChange={onTeam} providers={providers} catalog={catalog} teamOptionsInEditor={false} schedule={schedule} />
       <label className="field">

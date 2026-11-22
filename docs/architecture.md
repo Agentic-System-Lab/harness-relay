@@ -435,7 +435,7 @@ Stop on a Claude Code turn first sends it an `interrupt` control request, once i
 
 ### Permission mapping
 
-The permission decides what runs **without asking**; anything else goes to the user when the conversation asks (the default), or is refused automatically when it is set to refuse (`settings.approvals = "deny"`).
+The permission decides what runs **without asking**; anything else goes to the user when the conversation asks (the default), or is refused automatically when it is set to refuse (`settings.approvals = "deny"`). **Approve for me**, which the UI offers as a fourth level between Edit and Full access, is Edit with `settings.approvals = "auto"` (kept with Edit only: `approvalsOf()`, `permissionLevel()` in `src/shared/types.ts`): every CLI and sandbox runs exactly as in the Edit column below, and only who answers what they ask changes (see [Approvals](#approvals)).
 
 | Relay permission | Claude Code | Codex | Grok (ACP) | Cursor (ACP) | Antigravity (ACP) | Copilot (ACP) | Muse Code (ACP) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -505,6 +505,13 @@ When an adapter receives a request, the orchestrator (`requestApproval` in `turn
 5. An action allowed in a run that holds no directory lock (read-only) first takes the lock on the working directory for the rest of the run; if another conversation is writing there, the action is declined and the agent is told why.
 
 The agent's CLI waits the whole time; the turn's safety timeout (1 day unless `RELAY_TURN_TIMEOUT_MIN` says otherwise) still applies. The open agents' requests go through the same steps, and so do the hosts their sandbox asks about (an approval of kind `fetch`, tied to the run it came from).
+
+**Approve for me** (`settings.approvals = "auto"`, with Edit; `src/server/approvalReview.ts`, `startReview()` and `reviewApproval()` in the orchestrator). Between steps 2 and 3, the lead agent (Settings) reviews the request before the user is asked, every CLI's requests alike, Harness Relay's own `act` tools and the open agents' hosts included:
+
+- It is not reviewed when it names nothing (no command, file, address or tool: asked as before), nor when it is a command that pushes or publishes (`isPublishCommand()`, which also counts a line too convoluted to read): that one is marked `flagged` at once and waits for the user. A request the review approved earlier in the same run, exactly (`reviewKey()`: its kind, tool, command as it will run, and whether it runs outside the sandbox), is approved again without a review (`Run.reviewed`).
+- Otherwise the part gets `review: { status: 'reviewing' }` and is registered in `orchestrator.approvals` at once, so the user may answer it meanwhile, but marked `reviewing`: `isWaiting()` leaves it out, so the conversation is not `waiting` and no alert or push goes out (`alertDetail()` skips it too). The lead agent runs read-only, without `requestApproval` (so it can neither ask nor take the directory lock), without a state key (a session and, for an open agent, a state folder of its own each time), with `APPROVAL_REVIEWER_BRIEFING` and `APPROVAL_SCHEMA`, for at most three minutes. Its prompt gives the user's latest messages (their text only: never the agents' replies, nor an `<event>` block's data) as what the user wants, and the request in a `<request>` block as data, the tags inside it defused; only an explicit `"approve"` allows (`parseApprovalReply()`).
+- Approved: answered yes, as if the user had (the directory lock still taken), the part `review: { status: 'approved', reason }`. Flagged, or failed (an error, no decision, the time limit): the part says so with the reason, the entry stops being `reviewing`, and the request waits for the user as in step 3. An answer from the user first stops the review, and the part keeps no `review`. It never adds an `allowRules` entry.
+- In a run a schedule started (`refuseApprovals`), what the review approves is allowed; what it flags, fails or never reviews (pushing) is refused, the card's note saying why, and the agent hears what it would without a review (`UNATTENDED_REFUSAL`). The agents' briefing says what is beyond Edit is reviewed, and so does the schedule's rule when it refuses.
 
 ## Agent activity
 

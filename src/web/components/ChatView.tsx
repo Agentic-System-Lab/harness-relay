@@ -4,6 +4,7 @@ import {
   TEAM_WORKTREE,
   cwdsOf,
   pendingPlan,
+  permissionLevel,
   type ApprovalAnswer,
   type ChatMessage,
   type Conversation,
@@ -557,11 +558,12 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
-  // Approval requests still waiting for an answer (only while the agent's turn is running).
+  // Approval requests still waiting for an answer (only while the agent's turn is running), but those
+  // the lead agent still reviews ("Approve for me"): they wait for nobody yet.
   const pending = conv.messages.flatMap((m) =>
     m.status === 'streaming'
       ? m.parts
-          .filter((p) => p.type === 'approval' && p.status === 'pending')
+          .filter((p) => p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing')
           .map((p) => ({ id: (p as { id: string }).id, agent: m.agentName ?? 'agent' }))
       : [],
   );
@@ -728,7 +730,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               </span>
             )}
             <span className={`badge ${conv.settings.permission === 'full' ? 'danger' : ''}`}>
-              {t.permissions[conv.settings.permission].label}
+              {t.permissions[permissionLevel(conv.settings)].label}
             </span>
             {conv.schedule && (
               <button
