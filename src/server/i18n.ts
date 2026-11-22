@@ -572,10 +572,17 @@ const zhTW = {
   queueFull: (n: number) => `最多 ${n} 則訊息等待送出，請等團隊回覆後再送`,
   gitInitNote: (root: string) => `工作目錄原本不是 git repository，已自動執行 git init：${root}`,
   dirLocked: (title: string, root: string) => `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`,
+  applyLocked: (title: string, root: string) => `對話「${title}」正在修改 ${root}，請等它結束後再套用。`,
+  teamWorktreeNote: (title: string, root: string) =>
+    `對話「${title}」正在修改 ${root}，所以這個對話的團隊改在自己的 worktree（資料夾的副本）裡工作，兩邊可以同時進行。團隊的修改要等你按「套用到工作目錄」才會寫進資料夾；套用之前，這個對話之後的回覆也都在這個 worktree 裡進行。`,
   noWorktree: '這位成員沒有 worktree',
+  noTeamWorktree: '這個對話沒有自己的 worktree',
+  teamName: '團隊',
   resultStale: '工作目錄已經更新過，這份結果已過期；請讓團隊再跑一輪。',
   appliedNote: (name: string, files: number) =>
     `已把 @${name} 的修改套用到工作目錄（${files} 個檔案，尚未 commit）。下一次平行作業會從新的工作目錄狀態開始。`,
+  appliedTeamNote: (files: number) =>
+    `已把團隊在這個對話 worktree 裡的修改套用到工作目錄（${files} 個檔案，尚未 commit）。之後團隊會回到工作目錄裡工作，除非那時有別的對話正在修改它。`,
   noChanges: '這則訊息沒有檔案修改',
   relayLimit: (hops: number) => `已達接力上限（${hops} 棒），交還給使用者。可按「繼續」讓團隊接著做。`,
 
@@ -585,6 +592,7 @@ const zhTW = {
   checksListChanged: '檢查清單在這一輪開始後改過，這一輪的受保護路徑無法用新清單比對；下一輪會照新清單檢查。',
   checksNoBaseline: '找不到這一輪開始時的狀態，無法重新比對。',
   checksCommitsParallel: '平行模式套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
+  checksCommitsTeam: '團隊在這個對話自己的 worktree 裡工作，套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
   checksNoCommits: '這一輪沒有新的 commit。',
   checksPatternSlow: 'commit 格式的正規表示式跑太久，已中止；請改寫得簡單一點。',
   checksTooManyCommits: (n: number) => `新的 commit 超過 ${n} 個，只檢查了最新的 ${n} 個。`,
@@ -626,6 +634,7 @@ const zhTW = {
     cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
   checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
   checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
+  checksCommandsTeam: '團隊的修改在這個對話自己的 worktree 裡，套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
   checksConfigChanged: (files: string) =>
     `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
   checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
@@ -1750,10 +1759,17 @@ const en: ServerMessages = {
   queueFull: (n: number) => `Up to ${n} messages can wait to be delivered — wait for the team to reply`,
   gitInitNote: (root) => `The working directory was not a git repository; ran git init: ${root}`,
   dirLocked: (title, root) => `Conversation "${title}" is changing ${root}; try again when it finishes (or use read-only / parallel mode).`,
+  applyLocked: (title, root) => `Conversation "${title}" is changing ${root}; apply once it finishes.`,
+  teamWorktreeNote: (title, root) =>
+    `Conversation "${title}" is changing ${root}, so this conversation's team works in a worktree of its own (a copy of the folder), and both go on at once. The team's changes reach the folder when you apply them ("Apply to working directory"); until then, this conversation's next replies are worked on in that worktree too.`,
   noWorktree: 'This member has no worktree',
+  noTeamWorktree: 'This conversation has no worktree of its own',
+  teamName: 'the team',
   resultStale: 'The working directory has changed since; this result is out of date. Let the team run again.',
   appliedNote: (name, files) =>
     `Applied @${name}'s changes to the working directory (${files} files, not committed). The next parallel round starts from the new state.`,
+  appliedTeamNote: (files) =>
+    `Applied the team's changes from this conversation's worktree to the working directory (${files} files, not committed). The team works in the working directory again from now on, unless another conversation is changing it then.`,
   noChanges: 'This message changed no files',
   relayLimit: (hops) => `Reached the relay limit (${hops} hand-offs); back to you. Press Continue to let the team keep going.`,
 
@@ -1763,6 +1779,8 @@ const en: ServerMessages = {
     'The check list changed after this run started, so its protected paths cannot be compared with the new list; the next run is checked with it.',
   checksNoBaseline: 'Where this run started from is not known any more, so it cannot be compared again.',
   checksCommitsParallel: 'Parallel mode applies its results without their commits, so the commit format is not checked.',
+  checksCommitsTeam:
+    "The team works in this conversation's own worktree, whose result is applied without its commits, so the commit format is not checked.",
   checksNoCommits: 'No new commit in this run.',
   checksPatternSlow: 'The commit format’s regular expression took too long and was stopped; make it simpler.',
   checksTooManyCommits: (n) => `More than ${n} new commits: only the newest ${n} were checked.`,
@@ -1811,6 +1829,8 @@ const en: ServerMessages = {
   checksCommandsAtEnd: 'Commands are run once the team has finished.',
   checksCommandsParallel:
     "Parallel mode's results are not in the working directory until they are applied: commands are checked when one is.",
+  checksCommandsTeam:
+    "The team's changes are in this conversation's own worktree, not in the working directory, until they are applied: commands are checked then.",
   checksConfigChanged: (files) =>
     `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
   checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,

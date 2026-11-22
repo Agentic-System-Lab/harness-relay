@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
+import {
+  FILE_LIMITS,
+  TEAM_WORKTREE,
+  cwdsOf,
+  type Conversation,
+  type FileEntry,
+  type FileListing,
+  type FilePreview,
+} from '../../shared/types';
 import { filePreviewTarget, type PreviewSelection } from '../appPreview';
 import { api } from '../api';
 import { useT } from '../i18n';
@@ -81,6 +89,7 @@ export function FileBrowser({
     const dir = cwds.length > 1 ? cwds[r?.cwd ?? 0] : undefined;
     const folder = dir ? ` · ${dir.split(/[\\/]/).filter(Boolean).pop() ?? dir}` : '';
     if (!r?.agentId) return `${t.files.workingDir}${folder}`;
+    if (r.agentId === TEAM_WORKTREE) return `${t.files.teamWorktree}${folder}`;
     const agent = conv.agents.find((a) => a.id === r.agentId);
     return `${t.files.worktree(agent?.name ?? r.agentId)}${folder}`;
   };

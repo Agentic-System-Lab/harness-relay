@@ -13,8 +13,9 @@ import type {
   ReviseTeamRequest,
   TeamPlan,
   TeamRevision,
+  MessageChanges,
 } from '../shared/types';
-import { STEER_PROVIDERS } from '../shared/types';
+import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
 import { ApiError } from './api';
 import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
@@ -81,28 +82,47 @@ export function showsToEnd(following: boolean, spot: ScrollSpot): boolean {
 }
 
 /**
- * Which results can be applied: each agent's latest worktree result, but only while it belongs to the
- * agent's current worktrees. After a result is applied or the chat is rewound, the worktrees are
+ * Whether a turn's changes were made in the team's own worktrees (`TEAM_WORKTREE`), which every member
+ * works in while another conversation changes the folder: their branch is the team's, which no
+ * agent's can be (an agent's name has no `@`).
+ */
+export function isTeamResult(changes: readonly MessageChanges[] | undefined): boolean {
+  return Boolean(changes?.some((c) => c.isolated && c.branch?.endsWith(`/${TEAM_WORKTREE}`)));
+}
+
+/**
+ * Whose worktrees a reply's changes are in, as `Conversation.worktrees` keys them: the team's own for
+ * a turn made there, else the agent's.
+ */
+export function resultOwner(m: ChatMessage): string | undefined {
+  if (m.author.kind !== 'agent') return undefined;
+  return isTeamResult(m.changes) ? TEAM_WORKTREE : m.author.agentId;
+}
+
+/**
+ * Which results can be applied: each agent's latest worktree result (or the team's, in its own
+ * worktrees: its latest reply made there, whoever wrote it), but only while it belongs to the owner's
+ * current worktrees. After a result is applied or the chat is rewound, the worktrees are
  * recreated from new snapshots (`base`) under the same branch name; the first result made in one starts
  * from its base, so an agent with no result starting there has nothing in its current worktrees yet.
  * A result changes one or more repositories (one worktree of the agent's each): each must be current.
  * Applying applies all of the agent's worktrees; it is stale once any of them needs a reset.
  */
 export function applyStates(messages: ChatMessage[], worktrees: Record<string, AgentWorktree[]>): Map<string, ApplyState> {
-  const latest = new Map<string, string>(); // agent id → message id
-  const current = new Set<string>(); // agents with a result made in their current worktrees
+  const latest = new Map<string, string>(); // owner (agent id, or the team's) → message id
+  const current = new Set<string>(); // owners with a result made in their current worktrees
   for (const m of messages) {
     const sets = (m.changes ?? []).filter((c) => c.isolated);
-    if (m.author.kind !== 'agent' || !sets.length || m.status === 'streaming') continue;
-    const agentId = m.author.agentId;
-    const wts = worktrees[agentId] ?? [];
+    const owner = resultOwner(m);
+    if (!owner || !sets.length || m.status === 'streaming') continue;
+    const wts = worktrees[owner] ?? [];
     if (!wts.length) continue;
-    latest.set(agentId, m.id);
-    if (sets.every((c) => wts.some((w) => w.root === c.root && w.base === c.base))) current.add(agentId);
+    latest.set(owner, m.id);
+    if (sets.every((c) => wts.some((w) => w.root === c.root && w.base === c.base))) current.add(owner);
   }
   const out = new Map<string, ApplyState>();
-  for (const [agentId, messageId] of latest) {
-    if (current.has(agentId)) out.set(messageId, worktrees[agentId]!.some((w) => w.needsReset) ? 'stale' : 'available');
+  for (const [owner, messageId] of latest) {
+    if (current.has(owner)) out.set(messageId, worktrees[owner]!.some((w) => w.needsReset) ? 'stale' : 'available');
   }
   return out;
 }

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 47 個 spec 檔、602 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 47 個 spec 檔、603 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
-| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
+| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 18 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
@@ -292,6 +292,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 自動拒絕的唯讀對話中，Grok 說明原因 | Grok | 工具的錯誤寫著唯讀模式下不允許。 |
 | 每個 CLI 都能在編輯模式寫檔，每一回合各自記下變更 | 兩個團隊 | 每位成員寫自己的檔案（`<cli>.txt`），每則回答的變更卡片都列出它。在這裡只能以完全存取執行的 CLI，在自己的對話中以完全存取執行。 |
 | 平行模式中每位成員在自己的 worktree 工作，可以套用其中一份結果 | Claude Code、Codex | 兩張變更卡片都寫著「in worktree」，工作目錄裡什麼都沒有，直到按**套用到工作目錄**（Apply to working directory）帶進 Codex 的檔案。 |
+| 這段期間在同一個資料夾寫入的第二個對話在自己的 worktree 裡工作，按「套用」帶進它的修改 | Claude Code、Codex | Claude Code 的對話正在資料夾裡寫入時（很慢的回覆，`e2e:slow`），送到那裡的 Codex 對話不會被拒絕：一則說明指出是哪個對話正在修改資料夾，它的卡片寫著「in this chat's worktree」，資料夾裡什麼都沒有，**檔案**（Files）列出 **This chat's worktree**。第一個對話寫入期間**套用**會被拒絕並說明原因；停止它之後，套用就帶進 Codex 的檔案，有一則說明，卡片上也不再有套用。 |
 | 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼，並以 TypeScript 上色（關鍵字與型別各有自己的 class）；按 Escape 關閉。 |
 | 資料夾可下載成 ZIP 檔，裡面沒有 .git | Claude Code | 工作目錄的 ZIP（`work.zip`）剛好包含它的檔案與內容，沒有 `.git`；某個資料夾自己的 ZIP（`src.zip`）只有那個資料夾。 |
 | 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個長度設為超過 1 GiB、但沒有真的寫入的被忽略檔案（Windows 上仍會佔用磁碟空間）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
@@ -862,6 +863,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **Windows 與 macOS CI 上的容器預覽。** 它們的真實 Docker 測試在 Linux CI 與手動（macOS 上用 OrbStack）執行；經 Windows 具名管道的 Engine API 尚未試過。其他地方用模擬的串流測試面板的終端機。
 
 - **團隊檢查的大部分。**端對端測試檢查編輯器、受保護路徑、指令與 hook，需要 CLI 時用 Claude Code 的替身。以下情況由離線測試涵蓋：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。
+- **每個 CLI 在兩個對話同一個資料夾時的情形，以及之後的事。**端對端測試讓 Codex 在團隊自己的 worktree 裡執行；每個 CLI 都能在 worktree 裡寫入，由[平行模式](#檔案與修改)的測試涵蓋。那裡的團隊檢查、首席 agent 審閱、倒回時丟掉它、多個資料夾、巢狀的 repository，以及自動任務在那裡的執行，由離線測試涵蓋（`test/orchestrator-workspace.test.ts`、`orchestrator-folders`、`orchestrator-checks`、`orchestrator-review`、`orchestrator-schedule`）。
 - **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。
 - **其他 CLI 的「直接送進進行中的回合」。**只有 Claude Code 與 Codex 的假 CLI 會把訊息收進進行中的回合；Grok 的 `x.ai/interject`、Antigravity 再送的 `session/prompt`、Goose 的 `_goose/unstable/session/steer` 與 Pi 的 `steer` 只在離線測試裡（`test/steer.test.ts`，共用 ACP 回合的 hook 在 `test/acp-turn.test.ts`），協調器在各模式的規則（平行模式要嘛全部、要嘛都不送）則用它的假 runner 測（`test/orchestrator-steer.test.ts`）。還沒有任何真正的 CLI 在測試裡收過這樣的訊息，實機測試也還沒有。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現；那些錄音是 adapter 當初所依據的版本，所以 CLI 的新版本要用 `scripts/cli-check.ts` 對真正的 CLI 手動檢查（[開發者指南「檢查 CLI 的新版本」](../docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。

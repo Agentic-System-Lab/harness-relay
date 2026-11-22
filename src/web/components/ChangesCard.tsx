@@ -12,7 +12,9 @@ interface Props {
   /** One entry for each repository the turn changed. */
   changes: MessageChanges[];
   agentName: string;
-  /** Only the agent's latest isolated result can be applied. */
+  /** Made in the team's own worktrees, which every member works in: the result is the team's. */
+  team?: boolean;
+  /** Only the agent's (or the team's) latest isolated result can be applied. */
   applyState: ApplyState;
   onDiff: (scope: 'turn' | 'agent') => void;
   onApply: () => Promise<void>;
@@ -23,7 +25,7 @@ interface Props {
  * changed more than one repository (the conversation has several working directories) lists the
  * files under each one's folder.
  */
-export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }: Props) {
+export function ChangesCard({ changes, agentName, team, applyState, onDiff, onApply }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
     .filter((g) => g.shown.length);
 
   const apply = async () => {
-    if (!confirm(t.changes.confirmApply(agentName))) return;
+    if (!confirm(team ? t.changes.confirmApplyTeam : t.changes.confirmApply(agentName))) return;
     setBusy(true);
     try {
       await onApply();
@@ -60,7 +62,7 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
           <span className="plus">+{added}</span> <span className="minus">−{deleted}</span>
         </span>
         <span className={`changes-where ${isolated ? 'isolated' : ''}`}>
-          {isolated ? t.changes.inWorktree(isolated.branch ?? '') : t.changes.written}
+          {isolated ? (team ? t.changes.inTeamWorktree : t.changes.inWorktree)(isolated.branch ?? '') : t.changes.written}
         </span>
       </div>
       {groups.map((g) => (
@@ -85,7 +87,7 @@ export function ChangesCard({ changes, agentName, applyState, onDiff, onApply }:
         {applyState === 'available' && (
           <>
             <button className="ghost small-button" onClick={() => onDiff('agent')}>
-              {t.changes.agentResult(agentName)}
+              {team ? t.changes.teamResult : t.changes.agentResult(agentName)}
             </button>
             <button className="primary small-button" onClick={apply} disabled={busy}>
               {busy ? t.changes.applying : t.changes.apply}
