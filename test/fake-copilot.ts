@@ -35,6 +35,8 @@ import { writeFileSync } from 'node:fs';
  * - `--headless --stdio`: its headless server (Content-Length frames): `connect`, `account.getQuota` (a
  *   premium-request quota; "Not authenticated" with `FAKE_COPILOT_SIGNED_OUT`, the error
  *   `FAKE_COPILOT_NO_PLAN` holds when set) and `account.getCurrentAuth` (octocat, plan "individual").
+ * - A reply's chunks: Copilot's own lines first with `FAKE_COPILOT_NOTICES` (a JSON list), then
+ *   `FAKE_COPILOT_REPLY`'s (a JSON list; `hello` without it).
  * - `--version`: prints Copilot's version line. `<what> list --json` prints `FAKE_COPILOT_CLI/<what>.json`.
  * Every message it receives is appended to `FAKE_COPILOT_LOG` as a JSON line, after a first line with
  * its arguments, its folder, its COPILOT_ variables and its home's files (settings, config, briefing,
@@ -218,7 +220,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     if (env.FAKE_COPILOT_CANCELLED) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'cancelled' } });
       if (env.FAKE_COPILOT_MODEL_DOWN) { say(sid, 'Error: Could not connect to local model provider at http://127.0.0.1:9/v1.'); return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } }); }
-      say(sid, 'hello');
+      // Copilot's own lines before the reply (FAKE_COPILOT_NOTICES: a JSON list of chunks), then FAKE_COPILOT_REPLY's chunks.
+      for (const c of env.FAKE_COPILOT_NOTICES ? JSON.parse(env.FAKE_COPILOT_NOTICES) : []) say(sid, c);
+      for (const c of env.FAKE_COPILOT_REPLY ? JSON.parse(env.FAKE_COPILOT_REPLY) : ['hello']) say(sid, c);
       // Its model calls' usage, as copilot 1.0.112 reports it: an \`assistant.usage\` runtime event each.
       if (subscribed.includes('assistant.usage'))
         for (const e of JSON.parse(env.FAKE_COPILOT_USAGE_EVENTS || '[]'))

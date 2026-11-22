@@ -17,8 +17,9 @@ import { writeFileSync } from 'node:fs';
  * command and subagent; `skillOverrides` "off" takes away that command; permission rules deny tools
  * by name, a server's tools by `mcp__local`) and `--setting-sources ''` (only the built-in
  * subagents).
- * FAKE_CLAUDE_LOG names a file that gets a JSON line for each start (its arguments, settings and some
- * variables: the instruction files' switch, and Anthropic's address, keys and sign-in token),
+ * FAKE_CLAUDE_LOG names a file that gets a JSON line for each start (its arguments, settings, the
+ * `--system-prompt-file`'s text and some variables: the instruction files' switch, and Anthropic's
+ * address, keys and sign-in token); FAKE_CLAUDE_PLUGIN_LOG one that gets a line for each `plugin list`,
  * for the rules applied, and for the prompt (with the rules in force when it came).
  * FAKE_CLAUDE_NO_APPLY refuses `apply_flag_settings`, as an older Claude Code would;
  * FAKE_CLAUDE_NO_PLUGINS makes `plugin list` fail; FAKE_CLAUDE_NO_AGENTS leaves `agents` out of
@@ -64,6 +65,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 const record = (o) => process.env.FAKE_CLAUDE_LOG && fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify(o) + '\\n');
 if (args[0] === 'plugin' && args[1] === 'list') {
+  if (process.env.FAKE_CLAUDE_PLUGIN_LOG) fs.appendFileSync(process.env.FAKE_CLAUDE_PLUGIN_LOG, 'listed\\n');
   if (process.env.FAKE_CLAUDE_NO_PLUGINS) { process.stderr.write('unknown command plugin'); process.exit(1); }
   process.stdout.write(JSON.stringify([{ id: 'deck@market', enabled: true, scope: 'user' }, { id: 'lsp@market', enabled: false, scope: 'project' }]));
   process.exit(0);
@@ -98,6 +100,7 @@ const envOf = (name) => (process.env[name] === undefined ? null : process.env[na
 record({
   args,
   settings,
+  systemPromptFile: flag('--system-prompt-file') ? fs.readFileSync(flag('--system-prompt-file'), 'utf8') : null,
   env: {
     CLAUDE_CODE_DISABLE_CLAUDE_MDS: process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS || null,
     ANTHROPIC_BASE_URL: envOf('ANTHROPIC_BASE_URL'),

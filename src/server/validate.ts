@@ -306,6 +306,8 @@ export function validLabs(
   const cli = parseCliSubModel(id);
   if (cli) {
     if (!hasAccount(cli.provider, cli.account)) bad(t().labsNoCliAccount(PROVIDER_LABEL[cli.provider], cli.account));
+    // A model of the user's own endpoints or API keys would go to the CLI's maker: asked on its connection instead.
+    if (cli.model && parseBackendModel(cli.model)) bad(t().labsCliConnectionModel(PROVIDER_LABEL[cli.provider], cli.model));
     return { mode: 'rlm', rlmModel: cliSubModelId(cli) };
   }
   const parsed = parseBackendModel(id);

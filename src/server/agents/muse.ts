@@ -169,11 +169,6 @@ export const MUSE_KEPT_SETTINGS = [
 const REMINDER_CAPABILITY = /^plugin:[^:]+:reminder:[^:]+$/;
 
 /**
- * Of the account's `runtime_capabilities`, its reminders' switches only (`{ enabled }`), so that a reminder
- * the user turned off stays off in Harness Relay's runs (each one sends model requests of its own: with
- * muse 1.4.18 more of a short turn's requests than the turn itself), and no other capability is turned on.
- */
-/**
  * Muse's own reminders (muse 1.4.23's `plugin:tbh-reminders` capabilities): RLM's sub-model turns each one
  * off, since each sends model requests of its own beside the turn (eight beside one question, tried).
  */
@@ -181,6 +176,11 @@ export const MUSE_REMINDERS = ['goal-reminder', 'memory', 'scope-reminder', 'ski
   (id) => `plugin:tbh-reminders:reminder:${id}`,
 );
 
+/**
+ * Of the account's `runtime_capabilities`, its reminders' switches only (`{ enabled }`), so that a reminder
+ * the user turned off stays off in Harness Relay's runs (each one sends model requests of its own: with
+ * muse 1.4.18 more of a short turn's requests than the turn itself), and no other capability is turned on.
+ */
 export function museReminderSwitches(capabilities: unknown): Record<string, { enabled: boolean }> | undefined {
   if (!isObject(capabilities)) return undefined;
   const kept = Object.entries(capabilities).flatMap(([id, v]) =>
@@ -636,8 +636,9 @@ export function museArgs(
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   const effort = o.effort?.trim();
+  // RLM's sub-model's system prompt, which may hold the code's own text, never goes on the command line (`musePromptText`).
   const briefing =
-    o.systemPrompt.trim() && briefingOnCommandLine(o.systemPrompt, platform) ? museInstructions(o.systemPrompt, o.toolless) : '';
+    !o.toolless && o.systemPrompt.trim() && briefingOnCommandLine(o.systemPrompt, platform) ? museBriefing(o.systemPrompt) : '';
   return [
     'acp',
     // RLM's sub-model: no tool at all (Muse's empty preset), and no session kept (memory only).
@@ -657,7 +658,7 @@ export function museMode(permission: Permission): string {
 
 /** The prompt text: the briefing on top when it does not go on the command line. */
 export function musePromptText(prompt: string, briefing: string, platform: NodeJS.Platform = process.platform, toolless = false): string {
-  if (!briefing.trim() || briefingOnCommandLine(briefing, platform)) return prompt;
+  if (!briefing.trim() || (!toolless && briefingOnCommandLine(briefing, platform))) return prompt;
   return `${museInstructions(briefing, toolless)}\n\n${prompt}`;
 }
 
@@ -685,6 +686,8 @@ export function museToolless(o: RunOptions): RunOptions {
     guard: undefined,
     sessionId: undefined,
     onSteer: undefined,
+    // Nothing is asked of anyone: every permission Muse asks for is refused (`museTurn`).
+    requestApproval: undefined,
   };
 }
 
@@ -1164,6 +1167,8 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const id = String(params?.toolCall?.toolCallId ?? '');
     const once = (x: { optionId: string; kind: string }) => x.kind !== 'allow_always' && x.kind !== 'reject_always';
+    // RLM's sub-model has no tool to call: whatever Muse asks about is refused, reads too.
+    if (o.toolless) return answerPermission({ allow: false, reason: 'No tools here.' }, options.filter(once));
     const call: MuseToolCall = { ...updates.call(id), ...(params?.toolCall ?? {}) };
     // The same call asked about again gets the same answer; its network is asked of its own, every time
     // (each host it would reach).

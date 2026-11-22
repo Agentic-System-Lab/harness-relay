@@ -18,6 +18,7 @@ import {
   labConnections,
   labDraft,
   labEnvName,
+  labMissingAccount,
   labModelSuggestions,
   labSourceKey,
   labSourceOf,
@@ -154,7 +155,9 @@ export function LabsCard({ providers = [], catalog = [] }: { providers?: Provide
               </option>
             ))}
             {/* A saved CLI account the list no longer has (its CLI not found now): kept, so Save does not change it unseen. */}
-            {cli && !cliAccount && <option value={sourceKey}>{l.modes.rlm.sourceCli(PROVIDER_LABEL[cli.provider], cli.account)}</option>}
+            {cli && labMissingAccount(source, accounts) && (
+              <option value={sourceKey}>{l.modes.rlm.sourceCli(PROVIDER_LABEL[cli.provider], cli.account)}</option>
+            )}
           </select>
           <label htmlFor="labs-model" className="small">
             {l.modes.rlm.model}
@@ -181,7 +184,7 @@ export function LabsCard({ providers = [], catalog = [] }: { providers?: Provide
           ) : (
             <p className="muted small">{connections.length ? l.modes.rlm.modelHint : l.modes.rlm.noConnections}</p>
           )}
-          {!cli && model.trim() && draft.problem && <p className="error-line">{l.problems[draft.problem]}</p>}
+          {model.trim() && draft.problem && <p className="error-line">{l.problems[draft.problem]}</p>}
         </div>
       )}
 

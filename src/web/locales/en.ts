@@ -1297,6 +1297,8 @@ export const en: Messages = {
     problems: {
       model: 'Write it as "backend/model", such as anthropic/claude-haiku-5-5.',
       connection: 'That backend is not in Model connections: add it under Settings → Model connections first.',
+      cliModel:
+        "That is a model of your own endpoints or API keys, which the CLI would send to its own service: choose a model connection instead, or name one of the CLI's own models.",
     },
     saved: "Saved. It applies from the assistant's next turn.",
   },
