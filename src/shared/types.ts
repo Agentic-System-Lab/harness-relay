@@ -1350,6 +1350,10 @@ export interface FileListing {
   entries: FileEntry[];
   /** The folder has more entries than are listed. */
   truncated: boolean;
+  /** The Files panel may change files in this root (edit, new file, upload): never an agent's worktree. */
+  writable?: boolean;
+  /** Why it may not, when it is a working directory (one that holds Harness Relay, the home folder…). */
+  readOnly?: string;
 }
 
 export type FilePreviewKind = 'text' | 'image' | 'video' | 'binary';
@@ -1362,6 +1366,11 @@ export interface FilePreview {
   /** For text: the content (the beginning, when `truncated`). */
   text?: string;
   truncated?: boolean;
+  /**
+   * The file's version (a hash of its bytes), when the Files panel can edit it: whole, valid UTF-8 text
+   * of at most `FILE_EDIT_LIMITS.maxEditBytes`, reached through no link. A save names it (`FileSaveRequest`).
+   */
+  version?: string;
 }
 
 /**
@@ -1369,6 +1378,55 @@ export interface FilePreview {
  * downloaded as a ZIP file may hold (it is streamed, and stays well under ZIP's 4 GB and 65,535 entries).
  */
 export const FILE_LIMITS = { maxEntries: 2000, maxPreviewBytes: 512 * 1024, zipItems: 10_000, zipBytes: 1024 * 1024 * 1024 };
+
+/**
+ * Changing files from the Files panel. `maxEditBytes`: the largest text file it edits, in UTF-8 bytes:
+ * what its preview shows whole (`maxPreviewBytes`), so that a file it saved always opens for editing
+ * again; about 10,000 lines of a CSV, which a phone's text box still edits smoothly and a save sends
+ * in one JSON body. `maxUploadBytes`: the largest file uploaded, as for an attachment
+ * (`ATTACHMENT_LIMITS.maxBytes`): a phone's photo or a PDF, base64 in one JSON body of about 27 MB.
+ * `maxUploadFiles`: the most files one pick or drop takes; they go up one at a time.
+ */
+export const FILE_EDIT_LIMITS = { maxEditBytes: FILE_LIMITS.maxPreviewBytes, maxUploadBytes: 20 * 1024 * 1024, maxUploadFiles: 20 };
+
+/** Saving a text file from the Files panel (`PUT /api/conversations/:id/files/text`). */
+export interface FileSaveRequest {
+  /** A `FileRoot.id` of a working directory (`cwd` when absent). */
+  root?: string;
+  /** The file, relative to the root, with `/`. */
+  path: string;
+  text: string;
+  /** The version the text was loaded at (`FilePreview.version`); null makes a new file, refused when one is there. */
+  version: string | null;
+}
+
+/** Uploading a file into a folder from the Files panel (`POST /api/conversations/:id/files/upload`). */
+export interface FileUploadRequest {
+  root?: string;
+  /** The folder, relative to the root ('' = the root). */
+  dir: string;
+  name: string;
+  /** Base64 contents, as attachments send them. */
+  data: string;
+  /** Replace a file of that name, which the user agreed to; without it, one there is a 409 `FILE_EXISTS`. */
+  replace?: boolean;
+}
+
+/** A file the Files panel wrote. */
+export interface FileWritten {
+  path: string;
+  size: number;
+  mtime: number;
+  /** Its version now, for the next save (text files the panel edits). */
+  version: string;
+}
+
+/** The error `code` (409) for a save whose file changed since it was loaded: reload it. */
+export const FILE_CHANGED = 'file-changed';
+/** The error `code` (409) for a new file or an upload whose name is taken (`replace` not given). */
+export const FILE_EXISTS = 'file-exists';
+/** The error `code` (409) for a write while a run may be writing in that folder. */
+export const FOLDER_BUSY = 'folder-busy';
 
 /** How many files a folder's ZIP holds, and their size before compression. */
 export interface ZipSize {

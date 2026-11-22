@@ -41,6 +41,9 @@ import type {
   FileChange,
   FileListing,
   FilePreview,
+  FileSaveRequest,
+  FileUploadRequest,
+  FileWritten,
   GitInstallView,
   GitRequirement,
   GrokFolderTrust,
@@ -734,6 +737,10 @@ export const api = {
   /** A folder as a ZIP file; `unignored`: only what git does not ignore. */
   zipUrl: (id: string, root: string, path: string, unignored = false) =>
     `/api/conversations/${id}/files/zip?${fileQuery(root, path)}${unignored ? '&unignored=1' : ''}`,
+  /** Saves a text file over the version it was loaded at, or (`version: null`) makes a new one. */
+  saveFile: (id: string, file: FileSaveRequest) => request<FileWritten>('PUT', `/api/conversations/${id}/files/text`, file),
+  /** Uploads one file into a folder (base64); `replace` once the user agreed to replace one there. */
+  uploadFile: (id: string, file: FileUploadRequest) => request<FileWritten>('POST', `/api/conversations/${id}/files/upload`, file),
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
