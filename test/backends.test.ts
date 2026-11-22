@@ -795,6 +795,25 @@ describe('an open agent’s environment', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("never gets the ports npm run dev set for its own server and Vite, which another checkout's npm run dev would take for its own", () => {
+    vi.stubEnv('npm_lifecycle_event', 'dev');
+    vi.stubEnv('PORT', '8790');
+    vi.stubEnv('RELAY_DEV_WEB_PORT', '5174');
+    try {
+      const s = new SettingsStore(db);
+      for (const p of ['claude', 'codex', 'goose'] as const) {
+        expect(s.env(p).PORT, p).toBeUndefined();
+        expect(s.env(p).RELAY_DEV_WEB_PORT, p).toBeUndefined();
+      }
+      // Under npm start (and in the desktop app), PORT reaches the CLIs as it always did.
+      vi.stubEnv('npm_lifecycle_event', 'start');
+      expect(s.env('claude').PORT).toBe('8790');
+      expect(s.env('claude').RELAY_DEV_WEB_PORT).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('masked keys and endpoint addresses', () => {
