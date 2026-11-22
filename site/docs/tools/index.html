@@ -336,6 +336,7 @@
                     <summary>Labs: experimental features</summary>
                     <ol>
                       <li><a href="#labs" aria-label="Labs: experimental features overview">Overview</a></li>
+                      <li><a href="#labs-tools">How assistants use Harness Relay's tools</a></li>
                       <li><a href="#long-term-memory">Long-term memory</a></li>
                     </ol>
                   </details>
@@ -670,10 +671,23 @@
           <h2 id="labs-title">Labs: experimental features</h2>
           <p>
             <b>Settings &amp; sign-in → Labs</b>, the last card, holds features that are still experimental, each off until you
-            turn it on: the ways agents use Harness Relay's tools, under <b>How assistants use Harness Relay's tools</b>, and
-            <a href="#long-term-memory">long-term memory</a> below them. Only one way to use the tools can be on at a time, and
-            a change applies from an agent's next turn. They change only how agents use Harness Relay's tools on this page, so
-            an agent needs some of them first.
+            turn it on. It has two parts, each described below:
+          </p>
+          <ul>
+            <li><a href="#labs-tools">How assistants use Harness Relay's tools</a>: let agents script the tools, or read a long
+              text in parts, one at a time.</li>
+            <li><a href="#long-term-memory">Long-term memory</a>: notes agents keep for later chats.</li>
+          </ul>
+          <p><a href="../../assets/media/docs/tools-labs-desktop-en.webp">Labs on desktop</a> · <a href="../../assets/media/docs/tools-labs-phone-en.webp">Labs on a phone</a></p>
+        </section>
+
+        <section id="labs-tools" aria-labelledby="labs-tools-title">
+          <h2 id="labs-tools-title">How assistants use Harness Relay's tools</h2>
+          <p>
+            In <b>Settings &amp; sign-in → Labs → How assistants use Harness Relay's tools</b>, only one of these can be on at a
+            time, and a change applies from an agent's next turn. They change only how agents use Harness Relay's tools on this
+            page, so an agent needs some of them first. With <b>Off (default)</b>, agents call one tool at a time, and every step
+            shows in the chat.
           </p>
           <ul>
             <li>
@@ -696,7 +710,6 @@
             </li>
           </ul>
           <p>Neither works on Windows, nor where Harness Relay's own sandbox cannot start: on Linux it needs bubblewrap, which <b>Settings → Sandboxes</b> installs. The card says so.</p>
-          <p><a href="../../assets/media/docs/tools-labs-desktop-en.webp">Labs on desktop</a> · <a href="../../assets/media/docs/tools-labs-phone-en.webp">Labs on a phone</a></p>
         </section>
 
         <section id="long-term-memory" aria-labelledby="long-term-memory-title">

@@ -440,7 +440,8 @@ describe('the docs', () => {
       'per-member',
       'own-setup',
       'labs',
-      // Long-term memory is a part of Labs.
+      // Labs' two parts.
+      'labs-tools',
       'long-term-memory',
     ];
     const pages = docs.filter((d) => d.path === 'docs/tools/');
