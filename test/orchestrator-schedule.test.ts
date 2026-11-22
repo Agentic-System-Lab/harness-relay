@@ -8,7 +8,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
+import { HttpError } from '../src/server/errors';
+import { TEAM_WORKTREE, type Conversation, type ConversationSchedule, type ConversationSettings } from '../src/shared/types';
 import {
   agentMessages,
   agents,
@@ -399,22 +400,20 @@ describe('schedules', () => {
       `The automation's messages from ${at(4)} to ${at(5)} (2 times) were not sent: the team is not confirmed yet.`,
     ]);
 
-    // Another reason, with nothing between: another conversation is changing the folder.
+    // Another reason, with nothing between: the new chat's run cannot start for now.
     conv.agents = team;
     store.saveMeta(conv);
-    const writer = conversation({ mode: 'roundtable', permission: 'edit' });
-    hold('Alice');
-    const before = calls.length;
-    await orchestrator.send(writer.id, 'go');
-    await vi.waitFor(() => expect(calls.length).toBe(before + 1));
-    await tickAt(6); // busy: tried again for a while
-    now = T0 + 6 * HOUR + BUSY_RETRY_MS + 1000;
-    await running.tick();
-    expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: expect.stringMatching(/is changing/) });
+    const busy = vi.spyOn(orchestrator, 'prepareWorkspace').mockRejectedValue(new HttpError(409, 'the folder is busy'));
+    try {
+      await tickAt(6); // busy: tried again for a while
+      now = T0 + 6 * HOUR + BUSY_RETRY_MS + 1000;
+      await running.tick();
+    } finally {
+      busy.mockRestore();
+    }
+    expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the folder is busy' });
     expect(notes(conv)).toHaveLength(4);
-    expect(notes(conv)[3]).toMatch(new RegExp(`^The automation's message of ${at(6)} was not sent: .*is changing`));
-    orchestrator.stop(writer.id);
-    await finish(writer.id);
+    expect(notes(conv)[3]).toBe(`The automation's message of ${at(6)} was not sent: the folder is busy.`);
   });
 
   it('starts a note of its own once the user saves the schedule, with its times kept too, or switches it off and on', async () => {
@@ -661,13 +660,37 @@ describe('schedules', () => {
     expect(notes(conv).some((n) => n.includes('still waiting'))).toBe(false);
   });
 
-  it('waits while another conversation writes in the same folder, and gives up after a while', async () => {
+  it('sends its message while another conversation writes in the same folder: its team works in a worktree of its own', async () => {
     const writer = conversation({ mode: 'roundtable', permission: 'edit' });
+    writer.agents = [writer.agents[0]!];
     const conv = conversation({ mode: 'roundtable', permission: 'edit' });
     schedule(conv);
-    hold('Alice');
+    const alice = hold('Alice');
     await orchestrator.send(writer.id, 'go'); // holds the folder
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    delete fake.gates.Alice; // the schedule's Alice does not wait
+
+    now = T0 + HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(conv.schedule).toMatchObject({ lastResult: 'sent', nextRunAt: T0 + 2 * HOUR });
+    const team = conv.worktrees[TEAM_WORKTREE]!;
+    expect(team).toHaveLength(1);
+    expect(calls.slice(1).map((c) => [c.name, c.cwd])).toEqual([
+      ['Alice', team[0]!.path],
+      ['Bob', team[0]!.path],
+    ]);
+    // Bob's changes (Alice wrote what the writer's Alice had already written there) are on the team's branch.
+    expect(agentMessages(conv).at(-1)!.changes).toMatchObject([{ isolated: true, branch: team[0]!.branch }]);
+    alice();
+    await finish(writer.id);
+  });
+
+  it('waits while a change is being made to the conversation, and gives up after a while', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    schedule(conv);
+    let done!: () => void;
+    const changing = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (done = r)));
 
     now = T0 + HOUR;
     await scheduler().tick();
@@ -684,11 +707,11 @@ describe('schedules', () => {
     now = T0 + HOUR + BUSY_RETRY_MS + 1000;
     await s.tick(); // given up
     expect(conv.schedule).toMatchObject({ lastResult: 'skipped', nextRunAt: T0 + 2 * HOUR });
-    expect(conv.schedule!.lastError).toMatch(/is changing/);
+    expect(conv.schedule!.lastError).toMatch(/busy with a settings change/);
     expect(notes(conv)).toHaveLength(1);
     expect(notes(conv)[0]).not.toMatch(/\.\.$/); // one full stop
-    orchestrator.stop(writer.id);
-    await finish(writer.id);
+    done();
+    await changing;
   });
 
   it('stays queued after an answer to a question the team was not asked as a whole, until the agent it is for speaks', async () => {
@@ -775,22 +798,17 @@ describe('schedules', () => {
   });
 
   it('retries a time that is already late when the conversation is busy, and sends it once free', async () => {
-    const writer = conversation({ mode: 'roundtable', permission: 'edit' });
     const conv = conversation({ mode: 'roundtable', permission: 'edit' });
     schedule(conv, { missed: 'run' });
-    const alice = hold('Alice');
-    await orchestrator.send(writer.id, 'go');
-    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
-    now = T0 + HOUR + 3 * MISSED_AFTER_MS; // the server was off; the folder is taken
+    let done!: () => void;
+    const changing = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (done = r)));
+    now = T0 + HOUR + 3 * MISSED_AFTER_MS; // the server was off; a change is being made to the conversation
     const s = scheduler();
     await s.tick();
     expect(conv.schedule!.lastResult).toBeUndefined();
-    // Something the user sends meanwhile is not left in a queue nobody runs.
-    await expect(orchestrator.send(conv.id, 'hello')).rejects.toThrow(/正在修改|is changing/);
-    expect(conv.queue ?? []).toEqual([]);
 
-    alice();
-    await finish(writer.id);
+    done();
+    await changing;
     now += 60_000;
     await s.tick();
     await finish(conv.id);
@@ -1212,28 +1230,27 @@ describe('schedules', () => {
       await finish(conv.schedule!.lastChatId!);
     });
 
-    it('waits while this or another conversation writes in the same folder, and leaves no chat behind', async () => {
+    it("opens its chat while this conversation writes in the same folder: the new chat's team works in a worktree of its own", async () => {
       const conv = solo({ permission: 'edit' });
       schedule(conv, { newChat: true });
       const alice = hold('Alice');
       await orchestrator.send(conv.id, 'go'); // this conversation writes in the folder
       await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+      delete fake.gates.Alice; // the new chat's Alice does not wait
 
       now = T0 + HOUR;
-      const s = scheduler();
-      await s.tick();
-      expect(opened(conv)).toEqual([]);
-      expect(conv.schedule!.lastResult).toBeUndefined(); // tried again at the next look
-
-      alice();
-      await finish(conv.id);
-      now += 60_000;
-      await s.tick();
+      await scheduler().tick();
       const chat = store.get(conv.schedule!.lastChatId!)!;
       await finish(chat.id);
-      expect(said(chat)).toEqual(['note', 'scheduled check', '@Alice']);
       expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: T0 + HOUR });
-      expect(chat.title).toBe(`test · ${scheduleTime(T0 + HOUR, conv.schedule!)}`); // the time it came due, not when it went out
+      expect(chat.title).toBe(`test · ${scheduleTime(T0 + HOUR, conv.schedule!)}`);
+      const team = chat.worktrees[TEAM_WORKTREE]!;
+      expect(calls.at(-1)).toMatchObject({ name: 'Alice', cwd: team[0]!.path });
+      // Said why, after the scheduled message.
+      expect(said(chat)).toEqual(['note', 'scheduled check', 'note', '@Alice']);
+      expect(textOf(chat.messages[2]!)).toContain('worktree');
+      alice();
+      await finish(conv.id);
     });
 
     it('removes a chat whose run could not start after all: the server began to stop meanwhile', async () => {

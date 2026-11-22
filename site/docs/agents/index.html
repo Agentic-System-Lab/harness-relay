@@ -248,6 +248,7 @@
               <ol>
                 <li><a href="#open-agents" aria-label="Model connections overview">Overview</a></li>
                 <li><a href="#agents-on-your-server">Other agents can use your own models</a></li>
+                <li><a href="#context-windows">Context windows of your own models</a></li>
               </ol>
             </details>
           </li>
@@ -271,6 +272,7 @@
               </ol>
             </details>
           </li>
+          <li><a href="#subagents">Subagents and workflows</a></li>
         </ol>
       </nav>
 
@@ -453,6 +455,23 @@
             Claude Code, Codex and Copilot then need no sign-in; Grok still needs its own. Cursor, Antigravity and Muse Code
             run on their own services only.
           </p>
+          <h3 id="context-windows">Context windows of your own models</h3>
+          <p>
+            Under <b>Context windows and output limits</b>, each model you chose on an endpoint has the most tokens it can hold
+            at once and the most one answer may have. <b>Save</b> reads the context window from the server where it reports
+            one (vLLM and llama.cpp do); a number you type wins. The open-source agents then compact their conversation before
+            a small model's window is full, and keep long tool output within it.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/agents-context-en.webp"
+              width="910"
+              height="338"
+              alt="Context windows and output limits of an endpoint's two models: one typed in, 16,384 tokens with an output limit of 4,096, and one read from the server, 32,768."
+              loading="lazy"
+            />
+            <figcaption>A value you type wins over the one the server reports.</figcaption>
+          </figure>
         </section>
 
         <section id="accounts" aria-labelledby="accounts-title">
@@ -477,7 +496,10 @@
             <b>Check again</b> asks anew. An account on an API key (Claude Code, Codex, Grok, Antigravity, Muse Code) has no plan
             limits: its provider bills the key by use, so see the balance in the provider's console. Copilot on a GitHub
             token shows that GitHub account's plan. For Cursor, the box names the plan only, and nothing for an account on a
-            Cursor API key.
+            Cursor API key. A limit used up that the agent keeps running past, billed (credits, Claude Code's usage credits,
+            Copilot's additional paid usage, Grok's pay-as-you-go, Antigravity's AI credits once Use AI Credits is on), says
+            <b>Plan limit reached</b> and what it uses instead; the lead agent still staffs that account, but prefers others
+            that fit as well, since each turn costs money.
           </p>
         </section>
 
@@ -507,6 +529,32 @@
           </figure>
         </section>
 
+        <section id="subagents" aria-labelledby="subagents-title">
+          <h2 id="subagents-title">Subagents and workflows</h2>
+          <p>
+            Most agents can hand part of a turn to subagents of their own, and Claude Code and Grok can run whole workflows of them.
+            Each account's box has <b>Subagents and workflows</b>: its subagents are on by default, and Claude Code's and
+            Grok's workflows, which can run a dozen subagents at once, are off until you turn them on. <b>Ultracode</b> has Claude
+            Code plan a workflow for every substantial task. What a subagent does shows in the chat under the step that
+            started it.
+          </p>
+          <p>
+            Below full access Harness Relay always turns off the subagents of Codex, Grok, OpenCode, OpenHands and Cline,
+            which could otherwise act without asking or outside the protections of the chat. Cursor, Antigravity, Copilot
+            and Muse Code have no switch for them, and the box says so.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/agents-subagents-en.webp"
+              width="880"
+              height="301"
+              alt="The Subagents and workflows box of Claude Code's account: its own subagents on, workflows on, and Ultracode off."
+              loading="lazy"
+            />
+            <figcaption>The switches apply to Harness Relay's runs only; the agent's own settings stay as they are.</figcaption>
+          </figure>
+        </section>
+
         <aside class="doc-more" aria-label="Technical details">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
@@ -515,6 +563,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in">Sign in to each agent</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#model-connections">Model connections</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#more-than-one-account">More than one account</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#subagents-and-workflows">Subagents and workflows</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.md">Open agents</a></li>
             </ul>
           </div>

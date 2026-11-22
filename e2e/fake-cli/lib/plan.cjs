@@ -43,6 +43,10 @@ const DIRECTIVES = {
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
   mcpserver: 'choose the server for an e2e:mcp call; defaults to the Relay gateway',
   mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
+  subagent:
+    "hand the look around to a subagent (Explore, on haiku) that lists the working directory and reads its README, the reading taking `=<seconds>` (one by default), and then a subagent of its own that searches; then report that the CLI compacted its context (Claude Code's fake only)",
+  steer:
+    'wait in the turn, about ten seconds (`=<seconds>` for another time), for a message sent into it (steering), then answer, saying what it heard (Claude Code’s and Codex’s fakes; the others answer at once)',
 };
 
 function directivesIn(text) {
@@ -254,6 +258,7 @@ function plan(prompt, turn) {
     });
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
+  if (d.subagent) steps.push({ type: 'subagent', output: safeList(turn.cwd), wait: slowMs(d.subagent === true ? 1 : d.subagent) });
   if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   if (typeof d.mcp === 'string') {
@@ -298,6 +303,8 @@ function plan(prompt, turn) {
   }
   if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
+  // After its answer, the turn waits for a message sent into it, and answers that too.
+  if (d.steer) steps.push({ type: 'steer', wait: slowMs(d.steer) });
   return steps;
 }
 
@@ -407,6 +414,37 @@ function pieces(text, slow) {
 /** The wait after each piece: a slow reply's time spread over its pieces. */
 const pieceDelay = (slow) => (slow ? slow / SLOW_PIECES : 15);
 
+/**
+ * The messages sent into a running turn (steering), as a fake that takes them keeps them: `take` one as
+ * it comes (Harness Relay's text, with its id in the CLI's protocol), and a `steer` step `wait`s for one
+ * (or its time); `rest` is what came and no step took, which the turn takes in before it ends. `heard`:
+ * what the reply says about them.
+ */
+function steerBox() {
+  const came = [];
+  let wake;
+  return {
+    take(text, id) {
+      const said = lastUserMessage(text);
+      came.push({ id, text: said === undefined ? text : withoutDirectives(said) });
+      record({ steered: text });
+      if (wake) wake();
+    },
+    async wait(ms) {
+      if (!came.length) {
+        await new Promise((resolve) => {
+          wake = resolve;
+          setTimeout(resolve, ms).unref();
+        });
+      }
+      wake = undefined;
+      return came.splice(0);
+    },
+    rest: () => came.splice(0),
+  };
+}
+const heard = (messages) => messages.map((m) => ` I also heard: “${m.text}”.`).join('');
+
 /** The note the user gave with a decline, as Harness Relay passes it on ("Their message: …"). */
 function noteIn(message) {
   const m = /Their message: (.*?)(?: Do not retry|$)/s.exec(String(message || ''));
@@ -434,6 +472,8 @@ module.exports = {
   pieceDelay,
   slowMs,
   noteIn,
+  steerBox,
+  heard,
   declined,
   noOther,
   wrote,

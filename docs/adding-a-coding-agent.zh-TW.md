@@ -42,6 +42,11 @@
 | **同一個呼叫被問兩次**？ | 使用者只該被問一次，兩次請求得到同樣的回答。 | Muse Code 對寫到工作區外的指令，會用同一個 `toolCallId` 問兩次；它問指令能不能連網時也用那個 `toolCallId`，那個請求必須得到它自己的回答。 |
 | 它在工作目錄裡**留下**什麼？ | 使用者沒要的檔案或資料夾；空的 `.hg` 或 `.sl` 可能被版本控制工具當成 repository。 | Muse Code 在 Linux 上的 bubblewrap 會留下空的 `.agents`、`.muse`、`.hg`、`.sl` 與 `.eden` 資料夾；它的 adapter 會移除這一輪之前不存在的那些。 |
 | 能不能跑在使用者**自己的端點**上？ | 成員能不能用端點的模型（「設定」→「模型連線」）；CLI 會把推論請求直接送到該端點，所以要確認它需要哪些 API 路徑。 | Muse Code 用 Responses API，但會先抓只有 Meta API 提供的模型目錄（`/muse-code/models`），所以只能跑在 Meta 的服務上。 |
+| **Subagent 與 workflow**：它有沒有、有沒有能單次全部關掉（內建的也包括）的開關，它們是否和 agent 一樣會詢問、在它的沙箱裡執行，並在它的回合結束前結束？ | 帳號的 subagent 開關（`NATIVE_OFF_SUPPORT` 裡的 `subagents`）、它們不經詢問就行動或會隨回合遺失時的 `SUBAGENTS_FULL_ACCESS_ONLY`、workflow 的 `NATIVE_ON_SUPPORT`，以及簡報裡要它等待的規則（`SUBAGENT_WAIT_RULE`）。 | Cline 的 `spawn_agent` 沒讓它的 subagent 詢問，所以它的 subagent 只在完全存取時開啟；Grok 的在背景執行並會喚醒它；Claude Code 的 `-p` 會等它的背景工作，包括背景指令。 |
+| 它會不會回報**subagent 的呼叫**（以及是哪一次呼叫啟動的）與**它自己這次執行的狀況**（壓縮、重試、換模型）？ | `tool_start` 的 `parentId`、`agent` 與 `model`，以及 `notice` 事件。 | Claude Code 的 `parent_tool_use_id`、Codex 的 subagent thread、Cursor 的 `subagents` 能力；OpenCode、Goose 與 Cline 在 ACP 下都沒有標記。 |
+| 訊息能不能送進它**進行中的回合**（引導），它會不會說它收下了？ | `STEER_PROVIDERS` 與 `RunOptions.onSteer`；它拒絕的訊息在佇列裡等待。 | Codex 的 `turn/steer`、Claude Code 帶 `priority` 的 stream-json 使用者訊息；新的 prompt 會取消 Cursor 的回合。 |
+| 每位成員的**上限**（費用、credits、回合、步數）、回答的 **JSON 形狀**、端點模型的**上下文長度**？ | `AGENT_LIMITS`、`RunOptions.outputSchema`，以及 `src/server/contextWindow.ts` 交給它的轉接器寫入的內容。 | Claude Code 的 `--max-budget-usd` 與 `--json-schema`；OpenCode 的 `limit.context`；Goose 的 `context_limit`。 |
+| 它自己的**提問表單**、**目標**或**計畫工具**？ | 提問表單送到使用者面前時是一張得不到答案的核准卡，或根本送不到：把它關掉，簡報會要 agent 在回覆裡提問；它的目標會自己接續 thread；它的計畫工具開啟時會成為回覆的計畫。 | Claude Code 的 `AskUserQuestion`、Codex 的 `request_user_input` 與目標、Copilot 的 `ask_user`（`--no-ask-user`）；Cursor 的 `cursor/update_todos`。 |
 
 **沒有付費帳號時**，若 CLI 能設定 base URL，就讓它連到模型 API 的模擬伺服器（Antigravity 是用 Gemini API key 搭配一個照腳本回應的 Gemini API 模擬伺服器探索的，順便看到它送出的系統提示與工具；Copilot 則是用它自己那組「使用者自己的模型供應商」變數，連到一個照腳本回應的 OpenAI 相容 API 模擬伺服器；Muse Code 則用假的 Meta API key 搭配 Meta API 的模擬伺服器：它的 Responses API 與模型目錄），或是 OpenAI 相容的 CLI 連到本機模型伺服器（Ollama、vLLM）。用這種方式確認不了的部分（真正的登入、真正的模型），要在文件裡寫明。
 

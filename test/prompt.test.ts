@@ -9,6 +9,7 @@ import {
   isPass,
   parseMentions,
   renderMessage,
+  subagentRules,
   trackingSection,
 } from '../src/server/prompt';
 import { ASK_TOKEN, splitAsk } from '../src/shared/ask';
@@ -164,6 +165,18 @@ describe('isForwardable', () => {
   });
 });
 
+describe('the rule about waiting for its own subagents', () => {
+  it('asks the CLIs whose subagents can still be at work when the reply ends, unless they are off for the run', () => {
+    for (const provider of ['antigravity', 'grok', 'muse'] as const) expect(subagentRules(provider)).toMatch(/wait for every one of them/);
+    expect(subagentRules('grok', ['subagents'])).toBe('');
+    for (const provider of ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'goose', 'cline', 'openhands', 'pi'] as const)
+      expect(subagentRules(provider)).toBe('');
+    const agy = { ...team[0]!, provider: 'antigravity' as const };
+    expect(buildBriefing({ ...conv, agents: [agy, team[1]!] }, agy)).toContain('wait for every one of them to finish');
+    expect(buildBriefing(conv, team[0]!)).not.toContain('wait for every one of them');
+  });
+});
+
 describe('buildBriefing', () => {
   it('includes the Drive and Teams confirmation rules only for the groups actually granted to this turn', () => {
     const withGroups = (groups: ('drive' | 'teams')[]) => buildBriefing(conv, team[0]!, undefined, { skills: [], grantedGroups: groups });
@@ -192,6 +205,34 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('isolated git worktree: /wt/builder (branch relay/c/Builder)');
     expect(briefing).toContain("snapshot (111111111111) of the user's working directory /work");
     expect(briefing).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222)');
+  });
+
+  it("tells the team it works in the conversation's own worktree, which its members share, while another conversation changes the folder", () => {
+    const own = buildBriefing({ ...conv, settings: { ...conv.settings, permission: 'edit' } }, team[0]!, {
+      kind: 'team',
+      folders: [{ cwd: '/wt/@team-1/work', userCwd: '/work', branch: 'relay/c/@team', base: '1111111111111111' }],
+    });
+    expect(own).toContain(
+      "- Another conversation was changing the user's working directory, so this conversation's team works in its OWN git worktree, a copy of it: /wt/@team-1/work (branch relay/c/@team), from a snapshot (111111111111) of the user's working directory /work, which you must not modify.",
+    );
+    expect(own).toContain('- All agents of this conversation share this worktree and take turns in it.');
+    expect(own).toContain('Files git ignores (installed dependencies, build output) are not in the copy');
+    expect(own).toContain(
+      "committed to the branch automatically after each turn; the user reviews them and applies the team's result to the working directory",
+    );
+    expect(own).not.toContain('Teammates work in parallel');
+    const several = buildBriefing({ ...conv, settings: { ...conv.settings, extraCwds: ['/docs'] } }, team[0]!, {
+      kind: 'team',
+      folders: [
+        { cwd: '/wt/@team-1/work', userCwd: '/work', branch: 'relay/c/@team', base: '1111111111111111' },
+        { cwd: '/wt/@team-2/docs', userCwd: '/docs', branch: 'relay/c/@team', base: '3333333333333333' },
+      ],
+    });
+    expect(several).toContain(
+      'works in its OWN git worktrees, copies of them, which you must not modify:\n  - /wt/@team-1/work (branch relay/c/@team), from a snapshot (111111111111) of /work\n  - /wt/@team-2/docs',
+    );
+    expect(several).toContain('You start in /wt/@team-1/work; use full paths for the others.');
+    expect(several).toContain('share these worktrees and take turns in them');
   });
 
   it('names every working directory, shared or in worktrees of its own', () => {
@@ -535,5 +576,13 @@ describe('team checks in the briefing', async () => {
     expect(checkRuleLines(list, 'roundtable', 'linux').some((l) => l.includes('`npm test`'))).toBe(true);
     expect(checkRuleLines(list, 'roundtable', 'win32').some((l) => l.includes('npm test'))).toBe(false);
     expect(checkRuleLines(list, 'parallel', 'linux').find((l) => l.includes('npm test'))).toContain("when a member's result is applied");
+  });
+
+  it("gives a team in the conversation's own worktree the rules as they are checked there: no commit format, the commands at the apply", () => {
+    const list = { commitPattern: '^feat', commands: [{ id: 'c', run: 'npm test' }] };
+    expect(checkRuleLines(list, 'roundtable', 'linux').some((l) => l.includes("Every commit's subject"))).toBe(true);
+    const team = checkRuleLines(list, 'team', 'linux');
+    expect(team.some((l) => l.includes("Every commit's subject"))).toBe(false);
+    expect(team.find((l) => l.includes('npm test'))).toContain("when the team's result is applied");
   });
 });

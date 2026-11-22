@@ -84,7 +84,8 @@ let current;
 async function gateRun(cmd) {
   const handlers = {};
   const mod = await import(pathToFileURL(gatePath).href);
-  mod.default({ registerCommand: () => undefined, on: (ev, h) => (handlers[ev] = h) });
+  const tools = {};
+  mod.default({ registerCommand: () => undefined, registerTool: (tool) => (tools[tool.name] = tool), on: (ev, h) => (handlers[ev] = h) });
   respond(cmd, { disposition: 'started' });
   send({ type: 'agent_start' });
   if (env.FAKE_PI_UI_OTHER) {
@@ -97,14 +98,16 @@ async function gateRun(cmd) {
     send({ type: 'tool_execution_start', toolCallId: call.toolCallId, toolName: call.toolName, args: call.input });
     let result;
     try {
-      result = await handlers.tool_call({ type: 'tool_call', toolName: call.toolName, toolCallId: call.toolCallId, input: call.input }, { hasUI: true, signal: ac.signal, ui });
+      // Pi runs a call no handler blocks (the gate adds none with HARNESS_RELAY_PI_UNGATED=1).
+      result = handlers.tool_call ? await handlers.tool_call({ type: 'tool_call', toolName: call.toolName, toolCallId: call.toolCallId, input: call.input }, { hasUI: true, signal: ac.signal, ui }) : undefined;
     } catch (err) {
       result = { block: true, reason: 'Extension failed, blocking execution: ' + err.message };
     }
     if (ac.signal.aborted) { send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content: [{ type: 'text', text: 'Operation aborted' }] }, isError: true }); break; }
     if (result && result.block) send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content: [{ type: 'text', text: result.reason }], details: {} }, isError: true });
     else {
-      let content = [{ type: 'text', text: 'ran ' + call.toolName }];
+      // A tool the gate registered (its plan tool) runs its own execute, as Pi does.
+      let content = tools[call.toolName] ? (await tools[call.toolName].execute(call.toolCallId, call.input)).content : [{ type: 'text', text: 'ran ' + call.toolName }];
       if (handlers.tool_result) {
         const patch = await handlers.tool_result({ type: 'tool_result', toolName: call.toolName, toolCallId: call.toolCallId, input: call.input, content, isError: false }, { hasUI: true, signal: ac.signal, ui });
         if (patch && patch.content) content = patch.content;

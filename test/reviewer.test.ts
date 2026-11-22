@@ -225,6 +225,21 @@ describe("turning the lead's answer into a review", () => {
     expect(() => parseReviewReply('All good.', replies)).toThrow();
     expect(() => parseReviewReply('{"foo": 1}', replies)).toThrow();
   });
+
+  it('reads the structured answer its CLI gave, its nulls as fields left out, and the text without one', () => {
+    const shaped = {
+      summary: 'ok',
+      highlights: [{ kind: 'risk', reply: null, quote: null, note: 'Check the migration.' }],
+      nextSteps: [{ text: 'Deploy', by: 'user', message: null }],
+    };
+    expect(parseReviewReply('', replies, shaped)).toEqual({
+      summary: 'ok',
+      highlights: [{ kind: 'risk', note: 'Check the migration.' }],
+      nextSteps: [{ text: 'Deploy', by: 'user' }],
+    });
+    expect(parseReviewReply('{"summary": "from the text"}', replies, 'not an object')).toMatchObject({ summary: 'from the text' });
+    expect(() => parseReviewReply('All good.', replies, undefined)).toThrow();
+  });
 });
 
 describe('the marks in the chat', () => {
@@ -466,6 +481,20 @@ describe('where a first review starts', () => {
     expect(prompt).toContain('- @Alice: /wt/a, /wt/a2');
     expect(prompt).toContain("or a member's worktrees above");
     expect(buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' })).not.toContain('worktrees');
+  });
+
+  it("tells the lead where the team's changes are when it worked in the conversation's own worktrees", () => {
+    const m = reviewMaterial([user('u', 'go'), reply('r', 'Alice', 'done')]);
+    const one = buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' }, [], ['/wt/team/w']);
+    expect(one).toContain(
+      "The team worked in this conversation's own git worktree (another conversation was changing the working directories)",
+    );
+    expect(one).toContain('You may read it: /wt/team/w');
+    expect(one).toContain("or the team's worktree above");
+    expect(one).not.toContain('each member in git worktrees of its own');
+    const two = buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w', extraCwds: ['/d'] }, [], ['/wt/team/w', '/wt/team2/d']);
+    expect(two).toContain('own git worktrees');
+    expect(two).toContain('You may read them: /wt/team/w, /wt/team2/d');
   });
 });
 

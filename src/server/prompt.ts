@@ -2,6 +2,7 @@ import {
   CHECK_RESULT_LIMITS,
   HOOK_PROVIDERS,
   PROVIDER_LABEL,
+  TEAM_WORKTREE,
   TRACKING_LIMITS,
   isInlineImage,
   type AgentConfig,
@@ -57,6 +58,15 @@ function roleSummary(role: string): string {
   return first.length > 160 ? first.slice(0, 159) + '…' : first || '(no specific role)';
 }
 
+/**
+ * Whether the team works in the conversation's own worktrees (`TEAM_WORKTREE`) and not in the working
+ * directories: it has some not marked for a reset, outside parallel mode, with write access.
+ */
+function teamWorksApart(conv: Conversation): boolean {
+  if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return false;
+  return Boolean(conv.worktrees[TEAM_WORKTREE]?.some((w) => !w.needsReset));
+}
+
 /** Where an agent works this turn. */
 export type BriefingWorkspace =
   | { kind: 'shared' }
@@ -73,21 +83,32 @@ export type BriefingWorkspace =
        * repository (named by its first working directory).
        */
       teammates: { name: string; branch: string; bases: { folder: string; base: string }[] }[];
+    }
+  | {
+      /**
+       * The conversation's own worktrees, which every member works in, taking turns: another
+       * conversation was changing its working directories (`TEAM_WORKTREE`). The folders as in `isolated`.
+       */
+      kind: 'team';
+      folders: { cwd: string; userCwd: string; branch: string; base: string }[];
     };
 
 /**
  * The team checks, for agents that may write: what Harness Relay checks once the team has answered, so
  * that they keep to it from the start.
  */
-function checksRules(conv: Conversation): string {
+function checksRules(conv: Conversation, ws: BriefingWorkspace): string {
   const list = conv.settings.checks;
   if (conv.settings.permission === 'read-only' || !hasChecks(list)) return '';
-  const lines = checkRuleLines(list, conv.settings.mode);
+  const lines = checkRuleLines(list, ws.kind === 'team' ? 'team' : conv.settings.mode);
   return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
 }
 
-/** Each rule of a check list, in a line (commands not on native Windows, which runs none). */
-export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Platform = process.platform): string[] {
+/**
+ * Each rule of a check list, in a line (commands not on native Windows, which runs none). `team`: the
+ * team works in the conversation's own worktrees, whose result is applied as a parallel one is.
+ */
+export function checkRuleLines(list: CheckList, mode: Mode | 'team', platform: NodeJS.Platform = process.platform): string[] {
   const lines: string[] = [];
   const paths = protectedPatterns(list);
   if (paths.length) {
@@ -95,7 +116,7 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
       `Do not create, change or delete files matching these patterns (gitignore-like, in every working directory, ignored files too): ${paths.join(', ')}`,
     );
   }
-  if (list.commitPattern && mode !== 'parallel') {
+  if (list.commitPattern && mode !== 'parallel' && mode !== 'team') {
     lines.push(`Every commit's subject must match this regular expression: /${list.commitPattern}/`);
   }
   if (list.commands?.length && platform !== 'win32') {
@@ -103,14 +124,16 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
     const when =
       mode === 'parallel'
         ? "when a member's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
-        : 'in the working directory, below full access without network';
+        : mode === 'team'
+          ? "when the team's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
+          : 'in the working directory, below full access without network';
     lines.push(`These commands must succeed, run by Harness Relay with CI=1 ${when}: ${each}`);
   }
   return lines;
 }
 
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace, provider: Provider): string {
-  return workspaceAccess(conv, ws) + checksRules(conv) + hooksRules(conv, provider);
+  return workspaceAccess(conv, ws) + checksRules(conv, ws) + hooksRules(conv, provider);
 }
 
 const HOOK_KINDS: Record<CheckHook['tools'], string> = {
@@ -150,6 +173,18 @@ ${access}
   }
   const short = (c: string) => c.slice(0, 12);
   const one = ws.folders.length === 1;
+  if (ws.kind === 'team') {
+    const own = one
+      ? `- Another conversation was changing the user's working directory, so this conversation's team works in its OWN git worktree, a copy of it: ${ws.folders[0]!.cwd} (branch ${ws.folders[0]!.branch}), from a snapshot (${short(ws.folders[0]!.base)}) of the user's working directory ${ws.folders[0]!.userCwd}, which you must not modify.`
+      : `- Another conversation was changing the user's working directories, so this conversation's team works in its OWN git worktrees, copies of them, which you must not modify:
+${ws.folders.map((f) => `  - ${f.cwd} (branch ${f.branch}), from a snapshot (${short(f.base)}) of ${f.userCwd}`).join('\n')}
+  You start in ${ws.folders[0]!.cwd}; use full paths for the others.`;
+    return `${own}
+- All agents of this conversation share ${one ? 'this worktree' : 'these worktrees'} and take turns in ${one ? 'it' : 'them'}. Teammates may be changing the same files. Name the files you changed in your reply so others can review them.
+- Files git ignores (installed dependencies, build output) are not in the copy: install or build them there if you need them.
+${access}
+- Your changes are committed to the branch${one ? '' : 'es'} automatically after each turn; the user reviews them and applies the team's result to the working director${one ? 'y' : 'ies'} when ready. Do not commit, merge, rebase or switch branches yourself.`;
+  }
   const mates = ws.teammates.length
     ? ws.teammates
         .map((t) =>
@@ -294,6 +329,20 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
 }
 
 /**
+ * The CLIs whose own subagents can still be at work when the agent's reply ends, and then lose what they
+ * do: Antigravity (no switch for them; Harness Relay ends `agy` 3 s after the prompt is answered, and
+ * before 1.5.10 what wakes it is lost), Muse Code (it gives a subagent's result "when the session is idle"),
+ * Grok (its subagents run in the background and wake it once done). Each is asked to wait for them.
+ */
+export const SUBAGENT_WAIT_RULE: readonly Provider[] = ['antigravity', 'grok', 'muse'];
+
+/** The rule that asks an agent to wait for its own subagents, when its CLI needs it and its run has them. */
+export function subagentRules(provider: Provider, nativeOff: readonly NativePart[] = []): string {
+  if (!SUBAGENT_WAIT_RULE.includes(provider) || nativeOff.includes('subagents')) return '';
+  return '\n- If you hand work to subagents or background tasks of your own, wait for every one of them to finish and use its result before you end your reply: anything still running when your reply ends is lost, and your reply is all the team sees.';
+}
+
+/**
  * A branch's copied messages speak of files as they were then: the conversation it was branched from
  * may have gone on and changed them since ('' for a conversation that is not a branch).
  */
@@ -419,7 +468,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
-- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${trackingSection(tracked)}
+- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
@@ -554,7 +603,7 @@ function commandLines(o: ChecksResult['outcomes'][number]): string[] {
 /** A team checks result that did not pass, as agents read it: what failed, and that the team is to fix it. */
 export function renderChecks(conv: Conversation, c: ChecksResult): string {
   const list = conv.settings.checks;
-  const rules = list ? checkRuleLines(list, conv.settings.mode) : [];
+  const rules = list ? checkRuleLines(list, teamWorksApart(conv) ? 'team' : conv.settings.mode) : [];
   const lines: string[] = [];
   for (const o of c.outcomes) {
     if (o.status === 'passed' || o.status === 'na') continue;
@@ -628,6 +677,18 @@ export function buildTurnPrompt(
     if (turn.round > 1) cue += ` Reply with ${PASS_TOKEN} if you have nothing new to add.`;
   }
   return `${header}${chat}${recalledSection(recalled)}\n\n${cue}`;
+}
+
+/**
+ * The text a user message goes into a member's running turn with (steering, `ConversationSettings.steer`):
+ * the message as the chat block renders it, and what to do with it. The member counts it as seen.
+ */
+export function buildSteerPrompt(conv: Conversation, msg: ChatMessage): string {
+  return (
+    'The user sent a new message while you were working:\n' +
+    `<chat>\n${renderMessage(conv, msg)}\n</chat>\n\n` +
+    'Take it into account as you go on with this turn, and answer it in your reply.'
+  );
 }
 
 /**

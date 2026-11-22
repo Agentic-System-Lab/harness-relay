@@ -244,6 +244,8 @@ function replyRecords(m: ChatMessage, model: string): Record<string, unknown>[] 
   };
   let said = false;
   m.parts.forEach((p, i) => {
+    // A subagent's own calls are not the member's: its session has the call that started it, with its result.
+    if (p.type === 'tool' && p.parentId) return;
     if (p.type === 'tool') {
       const id = `toolu_${createHash('sha256').update(`${m.id}\0${i}\0${p.id}`).digest('hex').slice(0, 24)}`;
       content.push({ type: 'tool_use', id, ...toolUse(p) });

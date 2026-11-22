@@ -9,6 +9,10 @@
  * `writable_roots`), its `approvalPolicy`, and the answers to its approval requests. The skills it
  * loads by itself are its home's skills/ (`skills.include_instructions`, `skills.config` in `-c` or
  * the thread's config).
+ *
+ * `turn/steer` sends input into the running turn (steering), as Codex 0.167.0's app-server takes it:
+ * refused unless `expectedTurnId` is the active turn, answered with its id; the turn takes it in (an
+ * `e2e:steer` step waits for one; any other before it completes).
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -16,7 +20,7 @@ const path = require('node:path');
 const { inside, ownSkills, targetOf, writeFile } = require('../lib/files.cjs');
 const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record } = require('../lib/log.cjs');
-const { declined, noOther, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
+const { declined, heard, noOther, pieceDelay, pieces, plan, recordMcpEnv, steerBox, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError, rpcPeer, track } = require('../lib/rpc.cjs');
 const { args, has, home, newId, sleep } = require('../lib/self.cjs');
 const { callMcpTool } = require('../lib/mcp.cjs');
@@ -176,8 +180,15 @@ function codexAppServer() {
           const steps = signedOut()
             ? [{ type: 'error', text: 'Not logged in. Run codex login.' }]
             : plan(prompt, { cwd: t.cwd, images, mcp: t.mcp, briefing: t.briefing });
+          active.set(turnId, steerBox());
           track(sleep(5).then(() => codexTurn(peer, p.threadId, turnId, t, steps)));
           return { turn: { id: turnId, items: [], status: 'inProgress', error: null } };
+        }
+        case 'turn/steer': {
+          const box = active.get(p.expectedTurnId);
+          if (!box) throw rpcError(`expected active turn id ${p.expectedTurnId}`);
+          box.take((p.input || []).map((i) => i.text || '').join('\n'), p.expectedTurnId);
+          return { turnId: p.expectedTurnId };
         }
         case 'turn/interrupt':
           interrupted.add(p.turnId);
@@ -279,6 +290,8 @@ function codexAppServer() {
 }
 
 const interrupted = new Set();
+/** The turns running, each with the messages sent into it (steering). */
+const active = new Map();
 
 /**
  * Where a thread's sandbox lets Codex write: its permission profile (`:workspace` and its `write`
@@ -322,6 +335,7 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
     if (step.type === 'fail') return fail(step.text);
     if (step.type === 'error') {
       note('error', { error: { message: step.text }, willRetry: false });
+      active.delete(turnId);
       return note('turn/completed', { turn: { id: turnId, items: [], status: 'failed', error: { message: step.text } } });
     }
     if (step.type === 'think') {
@@ -433,7 +447,18 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
       }
       note('item/completed', { item: { type: 'agentMessage', id, text } });
     }
+    if (step.type === 'steer') {
+      const came = await active.get(turnId).wait(step.wait);
+      if (came.length) {
+        const id = `msg_${++n}`;
+        note('item/completed', { item: { type: 'agentMessage', id, text: heard(came).trim() } });
+      }
+    }
   }
+  // What came and no step took: taken in before the turn completes.
+  const rest = active.get(turnId)?.rest() ?? [];
+  active.delete(turnId);
+  if (rest.length) note('item/completed', { item: { type: 'agentMessage', id: `msg_${++n}`, text: heard(rest).trim() } });
   note('thread/tokenUsage/updated', {
     tokenUsage: {
       last: { inputTokens: 150, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 180 },

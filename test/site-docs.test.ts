@@ -440,6 +440,7 @@ describe('the docs', () => {
       'outbox',
       'per-member',
       'own-setup',
+      'labs',
     ];
     const pages = docs.filter((d) => d.path === 'docs/tools/');
     expect(pages.map((page) => page.lang).sort()).toEqual(['en', 'zh-TW']);
@@ -466,7 +467,7 @@ describe('the docs', () => {
       }
       for (const id of ['mcp-servers', 'skills', 'memory', 'hooks', 'default-team-checks'])
         expect(parents(id)[0]).toBe(zh ? '工具庫' : 'Tool library');
-      for (const id of ['outbox', 'per-member', 'own-setup']) expect(parents(id)[0]).toBe(zh ? '延伸主題' : 'Related topics');
+      for (const id of ['outbox', 'per-member', 'own-setup', 'labs']) expect(parents(id)[0]).toBe(zh ? '延伸主題' : 'Related topics');
       for (const [section, assets] of Object.entries({
         'oauth-settings': ['tools-oauth-accounts'],
         'google-oauth-setup': ['google-cloud-client-details', 'tools-oauth-settings'],
@@ -478,6 +479,7 @@ describe('the docs', () => {
         'google-drive': ['tools-drive-add-account', 'tools-drive-editing', 'tools-docs-preview'],
         obsidian: ['tools-obsidian-settings', 'tools-obsidian-preview'],
         'browser-mail-calendar': ['tools-browser'],
+        labs: ['tools-labs-desktop', 'tools-labs-phone'],
       })) {
         const body = slice(page.article, '<section id="' + section + '"', '</section>');
         for (const asset of assets) expect(body, page.file + '#' + section).toContain('/' + asset);

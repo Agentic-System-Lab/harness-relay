@@ -6,12 +6,14 @@ import { reservedMcpName } from './gateway';
 import { commitPatternError, hasRules, tidyFolder, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
+  AGENT_LIMITS,
   API_BACKENDS,
   BACKEND_LIMITS,
   CHECK_LIMITS,
   CWD_MISSING,
   ENDPOINT_ID_RE,
   GROUP_LIMITS,
+  LAB_MODES,
   MAX_CWDS,
   MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
@@ -21,6 +23,7 @@ import {
   MEMORY_SCOPES,
   RELAY_TOOL_GROUPS,
   NATIVE_ITEM_KINDS,
+  NATIVE_ON_PARTS,
   NATIVE_PARTS,
   PROVIDERS,
   SCHEDULE_KINDS,
@@ -30,7 +33,9 @@ import {
   OAUTH_USES,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
+  agentLimitValid,
   cwdSettings,
+  parseBackendModel,
   VOICE_MODELS,
   type AgentConfig,
   type AlertPrefs,
@@ -40,6 +45,7 @@ import {
   type CheckList,
   type ConversationGroup,
   type ConversationSettings,
+  type LabSettings,
   type LeadAgentSettings,
   type McpServerUpdate,
   type MemoryNoteCreate,
@@ -78,6 +84,8 @@ import { apiPort } from './ports';
 import { isLocalHost, isLoopbackHost, localAddresses, relayPorts } from './relaySandbox';
 import { validAddress } from './connectors/mime';
 import { endpointProblem, subscriptionKeys } from './push';
+import { MODEL_LIMIT_RANGE, validContext, validOutput } from '../shared/modelLimits';
+import type { TokenLimits } from '../shared/types';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
@@ -280,6 +288,23 @@ export function validateLead(input: unknown): LeadAgentSettings {
   };
 }
 
+/**
+ * Settings → Labs: one of its modes; with RLM, its sub-model as `<backend>/<model>` on a model connection
+ * set up now (`configured`: the API backends with a key and the endpoints, by id).
+ */
+export function validLabs(input: unknown, configured: readonly string[]): LabSettings {
+  const l = (input ?? {}) as Partial<LabSettings>;
+  if (!(LAB_MODES as readonly unknown[]).includes(l.mode)) bad(t().labsBadMode);
+  if (l.mode !== 'rlm') return { mode: l.mode as LabSettings['mode'] };
+  const id = typeof l.rlmModel === 'string' ? l.rlmModel.trim() : '';
+  if (!id) bad(t().labsNoModel);
+  if (id.length > 300) bad(t().labsBadModel(id.slice(0, 40)));
+  const parsed = parseBackendModel(id);
+  if (!parsed) bad(t().labsBadModel(id));
+  if (!configured.includes(parsed.backend)) bad(t().labsNoConnection(parsed.backend));
+  return { mode: 'rlm', rlmModel: id };
+}
+
 /** An account's name: a string of up to `MAX_ACCOUNT_LABEL` characters, with no line breaks. */
 export function validAccountLabel(input: unknown): string {
   if (typeof input !== 'string' || input.trim().length > MAX_ACCOUNT_LABEL || /[\u0000-\u001f\u007f]/.test(input)) {
@@ -290,7 +315,7 @@ export function validAccountLabel(input: unknown): string {
 
 /**
  * An account update: a name, its key (null to remove), and how it runs: strings, a valid effort,
- * `nativeOff` a list of known parts, `nativeItems` lists of ids by known kind.
+ * `nativeOff` and `nativeOn` lists of known parts, `nativeItems` lists of ids by known kind.
  */
 export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
@@ -325,6 +350,11 @@ export function validateAccountUpdate(input: unknown): ProviderAccountUpdate {
     if (!valid) bad(t().invalidField('nativeItems'));
     out.nativeItems = items as ProviderAccountUpdate['nativeItems'];
   }
+  if (u.nativeOn !== undefined) {
+    const parts = u.nativeOn;
+    if (!Array.isArray(parts) || parts.some((x) => !(NATIVE_ON_PARTS as readonly unknown[]).includes(x))) bad(t().invalidField('nativeOn'));
+    out.nativeOn = parts as ProviderAccountUpdate['nativeOn'];
+  }
   return out;
 }
 
@@ -355,7 +385,7 @@ export function validateVoiceUpdate(input: unknown): VoiceSettingsUpdate {
  */
 export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   const u = (input ?? {}) as Record<string, unknown>;
-  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems']) {
+  for (const field of ['defaultModel', 'defaultEffort', 'nativeOff', 'nativeItems', 'nativeOn']) {
     if (u[field] !== undefined) bad(t().invalidField(field));
   }
   const out: ProviderSettingsUpdate = {};
@@ -408,8 +438,22 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
       effort: validEffort(a.effort, name),
       ...validAccount(a.account),
       ...validAgentTools(a.tools),
+      ...validAgentLimits(a.provider!, a.limits, name),
     };
   });
+}
+
+/**
+ * A member's limits: only its CLI's own (`AGENT_LIMITS`), whose value must be one the CLI takes; any
+ * other is dropped (one kept from another CLI the member was on, say). Null or none: no limit.
+ */
+function validAgentLimits(provider: Provider, input: unknown, name: string): Pick<AgentConfig, 'limits'> {
+  const spec = AGENT_LIMITS[provider];
+  if (!spec || !input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const v = (input as Record<string, unknown>)[spec.key];
+  if (v === undefined || v === null) return {};
+  if (!agentLimitValid(spec, v)) bad(t().badLimit(name, spec.min, spec.max));
+  return { limits: { [spec.key]: v } };
 }
 
 /**
@@ -632,6 +676,7 @@ export function validateSettings(
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.leadReview === true ? { leadReview: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+    ...(s.steer === true ? { steer: true } : {}),
     ...(s.checks !== undefined && s.checks !== null ? { checks: validateChecks(s.checks) } : {}),
   };
 }
@@ -972,15 +1017,44 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
   if (u.verifyModels !== undefined && typeof u.verifyModels !== 'boolean') bad(t().invalidField('verifyModels'));
   if (u.allowMissingMetadata !== undefined && (typeof u.allowMissingMetadata !== 'boolean' || u.verifyModels !== true))
     bad(t().invalidField('allowMissingMetadata'));
+  const unique = [...new Set(names)];
   const out = {
     name,
     baseUrl,
-    models: [...new Set(names)],
+    models: unique,
     ...(u.apiKey === undefined ? {} : { apiKey: validateBackendKey(u) }),
     ...(u.verifyModels === true ? { verifyModels: true } : {}),
     ...(u.allowMissingMetadata === true ? { allowMissingMetadata: true } : {}),
+    ...(u.limits === undefined ? {} : { limits: validEndpointLimits(u.limits, unique) }),
   };
   return out;
+}
+
+/**
+ * An endpoint's context windows and output limits as the user set them (`ModelEndpointUpdate.limits`):
+ * an object by model id, only of the models it lists, each `{ context?, output? }` in whole tokens
+ * (`MODEL_LIMIT_RANGE`), an output limit less than the context window set with it. A model with
+ * neither is left out.
+ */
+export function validEndpointLimits(input: unknown, models: readonly string[]): Record<string, TokenLimits> {
+  const { minContext, maxContext, minOutput, maxOutput } = MODEL_LIMIT_RANGE;
+  const fail = () => bad(t().endpointLimitsInvalid(minContext, maxContext, minOutput, maxOutput));
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail();
+  // As entries, so that a model named `__proto__` is a key like any other.
+  const out: [string, TokenLimits][] = [];
+  for (const [model, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!models.includes(model) || !value || typeof value !== 'object' || Array.isArray(value)) fail();
+    const { context, output, ...rest } = value as Record<string, unknown>;
+    if (Object.keys(rest).length) fail();
+    if ((context !== undefined && !validContext(context)) || (output !== undefined && !validOutput(output))) fail();
+    if (context !== undefined && output !== undefined && (output as number) >= (context as number)) fail();
+    const limits = {
+      ...(context !== undefined ? { context: context as number } : {}),
+      ...(output !== undefined ? { output: output as number } : {}),
+    };
+    if (limits.context !== undefined || limits.output !== undefined) out.push([model, limits]);
+  }
+  return Object.fromEntries(out);
 }
 
 /** How many notifications one `POST /api/notifications/read` may name. */

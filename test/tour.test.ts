@@ -41,45 +41,73 @@ describe('guided tour', () => {
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
+        'While the team replies',
         'Notifications and sound',
         'Team checks',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
+        'Adjust any time',
       ]);
       expect(titles(21)).toEqual([
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
+        'While the team replies',
         'Notifications and sound',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
+        'Adjust any time',
       ]);
       expect(titles(22)).toEqual([
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
+        'While the team replies',
         'Notifications and sound',
         'Automations',
         'Connect apps to your chats',
         'Long-term memory',
+        'Adjust any time',
       ]);
       for (let version = 23; version <= 32; version++) {
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
           'Start a new chat',
+          'A team for every question',
+          'While the team replies',
           'Automations',
           'Connect apps to your chats',
           'Long-term memory',
+          'Adjust any time',
         ]);
       }
-      expect(titles(33)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations', 'Long-term memory']);
-      expect(titles(34)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations', 'Long-term memory']);
-      expect(titles(35)).toEqual(['API keys and endpoints for open-source agents', 'Start a new chat', 'Automations', 'Long-term memory']);
-      expect(titles(36)).toEqual(['Start a new chat', 'Automations', 'Long-term memory']);
-      expect(titles(37)).toEqual(['Long-term memory']);
-      expect(tourIndices(38)).toEqual([]);
+      for (let version = 33; version <= 36; version++) {
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'Start a new chat',
+          'A team for every question',
+          'While the team replies',
+          'Automations',
+          'Long-term memory',
+          'Adjust any time',
+        ]);
+      }
+      for (let version = 37; version <= 38; version++) {
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'A team for every question',
+          'While the team replies',
+          'Long-term memory',
+          'Adjust any time',
+        ]);
+      }
+      expect(titles(39)).toEqual(['Long-term memory']);
+      expect(tourIndices(40)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -123,6 +151,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 38, fingerprint: 'c963e30c3460' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 40, fingerprint: '2d942051d001' });
   });
 });

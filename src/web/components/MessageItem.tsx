@@ -23,13 +23,20 @@ import {
   activityCounts,
   enterSends,
   isPathDetail,
+  isSubagent,
+  isTeamResult,
   isTouchScreen,
+  resultOwner,
+  runningStep,
   segments,
   shownSegments,
+  subagentName,
+  steeredNames,
   thoughtTail,
   thoughtTitle,
   type ActivityItem,
   type ApprovalPart,
+  type ToolItem,
   type ToolPart,
   type MemoryPart,
   type OutboxPart,
@@ -100,6 +107,58 @@ function ToolStep({ x }: { x: ToolPart }) {
   );
 }
 
+/**
+ * A call that started a subagent: the subagent's name, model and how many actions it took, opening to
+ * its own calls (joined to it by a line, a subagent of its own the same way, one level further in), then
+ * what it reported back.
+ */
+function SubagentStep({ item }: { item: ToolItem }) {
+  const t = useT();
+  const x = item.part;
+  const steps = item.steps ?? [];
+  const { actions, failed } = activityCounts(steps);
+  const name = subagentName(x);
+  return (
+    <li className={`tool subagent ${x.status}`}>
+      <details className="tool-row subagent-row">
+        <summary>
+          <span className="tool-line">
+            <span className="tool-status" aria-label={t.activity.status[x.status]}>
+              {x.status === 'running' ? '…' : x.status === 'done' ? '✓' : '✗'}
+            </span>
+            <code className="tool-name" title={x.agent ? x.name : undefined}>
+              {name}
+            </code>
+            {x.model && <span className="subagent-model">{x.model}</span>}
+            {x.detail && <ToolDetail detail={x.detail} className="tool-detail" />}
+            {actions > 0 && <span className="activity-count">{t.message.actions(actions)}</span>}
+            {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
+          </span>
+        </summary>
+        {steps.length > 0 && (
+          <ul className="subagent-steps" aria-label={t.activity.subagentSteps(name)}>
+            {steps.map((i) => (
+              <ActivityStep key={i.key} item={i} />
+            ))}
+          </ul>
+        )}
+        {x.output && (
+          <pre className="tool-output subagent-result" aria-label={t.activity.subagentResult}>
+            {x.output}
+          </pre>
+        )}
+      </details>
+      {x.status === 'error' && x.error && <div className="tool-error">{x.error}</div>}
+    </li>
+  );
+}
+
+/** One step in an open activity list: a subagent, a tool call or a stretch of reasoning. */
+function ActivityStep({ item }: { item: ActivityItem }) {
+  if (item.kind === 'thinking') return <ThoughtStep text={item.text} />;
+  return isSubagent(item) ? <SubagentStep item={item} /> : <ToolStep x={item.part} />;
+}
+
 /** A stretch of reasoning in the open list: its first line, click to read all of it. */
 function ThoughtStep({ text }: { text: string }) {
   const t = useT();
@@ -141,9 +200,10 @@ function ActivityGroup({
   const { actions, thoughts, failed } = activityCounts(items);
   const tail = items[items.length - 1];
   const thinking = live && last && tail.kind === 'thinking' ? tail.text : undefined;
-  const running = live
-    ? items.find((i): i is Extract<ActivityItem, { kind: 'tool' }> => i.kind === 'tool' && i.part.status === 'running')?.part
-    : undefined;
+  // Inside a subagent, the step it is on, after the names of the subagents it is in (`Explore › Read`).
+  const at = live ? runningStep(items) : undefined;
+  const running = at?.part;
+  const runningName = at ? [...at.agents, subagentName(at.part)].join(' › ') : undefined;
   const counts = [actions > 0 && t.message.actions(actions), thoughts > 0 && t.message.thoughts(thoughts)].filter(Boolean).join(' · ');
   const busy = thinking !== undefined || running !== undefined;
   return (
@@ -158,8 +218,8 @@ function ActivityGroup({
           </span>
         ) : running ? (
           <span className="tool-summary running-step">
-            <span className="running-name" title={running.name}>
-              {running.name}
+            <span className="running-name" title={runningName}>
+              {runningName}
             </span>
             {running.detail && (
               <span className="running-more">
@@ -176,7 +236,11 @@ function ActivityGroup({
         {(label || (busy && items.length > 1)) && <span className="activity-count">{counts}</span>}
         {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
-      <ul>{items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}</ul>
+      <ul>
+        {items.map((i) => (
+          <ActivityStep key={i.key} item={i} />
+        ))}
+      </ul>
       {children}
     </details>
   );
@@ -1059,12 +1123,14 @@ function UserMessage({
   msg,
   convId,
   mentionNames,
+  agents,
   canEdit,
   onResend,
 }: {
   msg: ChatMessage;
   convId: string;
   mentionNames: string[];
+  agents: AgentConfig[];
   canEdit: boolean;
   onResend: Props['onResend'];
 }) {
@@ -1107,6 +1173,10 @@ function UserMessage({
             <span className="queued-tag scheduled-tag" title={t.schedule.tagTitle}>
               <ClockIcon size={11} />
               {t.schedule.tag}
+            </span>
+          ) : msg.steered?.length ? (
+            <span className="queued-tag steered-tag" title={t.message.steeredTitle}>
+              {t.message.steeredTag(steeredNames(msg, agents))}
             </span>
           ) : (
             msg.queued && (
@@ -1255,7 +1325,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   if (msg.author.kind === 'user') {
-    return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
+    return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} agents={agents} canEdit={!running} onResend={onResend} />;
   }
   return (
     <AgentMessage
@@ -1408,9 +1478,10 @@ function AgentMessage({
           <ChangesCard
             changes={msg.changes}
             agentName={name}
+            team={isTeamResult(msg.changes)}
             applyState={applyState}
             onDiff={(scope) => onDiff(msg, scope)}
-            onApply={() => onApply(agentId)}
+            onApply={() => onApply(resultOwner(msg) ?? agentId)}
           />
         )}
         {waitingAnswer && (

@@ -65,6 +65,8 @@ const zhTW = {
   claudeAgentsFailed: (detail: string) =>
     `無法讓 Claude Code 在這次執行中不載入它自己的 subagent（${detail}）。請更新 Claude Code，或在「設定」裡 Claude Code 的「這個 CLI 自己載入的…」中，取消「Subagents」分頁的「全部不載入」。`,
   claudeError: 'Claude Code 回報錯誤',
+  claudeBudgetReached: (usd: number) =>
+    `這一輪已用到這位成員的上限 US$${usd}（Claude Code 自己估的費用），所以 Claude Code 停了下來。要讓它做得更多，請在團隊設定中提高或拿掉這位成員的上限。`,
   claudeSandbox: (why: string) =>
     `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
   sandboxHost: '沙箱中的指令想連到這個主機。',
@@ -372,6 +374,10 @@ const zhTW = {
   endpointCatalogInvalid: (mib: number) =>
     `/models 需要回傳含有 data 陣列的 JSON 模型清單，每個模型以 id 標示，回應大小上限為 ${mib} MiB。`,
   endpointModelsInvalid: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元，不能含空白。`,
+  endpointLimitsInvalid: (minContext: number, maxContext: number, minOutput: number, maxOutput: number) =>
+    `上下文長度要是 ${minContext} 到 ${maxContext} 之間的整數（token），輸出上限要是 ${minOutput} 到 ${maxOutput} 之間的整數，並小於同一個模型的上下文長度；只能設定這個端點列出的模型。`,
+  endpointOutputTooLarge: (model: string, output: number, context: number) =>
+    `模型「${model}」的輸出上限（${output} token）要小於它的上下文長度（伺服器回報為 ${context} token）。請調低輸出上限，或填入上下文長度。`,
   backendUnknown: (id: string) => `未知的模型來源：${id}`,
   claudeReopens: (file: string, entry: string) =>
     `你的 Claude Code 設定（${file}）中的 sandbox.filesystem 讓沙箱可以存取「${entry}」，這會開放 Harness Relay 保護的路徑（瀏覽器的資料夾或它的資料庫）。請移除這一項後再試，或改用完全存取。`,
@@ -467,10 +473,17 @@ const zhTW = {
   queueFull: (n: number) => `最多 ${n} 則訊息等待送出，請等團隊回覆後再送`,
   gitInitNote: (root: string) => `工作目錄原本不是 git repository，已自動執行 git init：${root}`,
   dirLocked: (title: string, root: string) => `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`,
+  applyLocked: (title: string, root: string) => `對話「${title}」正在修改 ${root}，請等它結束後再套用。`,
+  teamWorktreeNote: (title: string, root: string) =>
+    `對話「${title}」正在修改 ${root}，所以這個對話的團隊改在自己的 worktree（資料夾的副本）裡工作，兩邊可以同時進行。團隊的修改要等你按「套用到工作目錄」才會寫進資料夾；套用之前，這個對話之後的回覆也都在這個 worktree 裡進行。`,
   noWorktree: '這位成員沒有 worktree',
+  noTeamWorktree: '這個對話沒有自己的 worktree',
+  teamName: '團隊',
   resultStale: '工作目錄已經更新過，這份結果已過期；請讓團隊再跑一輪。',
   appliedNote: (name: string, files: number) =>
     `已把 @${name} 的修改套用到工作目錄（${files} 個檔案，尚未 commit）。下一次平行作業會從新的工作目錄狀態開始。`,
+  appliedTeamNote: (files: number) =>
+    `已把團隊在這個對話 worktree 裡的修改套用到工作目錄（${files} 個檔案，尚未 commit）。之後團隊會回到工作目錄裡工作，除非那時有別的對話正在修改它。`,
   noChanges: '這則訊息沒有檔案修改',
   relayLimit: (hops: number) => `已達接力上限（${hops} 棒），交還給使用者。可按「繼續」讓團隊接著做。`,
 
@@ -480,6 +493,7 @@ const zhTW = {
   checksListChanged: '檢查清單在這一輪開始後改過，這一輪的受保護路徑無法用新清單比對；下一輪會照新清單檢查。',
   checksNoBaseline: '找不到這一輪開始時的狀態，無法重新比對。',
   checksCommitsParallel: '平行模式套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
+  checksCommitsTeam: '團隊在這個對話自己的 worktree 裡工作，套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
   checksNoCommits: '這一輪沒有新的 commit。',
   checksPatternSlow: 'commit 格式的正規表示式跑太久，已中止；請改寫得簡單一點。',
   checksTooManyCommits: (n: number) => `新的 commit 超過 ${n} 個，只檢查了最新的 ${n} 個。`,
@@ -510,10 +524,18 @@ const zhTW = {
   checksCommandTimedOut: (min: number) => `超過 ${min} 分鐘還沒結束，已停止。`,
   checksCommandNotFound: '找不到要執行的程式（exit 127）。Harness Relay 不會自己安裝缺少的東西。',
   checksCommandWindows: '原生 Windows 上還不能執行指令檢查（沒有 Harness Relay 的沙箱）；只檢查受保護路徑和 commit 格式。',
+  gatewayFromCode: '由代理用 run_code 執行的程式碼發出。',
+  labsBadMode: '實驗室的模式只能是關閉、讓助理寫程式呼叫工具，或分段閱讀長文字。',
+  labsNoModel: '分段閱讀長文字需要選一個模型（「來源/模型」）。',
+  labsBadModel: (id: string) => `「${id}」不是「來源/模型」的格式，例如 anthropic/claude-haiku-5-5，或你的端點 id 加上模型名稱。`,
+  labsNoConnection: (backend: string) => `「模型連線」裡沒有設定 ${backend}：請先在「設定 → 模型連線」加上它的金鑰或端點。`,
+  labsWindows: '原生 Windows 上還不能用：Harness Relay 在這裡沒有可以執行程式的沙箱。',
+  labsNoNode: '這台電腦上找不到可以執行程式的 Node.js。',
   checksCommandNoFolder: (cwd: string) =>
     cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
   checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
   checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
+  checksCommandsTeam: '團隊的修改在這個對話自己的 worktree 裡，套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
   checksConfigChanged: (files: string) =>
     `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
   checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
@@ -540,6 +562,16 @@ const zhTW = {
     `這一輪沒有開始：不能把團隊的 hook 交給 ${cli}（找不到可以啟動 hook 程式的 Node.js，或 Harness Relay 的 gateway 沒有在執行）。請安裝 Node.js 22.12 以上（設定 → 沙箱可以安裝），或在團隊檢查裡拿掉 hook。`,
   hookMoreNotices: '這一輪之後的 hook 拒絕或沒有通過，不再一一列出。',
   hooksUnsupported: (cli: string) => `${cli} 還不能執行團隊的 hook：這位成員這一輪的工具呼叫不經過它們，團隊答完後的檢查照常。`,
+
+  // What a CLI reports about its own run (notes in the reply), and its subagents
+  backgroundCutOff: '這一輪在這項工作完成之前就結束了。',
+  cliCompacted: (cli: string) => `${cli} 壓縮了對話的上下文，騰出空間繼續。`,
+  cliCompactFailed: (cli: string, why?: string) => `${cli} 沒能壓縮對話的上下文${why ? `：${why}` : '。'}`,
+  cliRetrying: (cli: string, attempt?: number, max?: number, why?: string) =>
+    `${cli} 向模型的請求失敗，正在重試${attempt ? `（第 ${attempt}${max ? ` / ${max}` : ''} 次）` : ''}${why ? `：${why}` : '。'}`,
+  cliRetryFailed: (cli: string, why?: string) => `${cli} 重試之後仍然失敗${why ? `：${why}` : '。'}`,
+  cliModelSwitched: (cli: string, from: string, to: string) =>
+    from ? `${cli} 把模型從 ${from} 換成了 ${to}。` : `${cli} 換成了模型 ${to}。`,
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
@@ -902,6 +934,7 @@ const zhTW = {
   duplicateName: (name: string) => `agent 名稱「${name}」重複了`,
   badProvider: (name: string) => `agent「${name}」的 provider 無效`,
   badEffort: (name: string, effort: string) => `agent「${name}」的推理強度「${effort}」無效`,
+  badLimit: (name: string, min: number, max: number) => `agent「${name}」的上限無效：須介於 ${min} 與 ${max} 之間`,
   cwdMissing: (cwd: string) => `工作目錄不存在：${cwd}`,
   cwdNotDirectory: (cwd: string) => `這不是資料夾：${cwd}`,
   cwdCreateFailed: (cwd: string, reason: string) => `無法建立工作目錄 ${cwd}（${reason}）`,
@@ -1091,6 +1124,8 @@ const en: ServerMessages = {
   claudeAgentsFailed: (detail) =>
     `Claude Code's own subagents could not be left out of this run (${detail}). Update Claude Code, or clear "Leave all out" on the Subagents tab of "…this CLI loads by itself" in Claude Code's settings.`,
   claudeError: 'Claude Code reported an error',
+  claudeBudgetReached: (usd) =>
+    `This turn reached the member's limit of US$${usd} (by Claude Code's own estimate), so Claude Code stopped. To let it do more, raise or remove the member's limit in Team settings.`,
   claudeSandbox: (why) =>
     `Claude Code could not start its sandbox (needed below full access): ${why}. On Linux and WSL2, install bubblewrap and socat (for example sudo apt-get install bubblewrap socat), on Ubuntu 23.10 or later also an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md), and try again; or switch the permission to "Full access" to run without one.`,
   sandboxHost: 'A command in the sandbox wants to connect to this host.',
@@ -1412,6 +1447,10 @@ const en: ServerMessages = {
   endpointCatalogHttp: (status) => `The endpoint returned HTTP ${status} for /models. Check the OpenAI-compatible API base URL.`,
   endpointCatalogInvalid: (mib) => `Expected /models to return a JSON object with a data array of model IDs, within ${mib} MiB.`,
   endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
+  endpointLimitsInvalid: (minContext, maxContext, minOutput, maxOutput) =>
+    `A context window is a whole number of tokens from ${minContext} to ${maxContext}, and an output limit one from ${minOutput} to ${maxOutput}, less than its model's context window; only for the models the endpoint lists.`,
+  endpointOutputTooLarge: (model, output, context) =>
+    `The output limit of "${model}" (${output} tokens) must be less than its context window (${context} tokens, as the server reports it). Lower the output limit, or enter a context window.`,
   backendUnknown: (id) => `Unknown model backend: ${id}`,
   claudeReopens: (file, entry) =>
     `sandbox.filesystem in your Claude Code settings (${file}) lets its sandbox reach ${entry}, which opens paths Harness Relay protects (the browsers' folders or its database). Remove it and try again, or use full access.`,
@@ -1509,10 +1548,17 @@ const en: ServerMessages = {
   queueFull: (n: number) => `Up to ${n} messages can wait to be delivered — wait for the team to reply`,
   gitInitNote: (root) => `The working directory was not a git repository; ran git init: ${root}`,
   dirLocked: (title, root) => `Conversation "${title}" is changing ${root}; try again when it finishes (or use read-only / parallel mode).`,
+  applyLocked: (title, root) => `Conversation "${title}" is changing ${root}; apply once it finishes.`,
+  teamWorktreeNote: (title, root) =>
+    `Conversation "${title}" is changing ${root}, so this conversation's team works in a worktree of its own (a copy of the folder), and both go on at once. The team's changes reach the folder when you apply them ("Apply to working directory"); until then, this conversation's next replies are worked on in that worktree too.`,
   noWorktree: 'This member has no worktree',
+  noTeamWorktree: 'This conversation has no worktree of its own',
+  teamName: 'the team',
   resultStale: 'The working directory has changed since; this result is out of date. Let the team run again.',
   appliedNote: (name, files) =>
     `Applied @${name}'s changes to the working directory (${files} files, not committed). The next parallel round starts from the new state.`,
+  appliedTeamNote: (files) =>
+    `Applied the team's changes from this conversation's worktree to the working directory (${files} files, not committed). The team works in the working directory again from now on, unless another conversation is changing it then.`,
   noChanges: 'This message changed no files',
   relayLimit: (hops) => `Reached the relay limit (${hops} hand-offs); back to you. Press Continue to let the team keep going.`,
 
@@ -1522,6 +1568,8 @@ const en: ServerMessages = {
     'The check list changed after this run started, so its protected paths cannot be compared with the new list; the next run is checked with it.',
   checksNoBaseline: 'Where this run started from is not known any more, so it cannot be compared again.',
   checksCommitsParallel: 'Parallel mode applies its results without their commits, so the commit format is not checked.',
+  checksCommitsTeam:
+    "The team works in this conversation's own worktree, whose result is applied without its commits, so the commit format is not checked.",
   checksNoCommits: 'No new commit in this run.',
   checksPatternSlow: 'The commit format’s regular expression took too long and was stopped; make it simpler.',
   checksTooManyCommits: (n) => `More than ${n} new commits: only the newest ${n} were checked.`,
@@ -1555,6 +1603,14 @@ const en: ServerMessages = {
   checksCommandNotFound: 'The program it runs was not found (exit 127). Harness Relay never installs what is missing.',
   checksCommandWindows:
     'Commands cannot be checked on native Windows yet (Harness Relay has no sandbox there): only the protected paths and the commit format are.',
+  gatewayFromCode: 'Asked by code the agent runs with run_code.',
+  labsBadMode: "Labs' mode is off, letting assistants script the tools, or reading long texts in parts.",
+  labsNoModel: 'Reading long texts in parts needs a model ("backend/model").',
+  labsBadModel: (id) => `"${id}" is not "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint's id and a model name.`,
+  labsNoConnection: (backend) =>
+    `${backend} is not set up in Model connections: add its key or endpoint under Settings → Model connections first.`,
+  labsWindows: 'Not on native Windows yet: Harness Relay has no sandbox there to run the code in.',
+  labsNoNode: 'There is no Node.js on this computer to run the code with.',
   checksCommandNoFolder: (cwd) =>
     cwd
       ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`
@@ -1562,6 +1618,8 @@ const en: ServerMessages = {
   checksCommandsAtEnd: 'Commands are run once the team has finished.',
   checksCommandsParallel:
     "Parallel mode's results are not in the working directory until they are applied: commands are checked when one is.",
+  checksCommandsTeam:
+    "The team's changes are in this conversation's own worktree, not in the working directory, until they are applied: commands are checked then.",
   checksConfigChanged: (files) =>
     `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
   checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,
@@ -1591,6 +1649,14 @@ const en: ServerMessages = {
   hookMoreNotices: 'Later hook refusals or failures in this turn are not listed.',
   hooksUnsupported: (cli) =>
     `${cli} cannot run the team's hooks yet: this member's tool calls in this turn go without them; the checks once the team has answered run as usual.`,
+
+  backgroundCutOff: 'The turn ended before this work finished.',
+  cliCompacted: (cli) => `${cli} compacted the conversation's context to make room.`,
+  cliCompactFailed: (cli, why) => `${cli} could not compact the conversation's context${why ? `: ${why}` : '.'}`,
+  cliRetrying: (cli, attempt, max, why) =>
+    `${cli}'s request to its model failed; retrying${attempt ? ` (attempt ${attempt}${max ? ` of ${max}` : ''})` : ''}${why ? `: ${why}` : '.'}`,
+  cliRetryFailed: (cli, why) => `${cli} retried and still failed${why ? `: ${why}` : '.'}`,
+  cliModelSwitched: (cli, from, to) => (from ? `${cli} switched models from ${from} to ${to}.` : `${cli} switched to the model ${to}.`),
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',
@@ -1968,6 +2034,7 @@ const en: ServerMessages = {
   duplicateName: (name) => `The agent name "${name}" is used twice`,
   badProvider: (name) => `Agent "${name}" has an invalid provider`,
   badEffort: (name, effort) => `Agent "${name}" has an invalid reasoning effort "${effort}"`,
+  badLimit: (name, min, max) => `Agent "${name}" has an invalid limit: it must be from ${min} to ${max}`,
   cwdMissing: (cwd) => `Working directory not found: ${cwd}`,
   cwdNotDirectory: (cwd) => `Not a folder: ${cwd}`,
   cwdCreateFailed: (cwd, reason) => `Could not create the working directory ${cwd} (${reason})`,

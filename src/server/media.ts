@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { cwdsOf, type AgentWorktree, type ChatMessage, type Conversation } from '../shared/types';
+import { TEAM_WORKTREE, cwdsOf, type AgentWorktree, type ChatMessage, type Conversation } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { attachmentsDir } from './attachments';
 import { fileKey, withheldFileKeys } from './db';
@@ -15,7 +15,8 @@ function inside(path: string, root: string): boolean {
 
 /**
  * The worktrees a reply's agent worked in. For an isolated turn, those holding the turn's branches
- * (one for each repository it changed): the conversation's own, or for a reply copied into a branch,
+ * (one for each repository it changed): the conversation's own (the agent's, or the team's, which
+ * every member works in), or for a reply copied into a branch,
  * those of the conversation it was written in (`lookup` finds a conversation; any its copied messages
  * came from, and further up for a branch of a branch), while they are there. Not the branch's own
  * worktrees for that agent, which hold other work. Otherwise the agent's worktrees.
@@ -29,11 +30,13 @@ export function replyWorktrees(
   const own = conv.worktrees[msg.author.agentId] ?? [];
   const sets = (msg.changes ?? []).filter((c) => c.isolated && c.branch);
   if (!sets.length) return own;
+  // A turn in the team's own worktrees: theirs hold its branch.
+  const mine = [...own, ...(conv.worktrees[TEAM_WORKTREE] ?? [])];
   const sources = (c: Conversation) => (c.branch ? [c.branch, ...(c.branch.earlier ?? [])].map((p) => p.fromId) : []);
   const found: AgentWorktree[] = [];
   for (const changes of sets) {
     const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
-    let wt = own.find(holds);
+    let wt = mine.find(holds);
     const seen = new Set([conv.id]);
     const queue = wt ? [] : sources(conv);
     for (let i = 0; i < queue.length && !wt; i++) {
@@ -101,7 +104,7 @@ function resolveIn(ref: string, roots: string[], accept: (real: string) => boole
       if (!inside(target, realRoot) && !inside(target, resolve(root))) continue;
       const real = realpathSync(target);
       if (!inside(real, realRoot) || inGit(real, realRoot) || !accept(real)) continue;
-      const st = statSync(real);
+      const st = statSync(real, { bigint: true });
       // Never one the server withholds (its database, the secrets' key file): a reply may name it.
       if (st.isFile() && !withheldFileKeys().has(fileKey(st))) return real;
     } catch {

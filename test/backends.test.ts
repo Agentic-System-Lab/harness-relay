@@ -18,10 +18,17 @@ import {
   endpointProblems,
   endpointSlug,
   endpointUpdate,
+  limitDraft,
+  limitsShown,
+  limitsTyped,
   normalizedBaseUrl,
   parseModelList,
+  tokenCount,
+  tokensTyped,
   validBaseUrl,
+  withLimit,
 } from '../src/web/backends';
+import { effectiveLimits } from '../src/shared/modelLimits';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-backends-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -29,8 +36,20 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 const { openDatabase } = await import('../src/server/db');
 const { AuthStore } = await import('../src/server/auth');
 const { SYSTEM_NET } = await import('../src/server/oauth/net');
-const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, endpointRunModel, urlHost } =
-  await import('../src/server/backends');
+const {
+  ModelBackendStore,
+  ENDPOINT_KEY_ENV,
+  backendEnv,
+  backendRun,
+  endpointKeyEnv,
+  endpointModel,
+  endpointRunModel,
+  parseModelLimits,
+  savedLimits,
+  urlHost,
+} = await import('../src/server/backends');
+const { endpointModelLimits, outputReserve, runLimits, toolOutputChars } = await import('../src/server/contextWindow');
+const { reportedLimits } = await import('../src/server/endpointModels');
 const { discoverModels, withEndpointModels } = await import('../src/server/models');
 const { SettingsStore, OPEN_AGENT_HOME_ENV, OPEN_HOMES_DIR } = await import('../src/server/settings');
 const { createApp } = await import('../src/server/app');
@@ -122,6 +141,97 @@ describe('ModelBackendStore', () => {
     again.putEndpoint('homelab', { ...endpoint, models: ['a', 'b'] });
     expect(keyColumn()).toEqual([['homelab', 'lab-key-5678']]);
     expect(new ModelBackendStore(reopen()).forRun().endpoints[0]).toMatchObject({ models: ['a', 'b'], apiKey: 'lab-key-5678' });
+  });
+
+  it("keeps each model's context window and output limit: the user's over the server's, for the models it lists", () => {
+    const s = new ModelBackendStore(db);
+    const models = ['qwen', 'llama', '__proto__'];
+    s.putEndpoint(
+      'homelab',
+      { ...endpoint, models, limits: { llama: { output: 2048 } } },
+      { qwen: { context: 32768 }, llama: { context: 8192 } },
+    );
+    const again = new ModelBackendStore(reopen());
+    expect(again.view().endpoints[0]!.limits).toEqual({
+      qwen: { reported: { context: 32768 } },
+      llama: { output: 2048, reported: { context: 8192 } },
+    });
+    expect(again.forRun().endpoints[0]!.limits).toEqual({ qwen: { context: 32768 }, llama: { context: 8192, output: 2048 } });
+    // The user's context window wins; a model of any name is a key like another.
+    again.putEndpoint('homelab', { ...endpoint, models, limits: { qwen: { context: 16384 }, __proto__: { context: 4096 } } });
+    expect(again.forRun().endpoints[0]!.limits).toEqual({
+      qwen: { context: 16384 },
+      llama: { context: 8192 },
+      __proto__: { context: 4096 },
+    });
+    expect(Object.getPrototypeOf(again.forRun().endpoints[0]!.limits)).toBe(Object.prototype);
+    // Without `limits`, the user's are kept; without `reported` (a new name only), the server's too.
+    again.putEndpoint('homelab', { ...endpoint, name: 'Renamed', models });
+    expect(again.view().endpoints[0]!.limits).toMatchObject({ qwen: { context: 16384, reported: { context: 32768 } } });
+    // A model taken out takes its limits along; the server asked again replaces what it reported.
+    again.putEndpoint('homelab', { ...endpoint, models: ['qwen'] }, {});
+    expect(again.view().endpoints[0]!.limits).toEqual({ qwen: { context: 16384 } });
+    // Another address: what the old server reported is of another server.
+    again.putEndpoint('homelab', { ...endpoint, models: ['qwen'], limits: {} }, { qwen: { context: 32768 } });
+    again.putEndpoint('homelab', { ...endpoint, baseUrl: 'http://10.0.0.6:8000/v1', models: ['qwen'] });
+    expect(again.view().endpoints[0]).not.toHaveProperty('limits');
+    expect(again.forRun().endpoints[0]).not.toHaveProperty('limits');
+  });
+
+  it('refuses an output limit that is not less than the context window the server reports, and changes nothing', () => {
+    const s = new ModelBackendStore(db);
+    s.putEndpoint('homelab', { ...endpoint, models: ['qwen'], limits: { qwen: { output: 8192 } } });
+    const before = s.view();
+    const err = withLang('en', () => {
+      try {
+        s.putEndpoint('homelab', { ...endpoint, name: 'Other', models: ['qwen'] }, { qwen: { context: 8192 } });
+      } catch (e) {
+        return e as Error & { status?: number };
+      }
+    });
+    expect(err?.status).toBe(400);
+    expect(err?.message).toMatch(/output limit of "qwen" \(8192 tokens\) must be less than its context window \(8192 tokens/);
+    expect(s.view()).toEqual(before);
+    expect(new ModelBackendStore(reopen()).view()).toEqual(before);
+  });
+
+  it('reads only figures Settings takes from what the database holds', () => {
+    expect(parseModelLimits('not json')).toEqual({});
+    expect(parseModelLimits('[1]')).toEqual({});
+    expect(
+      parseModelLimits(
+        JSON.stringify({ a: { context: 32768, output: 0.5, reported: { context: 'x', output: 4096 } }, b: { context: 12 }, c: null }),
+      ),
+    ).toEqual({ a: { context: 32768, reported: { output: 4096 } } });
+    expect(Object.keys(parseModelLimits('{"__proto__": {"context": 4096}}'))).toEqual(['__proto__']);
+    // What a run uses: the user's over the server's; an output limit the window cannot hold, none.
+    expect(effectiveLimits({ output: 1000, reported: { context: 8192, output: 9000 } })).toEqual({ context: 8192, output: 1000 });
+    expect(effectiveLimits({ reported: { context: 8192, output: 8192 } })).toEqual({ context: 8192 });
+    expect(effectiveLimits(undefined)).toEqual({});
+    expect(savedLimits({ m: { context: 4096, reported: { context: 9000 } } }, { models: ['m'] }, undefined, true)).toEqual({
+      m: { context: 4096 },
+    });
+  });
+
+  it('gives a run its model’s limits, and the share each adapter keeps for an answer and a tool output', () => {
+    const backends = {
+      apis: {},
+      endpoints: [
+        { id: 'lab', name: 'Lab', baseUrl: 'http://h/v1', models: ['a', 'b'], limits: { a: { context: 32768 }, b: { output: 512 } } },
+      ],
+    };
+    expect(runLimits(backends.endpoints[0], 'a')).toEqual({ context: 32768 });
+    expect(runLimits(backends.endpoints[0], 'c')).toBeUndefined();
+    expect(runLimits(backends.endpoints[0], 'toString')).toBeUndefined();
+    expect(endpointModelLimits(backends, 'lab/b')).toEqual({ output: 512 });
+    expect(endpointModelLimits(backends, 'openai/a')).toBeUndefined();
+    expect(endpointModelLimits(backends, 'gone/a')).toBeUndefined();
+    expect(outputReserve({ context: 32768 }, 32000)).toBe(8192);
+    expect(outputReserve({ context: 1_000_000 }, 32000)).toBe(32000);
+    expect(outputReserve({ context: 32768, output: 1000 }, 32000)).toBe(1000);
+    expect(toolOutputChars(32768)).toBe(12288);
+    // A run's backend carries the limits too.
+    expect(backendRun(backends, 'lab/a', 'OpenCode').endpoint?.limits).toEqual({ a: { context: 32768 }, b: { output: 512 } });
   });
 
   it('keeps keys in the credential store, never in the database, under backend-<id> and endpoint-<id>', () => {
@@ -1137,6 +1247,115 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     );
   });
 
+  it('reads the context window from the answers the save checks, keeps what the user set over it, and asks nothing for a new name', async () => {
+    const { app, settings } = setup();
+    const seen: string[] = [];
+    await withModelServer(
+      (req, res) => {
+        seen.push(req.url!);
+        switch (req.url) {
+          case '/vllm/models':
+            // vLLM: max_model_len, and a LoRA adapter of the base model, which has none of its own.
+            return res.end(
+              JSON.stringify({
+                object: 'list',
+                data: [
+                  { id: 'Qwen/Qwen3-32B', object: 'model', owned_by: 'vllm', root: '/models/qwen', max_model_len: 32768 },
+                  { id: 'sql-lora', object: 'model', owned_by: 'vllm', parent: 'Qwen/Qwen3-32B' },
+                ],
+              }),
+            );
+          case '/llama/models':
+            // llama.cpp: the context of one slot (meta.n_ctx), not what the model was trained for.
+            return res.end(
+              JSON.stringify({
+                object: 'list',
+                data: [{ id: 'gemma', object: 'model', owned_by: 'llamacpp', meta: { n_ctx: 8192, n_ctx_train: 131072 } }],
+              }),
+            );
+          case '/ollama/models':
+            return res.end(JSON.stringify({ object: 'list', data: [{ id: 'llama3', object: 'model' }] }));
+          case '/ollama/models/extra':
+            return res.end(JSON.stringify({ id: 'extra', max_model_len: 4096 }));
+          default:
+            res.writeHead(404);
+            res.end();
+        }
+      },
+      async (origin) => {
+        const put = (body: object) => app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, verifyModels: true, ...body }));
+        const view = async (r: Response) => {
+          expect(r.status).toBe(200);
+          return ((await r.json()) as ModelBackendsView).endpoints[0]!;
+        };
+        let e = await view(
+          await put({ baseUrl: origin + '/vllm', models: ['Qwen/Qwen3-32B', 'sql-lora'], limits: { 'sql-lora': { output: 1024 } } }),
+        );
+        expect(e.limits).toEqual({
+          'Qwen/Qwen3-32B': { reported: { context: 32768 } },
+          'sql-lora': { output: 1024, reported: { context: 32768 } },
+        });
+        // The user's context window wins over the server's.
+        e = await view(
+          await put({ baseUrl: origin + '/vllm', models: ['Qwen/Qwen3-32B'], limits: { 'Qwen/Qwen3-32B': { context: 16384 } } }),
+        );
+        expect(settings.backends.forRun().endpoints[0]!.limits).toEqual({ 'Qwen/Qwen3-32B': { context: 16384 } });
+        seen.splice(0);
+        // A new name only: the server is not asked, and what it reported stays.
+        e = await view(await put({ name: 'Renamed', baseUrl: origin + '/vllm', models: ['Qwen/Qwen3-32B'], limits: {} }));
+        expect(seen).toEqual([]);
+        expect(e.limits).toEqual({ 'Qwen/Qwen3-32B': { reported: { context: 32768 } } });
+        e = await view(await put({ name: 'Renamed', baseUrl: origin + '/llama', models: ['gemma'], limits: {} }));
+        expect(e.limits).toEqual({ gemma: { reported: { context: 8192 } } });
+        // A server that reports none (Ollama), and a model's own record that does.
+        e = await view(await put({ name: 'Renamed', baseUrl: origin + '/ollama', models: ['llama3', 'extra'] }));
+        expect(e.limits).toEqual({ extra: { reported: { context: 4096 } } });
+        expect(seen.slice(-2)).toEqual(['/ollama/models', '/ollama/models/extra']);
+        // An output limit the server's window cannot hold refuses the save, which changes nothing.
+        const before = settings.backends.view();
+        const refused = await put({ name: 'Renamed', baseUrl: origin + '/llama', models: ['gemma'], limits: { gemma: { output: 9000 } } });
+        expect(refused.status).toBe(400);
+        expect(((await refused.json()) as { error: string }).error).toMatch(/output limit of "gemma" \(9000 tokens\)/);
+        expect(settings.backends.view()).toEqual(before);
+      },
+    );
+  });
+
+  it('takes only whole token counts in range, for the models the endpoint lists', async () => {
+    const { app } = setup();
+    const put = (limits: unknown) => app.request('/api/backends/endpoints/lab', json('PUT', { ...endpoint, models: ['m'], limits }));
+    for (const limits of [
+      [],
+      'x',
+      { other: { context: 32768 } },
+      { m: { context: 1000 } },
+      { m: { context: 32768.5 } },
+      { m: { context: '32768' } },
+      { m: { output: 0 } },
+      { m: { context: 8192, output: 8192 } },
+      { m: { context: 8192, extra: 1 } },
+      { m: null },
+    ]) {
+      const r = await put(limits);
+      expect(r.status, JSON.stringify(limits)).toBe(400);
+      expect(((await r.json()) as { error: string }).error).toMatch(/context window is a whole number of tokens from 1024 to 10000000/);
+    }
+    const ok = await put({ m: { context: 32768, output: 4096 } });
+    expect(((await ok.json()) as ModelBackendsView).endpoints[0]!.limits).toEqual({ m: { context: 32768, output: 4096 } });
+    // An empty entry sets nothing.
+    expect(((await (await put({ m: {} })).json()) as ModelBackendsView).endpoints[0]).not.toHaveProperty('limits');
+  });
+
+  it('reads vLLM’s max_model_len and llama.cpp’s meta.n_ctx, and nothing else, as the context window', () => {
+    expect(reportedLimits({ id: 'a', max_model_len: 32768 })).toEqual({ context: 32768 });
+    expect(reportedLimits({ id: 'a', meta: { n_ctx: 8192, n_ctx_train: 131072 } })).toEqual({ context: 8192 });
+    expect(reportedLimits({ id: 'a', meta: { n_ctx_train: 131072 } })).toEqual({});
+    expect(reportedLimits({ id: 'a', context_length: 131072 })).toEqual({});
+    expect(reportedLimits({ id: 'a', max_model_len: '32768' })).toEqual({});
+    expect(reportedLimits({ id: 'a', max_model_len: 10 })).toEqual({});
+    expect(reportedLimits(null)).toEqual({});
+  });
+
   it('sets and removes API keys, shown masked only', async () => {
     const { app, keyring } = setup();
     const res = await app.request('/api/backends/openai', json('PUT', { apiKey: ' sk-test-openai-9999 ' }));
@@ -1342,8 +1561,61 @@ describe('the endpoint form (Settings → Model connections)', () => {
     expect(endpointProblems({ ...d, name: 'x'.repeat(61) }, [])).toEqual(['nameLong']);
     expect(endpointProblems({ ...d, models: Array.from({ length: 101 }, (_, i) => `m${i}`) }, [])).toEqual(['models']);
     expect(endpointProblems({ ...d, models: ['x'.repeat(201)] }, [])).toEqual(['models']);
-    expect(endpointUpdate({ ...d, apiKey: ' k ' })).toEqual({ name: 'Lab', baseUrl: 'http://h:1/v1', models: ['m1', 'm2'], apiKey: 'k' });
+    expect(endpointUpdate({ ...d, apiKey: ' k ' })).toEqual({
+      name: 'Lab',
+      baseUrl: 'http://h:1/v1',
+      models: ['m1', 'm2'],
+      apiKey: 'k',
+      limits: {},
+    });
     expect(endpointUpdate({ ...d, removeKey: true })).toMatchObject({ apiKey: null });
     expect('apiKey' in endpointUpdate(d)).toBe(false);
+  });
+
+  it("takes each model's context window and output limit as typed, and shows where each comes from", () => {
+    const view = {
+      id: 'lab',
+      name: 'Lab',
+      baseUrl: 'http://h:1/v1',
+      models: ['m1', 'm2', 'm3'],
+      keyMasked: '',
+      keyStorage: 'database' as const,
+      limits: {
+        m1: { reported: { context: 32768 } },
+        m2: { context: 8192, output: 1024, reported: { context: 4096 } },
+        m3: { output: 512 },
+      },
+    };
+    const d = endpointDraft(view);
+    // Only what the user set is theirs to change: the server's figure is shown beside it.
+    expect(d.limits).toEqual({ m2: { context: '8192', output: '1024' }, m3: { context: '', output: '512' } });
+    expect(limitsShown(view)).toEqual([
+      { model: 'm1', context: 32768, fromServer: true },
+      { model: 'm2', context: 8192, output: 1024 },
+      { model: 'm3', output: 512 },
+    ]);
+    expect(tokenCount(32768)).toBe('32,768');
+    expect(tokensTyped(' 32,768 ')).toBe(32768);
+    expect(tokensTyped('32 768')).toBe(32768);
+    expect(tokensTyped('')).toBe('');
+    expect(tokensTyped('32k')).toBeNaN();
+    expect(tokensTyped('-1')).toBeNaN();
+    expect(limitDraft(d, 'm1')).toEqual({ context: '', output: '' });
+    expect(limitDraft(d, 'toString')).toEqual({ context: '', output: '' });
+    const typed = { ...d, limits: withLimit(d, 'm1', { context: '16,384' }) };
+    expect(endpointUpdate(typed).limits).toEqual({ m1: { context: 16384 }, m2: { context: 8192, output: 1024 }, m3: { output: 512 } });
+    // A model no longer selected takes its figures along; a cleared one has none (the server's applies).
+    const cleared = { ...typed, models: ['m1', 'm2'], limits: withLimit(typed, 'm2', { context: '', output: '' }) };
+    expect(endpointUpdate(cleared).limits).toEqual({ m1: { context: 16384 } });
+    expect(endpointProblems({ ...cleared, name: 'Lab', id: 'lab' }, [])).toEqual([]);
+    for (const bad of [
+      { context: '512' },
+      { context: 'abc' },
+      { output: '0' },
+      { context: '8192', output: '8192' },
+      { context: '20000000' },
+    ])
+      expect(endpointProblems({ ...cleared, limits: withLimit(cleared, 'm1', bad) }, []), JSON.stringify(bad)).toEqual(['limits']);
+    expect(limitsTyped({ limits: { m9: { context: 'x', output: '' } } }, ['m1'])).toEqual({});
   });
 });

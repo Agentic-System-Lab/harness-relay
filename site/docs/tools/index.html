@@ -332,6 +332,7 @@
                   </details>
                 </li>
                 <li><a href="#own-setup">What each agent loads by itself</a></li>
+                <li><a href="#labs">Labs: experimental ways to use the tools</a></li>
               </ol>
             </details>
           </li>
@@ -677,6 +678,33 @@
           </p>
         </section>
 
+        <section id="labs" aria-labelledby="labs-title">
+          <h2 id="labs-title">Labs: experimental ways to use the tools</h2>
+          <p>
+            <b>Settings &amp; sign-in → Labs</b>, the last card, holds ways of working that are still experimental. Each is off
+            by default, only one can be on at a time, and a change applies from an agent's next turn. They change only how
+            agents use Harness Relay's tools on this page, so an agent needs some of them first.
+          </p>
+          <ul>
+            <li>
+              <b>Let assistants script the tools (CodeAct)</b>: an agent writes a short program that calls the tools one after
+              another, such as going through 50 mails and keeping only what matters, instead of one call at a time. Each call is
+              decided as the agent's own would be: reads run, actions ask you, and mail waits in the <a href="#outbox">outbox</a>,
+              at most 5 questions or outbox items a run, the browser's question about a new site included. The program runs in Harness Relay's own sandbox, also in Full access: no network and no
+              file changed, though it can read what your account can read, except the protected folders. A run takes a minute
+              by default.
+            </li>
+            <li>
+              <b>Read long texts in parts (RLM)</b>: everything above, and the program can keep a long text for the rest of the
+              turn and ask a model you choose from <b>Model connections</b> about one part at a time, then put the answers
+              together. Each question is billed on that model's key, up to 100 a turn, and is not in the reply's cost. Harness
+              Relay asks the model itself, with no tools, and its key never enters the sandbox. A small model may miss details.
+            </li>
+          </ul>
+          <p>Neither works on Windows, nor where Harness Relay's own sandbox cannot start: on Linux it needs bubblewrap, which <b>Settings → Sandboxes</b> installs. The card says so.</p>
+          <p><a href="../../assets/media/docs/tools-labs-desktop-en.webp">Labs on desktop</a> · <a href="../../assets/media/docs/tools-labs-phone-en.webp">Labs on a phone</a></p>
+        </section>
+
         <aside class="doc-more" aria-label="Technical details">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
@@ -685,6 +713,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">Harness Relay's tools</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#tool-library-mcp-servers-skills-and-memory">Tool library</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#what-each-cli-loads-by-itself">What each agent loads by itself</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#labs">Labs</a></li>
             </ul>
           </div>
         </aside>

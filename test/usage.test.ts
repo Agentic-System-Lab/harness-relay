@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -8,10 +8,14 @@ import { slow } from './timeouts';
 /*
  * Plan usage as each CLI reports it (`src/server/usage.ts`): the answers recorded from the real CLIs
  * (`test/fixtures/usage/`: Claude Code 2.1.323 on a Max plan and with an API key, codex-cli 0.167.0
- * on a ChatGPT plan, grok 1.0.77 on SuperGrok, muse 1.4.18 on a Meta account without an allowance,
- * cursor-agent 2026.11.11 on a free plan, copilot 1.0.110 on a GitHub token against a stand-in GitHub
- * API; their e-mail addresses and ids replaced), Antigravity's as agy 1.5.8 types them (no real
- * Google account's answer was seen), and the questions asked, through stand-ins for the CLIs.
+ * on a ChatGPT plan, also with its weekly limit used up and running on credits, grok 1.0.77 on
+ * SuperGrok, muse 1.4.18 on a Meta account without an allowance, cursor-agent 2026.11.11 on a free
+ * plan, copilot 1.0.110 on a GitHub token against a stand-in GitHub API; their e-mail addresses and
+ * ids replaced), the answers no account here could give made from them with the fields their CLIs
+ * read (Claude Code's usage credits turned on, Copilot's additional paid usage, Grok's prepaid
+ * credits), Antigravity's as agy 1.5.8 types them and as agy 1.5.14 gave them for a Google AI Pro
+ * account with its quota unused (no answer with a quota used up or AI credits left was seen), and the
+ * questions asked, through stand-ins for the CLIs.
  */
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', 'usage', name), 'utf8');
@@ -33,6 +37,7 @@ const {
   parseMuseUsage,
   spanOfMinutes,
 } = await import('../src/server/usage');
+const { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } = await import('../src/server/settings');
 
 describe("Claude Code's get_usage answer", () => {
   it("gives each limit of a Max plan, a model's own weekly limit named after the model", () => {
@@ -43,6 +48,39 @@ describe("Claude Code's get_usage answer", () => {
         { span: 'week', scope: 'Fable', usedPercent: 0, resetsAt: Date.parse('2026-11-13T13:00:00+00:00') },
       ],
     });
+  });
+
+  it('says usage credits pay past every limit once they are turned on and below their spend limits', () => {
+    const paid = parseClaudeUsage(json('claude-get-usage-extra-usage.json'), false);
+    expect(paid).toEqual({
+      plan: 'max',
+      limits: [
+        { span: 'week', usedPercent: 100, resetsAt: Date.parse('2026-11-13T13:00:00.565052+00:00'), paidPast: true },
+        { span: 'week', scope: 'Fable', usedPercent: 0, resetsAt: Date.parse('2026-11-13T13:00:00+00:00'), paidPast: true },
+      ],
+      payer: 'usageCredits',
+    });
+    const r = json('claude-get-usage-extra-usage.json') as { rate_limits: { extra_usage: Record<string, unknown> } };
+    const withExtra = (extra: Record<string, unknown> | null) =>
+      parseClaudeUsage({ ...r, rate_limits: { ...r.rate_limits, extra_usage: extra && { ...r.rate_limits.extra_usage, ...extra } } }, false)
+        ?.payer;
+    // No monthly cap: unlimited.
+    expect(withExtra({ monthly_limit: null, used_credits: 90000, utilization: null })).toBe('usageCredits');
+    // Turned off, out of credits, at a spend limit, or an answer without the block: nothing pays.
+    for (const off of [
+      { is_enabled: false },
+      { user_disabled: true },
+      { spend_limit_reached: true },
+      { disabled_reason: 'out_of_credits' },
+      { disabled_reason: 'org_spend_cap_reached' },
+      { used_credits: 5000 },
+      { used_credits: null, utilization: 100 },
+      { daily: { limit: 1000, used_credits: 1000 } },
+      { weekly: { limit: 2000, used_credits: 2500 } },
+    ])
+      expect(withExtra(off)).toBeUndefined();
+    expect(withExtra(null)).toBeUndefined();
+    expect(withExtra({ daily: { limit: 1000, used_credits: 10 }, weekly: { limit: null, used_credits: 0 } })).toBe('usageCredits');
   });
 
   it('says an account on an API key has no plan limits, and one without them otherwise that they are not available for how it signs in', () => {
@@ -107,12 +145,93 @@ describe("Claude Code's get_usage answer", () => {
 });
 
 describe("Codex's account and rate limits", () => {
-  it('gives the weekly window of a ChatGPT plan and its credits', () => {
+  it('gives the weekly window of a ChatGPT plan and its credits, which pay past it', () => {
     expect(parseCodexUsage(json('codex-account-read.json'), json('codex-rate-limits.json'))).toEqual({
       plan: 'prolite',
-      limits: [{ span: 'week', usedPercent: 5, resetsAt: 1795003102 * 1000 }],
+      limits: [{ span: 'week', usedPercent: 5, resetsAt: 1795003102 * 1000, paidPast: true }],
+      payer: 'credits',
       credits: { balance: 52831.177348 },
     });
+  });
+
+  it('says credits pay once the weekly limit is used up and ordinary usage is blocked', () => {
+    expect(parseCodexUsage(json('codex-account-read.json'), json('codex-rate-limits-credits.json'))).toEqual({
+      plan: 'prolite',
+      limits: [{ span: 'week', usedPercent: 100, resetsAt: Date.parse('2026-11-27T12:46:06Z'), paidPast: true }],
+      planUsageBlocked: true,
+      payer: 'credits',
+      credits: { balance: 18664.20364 },
+    });
+  });
+
+  it("decides on credits it has with a balance left, or unlimited, and not past a spend cap, a workspace out of credits or a model's own limit", () => {
+    const answer = (codex: Record<string, unknown>, spark?: Record<string, unknown>) => {
+      const main = {
+        limitId: 'codex',
+        normalModelSlug: null,
+        primary: { usedPercent: 100, windowDurationMins: 10080 },
+        secondary: { usedPercent: 100, windowDurationMins: 300 },
+        spendControlReached: false,
+        rateLimitReachedType: 'rate_limit_reached',
+        ...codex,
+      };
+      return parseCodexUsage(undefined, {
+        ordinaryUsageAllowed: false,
+        rateLimits: main,
+        rateLimitsByLimitId: { codex: main, ...(spark ? { spark } : {}) },
+      });
+    };
+    const has = (balance: unknown) => ({ credits: { hasCredits: true, unlimited: false, balance } });
+    // A balance above zero, or none given: they pay. Zero or below: nothing pays.
+    for (const balance of ['18664.20364', '0.01', null, '', 'not-a-number']) expect(answer(has(balance))?.payer).toBe('credits');
+    for (const balance of ['0', '0.0000000000', '-12.5', 0]) expect(answer(has(balance))?.payer).toBeUndefined();
+    expect(answer({ credits: { hasCredits: false, unlimited: true, balance: null } })?.payer).toBe('credits');
+    expect(answer({ credits: { hasCredits: true, unlimited: true, balance: '0' } })?.payer).toBe('credits');
+    expect(answer({ credits: { hasCredits: false, unlimited: false, balance: '0' } })?.payer).toBeUndefined();
+    expect(answer({ credits: null })?.payer).toBeUndefined();
+    expect(answer({ ...has('10'), spendControlReached: true })?.payer).toBeUndefined();
+    for (const type of [
+      'workspace_owner_credits_depleted',
+      'workspace_member_credits_depleted',
+      'workspace_owner_usage_limit_reached',
+      'workspace_member_usage_limit_reached',
+    ]) {
+      const stopped = answer({ ...has('10'), rateLimitReachedType: type });
+      expect(stopped).toMatchObject({ planUsageBlocked: true, limits: [{}, {}] });
+      expect(stopped?.payer).toBeUndefined();
+      expect(stopped?.limits.some((l) => l.paidPast)).toBe(false);
+    }
+    // Both windows of the plan's own limit are paid past; a model's own limit is not.
+    const spark = {
+      limitId: 'spark',
+      limitName: 'Spark',
+      normalModelSlug: 'gpt-6.1-spark',
+      primary: { usedPercent: 100, windowDurationMins: 300 },
+      credits: null,
+    };
+    expect(answer(has('10'), spark)).toMatchObject({
+      payer: 'credits',
+      limits: [
+        { span: 'week', usedPercent: 100, paidPast: true },
+        { span: 'fiveHour', usedPercent: 100, paidPast: true },
+        { span: 'fiveHour', scope: 'Spark', model: 'gpt-6.1-spark', usedPercent: 100 },
+      ],
+    });
+    expect(answer(has('10'), spark)?.limits[2]).not.toHaveProperty('paidPast');
+  });
+
+  it("shows the plan's own snapshot's credits, else the first another one has", () => {
+    const snap = (limitId: string, balance: string | null) => ({
+      limitId,
+      limitName: limitId === 'codex' ? null : limitId,
+      normalModelSlug: limitId === 'codex' ? null : `gpt-${limitId}`,
+      primary: { usedPercent: 10, windowDurationMins: 300 },
+      credits: balance === null ? null : { hasCredits: true, unlimited: false, balance },
+    });
+    const answer = (...snaps: ReturnType<typeof snap>[]) =>
+      parseCodexUsage(undefined, { rateLimits: snaps[0], rateLimitsByLimitId: Object.fromEntries(snaps.map((s) => [s.limitId, s])) });
+    expect(answer(snap('spark', '5'), snap('codex', '42'))).toMatchObject({ credits: { balance: 42 }, payer: 'credits' });
+    expect(answer(snap('spark', '5'), snap('codex', null))?.credits).toEqual({ balance: 5 });
   });
 
   it('names each limit when there are several, and gives a window of another length in minutes', () => {
@@ -166,7 +285,7 @@ describe("Codex's account and rate limits", () => {
     const r = {
       rateLimits: { primary: null, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null }, planType: 'enterprise' },
     };
-    expect(parseCodexUsage(undefined, r)).toEqual({ plan: 'enterprise', limits: [], credits: { unlimited: true } });
+    expect(parseCodexUsage(undefined, r)).toEqual({ plan: 'enterprise', limits: [], payer: 'credits', credits: { unlimited: true } });
     expect(parseCodexUsage(undefined, undefined)).toBeUndefined();
   });
 });
@@ -177,6 +296,25 @@ describe("Grok's billing", () => {
       plan: 'SuperGrok',
       limits: [{ span: 'week', usedPercent: 1, resetsAt: Date.parse('2026-11-17T05:30:27.116040+00:00') }],
     });
+  });
+
+  it('says prepaid credits, or pay-as-you-go with room below its cap, pay past the plan; nothing pays without either', () => {
+    expect(parseGrokUsage(json('grok-billing-credits.json'))).toEqual({
+      plan: 'SuperGrok',
+      limits: [{ span: 'week', usedPercent: 100, resetsAt: Date.parse('2026-11-22T09:12:24.838+00:00'), paidPast: true }],
+      payer: 'credits',
+    });
+    expect(parseGrokUsage(json('grok-billing.json'))?.payer).toBeUndefined();
+    const billing = (top: Record<string, unknown>, config: Record<string, unknown>) =>
+      parseGrokUsage({ subscription_tier: 'SuperGrok', ...top, config: { creditUsagePercent: 100, ...config } });
+    expect(billing({ on_demand_enabled: true }, { onDemandCap: { val: 5000 }, onDemandUsed: { val: 1200 } })).toMatchObject({
+      payer: 'payAsYouGo',
+      limits: [{ usedPercent: 100, paidPast: true }],
+    });
+    expect(billing({ on_demand_enabled: true }, { onDemandCap: { val: 5000 }, onDemandUsed: { val: 5000 } })?.payer).toBeUndefined();
+    expect(billing({ on_demand_enabled: true }, { onDemandCap: { val: 0 }, onDemandUsed: { val: 0 } })?.payer).toBeUndefined();
+    expect(billing({}, { onDemandCap: { val: 5000 }, onDemandUsed: { val: 0 } })?.payer).toBeUndefined();
+    expect(billing({}, { prepaidBalance: { val: 0 } })?.limits).toEqual([{ usedPercent: 100 }]);
   });
 
   it('keeps the plan of an answer without a share, and nothing of one that is not an answer', () => {
@@ -228,6 +366,34 @@ describe("Copilot's quota", () => {
           resetsAt: 1796083200 * 1000,
         },
       ],
+    });
+  });
+
+  it('says additional paid usage goes past a kind whose overage is allowed, from getQuota or else the user record', () => {
+    expect(parseCopilotUsage(json('copilot-get-quota-overage.json'), json('copilot-current-auth.json'))).toEqual({
+      plan: 'individual',
+      limits: [
+        {
+          span: 'month',
+          kind: 'premiumRequests',
+          usedPercent: 100,
+          used: 1500,
+          total: 1500,
+          resetsAt: 1796083200 * 1000,
+          paidPast: true,
+        },
+      ],
+      payer: 'additionalUsage',
+    });
+    // Copilot Free's chat used up: overage not allowed (or the cap reached), so nothing pays.
+    const chat = { entitlementRequests: 200, usedRequests: 200, remainingPercentage: 0 };
+    expect(parseCopilotUsage({ quotaSnapshots: { chat: { ...chat, overageAllowedWithExhaustedQuota: false } } }, {})).toEqual({
+      limits: [{ span: 'month', kind: 'chat', usedPercent: 100, used: 200, total: 200 }],
+    });
+    const auth = { copilotUser: { quota_snapshots: { chat: { overage_permitted: true } } } };
+    expect(parseCopilotUsage({ quotaSnapshots: { chat } }, auth)).toMatchObject({
+      payer: 'additionalUsage',
+      limits: [{ kind: 'chat', paidPast: true }],
     });
   });
 
@@ -304,6 +470,43 @@ describe("Antigravity's /usage and /credits", () => {
       [undefined, 'Pro · Requests', 50],
       [undefined, 'Flash · Requests', 10],
     ]);
+  });
+
+  it("reads agy 1.5.14's answers for a Google AI Pro account with its quota unused (recorded)", () => {
+    const week = Date.parse('2026-11-29T00:51:03Z');
+    const fiveHours = Date.parse('2026-11-22T05:51:03Z');
+    // AI credits turned on change nothing without a balance: there are none to pay with.
+    for (const on of [false, true]) {
+      expect(parseAntigravityUsage(json('antigravity-usage-pro.json'), json('antigravity-credits.json'), on)).toEqual({
+        limits: [
+          { span: 'week', scope: 'Gemini Models · Weekly Limit Remaining', usedPercent: 0, resetsAt: week },
+          { span: 'fiveHour', scope: 'Gemini Models · Five Hour Limit Remaining', usedPercent: 0, resetsAt: fiveHours },
+          { span: 'week', scope: 'Claude and GPT models · Weekly Limit Remaining', usedPercent: 0, resetsAt: week },
+          { span: 'fiveHour', scope: 'Claude and GPT models · Five Hour Limit Remaining', usedPercent: 0, resetsAt: fiveHours },
+          { span: 'week', scope: 'Gemini 4 Argon · Gemini 4 Argon Weekly Limit', usedPercent: 0, resetsAt: week },
+        ],
+      });
+    }
+  });
+
+  it('has AI credits the account turned on pay past every quota while it has some left, and nothing else', () => {
+    const usage = json('antigravity-usage-pro.json') as { groups: { buckets: { remaining_fraction: number }[] }[] };
+    usage.groups[0]!.buckets[0]!.remaining_fraction = 0; // the Gemini models' week used up
+    const credits = { remaining_credits: 250, upgrade_uri: 'https://antigravity.google/g1-upgrade' };
+    const on = parseAntigravityUsage(usage, credits, true);
+    expect(on?.payer).toBe('credits');
+    expect(on?.credits).toEqual({ balance: 250 });
+    expect(on?.limits.map((l) => [l.usedPercent, l.paidPast])).toEqual([
+      [100, true],
+      [0, true],
+      [0, true],
+      [0, true],
+      [0, true],
+    ]);
+    for (const off of [parseAntigravityUsage(usage, credits, false), parseAntigravityUsage(usage, { remaining_credits: 0 }, true)]) {
+      expect(off?.payer).toBeUndefined();
+      expect(off?.limits.some((l) => l.paidPast)).toBe(false);
+    }
   });
 
   it('says there is nothing to show for no buckets and no credits (a Gemini API key), a zero of credits without a plan saying nothing', () => {
@@ -472,6 +675,10 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
   const started = () => logged().filter((e) => e.args);
   const methods = () => logged().flatMap((e) => (e.method ? [e.method] : []));
   const fresh = () => writeFileSync(log, '');
+  // Antigravity's account, whose settings say whether its AI credits pay past a used-up quota (never the user's own).
+  const agyHome = join(root, 'agy-account');
+  const agyApp = join(agyHome, '.gemini', 'antigravity-cli');
+  const agy = (extra: NodeJS.ProcessEnv = {}) => env({ [ANTIGRAVITY_HOME_ENV]: agyHome, ...extra });
 
   it('asks Claude Code get_usage over stream-json, without settings files, hooks or MCP servers, in the same empty folder each time', async () => {
     fresh();
@@ -508,7 +715,8 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
     fresh();
     expect(await askUsage('codex', bin('codex'), env())).toEqual({
       plan: 'prolite',
-      limits: [{ span: 'week', usedPercent: 5, resetsAt: 1795003102000 }],
+      limits: [{ span: 'week', usedPercent: 5, resetsAt: 1795003102000, paidPast: true }],
+      payer: 'credits',
       credits: { balance: 52831.177348 },
     });
     expect(started()[0]!.args).toEqual(['app-server']);
@@ -585,20 +793,40 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
       limits: [{ span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') }],
       credits: { balance: 1000 },
     };
-    expect(await askUsage('antigravity', bin('agy'), env())).toEqual(expected);
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(expected);
     expect(started().map((s) => s.args)).toEqual([
       ['-p', '/usage', '--output-format', 'json'],
       ['-p', '/credits', '--output-format', 'json'],
     ]);
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_NOISE: '1' }))).toEqual(expected);
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_NOISE: '1' }))).toEqual(expected);
+  });
+
+  it("has Antigravity's AI credits pay past its quota once the account's settings or the Antigravity app's turn them on", async () => {
+    const limit = { span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') };
+    const paying = { plan: 'Google AI Pro', limits: [{ ...limit, paidPast: true }], payer: 'credits', credits: { balance: 1000 } };
+    mkdirSync(join(agyHome, '.gemini', 'config'), { recursive: true });
+    mkdirSync(agyApp, { recursive: true });
+    writeFileSync(join(agyApp, 'settings.json'), JSON.stringify({ useG1Credits: true }));
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(paying);
+    writeFileSync(join(agyApp, 'settings.json'), JSON.stringify({ useG1Credits: false }));
+    writeFileSync(join(agyHome, '.gemini', 'config', 'config.json'), JSON.stringify({ userSettings: { useAiCredits: true } }));
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(paying);
+    // An account that runs on its Gemini API key only never uses them.
+    expect((await askUsage('antigravity', bin('agy'), agy({ [ANTIGRAVITY_KEY_ONLY_ENV]: '1' }))).payer).toBeUndefined();
+    rmSync(join(agyHome, '.gemini'), { recursive: true, force: true });
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual({
+      plan: 'Google AI Pro',
+      limits: [limit],
+      credits: { balance: 1000 },
+    });
   });
 
   it("passes on Antigravity's error for /usage, and shows the limits without the credits when /credits fails", async () => {
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'usage' }))).toEqual({
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_FAIL: 'usage' }))).toEqual({
       limits: [],
       error: 'quota service unavailable',
     });
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'credits' }))).toEqual({
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_FAIL: 'credits' }))).toEqual({
       limits: [{ span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') }],
     });
   });
@@ -607,7 +835,7 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
     'stops a signed-out Antigravity as soon as it asks for a sign-in, rather than waiting the minute it would',
     async () => {
       const t0 = Date.now();
-      expect(await askUsage('antigravity', bin('agy'), env({ STAND_SIGNED_OUT: '1' }))).toEqual({ limits: [], none: 'signedOut' });
+      expect(await askUsage('antigravity', bin('agy'), agy({ STAND_SIGNED_OUT: '1' }))).toEqual({ limits: [], none: 'signedOut' });
       expect(Date.now() - t0).toBeLessThan(15_000);
     },
     slow(40_000),
@@ -620,7 +848,7 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
       setTimeout(() => stop.abort(), 200);
       const t0 = Date.now();
       await askUsage('claude', bin('claude'), env({ STAND_HANG: '1' }), stop.signal);
-      await askUsage('antigravity', bin('agy'), env({ STAND_HANG: '1' }), stop.signal);
+      await askUsage('antigravity', bin('agy'), agy({ STAND_HANG: '1' }), stop.signal);
       expect(Date.now() - t0).toBeLessThan(15_000);
     },
     slow(40_000),

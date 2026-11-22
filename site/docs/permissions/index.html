@@ -408,7 +408,8 @@
           <p>
             When an agent changes files, its reply ends with a card listing them, each marked A (added), M (modified) or
             D (deleted), with the lines added and removed. <b>View this turn's diff</b> shows exactly what the agent
-            changed in that turn.
+            changed in that turn: each file in a section of its own, folded, so you see at once which files changed and
+            open the ones you want to read (or <b>Expand all</b>).
           </p>
           <h3 id="parallel-results">Parallel mode: pick a result</h3>
           <p>
@@ -455,8 +456,9 @@
             </li>
             <li>
               In roundtable and relay mode the agents change your folder directly, in turn, and each reply records which
-              files it changed. Meanwhile, no other conversation can write to the same folder: sending there says the
-              folder is changing, until this one is done (or you stop it).
+              files it changed. Another chat can work on the same folder meanwhile: its team works in a copy of the folder
+              of its own (a worktree its agents share), says so in the chat, and goes on there until you apply its result,
+              as you apply a parallel result.
             </li>
           </ul>
           <div class="doc-note">
