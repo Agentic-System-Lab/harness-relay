@@ -11,6 +11,7 @@ Designs for features Harness Relay does not have yet. What is in this folder is 
 | [Shared memory across agents](shared-memory.md) | Not started | Agents suggest notes for the tool library's memory; the user accepts them. Memory per project, and importing what each CLI remembered. |
 | [Website previews and generative UI](preview-and-generative-ui.md) | Not started | Try a site an agent made in a panel beside the chat, and send its errors back; replies with choices, forms, charts and small interactive pages. |
 | [The agent CLIs' own features](agent-cli-features.md) | Steps 1–8 built, from the CLIs' own schemas, bundles and binaries (no live run yet); Cline's subagents also off below full access; Antigravity's and Muse Code's background work not waited for (they report no end of it); Copilot's AI credits counted but not shown. Step 9 (moving the checked versions forward) and the live tests still open | What the twelve CLIs can do by themselves that Harness Relay does not use yet: subagents and workflows governed and shown, context windows for endpoint models, plans, questions, steering a running turn, structured answers and budgets. |
+| [Office documents](office-documents.md) | Not started; a survey (2026-11-22) | Word, Excel and PowerPoint in OneDrive and SharePoint through Graph, Claude's Microsoft 365 connector, the desktop apps on macOS (Office for Mac, Pages, Numbers, Keynote) and Windows, and Linux; which official MCP servers exist (Work IQ, Apple's iWork). |
 
 ## How to use this folder
 
