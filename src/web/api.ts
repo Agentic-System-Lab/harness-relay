@@ -1,3 +1,12 @@
+import type {
+  AppPreviewRequest,
+  AppPreviewSession,
+  PublishedApp,
+  PublishPlan,
+  PublishRequest,
+  PublishSettingsView,
+  RenderRegion,
+} from '../shared/types';
 import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
@@ -5,6 +14,7 @@ import type {
   AboutInfo,
   AppDependency,
   AppDependencyView,
+  PreviewDockerView,
   HostedApp,
   HostedProvider,
   HostedAppStatus,
@@ -156,6 +166,7 @@ interface Sending {
   resent?: boolean;
   signIn?: boolean;
   task?: boolean;
+  keepalive?: boolean;
 }
 
 /**
@@ -181,6 +192,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     headers: requestHeaders,
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     signal,
+    ...(o.keepalive ? { keepalive: true } : {}),
   });
   const data = await res.json().catch((err: unknown) => {
     if (o.task && res.ok) throw err;
@@ -573,6 +585,8 @@ export const api = {
   appDependency: (name: AppDependency, signal?: AbortSignal) =>
     request<AppDependencyView>('GET', '/api/apps/' + name + '/install', undefined, signal),
   installAppDependency: (name: AppDependency) => request<AppDependencyView>('POST', '/api/apps/' + name + '/install'),
+  previewDocker: (signal?: AbortSignal) => request<PreviewDockerView>('GET', '/api/apps/docker/install', undefined, signal),
+  installPreviewDocker: () => request<PreviewDockerView>('POST', '/api/apps/docker/install'),
   githubStatus: () => request<import('../shared/types').GithubConnection>('GET', '/api/apps/github'),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
@@ -582,6 +596,79 @@ export const api = {
   signOutMcp: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}/signin`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
+
+  appPreviewTarget: (id: string, target: AppPreviewRequest, signal?: AbortSignal) =>
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/target`,
+      target,
+      signal,
+    ),
+  /** The app a finished turn made, from the files it added or changed (404: none that runs). */
+  appPreviewChanged: (id: string, messageId: string, signal?: AbortSignal) =>
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string; shown: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/changed`,
+      { messageId },
+      signal,
+    ),
+  /** A single-use address that opens a running preview's page in a tab of its own. */
+  appPreviewTab: (id: string, session: string) =>
+    request<{ url: string }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/tab`, {}),
+  startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
+    request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
+  /**
+   * A container preview's terminal, as the server streams it (SSE). Read with fetch, not EventSource,
+   * so that the key goes in its header like every other request's.
+   */
+  appPreviewTerminal: async (id: string, session: string, signal: AbortSignal): Promise<Response> => {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/terminal`, {
+      headers: headers(false, readKey()),
+      signal,
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+    }
+    return res;
+  },
+  /** Keystrokes for a container preview's terminal, or its new size. */
+  appPreviewTerminalSend: (id: string, session: string, body: { input?: string; cols?: number; rows?: number }) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/terminal`, body),
+  /** Runs a container preview's app again: with its own command, or with the command line given. */
+  appPreviewRun: (id: string, session: string, command?: string) =>
+    request<{ ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/run`,
+      command === undefined ? {} : { command },
+    ),
+  /** What publishing a running preview would do (Render, Neon), for the dialog. */
+  publishPlan: (id: string, session: string) =>
+    request<PublishPlan>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/publish/plan`, {}),
+  /** Starts publishing it: the app comes back at once, its steps followed with `publishedApp`. */
+  publishPreview: (id: string, session: string, body: PublishRequest) =>
+    request<PublishedApp>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/publish`, body),
+  publishSettings: () => request<PublishSettingsView>('GET', '/api/publish'),
+  setRenderKey: (apiKey: string) => request<PublishSettingsView>('PUT', '/api/publish/render', { apiKey }),
+  updateRender: (body: { ownerId?: string; region?: RenderRegion }) => request<PublishSettingsView>('PATCH', '/api/publish/render', body),
+  removeRender: () => request<PublishSettingsView>('DELETE', '/api/publish/render'),
+  setNeonKey: (apiKey: string) => request<PublishSettingsView>('PUT', '/api/publish/neon', { apiKey }),
+  updateNeon: (body: { orgId?: string }) => request<PublishSettingsView>('PATCH', '/api/publish/neon', body),
+  removeNeon: () => request<PublishSettingsView>('DELETE', '/api/publish/neon'),
+  publishedApp: (appId: string) => request<PublishedApp>('GET', `/api/publish/apps/${encodeURIComponent(appId)}`),
+  unpublishApp: (appId: string, database: boolean, forget = false) =>
+    request<{ ok: true }>(
+      'DELETE',
+      `/api/publish/apps/${encodeURIComponent(appId)}${forget ? '?forget=1' : database ? '?database=1' : ''}`,
+    ),
+  stopAppPreview: (id: string, session: string) =>
+    request<{ ok: true }>(
+      'DELETE',
+      `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}`,
+      undefined,
+      undefined,
+      { keepalive: true },
+    ),
 
   // Files of a conversation's working directory (root: 'cwd' or an agent id)
   listFiles: (id: string, root: string, path: string) =>
@@ -610,7 +697,9 @@ export const api = {
     request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, { ...b, verifyModels: true }),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
-  updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault'>) => request<CheckList>('PATCH', '/api/settings/checks-default', patch),
+  // The options as booleans: the server merges the patch into the default, so `false` turns one off.
+  updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault' | 'previewApp' | 'autoFix'> & { previewApp?: boolean; autoFix?: boolean }) =>
+    request<CheckList>('PATCH', '/api/settings/checks-default', patch),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) => request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

@@ -16,9 +16,38 @@ export const GATEWAY_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18', '202
 /** The longest call the shim passes on (its arguments as JSON): a mail's body fits many times over. */
 export const GATEWAY_MAX_CALL = 1024 * 1024;
 
+/**
+ * The longest a Unix socket's path may be, in bytes (UTF-8), its closing NUL left out: 107 on Linux,
+ * 103 on macOS and the BSDs. Node on macOS cuts a longer one instead of failing.
+ */
+export function socketPathMax(platform: NodeJS.Platform): number {
+  return platform === 'linux' ? 107 : 103;
+}
+
+/**
+ * `reach(path)` for the programs that connect to the gateway's socket (this one and `hookShim.ts`'s):
+ * a path too long for a Unix socket's (`socketPathMax`), as a data folder in a deep checkout has, is
+ * reached from its own folder, the program's working folder changed for that (neither reads a file by
+ * a relative path); a folder it cannot enter fails as a server that is not there does. The program
+ * imports `Socket` and `connect` from `node:net`, `basename` and `dirname` from `node:path`.
+ */
+export const SOCKET_REACH_SOURCE = `function reach(path) {
+  const max = process.platform === 'linux' ? ${socketPathMax('linux')} : ${socketPathMax('darwin')};
+  if (process.platform === 'win32' || Buffer.byteLength(path) <= max) return connect(path);
+  try {
+    process.chdir(dirname(path));
+  } catch (err) {
+    const sock = new Socket();
+    process.nextTick(() => sock.destroy(err));
+    return sock;
+  }
+  return connect(basename(path));
+}`;
+
 export const GATEWAY_SHIM_SOURCE = `// Harness Relay's MCP gateway (written by the server; do not edit).
 import { readFileSync } from 'node:fs';
-import { connect } from 'node:net';
+import { Socket, connect } from 'node:net';
+import { basename, dirname } from 'node:path';
 
 const PROTOCOLS = ${JSON.stringify(GATEWAY_PROTOCOLS)};
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\\n');
@@ -37,7 +66,8 @@ const waiting = new Map();
 let buffer = '';
 let open = false;
 const queued = [];
-const sock = connect(process.env.RELAY_GATEWAY_SOCKET || '');
+${SOCKET_REACH_SOURCE}
+const sock = reach(process.env.RELAY_GATEWAY_SOCKET || '');
 sock.setEncoding('utf8');
 sock.on('connect', () => {
   sock.write(JSON.stringify({ token }) + '\\n');

@@ -185,7 +185,10 @@ export interface CopilotRunPolicy {
   /** It runs on the user's own endpoint (its BYOK variables name the model). */
   onEndpoint?: boolean;
   teamHooks?: CopilotTeamHooks;
-  /** RLM's sub-model (`RunOptions.toolless`): its home links no sessions, and holds the system prompt alone. */
+  /**
+   * RLM's sub-model (`RunOptions.toolless`): its home links no sessions and nothing the account loads by
+   * itself (`LINKED`), and holds the system prompt alone.
+   */
   toolless?: boolean;
 }
 
@@ -364,7 +367,8 @@ export function prepareCopilotRun(accountHome: string, policy: CopilotRunPolicy,
       if (process.platform !== 'win32') symlinkSync(join(accountHome, 'session-store.db'), join(dir, 'session-store.db'), 'file');
     }
     const off = new Set(policy.nativeOff ?? []);
-    for (const item of LINKED) {
+    // RLM's sub-model gets nothing the account loads by itself: no instructions, agents, extensions or language servers.
+    for (const item of policy.toolless ? [] : LINKED) {
       if (item.part && off.has(item.part)) continue;
       const from = join(accountHome, item.name);
       if (!existsSync(from)) continue;
@@ -535,6 +539,20 @@ export const COPILOT_NO_TOOL = 'harness-relay-no-tool';
 export const COPILOT_NO_TOOL_NOTICE = `Info: Unknown tool name in the tool allowlist: "${COPILOT_NO_TOOL}"`;
 
 /**
+ * A toolless run's reply without Copilot's own lines before it: the tools the allowlist left out
+ * ("Info: Disabled tools: …") and `COPILOT_NO_TOOL_NOTICE`, one after the other with nothing between
+ * them and the reply (copilot 1.0.112), however their chunks were cut. Text that is not that is the model's.
+ */
+export function copilotToollessReply(text: string): string {
+  let t = text.replace(/^\s+/, '');
+  const at = t.indexOf(COPILOT_NO_TOOL_NOTICE);
+  if (at >= 0 && /^(?:Info: Disabled tools: [^\n]*?)?\s*$/.test(t.slice(0, at))) t = t.slice(at + COPILOT_NO_TOOL_NOTICE.length);
+  // The tools' line alone, on a line of its own.
+  else if (/^Info: Disabled tools: [^\n]*\n/.test(t)) t = t.slice(t.indexOf('\n') + 1);
+  return t.trim();
+}
+
+/**
  * A run of RLM's sub-model (`RunOptions.toolless`) as the other runs' options say it: everything Copilot
  * loads by itself that a run can leave out, and nothing of Harness Relay's (no MCP servers, hooks, guard,
  * folders besides the working directory, limits or session).
@@ -554,6 +572,8 @@ export function copilotToolless(o: RunOptions): RunOptions {
     limits: undefined,
     sessionId: undefined,
     onSteer: undefined,
+    // Nothing is asked of anyone: every permission Copilot asks for is refused (`copilotTurn`).
+    requestApproval: undefined,
   };
 }
 
@@ -1217,8 +1237,12 @@ const COPILOT_OWN_MODEL_CHANGE = new Set(['automatic', 'auto_tier_recommendation
 
 /** Turns Copilot's ACP `session/update` payloads into AgentEvents. */
 export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void, opts: { toolless?: boolean } = {}) {
-  /** A toolless run: Copilot's notice about the allowlist that names no tool is still to come, before the reply. */
-  let notice = Boolean(opts.toolless);
+  /**
+   * A toolless run (RLM's sub-model): its reply, kept whole until the turn ends, when Copilot's own lines
+   * before it go (`copilotToollessReply`), however they came in chunks. With no tool, Copilot has no
+   * notice of its own to give after them, so a reply that begins "Info:" is the model's.
+   */
+  let reply: string | undefined = opts.toolless ? '' : undefined;
   const calls = new Map<string, CallState>();
   const open = new Set<string>();
   const ended = new Set<string>();
@@ -1329,18 +1353,11 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void, opts: 
     if (!u) return;
     switch (u.sessionUpdate) {
       case 'agent_message_chunk': {
-        let text = u.content?.text;
+        const text = u.content?.text;
         if (typeof text !== 'string' || !text) break;
-        // A toolless run: Copilot's own line about its allowlist (`COPILOT_NO_TOOL_NOTICE`), before the reply
-        // starts, after its line listing the tools that left ("Info: Disabled tools: …"), which goes with it.
-        if (notice && !inText) {
-          const start = text.trimStart();
-          if (start.startsWith(COPILOT_NO_TOOL_NOTICE)) {
-            notice = false;
-            settle(false);
-            text = start.slice(COPILOT_NO_TOOL_NOTICE.length).replace(/^\s+/, '');
-            if (!text) break;
-          }
+        if (reply !== undefined) {
+          reply += text;
+          break;
         }
         // Copilot's own notices come as reply text, each a block of its own ("Info: <file it created>",
         // "Info: Operation cancelled by user"): not the model's words. Held until the next update says.
@@ -1509,6 +1526,17 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void, opts: 
      */
     finish(usage: boolean): string | undefined {
       closeText();
+      if (reply !== undefined) {
+        const text = copilotToollessReply(reply);
+        reply = '';
+        // A model call that failed: Copilot's error line, and no usage.
+        if (!usage && /^Error: /.test(text)) return text;
+        if (text) {
+          emit({ type: 'text', text });
+          emit({ type: 'text_end' });
+        }
+        return undefined;
+      }
       if (!errors.length) return undefined;
       if (!usage) return errors.join('\n');
       for (const text of errors.splice(0)) {
@@ -1790,6 +1818,12 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
         options.filter((x) => x.kind !== 'reject_always'),
       );
     }
+    // RLM's sub-model has no tool to call: whatever Copilot asks about is refused.
+    if (o.toolless)
+      return answerPermission(
+        { allow: false, reason: 'No tools here.' },
+        options.filter((x) => x.kind !== 'reject_always'),
+      );
     const call = (params?.toolCall ?? {}) as CopilotToolCall;
     const verdict = copilotPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths, o.guard);
     let decision: AcpDecision;

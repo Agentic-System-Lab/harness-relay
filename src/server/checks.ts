@@ -317,6 +317,9 @@ export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckL
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(commands.length ? { commands } : {}),
     ...(hooks.length ? { hooks } : {}),
+    // Either one's: a rule more for the template's team, never one less.
+    ...(copy.previewApp || template.previewApp ? { previewApp: true as const } : {}),
+    ...(copy.autoFix || template.autoFix ? { autoFix: true as const } : {}),
   };
   // Nothing added: every path and command is the default's own, as it was, and so is the commit format.
   const sameCommand = (c: CheckCommand) =>
@@ -329,7 +332,9 @@ export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckL
     commands.length === (copy.commands ?? []).length &&
     commands.every(sameCommand) &&
     hooks.length === (copy.hooks ?? []).length &&
-    hooks.every(sameHook);
+    hooks.every(sameHook) &&
+    Boolean(merged.previewApp) === Boolean(copy.previewApp) &&
+    Boolean(merged.autoFix) === Boolean(copy.autoFix);
   return same ? { ...merged, fromDefault: true } : merged;
 }
 
@@ -588,7 +593,7 @@ function withFindings(o: CheckOutcome, findings: CheckFinding[], errors: string[
 /** A result for a system message, from its outcomes. */
 export function checksResult(
   outcomes: CheckOutcome[],
-  o: Pick<ChecksResult, 'when' | 'replyIds' | 'checkedAt' | 'durationMs' | 'applyOf'>,
+  o: Pick<ChecksResult, 'when' | 'replyIds' | 'appReplies' | 'checkedAt' | 'durationMs' | 'applyOf' | 'autoFixes'>,
 ): ChecksResult {
   return { status: overallStatus(outcomes), outcomes, ...o };
 }

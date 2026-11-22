@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { TEAM_WORKTREE, type AgentConfig, type ChatMessage, type CheckFinding, type CheckOutcome } from '../../shared/types';
+import { CHECK_LIMITS, TEAM_WORKTREE, type AgentConfig, type ChatMessage, type CheckFinding, type CheckOutcome } from '../../shared/types';
+import { checksFailed } from '../../shared/checks';
 import { applyAnyway, cardActions, fixCandidates, gatedFiles } from '../checks';
 import { useT } from '../i18n';
 import { formatDuration } from '../util';
@@ -29,7 +30,13 @@ function Finding({ f }: { f: CheckFinding }) {
   return (
     <li>
       <code>{f.commit ?? f.path}</code>
-      {f.commit ? <span className="checks-subject"> {f.subject}</span> : <span> {f.change ? t.checks.change[f.change] : ''}</span>}
+      {f.commit ? (
+        <span className="checks-subject"> {f.subject}</span>
+      ) : f.problem ? (
+        <span> {f.problem}</span>
+      ) : (
+        <span> {f.change ? t.checks.change[f.change] : ''}</span>
+      )}
       {(where || whose) && (
         <span className="muted">
           {where}
@@ -137,8 +144,13 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
       {heldFor && <p className="small warn-text checks-note">{t.checks.held}</p>}
       {c.skippedAt ? (
         <p className="small muted checks-note">{t.checks.skipped}</p>
+      ) : c.fixBy && c.fixAuto ? (
+        <p className="small muted checks-note">{t.checks.autoFixing(c.fixBy, (c.autoFixes ?? 0) + 1, CHECK_LIMITS.autoFixes)}</p>
       ) : (
         c.fixBy && <p className="small muted checks-note">{t.checks.fixBy(c.fixBy)}</p>
+      )}
+      {!c.skippedAt && checksFailed(c) && (c.autoFixes ?? 0) >= CHECK_LIMITS.autoFixes && (
+        <p className="small warn-text checks-note">{t.checks.autoFixGaveUp(CHECK_LIMITS.autoFixes)}</p>
       )}
       <div className="plan-actions">
         {actions.recheck && !actions.confirm && (

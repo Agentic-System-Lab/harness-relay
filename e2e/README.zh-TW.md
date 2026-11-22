@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 45 個 spec 檔、588 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 48 個 spec 檔、611 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -43,7 +43,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
-| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 12 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
+| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 13 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
@@ -51,6 +51,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 20 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -197,6 +199,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 團隊寫入受保護檔案時檢查未通過，擋住使用者這段時間寫的訊息，略過後才送出 | Claude Code | 在保護 `secret.txt`（透過 API 設定）的編輯對話裡，一則很慢的回覆寫入它，同時使用者再送出一則訊息。回覆後，**Team checks** 卡片顯示 **Failed**、**Protected paths**、「secret.txt added · in @Claude's turn」，以及不會撤銷任何修改；佇列說等待的訊息還沒送出，並提供 **Send anyway**。按 **Skip**（確認）後卡片標為已略過，佇列消失、訊息送出；卡片仍顯示 **Failed**，也不再有 **Skip**。 |
 | 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在**團隊設定**底部展開**進階設定**，每條規則的名稱都在輸入框上方，`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
+| 團隊做的應用程式必須能在預覽中開啟，沒通過時自動交回團隊 | Claude Code | 在**團隊設定**的**進階設定**勾選**團隊做的應用程式必須能在預覽中開啟**和**沒通過時自動交回團隊修正**（對話的清單兩個都有）。假 CLI 寫出 `snake/main.py`：卡片上 **應用程式預覽** 未通過，指出 `snake` 和缺少的 Dockerfile，Relay 自動送出的訊息（「sent by Relay automatically, attempt 1 of 3」，標著 **Relay's fix 1/3**）讓 Claude 再發言一次；卡片說明已自動交回。那一輪沒改任何東西，所以不會再有新卡片。 |
 | 團隊設定重新載入後保留新版規則 | — | 另一個工作階段更新受保護路徑。抽屜重新載入後，修改 commit 格式並儲存會保留新版路徑。 |
 | 記憶下方的 Hooks 與團隊檢查預設分別驗證、儲存 | — | 在**設定 → App 與工具 → 工具庫**中，展開**記憶**下方的 **Hooks** 與**團隊檢查預設**才會顯示各自的編輯欄位。兩區各自驗證資料夾與時限。收合團隊檢查並儲存 hook 後，再展開團隊檢查時，草稿指令及無效的資料夾仍在。儲存團隊檢查也會保留 hook 的草稿。重新載入可看到已儲存的值。在桌面與 320 px 寬的畫面上，移除按鈕都在 hook 卡片右上角。移除最後一個 hook 也會保留已儲存的指令。 |
 | 團隊設定要求有效的 hook 資料夾和時限 | — | 資料夾或時限無效時不可儲存。修正後，儲存按鈕重新啟用。 |
@@ -297,6 +300,40 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 檔案瀏覽器顯示工作目錄並預覽檔案 | Claude Code | **檔案**（Files）列出專案；`src/hello.ts` 打開後顯示程式碼，並以 TypeScript 上色（關鍵字與型別各有自己的 class）；按 Escape 關閉。 |
 | 資料夾可下載成 ZIP 檔，裡面沒有 .git | Claude Code | 工作目錄的 ZIP（`work.zip`）剛好包含它的檔案與內容，沒有 `.git`；某個資料夾自己的 ZIP（`src.zip`）只有那個資料夾。 |
 | 太大而無法整個壓縮的資料夾，改為提供不含 git 忽略的檔案 | Claude Code | 一個長度設為超過 1 GiB、但沒有真的寫入的被忽略檔案（Windows 上仍會佔用磁碟空間）讓資料夾太大：拒絕時不下載任何東西，接受時得到不含被忽略資料夾的 ZIP。 |
+
+## 應用程式預覽
+
+| 情境 | CLI | 驗證內容 |
+| --- | --- | --- |
+| 從「檔案」試用靜態網站 | Claude Code | 資料夾會直接開啟並載入 JavaScript 模組，全程不需設定 Docker。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
+| 平行成員回覆中的同名檔案 | Claude Code、Codex | 手機上，團隊寫出的網頁不會自動打開，改由卡片提供。每個連結可繼續下載，預覽則開啟該成員自己的版本。手機寬度下可操作整個面板。 |
+| 團隊做出的應用程式自動打開 | Claude Code | 還沒有應用程式時，頂端的 **預覽** 停用並說明原因。假 CLI 在編輯模式寫出 `site/index.html`：這一輪結束後面板自動打開並開始預覽，訊息框保留焦點，**預覽** 呈按下狀態。來源與按鈕收成一列，顯示資料夾與 agent，可展開與收起。回覆後的卡片提供這個應用程式。**新分頁** 在自己的分頁開啟網頁，與 Relay 的頁面切斷關係，可以自己重新整理。**預覽** 會隱藏面板，再按一次顯示同一次執行；關閉後可從卡片重新開始。重新載入後不會自動打開，按 **預覽** 才開啟；下一個問題送出後卡片收起。 |
+| 應用程式只自動打開一次，也不會蓋過其他預覽 | Claude Code | 從「檔案」開著預覽時，團隊寫出的網頁只出現在卡片裡，面板保留使用者的網頁。另一個應用程式會自動打開；關閉後，下一輪修改同一個資料夾時不會再打開，改由卡片提供。 |
+| 團隊做出的 Dockerfile 在完全存取以外會等待 | Claude Code | 假 CLI 在編輯模式寫出 `api/Dockerfile`：面板打開並顯示資料夾與 **開始預覽**，說明建置可以連上網路，不會詢問 Docker 也不會開始預覽。 |
+| 團隊做出的應用程式無法在預覽中執行 | Claude Code | 假 CLI 寫出 `snake/main.py`，沒有能執行它的東西：面板不會打開，頂端的 **預覽** 維持停用；卡片寫著「The app in snake cannot be previewed yet」和原因，按 **Ask @Claude to fix it** 會把請求放進訊息框。送出後卡片就消失。 |
+| 聊天與面板之間的分隔線 | Claude Code | 在網頁的 frame 上拖曳時，面板縮小相同的寬度，聊天跟著調整；向左方向鍵會加寬；聊天至少保留 360 像素；寬度在重新載入後保留，按兩下恢復預設寬度。 |
+| 從回覆開啟 npm 專案 | Claude Code | 自動啟動後端。Relay 在檢查 Docker 前就會指出缺少的 lockfile，可將錯誤放入草稿並標註該成員。關閉正在啟動的預覽會清除遲到的結果。 |
+| 建置時缺少 Docker | Claude Code | 取消設定後預覽仍為停止狀態。選擇安裝 Docker 才會啟動安裝。模擬的引擎就緒後，預覽只會啟動一次建置。 |
+| 團隊做出的 npm 專案，缺少 Docker | Claude Code | 假 CLI 在有建置指令的專案底下寫出 `web/public/index.html`：面板開啟這個專案（`web`），提供 **設定 Docker**，在使用者要求前不打開它的對話框，也不開始任何東西。 |
+| 已安裝的引擎尚未就緒 | Claude Code | 可重新檢查已停止的引擎。引擎就緒後，同時有兩種 npm 指令的專案只會啟動後端一次。 |
+| 從登入後的面板建置前端與執行 SQLite 後端 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1` 且本機有能執行 Linux 容器的 Docker 時，從兩個專案連結直接預覽，先檢查前端建置的 HTML，再用另一個專案的後端 API 儲存資料。重新整理後資料仍在，重建後變回空白，停止後關閉 frame。 |
+| Dockerfile 的容器預覽（模擬） | Claude Code | 用模擬的引擎與終端機串流：面板說明應用程式沒有網路，應用程式提供網頁時開啟網頁，且不會傳訊息給還沒載入網頁的 frame（透過 CDP 讀取 Chromium 自己的記錄），終端機顯示建置與應用程式的輸出，提供正在執行的指令，送出按鍵（手機上面板是對話框時，Escape 與 Tab 也一樣），並能原樣、用修改後的指令列，以及以 shell 再執行一次。 |
+| 容器建置失敗（模擬） | Claude Code | 從「檔案」開啟 compose 檔：建置失敗時說明，不提供再執行一次，終端機最後幾行（去掉顏色）連同原本的草稿放進回報。 |
+| 終端機重新連線時預覽已不在（模擬） | Claude Code | 串流結束，重新連線找不到預覽：面板不再提供再執行一次，也不再顯示重新連線。 |
+| 沒有執行方式的資料夾 | Claude Code | 沒有 Dockerfile 的 Go 資料夾：面板提到 Dockerfile，**請 agent 加上 Dockerfile** 會在輸入框放一份給團隊的草稿。 |
+| 透過 Docker 執行的 WebSocket 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：沒有任何函式庫的 Node WebSocket 伺服器，它的網頁經由預覽自己的 origin 連到 `/live`，送出 ping 後顯示伺服器的回答，瀏覽器的 Cookie 不會到達應用程式。 |
+| 透過 Docker 執行 Python 的 Dockerfile 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：面板先顯示終端機，再顯示網頁；網頁沒有網路，由映像檔 `EXPOSE` 的 port 提供；終端機有伺服器的輸出。 |
+| 透過 Docker 執行終端機程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`，從「檔案」開啟：出現提示，輸入得到回應，顯示結束代碼；修改後的指令會帶參數再執行，以錯誤結束時放進回報，**開啟 shell** 得到設有 `PORT` 的 shell。 |
+| 透過 Docker 執行有 Redis 的 compose 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：從專案建置的網頁服務在 Redis 健康後用服務名稱連到它，讀到掛載進來的專案檔案，套用變數的預設值，且連不到外部，也沒有通往這台電腦的閘道。停止後，帶它標籤的東西都不會留下：容器、網路、映像檔，以及 Redis 的匿名 volume。 |
+
+## 發布應用程式
+
+對這台電腦上 Render 與 Neon API 的替身（`support/cloud.ts`，伺服器透過 `RELAY_RENDER_API_URL` 與 `RELAY_NEON_API_URL` 連到它）和假的 `gh` 測試；假的 `gh` 會在伺服器的 git 推送的資料夾裡（`RELAY_PUBLISH_GIT_DIR`）把每個私人儲存庫建成 bare 儲存庫。用的是靜態網站，所以不需要 Docker。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 設定、一鍵發布、更新與取消發布 | Claude Code | 在 **設定 → 發布到雲端** 裡，錯的 Render 金鑰被拒絕，對的金鑰保存後只顯示遮蔽的結尾與它的工作區，選了區域，Neon 的金鑰保存後顯示組織，任何金鑰都不顯示；每一區都連到網站上它的設定說明（網址正確、在新分頁開啟）。從「檔案」預覽靜態網站：**發布…** 顯示計畫（私人儲存庫 `relay-test/site`、免費靜態網站、名稱），確認公開後才能按 **發布**，接著顯示各個步驟直到上線（進行中的步驟會轉動 app 的標誌，上線後沒有步驟再轉），附上網址與儲存庫的連結。Render 從只含預覽頁面的儲存庫建立靜態網站，沒有建立 Neon 專案。**發布更新** 推送第二個 commit，並在同一個網站上部署。設定列出這個應用程式與它的網址，**取消發布** 會移除它的服務並保留儲存庫。 |
+| 缺少設定與改變的檔案 | Claude Code | 沒有設定時，對話框列出 Render 的金鑰並連到設定，即使確認了公開，**發布** 仍無法按。預覽的頁面改變後，對話框說明預覽之後檔案已改變、要重建預覽；Render 與 Neon 都沒有收到任何請求。 |
 
 ## 工作目錄與其他資料夾
 
@@ -670,7 +707,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合），以及**需要你的時候**與**檔案權限與修改**（替我核准），最後是現在提到實驗室與 subagent、workflow 開關的「設定」那一步。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合），以及**需要你的時候**與**檔案權限與修改**（替我核准），最後是現在提到實驗室與 subagent、workflow 開關的「設定」那一步。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -761,7 +798,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
 | 工具庫 HTTP MCP 伺服器自己的登入（登入頁面在另一台主機時先經過確認）：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
-| 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正，指令（完整權限，和在 Harness Relay 自己的沙箱裡），以及平行模式的結果在仍要套用前不套用 | ✓ | — | — | — | — | — | — |
+| 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正、無法預覽的應用程式自動交回，指令（完整權限，和在 Harness Relay 自己的沙箱裡），以及平行模式的結果在仍要套用前不套用 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
@@ -812,6 +849,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在五個組成的團隊中：依序回答、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | ✓（npm 給程式的） | — | ✓（npm 給 Node 腳本的） | — | ✓（npm 給 Node 腳本的） |
 
+預覽面板與 agent 使用的 CLI 無關。上述檔案與草稿情境使用 Claude Code，平行 worktree 另加入 Codex。
+
 ## 平台與瀏覽器
 
 - [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
@@ -831,8 +870,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
+本機預覽情境使用 loopback 主機名稱，並把瀏覽器縮成手機寬度。WebKit 的本機驗證採用已兌換的票券、專屬隨機主機名稱及同 origin 的 Fetch Metadata。Linux CI 另啟用需 Docker 的面板測試：npm 的建置與後端、`Dockerfile` 應用程式、WebSocket 應用程式、終端機程式，以及 compose 應用程式。
+
 ## 沒有測到的部分
 
+- **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
+- **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
+- **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。
+- **Windows 與 macOS CI 上的容器預覽。** 它們的真實 Docker 測試在 Linux CI 與手動（macOS 上用 OrbStack）執行；經 Windows 具名管道的 Engine API 尚未試過。其他地方用模擬的串流測試面板的終端機。
 - **團隊檢查的大部分。**端對端測試檢查編輯器、受保護路徑、指令與 hook，需要 CLI 時用 Claude Code 的替身。以下情況由離線測試涵蓋：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。
 - **每個 CLI 在兩個對話同一個資料夾時的情形，以及之後的事。**端對端測試讓 Codex 在團隊自己的 worktree 裡執行；每個 CLI 都能在 worktree 裡寫入，由[平行模式](#檔案與修改)的測試涵蓋。那裡的團隊檢查、首席 agent 審閱、倒回時丟掉它、多個資料夾、巢狀的 repository，以及自動任務在那裡的執行，由離線測試涵蓋（`test/orchestrator-workspace.test.ts`、`orchestrator-folders`、`orchestrator-checks`、`orchestrator-review`、`orchestrator-schedule`）。
 - **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。

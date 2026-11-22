@@ -30,6 +30,11 @@ export function apiPort(env: NodeJS.ProcessEnv = process.env): number {
   return Number(env.PORT ?? (isDevRun(env) ? DEV_API_PORT : DEFAULT_PORT));
 }
 
+/** Browsers also apply the parent page's frame-src when an embedded app navigates its own frame. */
+export function previewFramePolicy(port: number, domain?: string): string {
+  return 'frame-src about: http://*.localhost:' + port + (domain ? ' https://*.' + domain : '');
+}
+
 /** A port written as a whole number from 0 to 65535 (spaces around it forgiven), else undefined. */
 export function portNumber(value: string | undefined): number | undefined {
   const text = value?.trim() ?? '';

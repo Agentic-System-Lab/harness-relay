@@ -47,6 +47,7 @@ describe('guided tour', () => {
         'Notifications and sound',
         'File permission and changes',
         'Team checks',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -60,6 +61,7 @@ describe('guided tour', () => {
         'When the team needs you',
         'Notifications and sound',
         'File permission and changes',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -73,6 +75,7 @@ describe('guided tour', () => {
         'When the team needs you',
         'Notifications and sound',
         'File permission and changes',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -85,6 +88,7 @@ describe('guided tour', () => {
           'While the team replies',
           'When the team needs you',
           'File permission and changes',
+          'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
           'Adjust any time',
@@ -98,28 +102,27 @@ describe('guided tour', () => {
           'While the team replies',
           'When the team needs you',
           'File permission and changes',
+          'Browse the working directory',
           'Automations',
           'Adjust any time',
         ]);
       }
-      expect(titles(37)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'A team for every question',
-        'While the team replies',
-        'When the team needs you',
-        'File permission and changes',
-        'Adjust any time',
-      ]);
-      expect(titles(38)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'A team for every question',
-        'While the team replies',
-        'When the team needs you',
-        'File permission and changes',
-        'Adjust any time',
-      ]);
-      expect(titles(39)).toEqual(['When the team needs you', 'File permission and changes']);
-      expect(tourIndices(40)).toEqual([]);
+      for (const version of [37, 38])
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'A team for every question',
+          'While the team replies',
+          'When the team needs you',
+          'File permission and changes',
+          'Browse the working directory',
+          'Adjust any time',
+        ]);
+      expect(titles(39)).toEqual(['When the team needs you', 'File permission and changes', 'Browse the working directory']);
+      // Publishing a preview came to the files step.
+      expect(titles(40)).toEqual(['When the team needs you', 'File permission and changes', 'Browse the working directory']);
+      // "Approve for me" came to the steps on what needs the user and on the file permission.
+      expect(titles(41)).toEqual(['When the team needs you', 'File permission and changes']);
+      expect(tourIndices(42)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -171,6 +174,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 40, fingerprint: '170a01735988' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: '45c9108490fb' });
   });
 });

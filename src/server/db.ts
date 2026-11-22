@@ -537,6 +537,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversation_agents ADD COLUMN limits TEXT;
   ALTER TABLE preset_agents ADD COLUMN limits TEXT;
   `,
+  // 40: a user message Relay sent by itself to fix the team checks (messages.auto_fix, JSON: which
+  // attempt of how many, ChatMessage.autoFix).
+  `
+  ALTER TABLE messages ADD COLUMN auto_fix TEXT;
+  `,
 ];
 
 /**

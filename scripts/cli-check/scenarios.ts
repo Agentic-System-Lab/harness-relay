@@ -23,6 +23,7 @@ import {
   PROVIDER_LABEL,
   SUB_MODEL_CLIS,
   type ApprovalAnswer,
+  type SubModelCli,
   type CheckHook,
   type Permission,
   type Provider,
@@ -270,6 +271,8 @@ export interface Ctx {
   /** A stand-in of Harness Relay's database (a protected path), with a marker in it only this run knows. */
   secret: string;
   secretFile: string;
+  /** The folder the `toolless` scenario's question runs in, as the server's do (`questionDir()`). */
+  askDir?: string;
 }
 
 export interface Outcome {
@@ -487,7 +490,9 @@ export const SCENARIOS: Scenario[] = [
     answer: 'reject',
     only: SUB_MODEL_CLIS,
     noShape: true,
-    extra: () => ({ toolless: true }),
+    // In the folder a question runs in (`questionDir()`, in the scratch data folder's own temporary
+    // folder, which the run's protected paths cover), as the server's runs are.
+    extra: (c) => ({ toolless: true, cwd: c.askDir! }),
     checks: (r, c) => {
       const offered = [...new Set(r.requests.flatMap((q) => q.tools))];
       return [
@@ -564,6 +569,12 @@ export async function runScenarios(
     ctx.gateway = gateway;
   }
 
+  // The folder RLM's sub-model's question runs in, in the scratch data folder's own temporary folder.
+  const ask =
+    SUB_MODEL_CLIS.includes(p as SubModelCli) && (!o.only || 'toolless'.includes(o.only))
+      ? (await import('../../src/server/cliSubModel')).questionDir()
+      : undefined;
+  if (ask) ctx.askDir = ask.cwd;
   const model = await startModel(modelScenarios(ctx));
   const place = placement(p, model.url, scratch);
   // The model's address and key in this process's environment for this CLI only: taken back at the end,
@@ -739,6 +750,7 @@ export async function runScenarios(
       shapes.resume = shapeOf([...first.spawned, ...(second?.spawned ?? [])]);
     }
   } finally {
+    ask?.remove();
     await model.close();
     await ctx.gateway?.stop();
     for (const [k, v] of Object.entries(before)) {

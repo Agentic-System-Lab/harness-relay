@@ -307,6 +307,8 @@ export function validLabs(
   const cli = parseCliSubModel(id);
   if (cli) {
     if (!hasAccount(cli.provider, cli.account)) bad(t().labsNoCliAccount(PROVIDER_LABEL[cli.provider], cli.account));
+    // A model of the user's own endpoints or API keys would go to the CLI's maker: asked on its connection instead.
+    if (cli.model && parseBackendModel(cli.model)) bad(t().labsCliConnectionModel(PROVIDER_LABEL[cli.provider], cli.model));
     return { mode: 'rlm', rlmModel: cliSubModelId(cli) };
   }
   const parsed = parseBackendModel(id);
@@ -731,6 +733,10 @@ export function validateChecks(input: unknown): CheckList {
     }
     if (hooks.length) out.hooks = hooks;
   }
+  if (c.previewApp !== undefined && typeof c.previewApp !== 'boolean') bad(t().invalidField('checks.previewApp'));
+  if (c.previewApp === true) out.previewApp = true;
+  if (c.autoFix !== undefined && typeof c.autoFix !== 'boolean') bad(t().invalidField('checks.autoFix'));
+  if (c.autoFix === true) out.autoFix = true;
   // Settings' default, unchanged since it was copied in (a list with rules only).
   if (c.fromDefault === true && hasRules(out)) out.fromDefault = true;
   return out;

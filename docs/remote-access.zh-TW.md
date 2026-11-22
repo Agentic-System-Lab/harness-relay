@@ -97,6 +97,10 @@ npm start
 
 用 `npm start` 時，完成步驟 1、2 後，也可以直接在電腦的本機設定產生手機 QR code。伺服器會找出 Tailscale 正在分享的網址與連接埠。若傳送任務後斷線，請在同一個分頁以相同內容再次送出。電腦會辨認這次重試。從通知或鎖屏回到對話後，核准按鈕會等電腦傳來最新狀態才開放。
 
+### 應用程式預覽
+
+在執行 Relay 的電腦上，每次預覽會使用新的 `p-….localhost` 主機名稱和 Relay 的連接埠。手機上的 `localhost` 指向手機本身。若要遠端使用 **預覽應用程式**，請透過 HTTPS 開啟聊天，並在啟動 Relay 前設定 `RELAY_PREVIEW_DOMAIN`，例如 `preview.example.net`。為 `*.preview.example.net` 設定手機可解析的 DNS 記錄和有效的萬用字元 TLS 憑證。反向代理須保留傳入的 `Host`，並將這些 HTTPS 請求送到同一個 Relay 連接埠。請使用與聊天登入網域分開的網域，並把存取範圍限制在要使用的網路內。遠端 HTTPS 預覽需要自己的分割 Cookie。若面板顯示無法驗證預覽，請允許內嵌頁面使用分割 Cookie，然後重新開啟預覽。WebKit 在本機可使用兌換票券後的隨機 loopback 主機名稱；這個方式僅接受直接來自本機且瀏覽器標為同 origin 的請求。遠端 DNS 或 TLS 尚未設定好時，仍可在執行 Relay 的電腦上使用預覽。一般單一主機名稱的 Tailscale Serve 設定僅涵蓋聊天。
+
 ## 4. 加到主畫面
 
 把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就能打開聊天室。手機的 Tailscale 必須開著、而且連得到那台電腦，圖示才能用。

@@ -181,7 +181,7 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).get(fixed.id)!.settings.autoTeam).toBeUndefined();
 
     // A database from before schema version 13: every conversation gets auto team, none skips asking.
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
@@ -550,7 +550,7 @@ describe('Store (SQLite)', () => {
     conv.messages.push(turn);
     store.saveMessage(conv.id, turn, true);
     // A database from before version 21: one worktree per agent, and no extra_cwds or more_changes.
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              DROP TABLE agent_worktrees;
              CREATE TABLE agent_worktrees (
                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -577,7 +577,7 @@ describe('Store (SQLite)', () => {
     // As such a build left it: no extra_cwds, more_changes or worktrees by repository (today's 21), but
     // the model backends' tables up to some point. At 25 (everything up to today's 26), and at 22 (up to 23).
     const early = (version: number, upTo: string) =>
-      db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+      db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              DROP TABLE agent_worktrees;
                CREATE TABLE agent_worktrees (
                  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -594,7 +594,7 @@ describe('Store (SQLite)', () => {
     db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
     early(25, '');
     reopen();
-    expect(version()).toBe(39);
+    expect(version()).toBe(40);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({
@@ -605,7 +605,7 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
     );
     reopen();
-    expect(version()).toBe(39);
+    expect(version()).toBe(40);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
     // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
@@ -618,7 +618,7 @@ describe('Store (SQLite)', () => {
       );
     beforeAccounts(22, '');
     reopen();
-    expect(version()).toBe(39);
+    expect(version()).toBe(40);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
@@ -631,17 +631,17 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
     );
     reopen();
-    expect(version()).toBe(39);
+    expect(version()).toBe(40);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     // A database of main's own at 21 (several working directories, no model backends) is left as it is.
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; PRAGMA user_version = 21;`);
     reopen();
-    expect(version()).toBe(39);
+    expect(version()).toBe(40);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
@@ -1174,7 +1174,7 @@ describe('Store shares', () => {
     expect(again.getShare('bbbb')).toEqual({ ...share('bbbb', 2), url: '', files: 1, unfinished: true });
 
     // Shares from before schema version 16 took no files along.
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
              DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
@@ -1779,7 +1779,7 @@ describe('SettingsStore accounts', () => {
     });
     const work = s.addAccount('claude', 'Work');
     const grok = s.addAccount('grok', 'Team');
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
@@ -2253,7 +2253,7 @@ describe('Store schedules', () => {
     expect(new Store(reopen()).get(conv.id)!.schedule).toEqual(conv.schedule);
 
     // Schedules from before schema version 14 send in their own conversation.
-    db.exec(`ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
+    db.exec(`ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
              DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;

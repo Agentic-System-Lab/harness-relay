@@ -162,6 +162,13 @@ export class AuthStore {
     return id;
   }
 
+  /** An existing, unexpired browser can continue using the previews it opened. */
+  hasSession(id: string): boolean {
+    return Boolean(
+      this.db.prepare('SELECT 1 FROM auth_sessions WHERE id = ? AND created_at > ?').get(id, this.now() - SESSION_MAX_AGE_S * 1000),
+    );
+  }
+
   /** The signed-in browsers, the latest used first; `current` marks the one asking. */
   sessions(current?: string): AuthSessionView[] {
     const rows = this.db

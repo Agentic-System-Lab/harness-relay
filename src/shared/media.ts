@@ -22,7 +22,7 @@ const MEDIA_TYPES: Record<string, string> = {
 /** The media type of an image or video file, by its extension (undefined for anything else). */
 export function mediaType(path: string): string | undefined {
   const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase();
-  return ext ? MEDIA_TYPES[ext] : undefined;
+  return ext && Object.hasOwn(MEDIA_TYPES, ext) ? MEDIA_TYPES[ext] : undefined;
 }
 
 export function isVideo(path: string): boolean {

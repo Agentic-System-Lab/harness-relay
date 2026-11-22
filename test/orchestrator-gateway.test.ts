@@ -316,4 +316,26 @@ describe("Harness Relay's own tools in a turn", () => {
     expect(grants[1]!.ctx.signal.aborted).toBe(true); // a turn that ends well too
     expect(conv.messages.find((m) => m.agentName === 'Alice')!.error).toMatch(/Timed out/);
   });
+
+  it("adds what RLM's sub-model spent through a CLI to the reply's tokens and cost, where the member's CLI reports its own", async () => {
+    const { grants } = fakeGateway();
+    settings.tools.update({ relayTools: { browser: ['claude'] } });
+    const conv = solo();
+    // Two questions of the member's `llm_query()` through Claude Code, each with its cost.
+    fake.inTurn = async () => {
+      grants.at(-1)!.ctx.usage?.({ inputTokens: 700, outputTokens: 20, costUsd: 0.0002 });
+      grants.at(-1)!.ctx.usage?.({ inputTokens: 300, outputTokens: 5, costUsd: 0.0001 });
+    };
+    fake.runUsage = { costUsd: 0.5, inputTokens: 1000, outputTokens: 100 };
+    await orchestrator.send(conv.id, 'read it in parts');
+    await finish(conv.id);
+    const reply = conv.messages.at(-1)!;
+    expect(reply.meta).toMatchObject({ inputTokens: 2000, outputTokens: 125 });
+    expect(reply.meta!.costUsd).toBeCloseTo(0.5003, 6);
+    // A member's CLI that reports no cost of its own: none shown, the sub-model's alone would read as the turn's.
+    fake.runUsage = { inputTokens: 1000, outputTokens: 100 };
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    expect(conv.messages.at(-1)!.meta!.costUsd).toBeUndefined();
+  });
 });

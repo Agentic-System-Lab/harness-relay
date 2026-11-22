@@ -306,12 +306,23 @@ export function protectedPatterns(list: CheckList | undefined): string[] {
 
 /** Whether a list has any rule to check once the team has answered (its hooks run during the turns instead; the files they name are checked). */
 export function hasChecks(list: CheckList | undefined): list is CheckList {
+  return Boolean(list?.previewApp) || hasApplyChecks(list);
+}
+
+/**
+ * Whether a list has a rule checked again before a result is applied (in a check tree with the result in
+ * it): all but the app preview, which the run's own result checked where the member made the app.
+ */
+export function hasApplyChecks(list: CheckList | undefined): list is CheckList {
   return Boolean(list && (protectedPatterns(list).length || list.commitPattern || list.commands?.length));
 }
 
-/** Whether a list has anything at all: a rule to check, or a hook. */
+/** Whether a list has anything at all: a rule to check, a hook, or fixing by itself (for the rules a template adds). */
 export function hasRules(list: CheckList | undefined): list is CheckList {
-  return Boolean(list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length || list.hooks?.length));
+  return Boolean(
+    list &&
+    (list.protectedPaths?.length || list.commitPattern || list.commands?.length || list.hooks?.length || list.previewApp || list.autoFix),
+  );
 }
 
 /** Whether a hook runs around a call of this kind (`other`: neither a command nor a file change). */

@@ -164,7 +164,12 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
   };
 }
 
-const CHECK_RULE: Record<CheckOutcome['rule'], string> = { paths: 'protected paths', commits: 'commit format', command: 'command' };
+const CHECK_RULE: Record<CheckOutcome['rule'], string> = {
+  paths: 'protected paths',
+  commits: 'commit format',
+  command: 'command',
+  preview: 'app preview',
+};
 
 /** A team checks result as the lead reads it: each rule's status, and what failed. */
 export function checksForReview(c: ChecksResult): string {
@@ -172,7 +177,9 @@ export function checksForReview(c: ChecksResult): string {
     const found = (o.findings ?? []).map((f) =>
       f.commit
         ? `${f.commit} "${f.subject ?? ''}"${f.by ? ` by @${f.by}` : ''}`
-        : `${f.path} ${f.change}${f.by ? ` by @${f.by}` : ''}${f.worktree ? ' (in its worktree)' : ''}`,
+        : f.problem
+          ? `${f.path} cannot be previewed: ${f.problem}${f.by ? ` (@${f.by})` : ''}`
+          : `${f.path} ${f.change}${f.by ? ` by @${f.by}` : ''}${f.worktree ? ' (in its worktree)' : ''}`,
     );
     const more = o.more ? [`… and ${o.more} more`] : [];
     const detail = [...found, ...more].join('; ');

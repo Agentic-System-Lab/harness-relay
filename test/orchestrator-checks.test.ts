@@ -16,6 +16,7 @@ import {
   agentMessages,
   calls,
   defaultCheckCommandDeps,
+  Hub,
   RunCheck,
   conversation,
   db,
@@ -1240,6 +1241,270 @@ describe('team checks: applying a parallel result', () => {
     const outcome = await orchestrator.tryCheckCommand(conv.id, { id: 'c', run: 'npm test' });
     expect(sandboxed).toBe(1);
     expect(outcome.unsandboxed).toBeUndefined();
+  });
+});
+
+describe('the app in the preview, and fixing by itself', () => {
+  /** A team that must make apps that open in the preview (`previewApp`), sending what fails back (`autoFix`). */
+  const previewing = (autoFix = false) =>
+    conversation({ mode: 'roundtable', permission: 'edit', checks: { previewApp: true, ...(autoFix ? { autoFix: true } : {}) } });
+  const writeApp = (cwd: string, file: string, text = 'print(1)\n') => {
+    mkdirSync(join(cwd, 'snake'), { recursive: true });
+    writeFileSync(join(cwd, 'snake', file), text);
+  };
+
+  it('checks that an app a turn made opens in the preview, tells the next turn why not, and passes once it does', async () => {
+    const conv = previewing();
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    await withLang('en', () => orchestrator.send(conv.id, 'make a snake game'));
+    await finish(conv.id);
+    expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).toContain("must open in Harness Relay's preview");
+    const failed = lastCard(conv).checks!;
+    expect(failed.status).toBe('failed');
+    expect(failed.outcomes).toEqual([
+      {
+        rule: 'preview',
+        status: 'failed',
+        findings: [{ path: 'snake', problem: expect.stringContaining('Dockerfile'), by: 'Alice' }],
+      },
+    ]);
+    // Nothing goes back by itself without `autoFix`: the card waits.
+    expect(conv.messages.at(-1)).toBe(lastCard(conv));
+
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
+    await withLang('en', () => orchestrator.send(conv.id, 'make it previewable'));
+    await finish(conv.id);
+    expect(promptOf('Alice')).toContain("the app in snake cannot be previewed (in @Alice's turn)");
+    expect(lastCard(conv).checks!.outcomes).toEqual([{ rule: 'preview', status: 'passed' }]);
+  });
+
+  it('posts nothing when the app preview is all there is to check and no turn made an app', async () => {
+    const conv = previewing(true);
+    await orchestrator.send(conv.id, 'write the notes');
+    await finish(conv.id);
+    expect(cards(conv)).toEqual([]);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('sends a failed result back to the member whose turn broke it, by itself, until it passes', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    await withLang('en', () => orchestrator.send(conv.id, 'make a snake game'));
+    await vi.waitFor(() => expect(cards(conv)).toHaveLength(1));
+    const first = lastCard(conv);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
+    await vi.waitFor(() => expect(cards(conv)).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+
+    const sent = conv.messages.filter((m) => m.author.kind === 'user').at(-1)!;
+    expect(sent.autoFix).toEqual({ attempt: 1, of: 3 });
+    expect(textOf(sent)).toBe('@Alice the team checks did not pass: please fix them (sent by Relay automatically, attempt 1 of 3).');
+    expect(first.checks).toMatchObject({ fixBy: 'Alice', fixAuto: true });
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob', 'Alice']);
+    expect(promptOf('Alice')).toContain('via="team-checks"');
+    expect(promptOf('Alice')).toContain('<team_checks status="failed">');
+    expect(lastCard(conv).checks).toMatchObject({ status: 'passed', autoFixes: 1 });
+    // Kept: the message's mark and the card's.
+    const saved = new Store(db).get(conv.id)!;
+    expect(saved.messages.find((m) => m.id === sent.id)!.autoFix).toEqual({ attempt: 1, of: 3 });
+    expect(saved.messages.find((m) => m.id === first.id)!.checks).toMatchObject({ fixBy: 'Alice', fixAuto: true });
+  });
+
+  it('stops after three automatic fixes in a row, and waits for the user', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py', `print(${calls.length})\n`);
+    await orchestrator.send(conv.id, 'make a snake game');
+    await vi.waitFor(() => expect(cards(conv)).toHaveLength(4), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob', 'Alice', 'Alice', 'Alice']);
+    expect(conv.messages.filter((m) => m.autoFix).map((m) => m.autoFix!.attempt)).toEqual([1, 2, 3]);
+    expect(cards(conv).map((m) => m.checks!.autoFixes ?? 0)).toEqual([0, 1, 2, 3]);
+    expect(lastCard(conv).checks!.status).toBe('failed');
+    expect(lastCard(conv).checks!.fixBy).toBeUndefined();
+    expect(checksHold(conv.messages)).toBe(lastCard(conv));
+
+    // The user's own ask starts the count again.
+    calls.length = 0;
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
+    await orchestrator.fixChecks(conv.id, lastCard(conv).id, 'a');
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
+    expect(lastCard(conv).checks).toMatchObject({ status: 'passed' });
+    expect(lastCard(conv).checks!.autoFixes).toBeUndefined();
+  });
+
+  it('keeps a failing app failing when a later turn touches none of its files, Check again too', async () => {
+    const conv = previewing();
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    await orchestrator.send(conv.id, 'make a snake game');
+    await finish(conv.id);
+    const first = lastCard(conv);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'requirements.txt', 'flask\n');
+    await orchestrator.send(conv.id, 'add its requirements');
+    await finish(conv.id);
+    const second = lastCard(conv);
+    expect(second).not.toBe(first);
+    expect(second.checks!.outcomes).toEqual([
+      { rule: 'preview', status: 'failed', findings: [expect.objectContaining({ path: 'snake', by: 'Alice' })] },
+    ]);
+    expect(second.checks!.appReplies).toEqual([...first.checks!.replyIds!, ...second.checks!.replyIds!]);
+    expect(checksHold(conv.messages)).toBe(second);
+    const again = await orchestrator.recheckChecks(conv.id, second.id);
+    expect(again.checks).toMatchObject({ when: 'recheck', status: 'failed', appReplies: second.checks!.appReplies });
+    // Once it runs, it passes, and a later run checks its own apps only.
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
+    await orchestrator.send(conv.id, 'package it');
+    await finish(conv.id);
+    expect(lastCard(conv).checks).toMatchObject({ status: 'passed' });
+    fake.during = undefined;
+    await orchestrator.send(conv.id, 'notes');
+    await finish(conv.id);
+    expect(cards(conv).at(-1)).toBe(lastCard(conv));
+    expect(lastCard(conv).checks).toMatchObject({ status: 'passed' });
+  });
+
+  it('counts no library’s package.json, nor what sits in a dependency folder, as an app', async () => {
+    const conv = previewing();
+    fake.during = (name, cwd) => {
+      if (name !== 'Alice') return;
+      mkdirSync(join(cwd, 'lib'), { recursive: true });
+      writeFileSync(join(cwd, 'lib', 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.1' }));
+      mkdirSync(join(cwd, '.venv', 'lib', 'site-packages', 'tool'), { recursive: true });
+      writeFileSync(join(cwd, '.venv', 'lib', 'site-packages', 'tool', 'main.py'), 'print(1)\n');
+    };
+    await orchestrator.send(conv.id, 'bump the library');
+    await finish(conv.id);
+    expect(cards(conv)).toEqual([]);
+  });
+
+  it('leaves the fix to the user when they wrote while the team replied', async () => {
+    const conv = previewing(true);
+    let release!: () => void;
+    fake.gates.Bob = new Promise((resolve) => (release = resolve));
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    await orchestrator.send(conv.id, 'make a snake game');
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Bob')).toBe(true));
+    await orchestrator.send(conv.id, 'make it tetris instead');
+    release();
+    await finish(conv.id);
+    expect(conv.messages.some((m) => m.autoFix)).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    expect(conv.queue?.map(textOf)).toEqual(['make it tetris instead']);
+    expect(checksHold(conv.messages)).toBe(lastCard(conv));
+  });
+
+  it('does not fix by itself while the team waits for the user’s answer', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    fake.asking.add('Bob');
+    await orchestrator.send(conv.id, 'make a snake game');
+    await finish(conv.id);
+    expect(conv.pause).toBeDefined();
+    expect(lastCard(conv).checks).toMatchObject({ when: 'pause', status: 'failed' });
+    expect(conv.messages.some((m) => m.autoFix)).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('says the run is over when an automatic fix cannot start', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    const running: boolean[] = [];
+    (orchestrator as unknown as { hub: InstanceType<typeof Hub> }).hub.subscribe(conv.id, (e) => {
+      if (e.type === 'status') running.push(e.running);
+    });
+    const prepare = orchestrator.prepareWorkspace.bind(orchestrator);
+    let starts = 0;
+    const spy = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (c.id === conv.id && ++starts === 2) throw new Error('working directory gone');
+      return prepare(c);
+    });
+    try {
+      await orchestrator.send(conv.id, 'make a snake game');
+      await vi.waitFor(() => expect(conv.messages.some((m) => textOf(m).includes('working directory gone'))).toBe(true));
+      await finish(conv.id);
+      await vi.waitFor(() => expect(running.at(-1)).toBe(false));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('sends back only what the team can fix: not a command that could not run', async () => {
+    const conv = conversation({
+      mode: 'roundtable',
+      permission: 'full',
+      checks: { commands: [{ id: 'c', run: 'pnpm test' }], autoFix: true },
+    });
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'linux',
+      runShellScript: async () => ({
+        code: 127,
+        signal: null,
+        stdout: 'sh: pnpm: not found',
+        stdoutBytes: Buffer.from('sh: pnpm: not found'),
+        stdoutTruncated: false,
+        stdoutSize: 19,
+        stderr: '',
+        aborted: false,
+        timedOut: false,
+      }),
+    } as typeof defaultCheckCommandDeps;
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(lastCard(conv).checks!.outcomes).toEqual([expect.objectContaining({ rule: 'command', status: 'error' })]);
+    expect(conv.messages.some((m) => m.autoFix)).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('marks the user’s own Fix after an automatic one as theirs', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    await orchestrator.send(conv.id, 'make a snake game');
+    await finish(conv.id);
+    // The first automatic fix's result still fails; the second fix's turn changed nothing, so no result
+    // follows it, and the card that asked for it waits, marked as sent by Relay.
+    const card = lastCard(conv);
+    expect(card.checks).toMatchObject({ status: 'failed', autoFixes: 1, fixAuto: true });
+    expect(conv.messages.filter((m) => m.autoFix).map((m) => m.autoFix!.attempt)).toEqual([1, 2]);
+    await orchestrator.fixChecks(conv.id, card.id, 'a');
+    await finish(conv.id);
+    expect(card.checks!.fixAuto).toBeUndefined();
+    expect(card.checks!.fixBy).toBe('Alice');
+  });
+
+  it('checks the app again before applying a parallel result, with the other rules', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'full', checks: { protectedPaths: ['.env'], previewApp: true } });
+    fake.during = (name, cwd) => name === 'Bob' && writeApp(cwd, 'main.py');
+    await orchestrator.send(conv.id, 'make a snake game');
+    await finish(conv.id);
+    expect(lastCard(conv).checks!.outcomes).toContainEqual(
+      expect.objectContaining({ rule: 'preview', status: 'failed', findings: [expect.objectContaining({ path: 'snake', by: 'Bob' })] }),
+    );
+    const held = await orchestrator.applyAgentWork(conv.id, 'b');
+    expect(held.held).toBe(lastCard(conv).id);
+    expect(lastCard(conv).checks).toMatchObject({ when: 'apply', status: 'failed' });
+    expect(lastCard(conv).checks!.outcomes.map((o) => [o.rule, o.status])).toEqual([
+      ['paths', 'passed'],
+      ['preview', 'failed'],
+    ]);
+    // Alice's result has no app: nothing to say about one.
+    await orchestrator.applyAgentWork(conv.id, 'a');
+    expect(lastCard(conv).checks!.outcomes.map((o) => [o.rule, o.status])).toEqual([
+      ['paths', 'passed'],
+      ['preview', 'na'],
+    ]);
+  });
+
+  it('does not fix by itself in a run that was stopped', async () => {
+    const conv = previewing(true);
+    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    fake.inTurn = async (name) => {
+      if (name === 'Alice') await orchestrator.stop(conv.id);
+    };
+    await orchestrator.send(conv.id, 'make a snake game');
+    await finish(conv.id);
+    expect(conv.messages.some((m) => m.autoFix)).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
   });
 });
 

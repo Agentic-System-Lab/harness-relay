@@ -83,8 +83,16 @@ export function labModelSuggestions(b: ModelBackendsView | undefined): string[] 
   ];
 }
 
-/** Why a draft cannot be saved yet. */
-export type LabProblem = 'model' | 'connection';
+/** Why a draft cannot be saved yet: no model as `<backend>/<model>`, its connection not set up, or a connection's model for a CLI source. */
+export type LabProblem = 'model' | 'connection' | 'cliModel';
+
+/**
+ * Whether a CLI source is an account the source box no longer lists (its CLI not found now, or the
+ * account removed): kept as an option of its own, so that Save does not change it unseen.
+ */
+export function labMissingAccount(source: LabSource, accounts: readonly LabCliAccount[]): boolean {
+  return source.kind === 'cli' && !accounts.some((a) => a.provider === source.provider && a.account === source.account);
+}
 
 /**
  * What Save sends for `mode` (and, for RLM, the model typed from its source), or why it cannot yet: on a
@@ -100,6 +108,8 @@ export function labDraft(
   if (mode !== 'rlm') return { settings: { mode } };
   if (source.kind === 'cli') {
     const typed = model.trim().replace(/\s+/g, '');
+    // One of the user's endpoints' models (or an API backend's) would go to the CLI's maker: not here.
+    if (typed && parseBackendModel(typed)) return { problem: 'cliModel' };
     return {
       settings: {
         mode: 'rlm',

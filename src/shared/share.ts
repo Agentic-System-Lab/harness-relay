@@ -68,3 +68,18 @@ export function shareSize(bytes: number): string {
   if (bytes < 1_000_000) return `${Math.min(999, Math.ceil(bytes / 1000))} KB`;
   return `${Number((bytes / 1_000_000).toFixed(1))} MB`;
 }
+
+/** Names of files that tend to hold secrets: keys and certificates, and names that say so. */
+const SECRET_NAMES = [
+  /\.(pem|key|p12|pfx|jks|keystore|gpg|asc|ovpn|kdbx)$/i,
+  /^id_(rsa|dsa|ecdsa|ed25519)/i,
+  /secret|credential|passw(or)?d|token|api[-_]?key|private[-_]?key/i,
+];
+
+/**
+ * A file whose name says it may hold secrets: a dotfile (.env, .npmrc, .netrc…), a key or certificate
+ * (*.pem, *.key, id_rsa…), or a name with secret, credential, password, token or API key in it.
+ */
+export function looksSecret(name: string): boolean {
+  return name.startsWith('.') || SECRET_NAMES.some((re) => re.test(name));
+}

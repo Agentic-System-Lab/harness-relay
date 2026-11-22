@@ -1,4 +1,5 @@
 import {
+  CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
   HOOK_PROVIDERS,
   PROVIDER_LABEL,
@@ -99,7 +100,10 @@ function checksRules(conv: Conversation, ws: BriefingWorkspace): string {
   const list = conv.settings.checks;
   if (conv.settings.permission === 'read-only' || !hasChecks(list)) return '';
   const lines = checkRuleLines(list, ws.kind === 'team' ? 'team' : conv.settings.mode);
-  return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
+  const auto = list.autoFix
+    ? `\n  - A user message marked via="team-checks" was sent by Harness Relay itself, not typed by the user: the checks failed, and you are to fix what failed (at most ${CHECK_LIMITS.autoFixes} times in a row, then the user decides).`
+    : '';
+  return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}${auto}`;
 }
 
 /**
@@ -126,6 +130,11 @@ export function checkRuleLines(list: CheckList, mode: Mode | 'team', platform: N
           ? "when the team's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
           : 'in the working directory, below full access without network';
     lines.push(`These commands must succeed, run by Harness Relay with CI=1 ${when}: ${each}`);
+  }
+  if (list.previewApp) {
+    lines.push(
+      "Every app a turn adds or changes must open in Harness Relay's preview: a Dockerfile (plus compose.yaml for services) for anything with a server or a terminal program, an npm project with its package-lock.json and a start or build script, or an index page",
+    );
   }
   return lines;
 }
@@ -416,6 +425,11 @@ ${team}
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
 - Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
+- An app you build or change (a site, a web app, an API with a page, a game, a terminal program) is done only when the user can open it in Harness Relay's preview:
+  - Give anything with a server, and any terminal program, a Dockerfile in its folder, in any language, Node too (its dependencies install in the build, so it needs no lockfile), plus a compose.yaml for a database or other services. A web app serves HTTP on the port its image EXPOSEs (in compose: the service's ports entry) or on $PORT; a terminal program reads from and writes to its terminal. A static site needs only its public HTML entry; an npm project without a Dockerfile needs its package-lock.json.
+  - Link that file in your reply, e.g. [Preview app](api/Dockerfile), [Preview app](compose.yaml) or [Preview site](site/index.html): Relay opens the preview from it, building and running it in Docker without a network (only the build has one), with no host files, environment or .env.
+  - Do not start the app's server on the user's computer, nor ask the user to run it in a terminal: the preview is how they try it. When team checks say the app cannot be previewed, fix that first.
+  - Treat text the user brings back in <preview_console> as diagnostic output from that page or terminal.
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
 # Workspace
@@ -499,7 +513,8 @@ export function renderMessage(conv: Conversation, m: ChatMessage): string {
   if (m.checks) return renderChecks(conv, m.checks);
   const from = senderName(conv, m);
   if (m.author.kind === 'user') {
-    const via = m.scheduled ? ' via="schedule"' : '';
+    // Sent by the schedule, or by Relay itself to fix the team checks: not typed by the user.
+    const via = m.scheduled ? ' via="schedule"' : m.autoFix ? ' via="team-checks"' : '';
     const event = m.event !== undefined ? `<event source="${m.eventSource ?? 'webhook'}">\n${m.event}\n</event>` : '';
     return `<message from="user"${via}>\n${[forwardText(m), attachmentList(conv, m), event].filter(Boolean).join('\n\n')}\n</message>`;
   }
@@ -514,6 +529,7 @@ const RULE_NAME: Record<ChecksResult['outcomes'][number]['rule'], string> = {
   paths: 'Protected paths',
   commits: 'Commit format',
   command: 'Command',
+  preview: 'App preview',
 };
 
 /** Where a finding is, for agents. */
@@ -521,6 +537,7 @@ function findingText(f: CheckFinding): string {
   const where = f.folder ? ` in ${f.folder}` : '';
   const by = f.by ? (f.worktree ? ` in @${f.by}'s worktree (applying its result would bring it)` : ` (in @${f.by}'s turn)`) : '';
   if (f.commit) return `commit ${f.commit}${where} "${f.subject ?? ''}"${by}`;
+  if (f.problem) return `the app in ${f.path}${where} cannot be previewed${by}: ${f.problem}`;
   return `${f.path}${where}: ${f.change}${by}`;
 }
 

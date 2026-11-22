@@ -998,11 +998,15 @@ export function claudeArgs(o: {
   /** The member's own limit: the US dollars the turn may cost, by Claude Code's own estimate (`--max-budget-usd`). */
   maxBudgetUsd?: number;
   /**
-   * RLM's sub-model (`RunOptions.toolless`): the system prompt in place of Claude Code's own
-   * (`--system-prompt`), and no session kept (`--no-session-persistence`). Its tools, MCP servers and the
-   * rest are left out by `nativeOff` (`claudeToolless()` gives all of them).
+   * RLM's sub-model (`RunOptions.toolless`): the system prompt in place of Claude Code's own, from a
+   * private file (`--system-prompt-file`, `systemPromptFile`: nothing of the question on the command
+   * line), only the user's own settings (`--setting-sources user`: none of the working directory's),
+   * nothing pre-approved, and no session kept (`--no-session-persistence`). Its tools, MCP servers and
+   * the rest are left out by `nativeOff` (`claudeToolless()` gives all of them).
    */
   toolless?: boolean;
+  /** With `toolless`: the file holding the system prompt. */
+  systemPromptFile?: string;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -1017,10 +1021,15 @@ export function claudeArgs(o: {
     'stream-json',
     '--verbose',
     '--include-partial-messages',
-    o.toolless ? '--system-prompt' : '--append-system-prompt',
-    o.systemPrompt,
-    // Variadic; the next `--flag` ends the list.
-    ...withAllowedTools([...claudeAllowedTools(o.permission), ...reads]),
+    ...(o.toolless
+      ? [
+          ...(o.systemPromptFile ? ['--system-prompt-file', o.systemPromptFile] : ['--system-prompt', o.systemPrompt]),
+          '--setting-sources',
+          'user',
+        ]
+      : ['--append-system-prompt', o.systemPrompt]),
+    // Variadic; the next `--flag` ends the list. RLM's sub-model pre-approves nothing.
+    ...(o.toolless ? [] : withAllowedTools([...claudeAllowedTools(o.permission), ...reads])),
     ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
     // Lets Claude use the other working directories as it uses this one (its permission mode and its
     // sandbox's writes cover them too), and read the attached files outside them (variadic too).
@@ -1080,6 +1089,8 @@ export function claudeToolless(o: RunOptions): RunOptions {
     outputSchema: undefined,
     sessionId: undefined,
     onSteer: undefined,
+    // Nothing is asked of anyone: Claude Code refuses whatever it would have asked about.
+    requestApproval: undefined,
   };
 }
 
@@ -1594,6 +1605,16 @@ function rejectedFlag(stderr: string): OptionalFlag | undefined {
   );
 }
 
+/** How long the plugins listed for RLM's sub-model's runs are kept (`pluginIdsForRun`). */
+export const TOOLLESS_PLUGINS_MS = 60_000;
+/** The plugins listed for RLM's sub-model's runs, by `claude` and account home. */
+const tollessPlugins = new Map<string, { ids: string[]; at: number }>();
+
+/** For tests: list the plugins again for the next toolless run. */
+export function forgetToollessPlugins(): void {
+  tollessPlugins.clear();
+}
+
 /**
  * The ids of the installed plugins, to turn each off for a run that leaves plugins out. When Claude
  * Code cannot list them the run fails with a message that says so: going on would quietly load
@@ -1601,8 +1622,15 @@ function rejectedFlag(stderr: string): OptionalFlag | undefined {
  */
 async function pluginIdsForRun(o: Parameters<AgentRunner['run']>[0]): Promise<string[]> {
   if (!o.nativeOff?.includes('plugins')) return [];
+  // RLM's sub-model asks up to 100 questions a turn, each a run of its own in an empty folder (whose
+  // project settings it does not load): the account's plugins, listed once a minute.
+  const key = o.toolless ? [o.bin, o.env.CLAUDE_CONFIG_DIR ?? '', o.env.HOME ?? ''].join('\0') : undefined;
+  const kept = key ? tollessPlugins.get(key) : undefined;
+  if (kept && Date.now() - kept.at < TOOLLESS_PLUGINS_MS) return kept.ids;
   try {
-    return (await claudePlugins(o.bin, o.env, o.cwd, o.signal)).map((p) => p.id);
+    const ids = (await claudePlugins(o.bin, o.env, o.cwd, o.signal)).map((p) => p.id);
+    if (key) tollessPlugins.set(key, { ids, at: Date.now() });
+    return ids;
   } catch (err) {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
     throw new AgentRunError(t().claudePluginsFailed(err instanceof Error ? err.message : String(err)));
@@ -1650,8 +1678,11 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   // budget is set, since Claude Code would price the endpoint's model as one of its own.
   const jsonSchema = endpoint ? undefined : o.outputSchema;
   const maxBudgetUsd = endpoint ? undefined : agentLimitsFor('claude', o.limits)?.usd;
+  // RLM's sub-model's system prompt, which may hold the code's own text: in a private file, never on the command line.
+  const promptFile = o.toolless ? privateTempFile('system-prompt.md', o.systemPrompt) : undefined;
   try {
     const result = await runClaudeTurn(o, {
+      ...(promptFile ? { systemPromptFile: promptFile.file } : {}),
       mcpConfig,
       pluginIds,
       nativeItems,
@@ -1668,6 +1699,7 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
     throw err;
   } finally {
     settings?.remove();
+    promptFile?.remove();
   }
 }
 
@@ -1699,6 +1731,7 @@ async function runClaudeTurn(
     endpointEnv?: Record<string, string>;
     jsonSchema?: OutputSchema;
     maxBudgetUsd?: number;
+    systemPromptFile?: string;
   },
 ): Promise<RunResult> {
   // RLM's sub-model keeps no session (`--no-session-persistence`): it names none.
@@ -1733,6 +1766,7 @@ async function runClaudeTurn(
     ...(run.jsonSchema ? { jsonSchema: run.jsonSchema } : {}),
     ...(run.maxBudgetUsd ? { maxBudgetUsd: run.maxBudgetUsd } : {}),
     ...(o.toolless ? { toolless: true } : {}),
+    ...(run.systemPromptFile ? { systemPromptFile: run.systemPromptFile } : {}),
     skip: unsupported,
   });
 
