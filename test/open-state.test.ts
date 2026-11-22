@@ -316,7 +316,7 @@ describe('what a deleted conversation and a stopped server leave', () => {
     return dir;
   };
 
-  it("removes every open agent's state of a deleted conversation: its members', its lead agent's (designing, changing, reviewing) and its sorter's", () => {
+  it("removes every open agent's state of a deleted conversation: its members', its lead agent's (designing, changing, reviewing, drafting its checks and schedule) and its sorter's", () => {
     const gone = [
       leave(homes[0]!, stateKeys.member('c1', 'a')),
       leave(homes[1]!, stateKeys.member('c1', 'b')),
@@ -324,8 +324,15 @@ describe('what a deleted conversation and a stopped server leave', () => {
       leave(homes[3]!, stateKeys.revise('c1')),
       leave(homes[4]!, stateKeys.sort('c1')),
       leave(homes[0]!, stateKeys.review('c1')),
+      leave(homes[1]!, stateKeys.draft('checks.c1')),
+      leave(homes[2]!, stateKeys.draft('schedule.c1')),
     ];
-    const kept = [leave(homes[0]!, stateKeys.member('c2', 'a')), leave(homes[0]!, stateKeys.member('c10', 'a'))];
+    const kept = [
+      leave(homes[0]!, stateKeys.member('c2', 'a')),
+      leave(homes[0]!, stateKeys.member('c10', 'a')),
+      // A template's draft belongs to no conversation.
+      leave(homes[1]!, stateKeys.draft('template')),
+    ];
     removeConversationState(homes, 'c1', ['a', 'b']);
     for (const dir of gone) expect(existsSync(dir), dir).toBe(false);
     for (const dir of kept) expect(existsSync(dir), dir).toBe(true);

@@ -509,6 +509,122 @@ export const zhTW = {
     },
   },
 
+  /** The template editor's "Ask the lead agent": it writes the template (members, roles, name, description). */
+  templateDraft: {
+    title: '請首席 agent 撰寫範本',
+    hint: '說說這個團隊要處理什麼問題，或想怎麼調整，首席 agent 會寫好成員、角色、名稱與說明；你看過、按「儲存範本」才會保存。',
+    placeholder: '例如：審 PR 的三人團隊，一位找 bug、一位看安全性、一位最後總結',
+    submit: '撰寫範本',
+    working: '首席 agent 正在撰寫範本…',
+    review: '下面的範本已經寫好，看過後按「儲存範本」才會保存。',
+    unchanged: '首席 agent 沒有改動範本。',
+    changedMeanwhile: '首席 agent 撰寫期間範本已經變更，這次的結果沒有套用，請再試一次。',
+    renamed: (name: string) => `名稱改為「${name}」`,
+    described: '改寫說明',
+  },
+
+  /** The team checks editor's "Ask the lead agent": it writes the rules, reading the project when there is one. */
+  checksDraft: {
+    title: '請首席 agent 撰寫規則',
+    hintProject:
+      '說說團隊不能弄壞什麼，首席 agent 會先唯讀查看專案（package.json、CI 設定等），再寫出規則；你看過（指令可以先試跑）並儲存才會套用。',
+    hintNoFolder: '說說團隊不能弄壞什麼，首席 agent 會寫出規則。工作目錄還不存在，所以它不會查看專案。',
+    hintTemplate: '說說用這個範本的專案是哪一類、團隊不能弄壞什麼，首席 agent 會寫出適合這類專案的規則。',
+    hintDefaults: '說說新對話預設要檢查什麼，首席 agent 會寫出適合你多數專案的規則；你看過並儲存才會套用。',
+    placeholder: '例如：改完都要跑測試和 lint，不能動 .env 和 lockfile',
+    submit: '撰寫規則',
+    working: '首席 agent 正在撰寫團隊檢查…',
+    review: '下面的規則已經寫好，看過（指令可以先試跑）後再儲存。',
+    unchanged: '首席 agent 沒有改動規則。',
+    changedMeanwhile: '首席 agent 撰寫期間規則已經變更，這次的結果沒有套用，請再試一次。',
+    noProject: '（工作目錄還不存在，所以它沒有查看專案。）',
+    /** One change the lead agent made to the list, as listed under its note. */
+    change: {
+      pathAdded: (path: string) => `保護 ${path}`,
+      pathRemoved: (path: string) => `不再保護 ${path}`,
+      patternSet: (pattern: string) => `commit 格式設為 ${pattern}`,
+      patternRemoved: '移除 commit 格式',
+      commandAdded: (run: string) => `新增指令 ${run}`,
+      commandRemoved: (run: string) => `移除指令 ${run}`,
+      commandChanged: (run: string) => `調整指令 ${run}`,
+      hookAdded: (run: string) => `新增 hook ${run}`,
+      hookRemoved: (run: string) => `移除 hook ${run}`,
+      hookChanged: (run: string) => `調整 hook ${run}`,
+      previewOn: '開啟 app 預覽檢查',
+      previewOff: '關閉 app 預覽檢查',
+      autoFixOn: '開啟自動修正',
+      autoFixOff: '關閉自動修正',
+    },
+  },
+
+  /** The automation form's "Ask the lead agent": it fills in the message, the times and the options. */
+  scheduleDraft: {
+    title: '請首席 agent 填寫',
+    hint: '用一句話說要做什麼、什麼時候做，首席 agent 會填好訊息、時間與選項；你看過並儲存才會生效。',
+    placeholder: '例如：每個工作日早上 9 點整理昨天合併的 PR',
+    submit: '填寫',
+    working: '首席 agent 正在撰寫自動任務…',
+    review: '下面的自動任務已經填好，看過後再儲存。',
+    unchanged: '首席 agent 沒有改動自動任務。',
+    changedMeanwhile: '首席 agent 撰寫期間表單已經變更，這次的結果沒有套用，請再試一次。',
+    change: {
+      text: '寫好要傳的訊息',
+      when: (when: string) => `時間：${when}`,
+      goal: '設定目標',
+      goalRemoved: '移除目標',
+      newChatOn: '每次開新對話',
+      newChatOff: '在這個對話中傳送',
+      missedRun: '錯過的時間會補跑',
+      missedSkip: '錯過的時間會略過',
+      approvalsAsk: '需要核准時在對話中問你',
+      approvalsDeny: '需要核准時自動拒絕',
+      pickAccount: '請選擇觸發條件要用的帳號',
+    },
+  },
+
+  /** A schedule an agent proposed in its reply: a card the user creates it from, or not. */
+  proposal: {
+    title: '提議的自動任務',
+    message: '訊息',
+    when: '時間',
+    goal: '目標',
+    newChat: '每次開新對話',
+    create: '建立自動任務',
+    creating: '建立中…',
+    edit: '在表單中修改',
+    dismiss: '略過',
+    created: '已建立自動任務',
+    dismissed: '已略過這個提議',
+    replaces: '會取代這個對話目前的自動任務。',
+    gapPast: '這個時間已經過了，請在表單中修改。',
+    gapAccount: '觸發條件還沒有指定帳號，請在表單中選擇。',
+    note: '建立前不會排定任何事。',
+  },
+
+  /** The sidebar's "Organize groups": the lead agent's suggestions, each for the user to take or leave. */
+  groupsDraft: {
+    open: '請首席 agent 整理群組',
+    title: '整理群組',
+    hint: '首席 agent 會讀取對話標題，建議要新增或重新命名哪些群組，以及哪些對話該搬到哪裡。勾選想採用的建議再套用；沒勾選的都不會變動。',
+    placeholder: '想怎麼分？例如：依客戶分組（可以留空）',
+    ask: '取得建議',
+    again: '重新建議',
+    working: '首席 agent 正在整理…',
+    stop: '停止',
+    create: '新增群組',
+    rename: '重新命名',
+    move: '搬移對話',
+    renameLine: (from: string, name: string) => `「${from}」改為「${name}」`,
+    moveTo: (to: string) => `→ ${to}`,
+    newGroup: (name: string) => `${name}（新）`,
+    none: '首席 agent 認為目前的分組不需要調整。',
+    needsGroup: (name: string) => `要先新增「${name}」`,
+    apply: (n: number) => `套用 ${n} 項`,
+    applying: '套用中…',
+    all: '全選',
+    noneSelected: '全不選',
+  },
+
   newSchedule: {
     title: '新自動任務',
     intro: (lead: string, automatic: boolean) =>
@@ -2851,6 +2967,9 @@ export const zhTW = {
     lead: '首席助理',
     leadHint: '收到新問題時，首席助理會參考先前的對話，決定要沿用目前的團隊、使用或調整範本，還是組建新團隊。',
     leadSaved: '已儲存首席助理',
+    chatTitles: '自動為新對話命名',
+    chatTitlesHint: '首席 agent 會在背景依第一則訊息替新對話取個簡短的標題；你自己改過的標題不會被蓋掉。有群組時，這跟分類是同一次呼叫。',
+    chatTitlesSaved: (on: boolean): string => (on ? '新對話會由首席 agent 命名' : '新對話會以第一則訊息的第一行命名'),
     leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他助理。`,
     leadNoBackend: (p: string) => `${p} 需要模型才能執行：請到「設定 → 模型連線」設定，或改選其他助理。`,
     leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他助理。`,
@@ -3261,7 +3380,7 @@ export const zhTW = {
       },
       {
         title: '建立新對話',
-        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述。登入 Relay 後會在背景檢查 App 連線。點四個方格的「常用 App」，勾選要在問題中指定的可用服務。無法勾選的項目會顯示原因。需要設定時，點「管理 App 連線」。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」。',
+        body: '在首頁點「開始新對話」，輸入問題或用麥克風口述。登入 Relay 後會在背景檢查 App 連線。點四個方格的「常用 App」，勾選要在問題中指定的可用服務。無法勾選的項目會顯示原因。需要設定時，點「管理 App 連線」。確認下方的工作目錄與檔案權限後，點「送出問題」。內建與自訂範本都在「管理團隊範本」，首席 agent 也能幫你寫一個。',
       },
       {
         title: '每個問題自動組隊',
@@ -3346,7 +3465,7 @@ export const zhTW = {
       },
       {
         title: '團隊檢查',
-        body: '在團隊設定或範本裡設定一份給整個團隊的規則。團隊檢查會在可編輯或完全存取的對話中執行。',
+        body: '在團隊設定或範本裡設定一份給整個團隊的規則，或請首席 agent 讀過專案後幫你寫。團隊檢查會在可編輯或完全存取的對話中執行。',
         points: [
           '受保護路徑：寫法同 .gitignore，例如 .env、*.pem，團隊不能新增、修改或刪除',
           'commit 格式：每個 commit 的標題都要符合的正規表示式',
@@ -3377,7 +3496,7 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入或口述訊息，再選擇啟動方式。點四個方格的「常用 App」，勾選每次執行要使用的可用服務。建立前會再次確認這些選項。首席 agent 會為任務組隊，每次執行都會送出訊息和附件。在現有對話裡，可點上方的「自動任務」（手機上在 ⋯ 裡）。',
+        body: '點側邊欄「新對話」旁的閃電按鈕「新自動任務」。輸入訊息並選擇啟動方式，或請首席 agent 用一句話幫你填好；四個方格的「常用 App」選每次執行要用的服務。首席 agent 會為任務組隊。在對話裡可點上方的「自動任務」（手機上在 ⋯ 裡），或直接在對話中提出：agent 會提議一個，你按一下就建立。',
         points: [
           '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、某件事發生時（新郵件、行程、pull request 或失敗的 CI、檔案），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
@@ -3394,7 +3513,8 @@ export const zhTW = {
         points: [
           '「搜尋」右邊的資料夾按鈕（新群組）建立群組，再把對話拖進去（或用對話上的資料夾按鈕移動）',
           '對話左上角的圖釘會把它釘在群組上方的「已釘選」（電腦上滑過對話才會看到圖釘）',
-          '有群組時，首席 agent 會讀新對話的第一則訊息，自動放進合適的群組',
+          '有群組時，首席 agent 會把新對話放進合適的群組；「新群組」旁的首席 agent 按鈕會建議怎麼整理全部的對話',
+          '首席 agent 也會依第一則訊息替新對話取個簡短的標題（可在「設定 → 首席 agent」關掉）',
           '「搜尋」會找標題，以及你和 agent 寫過的所有內容',
         ],
       },

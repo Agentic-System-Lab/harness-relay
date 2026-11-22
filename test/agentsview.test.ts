@@ -518,6 +518,8 @@ describe("a member's recorded session", () => {
             { type: 'plan', entries: [] },
             { type: 'plan', entries: [{ text: 'Ship', status: 'completed' }] },
             { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
+            { type: 'schedule', proposal: { text: 'Check the build', repeat: { kind: 'daily', time: '08:00' } }, status: 'created' },
+            { type: 'schedule', proposal: { text: '', repeat: { kind: 'manual' } } },
           ],
         }),
       ],
@@ -531,6 +533,7 @@ describe("a member's recorded session", () => {
       { type: 'text', text: '[chart.png]' },
       { type: 'text', text: 'Plan:\n[x] Ship' },
       { type: 'text', text: '[Harness Relay: The MCP server "linear" was left out of this turn]' },
+      { type: 'text', text: '[Proposed an automation for the user to create: "Check the build" — created]' },
     ]);
     // An untitled conversation: the member's name and CLI alone.
     expect(r.at(-1)!.customTitle).toBe('Goose · Goose');

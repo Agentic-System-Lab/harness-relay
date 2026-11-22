@@ -18,7 +18,11 @@ import {
   EMPTY_TRIGGER,
   draftChanged,
   draftFrom,
+  draftKey,
   draftProblems,
+  draftedForm,
+  proposalDraft,
+  scheduleChanges,
   forgetHandedHook,
   formatWhen,
   handOverHook,
@@ -811,5 +815,65 @@ describe('the schedule form', () => {
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'Asia/Taipei' }, en, 'en')).toMatch(/09:00/);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'UTC' }, en, 'en')).toMatch(/01:00/);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Automation: next ${formatWhen(next, 'en')}`);
+  });
+});
+
+describe("the lead agent's schedule in the form", () => {
+  const now = Date.UTC(2026, 10, 23, 1, 0);
+  const update = {
+    text: 'Morning summary',
+    repeat: { kind: 'weekly' as const, time: '09:00', days: [1, 2, 3, 4, 5] },
+    timeZone: 'Asia/Taipei',
+    enabled: true,
+    approvals: 'ask' as const,
+    missed: 'run' as const,
+    newChat: true,
+    goal: 'Until the release',
+  };
+
+  it('fills the form with it, keeping the files and the other kinds’ fields, and lists what changed', () => {
+    const before = { ...draftFrom(undefined, now, 'Asia/Taipei'), hours: 3, files: [{ id: 1, file: {} as File }] };
+    const after = draftedForm(before, update, now);
+    expect(after).toMatchObject({
+      text: 'Morning summary',
+      kind: 'weekly',
+      time: '09:00',
+      days: [1, 2, 3, 4, 5],
+      hours: 3,
+      approvals: 'ask',
+      missed: 'run',
+      newChat: true,
+      goal: 'Until the release',
+    });
+    expect(after.files).toBe(before.files);
+    expect(scheduleChanges(before, after, en, 'en')).toEqual([
+      'wrote the message',
+      `times: ${describeRepeat(update.repeat, en, 'en')}`,
+      'set a goal',
+      'a new chat each time',
+      'runs a missed time when it can',
+      'asks you in the chat for approvals',
+    ]);
+    expect(scheduleChanges(after, structuredClone({ ...after, files: [] }), en, 'en')).toEqual([]);
+    expect(draftKey(after)).not.toBe(draftKey(before));
+    expect(draftKey({ ...after })).toBe(draftKey(after));
+  });
+
+  it('asks the user to pick the account a trigger has none of', () => {
+    const before = draftFrom(undefined, now, 'UTC');
+    const after = draftedForm(
+      before,
+      { ...update, repeat: { kind: 'event', triggers: [{ source: 'mail', account: '', folder: 'INBOX' }] } },
+      now,
+    );
+    expect(after.triggers[0]).toMatchObject({ source: 'mail', account: '' });
+    expect(scheduleChanges(before, after, en, 'en').at(-1)).toBe('pick the account a trigger uses');
+  });
+
+  it('opens a proposed schedule in the form, its once time in this browser’s time zone', () => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const d = proposalDraft({ text: 'Remind me', repeat: { kind: 'once', at: '2026-12-01T09:00' }, newChat: true }, now, zone);
+    expect(d).toMatchObject({ text: 'Remind me', kind: 'once', at: '2026-12-01T09:00', newChat: true, enabled: true, approvals: 'deny' });
+    expect(fromLocalInput(d.at)).toBeGreaterThan(now);
   });
 });

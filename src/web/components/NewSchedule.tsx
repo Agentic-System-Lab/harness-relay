@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   cwdsOf,
   type Conversation,
@@ -71,9 +71,20 @@ export function NewSchedule({
   const [initial] = useState<NewAutomationDraft>(() => ({ form: draftFrom(undefined, Date.now()), title: '', withHook: false }));
   const current = savedDraft ?? initial;
   const { form: draft, title, withHook } = current;
+  /** The draft now: what the lead agent writes (or its Undo) lands on it, not on the draft as it was when it was asked. */
+  const latest = useRef(current);
+  latest.current = current;
+  const update = (patch: Partial<NewAutomationDraft>) => {
+    const next = { ...latest.current, ...patch };
+    latest.current = next;
+    onDraft(next);
+  };
   const team = current.team ?? defaults;
   const appChoices = useDraftApps(appStatus, current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
   const [loadError, setLoadError] = useState('');
+  /** The lead agent drafts the form, or the team checks: the automation cannot be created meanwhile. */
+  const [drafting, setDrafting] = useState(false);
+  const [checksDrafting, setChecksDrafting] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -98,7 +109,7 @@ export function NewSchedule({
   if (!team || !lead) return <div className="page-center muted">{loadError || t.common.loading}</div>;
 
   const edit = (patch: Partial<ScheduleDraft>) => {
-    onDraft({ ...current, form: { ...draft, ...patch } });
+    update({ form: { ...latest.current.form, ...patch } });
     setError('');
   };
   const task = { ...draft, text: taskWithApps(draft.text, current.apps ?? [], t) };
@@ -152,28 +163,30 @@ export function NewSchedule({
       automation
       onSubmit={create}
       submitLabel={busy ? t.newSchedule.creating : t.newSchedule.create}
-      disabled={problems.length > 0 || appChoices.checkingSelection}
+      disabled={problems.length > 0 || appChoices.checkingSelection || drafting || checksDrafting}
     >
       <ScheduleForm
         draft={draft}
         disabled={busy}
         onEdit={edit}
+        onDrafting={setDrafting}
         settings={team.settings}
         creation={{
           apps: appChoices.selection,
           withHook,
-          onHook: (checked) => onDraft({ ...current, withHook: checked }),
+          onHook: (checked) => update({ withHook: checked }),
         }}
       >
         <CreationOptions
           team={team}
-          onTeam={(next) => onDraft({ ...current, team: next })}
+          onTeam={(next) => update({ team: next })}
           providers={providers}
           catalog={catalog}
           title={title}
-          onTitle={(next) => onDraft({ ...current, title: next })}
+          onTitle={(next) => update({ title: next })}
           titlePlaceholder={t.newSchedule.titlePlaceholder}
           schedule={schedule}
+          onDrafting={setChecksDrafting}
         />
       </ScheduleForm>
       <TemplateLibrary providers={providers} catalog={catalog} />

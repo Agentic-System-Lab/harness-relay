@@ -29,6 +29,8 @@ import type {
   OutboxItem,
   ProgressStatus,
   Provider,
+  ScheduleProposal,
+  ScheduleProposalStatus,
   LeadAgentSettings,
   RunPause,
   TrackedRun,
@@ -89,6 +91,7 @@ import { approvalKeys, isAllowed } from './approvals';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
+import { LeadDrafts } from './leadDrafts';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
 import {
@@ -106,6 +109,7 @@ import {
 } from './fixedCommands';
 import type { CommandPin } from './handoffs';
 import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, type InteractiveDeps } from './interactive';
+import { splitSchedule } from '../shared/scheduleProposal';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -822,6 +826,25 @@ function takeProgress(msg: ChatMessage): { status: ProgressStatus; text: string 
   return undefined;
 }
 
+/**
+ * Take the `<schedule>` blocks out of a finished reply's text (see `src/shared/scheduleProposal.ts`):
+ * the last usable one stays with the reply as a `schedule` part, a card the user creates it from (or not).
+ */
+function takeSchedule(msg: ChatMessage): void {
+  let proposal: ScheduleProposal | undefined;
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const split = splitSchedule(part.text);
+    if (!split.proposal) continue;
+    // Read from the end: the first one found is the reply's last.
+    proposal ??= split.proposal;
+    if (split.text) part.text = split.text;
+    else msg.parts.splice(i, 1);
+  }
+  if (proposal) msg.parts.push({ type: 'schedule', proposal });
+}
+
 /** Where a run begins: round 1 with everyone taking part, or — after the user answered a question — where the team stopped. */
 interface Schedule {
   participants: AgentConfig[];
@@ -892,6 +915,8 @@ export class Orchestrator {
   private secretsAnswered = new Set<string>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
+  /** The lead agent's drafts for the editors that are not a conversation's team (a template, team checks, a schedule, the sidebar's groups). */
+  readonly drafts: LeadDrafts;
   /** Long-term memory: the notes agents keep across conversations, and the lead agent's tidying of them. */
   readonly memory: LongTermMemory;
   /**
@@ -960,7 +985,13 @@ export class Orchestrator {
       settings,
       (conv, provider, sessionId) => this.linkSession(conv, provider, sessionId),
       (p, chosen, account) => this.modelFor(p, chosen, account),
+      (conv) => {
+        this.emitConversation(conv);
+        // AgentsView shows the title as the thread's name.
+        this.trace(conv);
+      },
     );
+    this.drafts = new LeadDrafts(store, settings, planner, (p, chosen, account) => this.modelFor(p, chosen, account));
     this.memory = new LongTermMemory(store, settings, {
       cardChanged: (note, status) => this.updateMemoryCard(note, status),
       modelFor: (p, chosen, account) => this.modelFor(p, chosen, account),
@@ -1013,6 +1044,8 @@ export class Orchestrator {
       ...this.revisions.keys(),
       ...this.branching.keys(),
       ...this.grouper.sorting(),
+      // The lead agent drafting for an editor (a template, team checks, a schedule, the sidebar's groups).
+      ...this.drafts.keys(),
       // The lead agent tidying the long-term memory, which no conversation owns.
       ...(this.memory.tidying ? ['memory'] : []),
     ]).size;
@@ -1023,14 +1056,24 @@ export class Orchestrator {
     return this.grouper.isSorting(id);
   }
 
-  /** Have the lead agent sort a new conversation into one of the user's sidebar groups, by what it is about. */
-  sortIntoGroup(conv: Conversation, about: string): void {
-    this.grouper.start(conv, about);
+  /**
+   * Have the lead agent sort a new conversation into one of the user's sidebar groups, by what it is
+   * about, and (`name`: its title is the one `about` gave it) name it.
+   */
+  sortIntoGroup(conv: Conversation, about: string, name = false): void {
+    this.grouper.start(conv, about, name);
   }
 
   /** Some conversation is replying, being set up, or being sorted into a group. */
   anyRunning(): boolean {
-    return this.runs.size > 0 || this.starting.size > 0 || this.grouper.busy || this.revisions.size > 0 || this.memory.tidying;
+    return (
+      this.runs.size > 0 ||
+      this.starting.size > 0 ||
+      this.grouper.busy ||
+      this.drafts.busy ||
+      this.revisions.size > 0 ||
+      this.memory.tidying
+    );
   }
 
   /** Running, or reserved by a request that will change it. */
@@ -1135,6 +1178,7 @@ export class Orchestrator {
       ...this.checkWork,
       ...this.commandWork,
       this.grouper.settled(),
+      this.drafts.settled(),
       this.memory.settled(),
     ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
@@ -1864,6 +1908,26 @@ export class Orchestrator {
     if (!ops.length) return;
     const notes = this.memory.apply(conv, msg, agent, ops.slice(0, MEMORY_LIMITS.perReply));
     if (notes.length) msg.parts.push({ type: 'memory', notes });
+  }
+
+  /** The schedule an agent proposed in a reply, while it waits for the user (404: none; 409: dealt with already). */
+  proposalOf(convId: string, messageId: string): ScheduleProposal {
+    const conv = this.store.get(convId);
+    const part = conv?.messages.find((m) => m.id === messageId)?.parts.find((p) => p.type === 'schedule');
+    if (!part || part.type !== 'schedule' || !part.proposal.text) throw new HttpError(404, t().proposalNotFound);
+    if (part.status) throw new HttpError(409, t().proposalDone);
+    return part.proposal;
+  }
+
+  /** The card of a proposed schedule says what the user did with it. */
+  markProposal(convId: string, messageId: string, status: ScheduleProposalStatus): void {
+    const conv = this.store.get(convId);
+    const msg = conv?.messages.find((m) => m.id === messageId);
+    const part = msg?.parts.find((p) => p.type === 'schedule');
+    if (!conv || !msg || !part || part.type !== 'schedule') return;
+    part.status = status;
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
   /** The card of a long-term memory note in the reply that saved it, as the note now is. */
@@ -3323,9 +3387,10 @@ export class Orchestrator {
         throw err;
       }
       this.hub.emit(conv.id, { type: 'message', message: msg });
-      this.nameAfter(conv, msg);
-      // The first message says what the conversation is about: sort it into one of the user's groups.
-      if (conv.messages.filter((m) => m.author.kind === 'user').length === 1) this.grouper.start(conv, questionOf(msg));
+      const named = this.nameAfter(conv, msg);
+      // The first message says what the conversation is about: sort it into one of the user's groups,
+      // and name it in a few words when its title is that message's first line.
+      if (conv.messages.filter((m) => m.author.kind === 'user').length === 1) this.grouper.start(conv, questionOf(msg), named);
     }
     conv.updatedAt = Date.now();
     this.store.saveMeta(conv);
@@ -3335,14 +3400,15 @@ export class Orchestrator {
   /**
    * A conversation still called "New chat" is named after the first line of the user's message, and
    * so is a branch still called "Branch · <title>": by what the user goes on with there, which tells
-   * it from the conversation it came from and from the other branches of it.
+   * it from the conversation it came from and from the other branches of it. Returns whether it named it.
    */
-  private nameAfter(conv: Conversation, msg: ChatMessage): void {
-    if (!isDefaultTitle(conv.title) && !(conv.branch && isBranchTitle(conv.title, conv.branch.fromTitle))) return;
+  private nameAfter(conv: Conversation, msg: ChatMessage): boolean {
+    if (!isDefaultTitle(conv.title) && !(conv.branch && isBranchTitle(conv.title, conv.branch.fromTitle))) return false;
     const line = titleFrom(textOf(msg)) || (attachmentsOf(msg)[0]?.name ?? '');
-    if (!line) return;
+    if (!line) return false;
     conv.title = titleFrom(line);
     this.emitConversation(conv);
+    return true;
   }
 
   stop(convId: string): void {
@@ -3357,6 +3423,7 @@ export class Orchestrator {
     for (const c of this.checking.values()) c.abort();
     for (const set of this.revisions.values()) for (const r of set) r.abort.abort();
     this.grouper.stopAll();
+    this.drafts.stopAll();
     this.memory.stopAll();
     this.stopInteractive();
     for (const abort of this.commandRuns.values()) abort.abort();
@@ -6375,9 +6442,10 @@ export class Orchestrator {
           throw freshErr;
         }
       }
-      // Long-term memory's blocks, anywhere in the reply, come out first: the ask marker, a steps block
-      // and a <progress> block end it.
+      // Long-term memory's blocks and a proposed schedule, anywhere in the reply, come out first: the
+      // ask marker, a steps block and a <progress> block end it.
       this.takeMemory(conv, msg, agent);
+      takeSchedule(msg);
       // Secrets asked for and fixed commands proposed wait for the user, as a question does.
       const handedOff = this.takeHandoffs(conv, msg, agent, { automation: Boolean(run.unattended) });
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
@@ -6403,7 +6471,8 @@ export class Orchestrator {
               p.type === 'secrets' ||
               p.type === 'command' ||
               p.type === 'steps' ||
-              p.type === 'interactive',
+              p.type === 'interactive' ||
+              p.type === 'schedule',
           ));
       msg.status = 'done';
       msg.meta = {
@@ -6424,12 +6493,14 @@ export class Orchestrator {
       if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
-      // Notes the reply finished writing before it stopped are kept too.
+      // Notes the reply finished writing before it stopped are kept too, and so is a schedule it proposed
+      // (its card is the user's to take or leave; its block never shows as text).
       try {
         this.takeMemory(conv, msg, agent);
       } catch (memoryErr) {
         console.warn('[orchestrator] could not record memory notes:', (memoryErr as Error).message);
       }
+      takeSchedule(msg);
       // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
       const spent = err instanceof AgentRunError ? err.usage : undefined;
       msg.meta = {

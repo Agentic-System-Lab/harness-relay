@@ -1,4 +1,5 @@
 import { PROVIDERS, accountUsable, type AgentConfig, type ConversationSettings, type Provider, type ProviderStatus } from '../shared/types';
+import type { Messages } from './i18n';
 import { limitsKey } from './memberLimits';
 import { newAgent, readyAccount } from './util';
 
@@ -88,4 +89,16 @@ export function templateKey(d: TemplateDraft): string {
       limits: limitsKey(a),
     })),
   });
+}
+
+/** What the lead agent changed of a template's name and description, a line each (its team's changes are listed apart). */
+export function templateTextChanges(
+  before: Pick<TemplateDraft, 'name' | 'description'>,
+  after: Pick<TemplateDraft, 'name' | 'description'>,
+  t: Messages,
+): string[] {
+  return [
+    ...(after.name.trim() !== before.name.trim() ? [t.templateDraft.renamed(after.name.trim())] : []),
+    ...(after.description.trim() !== before.description.trim() ? [t.templateDraft.described] : []),
+  ];
 }

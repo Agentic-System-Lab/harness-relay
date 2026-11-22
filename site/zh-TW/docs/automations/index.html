@@ -6,7 +6,7 @@
     <title>自動任務 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，並跨次追蹤目標。"
+      content="Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，跨次追蹤目標；首席 agent 可以替你填寫。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="自動任務 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="怎麼讓 Harness Relay 在設定的時間、收到新郵件、行程即將開始、有新的 pull request 或 CI 失敗、檔案出現時，或程式呼叫它的 webhook 時，把訊息傳給團隊，並跨次追蹤目標直到達成。"
+      content="怎麼讓 Harness Relay 在設定的時間、收到新郵件、行程即將開始、有新的 pull request 或 CI 失敗、檔案出現時，或程式呼叫它的 webhook 時，把訊息傳給團隊，並跨次追蹤目標直到達成；也可以請首席 agent 依一句話填好表單，或建立 agent 在對話中提議的自動任務。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/",
         "name": "自動任務 · Harness Relay 文件",
-        "description": "Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，並跨次追蹤目標。",
+        "description": "Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，跨次追蹤目標；首席 agent 可以替你填寫。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -268,10 +268,14 @@
             <li>客戶來信時：「整理這封信並擬一份回覆。」</li>
             <li>CI 失敗時：「CI 失敗了，找出原因。」</li>
           </ul>
-          <p>有兩種方式可以開始：</p>
+          <p>有三種方式可以開始：</p>
           <ul>
             <li><b>新自動任務</b>：側邊欄 <b>新對話</b> 旁邊、有閃電圖示的按鈕。它會為自動任務開一個對話，首席 agent 再為它的訊息設計團隊。</li>
             <li>現有對話上方的 <b>自動任務</b>。訊息會交給這個對話的團隊，所以要先確認過團隊。</li>
+            <li>
+              回覆裡的 <b>提議的自動任務</b> 卡片：你在對話中請團隊之後再做或定期做某件事時，agent 可以提議一個，寫著訊息、時間與目標。<b>建立自動任務</b>
+              會照原樣建立，<b>在表單中修改</b> 會先在這個對話的 <b>自動任務</b> 視窗中打開它，<b>略過</b> 則把它擱下。你建立之前不會排定任何事，建立後會取代這個對話目前的自動任務。
+            </li>
           </ul>
           <div class="doc-note">
             <svg aria-hidden="true"><use href="#i-info" /></svg>
@@ -290,6 +294,10 @@
             <li>選擇 <b>等我確認團隊</b> 或 <b>自動採用團隊</b>，確認下方的回覆審閱選項，再按 <b>建立自動任務</b>。建立時會開啟對話並組隊；任務會在觸發時執行。</li>
           </ol>
           <p>「本次組隊後」上方的 <b>管理團隊範本</b> 可以編輯與新對話共用的範本。</p>
+          <p>
+            也可以請首席 agent 填寫表單：在表單最上面的 <b>請首席 agent 填寫</b>（這裡，以及對話的 <b>自動任務</b> 視窗裡）用一句話說要做什麼、什麼時候做，例如「每個工作日早上
+            9 點整理昨天合併的 PR」，再按 <b>填寫</b>。它會填好訊息、時間、要等的事與選項，只用你設定好的郵件帳號和行事曆，並列出改了什麼。你看過並儲存之前，什麼都不會執行。
+          </p>
           <figure class="doc-figure">
             <img
               src="../../../assets/media/docs/automations-new-zh-TW.webp"

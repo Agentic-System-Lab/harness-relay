@@ -67,8 +67,9 @@ import {
   pendingPlan,
   type ScheduleTrigger,
 } from '../shared/types';
-import { byAge, familyOf, type FamilyMember } from '../shared/family';
+import { byAge, families, familyOf, type FamilyMember } from '../shared/family';
 import { mailFolder, triggerKey, watchOf } from '../shared/schedule';
+import { readProposal } from '../shared/scheduleProposal';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { reviewText } from '../shared/review';
@@ -423,6 +424,13 @@ function toPart(r: PartRow): MessagePart {
       const answer = data.answer && typeof data.answer === 'object' ? (data.answer as StepsAnswer) : undefined;
       return { type: 'steps', items, ...(answer ? { answer } : {}) };
     }
+    case 'schedule': {
+      const d = parseJson<{ proposal?: unknown; status?: unknown }>(r.data, {});
+      // Read again as a block's would be: a part kept by an older or newer server stays one that can be shown.
+      const proposal = readProposal(d.proposal) ?? { text: '', repeat: { kind: 'manual' as const } };
+      const status = d.status === 'created' || d.status === 'dismissed' ? d.status : undefined;
+      return { type: 'schedule', proposal, ...(status ? { status } : {}) };
+    }
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
       return {
@@ -455,6 +463,7 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'approval':
     case 'attachment':
     case 'memory':
+    case 'schedule':
     case 'outbox':
     case 'secrets':
     case 'command':
@@ -1922,6 +1931,54 @@ export class Store {
         title: string;
       }[]
     ).map((r) => r.title);
+  }
+
+  /**
+   * One conversation for each family of branched conversations (its oldest, which the family moves
+   * with), the most recently used family first, at most `limit`: its title as it is now and its group
+   * (`null`: "Other"). What the lead agent reads to suggest how to organize the sidebar's groups.
+   */
+  familyHeads(limit: number): { id: string; title: string; groupId: string | null }[] {
+    const rows = this.db.prepare('SELECT id, title, created_at, updated_at, group_id, branch FROM conversations').all() as (Pick<
+      ConversationRow,
+      'id' | 'title' | 'created_at' | 'updated_at' | 'branch'
+    > & { group_id: string | null })[];
+    const live = rows.filter((r) => !this.deleted.has(r.id));
+    const members = this.familyMembers().filter((m) => !this.deleted.has(m.id));
+    const { top } = families(members);
+    const byFamily = new Map<string, { head: (typeof live)[number]; latest: number }>();
+    for (const r of byAge(live.map((r) => ({ ...r, createdAt: r.created_at })))) {
+      const key = top.get(r.id) ?? r.id;
+      const updated = this.cache.get(r.id)?.updatedAt ?? r.updated_at;
+      const seen = byFamily.get(key);
+      if (!seen) byFamily.set(key, { head: r, latest: updated });
+      else seen.latest = Math.max(seen.latest, updated);
+    }
+    return [...byFamily.values()]
+      .sort((a, b) => b.latest - a.latest)
+      .slice(0, limit)
+      .map(({ head }) => ({ id: head.id, title: this.cache.get(head.id)?.title ?? head.title, groupId: head.group_id }));
+  }
+
+  /**
+   * The suggestions the user took for the sidebar's groups, all at once: the new groups made (each
+   * after the others), the renamed ones renamed, and each conversation moved with its family, as the
+   * user's choice. Checked by the caller (`checkReorganize()` in `grouping.ts`), with each new group's id.
+   */
+  reorganize(input: { create: ConversationGroup[]; rename: ConversationGroup[]; move: { convId: string; to: string | null }[] }): void {
+    const create = this.db.prepare(
+      `INSERT INTO conversation_groups (id, name, position, created_at)
+       VALUES (?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM conversation_groups), ?)`,
+    );
+    const rename = this.db.prepare('UPDATE conversation_groups SET name = ? WHERE id = ?');
+    const move = this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?");
+    const moved = input.move.map((m) => ({ to: m.to, ids: this.family(m.convId) }));
+    const now = Date.now();
+    transaction(this.db, () => {
+      for (const g of input.create) create.run(g.id, g.name, now);
+      for (const g of input.rename) rename.run(g.name, g.id);
+      for (const f of moved) for (const id of f.ids) move.run(f.to, id);
+    });
   }
 
   /** The conversations' working directories (all of each), each once, the most recently used first. */

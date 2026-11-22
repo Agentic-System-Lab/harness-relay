@@ -6,7 +6,7 @@
     <title>Teams and modes · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: how the lead agent picks a team for each question, the templates, team members, the three modes, and team checks on the team's work."
+      content="Harness Relay docs: how the lead agent picks a team for each question, the templates and team checks it can write for you, members and the three modes."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Teams and modes · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How teams work in Harness Relay: the lead agent picks or designs a team for each question from your templates, each member has a role, a coding agent and a model, the team takes turns in roundtable, parallel or relay mode, and Harness Relay checks its work against your team checks."
+      content="How teams work in Harness Relay: the lead agent picks or designs a team for each question from your templates, and writes a template or the team checks for you when you ask; each member has a role, a coding agent and a model, the team takes turns in roundtable, parallel or relay mode, and Harness Relay checks its work against your team checks."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/teams/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/teams/",
         "name": "Teams and modes · Harness Relay docs",
-        "description": "Harness Relay docs: how the lead agent picks a team for each question, the templates, team members, the three modes, and team checks on the team's work.",
+        "description": "Harness Relay docs: how the lead agent picks a team for each question, the templates and team checks it can write for you, members and the three modes.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -361,6 +361,13 @@
             </li>
           </ul>
           <p>
+            Or have the lead agent write it: under <b>Have the lead agent write it</b>, at the top of the dialog, say what
+            the team is for, or how to change it, such as "a team of three to review pull requests: one finds bugs, one
+            checks security, one sums up", and click <b>Write it</b>. It writes the members, their roles, the name and the
+            description in the dialog, and lists what changed; <b>Undo</b> puts the template back. Nothing is kept until you
+            press <b>Save template</b>.
+          </p>
+          <p>
             A template has no working directory or permission: those belong to each conversation. A member on an agent
             that cannot run on this computer is moved to one that can when you open the template, and the dialog says so.
           </p>
@@ -504,6 +511,14 @@
               Claude Code, Codex, Copilot, Muse Code and Pi. The reply records when a member runs without team hooks.
             </dd>
           </dl>
+          <p>
+            Or have the lead agent write them: under <b>Have the lead agent write the rules</b>, at the top of the editor, say
+            what the team must not break, such as "run the tests and the linter after every change, and never touch .env",
+            and click <b>Write the rules</b>. For a chat it first reads the project, read-only (its <code>package.json</code>
+            scripts, CI workflows, test and lint settings, contributing guide), so that the commands it proposes are there;
+            for a template or the default list, it writes rules for the kind of project you describe. Nothing runs and
+            nothing is saved: review the rules, try a command with <b>Try it</b>, then save them.
+          </p>
           <h3 id="review-check-results">Review check results</h3>
           <p>
             The agents are told the rules from the start. In a chat that can change files, a <b>Team checks</b> card after

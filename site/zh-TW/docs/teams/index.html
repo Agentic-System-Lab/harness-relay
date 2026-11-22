@@ -6,7 +6,7 @@
     <title>團隊與對話模式 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、範本、團隊成員、三種對話模式，以及團隊的成果要通過的檢查。"
+      content="Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊，它能替你撰寫的範本與團隊檢查，以及團隊成員與三種對話模式。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="團隊與對話模式 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="Harness Relay 的團隊怎麼運作：首席 agent 為每個問題從你的範本挑選或設計團隊，每位成員都有角色、使用的 coding agent 與模型，團隊以圓桌、平行或接力模式輪流，Harness Relay 再依你的團隊檢查驗收成果。"
+      content="Harness Relay 的團隊怎麼運作：首席 agent 為每個問題從你的範本挑選或設計團隊，你要求時也會替你撰寫範本或團隊檢查；每位成員都有角色、使用的 coding agent 與模型，團隊以圓桌、平行或接力模式輪流，Harness Relay 再依你的團隊檢查驗收成果。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/",
         "name": "團隊與對話模式 · Harness Relay 文件",
-        "description": "Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊、範本、團隊成員、三種對話模式，以及團隊的成果要通過的檢查。",
+        "description": "Harness Relay 文件：首席 agent 怎麼為每個問題挑團隊，它能替你撰寫的範本與團隊檢查，以及團隊成員與三種對話模式。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -336,6 +336,10 @@
             <li>團隊設計卡片上的<b>存成範本</b>，會把首席 agent 設計或調整的團隊留下來。</li>
           </ul>
           <p>
+            也可以請首席 agent 撰寫：在對話框最上面的<b>請首席 agent 撰寫範本</b>說說這個團隊要處理什麼問題，或想怎麼調整，例如「審 PR
+            的三人團隊，一位找 bug、一位看安全性、一位最後總結」，再按<b>撰寫範本</b>。它會在對話框裡寫好成員、角色、名稱與說明，並列出改了什麼；<b>復原</b>會把範本改回原樣。按<b>儲存範本</b>之前，什麼都不會保存。
+          </p>
+          <p>
             範本沒有工作目錄與權限：這些屬於每個對話。範本裡有成員用的 agent 在這台電腦上不能用時，打開範本會改用能用的 agent，對話框也會說明。
           </p>
         </section>
@@ -457,6 +461,11 @@
               支援的工具呼叫。成員未使用團隊 hook 時，回覆會註明。
             </dd>
           </dl>
+          <p>
+            也可以請首席 agent 撰寫：在編輯區最上面的<b>請首席 agent 撰寫規則</b>說說團隊不能弄壞什麼，例如「改完都要跑測試和 lint，不能動
+            .env」，再按<b>撰寫規則</b>。在對話裡，它會先唯讀查看專案（<code>package.json</code> 的 scripts、CI workflow、測試與 lint
+            設定、貢獻指南），讓它提出的指令確實存在；範本或預設規則則依你描述的專案類型來寫。這時什麼都不會執行，也不會儲存：看過規則，指令可以先按<b>試跑</b>，再儲存。
+          </p>
           <h3 id="review-check-results">檢閱檢查結果</h3>
           <p>
             agent 一開始就會知道這些規則。在可以修改檔案的對話裡，回覆後面會有一張<b>團隊檢查</b>卡片，說明每條規則的結果：<b>通過</b>、<b>未通過</b>（附上檔案、

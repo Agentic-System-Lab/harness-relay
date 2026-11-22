@@ -6440,7 +6440,8 @@ summary + .checks-editor-body {
   min-width: 0;
 }
 
-.checks-editor-body > p {
+.checks-editor-body > p,
+.checks-fieldset > p {
   margin: 0;
 }
 
@@ -11334,4 +11335,122 @@ a.share-action {
 
 .publish-unpublish p {
   margin: 0;
+}
+
+/* The lead agent's suggestions for the sidebar's groups: a third icon beside New group, and its dialog. */
+.sidebar-actions:has(.organize-groups) {
+  grid-template-columns: minmax(0, 1fr) 42px 42px;
+}
+
+.sidebar-action.organize-groups {
+  padding: 0;
+}
+
+.modal.group-organizer {
+  width: min(640px, 100%);
+  padding: 18px 20px 0;
+  gap: 0;
+}
+
+.group-organizer .drawer-head {
+  padding-bottom: 12px;
+}
+
+.group-organizer .drawer-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-organizer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+}
+
+.group-organizer-body > p,
+.group-organizer-result > p {
+  margin: 0;
+}
+
+.group-organizer-body textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.group-organizer-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.group-organizer-section {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-organizer-section legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.group-organizer-section .check-row.blocked {
+  opacity: 0.6;
+}
+
+.group-organizer-title {
+  overflow-wrap: anywhere;
+}
+
+.group-organizer .template-editor-foot .link-button:first-child {
+  margin-left: 0;
+}
+
+.group-organizer .template-editor-foot .primary {
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .modal-scrim:has(.group-organizer) {
+    padding: 8px;
+  }
+
+  .modal.group-organizer {
+    padding: 14px 14px 0;
+  }
+}
+
+/* A schedule an agent proposed: its message as it was written, line breaks kept. */
+/* Its fields' names in one column, so the values line up. */
+.schedule-proposal .outbox-fields div {
+  grid-template-columns: 4.5em 1fr;
+}
+
+.schedule-proposal-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Settings → Lead agent: naming new chats, under the lead agent's own choices. */
+.check-row.chat-titles {
+  margin-top: 12px;
+}
+
+/* The fieldsets that hold an editor still while the lead agent drafts for it: their fields keep the
+   editor's own layout (its gaps), as if the fieldset were not there. */
+.checks-fieldset,
+.schedule-fieldset,
+.template-fieldset {
+  display: contents;
 }

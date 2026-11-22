@@ -19,14 +19,19 @@ import { useLimits } from '../limits';
 import { hashFor } from '../route';
 import { TaskInput } from './TaskInput';
 import { revealChosen } from './CliPicker';
+import { LeadAsk } from './LeadAsk';
 import {
   browserTimeZone,
+  draftKey,
   draftProblems,
+  draftedForm,
   editTriggers,
   formatWhen,
   localInput,
   previewRuns,
+  scheduleChanges,
   shownZone,
+  toUpdate,
   type ScheduleDraft,
   type TriggerDraft,
 } from '../schedule';
@@ -48,6 +53,8 @@ export function ScheduleForm({
   children,
   disabled,
   commands,
+  convId,
+  onDrafting,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -63,6 +70,10 @@ export function ScheduleForm({
   disabled?: boolean;
   /** The fixed commands of the conversation's working directory, which it may run first (the drawer only). */
   commands?: FixedCommand[];
+  /** The conversation whose schedule it is (the drawer's): the lead agent drafts for its team. None: a new automation. */
+  convId?: string;
+  /** Told while the lead agent drafts the schedule: the form holds still, and cannot be saved meanwhile. */
+  onDrafting?: (busy: boolean) => void;
 }) {
   const { t, lang } = useI18n();
   const w = t.schedule.watch;
@@ -88,6 +99,48 @@ export function ScheduleForm({
   /** Times of day are in the schedule's time zone; a moment or an interval does not depend on one. */
   const localZone = browserTimeZone();
   const draftZone = shownZone({ repeat: { kind: draft.kind }, timeZone: draft.timeZone });
+
+  /** The form now, for the lead agent's answer: the user may change it while it works. */
+  const latest = useRef(draft);
+  latest.current = draft;
+  const [drafting, setDrafting] = useState(false);
+  const drafter = (
+    <LeadAsk
+      title={t.scheduleDraft.title}
+      hint={t.scheduleDraft.hint}
+      placeholder={t.scheduleDraft.placeholder}
+      submit={t.scheduleDraft.submit}
+      working={t.scheduleDraft.working}
+      review={t.scheduleDraft.review}
+      unchanged={t.scheduleDraft.unchanged}
+      changedMeanwhile={t.scheduleDraft.changedMeanwhile}
+      blocked={disabled}
+      onBusy={(busy) => {
+        setDrafting(busy);
+        onDrafting?.(busy);
+      }}
+      ask={async (request, signal) => {
+        const sent = latest.current;
+        const r = await api.draftSchedule(
+          { request, schedule: toUpdate(sent), timeZone: sent.timeZone || browserTimeZone(), ...(convId ? { convId } : {}) },
+          signal,
+        );
+        if (draftKey(latest.current) !== draftKey(sent)) return 'stale';
+        const after = draftedForm(sent, r.schedule, Date.now());
+        const changes = scheduleChanges(sent, after, t, lang);
+        if (!changes.length) return { reason: r.reason, changes: [], meta: r.meta };
+        onEdit(after);
+        return {
+          reason: r.reason,
+          changes,
+          meta: r.meta,
+          undo: () => onEdit(sent),
+          // Only while the form is still as the lead agent left it: later edits are not thrown away.
+          undoable: () => draftKey(latest.current) === draftKey(after),
+        };
+      }}
+    />
+  );
 
   const toggleDay = (day: number) =>
     onEdit({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day] });
@@ -204,247 +257,251 @@ export function ScheduleForm({
 
   return (
     <section className="schedule-form">
-      <div className="field">
-        <label className={creation ? 'first-question' : undefined} htmlFor={messageId}>
-          {creation ? t.newSchedule.task : t.schedule.message}
-        </label>
-        <TaskInput
-          creation={Boolean(creation)}
-          apps={creation?.apps}
-          id={messageId}
-          text={draft.text}
-          onText={(text) => onEdit({ text })}
-          files={draft.files}
-          onFiles={(files) => onEdit({ files })}
-          saved={
-            saved?.attachments && {
-              files: saved.attachments.filter((f) => !draft.removeAttachments.includes(f.id)),
-              remove: (id) => onEdit({ removeAttachments: [...draft.removeAttachments, id] }),
-            }
-          }
-          disabled={disabled}
-          maxLength={SCHEDULE_LIMITS.maxText}
-          placeholder={creation ? t.newSchedule.example : t.schedule.messagePlaceholder}
-        />
-        {(!creation || draft.text.includes('@')) && (
-          <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
-        )}
-        {warning && <span className="small warn-text">{warning}</span>}
-      </div>
-
-      {commands && commands.length > 0 && draft.kind !== 'event' && (
+      {drafter}
+      {/* While the lead agent writes the schedule, the form holds still. */}
+      <fieldset className="team-fieldset schedule-fieldset" disabled={drafting}>
         <div className="field">
-          <label htmlFor={commandId}>{t.schedule.command}</label>
-          <select
-            id={commandId}
-            aria-describedby={commandHintId}
-            value={draft.command}
-            onChange={(e) => onEdit({ command: e.target.value })}
-          >
-            <option value="">{t.schedule.noCommand}</option>
-            {commands.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} — {c.run}
-              </option>
-            ))}
-          </select>
-          <span className="small muted" id={commandHintId}>
-            {t.schedule.commandHint}
-          </span>
+          <label className={creation ? 'first-question' : undefined} htmlFor={messageId}>
+            {creation ? t.newSchedule.task : t.schedule.message}
+          </label>
+          <TaskInput
+            creation={Boolean(creation)}
+            apps={creation?.apps}
+            id={messageId}
+            text={draft.text}
+            onText={(text) => onEdit({ text })}
+            files={draft.files}
+            onFiles={(files) => onEdit({ files })}
+            saved={
+              saved?.attachments && {
+                files: saved.attachments.filter((f) => !draft.removeAttachments.includes(f.id)),
+                remove: (id) => onEdit({ removeAttachments: [...draft.removeAttachments, id] }),
+              }
+            }
+            disabled={disabled}
+            maxLength={SCHEDULE_LIMITS.maxText}
+            placeholder={creation ? t.newSchedule.example : t.schedule.messagePlaceholder}
+          />
+          {(!creation || draft.text.includes('@')) && (
+            <span className="small muted">{team ? t.schedule.messageHint : t.schedule.messageHintNoTeam}</span>
+          )}
+          {warning && <span className="small warn-text">{warning}</span>}
         </div>
-      )}
 
-      <div className="field">
-        <label htmlFor={goalId}>{t.schedule.goal}</label>
-        <textarea
-          id={goalId}
-          aria-describedby={goalHintId}
-          value={draft.goal}
-          rows={2}
-          maxLength={SCHEDULE_LIMITS.maxGoal}
-          placeholder={t.schedule.goalPlaceholder}
-          onChange={(e) => onEdit({ goal: e.target.value })}
-        />
-        <span className="small muted" id={goalHintId}>
-          {creation ? t.newSchedule.goalHint : t.schedule.goalHint}
-        </span>
-      </div>
-
-      <div className="field">
-        {creation ? (
-          <>
-            <label htmlFor={whenId}>{t.schedule.repeat}</label>
-            <select id={whenId} value={draft.kind} onChange={(e) => onEdit({ kind: e.target.value as ScheduleDraft['kind'] })}>
-              {SCHEDULE_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {t.schedule.kinds[k]}
+        {commands && commands.length > 0 && draft.kind !== 'event' && (
+          <div className="field">
+            <label htmlFor={commandId}>{t.schedule.command}</label>
+            <select
+              id={commandId}
+              aria-describedby={commandHintId}
+              value={draft.command}
+              onChange={(e) => onEdit({ command: e.target.value })}
+            >
+              <option value="">{t.schedule.noCommand}</option>
+              {commands.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.run}
                 </option>
               ))}
             </select>
-          </>
-        ) : (
-          <>
-            <span>{t.schedule.repeat}</span>
-            {/* One row, scrolled sideways where it does not fit (a phone), the chosen kind in view. */}
-            <div ref={kindsRow} className="segmented schedule-kinds" role="radiogroup" aria-label={t.schedule.repeat}>
-              {SCHEDULE_KINDS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.kind === k}
-                  className={draft.kind === k ? 'on' : ''}
-                  onClick={() => onEdit({ kind: k })}
-                >
-                  {t.schedule.kinds[k]}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {draft.kind === 'once' && (
-          <input
-            type="datetime-local"
-            className="schedule-input"
-            aria-label={t.schedule.at}
-            value={draft.at}
-            min={localInput(now)}
-            onChange={(e) => onEdit({ at: e.target.value })}
-          />
-        )}
-
-        {(draft.kind === 'daily' || draft.kind === 'weekly') && (
-          <div className="schedule-when">
-            {draft.kind === 'weekly' && (
-              <div className="day-picker" role="group" aria-label={t.schedule.days}>
-                {WEEK.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={draft.days.includes(d) ? 'on' : ''}
-                    aria-pressed={draft.days.includes(d)}
-                    aria-label={t.schedule.weekdayNames[d]}
-                    title={t.schedule.weekdayNames[d]}
-                    onClick={() => toggleDay(d)}
-                  >
-                    {t.schedule.weekdays[d]}
-                  </button>
-                ))}
-              </div>
-            )}
-            <input
-              type="time"
-              className="schedule-input"
-              aria-label={t.schedule.time}
-              value={draft.time}
-              onChange={(e) => onEdit({ time: e.target.value })}
-            />
+            <span className="small muted" id={commandHintId}>
+              {t.schedule.commandHint}
+            </span>
           </div>
         )}
 
-        {draft.kind === 'interval' && (
-          <>
-            <label className="field field-with-unit">
-              <span>{t.schedule.every}</span>
-              <input
-                type="number"
-                min={1}
-                max={SCHEDULE_LIMITS.maxHours}
-                value={Number.isNaN(draft.hours) ? '' : draft.hours}
-                onChange={(e) => onEdit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
-                aria-describedby={intervalHintId}
-              />
-              <span className="unit muted small">{t.schedule.hoursUnit}</span>
-            </label>
-            {/* A line of its own (as part of the unit, which never wraps, it scrolled a phone's page
-                sideways), and still the hours box's description. */}
-            <span id={intervalHintId} className="small muted">
-              {t.schedule.intervalHint}
-            </span>
-          </>
-        )}
+        <div className="field">
+          <label htmlFor={goalId}>{t.schedule.goal}</label>
+          <textarea
+            id={goalId}
+            aria-describedby={goalHintId}
+            value={draft.goal}
+            rows={2}
+            maxLength={SCHEDULE_LIMITS.maxGoal}
+            placeholder={t.schedule.goalPlaceholder}
+            onChange={(e) => onEdit({ goal: e.target.value })}
+          />
+          <span className="small muted" id={goalHintId}>
+            {creation ? t.newSchedule.goalHint : t.schedule.goalHint}
+          </span>
+        </div>
 
-        {watching && (
-          <>
-            {draft.triggers.map((trigger, i) => (
-              <Fragment key={i}>
-                {i > 0 && (
-                  <span className="schedule-trigger-or small muted" aria-hidden="true">
-                    {w.or}
-                  </span>
-                )}
-                <TriggerFields
-                  trigger={trigger}
-                  index={i}
-                  several={several}
-                  mailAccounts={mailAccounts}
-                  calendars={calendars}
-                  onEdit={(patch) => editTrigger(i, patch)}
-                  onRemove={() => onEdit({ triggers: editTriggers(draft, { remove: i }) })}
-                />
-              </Fragment>
-            ))}
-            {draft.triggers.length < WATCH_LIMITS.triggers && (
-              <button
-                type="button"
-                className="ghost small-button schedule-trigger-add"
-                title={w.addTitle(WATCH_LIMITS.triggers)}
-                onClick={() => onEdit({ triggers: editTriggers(draft, { add: true }) })}
-              >
-                <span aria-hidden="true">+</span> {w.add}
-              </button>
-            )}
-          </>
-        )}
-
-        <span className="small muted schedule-preview">
-          {problems.length
-            ? problems[0]
-            : watching
-              ? sourceHint
-              : draft.kind === 'manual'
-                ? manualHint
-                : upcoming.length
-                  ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
-                  : t.schedule.never}
-          {draftZone && (
+        <div className="field">
+          {creation ? (
             <>
-              {' · '}
-              {t.schedule.timeZone(draft.timeZone)}
-              {draft.timeZone !== localZone && (
-                <>
-                  {' · '}
-                  <button type="button" className="link-button" onClick={() => onEdit({ timeZone: localZone })}>
-                    {t.schedule.useLocalZone(localZone)}
+              <label htmlFor={whenId}>{t.schedule.repeat}</label>
+              <select id={whenId} value={draft.kind} onChange={(e) => onEdit({ kind: e.target.value as ScheduleDraft['kind'] })}>
+                {SCHEDULE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {t.schedule.kinds[k]}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <>
+              <span>{t.schedule.repeat}</span>
+              {/* One row, scrolled sideways where it does not fit (a phone), the chosen kind in view. */}
+              <div ref={kindsRow} className="segmented schedule-kinds" role="radiogroup" aria-label={t.schedule.repeat}>
+                {SCHEDULE_KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={draft.kind === k}
+                    className={draft.kind === k ? 'on' : ''}
+                    onClick={() => onEdit({ kind: k })}
+                  >
+                    {t.schedule.kinds[k]}
                   </button>
-                </>
+                ))}
+              </div>
+            </>
+          )}
+
+          {draft.kind === 'once' && (
+            <input
+              type="datetime-local"
+              className="schedule-input"
+              aria-label={t.schedule.at}
+              value={draft.at}
+              min={localInput(now)}
+              onChange={(e) => onEdit({ at: e.target.value })}
+            />
+          )}
+
+          {(draft.kind === 'daily' || draft.kind === 'weekly') && (
+            <div className="schedule-when">
+              {draft.kind === 'weekly' && (
+                <div className="day-picker" role="group" aria-label={t.schedule.days}>
+                  {WEEK.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className={draft.days.includes(d) ? 'on' : ''}
+                      aria-pressed={draft.days.includes(d)}
+                      aria-label={t.schedule.weekdayNames[d]}
+                      title={t.schedule.weekdayNames[d]}
+                      onClick={() => toggleDay(d)}
+                    >
+                      {t.schedule.weekdays[d]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input
+                type="time"
+                className="schedule-input"
+                aria-label={t.schedule.time}
+                value={draft.time}
+                onChange={(e) => onEdit({ time: e.target.value })}
+              />
+            </div>
+          )}
+
+          {draft.kind === 'interval' && (
+            <>
+              <label className="field field-with-unit">
+                <span>{t.schedule.every}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={SCHEDULE_LIMITS.maxHours}
+                  value={Number.isNaN(draft.hours) ? '' : draft.hours}
+                  onChange={(e) => onEdit({ hours: e.target.value === '' ? NaN : Number(e.target.value) })}
+                  aria-describedby={intervalHintId}
+                />
+                <span className="unit muted small">{t.schedule.hoursUnit}</span>
+              </label>
+              {/* A line of its own (as part of the unit, which never wraps, it scrolled a phone's page
+                sideways), and still the hours box's description. */}
+              <span id={intervalHintId} className="small muted">
+                {t.schedule.intervalHint}
+              </span>
+            </>
+          )}
+
+          {watching && (
+            <>
+              {draft.triggers.map((trigger, i) => (
+                <Fragment key={i}>
+                  {i > 0 && (
+                    <span className="schedule-trigger-or small muted" aria-hidden="true">
+                      {w.or}
+                    </span>
+                  )}
+                  <TriggerFields
+                    trigger={trigger}
+                    index={i}
+                    several={several}
+                    mailAccounts={mailAccounts}
+                    calendars={calendars}
+                    onEdit={(patch) => editTrigger(i, patch)}
+                    onRemove={() => onEdit({ triggers: editTriggers(draft, { remove: i }) })}
+                  />
+                </Fragment>
+              ))}
+              {draft.triggers.length < WATCH_LIMITS.triggers && (
+                <button
+                  type="button"
+                  className="ghost small-button schedule-trigger-add"
+                  title={w.addTitle(WATCH_LIMITS.triggers)}
+                  onClick={() => onEdit({ triggers: editTriggers(draft, { add: true }) })}
+                >
+                  <span aria-hidden="true">+</span> {w.add}
+                </button>
               )}
             </>
           )}
-        </span>
-      </div>
 
-      {creation ? (
-        <div className="automation-settings">
-          {children}
-          <details className="automation-options">
-            <summary>{t.newSchedule.runOptions}</summary>
-            <div className="schedule-form-options">
-              <div className="field">
-                <label className="check-row">
-                  <input type="checkbox" checked={creation.withHook} onChange={(e) => creation.onHook(e.target.checked)} />
-                  {t.newSchedule.withHook}
-                </label>
-                <span className="small muted">{creation.withHook ? t.newSchedule.withHookHint : t.schedule.hook.intro}</span>
-              </div>
-              {runOptions}
-            </div>
-          </details>
+          <span className="small muted schedule-preview">
+            {problems.length
+              ? problems[0]
+              : watching
+                ? sourceHint
+                : draft.kind === 'manual'
+                  ? manualHint
+                  : upcoming.length
+                    ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
+                    : t.schedule.never}
+            {draftZone && (
+              <>
+                {' · '}
+                {t.schedule.timeZone(draft.timeZone)}
+                {draft.timeZone !== localZone && (
+                  <>
+                    {' · '}
+                    <button type="button" className="link-button" onClick={() => onEdit({ timeZone: localZone })}>
+                      {t.schedule.useLocalZone(localZone)}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </span>
         </div>
-      ) : (
-        runOptions
-      )}
+
+        {creation ? (
+          <div className="automation-settings">
+            {children}
+            <details className="automation-options">
+              <summary>{t.newSchedule.runOptions}</summary>
+              <div className="schedule-form-options">
+                <div className="field">
+                  <label className="check-row">
+                    <input type="checkbox" checked={creation.withHook} onChange={(e) => creation.onHook(e.target.checked)} />
+                    {t.newSchedule.withHook}
+                  </label>
+                  <span className="small muted">{creation.withHook ? t.newSchedule.withHookHint : t.schedule.hook.intro}</span>
+                </div>
+                {runOptions}
+              </div>
+            </details>
+          </div>
+        ) : (
+          runOptions
+        )}
+      </fieldset>
     </section>
   );
 }

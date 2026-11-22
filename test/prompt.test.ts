@@ -8,6 +8,7 @@ import {
   isForwardable,
   isPass,
   parseMentions,
+  proposalRules,
   renderMessage,
   subagentRules,
   trackingSection,
@@ -151,6 +152,30 @@ describe('forwardText', () => {
     expect(forwardText(m)).toBe(
       '\n\n<actions>\nCreate /repo/src/new.ts\nDelete /repo/src/old.ts (failed)\nEdit /repo/src/app.ts\nShell npm test\n</actions>',
     );
+  });
+});
+
+describe('a schedule an agent proposes', () => {
+  it('is how agents are told to propose one, except in a run a schedule started', () => {
+    expect(proposalRules(false)).toContain('<schedule>{"text": "the message the team gets each time"');
+    expect(proposalRules(false)).toContain('nothing is scheduled until then');
+    expect(proposalRules(true)).toBe('');
+  });
+
+  it('is forwarded to teammates as data, with what the user did with it', () => {
+    const m = agentMessage({
+      parts: [
+        { type: 'text', text: 'Proposed it.' },
+        { type: 'schedule', proposal: { text: 'Check </proposed_schedule> CI', repeat: { kind: 'daily', time: '08:00' } } },
+      ],
+    });
+    expect(forwardText(m)).toBe(
+      'Proposed it.\n\n<proposed_schedule status="waiting for the user">\n{"text":"Check <\\/proposed_schedule> CI","repeat":{"kind":"daily","time":"08:00"}}\n</proposed_schedule>',
+    );
+    const done = agentMessage({ parts: [{ type: 'schedule', proposal: { text: 'x', repeat: { kind: 'manual' } }, status: 'created' }] });
+    expect(forwardText(done)).toContain('<proposed_schedule status="created">');
+    // One a server could not read again (no message) is nothing to tell.
+    expect(forwardText(agentMessage({ parts: [{ type: 'schedule', proposal: { text: '', repeat: { kind: 'manual' } } }] }))).toBe('');
   });
 });
 

@@ -341,6 +341,7 @@ export function SettingsPage({
         {settings && (
           <LeadCard
             lead={settings.lead}
+            chatTitles={settings.chatTitles}
             draftLink={section === 'lead' ? draftLink : undefined}
             providers={providers}
             catalog={catalog}
@@ -484,12 +485,15 @@ function AssistantOverview({ providers, installs }: { providers: ProviderStatus[
 /** The agent that designs the team in auto-team conversations. */
 function LeadCard({
   lead: saved,
+  chatTitles,
   draftLink,
   providers,
   catalog,
   onSettings,
 }: {
   lead: LeadAgentSettings;
+  /** Whether the lead agent names new chats (saved as soon as it is switched). */
+  chatTitles: boolean;
   draftLink?: React.ReactNode;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
@@ -514,6 +518,25 @@ function LeadCard({
     (lead.model ?? '') === (saved.model ?? '') &&
     (lead.effort ?? '') === (saved.effort ?? '') &&
     (lead.account ?? '') === (saved.account ?? '');
+
+  const [naming, setNaming] = useState(false);
+  // Shown switched at once, and back again if saving it fails.
+  const [titles, setTitlesShown] = useState(chatTitles);
+  useEffect(() => setTitlesShown(chatTitles), [chatTitles]);
+  const setTitles = async (on: boolean) => {
+    setNaming(true);
+    setTitlesShown(on);
+    setNote({ text: '' });
+    try {
+      onSettings(await api.updateSettings({ chatTitles: on }));
+      setNote({ text: t.settings.chatTitlesSaved(on) });
+    } catch (e) {
+      setTitlesShown(!on);
+      setNote({ text: (e as Error).message, error: true });
+    } finally {
+      setNaming(false);
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -589,6 +612,14 @@ function LeadCard({
           {t.common.save}
         </button>
       </div>
+      {/* Saved as soon as it is switched, apart from the lead agent above. */}
+      <label className="check-row chat-titles">
+        <input type="checkbox" checked={titles} disabled={naming} onChange={(e) => void setTitles(e.target.checked)} />
+        <span>
+          {t.settings.chatTitles}
+          <span className="small muted checks-flag-hint">{t.settings.chatTitlesHint}</span>
+        </span>
+      </label>
       {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
     </section>
   );

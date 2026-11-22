@@ -17,6 +17,7 @@ describe('server configuration from the environment', () => {
       voiceEngineBaseUrl: undefined,
       voiceDir: undefined,
       runCode: false,
+      chatTitles: true,
     });
     expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
     const blank = readConfig({
@@ -26,8 +27,16 @@ describe('server configuration from the environment', () => {
       RELAY_VOICE_DIR: '  ',
       RELAY_VOICE_MODEL_BASE_URL: '',
       RELAY_RUN_CODE: ' ',
+      RELAY_CHAT_TITLES: ' ',
     });
     expect(blank).toEqual({ config, problems: [] });
+  });
+
+  it('names new conversations unless RELAY_CHAT_TITLES is off, and refuses a value that is neither', () => {
+    expect(readConfig({}).config.chatTitles).toBe(true);
+    expect(readConfig({ RELAY_CHAT_TITLES: 'on' }).config.chatTitles).toBe(true);
+    expect(readConfig({ RELAY_CHAT_TITLES: ' OFF ' })).toMatchObject({ config: { chatTitles: false }, problems: [] });
+    expect(readConfig({ RELAY_CHAT_TITLES: 'sometimes' }).problems).toEqual(['RELAY_CHAT_TITLES=sometimes is neither on nor off.']);
   });
 
   it('turns on RLM mode with its sub-model as <backend>/<model>, which turns run_code on too', () => {

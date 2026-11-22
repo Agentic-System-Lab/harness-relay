@@ -220,3 +220,62 @@ export function fixCandidates(msg: ChatMessage, agents: readonly AgentConfig[]):
   const first = named.flatMap((name) => agents.filter((a) => a.name === name));
   return [...first, ...agents.filter((a) => !first.includes(a))];
 }
+
+/**
+ * What the lead agent's draft changed in a list, a line each, as listed under its note (none: the
+ * same rules). A command or hook is told apart by its id (kept when the lead kept it), else by its line.
+ */
+export function checksChanges(before: CheckList | undefined, after: CheckList | undefined, t: Messages): string[] {
+  const c = t.checksDraft.change;
+  const out: string[] = [];
+  const was = before?.protectedPaths ?? [];
+  const now = after?.protectedPaths ?? [];
+  for (const p of now) if (!was.includes(p)) out.push(c.pathAdded(p));
+  for (const p of was) if (!now.includes(p)) out.push(c.pathRemoved(p));
+  const pattern = (l: CheckList | undefined) => l?.commitPattern?.trim() ?? '';
+  if (pattern(after) !== pattern(before)) out.push(pattern(after) ? c.patternSet(pattern(after)) : c.patternRemoved);
+  const rows = <T extends { id: string; run: string }>(
+    a: readonly T[],
+    b: readonly T[],
+    same: (x: T, y: T) => boolean,
+    added: (run: string) => string,
+    removed: (run: string) => string,
+    changed: (run: string) => string,
+  ) => {
+    const matched = new Set<T>();
+    for (const y of b) {
+      const x = a.find((x) => !matched.has(x) && x.id === y.id) ?? a.find((x) => !matched.has(x) && x.run.trim() === y.run.trim());
+      if (!x) {
+        out.push(added(y.run.trim()));
+        continue;
+      }
+      matched.add(x);
+      if (!same(x, y)) out.push(changed(y.run.trim()));
+    }
+    for (const x of a) if (!matched.has(x)) out.push(removed(x.run.trim()));
+  };
+  rows(
+    (before?.commands ?? []).map(keptCommand),
+    (after?.commands ?? []).map(keptCommand),
+    (x, y) => sameChecks({ commands: [x] }, { commands: [y] }),
+    c.commandAdded,
+    c.commandRemoved,
+    c.commandChanged,
+  );
+  rows(
+    hooksFromRows(before?.hooks ?? []),
+    hooksFromRows(after?.hooks ?? []),
+    (x, y) => sameChecks({ hooks: [x] }, { hooks: [y] }),
+    c.hookAdded,
+    c.hookRemoved,
+    c.hookChanged,
+  );
+  if (Boolean(after?.previewApp) !== Boolean(before?.previewApp)) out.push(after?.previewApp ? c.previewOn : c.previewOff);
+  if (Boolean(after?.autoFix) !== Boolean(before?.autoFix)) out.push(after?.autoFix ? c.autoFixOn : c.autoFixOff);
+  return out;
+}
+
+/** The flags of a list, as the editor keeps them. */
+export function flagsOf(list: CheckList | undefined): Pick<CheckList, 'previewApp' | 'autoFix'> {
+  return { ...(list?.previewApp ? { previewApp: true as const } : {}), ...(list?.autoFix ? { autoFix: true as const } : {}) };
+}

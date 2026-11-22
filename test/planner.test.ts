@@ -33,6 +33,10 @@ import {
   REVISION_SCHEMA,
   PLANNER_BRIEFING,
   REVISER_BRIEFING,
+  TEMPLATE_BRIEFING,
+  TEMPLATE_SCHEMA,
+  buildTemplatePrompt,
+  decideTemplate,
   sameTeam,
   teamSettings,
   memberAvailable,
@@ -61,7 +65,7 @@ const lead = { provider: 'claude' as const };
 
 describe("the lead agent's briefings", () => {
   it('name the kinds of agents the chat holds, the open-source ones too', () => {
-    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING, REVIEWER_BRIEFING]) {
+    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING, REVIEWER_BRIEFING, TEMPLATE_BRIEFING]) {
       expect(briefing).toContain(
         '(Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)',
       );
@@ -2102,5 +2106,61 @@ describe("a member's own limits through the lead agent's designs", () => {
       lead,
     );
     expect(shaped.agents[0]).toMatchObject({ id: 'c1', role: 'Code it.', limits: { usd: 2 } });
+  });
+});
+
+describe('a template the lead agent writes', () => {
+  const fresh = {
+    name: '',
+    description: '',
+    agents: [{ id: 'c', name: 'Claude', provider: 'claude' as const, role: '' }],
+    settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
+  };
+
+  it('shows the template, the request, the coding agents, the modes and the other templates', () => {
+    const prompt = buildTemplatePrompt('a review team', fresh, ctx, true);
+    expect(prompt).toContain('a new one, whose members are only a starting point');
+    expect(prompt).toContain('<request>\na review team\n</request>');
+    expect(prompt).toContain('- relay:');
+    expect(prompt).toContain('<templates>');
+    expect(prompt).toContain('"name": "Claude"');
+    expect(prompt).toContain('Every member must end up with a role.');
+    expect(buildTemplatePrompt('x', { ...fresh, name: 'Mine' }, ctx, false)).not.toContain('only a starting point');
+    expect((TEMPLATE_SCHEMA as { required: string[] }).required).toEqual([
+      'name',
+      'description',
+      'mode',
+      'rounds',
+      'maxHops',
+      'agents',
+      'reason',
+    ]);
+  });
+
+  it('keeps the members it kept, and the name and description the lead left out, each on one line and within its limit', () => {
+    const r = decideTemplate(
+      {
+        name: '  Review\n team ',
+        agents: [
+          { name: 'Claude', provider: 'claude', role: 'Review it.' },
+          { name: 'Tester', provider: 'codex', role: 'Test it.' },
+        ],
+        reason: 'ok',
+      },
+      { ...fresh, description: 'Kept.' },
+      ctx,
+      lead,
+    );
+    expect(r.name).toBe('Review team');
+    expect(r.description).toBe('Kept.');
+    expect(r.agents.map((a) => [a.id === 'c', a.name, a.role])).toEqual([
+      [true, 'Claude', 'Review it.'],
+      [false, 'Tester', 'Test it.'],
+    ]);
+    expect(decideTemplate({ name: 'n'.repeat(300), description: 'd'.repeat(3000) }, fresh, ctx, lead)).toMatchObject({
+      name: 'n'.repeat(100),
+      description: 'd'.repeat(2000),
+      agents: fresh.agents,
+    });
   });
 });

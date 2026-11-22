@@ -393,6 +393,8 @@ export type Segment =
   | { kind: 'handover'; part: HandoverPart; key: number }
   /** What the reply saved to long-term memory. */
   | { kind: 'memory'; part: MemoryPart; key: number }
+  /** A schedule the reply proposed, for the user to create or dismiss. */
+  | { kind: 'schedule'; part: SchedulePart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
   | { kind: 'notice'; text: string; key: number }
   /** The secrets the reply asks the user for. */
@@ -406,6 +408,7 @@ export type Segment =
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
+export type SchedulePart = Extract<MessagePart, { type: 'schedule' }>;
 
 /**
  * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
@@ -466,6 +469,10 @@ export function segments(parts: MessagePart[]): Segment[] {
       case 'memory':
         if (p.notes.length) out.push({ kind: 'memory', part: p, key: i });
         break;
+      case 'schedule':
+        // A part a server kept that this one could not read again has no message: nothing to create.
+        if (p.proposal.text) out.push({ kind: 'schedule', part: p, key: i });
+        break;
       case 'notice':
         out.push({ kind: 'notice', text: p.text, key: i });
         break;
@@ -490,13 +497,13 @@ export function segments(parts: MessagePart[]): Segment[] {
 
 /**
  * What a reply shows of its segments: all of them, or for a reply whose agent passed only Harness
- * Relay's own notes (an MCP server left out of the turn) and what it saved to long-term memory, which
- * stay shown with the pass. `typing`: the
+ * Relay's own notes (an MCP server left out of the turn), what it saved to long-term memory and a
+ * schedule it proposed, which stay shown with the pass. `typing`: the
  * agent has shown nothing yet while it streams (a note is not its words).
  */
 export function shownSegments(segs: Segment[], passed: boolean, live: boolean): { shown: Segment[]; typing: boolean } {
   return {
-    shown: passed ? segs.filter((s) => s.kind === 'notice' || s.kind === 'memory') : segs,
+    shown: passed ? segs.filter((s) => s.kind === 'notice' || s.kind === 'memory' || s.kind === 'schedule') : segs,
     typing: live && segs.every((s) => s.kind === 'notice'),
   };
 }

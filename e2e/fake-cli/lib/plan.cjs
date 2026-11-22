@@ -60,6 +60,10 @@ const DIRECTIVES = {
     "hand the look around to a subagent (Explore, on haiku) that lists the working directory and reads its README, the reading taking `=<seconds>` (one by default), and then a subagent of its own that searches; then report that the CLI compacted its context (Claude Code's fake only)",
   steer:
     'wait in the turn, about ten seconds (`=<seconds>` for another time), for a message sent into it (steering), then answer, saying what it heard (Claude Code’s and Codex’s fakes; the others answer at once)',
+  propose:
+    'end the reply with a <schedule> block proposing a schedule for the chat: "Check the build" every day at 08:00 (`=mail` for one that waits for a new mail, its account for the user to pick)',
+  title:
+    'as the lead agent naming a new conversation, give it the title `=<words>`, with _ for a space (none by default: it keeps its first line)',
 };
 
 /**
@@ -169,7 +173,79 @@ function groupReply(prompt) {
   const message = tag(prompt, 'message').toLowerCase();
   const groups = [...prompt.matchAll(/^(\d+)\. ("(?:[^"\\]|\\.)*")/gm)].map((m) => ({ n: Number(m[1]), name: JSON.parse(m[2]) }));
   const hit = groups.find((g) => message.includes(g.name.toLowerCase()));
-  return JSON.stringify({ group: hit ? hit.n : 0 });
+  // Asked to name it too: the title `e2e:title` gives, or none.
+  return JSON.stringify({ group: hit ? hit.n : 0, ...(/"title": "<title>"/.test(prompt) ? { title: titleIn(prompt) } : {}) });
+}
+
+/** The title a new conversation gets: `e2e:title=<words, _ for a space>` in its first message, else none ("": it keeps its first line). */
+function titleIn(prompt) {
+  const d = directivesIn(tag(prompt, 'message'));
+  return typeof d.title === 'string' ? d.title.replace(/_/g, ' ') : '';
+}
+
+/**
+ * The lead agent's template (the template editor's "Ask the lead agent"): a review pair on the template's
+ * first coding agent (Claude Code when it has no member yet), with roles, a name and a description.
+ */
+function templateReply(prompt) {
+  let template = {};
+  try {
+    template = JSON.parse(tag(prompt, 'template'));
+  } catch {
+    /* answered without it */
+  }
+  const provider = (template.agents && template.agents[0] && template.agents[0].provider) || 'claude';
+  return json({
+    name: 'Review pair',
+    description: 'Two reviewers look at a change from two sides.',
+    mode: 'roundtable',
+    rounds: 1,
+    maxHops: 8,
+    agents: [
+      { name: 'Reviewer', provider, role: 'Code reviewer.\nReview the change for bugs.' },
+      { name: 'Tester', provider, role: 'Tester.\nTry the change and say what breaks.' },
+    ],
+    reason: 'The fake lead agent wrote a review pair.',
+  });
+}
+
+/** The lead agent's team checks: `.env` protected and `npm test` to pass; whether it read a project, in its reason. */
+function checksReply(prompt) {
+  const read = /, read-only\. Before you write any command/.test(prompt);
+  return json({
+    protectedPaths: ['.env'],
+    commitPattern: '',
+    commands: [{ run: 'npm test', cwd: '', timeoutMin: null, localPorts: false, unixSockets: false }],
+    hooks: [],
+    previewApp: false,
+    autoFix: false,
+    reason: read ? 'The fake lead agent read the project and wrote the checks.' : 'The fake lead agent wrote the checks.',
+  });
+}
+
+/** The lead agent's schedule: every evening at 18:00, a summary of the day. */
+function scheduleReply() {
+  return json({
+    text: 'Sum up what changed today.',
+    repeat: { kind: 'daily', time: '18:00', days: null, hours: null, at: null, triggers: null },
+    goal: '',
+    newChat: false,
+    missed: 'skip',
+    approvals: 'deny',
+    reason: 'The fake lead agent set it for every evening.',
+  });
+}
+
+/** The lead agent's suggestions for the sidebar's groups: one new group, every conversation moved into it. */
+function organizeReply(prompt) {
+  const first = Number((/in the order you list them \((\d+),/.exec(prompt) || [])[1] || 1);
+  const conversations = [...tag(prompt, 'conversations').matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  return json({
+    create: [{ name: 'E2E projects' }],
+    rename: [],
+    move: conversations.map((n) => ({ conversation: n, group: first })),
+    reason: 'The fake lead agent put them all in one group.',
+  });
 }
 
 /**
@@ -263,6 +339,16 @@ function plan(prompt, turn) {
   }
   if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
+  if (/Reply with only this JSON object: \{"title"/.test(prompt))
+    return [{ type: 'text', text: JSON.stringify({ title: titleIn(prompt) }) }];
+  if (/Reply with only this JSON object, in a ```json code block, with the whole template/.test(prompt))
+    return [{ type: 'text', text: templateReply(prompt) }];
+  if (/Reply with only this JSON object, in a ```json code block, with the whole list:/.test(prompt))
+    return [{ type: 'text', text: checksReply(prompt) }];
+  if (/Reply with only this JSON object, in a ```json code block, with the whole schedule:/.test(prompt))
+    return [{ type: 'text', text: scheduleReply() }];
+  if (/Reply with only this JSON object, in a ```json code block:\n\{"create"/.test(prompt))
+    return [{ type: 'text', text: organizeReply(prompt) }];
   if (/Reply with only this JSON object:\n\{"changes"/.test(prompt)) return [{ type: 'text', text: tidyReply(prompt) }];
   if (/Reply with only this JSON object: \{"decision": "approve" \| "ask"/.test(prompt))
     return [{ type: 'text', ...approvalReply(prompt) }];
@@ -363,6 +449,11 @@ function plan(prompt, turn) {
     text += `\n\n<command-run name="${name}">hello from the outbox</command-run>`;
   }
   if (d.interactive) text += `\n\n${INTERACTIVE[d.interactive === 'askpass' ? 'askpass' : 'device']}`;
+  if (d.propose) {
+    const repeat =
+      d.propose === 'mail' ? { kind: 'event', triggers: [{ source: 'mail', from: 'ci@example.com' }] } : { kind: 'daily', time: '08:00' };
+    text += `\n\n<schedule>${JSON.stringify({ text: 'Check the build', repeat })}</schedule>`;
+  }
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   // After its answer, the turn waits for a message sent into it, and answers that too.
   if (d.steer) steps.push({ type: 'steer', wait: slowMs(d.steer) });

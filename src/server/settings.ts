@@ -725,6 +725,20 @@ export class SettingsStore {
     this.saveAppSetting('agentsview_link', url);
   }
 
+  /**
+   * The lead agent names each new conversation after its first message, in a few words, in place of
+   * that message's first line (`AutoGrouper`): as Settings says, else as the environment does
+   * (`CONFIG.chatTitles`, on unless `RELAY_CHAT_TITLES=off`).
+   */
+  get chatTitles(): boolean {
+    const v = this.appSetting('chat_titles');
+    return v === undefined ? CONFIG.chatTitles : v !== 'off';
+  }
+
+  setChatTitles(on: boolean): void {
+    this.saveAppSetting('chat_titles', on ? 'on' : 'off');
+  }
+
   /** The team checks new chats and automations start with (validated by the caller); none: undefined. */
   get checksDefault(): CheckList | undefined {
     const list = parseJson(this.appSetting('checks_default') ?? 'null') as CheckList | null;
@@ -927,6 +941,7 @@ export class SettingsStore {
       agentHome: this.agentHomeDir,
       agentsViewUrl: this.agentsView,
       agentsViewLink: this.agentsViewLinkValue,
+      chatTitles: this.chatTitles,
       ...(this.checksDefault ? { checksDefault: this.checksDefault } : {}),
       providers: PROVIDERS.map((p) => {
         const accounts = this.accountViews(p);

@@ -1,11 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { REVISE_REQUEST_MAX, type MessageMeta } from '../../shared/types';
+import { useRef } from 'react';
 import { api } from '../api';
-import { BUTTON_HOLD_MS, buttonHeld, focusBoxAfterAnswer, reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
+import { reviseRequest, revisionOutcome, sameTeam } from '../chat';
 import { teamChangeText } from '../copy';
 import { useT } from '../i18n';
-import { Logo, LogoSpinner } from './Logo';
-import { MetaText, hasMeta } from './MessageItem';
+import { LeadAsk } from './LeadAsk';
 import type { Team } from './TeamEditor';
 
 interface Props {
@@ -26,15 +24,6 @@ interface Props {
   onBusy: (busy: boolean) => void;
 }
 
-/** What the lead agent did last: why, what changed, the team before and after (for Undo), its cost. */
-interface Done {
-  reason: string;
-  changes: TeamChange[];
-  before: Team;
-  after?: Team;
-  meta?: MessageMeta;
-}
-
 /**
  * The team drawer's "Ask the lead agent": the user says how the team should change, and the lead agent
  * changes the team in the drawer. Nothing is saved: the user reviews the team (what changed is listed)
@@ -42,179 +31,37 @@ interface Done {
  */
 export function TeamReviser({ convId, team, base, blocked, leadText, onChange, onBusy }: Props) {
   const t = useT();
-  const titleId = useId();
-  const hintId = useId();
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [done, setDone] = useState<Done | null>(null);
-  const abort = useRef<AbortController | null>(null);
-  /** When the button last changed (Ask ⇄ Stop): it is held for a moment after (`buttonHeld`). */
-  const changedAt = useRef<number | undefined>(undefined);
-  const [held, setHeld] = useState(false);
-  const hold = () => {
-    const at = Date.now();
-    changedAt.current = at;
-    setHeld(true);
-    // Cleared by the timer of the latest change (a clock read a moment early must not keep it held).
-    setTimeout(() => changedAt.current === at && setHeld(false), BUTTON_HOLD_MS);
-  };
-  const box = useRef<HTMLTextAreaElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
   /** The drawer now: its team and whether it can save it may change while the lead agent works. */
   const latest = useRef({ team, blocked });
   latest.current = { team, blocked };
-  useEffect(() => () => abort.current?.abort(), []);
-  // The drawer loaded the team again: what the lead said was about the copy before.
-  useEffect(() => {
-    setDone(null);
-    setError('');
-  }, [base]);
-
-  const ask = async () => {
-    const request = text.trim();
-    if (!request || busy || blocked || buttonHeld(changedAt.current, Date.now())) return;
-    const sent = team;
-    const ctrl = new AbortController();
-    abort.current = ctrl;
-    hold();
-    setBusy(true);
-    onBusy(true);
-    setError('');
-    setDone(null);
-    try {
-      const revision = await api.reviseTeam(convId, reviseRequest(request, sent), ctrl.signal);
-      const outcome = revisionOutcome({ sent, now: latest.current.team, blocked: latest.current.blocked, revision });
-      if (outcome.kind === 'stale') {
-        setError(t.revise.changedMeanwhile);
-        return;
-      }
-      if (outcome.kind === 'changed') onChange(outcome.team);
-      setDone({
-        reason: revision.reason,
-        changes: outcome.kind === 'changed' ? outcome.changes : [],
-        before: sent,
-        after: outcome.kind === 'changed' ? outcome.team : undefined,
-        meta: revision.meta,
-      });
-      // Kept when nothing changed, to say it another way.
-      if (outcome.kind === 'changed') setText('');
-    } catch (e) {
-      if (!ctrl.signal.aborted) setError((e as Error).message);
-    } finally {
-      if (abort.current === ctrl) abort.current = null;
-      hold();
-      setBusy(false);
-      onBusy(false);
-    }
-  };
-
-  // Once the lead agent is done, focus that would be lost (on the page, or on the button now disabled
-  // because the box was emptied) goes back to the box, so the keyboard stays here.
-  const wasBusy = useRef(false);
-  useEffect(() => {
-    if (wasBusy.current && !busy) {
-      const active = document.activeElement;
-      const onPage = active === document.body || active === null;
-      if (focusBoxAfterAnswer({ onPage, onButton: active === button.current, buttonDisabled: Boolean(button.current?.disabled) })) {
-        box.current?.focus({ preventScroll: true });
-      }
-    }
-    wasBusy.current = busy;
-  }, [busy]);
-  const stop = () => {
-    if (!buttonHeld(changedAt.current, Date.now())) abort.current?.abort();
-  };
-
-  // Undo only while the team is still as the lead agent left it: later edits are not thrown away.
-  const undoable = done?.after && sameTeam(team, done.after);
-
   return (
-    <section className="team-reviser" aria-labelledby={titleId}>
-      <div className="team-reviser-head">
-        <Logo size={16} />
-        <h3 id={titleId}>{t.revise.title}</h3>
-      </div>
-      <p className="muted small" id={hintId}>
-        {t.revise.hint(leadText)}
-      </p>
-      {/* Read-only, not disabled, while the lead agent works: the box keeps the focus. */}
-      <textarea
-        ref={box}
-        aria-labelledby={titleId}
-        aria-describedby={hintId}
-        rows={2}
-        value={text}
-        maxLength={REVISE_REQUEST_MAX}
-        placeholder={t.revise.placeholder}
-        readOnly={busy}
-        aria-busy={busy}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            void ask();
-          }
-        }}
-      />
-      <div className="team-reviser-actions">
-        {busy && (
-          <span className="muted small" role="status">
-            <LogoSpinner /> {t.revise.working(leadText)}
-          </span>
-        )}
-        {/* One button for asking and stopping, so the focus stays on it while the lead agent works.
-            Held for a moment after it changes: dimmed (aria-disabled keeps the focus), clicks do nothing. */}
-        <button
-          ref={button}
-          type="button"
-          className={`${busy ? 'ghost' : 'primary'} small-button ${held ? 'held' : ''}`}
-          disabled={!busy && (!text.trim() || blocked)}
-          aria-disabled={held || undefined}
-          onClick={() => (busy ? stop() : void ask())}
-        >
-          {busy ? t.revise.stop : t.revise.submit}
-        </button>
-      </div>
-      {error && (
-        <p className="error-line small" role="alert">
-          {error}
-        </p>
-      )}
-      {done && (
-        <div className="team-reviser-result" role="status">
-          {done.reason && <p>{done.reason}</p>}
-          {done.changes.length > 0 && (
-            <div className="team-reviser-changes small">
-              <span>{t.revise.changesTitle}</span>
-              <ul>
-                {done.changes.map((c, i) => (
-                  <li key={i}>{teamChangeText(c, t)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <p className="small">
-            {done.after ? t.revise.review : t.revise.unchanged}
-            {undoable && (
-              <>
-                {' '}
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => {
-                    onChange(done.before);
-                    setDone(null);
-                  }}
-                >
-                  {t.revise.undo}
-                </button>
-              </>
-            )}
-          </p>
-          {hasMeta(done.meta) && <MetaText m={done.meta} />}
-        </div>
-      )}
-    </section>
+    <LeadAsk
+      title={t.revise.title}
+      hint={t.revise.hint(leadText)}
+      placeholder={t.revise.placeholder}
+      working={t.revise.working(leadText)}
+      review={t.revise.review}
+      unchanged={t.revise.unchanged}
+      changedMeanwhile={t.revise.changedMeanwhile}
+      blocked={blocked}
+      resetKey={base}
+      onBusy={onBusy}
+      ask={async (request, signal) => {
+        const sent = latest.current.team;
+        const revision = await api.reviseTeam(convId, reviseRequest(request, sent), signal);
+        const outcome = revisionOutcome({ sent, now: latest.current.team, blocked: latest.current.blocked, revision });
+        if (outcome.kind === 'stale') return 'stale';
+        if (outcome.kind === 'unchanged') return { reason: revision.reason, changes: [], meta: revision.meta };
+        onChange(outcome.team);
+        return {
+          reason: revision.reason,
+          changes: outcome.changes.map((c) => teamChangeText(c, t)),
+          meta: revision.meta,
+          undo: () => onChange(sent),
+          // Undo only while the team is still as the lead agent left it: later edits are not thrown away.
+          undoable: () => sameTeam(latest.current.team, outcome.team),
+        };
+      }}
+    />
   );
 }

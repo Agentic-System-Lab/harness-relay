@@ -94,6 +94,14 @@ import type {
   SharedPage,
   SkillCandidate,
   ReviseTeamRequest,
+  ChecksDraftRequest,
+  ChecksRevision,
+  GroupReorganize,
+  GroupSuggestion,
+  ScheduleDraftRequest,
+  ScheduleRevision,
+  TemplateDraftRequest,
+  TemplateRevision,
   TeamPreset,
   TeamRevision,
   ToolLibraryUpdate,
@@ -293,7 +301,12 @@ async function requestText(path: string, o: Sending = {}): Promise<string> {
   return text;
 }
 
-type ScheduleSubmission = ScheduleUpdate & { attachments?: AttachmentUpload[]; removeAttachments?: string[] };
+type ScheduleSubmission = ScheduleUpdate & {
+  attachments?: AttachmentUpload[];
+  removeAttachments?: string[];
+  /** The reply whose proposed schedule this is, opened in the form: its card then says it was created. */
+  fromProposal?: string;
+};
 
 // Keep this browser's edits in submission order, even when the drawer is closed and reopened during an upload.
 const scheduleWrites = new Map<string, Promise<unknown>>();
@@ -423,6 +436,13 @@ export const api = {
     schedule: ScheduleSubmission;
     hook?: boolean;
   }) => request<Conversation & { newHook?: NewScheduleHook }>('POST', '/api/schedules', b),
+  /** Have the lead agent draft the schedule form's schedule; nothing is saved. */
+  draftSchedule: (b: ScheduleDraftRequest, signal?: AbortSignal) => request<ScheduleRevision>('POST', '/api/schedules/draft', b, signal),
+  /** A schedule an agent proposed in a reply: create it as it is, in the browser's time zone, or dismiss it. */
+  answerProposal: (id: string, messageId: string, action: 'create' | 'dismiss', timeZone: string) =>
+    writeSchedule(id, () =>
+      request<ConversationSchedule | { ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/schedule`, { action, timeZone }),
+    ),
   /** Have the lead agent design the team for the schedule's message (again). */
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
@@ -445,6 +465,11 @@ export const api = {
   renameGroup: (id: string, name: string) => request<ConversationGroup>('PATCH', `/api/groups/${id}`, { name }),
   /** Its conversations go to the default group ("Other"). */
   deleteGroup: (id: string) => request<{ ok: true }>('DELETE', `/api/groups/${id}`),
+  /** The lead agent's suggestions for the groups (`request`: what the user wants, if they say); nothing changes. */
+  suggestGroups: (text: string, signal?: AbortSignal) => request<GroupSuggestion>('POST', '/api/groups/suggest', { request: text }, signal),
+  /** The suggestions the user took, applied together. */
+  reorganizeGroups: (b: GroupReorganize) =>
+    request<{ groups: ConversationGroup[]; created: ConversationGroup[] }>('POST', '/api/groups/reorganize', b),
   /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */
   send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false) =>
     postTask<{ ok: true; queued: boolean }>(`/api/conversations/${id}/messages`, { text, attachments, interrupt }),
@@ -623,6 +648,8 @@ export const api = {
   tryCheck: (id: string, command: CheckCommand, permission?: Permission) =>
     request<CheckOutcome>('POST', `/api/conversations/${id}/checks/try`, { command, ...(permission ? { permission } : {}) }),
   checksEnvironment: () => request<{ platform: string; sandbox?: string }>('GET', '/api/checks/environment'),
+  /** Have the lead agent draft team checks (reading the project, when there is one); nothing is saved. */
+  draftChecks: (b: ChecksDraftRequest, signal?: AbortSignal) => request<ChecksRevision>('POST', '/api/checks/draft', b, signal),
   skipChecks: (id: string, messageId: string) => request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/skip`, {}),
   fixChecks: (id: string, messageId: string, agentId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/checks/${messageId}/fix`, { agentId }),
@@ -660,6 +687,8 @@ export const api = {
   // presets
   listPresets: () => request<TeamPreset[]>('GET', '/api/presets'),
   savePreset: (p: Partial<TeamPreset>) => request<TeamPreset>('POST', '/api/presets', p),
+  /** Have the lead agent draft the template editor's template; nothing is saved. */
+  draftTemplate: (b: TemplateDraftRequest, signal?: AbortSignal) => request<TemplateRevision>('POST', '/api/presets/draft', b, signal),
   deletePreset: (id: string) => request<{ ok: true }>('DELETE', `/api/presets/${id}`),
 
   // settings & providers

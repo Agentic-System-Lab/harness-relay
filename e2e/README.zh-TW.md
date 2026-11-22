@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 53 個 spec 檔、633 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 54 個 spec 檔、640 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -71,6 +71,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
+| [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 26 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[實驗室](../docs/user-guide.zh-TW.md#實驗室)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
@@ -599,6 +600,20 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 回報問題左邊的星星請使用者到 GitHub 給一顆星星、說明怎麼按，並在新分頁打開 repo | — | 星星在回報問題圖示左邊、同一行；對話框請使用者給星星並說明要按哪裡；示意圖寫出 repo 名稱，按下的動畫播三次，只用 `transform` 與 `opacity`；**到 GitHub 按星星**（Star it on GitHub）連到 repo（`REPO_URL`），在新分頁以 `noopener` 開啟，新分頁確實打開（GitHub 的頁面由測試代替，不會連上網路），對話框接著謝謝使用者；**稍後再說**（Later）關閉對話框；用鍵盤再打開時還沒有道謝，按 Escape 關閉後焦點回到星星；按 × 或點對話框外面也會關閉。側邊欄的星星與連結上的星星是黃色的（連結上的是實心；側邊欄的在滑鼠移上去時）。 |
 | 減少動態效果時，星星對話框的游標停在 Star 上，不播按下的動畫 | — | 示意圖裡沒有動畫在跑；看得到游標與 **Star**，看不到 **Starred** 與實心的星星。 |
 
+## 首席 agent 在團隊之外的協助
+
+[`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts)：首席 agent 在各自的編輯器裡撰寫範本、團隊檢查和自動任務，成員在回覆裡提議的排程，側邊欄的群組建議，以及替新對話命名。假的首席 agent 每種都回一份固定的草稿（`fake-cli/lib/plan.cjs` 的 `templateReply`、`checksReply`、`scheduleReply`、`organizeReply`），成員收到 `e2e:propose` 時在回覆結尾加上 `<schedule>` 區塊（`=mail` 是等新郵件的），首席 agent 用 `e2e:title=<字詞>` 給的標題替新對話命名（沒有就不命名）。測試伺服器一開始關閉命名（`RELAY_CHAT_TITLES=off`，`support/relay.ts`），它的測試再打開。
+
+| 情境 | CLI | 檢查內容 |
+| --- | --- | --- |
+| 撰寫新範本，可以復原，儲存後會保留 | Claude Code | 在**＋ 新增範本**裡按**請首席 agent 撰寫範本**：說明列出*名稱改為「Review pair」*和*改寫說明*，名稱欄和成員（Reviewer、Tester）都填好了；**復原**會再清空；再問一次並儲存後，範本庫列出「Review pair」。 |
+| 讀過專案後撰寫對話的團隊檢查，儲存團隊後會保留 | Claude Code | 在**團隊設定 → 進階設定**按**請首席 agent 撰寫規則**：說明寫它讀了專案，列出*保護 .env*和*新增指令 npm test*，欄位也顯示它們；團隊設定自己的**請首席 agent 調整**仍是另一個輸入框。之後把成員改名為「Claudia」，**復原**會清空規則並保留新名字，再問一次時規則套用在團隊目前的樣子上；**儲存**後對話有這兩條規則和 Claudia。 |
+| 開源 agent 當首席時，在它的沙箱能讀的空資料夾裡起草，不在 Harness Relay 的暫存資料夾 | Pi | 以 Pi 當首席 agent，在**新自動任務**按**請首席 agent 填寫**會得到回覆（假 CLI 的排程填好訊息）：它的執行在 Harness Relay 自己的沙箱裡啟動，那個沙箱不能讀暫存資料夾。只在那個沙箱能運作的地方執行。 |
+| 用一句話填好新的自動任務 | Claude Code | 在**新自動任務**按**請首席 agent 填寫**，會填好訊息、**每天**和 18:00；**建立自動任務**可以按。 |
+| 成員提議的排程是一張卡片，可以直接建立、先在表單中修改，或略過 | Claude Code | 回覆裡看不到 `<schedule>` 區塊，只有一張**提議的自動任務**卡片：**建立自動任務**會儲存它（每天 08:00、開啟），卡片顯示*已建立自動任務*，按鈕消失。第二張說它會取代對話目前的自動任務；**在表單中修改**會打開**自動任務**抽屜並帶入訊息，在那裡修改並儲存後，卡片顯示已建立。第三張是等郵件的（`e2e:propose=mail`）：**建立自動任務**不能按，說觸發條件還沒有帳號；**略過**後自動任務維持原樣。 |
+| 首席 agent 建議側邊欄的群組，並套用使用者勾選的 | Claude Code | 有兩個對話時，**請首席 agent 整理群組** → **取得建議**：新群組「E2E projects」和兩項搬移都已勾選；取消勾選群組會擋下搬進它的搬移，**套用**也跟著不能按；再勾回來，**套用 3 項**會關閉對話框，側邊欄顯示這個群組裝著兩個對話。 |
+| 首席 agent 依第一則訊息替新對話命名，直到在設定裡關掉 | Claude Code | 開啟命名時，新對話（`e2e:title=Flaky_test_hunt`）在側邊欄顯示為「Flaky test hunt」。在**設定 → 首席 agent**，**自動為新對話命名**是勾選的；取消勾選（立即儲存，說明會這麼說）後，下一個對話保留第一行「Second question」。 |
+
 ## 自動任務
 
 [`schedule.spec.ts`](specs/schedule.spec.ts)：自動任務（程式碼中稱為 schedule）。
@@ -769,7 +784,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合）、**需要你的時候**與**檔案權限與修改**（替我核准），以及新的**長期記憶**步驟（指向**設定 → 實驗室 → 長期記憶**），最後是現在提到實驗室（包括長期記憶）與 subagent、workflow 開關的「設定」那一步。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合）、**需要你的時候**與**檔案權限與修改**（替我核准）、**團隊檢查**與**群組、釘選與搜尋**（首席 agent 撰寫規則、建議群組、替新對話命名），以及新的**長期記憶**步驟（指向**設定 → 實驗室 → 長期記憶**），最後是現在提到實驗室（包括長期記憶）與 subagent、workflow 開關的「設定」那一步。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -922,6 +937,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 平台與瀏覽器
 
+- 在[首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助)裡，以開源 agent 當首席的測試只在 Harness Relay 自己的沙箱能運作的地方執行（macOS，以及裝了 bubblewrap、socat 與 ripgrep 的 Linux）。
 - [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每次推送到 `main` 時，以及每個碰到它們依賴的檔案的 pull request 上（`scripts/ci-scope.ts`：只改文件、單元測試、桌面 app 或網站首頁的 pull request 不會跑；手動執行一定會跑），以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec：每一種都分成兩個 job，各跑一半的測試（Playwright 的 `--shard=1/2` 與 `2/2`），讓每個 job 都不超過七分鐘多少。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
 - 開源 agent 只在 macOS 與 Linux 上（Linux 需要 bubblewrap、socat 與 ripgrep）以完全存取以外的權限執行：在 Harness Relay 自己的沙箱不支援的 Windows 上，它們只能以完全存取執行，Linux 上的 OpenCode 也是。在那裡，與權限有關的測試會跳過它們並說明原因，其他測試以完全存取執行它們，而 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)會檢查權限低於完全存取的對話不會啟動它們。在沒有這個沙箱的 Mac 或 Linux 電腦上，需要它的測試會跳過並說明原因（`E2E_RELAY_SANDBOX`，由 `global-setup.ts` 判斷一次）。
@@ -986,6 +1002,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **端點模型的上下文長度在執行中的作用。** [設定](#設定) 測儲存時會讀取它、並以使用者填的優先；各轉接器據此寫入的內容（OpenCode 的 `limit` 與清理、Goose 的 `context_limit` 與環境變數、Pi 的 `contextWindow` 與壓縮、OpenHands 的 condenser、Codex 與 Claude Code 的設定）由轉接器自己的測試檢查，因為假 CLI 不會壓縮。測試伺服器預設的端點 `e2e` 是沒經過模型檢查就設定的，所以它的執行拿不到上下文長度。
 - **成員自己的上限在執行中的作用、首席 agent 依形狀回答，以及以 interrupt 停止 Claude Code。** 團隊編輯器的上限欄位由範本與團隊的測試檢查，但沒有假 CLI 會依上限或 JSON 形狀行動：各轉接器傳出的內容（`--max-budget-usd`、`--max-ai-credits`、`GOOSE_MAX_TURNS`、`steps`、`--json-schema`、`outputSchema`）與 Claude Code 在結束程序前的 interrupt 由單元測試涵蓋（`test/orchestrator-budgets.test.ts`、各轉接器的測試）。透過 Grok、Antigravity、Goose 與 Pi 的引導也由單元測試涵蓋（`test/steer.test.ts`）；只有 Claude Code 與 Codex 的假 CLI 會在回合中接收訊息。
 - **「檔案」面板大部分的拒絕情況。** spec 測試了儲存時檔案已有較新版本、有任務在資料夾寫入時儲存，以及新檔案用了不合法的名稱；其他的在離線測試中涵蓋（`test/fileEdit.test.ts` 用真的資料夾，`test/files-edit-api.test.ts` 透過 HTTP）：路徑上的連結、`.git`、伺服器保留不給的檔案或 Harness Relay 的資料資料夾、成員的 worktree 與不允許可編輯模式的資料夾（列表的 `writable`）、唯讀檔案、某個系統不能用的名稱、超過上限的檔案，以及不是來自介面的請求。兩者都沒有測試其他程式在儲存最後一次檢查與改名之間的瞬間改動資料夾，也沒有測試 Windows 上被其他程式開著的檔案。
+- **首席 agent 的草稿在固定回覆之外的部分**：假的首席 agent 對範本、團隊檢查、排程和群組建議都回固定的草稿，所以每個 prompt 告訴它什麼（要讀的專案、使用者時區的時間、帳號、分支家族），以及它可能寫錯的草稿（用不了的規則、沒設定的帳號、已過的時間、和現有群組同名），都在 `test/checksDraft.test.ts`、`test/scheduleDraft.test.ts`、`test/grouping.test.ts`、`test/planner.test.ts` 與 `test/orchestrator-drafts.test.ts` 裡；在分類群組的同一次執行裡替對話命名，以及使用者期間打的標題，也在那裡。
 - **還沒有 spec 走過的功能**：agent 從「設定 → 實驗室」呼叫 `run_code`，以及它 RLM 模式的子模型（沒有假 CLI 會呼叫它：`test/runCode.test.ts` 跑它真的 runner，並透過真的 gateway 發出呼叫，`test/llmQuery.test.ts` 測子模型的請求，`test/cliSubModel.test.ts` 測透過 CLI 的問題，`scripts/cli-check.ts` 的 `toolless` 情境測真的 CLI 沒有工具的執行，`scripts/sandbox-check.ts --only run-code` 在真的沙箱裡跑 runner）；同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；實體麥克風與下載的引擎一起執行語音轉寫（自動任務的瀏覽器測試使用合成音訊與固定的轉寫結果）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Claude Code 以外每個 CLI 的 subagent，以及 Codex、Grok、Copilot 與 Pi 對自己這次執行的附註（只有 Claude Code 的假 CLI 會送出：各轉接器的測試播放它的 CLI 的訊息，`test/codex.test.ts`、`test/grok.test.ts`（用替身等一個背景 subagent，以及它喚醒 Grok 的那一輪）、`test/cursor.test.ts`、`test/copilot.test.ts`、`test/pi.test.ts`）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
