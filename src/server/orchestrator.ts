@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   CheckCommand,
@@ -41,6 +41,7 @@ import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
+  TEAM_WORKTREE,
   currentPlan,
   cwdsOf,
   isEndpointCli,
@@ -162,6 +163,7 @@ import {
   repoRoot,
   removeWorktree,
   snapshot,
+  worktreeChanged,
   worktreeCwd,
   worktreeHead,
 } from './workspace';
@@ -224,8 +226,18 @@ interface RunWorkspace {
    * agents may write (edit / full). Two may be in the same repository.
    */
   folders?: { cwd: string; root: string }[];
-  /** Parallel mode with write access: every agent works in its own git worktrees. */
+  /**
+   * The agents work in git worktrees: in parallel mode with write access each in its own, or with
+   * `team` all of them in the conversation's.
+   */
   isolated: boolean;
+  /**
+   * The members share the conversation's own worktrees (`TEAM_WORKTREE`), one for each repository,
+   * taking turns as in the shared working directories: another conversation was writing in one of
+   * them when the run started, or the team's work there is not applied yet. Made (or made again from
+   * new snapshots) before the first turn (`prepareTeamWorktrees`).
+   */
+  team?: boolean;
 }
 
 /** How deep a folder is, links resolved (as written when it cannot be): for making outer repositories first. */
@@ -269,6 +281,11 @@ interface Run {
   ws: RunWorkspace;
   /** Repository roots (or folders) this run holds the directory lock on. */
   lockRoots?: string[];
+  /**
+   * The team writes in the working directories again (none is another conversation's now, and its own
+   * worktrees hold nothing that is not applied): they are removed before the first turn.
+   */
+  dropTeamWorktrees?: boolean;
   /**
    * A schedule started it and nobody may be watching: actions the permission does not cover are
    * refused automatically instead of asked (the schedule's `approvals`), unless the conversation
@@ -354,7 +371,7 @@ interface StartOptions {
 
 /**
  * How a scheduled message went. `busy`: not now — a settings change or an apply holds the
- * conversation, another conversation is writing in the same folder, or the server is stopping — so
+ * conversation, or the server is stopping — so
  * try again shortly (`reason` says why). `chatId`: the conversation it opened (`newChat`).
  */
 export type ScheduledSend =
@@ -367,7 +384,7 @@ export type ScheduledSend =
 /** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
 type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 
-/** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
+/** A run that could not start: the conversation is busy for a moment (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
   return { result: 'failed', reason: (err as Error).message, ...(err instanceof HttpError && err.code ? { code: err.code } : {}) };
@@ -987,8 +1004,8 @@ export class Orchestrator {
     // the tray's "Skip the review and send now" sends it.
     const stopsReview = this.reviewing.has(convId) && (content || (interrupt && Boolean(found.queue?.length)));
     // Held from before the review is stopped until the run that follows takes the folder itself (or
-    // needs none): another conversation that took it meanwhile refuses this send (the message box keeps
-    // it) and the review goes on; none can take it while the review is being stopped.
+    // needs none), so that none can take it while the review is being stopped. Taken by another
+    // conversation meanwhile, the run that follows works in the team's own worktrees.
     const held = stopsReview ? this.holdFolders(found) : undefined;
     try {
       if ((interrupt || stopsReview) && (content || found.queue?.length)) await this.interrupt(convId);
@@ -1016,13 +1033,14 @@ export class Orchestrator {
 
   /**
    * Take a reviewing conversation's directory locks again, on the folders its run wrote in (none in
-   * parallel mode or read-only): refused (409, "… is changing …") when another conversation took one
-   * of them while the lead agent reviewed.
+   * parallel mode, read-only or in the team's own worktrees). None when another conversation took one
+   * of them while the lead agent reviewed: the run that follows then works in the team's own worktrees.
    */
   private holdFolders(conv: Conversation): string[] | undefined {
     const ws = this.runs.get(conv.id)?.ws;
     if (!ws?.folders || ws.isolated) return undefined;
     const roots = rootsOf(ws);
+    if (this.lockHolder(roots, conv)) return undefined;
     this.lockDirs(roots, conv);
     return roots;
   }
@@ -1051,7 +1069,8 @@ export class Orchestrator {
     if (!conv || !s) return undefined;
     if (this.closing) return t().shuttingDown;
     if (conv.agents.length === 0 || pendingPlan(conv.messages)) return t().scheduleNoTeam;
-    if (s.newChat) return this.folderLockedBy({ ...conv, id: '' });
+    // Another conversation writing in its folders holds nothing up: the team works in a worktree of its own.
+    if (s.newChat) return undefined;
     const replying = this.runs.has(convId) || this.starting.has(convId);
     if (conv.pause && !replying) return t().scheduleWaitsForAnswer;
     if (replying && conv.queue?.some((m) => m.scheduled)) return t().scheduleStillQueued;
@@ -1059,7 +1078,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return t().scheduleQueueFull;
     if (replying) return undefined;
     if (this.isBusy(convId)) return t().scheduleConvBusy;
-    return this.folderLockedBy(conv);
+    return undefined;
   }
 
   /**
@@ -1126,10 +1145,7 @@ export class Orchestrator {
       }
       // A settings change or an apply holds the conversation for a moment.
       if (this.isBusy(convId)) return { result: 'busy', reason: t().scheduleConvBusy };
-      // Another conversation is writing in its folder: known before the run is set up, so a message the
-      // user sends meanwhile is not left in the queue of a run that then cannot start.
-      const locked = this.folderLockedBy(conv);
-      if (locked) return { result: 'busy', reason: locked };
+      // Another conversation writing in its folder holds nothing up: the team then works in its own worktree.
       // An earlier scheduled message left waiting goes out now instead; a webhook's body still goes, in a message of its own.
       const own = !waiting || opts.event !== undefined;
       await this.startScheduledMessage(conv, conv.id, own ? s.text : '', {
@@ -1164,9 +1180,9 @@ export class Orchestrator {
    * Send the schedule's message in a new conversation: a copy of this one's team, settings (lead review
    * included, as the schedule has it), "always allow" answers and sidebar group (the lead agent does
    * not sort it), named after it and the time it came due, which says where it comes from. Whatever this conversation is doing — replying, waiting
-   * for the user's answer, holding messages in its queue — does not matter; only another conversation
-   * writing in the same folder (this one included) makes it wait. A conversation whose run could not
-   * start is removed again: nothing was sent in it.
+   * for the user's answer, holding messages in its queue — does not matter; while another conversation
+   * (this one included) writes in the same folder, the new one's team works in a worktree of its own.
+   * A conversation whose run could not start is removed again: nothing was sent in it.
    */
   private async sendInNewChat(
     conv: Conversation,
@@ -1176,8 +1192,6 @@ export class Orchestrator {
     tracking?: TrackedRun,
   ): Promise<ScheduledSend> {
     const id = randomUUID();
-    const locked = this.folderLockedBy({ ...conv, id });
-    if (locked) return { result: 'busy', reason: locked };
     const now = Date.now();
     // Named after the schedule's conversation, or after its message while that one has no name of
     // its own yet (a branch still called "Branch · …").
@@ -1763,14 +1777,36 @@ export class Orchestrator {
     let tracking: TrackedRun | undefined;
     try {
       const ws = await this.prepareWorkspace(conv);
+      // The repositories the team would write in, taking turns there (not in parallel mode's worktrees).
+      const writes = ws.folders && !ws.isolated && !planning ? rootsOf(ws) : undefined;
+      // Its own worktrees still hold work that is not applied: it goes on there, whoever writes in the folders.
+      const pending = writes ? await this.teamWorkPending(conv, writes) : false;
       // Deleted meanwhile (the delete may even have finished already), or the server is stopping.
       if (this.deleting.has(convId) || this.store.get(convId) !== conv) {
         throw new HttpError(404, t().conversationNotFound);
       }
       if (this.closing) throw new HttpError(503, t().shuttingDown);
-      lockRoots = ws.folders && !ws.isolated && !planning ? rootsOf(ws) : undefined;
-      if (lockRoots) this.lockDirs(lockRoots, conv);
+      /** Why the team moves into its own worktrees now: another conversation is writing in its folders. */
+      let teamNote: string | undefined;
+      let dropTeamWorktrees = false;
+      // Checked and taken at once, with nothing awaited between: no other run can take them meanwhile.
+      const decide = (roots: string[], own: boolean) => {
+        const taken = own ? undefined : this.lockHolder(roots, conv);
+        ws.isolated = own || Boolean(taken);
+        ws.team = ws.isolated;
+        if (taken) teamNote = t().teamWorktreeNote(taken.title, taken.root);
+        if (ws.isolated) return;
+        lockRoots = roots;
+        this.lockDirs(lockRoots, conv);
+        dropTeamWorktrees = Boolean(conv.worktrees[TEAM_WORKTREE]?.length);
+      };
+      if (writes) decide(writes, pending);
       beforePost?.();
+      // A rewind (a resend or a retry) dropped what the team's worktrees held, marking them for a reset:
+      // it writes in the folders again, unless another conversation does.
+      if (writes && pending && !conv.worktrees[TEAM_WORKTREE]?.some((w) => !w.needsReset && writes.includes(w.root))) {
+        decide(writes, false);
+      }
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(
         conv,
@@ -1785,6 +1821,7 @@ export class Orchestrator {
       );
       if (own) posted.push(own);
       else if (opts.request) this.store.recordTask(opts.request, convId, false);
+      if (teamNote) this.systemNote(conv, teamNote);
       const pausedTracked = conv.pause?.tracked;
       const resumed = this.takePause(conv, posted, only, planning);
       resume = resumed?.schedule;
@@ -1796,6 +1833,7 @@ export class Orchestrator {
         turns: new Set(),
         ws,
         lockRoots,
+        ...(dropTeamWorktrees ? { dropTeamWorktrees } : {}),
         // Only while nothing the user wrote starts it: when they write, they are here.
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
@@ -1984,20 +2022,29 @@ export class Orchestrator {
    * Lock directories for this conversation's writes, all of them or none. Another conversation's lock
    * on one of them, or on one inside or around it (nested repositories), conflicts.
    */
-  private lockDirs(roots: string[], conv: Conversation): void {
-    const within = (a: string, b: string) => a.startsWith(b.endsWith(sep) ? b : b + sep);
-    for (const root of roots) {
-      for (const [held, holder] of this.dirLocks) {
-        if (holder !== conv.id && (held === root || within(held, root) || within(root, held))) {
-          const title = this.store.get(holder)?.title ?? holder;
-          throw new HttpError(409, t().dirLocked(title, held));
-        }
-      }
-    }
+  private lockDirs(roots: string[], conv: Conversation, why: (title: string, root: string) => string = t().dirLocked): void {
+    const taken = this.lockHolder(roots, conv);
+    if (taken) throw new HttpError(409, why(taken.title, taken.root));
     for (const root of roots) {
       this.dirLocks.set(root, conv.id);
       this.writeCounts.set(root, (this.writeCounts.get(root) ?? 0) + 1);
     }
+  }
+
+  /**
+   * Another conversation's lock on one of these directories, or on one inside or around it (nested
+   * repositories): its title and the folder it holds, or undefined when there is none. Nothing is changed.
+   */
+  private lockHolder(roots: string[], conv: Conversation): { title: string; root: string } | undefined {
+    const within = (a: string, b: string) => a.startsWith(b.endsWith(sep) ? b : b + sep);
+    for (const root of roots) {
+      for (const [held, holder] of this.dirLocks) {
+        if (holder !== conv.id && (held === root || within(held, root) || within(root, held))) {
+          return { title: this.store.get(holder)?.title ?? holder, root: held };
+        }
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -2024,36 +2071,29 @@ export class Orchestrator {
   }
 
   /**
-   * Why a run of this conversation could not take its directory locks now, as far as can be told
-   * without git: another conversation holds a lock on a folder around or inside one of its working
-   * directories. (The locks taken when the run starts are the ones that count.)
-   */
-  private folderLockedBy(conv: Conversation): string | undefined {
-    if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return undefined;
-    return this.lockedFolder(conv);
-  }
-
-  /**
    * Whether a run may be writing in the conversation's working directories now: one of its own
-   * (replying, being set up, or a change being made to it, such as a reply applied), or another
-   * conversation's that holds a lock on a folder around or inside one of them, whatever this one's mode.
+   * (replying there, being set up, or a change being made to it, such as a reply applied; not a team
+   * working in its own worktrees), or another conversation's that holds a lock on a folder around or
+   * inside one of them, whatever this one's mode.
    * Nothing is started or changed: an automation that waits for files there asks, so that what the team
    * writes never starts it again (`Scheduler.check()`).
    */
   folderInUse(convId: string): boolean {
     const conv = this.store.get(convId);
     if (!conv) return false;
-    // Its own run writes in the folder in edit mode outside parallel (whose members work in worktrees), or
-    // once it holds the folder's lock (an action allowed in a read-only run); a change being applied does.
+    // Its own run writes in the folder in edit mode outside parallel (whose members work in worktrees),
+    // unless the team works in its own worktrees, or once it holds the folder's lock (an action allowed in
+    // a read-only run); a change being applied does. A run being set up may yet write there.
     const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
     const run = this.runs.get(convId);
-    if (run?.lockRoots || (writes && (run || this.starting.has(convId))) || this.reserved.has(convId)) return true;
+    if (run?.lockRoots || this.reserved.has(convId)) return true;
+    if (writes && (run ? !run.ws.isolated : this.starting.has(convId))) return true;
     // Only the working directory a file source watches: another chat writing in one of the others is not in it.
     return this.lockedFolder(conv, [conv.settings.cwd]) !== undefined;
   }
 
-  /** Why another conversation's lock covers one of this one's working directories (around it or inside it), or undefined. */
-  private lockedFolder(conv: Conversation, folders: string[] = cwdsOf(conv.settings)): string | undefined {
+  /** Why another conversation's lock covers one of these working directories of this one (around it or inside it), or undefined. */
+  private lockedFolder(conv: Conversation, folders: string[]): string | undefined {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
     for (const dir of folders) {
       let cwd: string;
@@ -2109,45 +2149,105 @@ export class Orchestrator {
   private async prepareWorktrees(conv: Conversation, agents: AgentConfig[], roots: string[]): Promise<void> {
     const bases = new Map<string, string>();
     for (const a of agents) {
-      const had = conv.worktrees[a.id] ?? [];
-      for (const gone of had.filter((w) => !roots.includes(w.root))) {
-        await removeWorktree(gone.root, gone.path, gone.branch).catch(() => {});
-        this.store.deleteWorktree(conv.id, a.id, gone.root);
-      }
-      const next: AgentWorktree[] = [];
-      for (const root of roots) {
-        const cur = had.find((w) => w.root === root);
-        if (cur && !cur.needsReset && existsSync(cur.path)) {
-          next.push(cur);
-          continue;
-        }
-        let base = bases.get(root);
-        if (!base) {
-          base = (await snapshot(root, this.snapshotExcludes())).commit;
-          bases.set(root, base);
-        }
-        const wt: AgentWorktree = {
-          root,
-          // A folder of its own for each repository (an earlier one, of the agent's id alone, is kept).
-          path: cur
-            ? cur.path
-            : join(DATA_DIR, 'worktrees', conv.id, `${a.id}-${createHash('sha256').update(root).digest('hex').slice(0, 8)}`),
-          branch: cur ? cur.branch : `relay/${conv.id.slice(0, 8)}/${a.name}`,
-          base,
-          needsReset: false,
-        };
-        await createWorktree(root, wt.path, wt.branch, base);
-        next.push(wt);
-        this.store.saveWorktree(conv.id, a.id, wt);
-      }
-      conv.worktrees[a.id] = next;
+      // A folder of its own for each repository (an earlier one, of the agent's id alone, is kept).
+      await this.ownWorktrees(conv, a.id, roots, bases, (hash) => ({
+        path: join(DATA_DIR, 'worktrees', conv.id, `${a.id}-${hash}`),
+        branch: `relay/${conv.id.slice(0, 8)}/${a.name}`,
+      }));
     }
     this.emitConversation(conv);
   }
 
   /**
-   * Apply everything an agent did in its worktrees to the real working directories (uncommitted):
-   * every patch is checked before any is applied, so a conflict in one changes nothing anywhere. With
+   * The team's own worktrees (`TEAM_WORKTREE`), one of each repository (`roots`), which every member
+   * works in: kept while they hold work not applied, else made from new snapshots of the working
+   * directories. Each is named as its repository is (inside a folder of its own), so the team's folder
+   * goes by the name the user's has.
+   */
+  private async prepareTeamWorktrees(conv: Conversation, roots: string[]): Promise<void> {
+    await this.ownWorktrees(conv, TEAM_WORKTREE, roots, new Map(), (hash, root) => ({
+      path: join(DATA_DIR, 'worktrees', conv.id, `${TEAM_WORKTREE}-${hash}`, basename(root) || 'root'),
+      branch: `relay/${conv.id.slice(0, 8)}/${TEAM_WORKTREE}`,
+    }));
+    this.emitConversation(conv);
+  }
+
+  /**
+   * The worktrees `conv.worktrees[id]` should have: one of each repository (`roots`), those of the
+   * others removed. One that is there and not marked for a reset is kept; else it is made (again, at
+   * the same place and on the same branch) from a snapshot of its repository, the same one for every
+   * owner (`bases`), at the place and on the branch `where` names (from the root's short hash).
+   */
+  private async ownWorktrees(
+    conv: Conversation,
+    id: string,
+    roots: string[],
+    bases: Map<string, string>,
+    where: (hash: string, root: string) => { path: string; branch: string },
+  ): Promise<void> {
+    const had = conv.worktrees[id] ?? [];
+    for (const gone of had.filter((w) => !roots.includes(w.root))) {
+      await removeWorktree(gone.root, gone.path, gone.branch).catch(() => {});
+      this.store.deleteWorktree(conv.id, id, gone.root);
+    }
+    const next: AgentWorktree[] = [];
+    for (const root of roots) {
+      const cur = had.find((w) => w.root === root);
+      if (cur && !cur.needsReset && existsSync(cur.path)) {
+        next.push(cur);
+        continue;
+      }
+      let base = bases.get(root);
+      if (!base) {
+        base = (await snapshot(root, this.snapshotExcludes())).commit;
+        bases.set(root, base);
+      }
+      const place = cur ?? where(createHash('sha256').update(root).digest('hex').slice(0, 8), root);
+      const wt: AgentWorktree = { root, path: place.path, branch: place.branch, base, needsReset: false };
+      await createWorktree(root, wt.path, wt.branch, base);
+      next.push(wt);
+      this.store.saveWorktree(conv.id, id, wt);
+    }
+    conv.worktrees[id] = next;
+  }
+
+  /**
+   * Whether the team's own worktrees of these repositories hold work that is not applied yet: made
+   * since their snapshots, and not marked for a reset (applied, or the chat rewound past it). One that
+   * cannot be read counts as holding some, so that nothing in it is removed.
+   */
+  private async teamWorkPending(conv: Conversation, roots: string[]): Promise<boolean> {
+    for (const w of conv.worktrees[TEAM_WORKTREE] ?? []) {
+      if (w.needsReset || !roots.includes(w.root) || !existsSync(w.path)) continue;
+      try {
+        if (await worktreeChanged(w.path, w.base)) return true;
+      } catch (err) {
+        console.warn(`[orchestrator] could not read the team's worktree ${w.path}:`, (err as Error).message);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Remove the team's own worktrees, with their branches and folders: the team writes in the working directories again. */
+  private async dropTeamWorktrees(conv: Conversation): Promise<void> {
+    const list = conv.worktrees[TEAM_WORKTREE];
+    if (!list) return;
+    for (const w of list) {
+      await removeWorktree(w.root, w.path, w.branch).catch(() => {});
+      // The folder it was named in, its own (`prepareTeamWorktrees`).
+      if (basename(dirname(w.path)).startsWith(`${TEAM_WORKTREE}-`)) rmSync(dirname(w.path), { recursive: true, force: true });
+      this.store.deleteWorktree(conv.id, TEAM_WORKTREE, w.root);
+    }
+    delete conv.worktrees[TEAM_WORKTREE];
+    this.emitConversation(conv);
+  }
+
+  /**
+   * Apply everything an agent did in its worktrees to the real working directories (uncommitted), or
+   * the team in its own (`agentId` is `TEAM_WORKTREE`, whose next run then writes in the working
+   * directories again, unless another conversation does): refused while another conversation writes in
+   * one of them (409). Every patch is checked before any is applied, so a conflict in one changes nothing anywhere. With
    * team checks, the result is checked first, on the working directories as they are with it in them
    * (`checkBeforeApply()`): what does not pass is not applied (`held`, the card's id), until the user
    * applies it anyway (`force`: only the result that card checked; another one is checked again) or,
@@ -2161,7 +2261,8 @@ export class Orchestrator {
   ): Promise<{ files: FileChange[]; held?: string }> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
-    if (!conv.worktrees[agentId]?.length) throw new HttpError(404, t().noWorktree);
+    const team = agentId === TEAM_WORKTREE;
+    if (!conv.worktrees[agentId]?.length) throw new HttpError(404, team ? t().noTeamWorktree : t().noWorktree);
     if (conv.worktrees[agentId]!.some((w) => w.needsReset)) throw new HttpError(409, t().resultStale);
     const abort = new AbortController();
     let checkedFirst = false;
@@ -2171,7 +2272,7 @@ export class Orchestrator {
       const wts = await this.currentWorktrees(conv, agentId);
       if (!wts.length) throw new HttpError(400, t().nothingToApply);
       const roots = wts.map((w) => w.root);
-      this.lockDirs(roots, conv);
+      this.lockDirs(roots, conv, t().applyLocked);
       try {
         const checked: CheckedPatch[] = [];
         const span = new Map<string, { base: string; head: string; files: Set<string> }>();
@@ -2185,7 +2286,7 @@ export class Orchestrator {
           span.set(wt.root, { base: wt.base, head, files: new Set(patch.files.map((f) => f.path)) });
         }
         if (!checked.length) throw new HttpError(400, t().nothingToApply);
-        const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+        const name = team ? t().teamName : (conv.agents.find((a) => a.id === agentId)?.name ?? agentId);
         const of = { agentId, name, heads: heads.join(' ') };
         let card: ChatMessage | undefined;
         // Applied anyway, or its commands confirmed: only for the result the latest card held back (this
@@ -2203,7 +2304,7 @@ export class Orchestrator {
           const folders = await this.foldersNow(conv);
           if (conv.settings.checks.commands?.length && this.checkCommandDeps.platform !== 'win32') {
             const extra = [...new Set(folders.map((f) => f.root))].filter((root) => !roots.includes(root));
-            this.lockDirs(extra, conv);
+            this.lockDirs(extra, conv, t().applyLocked);
             roots.push(...extra);
           }
           checkedFirst = true;
@@ -2249,7 +2350,7 @@ export class Orchestrator {
           this.hub.emit(conv.id, { type: 'message', message: card });
           this.store.saveMessage(conv.id, card, true);
         }
-        this.systemNote(conv, t().appliedNote(name, files.length));
+        this.systemNote(conv, team ? t().appliedTeamNote(files.length) : t().appliedNote(name, files.length));
         this.emitConversation(conv);
         return { files };
       } finally {
@@ -2411,7 +2512,7 @@ export class Orchestrator {
   async agentDiff(convId: string, agentId: string): Promise<string> {
     const conv = this.store.get(convId);
     const wts = conv ? await this.currentWorktrees(conv, agentId) : [];
-    if (!wts.length) throw new HttpError(404, t().noWorktree);
+    if (!wts.length) throw new HttpError(404, agentId === TEAM_WORKTREE ? t().noTeamWorktree : t().noWorktree);
     return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
   }
 
@@ -2708,8 +2809,10 @@ export class Orchestrator {
     const replyIds = material.replies.map((m) => m.id);
     // In parallel mode with write access, what each member changed is in its own worktrees until it is
     // applied: the lead is told where, and may read them, as it may the other working directories.
-    const worktrees = run.ws.isolated ? this.reviewWorktrees(conv, run, material.replies) : [];
-    const addDirs = [...(conv.settings.extraCwds ?? []), ...worktrees.flatMap((w) => w.dirs)];
+    // In the team's own worktrees likewise: what it changed is there.
+    const worktrees = run.ws.isolated && !run.ws.team ? this.reviewWorktrees(conv, run, material.replies) : [];
+    const team = run.ws.team ? this.teamDirs(conv, run.ws.folders ?? []).map((f) => f.cwd) : [];
+    const addDirs = [...(conv.settings.extraCwds ?? []), ...worktrees.flatMap((w) => w.dirs), ...team];
     const msg: ChatMessage = {
       id: randomUUID(),
       author: { kind: 'system' },
@@ -2739,7 +2842,7 @@ export class Orchestrator {
         nativeOff: this.settings.nativeOff(lead.provider, lead.account),
         nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
-        prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees),
+        prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees, team),
         systemPrompt: REVIEWER_BRIEFING,
         cwd: conv.settings.cwd,
         ...(addDirs.length ? { addDirs } : {}),
@@ -2802,6 +2905,22 @@ export class Orchestrator {
     return out;
   }
 
+  /**
+   * Each working directory (`folders`) as the team has it in its own worktrees, with the worktree's
+   * path as its repository root: none when one of them has no worktree there (they are made before the
+   * first turn of a run that works in them, `prepareTeamWorktrees`), or it is marked for a reset.
+   */
+  private teamDirs(conv: Conversation, folders: { cwd: string; root: string }[]): { cwd: string; root: string }[] {
+    const own = conv.worktrees[TEAM_WORKTREE] ?? [];
+    const out: { cwd: string; root: string }[] = [];
+    for (const f of folders) {
+      const wt = own.find((w) => w.root === f.root && !w.needsReset);
+      if (!wt || !existsSync(wt.path)) return [];
+      out.push({ cwd: worktreeCwd(f.root, f.cwd, wt.path), root: wt.path });
+    }
+    return out;
+  }
+
   // Team checks ---------------------------------------------------------------
 
   /** Where team checks look: the working directories with their repositories, never in the CLIs' homes. */
@@ -2823,6 +2942,8 @@ export class Orchestrator {
     const out: WorktreeChange[] = [];
     const status = { A: 'added', M: 'changed', D: 'removed' } as const;
     for (const agentId of Object.keys(conv.worktrees)) {
+      // The team's own are checked where they are (`teamDirs`), when it works there.
+      if (agentId === TEAM_WORKTREE) continue;
       const by = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
       for (const wt of await this.currentWorktrees(conv, agentId)) {
         if (wt.needsReset) continue;
@@ -2953,7 +3074,8 @@ export class Orchestrator {
   /**
    * A member's turn's hooks (`turnHooks()`), in a run that may write, on a system that runs commands:
    * where its CLI can run them (`HOOK_PROVIDERS`); on another CLI none, with a note in the reply. They run
-   * in the turn's own working directories (its worktrees in parallel mode), as the commands do.
+   * in the turn's own working directories (its worktrees in parallel mode, the team's when it has them),
+   * as the commands do.
    */
   private turnHooksOf(
     conv: Conversation,
@@ -2971,7 +3093,7 @@ export class Orchestrator {
     }
     const place = { ...this.commandPlace(conv, signal), cwds };
     const gateway = this.gateway;
-    const hooks = workspace.kind === 'isolated' ? list.map((hook) => mapCheckFolder(hook, workspace.folders)) : list;
+    const hooks = workspace.kind !== 'shared' ? list.map((hook) => mapCheckFolder(hook, workspace.folders)) : list;
     return turnHooks(hooks, {
       place,
       agent: agent.name,
@@ -3128,8 +3250,12 @@ export class Orchestrator {
     if (!hasChecks(list) || !run.ws.folders?.length) return;
     const previous = run.pausedChecks ?? checksHold(conv.messages);
     const carried = previous ? this.store.checksBaseline<StoredBaseline>(conv.id, previous.id) : undefined;
+    // In the team's own worktrees when it works there: what it changes is there, and what another
+    // conversation writes in the working directories meanwhile is not the team's.
+    const folders = run.ws.team ? this.teamDirs(conv, run.ws.folders) : run.ws.folders;
     try {
-      run.checks = await RunCheck.start(list, this.checkFolders(run.ws.folders, run.ws.isolated), this.clock(), carried);
+      if (!folders.length) throw new Error(t().noTeamWorktree);
+      run.checks = await RunCheck.start(list, this.checkFolders(folders, run.ws.isolated), this.clock(), carried);
     } catch (err) {
       run.checksError = (err as Error).message;
     }
@@ -3151,7 +3277,8 @@ export class Orchestrator {
     let touched = true;
     try {
       if (!run.checks) throw new Error(run.checksError);
-      const worktrees = run.ws.isolated ? await this.worktreeChanges(conv, run.ws.folders ?? []) : [];
+      // The team's own worktrees are where its checks look already.
+      const worktrees = run.ws.isolated && !run.ws.team ? await this.worktreeChanges(conv, run.ws.folders ?? []) : [];
       ({ outcomes, touched } = await run.checks.finish(worktrees));
     } catch (err) {
       // The commands are posted below when they can run; when the checks could not start, as these.
@@ -3162,9 +3289,16 @@ export class Orchestrator {
     // or skips it: a later run that did not touch the settings again does not run them unconfirmed.
     const carried = this.heldGate(conv);
     // Commands once the team has finished, in the working directories: not when it stopped to ask the
-    // user something, nor in parallel mode, whose results are in the members' worktrees.
+    // user something, nor in parallel mode, whose results are in the members' worktrees, nor in the
+    // team's own: they run when the result is applied.
     const commands = run.checks ? (conv.settings.checks?.commands ?? []) : [];
-    const skipped = conv.pause ? t().checksCommandsAtEnd : run.ws.isolated ? t().checksCommandsParallel : undefined;
+    const skipped = conv.pause
+      ? t().checksCommandsAtEnd
+      : run.ws.team
+        ? t().checksCommandsTeam
+        : run.ws.isolated
+          ? t().checksCommandsParallel
+          : undefined;
     let why: string | undefined;
     let changed: string[] = [];
     if (commands.length && !run.ws.isolated) {
@@ -3275,7 +3409,8 @@ export class Orchestrator {
    * Check the latest result again (its card's "Check again"), from where its run started, with the list
    * and the folders as they are now: a new result after it. Its commands run after it is posted, in
    * the background (Stop stops them; what is sent meanwhile waits, as during a run), holding the
-   * folders; as after a run, none in a read-only conversation or in parallel mode. A command the run's
+   * folders; as after a run, none in a read-only conversation, in parallel mode or while the team works
+   * in its own worktrees (where the rest is checked). A command the run's
    * changes kept from running (`configChanged`) runs only once the user has confirmed (`confirm`). What
    * waits in the queue goes once it is done, if it passes.
    */
@@ -3286,12 +3421,19 @@ export class Orchestrator {
     const old = this.latestChecksMessage(conv, messageId);
     const list = conv.settings.checks;
     const commands = list?.commands ?? [];
+    // The team works in its own worktrees (its result is not applied yet): checked there, its commands when it is.
+    const team =
+      conv.settings.permission !== 'read-only' &&
+      conv.settings.mode !== 'parallel' &&
+      Boolean(conv.worktrees[TEAM_WORKTREE]?.some((w) => !w.needsReset));
     const skipped =
       conv.settings.permission === 'read-only'
         ? t().checksCommandsReadOnly
         : conv.settings.mode === 'parallel'
           ? t().checksCommandsParallel
-          : undefined;
+          : team
+            ? t().checksCommandsTeam
+            : undefined;
     const runs = commands.length > 0 && !skipped;
     // The paths and commits are checked here; the commands after the card is posted.
     const builtIn = list ? { ...list, commands: [] } : undefined;
@@ -3315,9 +3457,11 @@ export class Orchestrator {
         else {
           try {
             const folders = await this.foldersNow(conv);
-            const isolated = conv.settings.mode === 'parallel' && conv.settings.permission !== 'read-only';
-            const worktrees = isolated ? await this.worktreeChanges(conv, folders) : [];
-            outcomes = await recheckFrom(builtIn, this.checkFolders(folders, isolated), baseline, worktrees);
+            const parallel = conv.settings.mode === 'parallel' && conv.settings.permission !== 'read-only';
+            const worktrees = parallel ? await this.worktreeChanges(conv, folders) : [];
+            const own = team ? this.teamDirs(conv, folders) : [];
+            const where = own.length ? own : folders;
+            outcomes = await recheckFrom(builtIn, this.checkFolders(where, parallel || own.length > 0), baseline, worktrees);
           } catch (err) {
             outcomes = unchecked((err as Error).message);
           }
@@ -3800,6 +3944,13 @@ export class Orchestrator {
       else await this.designTeam(conv, run);
       return;
     }
+    // Before the checks, which look in the team's own worktrees when it works there.
+    if (run.ws.team) await this.prepareTeamWorktrees(conv, rootsOf(run.ws));
+    else if (run.dropTeamWorktrees) {
+      await this.dropTeamWorktrees(conv).catch((err) =>
+        console.warn("[orchestrator] could not remove the team's worktrees:", (err as Error).message),
+      );
+    }
     await this.startChecks(conv, run);
     await this.teamTurns(conv, posted, run, only, resume);
     // Before the review, and while the folders are still locked: the review reads the result too.
@@ -4092,7 +4243,7 @@ export class Orchestrator {
     // Where this agent works (the first working directory, the others beside it), and the state of
     // each repository before its turn (to record what it changed).
     const roots = rootsOf(run.ws);
-    /** Its worktree of each repository, in parallel mode. */
+    /** Its worktree of each repository, in parallel mode (or the team's, which it works in). */
     const wts: AgentWorktree[] = [];
     let cwd = conv.settings.cwd;
     let addDirs = conv.settings.extraCwds ?? [];
@@ -4104,10 +4255,11 @@ export class Orchestrator {
       const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
       if (refusal) throw new AgentRunError(refusal);
       if (run.ws.isolated) {
-        const own = conv.worktrees[agent.id] ?? [];
+        // Its own in parallel mode; the team's, which every member works in, when it has them.
+        const own = conv.worktrees[run.ws.team ? TEAM_WORKTREE : agent.id] ?? [];
         for (const root of roots) {
           const wt = own.find((w) => w.root === root);
-          if (!wt) throw new AgentRunError(t().noWorktree);
+          if (!wt) throw new AgentRunError(run.ws.team ? t().noTeamWorktree : t().noWorktree);
           wts.push(wt);
         }
         const folders = run.ws.folders!.map((f) => {
@@ -4118,16 +4270,18 @@ export class Orchestrator {
         addDirs = folders.slice(1).map((f) => f.cwd);
         // The folder each repository is named by: the first working directory in it.
         const named = (root: string) => run.ws.folders!.find((f) => f.root === root)!.cwd;
-        workspace = {
-          kind: 'isolated',
-          folders,
-          teammates: conv.agents.flatMap((a) => {
-            if (a.id === agent.id) return [];
-            const theirs = roots.map((root) => conv.worktrees[a.id]?.find((w) => w.root === root && !w.needsReset));
-            if (!theirs.length || theirs.some((w) => !w)) return [];
-            return [{ name: a.name, branch: theirs[0]!.branch, bases: theirs.map((w) => ({ folder: named(w!.root), base: w!.base })) }];
-          }),
-        };
+        workspace = run.ws.team
+          ? { kind: 'team', folders }
+          : {
+              kind: 'isolated',
+              folders,
+              teammates: conv.agents.flatMap((a) => {
+                if (a.id === agent.id) return [];
+                const theirs = roots.map((root) => conv.worktrees[a.id]?.find((w) => w.root === root && !w.needsReset));
+                if (!theirs.length || theirs.some((w) => !w)) return [];
+                return [{ name: a.name, branch: theirs[0]!.branch, bases: theirs.map((w) => ({ folder: named(w!.root), base: w!.base })) }];
+              }),
+            };
       }
     } catch (err) {
       setupError = err; // reported as this turn's error below

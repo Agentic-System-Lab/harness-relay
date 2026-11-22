@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { AgentConfig, ChatMessage, CheckFinding, CheckOutcome } from '../../shared/types';
+import { TEAM_WORKTREE, type AgentConfig, type ChatMessage, type CheckFinding, type CheckOutcome } from '../../shared/types';
 import { applyAnyway, cardActions, fixCandidates, gatedFiles } from '../checks';
 import { useT } from '../i18n';
 import { formatDuration } from '../util';
@@ -101,7 +101,11 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
         <span className={`checks-status ${c.status}`}>{t.checks.status[c.status]}</span>
         {c.when === 'pause' && <span className="muted small">{t.checks.whenPause}</span>}
         {c.when === 'recheck' && <span className="muted small">{t.checks.whenRecheck}</span>}
-        {c.when === 'apply' && c.applyOf && <span className="muted small">{t.checks.whenApply(c.applyOf.name)}</span>}
+        {c.when === 'apply' && c.applyOf && (
+          <span className="muted small">
+            {c.applyOf.agentId === TEAM_WORKTREE ? t.checks.whenApplyTeam : t.checks.whenApply(c.applyOf.name)}
+          </span>
+        )}
       </header>
       <ul className="checks-outcomes">
         {c.outcomes.map((o) =>
@@ -173,7 +177,10 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
           <button
             type="button"
             className="ghost small-button"
-            onClick={() => confirm(t.checks.applyAnywayAsk(c.applyOf!.name)) && void act(() => onApplyAnyway(heldFor, 'force'))}
+            onClick={() =>
+              confirm(c.applyOf!.agentId === TEAM_WORKTREE ? t.checks.applyAnywayAskTeam : t.checks.applyAnywayAsk(c.applyOf!.name)) &&
+              void act(() => onApplyAnyway(heldFor, 'force'))
+            }
           >
             {t.checks.applyAnyway}
           </button>

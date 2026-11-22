@@ -8,7 +8,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { PlannerContext } from '../src/server/planner';
-import type { Conversation, ConversationSchedule } from '../src/shared/types';
+import { TEAM_WORKTREE, type Conversation, type ConversationSchedule } from '../src/shared/types';
+import { HttpError } from '../src/server/errors';
 import {
   agentMessages,
   agents,
@@ -618,24 +619,27 @@ describe('auto team', () => {
   });
 
   it('says why when the team used at once cannot start, and Continue lets it answer without a new design', async () => {
-    // Another conversation is writing in the same folder.
-    let release!: () => void;
-    fake.gate = new Promise<void>((r) => (release = r));
-    const writer = conversation({ mode: 'roundtable' });
-    await orchestrator.send(writer.id, 'go');
-    await vi.waitFor(() => expect(orchestrator.activeAgentIds(writer.id)).toHaveLength(1), { interval: 20 });
-
     const conv = conversation({ mode: 'roundtable', autoTeam: true, autoConfirm: true }); // may edit files
     conv.agents = [];
     fake.leadReply = customTeam;
-    await orchestrator.send(conv.id, 'Fix the bug');
-    await vi.waitFor(() => expect(conv.messages.at(-1)!.author.kind).toBe('system'), { timeout: 20_000 });
-    await vi.waitFor(() => expect(textOf(conv.messages.at(-1)!)).toMatch(/正在修改/), { timeout: 20_000 });
+    // The design's own run starts; the team's, right after it, cannot for now.
+    const real = orchestrator.prepareWorkspace.bind(orchestrator);
+    let runs = 0;
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (++runs > 1) throw new HttpError(409, 'the folder is busy');
+      return real(c);
+    });
+    try {
+      await orchestrator.send(conv.id, 'Fix the bug');
+      await vi.waitFor(() => expect(conv.messages.at(-1)!.author.kind).toBe('system'), { timeout: 20_000 });
+      await vi.waitFor(() => expect(textOf(conv.messages.at(-1)!)).toMatch(/the folder is busy/), { timeout: 20_000 });
+      await finish(conv.id);
+    } finally {
+      prepare.mockRestore();
+    }
     expect(agentMessages(conv)).toHaveLength(0);
     expect(plans(conv)[0]!.plan).toMatchObject({ autoConfirmed: true });
 
-    release();
-    await finish(writer.id);
     calls.length = 0;
     await orchestrator.send(conv.id, '');
     await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
@@ -1150,6 +1154,7 @@ describe('auto team and the directory lock', () => {
     const other = conversation({ mode: 'roundtable' }); // same directory
     await orchestrator.send(other.id, 'go');
     await finish(other.id);
+    expect(other.worktrees[TEAM_WORKTREE]).toBeUndefined(); // in the directory itself
     release();
     await finish(conv.id);
   });
@@ -1175,14 +1180,19 @@ describe('auto team and the directory lock', () => {
     release();
     await finish(parallel.id);
     await finish(other.id);
+    expect(other.worktrees[TEAM_WORKTREE]).toBeUndefined(); // it wrote in the directory itself
     await orchestrator.cleanupWorktrees(parallel);
 
-    // Roundtable: the agents write to the directory itself.
+    // Roundtable: the agents write to the directory itself, so another conversation's team works in its own worktree.
     const shared = await plan('roundtable');
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(shared.id)).toHaveLength(1), { interval: 20 });
-    await expect(orchestrator.send(conversation({ mode: 'roundtable' }).id, 'go')).rejects.toThrow(/正在修改/);
+    const third = conversation({ mode: 'roundtable' });
+    await orchestrator.send(third.id, 'go');
+    await vi.waitFor(() => expect(third.worktrees[TEAM_WORKTREE]).toHaveLength(1), { interval: 20 });
     release();
     await finish(shared.id);
+    await finish(third.id);
+    expect(shared.worktrees[TEAM_WORKTREE]).toBeUndefined();
   });
 
   it('designs again for an edited question, with what came before it as history', async () => {

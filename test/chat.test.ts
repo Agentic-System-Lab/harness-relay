@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentConfig, AgentWorktree, ChatMessage, ConversationSettings, MessagePart } from '../src/shared/types';
+import {
+  TEAM_WORKTREE,
+  type AgentConfig,
+  type AgentWorktree,
+  type ChatMessage,
+  type ConversationSettings,
+  type MessagePart,
+} from '../src/shared/types';
 import { ApiError, api, orCreateCwd } from '../src/web/api';
 import {
   activityCounts,
   afterStreamError,
   applyStates,
+  isTeamResult,
+  resultOwner,
   BOTTOM_SLACK,
   branchSource,
   BUTTON_HOLD_MS,
@@ -210,6 +219,42 @@ describe('the conversation a branch comes from', () => {
     expect(branchSource(branch, [{ id: 'c1', title: 'Renamed' }])).toEqual({ title: 'Renamed', gone: false });
     expect(branchSource(branch, [{ id: 'c2', title: 'Other' }])).toEqual({ title: 'Old title', gone: true });
     expect(branchSource(branch, undefined)).toEqual({ title: 'Old title', gone: false });
+  });
+});
+
+describe("the team's own worktree result", () => {
+  /** A turn of `agentId` in the team's own worktree. */
+  const teamResult = (id: string, agentId: string, base: string, head: string): ChatMessage => {
+    const m = result(id, agentId, base, head);
+    m.changes = [{ ...m.changes![0]!, branch: `relay/c/${TEAM_WORKTREE}` }];
+    return m;
+  };
+  const team = (base: string, needsReset = false): AgentWorktree => ({
+    ...worktree(TEAM_WORKTREE, base, needsReset),
+    branch: `relay/c/${TEAM_WORKTREE}`,
+  });
+
+  it("is the team's, whoever wrote the turn: its latest reply there offers it, and is stale once applied", () => {
+    const messages = [teamResult('a1', 'A', 'S1', 'h1'), teamResult('b1', 'B', 'h1', 'h2'), result('a2', 'A', 'S1', 'x')];
+    expect(isTeamResult(messages[0]!.changes)).toBe(true);
+    expect(isTeamResult(messages[2]!.changes)).toBe(false);
+    expect(resultOwner(messages[1]!)).toBe(TEAM_WORKTREE);
+    expect(resultOwner(messages[2]!)).toBe('A');
+    expect([...applyStates(messages, { [TEAM_WORKTREE]: [team('S1')], A: [worktree('A', 'S1')] })]).toEqual([
+      ['b1', 'available'],
+      ['a2', 'available'],
+    ]);
+    expect(applyStates(messages, { [TEAM_WORKTREE]: [team('S1', true)] }).get('b1')).toBe('stale');
+    // Its worktree was removed (the team writes in the folder again): nothing to apply.
+    expect(applyStates(messages, {}).size).toBe(0);
+  });
+
+  it('is not a result changed in the working directory itself, or made in an agent named like it', () => {
+    const shared = teamResult('s', 'A', 'S1', 'x');
+    shared.changes = [{ ...shared.changes![0]!, isolated: false }];
+    expect(isTeamResult(shared.changes)).toBe(false);
+    expect(isTeamResult(result('t', 'team', 'S1', 'x').changes)).toBe(false); // relay/c/team
+    expect(isTeamResult(undefined)).toBe(false);
   });
 });
 

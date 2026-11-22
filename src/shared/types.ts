@@ -792,11 +792,13 @@ export interface NativeSetup {
 /** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {
   /**
-   * The first working directory's is `cwd` and an agent's worktree of it the agent's id; for the
-   * others, `:` and the working directory's place follow (`cwd:1`, `<agent id>:1`).
+   * The first working directory's is `cwd` and an agent's worktree of it the agent's id (the team's
+   * own, `TEAM_WORKTREE`); for the others, `:` and the working directory's place follow (`cwd:1`,
+   * `<agent id>:1`).
    */
   id: string;
   path: string;
+  /** Whose worktree it is: an agent's id, or `TEAM_WORKTREE` for the team's own. */
   agentId?: string;
   /** Which working directory it is, or is a worktree of: its place in `cwdsOf()` (absent: 0). */
   cwd?: number;
@@ -1673,8 +1675,16 @@ export interface MessageChanges {
 }
 
 /**
+ * The key of a conversation's own worktrees in `Conversation.worktrees` (no agent id has an `@`): the
+ * team's, which every member works in, taking turns, when its run started while another conversation
+ * was writing in its working directories. It stays there until its result is applied (or the chat is
+ * rewound past it); its replies' changes are on its branch, and applied as an agent's are.
+ */
+export const TEAM_WORKTREE = '@team';
+
+/**
  * A per-agent git worktree used in parallel mode so agents don't overwrite each other: one for each
- * repository of the conversation's working directories.
+ * repository of the conversation's working directories (or the team's own, `TEAM_WORKTREE`).
  */
 export interface AgentWorktree {
   /** Repository root of the working directory (or directories) it is a worktree of. */
@@ -2081,7 +2091,10 @@ export interface Conversation {
   settings: ConversationSettings;
   messages: ChatMessage[];
   agentState: Record<string, AgentSessionState>;
-  /** Parallel-mode worktrees by agent id: one per repository of the working directories. */
+  /**
+   * Parallel-mode worktrees by agent id: one per repository of the working directories. Under
+   * `TEAM_WORKTREE`, the conversation's own, which all its members share (see there).
+   */
   worktrees: Record<string, AgentWorktree[]>;
   /** "Always allow" answers given in this conversation. */
   allowRules?: AllowRule[];

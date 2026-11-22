@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent } from 'react';
 import {
   PROVIDER_LABEL,
+  TEAM_WORKTREE,
   cwdsOf,
   pendingPlan,
   type ApprovalAnswer,
@@ -22,6 +23,7 @@ import {
   branchSource,
   draftStatus,
   followsAfterScroll,
+  isTeamResult,
   savesLeadReviewAlone,
   scrollSpot,
   showsToEnd,
@@ -366,7 +368,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     if (!c) return;
     const name = msg.agentName ?? 'agent';
     if (scope === 'turn') setDiff({ title: tRef.current.chat.turnDiffTitle(name), load: () => api.messageDiff(c.id, msg.id) });
-    else if (msg.author.kind === 'agent') {
+    else if (isTeamResult(msg.changes)) {
+      // Made in the team's own worktrees: the team's result, whoever wrote this turn.
+      setDiff({ title: tRef.current.chat.teamDiffTitle, load: () => api.agentDiff(c.id, TEAM_WORKTREE) });
+    } else if (msg.author.kind === 'agent') {
       const agentId = msg.author.agentId;
       setDiff({ title: tRef.current.chat.agentDiffTitle(name), load: () => api.agentDiff(c.id, agentId) });
     }
@@ -497,7 +502,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     }
   }, []);
 
-  // Only each agent's latest result from its current worktree can be applied.
+  // Only each agent's (or the team's) latest result from its current worktree can be applied.
   const messages = state.conv?.messages;
   const worktrees = state.conv?.worktrees;
   const applyStates = useMemo(() => findApplyStates(messages ?? [], worktrees ?? {}), [messages, worktrees]);

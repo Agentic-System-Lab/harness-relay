@@ -37,6 +37,7 @@ import {
   SHARE_FILE_REFUSED,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
+  TEAM_WORKTREE,
   TRACKING_LIMITS,
   VOICE_MAX_SECONDS,
   cwdsOf,
@@ -2098,13 +2099,14 @@ export function createApp({
     return sendFile(c, fileInRoot(rootPath(roots, root), path), true);
   });
 
-  /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent. */
+  /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent (the team's, `team`). */
   const zipName = (c: Context, root: string): string | undefined => {
     const conv = getConv(c.req.param('id') ?? '');
     const found = fileRoots(conv).find((r) => r.id === root);
     if (!found?.agentId) return undefined;
     const agent = conv.agents.find((a) => a.id === found.agentId);
-    return `${basename(cwdsOf(conv.settings)[found.cwd ?? 0] ?? conv.settings.cwd)}-${agent?.name ?? found.agentId}`;
+    const owner = found.agentId === TEAM_WORKTREE ? 'team' : (agent?.name ?? found.agentId);
+    return `${basename(cwdsOf(conv.settings)[found.cwd ?? 0] ?? conv.settings.cwd)}-${owner}`;
   };
 
   // What downloading a folder as a ZIP file would hold: all of it, or (when that is too much) only

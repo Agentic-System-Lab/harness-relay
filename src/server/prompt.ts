@@ -71,6 +71,14 @@ export type BriefingWorkspace =
        * repository (named by its first working directory).
        */
       teammates: { name: string; branch: string; bases: { folder: string; base: string }[] }[];
+    }
+  | {
+      /**
+       * The conversation's own worktrees, which every member works in, taking turns: another
+       * conversation was changing its working directories (`TEAM_WORKTREE`). The folders as in `isolated`.
+       */
+      kind: 'team';
+      folders: { cwd: string; userCwd: string; branch: string; base: string }[];
     };
 
 /**
@@ -148,6 +156,18 @@ ${access}
   }
   const short = (c: string) => c.slice(0, 12);
   const one = ws.folders.length === 1;
+  if (ws.kind === 'team') {
+    const own = one
+      ? `- Another conversation was changing the user's working directory, so this conversation's team works in its OWN git worktree, a copy of it: ${ws.folders[0]!.cwd} (branch ${ws.folders[0]!.branch}), from a snapshot (${short(ws.folders[0]!.base)}) of the user's working directory ${ws.folders[0]!.userCwd}, which you must not modify.`
+      : `- Another conversation was changing the user's working directories, so this conversation's team works in its OWN git worktrees, copies of them, which you must not modify:
+${ws.folders.map((f) => `  - ${f.cwd} (branch ${f.branch}), from a snapshot (${short(f.base)}) of ${f.userCwd}`).join('\n')}
+  You start in ${ws.folders[0]!.cwd}; use full paths for the others.`;
+    return `${own}
+- All agents of this conversation share ${one ? 'this worktree' : 'these worktrees'} and take turns in ${one ? 'it' : 'them'}. Teammates may be changing the same files. Name the files you changed in your reply so others can review them.
+- Files git ignores (installed dependencies, build output) are not in the copy: install or build them there if you need them.
+${access}
+- Your changes are committed to the branch${one ? '' : 'es'} automatically after each turn; the user reviews them and applies the team's result to the working director${one ? 'y' : 'ies'} when ready. Do not commit, merge, rebase or switch branches yourself.`;
+  }
   const mates = ws.teammates.length
     ? ws.teammates
         .map((t) =>

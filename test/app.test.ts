@@ -29,6 +29,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   DEFAULT_LIMITS,
+  TEAM_WORKTREE,
   type ChatMessage,
   type CliLoginView,
   type Conversation,
@@ -897,8 +898,20 @@ describe('settings', () => {
       apply.mockResolvedValueOnce({ files: [] });
       await at({ confirm: true });
       expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: true });
+      // The team's own worktrees, by their key as the page encodes it.
+      apply.mockResolvedValueOnce({ files: [] });
+      await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/apply`, json('POST', {}));
+      expect(apply).toHaveBeenLastCalledWith('conv', TEAM_WORKTREE, { force: false, confirm: false });
     } finally {
       apply.mockRestore();
+    }
+    const diff = vi.spyOn(orchestrator, 'agentDiff').mockResolvedValue('diff');
+    try {
+      const res = await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/diff`, { headers: HOST });
+      expect(await res.text()).toBe('diff');
+      expect(diff).toHaveBeenCalledWith('conv', TEAM_WORKTREE);
+    } finally {
+      diff.mockRestore();
     }
   });
 

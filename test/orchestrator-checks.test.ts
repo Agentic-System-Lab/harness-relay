@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, Conversation } from '../src/shared/types';
+import { TEAM_WORKTREE, type ChatMessage, type Conversation } from '../src/shared/types';
 import { checksHold, latestChecks } from '../src/shared/checks';
 import {
   agentMessages,
@@ -265,6 +265,40 @@ describe('team checks', () => {
       { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', worktree: true, by: 'Bob' }] },
       { rule: 'commits', status: 'na', reason: expect.any(String) },
     ]);
+  });
+
+  it('in its own worktree, checks the team’s work there: not what another conversation changes in the folder meanwhile', async () => {
+    const conv = checked({ checks: { protectedPaths: ['.env', 'Bob.txt'], commitPattern: '^feat', commands: [{ id: 'c', run: 'true' }] } });
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    // Another conversation writes in the folder, and goes on doing so while the team works.
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = other.agents.filter((a) => a.id === 'a');
+    await orchestrator.send(other.id, 'go');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    fake.gate = Promise.resolve();
+    fake.during = (name) => {
+      if (name === 'Bob') writeFileSync(join(project, '.env'), 'A=3\n'); // the other conversation's change
+    };
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    expect(calls.at(-1)!.cwd).toBe(conv.worktrees[TEAM_WORKTREE]![0]!.path);
+    expect(lastCard(conv).checks!.outcomes).toEqual([
+      { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }] },
+      { rule: 'commits', status: 'na', reason: expect.any(String) },
+      // Run when the result is applied.
+      expect.objectContaining({ rule: 'command', status: 'na', reason: expect.stringContaining("this conversation's own worktree") }),
+    ]);
+    // Check again looks there too.
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    expect(lastCard(conv).checks!.outcomes[0]).toEqual({
+      rule: 'paths',
+      status: 'failed',
+      findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }],
+    });
+    release();
+    await finish(other.id);
   });
 
   it('checks what was done when the team stops to ask the user something', async () => {
