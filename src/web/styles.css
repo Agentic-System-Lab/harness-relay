@@ -10463,6 +10463,8 @@ a.share-action {
     width: 100%;
     border: 0;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
 
 /* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
 .labs-options {

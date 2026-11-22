@@ -3,6 +3,7 @@ import { mentionsInMarkdown, unknownMentions } from '../src/shared/mentions';
 import type { ChatMessage, MessageChanges } from '../src/shared/types';
 import {
   CHAT_MIN_WIDTH,
+  DealtReplies,
   NO_TERMINAL,
   PREVIEW_MIN_WIDTH,
   bestPreviewPath,
@@ -242,6 +243,23 @@ describe('the app the team made', () => {
     expect(opensByItself(app, { ...o, local: false })).toBe(false);
     for (const host of ['localhost', '127.0.0.1', '[::1]']) expect(localPage(host)).toBe(true);
     for (const host of ['relay.tail1234.ts.net', '192.168.1.20', 'localhost.example']) expect(localPage(host)).toBe(false);
+  });
+
+  it('lets only a reply the page has not dealt with open by itself', () => {
+    // Opened with r1 there; r2 arrives, its lookup starts with r1 and r2 there, and ends.
+    const replies = new DealtReplies(['r1']);
+    expect(replies.fresh('r1')).toBe(false);
+    expect(replies.fresh('r2')).toBe(true);
+    replies.dealt(['r1', 'r2']);
+    // A Retry of r2 falls back to r1 (and r2's id is gone): neither opens by itself again.
+    expect(replies.fresh('r1')).toBe(false);
+    expect(replies.fresh('r2')).toBe(false);
+    // Two parallel members finish together: the first lookup, stopped by the second reply, dealt
+    // with nothing, so the second's reply is still fresh; the next reply after them too.
+    expect(replies.fresh('r3')).toBe(true);
+    expect(replies.fresh('r4')).toBe(true);
+    replies.dealt(['r1', 'r2', 'r3', 'r4']);
+    expect(replies.fresh('r5')).toBe(true);
   });
 
   it('lists the finished replies, by id', () => {

@@ -224,6 +224,24 @@ export function finishedReplies(messages: readonly ChatMessage[]): string[] {
 }
 
 /**
+ * The finished replies the page has dealt with: those there when it opened, then those there when
+ * a lookup of the team's app started, once it has finished. Only a reply not dealt with may open by
+ * itself: never one there when the chat was opened, nor one a Retry or an edit falls back to.
+ */
+export class DealtReplies {
+  private readonly ids: Set<string>;
+  constructor(initial: Iterable<string>) {
+    this.ids = new Set(initial);
+  }
+  fresh(id: string): boolean {
+    return !this.ids.has(id);
+  }
+  dealt(ids: Iterable<string>): void {
+    for (const id of ids) this.ids.add(id);
+  }
+}
+
+/**
  * Whether the app a reply made opens by itself: only from a turn that changed files, only a reply
  * the page had not dealt with yet (never one there when it opened, nor one a Retry or an edit falls
  * back to), each folder once, never over another preview, nor on a phone or tablet, where it would

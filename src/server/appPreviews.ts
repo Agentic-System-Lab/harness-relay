@@ -61,7 +61,7 @@ function bridge(parent: string): string {
   return (
     '<script>(()=>{const relay=' +
     JSON.stringify(parent) +
-    ';addEventListener("message",e=>{if(e.source===parent&&e.origin===relay&&e.data==="relay-preview-reload")location.reload()});let count=0;const report=value=>{if(count++<50)parent.postMessage({type:"relay-preview-error",message:String(value).slice(0,2048)},' +
+    ';addEventListener("message",e=>{if(e.source===parent&&e.origin===relay&&e.data==="relay-preview-reload")location.reload()});let count=0;const report=value=>{if(parent!==window&&count++<50)parent.postMessage({type:"relay-preview-error",message:String(value).slice(0,2048)},' +
     JSON.stringify(parent) +
     ')};addEventListener("error",e=>report(e.message||"Resource failed to load"),true);addEventListener("unhandledrejection",e=>report(e.reason));const original=console.error;console.error=(...args)=>{original.apply(console,args);report(args.join(" "))}})()</script>'
   );
@@ -73,7 +73,7 @@ function errorPage(session: Session, status = 403, message = session.cookieMessa
   return new Response(
     '<!doctype html><meta charset="utf-8"><p>' +
       message +
-      '</p><script>parent.postMessage({type:"relay-preview-error",message:' +
+      '</p><script>if(parent!==window)parent.postMessage({type:"relay-preview-error",message:' +
       JSON.stringify(message) +
       '},' +
       JSON.stringify(session.parent) +

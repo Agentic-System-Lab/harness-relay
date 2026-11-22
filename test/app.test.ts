@@ -724,6 +724,26 @@ describe('app preview control and content', () => {
     });
     changed('nothing', project, ['lib/package.json']);
     expect((await find({ messageId: 'nothing' })).status).toBe(404);
+    // A page that is not the index of a project stays a page, though a project around it runs.
+    mkdirSync(join(project, 'shop', 'reports'));
+    writeFileSync(join(project, 'shop', 'reports', 'summary.html'), '<h1>summary</h1>');
+    changed('report', project, ['shop/reports/summary.html']);
+    expect(await found('report')).toEqual({
+      folder: join(project, 'shop', 'reports'),
+      entry: 'summary.html',
+      mode: 'static',
+      shown: 'shop/reports/summary.html',
+    });
+    // An index page whose project does not run (a package.json for tools only) opens as it is.
+    mkdirSync(join(project, 'lib', 'www'));
+    writeFileSync(join(project, 'lib', 'www', 'index.html'), '<h1>www</h1>');
+    changed('tools', project, ['lib/www/index.html']);
+    expect(await found('tools')).toEqual({
+      folder: join(project, 'lib', 'www'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'lib/www/index.html',
+    });
     // The second working directory: its own project, though the first has one at the same place.
     writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { start: 'node a.js' } }));
     writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
@@ -739,6 +759,17 @@ describe('app preview control and content', () => {
     changed('isolated', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
     expect(await found('isolated')).toEqual({
       folder: join(worktree, 'site'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'site/index.html',
+    });
+    // The worktree recorded through a link (a data folder under /tmp on a Mac): found at its real path.
+    const linked = join(root, 'changed-link-' + n);
+    symlinkSync(worktree, linked, 'junction');
+    live.worktrees[agentId] = [{ root: project, path: linked, branch: 'relay/mine', base: 'b', needsReset: false }];
+    changed('linked', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
+    expect(await found('linked')).toEqual({
+      folder: join(realpathSync.native(worktree), 'site'),
       entry: 'index.html',
       mode: 'static',
       shown: 'site/index.html',
