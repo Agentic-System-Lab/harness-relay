@@ -224,6 +224,14 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     }
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
+    case 'secrets':
+      // Names and answers only: a value is never in the chat.
+      return { type: 'text', text: `[Asked the user for secrets: ${p.asks.map((a) => `${a.name} (${a.status})`).join(', ')}]` };
+    case 'command':
+      return {
+        type: 'text',
+        text: `[Proposed the fixed command "${p.proposal.name}": \`${p.proposal.run}\` — ${p.status}${p.run ? `, last run ${p.run.status}` : ''}]`,
+      };
   }
 }
 

@@ -390,7 +390,11 @@ export type Segment =
   /** What the reply saved to long-term memory. */
   | { kind: 'memory'; part: MemoryPart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
-  | { kind: 'notice'; text: string; key: number };
+  | { kind: 'notice'; text: string; key: number }
+  /** The secrets the reply asks the user for. */
+  | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
+  /** A fixed command the reply proposes. */
+  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -453,6 +457,12 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'notice':
         out.push({ kind: 'notice', text: p.text, key: i });
+        break;
+      case 'secrets':
+        if (p.asks.length) out.push({ kind: 'secrets', part: p, key: i });
+        break;
+      case 'command':
+        out.push({ kind: 'command', part: p, key: i });
         break;
     }
   });

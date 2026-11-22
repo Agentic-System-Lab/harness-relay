@@ -16,6 +16,7 @@ import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { withoutProgressTail } from '../../shared/tracking';
 import { withoutMemoryBlocks } from '../../shared/memory';
+import { withoutHandoffBlocks } from '../../shared/handoffs';
 import { cardEntry } from '../memory';
 import { api } from '../api';
 import { settingsHref } from '../route';
@@ -52,6 +53,7 @@ import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon,
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
+import { CommandCard, SecretsCard } from './HandoffCards';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -1472,7 +1474,7 @@ function AgentMessage({
               return (
                 <Markdown
                   key={s.key}
-                  text={live ? withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text)) : s.text}
+                  text={live ? withoutHandoffBlocks(withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text))) : s.text}
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}
@@ -1491,6 +1493,10 @@ function AgentMessage({
               return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
             case 'memory':
               return <MemoryCard key={s.key} part={s.part} />;
+            case 'secrets':
+              return <SecretsCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
+            case 'command':
+              return <CommandCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
             case 'notice':
               return (
                 <p key={s.key} className="warn-line small msg-notice" role="note">

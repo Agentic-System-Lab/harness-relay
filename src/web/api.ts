@@ -65,6 +65,9 @@ import type {
   PushSubscriptionJson,
   ReportScreenshots,
   OutboxItem,
+  CommandProposal,
+  FixedCommand,
+  FolderHandoffs,
   CalendarAccountUpdate,
   ConnectorsView,
   OAuthCalendar,
@@ -502,6 +505,40 @@ export const api = {
   removeOAuthDrive: (id: string) => request<OAuthView>('DELETE', `/api/oauth/accounts/${id}/drive`),
   removeOAuthAccount: (id: string) =>
     request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
+  /** A secrets card's answer: the values (kept for its working directory, never shown again), or none. */
+  answerSecrets: (id: string, messageId: string, partId: string, b: { values?: Record<string, string>; decline?: boolean }) =>
+    request<{ ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}`,
+      b,
+    ),
+  /** A proposed fixed command's card: save it (with edits), dismiss it, or tell the team about it (with its last run: `share`). */
+  commandCard: (
+    id: string,
+    messageId: string,
+    partId: string,
+    action: 'save' | 'dismiss' | 'continue' | 'share',
+    edits?: Partial<CommandProposal>,
+  ) =>
+    request<FixedCommand | { ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
+      { action, ...(edits ? { edits } : {}) },
+    ),
+  /** Try a saved fixed command (in the background: its card follows it). */
+  tryCommand: (id: string, commandId: string, b: { extra?: string; approve?: boolean }) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/try`, b),
+  commandDiff: (id: string, commandId: string) =>
+    request<{ changed: string[]; diff: string }>(
+      'GET',
+      `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/diff`,
+    ),
+  /** Settings: every working directory's secrets (names) and fixed commands. */
+  handoffs: () => request<{ storage: boolean; folders: FolderHandoffs[] }>('GET', '/api/handoffs'),
+  setHandoffSecret: (folder: string, name: string, value: string) =>
+    request<{ ok: true }>('PUT', '/api/handoffs/secrets', { folder, name, value }),
+  deleteHandoffSecret: (folder: string, name: string) => request<{ ok: true }>('POST', '/api/handoffs/secrets/delete', { folder, name }),
+  deleteFixedCommand: (commandId: string) => request<{ ok: true }>('DELETE', `/api/handoffs/commands/${encodeURIComponent(commandId)}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),
