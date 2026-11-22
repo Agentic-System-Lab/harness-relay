@@ -46,6 +46,7 @@ mac:
   extendInfo:
     # Starts in the menu bar only: the Dock icon shows while the chat's window is open.
     LSUIElement: true
+    NSAppleEventsUsageDescription: 'Harness Relay asks Finder to install Docker Desktop when your Mac needs administrator approval.'
     NSMicrophoneUsageDescription: 'Harness Relay uses the microphone for voice input: your speech is turned into text on this computer.'
   extraResources:
     - from: macos/en.lproj/InfoPlist.strings

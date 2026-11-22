@@ -2804,6 +2804,34 @@ details.sub .model-picker {
   display: none;
 }
 
+/* A chat the preview panel (or the window) leaves narrow: the header's actions become icons, their
+   names kept for screen readers and in their tooltips, so that they all stay on the row. Phones have
+   them in the ⋯ menu instead (see the 560px rules). */
+.chat-head {
+  container: chat-head / inline-size;
+}
+
+@media (min-width: 561px) {
+  @container chat-head (width < 900px) {
+    .chat-head-actions .head-button {
+      padding-inline: 9px;
+    }
+
+    .chat-head-actions .head-button svg {
+      display: block;
+    }
+
+    .chat-head-actions .head-button .button-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+}
+
 /* ⋯ opens those actions as a menu on phones (see the 560px rules). */
 .more-button {
   display: none;
@@ -7776,6 +7804,24 @@ summary + .checks-editor-body {
   margin: 0;
 }
 
+/* Team checks' two options (the app in the preview, fixing by itself): a line each, its hint under it. */
+.checks-flags {
+  gap: 10px;
+}
+
+.checks-flags .check-row {
+  align-items: flex-start;
+}
+
+.checks-flags .check-row input {
+  margin-top: 3px;
+}
+
+.checks-flag-hint {
+  display: block;
+  margin-top: 2px;
+}
+
 .alert-option {
   display: grid;
   gap: 4px;
@@ -10106,6 +10152,354 @@ a.share-action {
   }
 }
 
+/* App previews open alongside the conversation on wide screens. */
+.reply-preview-button {
+  margin-inline: 0.4em;
+  font-size: 0.85em;
+}
+
+.folder-preview-button {
+  align-self: flex-start;
+}
+
+/* The preview panel's width: the default one, or the one its divider was dragged to on this
+   browser (--preview-width, see ChatView), always leaving the chat 360 pixels. Percentages are of
+   .main's width, for the chat's margin and the panel (positioned in .main) alike. */
+.chat {
+  --preview-w: min(var(--preview-width, min(43%, 760px)), calc(100% - 360px));
+}
+
+.chat.previewing {
+  margin-inline-end: var(--preview-w);
+}
+
+/* The divider between the chat and the panel: drag it, or focus it and use the arrow keys. */
+.app-preview-resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--preview-w) - 4px);
+  z-index: 3;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.app-preview-resize::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.app-preview-resize:hover::after,
+.app-preview-resize:focus-visible::after,
+.resizing-preview .app-preview-resize::after {
+  background: var(--info);
+}
+
+.app-preview-resize:focus-visible {
+  outline: none;
+}
+
+/* While it is dragged, the page and the terminal must not take the pointer. */
+.resizing-preview {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizing-preview iframe,
+.resizing-preview .xterm {
+  pointer-events: none;
+}
+
+/* The header's Preview button, pressed while the panel shows. */
+.head-button.preview-head-button.on {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+}
+
+/* After the team's last reply: the app it made, ready to preview. */
+.preview-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--info) 55%, transparent);
+}
+
+.preview-ready-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--info);
+}
+
+.preview-ready-text {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preview-ready-text code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.preview-ready > button {
+  flex: none;
+}
+
+/* The app the team just made cannot run in a preview yet: why, and asking its author to fix it. */
+.preview-ready.not-ready {
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 50%, transparent);
+}
+
+.preview-ready.not-ready .preview-ready-icon {
+  color: var(--warn);
+}
+
+.app-preview {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--preview-w);
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg);
+  border-inline-start: 1px solid var(--border);
+}
+
+.app-preview[hidden] {
+  display: none;
+}
+
+.app-preview-return {
+  align-self: center;
+  margin-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.app-preview .drawer-head {
+  flex: none;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview .drawer-head h2 {
+  margin: 0;
+}
+
+/* New tab, right beside the title; Close stays at the end. */
+.app-preview .drawer-head {
+  gap: 10px;
+}
+
+.app-preview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: auto;
+}
+
+.app-preview-settings,
+.app-preview-problems {
+  display: grid;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.app-preview-source {
+  display: grid;
+  gap: 4px;
+}
+
+.app-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-preview-settings p {
+  margin: 0;
+}
+
+.app-preview code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The preview's state (building, starting, running…): centred in its row, between the summary
+   row's line and the page or terminal under it. */
+.app-preview-status {
+  margin: 0;
+  padding: 10px 18px;
+}
+
+.app-preview-error {
+  margin: 6px 18px 12px;
+}
+
+.app-preview-error,
+.app-preview-problems li {
+  display: block;
+  max-height: 9em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.app-preview iframe {
+  flex: 1 0 180px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: white;
+}
+
+.app-preview-problems {
+  border-top: 1px solid var(--border);
+  justify-items: start;
+  font-size: 13px;
+}
+
+.app-preview-problems ul {
+  max-height: 6em;
+  overflow: auto;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.app-preview iframe[hidden] {
+  display: none;
+}
+
+/* A container preview: its command line, the page/terminal switch and the terminal itself. */
+.app-preview-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-preview-command input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.app-preview-views {
+  align-self: flex-start;
+  margin: 0 18px 10px;
+}
+
+/* What it runs from, folded while it runs (the details open below), and the page/terminal switch. */
+.app-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview-bar .app-preview-views {
+  margin: 0 0 0 auto;
+}
+
+.app-preview-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-inline-start: -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-preview-summary:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.app-preview-summary svg {
+  flex: none;
+  transition: transform 0.15s;
+}
+
+.app-preview-summary.open svg {
+  transform: rotate(90deg);
+}
+
+.app-preview-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-preview-bar + .app-preview-settings {
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview-recipe {
+  padding: 0 18px 12px;
+}
+
+.app-preview-terminal {
+  display: flex;
+  flex: 1 0 240px;
+  flex-direction: column;
+  min-height: 240px;
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
+.app-preview-terminal[hidden] {
+  display: none;
+}
+
+.app-preview-terminal > p {
+  margin: 6px 12px 0;
+  color: #a1a1aa;
+}
+
+.app-preview-terminal-screen {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 6px 10px;
+}
+
+@media (max-width: 1100px) {
+  .chat.previewing {
+    margin-inline-end: 0;
+  }
+  .app-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100%;
+    border: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
 /* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
 .labs-options {
   display: grid;
@@ -10162,4 +10556,208 @@ a.share-action {
   .labs-tradeoffs {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Publishing a previewed app (the preview panel's dialog, and Settings → Publish to the cloud) */
+.modal.publish-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.publish-dialog p,
+.publish-dialog h3 {
+  margin: 0;
+}
+
+.publish-dialog h3 {
+  font-size: 0.95rem;
+}
+
+.publish-setup {
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.publish-setup ul,
+.publish-summary ul,
+.publish-notes {
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+}
+
+.publish-summary li + li,
+.publish-notes li + li {
+  margin-top: 4px;
+}
+
+.publish-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.publish-name input {
+  font-family: var(--mono);
+}
+
+.publish-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.publish-commands {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.publish-commands dt {
+  color: var(--muted);
+}
+
+.publish-commands dd {
+  margin: 2px 0 0;
+}
+
+.publish-env {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.publish-env legend {
+  padding: 0 4px;
+}
+
+.publish-env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.publish-env-row input {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.publish-env-row input[readonly] {
+  background: var(--surface);
+}
+
+.publish-env-db {
+  font-style: italic;
+}
+
+.publish-env > .ghost {
+  align-self: flex-start;
+}
+
+.publish-confirm {
+  font-weight: 600;
+}
+
+.publish-progress ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publish-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.publish-step::before {
+  content: '';
+  flex: 0 0 8px;
+  height: 8px;
+  margin-top: 0.45em;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.publish-step.running::before {
+  display: none;
+}
+
+.publish-step > .logo-spinner {
+  flex: none;
+  /* Centred where the dot is (its 8px at 0.45em from the top): the spinner is 14px. */
+  margin: calc(0.45em - 3px) -3px 0;
+}
+
+.publish-step.done::before {
+  background: var(--ok);
+}
+
+.publish-step.failed::before {
+  background: var(--danger);
+}
+
+.publish-step-name {
+  flex: 1;
+}
+
+.publish-step.skipped {
+  opacity: 0.6;
+}
+
+.publish-live a,
+.publish-progress a {
+  overflow-wrap: anywhere;
+}
+
+.publish-provider {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+
+.publish-provider legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.publish-provider p {
+  margin: 4px 0;
+}
+
+.publish-apps-title {
+  margin: 8px 0 6px;
+}
+
+.publish-app code {
+  overflow-wrap: anywhere;
+}
+
+.publish-unpublish {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publish-unpublish p {
+  margin: 0;
 }

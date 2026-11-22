@@ -72,6 +72,12 @@ export interface AppDependencyView {
   job?: CliInstallJobView;
 }
 
+export interface PreviewDockerView extends AppDependencyView {
+  state: 'missing' | 'unavailable' | 'ready';
+  detail?: string;
+  help?: 'linux-access';
+}
+
 export interface GitInstallView {
   available: boolean;
   method?: 'apple' | 'winget' | 'linux';
@@ -904,6 +910,227 @@ export interface NativeSetup {
 
 // --- Browsing a conversation's files ----------------------------------------------------------
 
+/** An app preview starts only when the user asks. Files paths are relative to the selected root;
+ * a reply's local link is resolved on the server against the worktrees that reply used. */
+export interface AppPreviewRequest {
+  /** Canonical folder pinned from Files or from resolving a reply's target. */
+  expectedFolder?: string;
+  /** `container`: a Dockerfile or compose file, built and run with Docker, with a terminal. */
+  mode: 'static' | 'build' | 'server' | 'container';
+  folder: string;
+  entry?: string;
+  root?: string;
+  messageId?: string;
+}
+
+export interface AppPreviewSession {
+  id: string;
+  url: string;
+  origin: string;
+  /**
+   * A container preview: it answers before the build, and its terminal (`…/preview/:id/terminal`)
+   * says how it goes; its page opens once the app serves one (a `page` event).
+   */
+  terminal?: boolean;
+}
+
+/** The files a container preview starts from, in the order a folder is looked at: compose first, then a Dockerfile. */
+export const PREVIEW_RECIPES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml', 'Dockerfile'] as const;
+
+/** The error code of a folder with no way to preview it: the panel offers to ask an agent for a Dockerfile. */
+export const PREVIEW_NO_RECIPE = 'preview-no-recipe';
+
+/** The error code of an app a turn added that cannot run in a preview (`POST …/preview/changed`): the chat says why and offers to ask its author to fix it. */
+export const PREVIEW_NOT_READY = 'preview-not-ready';
+
+/**
+ * Files whose change says a turn made or changed an app: what runs one (a compose file, a Dockerfile,
+ * a package.json), an index page, and the usual entry of a web app or terminal program in another
+ * language. A turn that touches none of them made no app, as far as Relay can tell.
+ */
+const APP_ENTRIES: ReadonlySet<string> = new Set([
+  'package.json',
+  ...PREVIEW_RECIPES,
+  'app.py',
+  'main.py',
+  'server.py',
+  'manage.py',
+  'wsgi.py',
+  'asgi.py',
+  'streamlit_app.py',
+  'main.go',
+  'server.go',
+  'app.rb',
+  'config.ru',
+  'server.js',
+  'server.mjs',
+  'server.ts',
+  'app.js',
+  'app.mjs',
+  'app.ts',
+]);
+
+export function isAppEntry(name: string): boolean {
+  return APP_ENTRIES.has(name) || /^index\.html?$/i.test(name);
+}
+
+/** Folders that hold a project's installed dependencies, never an app of its own: a path through one is not one. */
+const DEPENDENCY_DIRS: ReadonlySet<string> = new Set(['node_modules', '.venv', 'venv', 'site-packages', 'vendor', '__pycache__']);
+
+export function inDependencies(segments: readonly string[]): boolean {
+  return segments.some((s) => DEPENDENCY_DIRS.has(s));
+}
+
+/** What a container preview's terminal stream sends (`GET …/preview/:id/terminal`, as SSE). */
+export type PreviewTerminalEvent =
+  /** Terminal bytes, base64. `replay`: everything so far, sent first to each new stream. */
+  | { type: 'output'; data: string; replay?: boolean }
+  /** Where the preview is. `command`: the main service's command line while it runs. */
+  | {
+      type: 'phase';
+      phase: 'building' | 'starting' | 'running' | 'exited' | 'failed';
+      code?: number;
+      error?: string;
+      command?: string;
+    }
+  /** The app accepts connections on its HTTP port: its page can open. */
+  | { type: 'page' }
+  /** The preview stopped. */
+  | { type: 'closed' };
+
+// --- Publishing a previewed app (Render, Neon) --------------------------------------------------
+
+/** Render's regions, in the order Settings lists them. Render's own default is the first. */
+export const RENDER_REGIONS = ['oregon', 'ohio', 'virginia', 'frankfurt', 'singapore'] as const;
+export type RenderRegion = (typeof RENDER_REGIONS)[number];
+
+/** The error code of a publish that needs the user's settings first (a key, a workspace, an organization). */
+export const PUBLISH_SETUP = 'publish-setup';
+/** The error code of a publish whose files changed since the preview started: rebuild it and try it first. */
+export const PUBLISH_CHANGED = 'publish-changed';
+/** The error code of a Render workspace that cannot read the new repository through its GitHub app. */
+export const PUBLISH_REPO_ACCESS = 'publish-repo-access';
+
+/** An account Settings → Publish to the cloud names: a Render workspace, a Neon organization. */
+export interface PublishAccount {
+  id: string;
+  name: string;
+}
+
+/** Settings → Publish to the cloud (`GET /api/publish`): never a key, only its masked end. */
+export interface PublishSettingsView {
+  /** Keys can be kept (the credential store, or the database encrypted). */
+  storage: boolean;
+  render: {
+    keyMasked: string;
+    /** The workspaces the key reaches, and the one apps go to. */
+    owners: PublishAccount[];
+    ownerId?: string;
+    region: RenderRegion;
+  };
+  neon: {
+    keyMasked: string;
+    orgs: PublishAccount[];
+    orgId?: string;
+  };
+  apps: PublishedApp[];
+}
+
+/** What a preview publishes as: the preview's mode, a Dockerfile or a compose file. */
+export type PublishKind = 'static' | 'build' | 'server' | 'docker' | 'compose';
+
+/** One step of a publish, in order. `skipped`: not needed this time (the repository exists, say). */
+export interface PublishStep {
+  id: 'repo' | 'push' | 'database' | 'init' | 'service' | 'build';
+  state: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  /** Render's deploy state for `build` (`build_in_progress`…), or what failed. */
+  detail?: string;
+}
+
+/** An app published from a preview, as Settings and the panel show it. */
+export interface PublishedApp {
+  id: string;
+  name: string;
+  conversationId: string;
+  /** Its conversation was deleted: the app stays online until it is unpublished. */
+  conversationGone?: boolean;
+  /** The folder it was published from (the preview's, absolute). */
+  folder: string;
+  kind: PublishKind;
+  serviceType: 'static_site' | 'web_service';
+  /** The private GitHub repository it is pushed to, `owner/name`. */
+  repo: string;
+  repoUrl: string;
+  /** Render's service, once made. */
+  serviceId?: string;
+  dashboardUrl?: string;
+  /** Its address on the internet, once Render gave one. */
+  url?: string;
+  /** The Neon projects of its databases, one per PostgreSQL service. */
+  databases: { service: string; projectId: string; name: string }[];
+  createdAt: number;
+  /** When it last went live. */
+  publishedAt?: number;
+  state: 'publishing' | 'live' | 'failed';
+  error?: string;
+  /** The current or last publish's steps (in memory: none after a restart). */
+  steps?: PublishStep[];
+}
+
+/** A variable the published app gets: from its compose file, its database, or the dialog. */
+export interface PublishEnvVar {
+  key: string;
+  value: string;
+  source: 'compose' | 'database' | 'user';
+}
+
+/** A Neon database a publish makes: for a compose file's PostgreSQL service, or the checkbox. */
+export interface PublishDatabasePlan {
+  /** The compose service it stands for; `DATABASE_URL` for the checkbox. */
+  service: string;
+  database: string;
+  role: string;
+  pgVersion?: number;
+  /** The compose file's init scripts that run on it once, in order. */
+  initScripts: string[];
+  /** Init scripts that are not run (`.sh`, `.sql.gz`). */
+  skippedScripts: string[];
+}
+
+/** What publishing a running preview would do (`POST …/preview/:id/publish/plan`). */
+export interface PublishPlan {
+  kind: PublishKind;
+  serviceType: 'static_site' | 'web_service';
+  /** The name the dialog starts with: the existing app's, else one from the folder. */
+  name: string;
+  folder: string;
+  /** The app published from this folder already: publishing updates it. */
+  existing?: PublishedApp;
+  env: PublishEnvVar[];
+  databases: PublishDatabasePlan[];
+  /** A backend or Dockerfile without compose: a Neon database can be added (`DATABASE_URL`). */
+  databaseOptional: boolean;
+  /** Render's build and start, as Relay sets them (for the dialog). */
+  commands: { build?: string; start?: string; publish?: string; dockerfile?: string };
+  /** What Settings still needs for this publish (Neon only when a compose file has PostgreSQL). */
+  missing: ('render' | 'render-owner' | 'neon' | 'neon-org')[];
+  /** Neon is set up: the checkbox's database can be made. */
+  neonReady: boolean;
+  github: { login?: string; problem?: typeof GH_MISSING | typeof GH_SIGNED_OUT };
+  region: RenderRegion;
+}
+
+/** `POST …/preview/:id/publish`. */
+export interface PublishRequest {
+  name?: string;
+  /** The variables the user added or changed (never the database's, which Neon gives). */
+  env?: { key: string; value: string }[];
+  /** For a backend or Dockerfile without compose: add a Neon database. */
+  database?: boolean;
+  /** The user confirmed that anyone with its address can open it. */
+  public: boolean;
+}
+
 /** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {
   /**
@@ -943,6 +1170,7 @@ export interface FileEntry {
 }
 
 export interface FileListing {
+  canonicalRoot: string;
   roots: FileRoot[];
   root: string;
   /** Relative to the root, with `/`; '' is the root itself. */
@@ -1272,6 +1500,20 @@ export interface CheckList {
    */
   hooks?: CheckHook[];
   /**
+   * The app the team builds must open in Harness Relay's preview: once the team has answered, every
+   * folder a turn of the run added or changed an app's file in (`isAppEntry`) must run as a preview
+   * does (a Dockerfile or compose file, an npm project with its lockfile and script, an index page).
+   * A run that made no app has nothing to check.
+   */
+  previewApp?: true;
+  /**
+   * A result that did not pass goes back to the team by itself: the member whose turn broke it (else
+   * the last one that changed files) is asked to fix it, as the card's button asks, at most
+   * `CHECK_LIMITS.autoFixes` times in a row; then the card waits for the user. Not in a run a schedule
+   * started that nobody watched, nor once the user stopped the team.
+   */
+  autoFix?: true;
+  /**
    * The default from Settings (`SettingsView.checksDefault`), copied into a new chat or automation as it
    * was made and not changed since: a template the lead agent picks that has a list of its own replaces
    * it. Any change to the list drops it; a default, a template and an empty list never have it.
@@ -1359,6 +1601,7 @@ export const CHECK_LIMITS = {
   hooks: 10,
   hookTimeoutSec: 60,
   maxHookTimeoutSec: 600,
+  autoFixes: 3,
 };
 
 /** The commit pattern the Conventional Commits button fills in. */
@@ -1372,7 +1615,7 @@ export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|
 export type CheckStatus = 'running' | 'passed' | 'failed' | 'error' | 'na';
 
 /** The rules a team check result reports on. */
-export type CheckRuleKind = 'paths' | 'commits' | 'command';
+export type CheckRuleKind = 'paths' | 'commits' | 'command' | 'preview';
 
 /** Something a check found: a protected file changed, or a commit whose subject does not match. */
 export interface CheckFinding {
@@ -1389,6 +1632,8 @@ export interface CheckFinding {
   by?: string;
   /** paths: in the member's own worktree (parallel mode), not in the working directory yet: applying its result brings it. */
   worktree?: boolean;
+  /** preview: why the app in `path` (its folder) cannot run in a preview. */
+  problem?: string;
 }
 
 /** One rule's result. */
@@ -1463,6 +1708,15 @@ export interface ChecksResult {
   skippedAt?: number;
   /** The user asked a member to fix it (the member's name then). */
   fixBy?: string;
+  /**
+   * The app preview rule (`CheckList.previewApp`): the replies whose apps it checked, oldest first. This
+   * run's, after those of a result whose preview failed and still held the queue.
+   */
+  appReplies?: string[];
+  /** How many automatic fixes (`CheckList.autoFix`) came before it in a row: at `CHECK_LIMITS.autoFixes`, it waits for the user. */
+  autoFixes?: number;
+  /** Its fix (`fixBy`) was sent by Relay itself, not asked by the user. */
+  fixAuto?: true;
 }
 
 /** Most findings one rule's result keeps, the most of a command's output it keeps, and the most of it agents are shown. */
@@ -1881,6 +2135,8 @@ export interface ChatMessage {
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /** A user message Relay sent by itself to fix the team checks (`CheckList.autoFix`): which attempt, of how many. */
+  autoFix?: { attempt: number; of: number };
   /**
    * A scheduled message a program sent through the schedule's webhook: the JSON body it posted (at most
    * `TRACKING_LIMITS.eventBytes`), which the agents get as data in an `<event>` block, never as instructions.

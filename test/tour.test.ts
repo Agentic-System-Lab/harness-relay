@@ -45,6 +45,7 @@ describe('guided tour', () => {
         'While the team replies',
         'Notifications and sound',
         'Team checks',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -56,6 +57,7 @@ describe('guided tour', () => {
         'A team for every question',
         'While the team replies',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -67,6 +69,7 @@ describe('guided tour', () => {
         'A team for every question',
         'While the team replies',
         'Notifications and sound',
+        'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
         'Adjust any time',
@@ -77,6 +80,7 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
           'Adjust any time',
@@ -88,23 +92,23 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'Browse the working directory',
           'Automations',
           'Adjust any time',
         ]);
       }
-      expect(titles(37)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'A team for every question',
-        'While the team replies',
-        'Adjust any time',
-      ]);
-      expect(titles(38)).toEqual([
-        'API keys and endpoints for open-source agents',
-        'A team for every question',
-        'While the team replies',
-        'Adjust any time',
-      ]);
-      expect(tourIndices(39)).toEqual([]);
+      for (const version of [37, 38])
+        expect(titles(version)).toEqual([
+          'API keys and endpoints for open-source agents',
+          'A team for every question',
+          'While the team replies',
+          'Browse the working directory',
+          'Adjust any time',
+        ]);
+      expect(titles(39)).toEqual(['Browse the working directory']);
+      // Publishing a preview came to the files step.
+      expect(titles(40)).toEqual(['Browse the working directory']);
+      expect(tourIndices(41)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -148,6 +152,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: 'f47082c32ad3' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 41, fingerprint: 'bc09ac05cd2d' });
   });
 });

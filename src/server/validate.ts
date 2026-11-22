@@ -731,6 +731,10 @@ export function validateChecks(input: unknown): CheckList {
     }
     if (hooks.length) out.hooks = hooks;
   }
+  if (c.previewApp !== undefined && typeof c.previewApp !== 'boolean') bad(t().invalidField('checks.previewApp'));
+  if (c.previewApp === true) out.previewApp = true;
+  if (c.autoFix !== undefined && typeof c.autoFix !== 'boolean') bad(t().invalidField('checks.autoFix'));
+  if (c.autoFix === true) out.autoFix = true;
   // Settings' default, unchanged since it was copied in (a list with rules only).
   if (c.fromDefault === true && hasRules(out)) out.fromDefault = true;
   return out;

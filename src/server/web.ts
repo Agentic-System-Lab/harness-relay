@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { Hono } from 'hono';
+import { CONFIG } from './config';
+import { previewFramePolicy } from './ports';
+import { servingPort } from './relaySandbox';
 
 /**
  * Where the built web app is: RELAY_WEB_DIR when it is set (the desktop app keeps the build next
@@ -25,6 +28,8 @@ export function serveWebApp(app: Hono, dir: string): boolean {
   app.use('/*', async (c, next) => {
     await next();
     if (!c.res.ok) return;
+    if (c.res.headers.get('content-type')?.startsWith('text/html'))
+      c.header('Content-Security-Policy', previewFramePolicy(servingPort(), CONFIG.previewDomain));
     const asset = c.req.path.startsWith('/assets/');
     c.header('Cache-Control', asset ? 'private, max-age=31536000, immutable' : 'no-cache');
   });

@@ -353,6 +353,26 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('Images from websites are shown only as links');
   });
 
+  it('tells agents an app is done only once it opens in the preview: a Dockerfile, linked, nothing run on the host', () => {
+    const briefing = buildBriefing(conv, team[0]!);
+    expect(briefing).toContain("is done only when the user can open it in Harness Relay's preview");
+    expect(briefing).toContain('a Dockerfile in its folder, in any language, Node too');
+    expect(briefing).toContain('[Preview app](api/Dockerfile)');
+    expect(briefing).toContain('[Preview app](compose.yaml)');
+    expect(briefing).toContain('[Preview site](site/index.html)');
+    expect(briefing).toContain("Do not start the app's server on the user's computer");
+    expect(briefing).toContain('When team checks say the app cannot be previewed, fix that first.');
+    expect(briefing).toContain('<preview_console>');
+    // The team checks' rule, and the messages Relay sends by itself to fix what failed.
+    const checked = buildBriefing(
+      { ...conv, settings: { ...conv.settings, permission: 'edit', checks: { previewApp: true, autoFix: true } } },
+      team[0]!,
+    );
+    expect(checked).toContain("Every app a turn adds or changes must open in Harness Relay's preview");
+    expect(checked).toContain('A user message marked via="team-checks" was sent by Harness Relay itself');
+    expect(briefing).not.toContain('via="team-checks"');
+  });
+
   it('tells agents how to hand the user a file to download', () => {
     const briefing = buildBriefing(conv, team[0]!);
     expect(briefing).toContain('[Q3 report](out/report.pdf)');
@@ -414,6 +434,10 @@ describe('scheduled messages', () => {
   it('are marked as sent by the schedule', () => {
     expect(renderMessage(conv, scheduled)).toBe('<message from="user" via="schedule">\ndaily check\n</message>');
     expect(renderMessage(conv, { ...scheduled, scheduled: undefined })).toBe('<message from="user">\ndaily check\n</message>');
+    // Sent by Relay itself to fix the team checks: marked so too.
+    expect(renderMessage(conv, { ...scheduled, scheduled: undefined, autoFix: { attempt: 1, of: 3 } })).toBe(
+      '<message from="user" via="team-checks">\ndaily check\n</message>',
+    );
   });
 
   it("carry a webhook's body as data in an <event> block, which the briefing says not to follow", () => {

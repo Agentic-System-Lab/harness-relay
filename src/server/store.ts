@@ -175,6 +175,7 @@ interface MessageRow {
   checks: string | null;
   queued: number | null;
   steered: string | null;
+  auto_fix: string | null;
   asked: number | null;
   scheduled: number | null;
   tracked: string | null;
@@ -453,6 +454,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     ...checksOf(r.checks),
     queued: r.queued ? true : undefined,
     ...steeredOf(r.steered),
+    ...autoFixOf(r.auto_fix),
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
     ...(r.event ? { event: r.event } : {}),
@@ -707,6 +709,15 @@ function steeredOf(json: string | null): Pick<ChatMessage, 'steered'> {
   return list.length ? { steered: list } : {};
 }
 
+/** Which automatic fix of the team checks a user message Relay sent is (`ChatMessage.autoFix`). */
+function autoFixOf(json: string | null): Pick<ChatMessage, 'autoFix'> {
+  const fix = parseJson<{ attempt?: unknown; of?: unknown } | null>(json, null);
+  const n = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0;
+  return fix && typeof fix === 'object' && n(fix.attempt) && n(fix.of)
+    ? { autoFix: { attempt: fix.attempt as number, of: fix.of as number } }
+    : {};
+}
+
 /** A system message's team checks result (`ChatMessage.checks`). */
 function checksOf(json: string | null): Pick<ChatMessage, 'checks'> {
   const checks = parseJson<ChecksResult | null>(json, null);
@@ -722,8 +733,8 @@ function checkListOf(json: string | null): Pick<ConversationSettings, 'checks'> 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled, event, tracked, event_source, checks, steered)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked, event_source, checks, steered, auto_fix)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -732,7 +743,8 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
-   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks, steered = excluded.steered`;
+   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks, steered = excluded.steered,
+   auto_fix = excluded.auto_fix`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -1449,6 +1461,7 @@ export class Store {
         m.event !== undefined ? nul(m.eventSource) : null,
         m.checks ? JSON.stringify(m.checks) : null,
         m.steered?.length ? JSON.stringify(m.steered) : null,
+        m.autoFix ? JSON.stringify(m.autoFix) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

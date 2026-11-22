@@ -31,11 +31,14 @@ import type {
   TrackedRun,
   TeamPreset,
   TeamRevision,
+  CheckFinding,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
+  CHECK_LIMITS,
+  CHECK_RESULT_LIMITS,
   GIT_MISSING,
   HOOK_PROVIDERS,
   OPEN_PROVIDERS,
@@ -53,6 +56,7 @@ import {
   planSavable,
 } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
+import { appProblems } from './previewTarget';
 import { withSubModelTokens, type SubModelTokens } from './runCode';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest, type RunOptions, type SteerTurn } from './agents/types';
@@ -136,10 +140,12 @@ import {
   blocking,
   checksFailed,
   checksHold,
+  hasApplyChecks,
   hasChecks,
   hasRules,
   isProtected,
   latestChecks,
+  needsFix,
   overallStatus,
   protectedPatterns,
 } from '../shared/checks';
@@ -353,6 +359,10 @@ interface Run {
   scheduledQueueOnly?: boolean;
   /** The user asked a member to fix this team checks result (its message id): the member is shown it, seen or not. */
   fixChecks?: string;
+  /** Relay itself asked for that fix (`CheckList.autoFix`): which automatic fix in a row this run is. */
+  autoFix?: number;
+  /** The team checks did not pass and fix themselves: the fix to start once this run ends (`startAutoFix`). */
+  autoFixNext?: { messageId: string; agentId: string; attempt: number };
   /** Steering: the members whose running turn can take a message now (`RunOptions.onSteer`), by agent id. */
   steers?: Map<string, TurnSteer>;
   /** The members of the parallel round under way: a message is steered into all of them, or none. */
@@ -398,6 +408,8 @@ interface StartOptions {
   scheduleSource?: string;
   /** The user asked a member (`only`) to fix this team checks result (its message id). */
   fixChecks?: string;
+  /** Relay itself asked (`CheckList.autoFix`): which automatic fix in a row this is. */
+  autoFix?: number;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
   designSchedule?: boolean;
   checkPlan?: ChatMessage;
@@ -453,6 +465,7 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
     if (m.checks) {
       m.checks.historical = true;
       if (m.checks.replyIds) m.checks.replyIds = m.checks.replyIds.flatMap((id) => ids.get(id) ?? []);
+      if (m.checks.appReplies) m.checks.appReplies = m.checks.appReplies.flatMap((id) => ids.get(id) ?? []);
     }
     if (!m.review) continue;
     if (m.review.replyIds) m.review.replyIds = m.review.replyIds.flatMap((id) => ids.get(id) ?? []);
@@ -1982,6 +1995,7 @@ export class Orchestrator {
           ...(opts.event !== undefined && opts.eventSource ? { eventSource: opts.eventSource } : {}),
         },
         opts.request,
+        opts.autoFix ? { attempt: opts.autoFix, of: CHECK_LIMITS.autoFixes } : undefined,
       );
       if (own) posted.push(own);
       else if (opts.request) this.store.recordTask(opts.request, convId, false);
@@ -2009,6 +2023,7 @@ export class Orchestrator {
         ...(posted.length && posted.every((m) => m.scheduled) ? { unattended: opts.scheduleSource ?? convId } : {}),
         ...(opts.scheduledQueueOnly ? { scheduledQueueOnly: true } : {}),
         ...(opts.fixChecks ? { fixChecks: opts.fixChecks } : {}),
+        ...(opts.autoFix ? { autoFix: opts.autoFix } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
@@ -2047,7 +2062,12 @@ export class Orchestrator {
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
           const next =
-            !run.abort.signal.aborted && (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+            !run.abort.signal.aborted &&
+            (run.answerNext
+              ? this.startConfirmed(conv, run.refuseApprovals)
+              : run.autoFixNext
+                ? this.startAutoFix(conv, run.autoFixNext)
+                : this.startQueued(conv));
           if (!next) this.emitStatus(conv.id);
           this.trace(conv);
         }
@@ -2094,6 +2114,7 @@ export class Orchestrator {
     scheduled = false,
     event: ScheduledEvent = {},
     request?: TaskRequest,
+    autoFix?: ChatMessage['autoFix'],
   ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
@@ -2105,6 +2126,7 @@ export class Orchestrator {
         status: 'done',
         ...(scheduled ? { scheduled: true } : {}),
         ...(scheduled ? event : {}),
+        ...(autoFix ? { autoFix } : {}),
       };
       conv.messages.push(msg);
       try {
@@ -2462,7 +2484,7 @@ export class Orchestrator {
         const force = Boolean(o.force && mine);
         const confirm = Boolean(o.confirm && mine);
         if (force && !mine!.checks!.applied) card = mine;
-        if (!force && hasChecks(conv.settings.checks)) {
+        if (!force && hasApplyChecks(conv.settings.checks)) {
           const folders = await this.foldersNow(conv);
           if (conv.settings.checks.commands?.length && this.checkCommandDeps.platform !== 'win32') {
             const extra = [...new Set(folders.map((f) => f.root))].filter((root) => !roots.includes(root));
@@ -2587,6 +2609,16 @@ export class Orchestrator {
     if (list.commitPattern) {
       const reason = of.agentId === TEAM_WORKTREE ? t().checksCommitsTeam : t().checksCommitsParallel;
       outcomes.push({ rule: 'commits', status: 'na', reason });
+    }
+    // The apps in this result, as the run's own result checked them (in the worktree, not applied yet):
+    // this card becomes the latest, so it says so too.
+    if (list.previewApp) {
+      const ran = conv.messages.findLast((m) => m.checks && m.checks.when !== 'apply' && !m.checks.historical)?.checks;
+      const mine = (ran?.appReplies ?? ran?.replyIds ?? []).filter((id) => {
+        const reply = conv.messages.find((m) => m.id === id);
+        return of.agentId === TEAM_WORKTREE || (reply?.author.kind === 'agent' && reply.author.agentId === of.agentId);
+      });
+      outcomes.push(this.previewOutcome(conv, mine));
     }
     const commands = list.commands ?? [];
     const windows = this.checkCommandDeps.platform === 'win32';
@@ -3169,6 +3201,7 @@ export class Orchestrator {
     const rules: CheckOutcome['rule'][] = [
       ...(protectedPatterns(list).length ? ['paths' as const] : []),
       ...(list?.commitPattern ? ['commits' as const] : []),
+      ...(list?.previewApp ? ['preview' as const] : []),
     ];
     return [
       ...rules.map((rule) => ({ rule, status: 'error' as const, reason: why })),
@@ -3491,6 +3524,12 @@ export class Orchestrator {
       // The commands are posted below when they can run; when the checks could not start, as these.
       outcomes = this.unchecked(conv, (err as Error).message, !run.checks);
     }
+    // The app the team built opens in a preview: from the files its turns changed, whatever else could be checked.
+    let appReplies: string[] | undefined;
+    if (conv.settings.checks?.previewApp) {
+      appReplies = this.appReplies(conv, [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)]);
+      outcomes = [...outcomes.filter((o) => o.rule !== 'preview'), this.previewOutcome(conv, appReplies)];
+    }
     if (!run.pausedChecks && !touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
     // Commands the latest result was kept from running for stay kept from it until the user confirms
     // or skips it: a later run that did not touch the settings again does not run them unconfirmed.
@@ -3499,6 +3538,8 @@ export class Orchestrator {
     // user something, nor in parallel mode, whose results are in the members' worktrees, nor in the
     // team's own: they run when the result is applied.
     const commands = run.checks ? (conv.settings.checks?.commands ?? []) : [];
+    // Only the app preview to check, and no turn made an app: nothing to say (unless a failure waits, which this passes).
+    if (!commands.length && outcomes.every((o) => o.rule === 'preview' && o.status === 'na') && !checksHold(conv.messages)) return;
     const skipped = conv.pause
       ? t().checksCommandsAtEnd
       : run.ws.team
@@ -3532,6 +3573,8 @@ export class Orchestrator {
           replyIds: [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)],
           checkedAt: started,
           durationMs: Date.now() - started,
+          ...(appReplies ? { appReplies } : {}),
+          ...(run.autoFix ? { autoFixes: run.autoFix } : {}),
         },
       ),
     );
@@ -3553,6 +3596,128 @@ export class Orchestrator {
     }
     // Not for commands stopped (the server shutting down, say), which say nothing of the team's work.
     if (run.unattended && msg.checks!.outcomes.some(blocking)) this.scheduleChecksFailed(run.unattended, conv, msg.checks!);
+    // It goes back to the team by itself, as the card's button would send it (not to ask the user, not
+    // in a run nobody watches, not once stopped), until it has been sent back too many times in a row.
+    const result = msg.checks!;
+    const before = run.autoFix ?? 0;
+    if (
+      conv.settings.checks?.autoFix &&
+      result.outcomes.some((o) => o.status === 'failed' && needsFix(o)) &&
+      !this.userWaits(conv) &&
+      !conv.pause &&
+      !run.unattended &&
+      !run.abort.signal.aborted &&
+      before < CHECK_LIMITS.autoFixes
+    ) {
+      const fixer = this.fixer(conv, result, replies);
+      if (fixer) run.autoFixNext = { messageId: msg.id, agentId: fixer.id, attempt: before + 1 };
+    }
+  }
+
+  /** One of the user's own messages waits in the queue: they are here, and decide what comes next. */
+  private userWaits(conv: Conversation): boolean {
+    return (conv.queue ?? []).some((m) => !m.scheduled);
+  }
+
+  /**
+   * The replies whose apps the `preview` rule checks: these, after those of a result whose preview
+   * failed and still holds the queue, so that a turn touching none of that app's files does not pass it.
+   */
+  private appReplies(conv: Conversation, replyIds: readonly string[]): string[] {
+    const held = checksHold(conv.messages)?.checks;
+    const carried = held?.outcomes.some((o) => o.rule === 'preview' && blocking(o)) ? (held.appReplies ?? held.replyIds ?? []) : [];
+    return [...new Set([...carried, ...replyIds])];
+  }
+
+  /**
+   * The `preview` rule's outcome (`CheckList.previewApp`) for these replies: every app their turns
+   * made or changed runs as a preview does, as the files are now; nothing to check when none made one.
+   */
+  private previewOutcome(conv: Conversation, replyIds: readonly string[]): CheckOutcome {
+    const lookup = (id: string) => this.store.get(id);
+    const findings = new Map<string, CheckFinding>();
+    let apps = 0;
+    try {
+      for (const id of replyIds) {
+        const reply = conv.messages.find((m) => m.id === id);
+        if (!reply?.changes?.some((c) => c.files.length)) continue;
+        const found = appProblems(conv, id, lookup, this.settings);
+        apps += found.apps.length;
+        for (const folder of found.apps) findings.delete(folder);
+        for (const problem of found.problems)
+          findings.set(problem.folder, {
+            path: problem.shown,
+            problem: problem.reason,
+            ...(reply.agentName ? { by: reply.agentName } : {}),
+          });
+      }
+    } catch (err) {
+      return { rule: 'preview', status: 'error', reason: (err as Error).message };
+    }
+    if (!apps) return { rule: 'preview', status: 'na', reason: t().checksPreviewNoApp };
+    const all = [...findings.values()];
+    const max = CHECK_RESULT_LIMITS.findings;
+    return {
+      rule: 'preview',
+      status: all.length ? 'failed' : 'passed',
+      ...(all.length ? { findings: all.slice(0, max) } : {}),
+      ...(all.length > max ? { more: all.length - max } : {}),
+    };
+  }
+
+  /**
+   * Who fixes a result Relay sends back by itself: the member a failing finding names, else the last one
+   * whose turn changed files, else the last to reply.
+   */
+  private fixer(conv: Conversation, result: ChecksResult, replies: readonly ChatMessage[]): AgentConfig | undefined {
+    const named = result.outcomes
+      .filter(needsFix)
+      .flatMap((o) => o.findings ?? [])
+      .map((f) => f.by)
+      .find((by) => by && conv.agents.some((a) => a.name === by));
+    const byName = named ? conv.agents.find((a) => a.name === named) : undefined;
+    if (byName) return byName;
+    const reply =
+      [...replies].reverse().find((m) => m.author.kind === 'agent' && m.changes?.some((c) => c.files.length)) ??
+      [...replies].reverse().find((m) => m.author.kind === 'agent');
+    const id = reply?.author.kind === 'agent' ? reply.author.agentId : undefined;
+    return conv.agents.find((a) => a.id === id) ?? conv.agents[0];
+  }
+
+  /**
+   * The team checks did not pass, and fix themselves (`CheckList.autoFix`): the member is asked as the
+   * card's button asks, its message marked as Relay's. Not when the result is no longer the latest, was
+   * skipped or passes now, or a design waits: what waits in the queue starts instead.
+   */
+  private startAutoFix(conv: Conversation, next: NonNullable<Run['autoFixNext']>): boolean {
+    const msg = conv.messages.find((m) => m.id === next.messageId);
+    const agent = conv.agents.find((a) => a.id === next.agentId);
+    if (
+      !msg?.checks ||
+      !agent ||
+      !checksFailed(msg.checks) ||
+      msg.checks.skippedAt ||
+      latestChecks(conv.messages) !== msg ||
+      conv.pause ||
+      this.userWaits(conv) ||
+      !this.mayStart(conv)
+    )
+      return this.startQueued(conv);
+    void this.start(conv, t().checksAutoFixMessage(agent.name, next.attempt, CHECK_LIMITS.autoFixes), {
+      only: [agent],
+      keepTeam: true,
+      fixChecks: msg.id,
+      autoFix: next.attempt,
+      beforePost: () => {
+        msg.checks = { ...msg.checks!, fixBy: agent.name, fixAuto: true };
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      },
+    }).catch((err: unknown) => {
+      if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
+      this.emitStatus(conv.id);
+    });
+    return true;
   }
 
   /**
@@ -3679,15 +3844,18 @@ export class Orchestrator {
           }
         }
       }
+      const replyIds = old.checks!.replyIds;
+      const appReplies = builtIn?.previewApp ? (old.checks!.appReplies ?? replyIds ?? []) : undefined;
+      if (appReplies) outcomes = [...outcomes.filter((x) => x.rule !== 'preview'), this.previewOutcome(conv, appReplies)];
       // Still kept from running by the run's changes, until the user confirms.
       // Not only the card's own: a gate an earlier result carries on holds them back as well.
       const gated = o.confirm ? [] : this.heldGate(conv);
-      const replyIds = old.checks!.replyIds;
       next = this.postChecks(
         conv,
         checksResult([...outcomes, ...commands.map((c) => this.commandPending(c, runs ? 'running' : 'na', skipped))], {
           when: 'recheck',
           ...(replyIds ? { replyIds } : {}),
+          ...(appReplies?.length ? { appReplies } : {}),
           checkedAt: started,
           durationMs: Date.now() - started,
         }),
@@ -3801,7 +3969,8 @@ export class Orchestrator {
       keepTeam: true,
       fixChecks: msg.id,
       beforePost: () => {
-        msg.checks = { ...msg.checks!, fixBy: agent.name };
+        const { fixAuto: _auto, ...was } = msg.checks!;
+        msg.checks = { ...was, fixBy: agent.name };
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       },

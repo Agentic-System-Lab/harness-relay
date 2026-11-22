@@ -1,14 +1,19 @@
+import type { HttpBindings } from '@hono/node-server';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
+import { AppPreviews, isPreviewHost } from './appPreviews';
+import { appProblems, changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
+import { AppPublisher } from './publish';
+import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -23,6 +28,7 @@ import { HostedAppChecks } from './connectors/hostedApps';
 import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
+  PREVIEW_NOT_READY,
   DEFAULT_ACCOUNT,
   FILE_LIMITS,
   keyOnlyAccount,
@@ -158,6 +164,9 @@ export interface AppDeps {
    * Null takes no sign-in, for tests only: then any program on this computer could drive the agents.
    */
   auth: AuthStore | null;
+  previews?: AppPreviews;
+  /** Publishing previews to the user's Render and Neon accounts (`publish/`); created when not given. */
+  publisher?: AppPublisher;
   store: Store;
   settings: SettingsStore;
   hub: Hub;
@@ -317,7 +326,7 @@ export function createApp({
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
   gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
-  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using)),
+  appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using), clis),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -340,6 +349,8 @@ export function createApp({
   scheduler,
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
+  previews = new AppPreviews('test'),
+  publisher = new AppPublisher(settings.publish, { owner: 'test' }),
   labsUnavailable = async () => {
     if (process.platform === 'win32') return t().labsWindows;
     if (!gatewayNode()) return t().labsNoNode;
@@ -373,6 +384,19 @@ export function createApp({
   // block DNS-rebinding (Host) and cross-site requests (Origin / non-JSON simple POSTs).
   const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
   const hostAllowed = (h: string) => LOCAL_HOST.test(h) || extraHosts.includes(h.replace(/:\d+$/, ''));
+
+  // Preview hostnames serve only the selected app, even when its paths start with /api.
+  app.use('*', async (c, next) => {
+    const host = (c.req.header('host') ?? '').toLowerCase();
+    if (isPreviewHost(host, CONFIG.previewDomain)) {
+      const peer = (c.env as Partial<HttpBindings> | undefined)?.incoming?.socket.remoteAddress;
+      const local =
+        (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') &&
+        !['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto'].some((header) => c.req.header(header) !== undefined);
+      return previews.fetch(c.req.raw, host, local);
+    }
+    await next();
+  });
 
   app.use('/api/*', async (c, next) => {
     const host = c.req.header('host') ?? '';
@@ -570,7 +594,7 @@ export function createApp({
   app.get('/api/settings', (c) => c.json(settingsView()));
 
   app.patch('/api/settings/checks-default', async (c) => {
-    const patch = await body<Omit<CheckList, 'fromDefault'>>(c);
+    const patch = await body<Record<string, unknown>>(c);
     // Merge with the current default so simultaneous saves of hooks and other checks both survive.
     const { fromDefault: _copied, ...list } = validateChecks({ ...settings.checksDefault, ...patch });
     settings.setChecksDefault(hasRules(list) ? list : undefined);
@@ -1244,6 +1268,9 @@ export function createApp({
     app.post(path, (c) => c.json(appDependencies.install(name)));
   }
 
+  app.get('/api/apps/docker/install', async (c) => c.json(await appDependencies.dockerView()));
+  app.post('/api/apps/docker/install', async (c) => c.json(await appDependencies.installDocker()));
+
   app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
   app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
 
@@ -1886,7 +1913,9 @@ export function createApp({
 
   app.delete('/api/conversations/:id', async (c) => {
     // Stops a run first and waits for it to wind down, so nothing writes to the deleted conversation.
-    await orchestrator.deleteConversation(c.req.param('id'));
+    const id = c.req.param('id');
+    await orchestrator.deleteConversation(id);
+    await previews.stop(id);
     return c.json({ ok: true });
   });
 
@@ -2103,6 +2132,201 @@ export function createApp({
     return sendFile(c, file, true);
   });
 
+  // App previews use the same working directories and reply worktrees as Files and media.
+  app.post('/api/conversations/:id/preview/target', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const input = await body<Partial<AppPreviewRequest>>(c);
+    return c.json(detectPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
+  });
+  // The app a finished turn made, from the files it added or changed (the card, the header's button and the panel opening by itself).
+  app.post('/api/conversations/:id/preview/changed', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const input = await body<{ messageId?: unknown }>(c);
+    const conv = getConv(c.req.param('id'));
+    const lookup = (id: string) => store.get(id);
+    try {
+      return c.json(changedPreviewTarget(conv, input, lookup, settings));
+    } catch (error) {
+      // A new app that cannot run yet: why, for the chat to say and to ask its author to fix.
+      if (!(error instanceof HttpError) || error.status !== 404 || typeof input.messageId !== 'string') throw error;
+      const problem = appProblems(conv, input.messageId, lookup, settings, { added: true }).problems[0];
+      if (problem) throw new HttpError(409, t().previewNotReady(problem.shown, problem.reason), PREVIEW_NOT_READY);
+      throw error;
+    }
+  });
+  app.post('/api/conversations/:id/preview', async (c) => {
+    const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const address = previewAddress(parent, servingPort(), CONFIG.previewDomain);
+    const input = await body<Partial<AppPreviewRequest>>(c);
+    const conv = getConv(c.req.param('id'));
+    const target = previewTarget(conv, input, (id) => store.get(id), settings);
+    if (
+      input.expectedFolder !== undefined &&
+      (typeof input.expectedFolder !== 'string' ||
+        !isAbsolute(input.expectedFolder) ||
+        relative(input.expectedFolder, resolve(target.root, target.folder)))
+    ) {
+      throw new HttpError(409, t().previewFolderChanged);
+    }
+    const browser = sessions.get(c.req.raw);
+    const live = browser && auth ? () => auth.hasSession(browser) : undefined;
+    c.header('cache-control', 'no-store');
+    return c.json(
+      await previews.start(conv.id, target, address, parent.origin, c.req.raw.signal, live, () => Boolean(store.get(conv.id)), browser),
+    );
+  });
+  // A container preview's terminal: what it shows, as SSE, for the browser that started it.
+  const PREVIEW_STREAM_QUEUE = 2 * 1024 * 1024;
+  app.get('/api/conversations/:id/preview/:previewId/terminal', (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const previewId = c.req.param('previewId');
+    const browser = sessions.get(c.req.raw);
+    const terminal = previews.terminal(conv.id, previewId, browser);
+    c.header('cache-control', 'no-store');
+    return streamSSE(c, async (stream) => {
+      let closed = false;
+      const queue: PreviewTerminalEvent[] = [];
+      let queued = 0;
+      let wake: (() => void) | undefined;
+      const unsubscribe = terminal.subscribe((event) => {
+        // A browser that stops reading (a phone asleep) while the app keeps writing: past this, the
+        // stream ends instead of growing, and the browser's next one starts from the replay.
+        if (event.type === 'output' && (queued += event.data.length) > PREVIEW_STREAM_QUEUE) {
+          queue.length = 0;
+          closed = true;
+        } else {
+          queue.push(event);
+          if (event.type === 'closed') closed = true;
+        }
+        wake?.();
+      });
+      stream.onAbort(() => {
+        closed = true;
+        wake?.();
+      });
+      let ping = Date.now();
+      while (!stream.aborted) {
+        while (queue.length) {
+          const event = queue.shift()!;
+          if (event.type === 'output') queued -= event.data.length;
+          await stream.writeSSE({ data: JSON.stringify(event) });
+        }
+        if (closed) break;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = undefined;
+        if (Date.now() - ping >= 15_000) {
+          ping = Date.now();
+          // Still this browser's, still running: that also keeps it from expiring as idle.
+          try {
+            previews.terminal(conv.id, previewId, browser);
+          } catch {
+            break;
+          }
+          await stream.writeSSE({ event: 'ping', data: '' });
+        }
+      }
+      unsubscribe();
+    });
+  });
+  app.post('/api/conversations/:id/preview/:previewId/terminal', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ input?: unknown; cols?: unknown; rows?: unknown }>(c);
+    const terminal = previews.terminal(conv.id, c.req.param('previewId'), sessions.get(c.req.raw));
+    if (b.input !== undefined) {
+      if (typeof b.input !== 'string' || b.input.length > 65536) throw new HttpError(400, t().invalidField('input'));
+      if (!terminal.input(b.input)) throw new HttpError(409, t().previewDocker.notRunning);
+    }
+    if (b.cols !== undefined || b.rows !== undefined) {
+      const cols = Number(b.cols);
+      const rows = Number(b.rows);
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 1000 || rows > 1000)
+        throw new HttpError(400, t().invalidField('cols'));
+      await terminal.resize(cols, rows);
+    }
+    return c.json({ ok: true });
+  });
+  // A single-use address that opens the preview's page in a tab of its own, for the browser that started it.
+  app.post('/api/conversations/:id/preview/:previewId/tab', (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    return c.json({ url: previews.tab(conv.id, c.req.param('previewId'), sessions.get(c.req.raw)) });
+  });
+  // Runs the main service again: with its own command, or with the command line given.
+  app.post('/api/conversations/:id/preview/:previewId/run', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ command?: unknown }>(c);
+    if (
+      b.command !== undefined &&
+      (typeof b.command !== 'string' || !b.command.trim() || b.command.length > 4096 || /[\0\r\n]/.test(b.command))
+    )
+      throw new HttpError(400, t().invalidField('command'));
+    const terminal = previews.terminal(conv.id, c.req.param('previewId'), sessions.get(c.req.raw));
+    await terminal.run(b.command as string | undefined);
+    return c.json({ ok: true });
+  });
+  app.delete('/api/conversations/:id/preview/:previewId', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    await previews.stop(getConv(c.req.param('id')).id, c.req.param('previewId'));
+    return c.json({ ok: true });
+  });
+
+  // --- Publishing a previewed app (Render, Neon), only ever on the user's own request ----------------
+
+  const conversationGone = (id: string) => !store.get(id);
+  app.get('/api/publish', (c) => c.json(publisher.view(conversationGone)));
+  app.put('/api/publish/render', async (c) => {
+    await publisher.setRenderKey((await body<{ apiKey?: unknown }>(c))?.apiKey);
+    return c.json(publisher.view(conversationGone));
+  });
+  app.patch('/api/publish/render', async (c) => {
+    publisher.updateRender((await body<{ ownerId?: unknown; region?: unknown }>(c)) ?? {});
+    return c.json(publisher.view(conversationGone));
+  });
+  app.delete('/api/publish/render', (c) => {
+    publisher.removeRender();
+    return c.json(publisher.view(conversationGone));
+  });
+  app.put('/api/publish/neon', async (c) => {
+    await publisher.setNeonKey((await body<{ apiKey?: unknown }>(c))?.apiKey);
+    return c.json(publisher.view(conversationGone));
+  });
+  app.patch('/api/publish/neon', async (c) => {
+    publisher.updateNeon((await body<{ orgId?: unknown }>(c)) ?? {});
+    return c.json(publisher.view(conversationGone));
+  });
+  app.delete('/api/publish/neon', (c) => {
+    publisher.removeNeon();
+    return c.json(publisher.view(conversationGone));
+  });
+  app.get('/api/publish/apps/:appId', (c) => c.json(publisher.app(c.req.param('appId'), conversationGone)));
+  app.delete('/api/publish/apps/:appId', async (c) => {
+    await publisher.unpublish(c.req.param('appId'), c.req.query('database') === '1', c.req.query('forget') === '1');
+    return c.json({ ok: true });
+  });
+  // A running preview the browser that started it tried: what publishing it would do, then publishing it.
+  app.post('/api/conversations/:id/preview/:previewId/publish/plan', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const source = await previews.publishSource(conv.id, c.req.param('previewId'), sessions.get(c.req.raw), c.req.raw.signal);
+    return c.json(await publisher.plan(source));
+  });
+  app.post('/api/conversations/:id/preview/:previewId/publish', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const request = (await body<Partial<PublishRequest>>(c)) ?? {};
+    const source = await previews.publishSource(conv.id, c.req.param('previewId'), sessions.get(c.req.raw), c.req.raw.signal);
+    return c.json(await publisher.publish(source, request));
+  });
+
   // --- Browsing the working directory (and agents' worktrees) -------------------
 
   /** The folder a files request names (`root`: a `FileRoot.id`, `cwd` when absent) and the path inside it. */
@@ -2116,7 +2340,13 @@ export function createApp({
 
   app.get('/api/conversations/:id/files', (c) => {
     const { roots, root, path } = fileTarget(c);
-    return c.json({ roots, root, ...listFolder(rootPath(roots, root), path) });
+    let canonicalRoot: string;
+    try {
+      canonicalRoot = realpathSync.native(rootPath(roots, root));
+    } catch {
+      throw new HttpError(404, t().fileRootNotFound);
+    }
+    return c.json({ roots, root, canonicalRoot, ...listFolder(canonicalRoot, path) });
   });
 
   app.get('/api/conversations/:id/files/preview', (c) => {

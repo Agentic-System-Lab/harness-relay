@@ -97,6 +97,10 @@ Turn Tailscale on in the phone and open the address from step 1, for example `ht
 
 With `npm start`, complete steps 1 and 2, then generate the phone QR code from Settings on the computer. The server looks up the currently shared Tailscale address and port. If the connection drops after you send a task, retry the same draft in the same tab. The computer recognizes the retry. When you return from a notification or unlock the phone, approval buttons wait for the computer’s latest state.
 
+### App previews
+
+On the computer running Relay, previews use a fresh `p-….localhost` hostname on the Relay server’s port. From a phone, `localhost` points at the phone. To use **Preview app** remotely, use HTTPS for the chat and set `RELAY_PREVIEW_DOMAIN` before starting Relay, for example to `preview.example.net`. Give `*.preview.example.net` DNS records reachable from the phone and a valid wildcard TLS certificate. Configure your reverse proxy to preserve the incoming `Host` and route these HTTPS requests to the same Relay listener. Use a domain separate from the chat’s login domain and limit access to the intended network. Remote HTTPS previews require their own partitioned cookie. If the panel asks you to verify the preview, allow partitioned cookies for the embedded page and reopen it. On the local computer, WebKit can use the redeemed preview’s secret loopback hostname for requests the browser marks as same-origin and sends directly over loopback. You can use Relay on its own computer while remote DNS or TLS is unavailable. The standard single-host Tailscale Serve setup covers the chat only.
+
 ## 4. Add it to the home screen
 
 An icon on the home screen, Harness Relay's three dots, opens the chat with one tap. It only works while Tailscale is on in the phone and the computer can be reached.

@@ -56,16 +56,32 @@ export function ChecksEditor({ value, onChange, permission, convId, env, variant
   const [paths, setPaths] = useState(() => pathsText(value));
   const [pattern, setPattern] = useState(() => value?.commitPattern ?? '');
   const [commands, setCommands] = useState<CheckCommand[]>(() => value?.commands ?? []);
+  const [flags, setFlags] = useState<Pick<CheckList, 'previewApp' | 'autoFix'>>(() => ({
+    ...(value?.previewApp ? { previewApp: true as const } : {}),
+    ...(value?.autoFix ? { autoFix: true as const } : {}),
+  }));
   const [tried, setTried] = useState<Record<string, CheckOutcome | 'running' | string>>({});
-  const update = (next: { paths?: string; pattern?: string; commands?: CheckCommand[]; hooks?: CheckHook[] }) => {
+  const update = (next: {
+    paths?: string;
+    pattern?: string;
+    commands?: CheckCommand[];
+    hooks?: CheckHook[];
+    flags?: Pick<CheckList, 'previewApp' | 'autoFix'>;
+  }) => {
     const p = next.paths ?? paths;
     const c = next.pattern ?? pattern;
     const cmds = next.commands ?? commands;
     const hks = next.hooks ?? value?.hooks;
+    const f = next.flags ?? flags;
     setPaths(p);
     setPattern(c);
     setCommands(cmds);
-    onChange(listFrom(p, c, before.current, cmds, hks));
+    setFlags(f);
+    onChange(listFrom(p, c, before.current, cmds, hks, f));
+  };
+  const setFlag = (name: 'previewApp' | 'autoFix', on: boolean) => {
+    const { [name]: _was, ...rest } = flags;
+    update({ flags: on ? { ...rest, [name]: true } : rest });
   };
   const setCommand = (id: string, patch: Partial<CheckCommand>) =>
     update({ commands: commands.map((c) => (c.id === id ? Object.assign({}, c, patch) : c)) });
@@ -129,6 +145,22 @@ export function ChecksEditor({ value, onChange, permission, convId, env, variant
           {t.checks.commitPatternHint}
         </span>
         {wrongPattern && <span className="small warn-text">{t.checks.badPattern(wrongPattern)}</span>}
+      </div>
+      <div className="checks-field checks-flags">
+        <label className="check-row">
+          <input type="checkbox" checked={Boolean(flags.previewApp)} onChange={(e) => setFlag('previewApp', e.target.checked)} />
+          <span>
+            {t.checks.previewApp}
+            <span className="small muted checks-flag-hint">{t.checks.previewAppHint}</span>
+          </span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={Boolean(flags.autoFix)} onChange={(e) => setFlag('autoFix', e.target.checked)} />
+          <span>
+            {t.checks.autoFix}
+            <span className="small muted checks-flag-hint">{t.checks.autoFixHint(CHECK_LIMITS.autoFixes)}</span>
+          </span>
+        </label>
       </div>
       <div className="checks-field">
         <span className="checks-commands-title">{t.checks.commands}</span>

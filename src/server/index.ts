@@ -1,4 +1,9 @@
-import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { AppPreviews, isPreviewHost } from './appPreviews';
+import { startContainerPreview } from './previewContainer';
+import { cleanupPreviewRuntimes, startPreviewRuntime } from './previewRuntime';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { AlertWatcher } from './alerts';
@@ -20,7 +25,7 @@ import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { checkTrigger } from './watch';
 import { IdleWatcher } from './idle';
-import { ToolGateway, outboxTool } from './gateway';
+import { GatewaySocketPathError, ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
@@ -30,6 +35,8 @@ import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
+import { AppPublisher } from './publish';
+import { clearPublishTmp } from './publish/git';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import {
@@ -277,10 +284,41 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
-const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using));
+const appDependencies = commonAppDependencies(sandboxSetup.linux, () => Boolean(settings.tools.browserStatus().using), clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
+// An installation that only previews static sites never needs to contact Docker. The marker
+// survives a crash. Serialize its first sweep with new starts so it only removes older containers.
+const previewOwner = createHash('sha256').update(realpathSync(DATA_DIR)).digest('hex');
+const previewMarker = join(DATA_DIR, 'preview-runtime-used');
+let previewRecovered = !existsSync(previewMarker);
+let recoveringPreviews: Promise<void> | undefined;
+function recoverPreviews(): Promise<void> {
+  if (previewRecovered) return Promise.resolve();
+  return (recoveringPreviews ??= cleanupPreviewRuntimes(previewOwner)
+    .then(() => {
+      previewRecovered = true;
+    })
+    .finally(() => {
+      recoveringPreviews = undefined;
+    }));
+}
+if (!previewRecovered) void recoverPreviews().catch((err: unknown) => console.error('[preview] startup cleanup:', err));
+const beforePreviewDocker = (signal: AbortSignal) => async () => {
+  await recoverPreviews();
+  signal.throwIfAborted();
+  mkdirSync(previewMarker, { recursive: true, mode: 0o700 });
+};
+const previews = new AppPreviews(
+  previewOwner,
+  (options) => startPreviewRuntime({ ...options, beforeDocker: beforePreviewDocker(options.signal) }),
+  Date.now,
+  (options) => startContainerPreview({ ...options, beforeDocker: beforePreviewDocker(options.signal) }),
+);
+const publisher = new AppPublisher(settings.publish, { owner: previewOwner });
 const app = createApp({
+  previews,
+  publisher,
   teams,
   auth,
   store,
@@ -321,6 +359,7 @@ if (!built) {
 
 // What shares left behind when the server stopped during them (none is being made yet).
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
+await clearPublishTmp().catch((err: unknown) => console.error('[server] could not clear the temporary publish folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
 // In a codespace, gh's sign-in folder: there before any turn, so that every sandbox keeps it out.
@@ -361,7 +400,14 @@ clearOpenRunLeftovers(
 );
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 // The gateway's socket: agents get Harness Relay's own tools only once it listens.
-await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
+await gateway
+  .start()
+  .catch((err: unknown) =>
+    console.error(
+      "[server] could not start the gateway for Harness Relay's own tools:",
+      err instanceof GatewaySocketPathError ? `${err.message}.` : err,
+    ),
+  );
 
 const port = apiPort();
 const host = process.env.HOST ?? DEFAULT_HOST;
@@ -392,6 +438,17 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   alerts.start();
   inbox.start();
 });
+// A preview app's WebSockets (see `AppPreviews.upgrade`); no other route of this server upgrades.
+(server as import('node:http').Server).on('upgrade', (request, socket, head) => {
+  const where = (request.headers.host ?? '').toLowerCase();
+  if (!isPreviewHost(where, CONFIG.previewDomain)) return socket.destroy();
+  const peer = request.socket.remoteAddress;
+  // On this computer, unless something in between forwarded it (as the app's middleware decides).
+  const local =
+    (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') &&
+    !['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto'].some((name) => request.headers[name] !== undefined);
+  previews.upgrade(request, socket, head, where, local).catch(() => socket.destroy());
+});
 // Without a listener, a port already in use would end the process with a stack trace.
 server.on('error', (err: NodeJS.ErrnoException) => {
   const hint = err.code === 'EADDRINUSE' ? ' Another program (or another Harness Relay) is using it; start with another PORT.' : '';
@@ -421,6 +478,8 @@ async function shutdown(code = 0): Promise<void> {
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
   const installsStopped = Promise.all([
+    previews.close(),
+    publisher.close(),
     clis.shutdown(),
     sandboxSetup.shutdown(),
     gitInstall.shutdown(),
@@ -443,5 +502,12 @@ process.on('SIGTERM', () => void shutdown());
 parent?.onShutdown(() => void shutdown());
 // Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
 parent?.onBusy(
-  () => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running() + appDependencies.running() + teams.running(),
+  () =>
+    orchestrator.busy() +
+    clis.running() +
+    sandboxSetup.running() +
+    gitInstall.running() +
+    appDependencies.running() +
+    teams.running() +
+    publisher.busy(),
 );
