@@ -1,0 +1,380 @@
+import type { ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { INTERACTIVE_LIMITS, type InteractiveSession } from '../shared/types';
+import { maskValues } from '../shared/handoffs';
+import { ASKPASS_ENV, ASKPASS_SCRIPT, ASKPASS_SHIM_SOURCE } from './askpassShim';
+import { checkEnv } from './checkCommands';
+import { removeTree } from './fsRemove';
+import type { AskpassGrant, AskpassHandler } from './gateway';
+import { linksAndCodes } from './login';
+import { CommandNotFoundError, killTree, spawnInteractive, stripAnsi } from './process';
+import { relayTmpDir, RUN_TMP_PREFIXES } from './protect';
+
+/*
+ * Interactive commands (docs/architecture.md, "Interactive commands"): a command an agent asks the user
+ * to run themselves (an `<interactive>` block), which only the user starts, from its card. It runs with
+ * the user's rights, outside every sandbox, as a terminal would run it, but without one:
+ *
+ * - through the fixed shell script check commands use, the command line in the environment, with
+ *   `checkEnv()`'s environment (never the server's, which may hold API keys) but not its `CI=1`, which
+ *   makes many programs skip their prompts;
+ * - in an empty folder of its own in Harness Relay's temporary folder, or in the working directory when
+ *   the user chooses so (the card then lists the configuration files there it may load, which agents can
+ *   write: `workdirConfigFiles()`);
+ * - its output and what the user types visibly shown on the card as a terminal would show them, with
+ *   the folder's secret values and everything typed hidden replaced by dots (`maskValues`), the links and
+ *   codes picked out; what the user types sent as it is, a line at a time (never trimmed);
+ * - a password helper of its own for the programs that ask through one (`sudo -A`, ssh, git:
+ *   `askpassShim.ts`), which reaches the server over the gateway's socket with a token for this session
+ *   alone, and asks the card for one hidden line;
+ * - stopped by its time limit, by Cancel, and with the server; its folder removed when it ends.
+ *
+ * It never starts on native Windows (no `/bin/sh`), and has no terminal: a program that needs one
+ * (a full-screen program, a prompt that checks for one) cannot be answered here.
+ */
+
+/** The shell script it runs in: its output and errors together, the command line from the environment (as check commands'). */
+const SCRIPT = 'exec 2>&1; eval "$RELAY_CHECK_COMMAND"';
+
+/** The most of its output kept in memory (its end), before masking and the card's own limit. */
+const RAW_MAX = 128 * 1024;
+
+/**
+ * Names at the top of a working directory that a program run there may read its settings (or code:
+ * npm's scripts) from, which agents can write: package managers', dotenv files, version managers',
+ * git's and the cloud CLIs' folders.
+ */
+const CONFIG_NAMES =
+  /^(?:\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmfile\.cjs|\.?bunfig\.toml|package\.json|\.env(?:\..+)?|\.envrc|\.netrc|\.pypirc|pip\.conf|pyproject\.toml|setup\.cfg|\.python-version|\.node-version|\.nvmrc|\.ruby-version|\.tool-versions|\.?mise\.toml|\.gitconfig|Gemfile|\.bundle|\.cargo|\.config|\.ssh|\.docker|\.aws|\.kube|\.firebaserc|firebase\.json|\.gcloudignore|\.terraformrc)$/i;
+
+/** The configuration files in a working directory a program run there may load (`CONFIG_NAMES`, and the repository's `.git/config`), sorted. */
+export function workdirConfigFiles(dir: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const found = names.filter((n) => CONFIG_NAMES.test(n));
+  if (existsSync(join(dir, '.git', 'config'))) found.push('.git/config');
+  return found.sort().slice(0, 40);
+}
+
+/** Where its password helper is, for its environment. */
+interface HelperFiles {
+  node: string;
+  script: string;
+  program: string;
+  socket: string;
+  token: string;
+}
+
+/**
+ * The environment an interactive command runs with: `checkEnv()`'s (the server's PATH, home, user,
+ * shell and locale, nothing else; plain output) without its `CI=1`, Python's output unbuffered so its
+ * prompts show at once, and the password helper for sudo, ssh and git when it has one.
+ */
+export function interactiveEnv(base: NodeJS.ProcessEnv, command: string, helper?: HelperFiles): NodeJS.ProcessEnv {
+  const env = checkEnv(base, command);
+  delete env.CI;
+  env.PYTHONUNBUFFERED = '1';
+  if (helper) {
+    Object.assign(env, {
+      [ASKPASS_ENV.node]: helper.node,
+      [ASKPASS_ENV.program]: helper.program,
+      [ASKPASS_ENV.socket]: helper.socket,
+      [ASKPASS_ENV.token]: helper.token,
+      SUDO_ASKPASS: helper.script,
+      SSH_ASKPASS: helper.script,
+      SSH_ASKPASS_REQUIRE: 'force',
+      GIT_ASKPASS: helper.script,
+    });
+  }
+  return env;
+}
+
+/**
+ * A program's output as a terminal leaves it, for the card: ANSI escapes out, of a line rewritten after
+ * carriage returns (a progress bar) its last version only, other control characters out.
+ */
+export function terminalText(raw: string): string {
+  return stripAnsi(raw)
+    .replace(/\r+\n/g, '\n')
+    .split('\n')
+    .map((line) => {
+      const parts = line.split('\r');
+      for (let i = parts.length - 1; i >= 0; i--) if (parts[i]) return parts[i]!;
+      return '';
+    })
+    .join('\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
+}
+
+/** The end of `text`, at most `max` characters, from the start of a line where one is near. */
+function keepEnd(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let cut = text.length - max;
+  const nl = text.indexOf('\n', cut);
+  if (nl >= 0 && nl - cut < 1000) cut = nl + 1;
+  return `…\n${text.slice(cut)}`;
+}
+
+/** What a session needs (swapped in tests). */
+export interface InteractiveDeps {
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  spawn: typeof spawnInteractive;
+  /** Where each session's own folder goes: Harness Relay's temporary folder. */
+  tmpDir: () => string;
+  /** The password helper's grant (the gateway's), or why there is none. */
+  askpass: (ask: AskpassHandler) => AskpassGrant | 'no-node' | 'off';
+  timeoutMs: number;
+}
+
+export const defaultInteractiveDeps: InteractiveDeps = {
+  platform: process.platform,
+  env: process.env,
+  spawn: spawnInteractive,
+  tmpDir: () => relayTmpDir(),
+  askpass: () => 'off',
+  timeoutMs: INTERACTIVE_LIMITS.timeoutMin * 60_000,
+};
+
+/** What a session is given. */
+export interface InteractiveStart {
+  run: string;
+  /** The working directory, when the user chose to run it there; else it runs in an empty folder of its own. */
+  workdir?: string;
+  /** Values to replace by dots wherever they show (the folder's secrets). */
+  masks: readonly string[];
+  /** Something on its card changed: its output (`urgent` false), or its state or a question (`urgent`). */
+  onChange: (urgent: boolean) => void;
+  /** It ended, its folder gone: the card's last change. */
+  onEnd: () => void;
+}
+
+/** Messages a session's failures say, in the request's language (passed in, so this module has no strings of its own). */
+export interface InteractiveWords {
+  windows: string;
+  notStarted: (why: string) => string;
+}
+
+/** One interactive command's run from its card (`InteractiveSession` is what the card shows of it). */
+export class InteractiveRun {
+  readonly startedAt = Date.now();
+  private child?: ChildProcess;
+  private raw = '';
+  private masks: string[];
+  private state: InteractiveSession['state'] = 'running';
+  private exitCode?: number | null;
+  private reason?: string;
+  private endedAt?: number;
+  private readonly endsAt: number;
+  private timer?: NodeJS.Timeout;
+  private asking?: { id: string; prompt: string; resolve: (line: string | undefined) => void };
+  private grant?: AskpassGrant;
+  private helper: InteractiveSession['helper'] = 'off';
+  private dir?: string;
+  private finished = false;
+
+  constructor(
+    private o: InteractiveStart,
+    private words: InteractiveWords,
+    private deps: InteractiveDeps = defaultInteractiveDeps,
+  ) {
+    this.masks = [...o.masks];
+    this.endsAt = this.startedAt + deps.timeoutMs;
+  }
+
+  get running(): boolean {
+    return this.state === 'running';
+  }
+
+  /** Starts it (its card then follows it); a start that fails ends it at once, saying why. */
+  start(): void {
+    if (this.deps.platform === 'win32') return this.fail(this.words.windows);
+    try {
+      this.dir = mkdtempSync(join(this.deps.tmpDir(), RUN_TMP_PREFIXES.interactive));
+      chmodSync(this.dir, 0o700);
+      const work = join(this.dir, 'work');
+      mkdirSync(work, { mode: 0o700 });
+      const env = interactiveEnv(this.deps.env, this.o.run, this.helperFiles());
+      const child = this.deps.spawn('/bin/sh', ['-c', SCRIPT], env, { cwd: this.o.workdir ?? work });
+      this.child = child;
+      const onData = (chunk: Buffer) => this.add(chunk.toString('utf8'));
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onData);
+      child.stdin?.on('error', () => {});
+      child.on('error', (err: NodeJS.ErrnoException) => {
+        if (this.state === 'running') {
+          this.state = 'failed';
+          this.reason = err.code === 'ENOENT' ? new CommandNotFoundError('/bin/sh').message : err.message;
+          this.endedAt = Date.now();
+        }
+        this.finish();
+      });
+      child.on('exit', (code) => {
+        if (this.state === 'running') {
+          this.state = 'exited';
+          this.exitCode = code;
+          this.endedAt = Date.now();
+          this.endAsking();
+          this.o.onChange(true);
+        }
+        // What it started and left running goes too, so its output ends and the card can close.
+        this.kill();
+      });
+      child.on('close', () => this.finish());
+      this.timer = setTimeout(() => this.stop('timedOut'), this.deps.timeoutMs);
+      this.timer.unref?.();
+    } catch (err) {
+      this.fail(this.words.notStarted((err as Error).message));
+    }
+  }
+
+  /** Its password helper, when the gateway can give one: its token, script and program written in the session's folder. */
+  private helperFiles(): HelperFiles | undefined {
+    const grant = this.deps.askpass((prompt) => this.ask(prompt));
+    if (grant === 'no-node' || grant === 'off') {
+      this.helper = grant;
+      return undefined;
+    }
+    this.grant = grant;
+    const dir = this.dir!;
+    const files = {
+      node: grant.node,
+      script: join(dir, 'askpass'),
+      program: join(dir, 'askpass.mjs'),
+      socket: grant.socketPath,
+      token: join(dir, 'askpass.token'),
+    };
+    writeFileSync(files.token, grant.token, { mode: 0o600 });
+    writeFileSync(files.program, ASKPASS_SHIM_SOURCE, { mode: 0o600 });
+    writeFileSync(files.script, ASKPASS_SCRIPT, { mode: 0o700 });
+    chmodSync(files.script, 0o700);
+    this.helper = 'on';
+    return files;
+  }
+
+  /** It could not start: the card says why. */
+  private fail(reason: string): void {
+    this.state = 'failed';
+    this.reason = reason;
+    this.endedAt = Date.now();
+    this.finish();
+  }
+
+  private add(text: string): void {
+    this.raw += text;
+    if (this.raw.length > RAW_MAX) {
+      // From the start of a line, so that no value is cut in two (and then not masked).
+      const from = this.raw.length - RAW_MAX;
+      const nl = this.raw.indexOf('\n', from);
+      this.raw = this.raw.slice(nl >= 0 ? nl + 1 : from);
+    }
+    this.o.onChange(false);
+  }
+
+  /** A line break before what comes next, unless the output ends with one. */
+  private newline(): string {
+    return this.raw && !this.raw.endsWith('\n') ? '\n' : '';
+  }
+
+  /**
+   * The user typed a line into it: sent as it is, with a line break. Shown on the card as a terminal
+   * echoes it, unless `hidden`: then it is masked wherever it shows (should the program print it).
+   * False when it does not run any more.
+   */
+  write(text: string, hidden: boolean): boolean {
+    const stdin = this.child?.stdin;
+    if (this.state !== 'running' || !stdin?.writable) return false;
+    if (hidden) this.addMasks([text, text.trim()]);
+    stdin.write(`${text}\n`);
+    this.add(hidden ? this.newline() : `${text}\n`);
+    return true;
+  }
+
+  /** Its password helper asks: the card asks the user for one hidden line (one question at a time). */
+  private ask(prompt: string): Promise<string | undefined> {
+    if (this.state !== 'running' || this.asking) return Promise.resolve(undefined);
+    const shown = terminalText(prompt).replace(/\s+/g, ' ').trim().slice(0, INTERACTIVE_LIMITS.prompt);
+    return new Promise((resolve) => {
+      this.asking = { id: randomUUID(), prompt: shown, resolve };
+      // The transcript shows the question, as a terminal would.
+      this.raw += `${this.newline()}${shown}\n`;
+      this.o.onChange(true);
+    });
+  }
+
+  /** The user's answer to its helper's question (`line`), or their refusal (undefined). False when it is not the question asked. */
+  answer(askId: string, line: string | undefined): boolean {
+    const asking = this.asking;
+    if (!asking || asking.id !== askId || this.state !== 'running') return false;
+    this.asking = undefined;
+    if (line !== undefined) this.addMasks([line, line.trim()]);
+    asking.resolve(line);
+    this.o.onChange(true);
+    return true;
+  }
+
+  private endAsking(): void {
+    const asking = this.asking;
+    this.asking = undefined;
+    asking?.resolve(undefined);
+  }
+
+  /** More values to mask (a secret saved for the folder meanwhile). */
+  addMasks(values: readonly string[]): void {
+    for (const v of values) if (v && !this.masks.includes(v)) this.masks.push(v);
+  }
+
+  /** Stops it: the user's Cancel, its time limit, the server stopping or its conversation going. */
+  stop(why: 'cancelled' | 'timedOut' | 'stopped'): void {
+    if (this.state !== 'running') return;
+    this.state = why;
+    this.endedAt = Date.now();
+    this.endAsking();
+    this.o.onChange(true);
+    this.kill();
+  }
+
+  /** Its process group: SIGTERM, then SIGKILL to what is left. */
+  private kill(): void {
+    const child = this.child;
+    if (!child) return;
+    killTree(child, 'SIGTERM');
+    setTimeout(() => killTree(child, 'SIGKILL'), 2000).unref?.();
+  }
+
+  /** Its output is over: its folder (the helper's token in it) goes, and its card's last change. */
+  private finish(): void {
+    if (this.finished) return;
+    this.finished = true;
+    clearTimeout(this.timer);
+    this.endAsking();
+    this.grant?.revoke();
+    if (this.dir) removeTree(this.dir);
+    this.o.onEnd();
+  }
+
+  view(): InteractiveSession {
+    const output = keepEnd(maskValues(terminalText(this.raw), this.masks), INTERACTIVE_LIMITS.output);
+    const { urls, codes } = linksAndCodes(output);
+    return {
+      state: this.state,
+      startedAt: this.startedAt,
+      endsAt: this.endsAt,
+      ...(this.endedAt !== undefined ? { endedAt: this.endedAt } : {}),
+      ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
+      inWorkdir: Boolean(this.o.workdir),
+      output,
+      urls,
+      codes,
+      ...(this.asking ? { asking: { id: this.asking.id, prompt: maskValues(this.asking.prompt, this.masks) } } : {}),
+      helper: this.helper,
+      ...(this.reason ? { reason: maskValues(this.reason, this.masks) } : {}),
+    };
+  }
+}

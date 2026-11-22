@@ -258,6 +258,12 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         type: 'text',
         text: `[Handed the browser to the user${p.mode ? ` (${p.mode === 'window' ? 'in a window' : 'in the chat'})` : ''}: ${p.reason} — ${HANDOVER_END[p.status]}${p.note ? `: "${p.note}"` : ''}]`,
       };
+    case 'interactive':
+      // Its output reaches the team only when the user sends it (as their message): never here.
+      return {
+        type: 'text',
+        text: `[Asked the user to run \`${p.run}\` themselves — ${p.status}${p.session ? `, ${p.session.state}` : ''}]`,
+      };
   }
 }
 

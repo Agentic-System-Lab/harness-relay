@@ -449,6 +449,55 @@ describe('Store (SQLite)', () => {
     expect(after.find((m) => m.id === 'm8')!.parts).toEqual([handover('h3', 'done')]);
   });
 
+  it("keeps an interactive command's card, and says a run a stopped server left running stopped", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const session = {
+      state: 'running' as const,
+      startedAt: 1,
+      endsAt: 2,
+      inWorkdir: false,
+      output: 'Password: ',
+      urls: [],
+      codes: [],
+      helper: 'on' as const,
+      asking: { id: 'q1', prompt: 'Password:' },
+    };
+    const msg: ChatMessage = {
+      ...agentMsg,
+      id: 'm7',
+      status: 'done',
+      parts: [
+        {
+          type: 'interactive',
+          id: 'i1',
+          folder: '/w',
+          run: 'npm login',
+          workdir: true,
+          configFiles: ['.npmrc'],
+          status: 'started',
+          session,
+        },
+        { type: 'interactive', id: 'i2', folder: '/w', run: 'gh auth login', configFiles: [], blocked: 'automation', status: 'proposed' },
+      ],
+    };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    const [running, proposed] = new Store(reopen()).get(conv.id)!.messages.find((m) => m.id === 'm7')!.parts;
+    expect(running).toEqual({
+      type: 'interactive',
+      id: 'i1',
+      folder: '/w',
+      run: 'npm login',
+      workdir: true,
+      configFiles: ['.npmrc'],
+      status: 'started',
+      session: { ...session, state: 'stopped', asking: undefined },
+    });
+    expect(proposed).toMatchObject({ id: 'i2', blocked: 'automation', status: 'proposed', configFiles: [] });
+  });
+
   it('ends the tool calls a crashed server left running, so no row shows them running forever', () => {
     const store = new Store(db);
     const conv = sampleConversation();

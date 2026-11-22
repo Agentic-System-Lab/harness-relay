@@ -400,7 +400,9 @@ export type Segment =
   /** A fixed command the reply proposes. */
   | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
   /** Steps the reply asks the user to take outside Harness Relay. */
-  | { kind: 'steps'; part: StepsPart; key: number };
+  | { kind: 'steps'; part: StepsPart; key: number }
+  /** A command the reply asks the user to run themselves. */
+  | { kind: 'interactive'; part: Extract<MessagePart, { type: 'interactive' }>; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -475,6 +477,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'steps':
         if (p.items.length) out.push({ kind: 'steps', part: p, key: i });
+        break;
+      case 'interactive':
+        out.push({ kind: 'interactive', part: p, key: i });
         break;
     }
   });

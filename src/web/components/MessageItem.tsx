@@ -56,7 +56,7 @@ import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon,
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
-import { CommandCard, SecretsCard } from './HandoffCards';
+import { CommandCard, InteractiveCard, SecretsCard } from './HandoffCards';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -1529,6 +1529,8 @@ function AgentMessage({
                   onPreview={previewFile}
                 />
               );
+            case 'interactive':
+              return <InteractiveCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
             case 'notice':
               return (
                 <p key={s.key} className="warn-line small msg-notice" role="note">

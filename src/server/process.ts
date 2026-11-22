@@ -650,10 +650,11 @@ export async function converseFramed(o: {
   return { stderr: res.stderr, timedOut: res.timedOut };
 }
 
-/** Spawn a long-lived interactive process (used for login flows). */
-export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
+/** Spawn a long-lived interactive process (sign-ins; the user's interactive commands, in `cwd`). */
+export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv, o: { cwd?: string } = {}): ChildProcess {
   const launch = launchOf(bin, args, env);
   const child = spawn(launch.file, launch.args, {
+    ...(o.cwd ? { cwd: o.cwd } : {}),
     env: withLaunchEnv(env, launch),
     detached: detachedChild(),
     windowsHide: true,

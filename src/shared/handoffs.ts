@@ -1,4 +1,4 @@
-import { COMMAND_NAME_RE, HANDOFF_LIMITS, SECRET_NAME_RE, type CommandProposal } from './types';
+import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, type CommandProposal } from './types';
 
 /*
  * Steps only the user can take (docs/architecture.md, "Secrets and fixed commands"): blocks an agent
@@ -7,10 +7,13 @@ import { COMMAND_NAME_RE, HANDOFF_LIMITS, SECRET_NAME_RE, type CommandProposal }
  *   <secret name="THREADS_ACCESS_TOKEN" label="Threads access token">why it is needed</secret>
  *   <command name="post" hosts="graph.threads.net" secrets="THREADS_ACCESS_TOKEN">python3 post.py</command>
  *   <command-run name="post">what the command reads on its standard input, once</command-run>
+ *   <interactive reason="why">gcloud auth login --no-launch-browser</interactive>
  *
  * A `<secret>` asks the user for a value, which the server keeps for the working directory and gives
  * only to the fixed commands that name it; a `<command>` proposes such a command, which the user saves
- * (or not); a `<command-run>` puts one run of a saved command in the outbox, for the user to send.
+ * (or not); a `<command-run>` puts one run of a saved command in the outbox, for the user to send; an
+ * `<interactive>` asks the user to run a command themselves, from its card (a sign-in that waits for
+ * them), `workdir="yes"` when it must run in the working directory.
  *
  * Only what is plainly a block is taken, as long-term memory's are (`src/shared/memory.ts`): it starts a
  * line (indented at most three spaces), nothing but other blocks follows it on its last line, it is not
@@ -21,9 +24,10 @@ import { COMMAND_NAME_RE, HANDOFF_LIMITS, SECRET_NAME_RE, type CommandProposal }
 export type HandoffBlock =
   | { kind: 'secret'; name: string; label?: string; reason?: string }
   | ({ kind: 'command' } & CommandProposal)
-  | { kind: 'command-run'; name: string; input: string };
+  | { kind: 'command-run'; name: string; input: string }
+  | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
 
-const TAGS = ['secret', 'command-run', 'command'] as const;
+const TAGS = ['secret', 'command-run', 'command', 'interactive'] as const;
 type Tag = (typeof TAGS)[number];
 
 /** A fence's opening or closing line: three or more backticks or tildes, indented at most three spaces. */
@@ -31,15 +35,16 @@ const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 /** A fence line anywhere in a text (one a block must not run across). */
 const FENCE_LINE = /(?:^|\n)[ \t]{0,3}(?:`{3,}|~{3,})/;
 /** A block's opening tag (the longer name first), its attributes in group 2. */
-const OPEN = /<(secret|command-run|command)(?=[\s/>])([^>\n]*)>/iy;
+const OPEN = /<(secret|command-run|command|interactive)(?=[\s/>])([^>\n]*)>/iy;
 /** Any of the tags, to skip texts that have none. */
-const ANY = /<(?:secret|command-run|command)[\s/>]/i;
+const ANY = /<(?:secret|command-run|command|interactive)[\s/>]/i;
 
 /** The most a block's body may hold, by tag: past it, the block is not one written for this. */
 const MAX_BODY: Record<Tag, number> = {
   secret: HANDOFF_LIMITS.reason * 2,
   command: HANDOFF_LIMITS.commandLine,
   'command-run': HANDOFF_LIMITS.input,
+  interactive: INTERACTIVE_LIMITS.commandLine * 2,
 };
 
 /** A host a command may reach: a name or an address, with a port or not. */
@@ -124,6 +129,18 @@ export function checkProposal(p: {
   };
 }
 
+/**
+ * An interactive command's line as an agent wrote it, checked: trimmed (and out of one pair of
+ * backticks around it all), not empty, within the limit, no NUL. Undefined when it is not one.
+ */
+export function interactiveLine(value: string | undefined): string | undefined {
+  let run = (value ?? '').trim();
+  const quoted = /^`([^`]+)`$/.exec(run);
+  if (quoted) run = quoted[1]!.trim();
+  if (!run || run.length > INTERACTIVE_LIMITS.commandLine || run.includes('\u0000')) return undefined;
+  return run;
+}
+
 /** Where the current line ends (its `\n`, or the end of `text`). */
 const lineEnd = (text: string, pos: number) => {
   const nl = text.indexOf('\n', pos);
@@ -168,6 +185,13 @@ function blockAt(text: string, pos: number): { block: HandoffBlock; end: number 
       cwd: attr(attrs, 'cwd'),
     });
     return proposal ? { block: { kind: 'command', ...proposal }, end } : undefined;
+  }
+  if (tag === 'interactive') {
+    const run = interactiveLine(body);
+    if (!run) return undefined;
+    const reason = attr(attrs, 'reason')?.replace(/\s+/g, ' ').slice(0, INTERACTIVE_LIMITS.reason);
+    const workdir = /^(?:yes|true|1)$/i.test(attr(attrs, 'workdir') ?? '');
+    return { block: { kind: 'interactive', run, ...(reason ? { reason } : {}), ...(workdir ? { workdir } : {}) }, end };
   }
   const name = commandName(attr(attrs, 'name'));
   if (!name) return undefined;
@@ -269,13 +293,13 @@ export function splitHandoffs(text: string): { text: string; blocks: HandoffBloc
 export function withoutHandoffBlocks(text: string): string {
   if (!ANY.test(text)) return text;
   const done = splitHandoffs(text).text;
-  const open = /(?:^|\n)[ \t]{0,3}<(?:secret|command-run|command)(?=[\s/>])/gi;
+  const open = /(?:^|\n)[ \t]{0,3}<(?:secret|command-run|command|interactive)(?=[\s/>])/gi;
   let m: RegExpExecArray | null;
   let cut = -1;
   while ((m = open.exec(done))) {
     const from = m.index + (m[0].startsWith('\n') ? 1 : 0);
     const rest = done.slice(from);
-    const tag = /<(secret|command-run|command)/i.exec(rest)![1]!.toLowerCase();
+    const tag = /<(secret|command-run|command|interactive)/i.exec(rest)![1]!.toLowerCase();
     if (!new RegExp(`</${tag}\\s*>|/>`, 'i').test(rest)) {
       cut = from;
       break;

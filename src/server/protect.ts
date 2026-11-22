@@ -228,6 +228,7 @@ export const RUN_TMP_PREFIXES = {
   gateway: 'gateway-',
   hook: 'hook-',
   ask: 'ask-',
+  interactive: 'interactive-',
 } as const;
 
 /**

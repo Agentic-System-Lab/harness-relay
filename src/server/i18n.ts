@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { FileNameProblem } from '../shared/fileNames';
 import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
-import { FIXED_COMMAND_NEWS, LANGS, type FixedCommandRun, type Lang } from '../shared/types';
+import { FIXED_COMMAND_NEWS, INTERACTIVE_LIMITS, LANGS, type FixedCommandRun, type InteractiveSession, type Lang } from '../shared/types';
 
 /*
  * Language of user-facing server text (errors, system notes, adapter messages).
@@ -47,6 +47,51 @@ function fenced(text: string): string {
   const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
   const mark = '`'.repeat(longest + 1);
   return `${mark}\n${text}\n${mark}`;
+}
+
+/** A command line in a message: as inline code (with more backticks than it has), or fenced when it has several lines. */
+function codeOf(text: string): string {
+  if (text.includes('\n')) return `\n${fenced(text)}\n`;
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const mark = '`'.repeat(longest + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${mark}${pad}${text}${pad}${mark}`;
+}
+
+/** How an interactive command's run ended, as the user tells the team (zh-TW). */
+function interactiveEndZh(s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason'>): string {
+  switch (s.state) {
+    case 'exited':
+      return s.exitCode === null || s.exitCode === undefined ? '它結束了' : `結束碼 ${s.exitCode}`;
+    case 'cancelled':
+      return '我中途取消了它';
+    case 'timedOut':
+      return `它執行超過 ${INTERACTIVE_LIMITS.timeoutMin} 分鐘，被停止了`;
+    case 'stopped':
+      return 'Harness Relay 停止時它也跟著停止了';
+    case 'failed':
+      return `它無法啟動${s.reason ? `：${s.reason}` : ''}`;
+    default:
+      return '它還在執行';
+  }
+}
+
+/** How an interactive command's run ended, as the user tells the team (English). */
+function interactiveEndEn(s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason'>): string {
+  switch (s.state) {
+    case 'exited':
+      return s.exitCode === null || s.exitCode === undefined ? 'it ended' : `it finished with exit code ${s.exitCode}`;
+    case 'cancelled':
+      return 'I cancelled it';
+    case 'timedOut':
+      return `it was stopped after ${INTERACTIVE_LIMITS.timeoutMin} minutes`;
+    case 'stopped':
+      return 'it stopped when Harness Relay stopped';
+    case 'failed':
+      return `it could not start${s.reason ? `: ${s.reason}` : ''}`;
+    default:
+      return 'it is still running';
+  }
 }
 
 /** How a fixed command's run went, in a line (zh-TW). */
@@ -130,6 +175,20 @@ const zhTW = {
     notKept: (why: string) => `它寫回的新值沒有保存：${why}`,
     commandChangedSince: (name: string) => `固定指令「${name}」在這次執行放進待送出匣之後改過了，所以沒有執行。`,
     runLine: runLineZh,
+    interactiveRunning: '這個指令正在執行。',
+    interactiveAutomation: '這個指令是在自動化的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
+    interactiveWindows: '原生 Windows 上還不能從卡片執行指令。',
+    interactiveTooMany: (n: number) => `同時最多只能執行 ${n} 個這樣的指令，請等其他的結束。`,
+    interactiveConfigChanged: '工作目錄裡出現了卡片沒列出的設定檔。請先看過卡片上更新的清單，再啟動一次。',
+    interactiveNotStarted: (why: string) => `無法啟動：${why}`,
+    interactiveNotRunning: '這個指令已經沒有在執行了。',
+    interactiveNoQuestion: '它現在沒有在問這個問題。',
+    interactiveNotEnded: '指令結束後才能送給團隊。',
+    interactiveDismissed: (run: string) => `我不執行 ${codeOf(run)}。`,
+    interactiveAnswer: (run: string, s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason' | 'inWorkdir' | 'output'>) =>
+      `我自己執行了 ${codeOf(run)}（${s.inWorkdir ? '在工作目錄裡' : '在它自己的空資料夾裡'}）：${interactiveEndZh(s)}。${
+        s.output.trim() ? `\n\n它的輸出（密鑰和我隱藏輸入的內容已遮蔽）：\n${fenced(s.output.trimEnd())}` : '它沒有輸出任何內容。'
+      }`,
   },
   publish: {
     unreachable: (host: string) => `無法連到 ${host}，或它的回應無法讀取。請稍後再試。`,
@@ -1484,6 +1543,24 @@ const en: ServerMessages = {
     notKept: (why) => `The new value it wrote back was not kept: ${why}`,
     commandChangedSince: (name) => `The fixed command "${name}" changed after this run was put in the outbox, so it was not run.`,
     runLine: runLineEn,
+    interactiveRunning: 'This command is running.',
+    interactiveAutomation:
+      "This command was proposed in an automation's run, so it cannot be started from this card. If it is still needed, ask the agent in the chat to propose it again.",
+    interactiveWindows: 'Commands cannot be run from a card on native Windows yet.',
+    interactiveTooMany: (n) => `At most ${n} such commands run at once: wait until another one ends.`,
+    interactiveConfigChanged:
+      'Configuration files the card did not list appeared in the working directory. Look at the updated list on the card, then start it again.',
+    interactiveNotStarted: (why) => `It could not start: ${why}`,
+    interactiveNotRunning: 'This command is not running any more.',
+    interactiveNoQuestion: 'It is not asking this question now.',
+    interactiveNotEnded: 'Send it to the team once it has ended.',
+    interactiveDismissed: (run) => `I will not run ${codeOf(run)}.`,
+    interactiveAnswer: (run, s) =>
+      `I ran ${codeOf(run)} myself (${s.inWorkdir ? 'in the working directory' : 'in an empty folder of its own'}): ${interactiveEndEn(s)}.${
+        s.output.trim()
+          ? `\n\nIts output (secrets and what I typed hidden are masked):\n${fenced(s.output.trimEnd())}`
+          : ' It printed nothing.'
+      }`,
   },
   publish: {
     unreachable: (host: string) => `${host} could not be reached, or its answer could not be read. Try again in a moment.`,

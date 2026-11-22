@@ -17,6 +17,7 @@ import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
 import { Outbox } from '../src/server/outbox';
+import { defaultInteractiveDeps } from '../src/server/interactive';
 import {
   agentMessages,
   calls,
@@ -31,6 +32,7 @@ import {
   store,
   textOf,
 } from './orchestrator-harness';
+import { slow } from './timeouts';
 
 const keys = new Map<string, string>();
 let ran: { env: NodeJS.ProcessEnv; stdin?: string }[] = [];
@@ -85,6 +87,9 @@ beforeEach(() => {
   };
   orchestrator.fixedCommandDeps = deps;
   orchestrator.outbox = new Outbox(db);
+  const tmp = join(root, 'interactive-tmp');
+  mkdirSync(tmp, { recursive: true });
+  orchestrator.interactiveDeps = { ...defaultInteractiveDeps, env: { PATH: process.env.PATH ?? '' }, tmpDir: () => tmp };
 });
 
 const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
@@ -328,5 +333,120 @@ describe('a schedule that runs a fixed command first', () => {
     expect(calls).toHaveLength(0);
     settings.handoffs.deleteCommand(id);
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('failed');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('interactive command cards', () => {
+  const propose = async (
+    block = '<interactive reason="To sign in to the registry.">printf \'Password: \'; IFS= read -r p; echo "got $p and $TOKEN_VALUE"</interactive>',
+  ) => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, '.npmrc'), 'registry=https://registry.example\n');
+    fake.reply = (name) =>
+      name === 'Alice' && calls.filter((c) => c.name === 'Alice').length === 1 ? `Please sign in.\n\n${block}` : 'Thanks.';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    return { conv, ...partOf(conv.id, 'interactive') };
+  };
+
+  it("takes a reply's <interactive> block into a card that waits, and tells every member how to ask", async () => {
+    const { msg, part, conv } = await propose();
+    expect(textOf(msg)).toBe('Please sign in.');
+    expect(msg.asked).toBe(true);
+    expect(part).toMatchObject({ status: 'proposed', reason: 'To sign in to the registry.', folder: orchestrator.handoffFolder(conv) });
+    expect(part.configFiles).toContain('.npmrc');
+    expect(part.blocked).toBeUndefined();
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
+    expect(calls[0]!.systemPrompt).toContain('<interactive reason="why">');
+  });
+
+  it("runs it when the user starts it, masks what was typed hidden and the folder's secrets, and sends the output once", async () => {
+    const { conv, msg, part } = await propose(
+      '<interactive>printf \'Password: \'; IFS= read -r p; echo "got $p"; echo "token tok-123456"</interactive>',
+    );
+    settings.handoffs.setSecrets(orchestrator.handoffFolder(conv), { TOKEN: 'tok-123456' });
+    await expect(orchestrator.sendInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    const started = await orchestrator.startInteractive(conv.id, msg.id, part.id);
+    expect(started).toMatchObject({ state: 'running', inWorkdir: false });
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.output).toContain('Password: '));
+    orchestrator.interactiveInput(conv.id, msg.id, part.id, 'hunter2-pass', true);
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('exited'), { timeout: slow(5000) });
+    const card = partOf(conv.id, 'interactive').part;
+    expect(card.status).toBe('started');
+    expect(card.session!.output).toContain('got ••••');
+    expect(card.session!.output).toContain('token ••••');
+    expect(JSON.stringify(store.get(conv.id))).not.toContain('hunter2-pass');
+    // Typing into it once it ended is refused.
+    expect(() => orchestrator.interactiveInput(conv.id, msg.id, part.id, 'late', false)).toThrow(expect.objectContaining({ status: 409 }));
+
+    await orchestrator.sendInteractive(conv.id, msg.id, part.id);
+    await finish(conv.id);
+    const sent = userTexts(conv.id).at(-1)!;
+    expect(sent).toContain('got ••••');
+    expect(sent).toMatch(/結束碼 0|exit code 0/);
+    expect(sent).not.toContain('hunter2-pass');
+    expect(sent).not.toContain('tok-123456');
+    expect(partOf(conv.id, 'interactive').part.session!.sent).toBe(true);
+    await expect(orchestrator.sendInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses to start in the working directory when configuration files the card did not list appeared', async () => {
+    const { conv, msg, part } = await propose('<interactive workdir="yes">pwd</interactive>');
+    expect(part.workdir).toBe(true);
+    writeFileSync(join(project, '.env'), 'X=1\n');
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: part.configFiles })).rejects.toMatchObject({
+      status: 409,
+    });
+    const listed = partOf(conv.id, 'interactive').part.configFiles;
+    expect(listed).toContain('.env');
+    await orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: listed });
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('exited'), { timeout: slow(5000) });
+    expect(partOf(conv.id, 'interactive').part.session).toMatchObject({ inWorkdir: true, exitCode: 0 });
+    expect(partOf(conv.id, 'interactive').part.session!.output.trim()).toBe(orchestrator.handoffFolder(conv));
+  });
+
+  it("does not run, telling the team, and is never started from a card an automation's run proposed", async () => {
+    const { conv, msg, part } = await propose('<interactive>npm login</interactive>');
+    await orchestrator.dismissInteractive(conv.id, msg.id, part.id);
+    await finish(conv.id);
+    expect(partOf(conv.id, 'interactive').part.status).toBe('dismissed');
+    expect(userTexts(conv.id).at(-1)).toContain('npm login');
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+
+    const other = conversation({ mode: 'relay' });
+    other.schedule = {
+      text: 'check the deploy',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(other);
+    fake.reply = () => 'The token expired.\n\n<interactive>gcloud auth login --no-launch-browser</interactive>';
+    await orchestrator.sendScheduled(other.id);
+    await finish(other.id);
+    const card = partOf(other.id, 'interactive');
+    expect(card.part.blocked).toBe('automation');
+    await expect(orchestrator.startInteractive(other.id, card.msg.id, card.part.id)).rejects.toMatchObject({ status: 409 });
+    // Another chat's card is not this chat's.
+    await expect(orchestrator.startInteractive(conv.id, card.msg.id, card.part.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("stops on Cancel, the card saying so; Cancel once it ended is refused; a branch's copy of a running card says it stopped", async () => {
+    const { conv, msg, part } = await propose('<interactive>sleep 30</interactive>');
+    await orchestrator.startInteractive(conv.id, msg.id, part.id);
+    const branch = await orchestrator.branch(conv.id, msg.id);
+    const copy = partOf(branch.id, 'interactive');
+    expect(copy.part.session?.state).toBe('stopped');
+    expect(() => orchestrator.cancelInteractive(branch.id, copy.msg.id, copy.part.id)).toThrow(expect.objectContaining({ status: 409 }));
+    orchestrator.cancelInteractive(conv.id, msg.id, part.id);
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('cancelled'), { timeout: slow(5000) });
+    expect(() => orchestrator.cancelInteractive(conv.id, msg.id, part.id)).toThrow(expect.objectContaining({ status: 409 }));
   });
 });

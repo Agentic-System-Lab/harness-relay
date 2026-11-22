@@ -244,6 +244,7 @@
           <li><a href="#sandboxes">What the sandboxes do</a></li>
           <li><a href="#outbox">The outbox</a></li>
           <li><a href="#secrets">Secrets and fixed commands</a></li>
+          <li><a href="#your-commands">Commands you run yourself</a></li>
           <li>
             <details>
               <summary>Review and apply changes</summary>
@@ -437,6 +438,37 @@
           <p>
             Fixed commands do not run on native Windows yet. A command you allow outside a sandbox, and every agent with full access, runs with your rights. <a href="../automations/">Automations</a>
           </p>
+        </section>
+
+        <section id="your-commands" aria-labelledby="your-commands-title">
+          <h2 id="your-commands-title">Commands you run yourself</h2>
+          <p>
+            Some steps only you can take at a command line: a sign-in that shows a link or a code (<code>gcloud auth login --no-launch-browser</code>,
+            <code>npm login</code>) or a password prompt (<code>sudo -A</code>). Agents cannot type into the commands they run, so an agent asks you
+            to run it yourself instead: its reply shows a <b>Run a command yourself</b> card with the command and why, and the team waits for you.
+          </p>
+          <ul>
+            <li>
+              <b>Start</b> runs it with your rights on this computer, outside every agent's sandbox, in an empty folder of its own, or in the
+              working directory if you choose it there (the card then lists the configuration files a program may load, which agents can change).
+              Nothing runs until you click it, and a card an automation's run proposed cannot be started.
+            </li>
+            <li>
+              While it runs, the card shows its output with the page to open and the code to enter picked out. Type a line and press Enter to send it;
+              with <b>Hide what I type</b> it stays off the card and is masked should the program print it. <code>sudo -A</code>, ssh and git ask
+              through Harness Relay's password helper, on the card. <b>Cancel</b> stops it, and it stops by itself after 15 minutes.
+            </li>
+            <li><b>Send the output to the team</b> posts how it ended and its masked output as your answer. Until then the agents see nothing of it.</li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                What a sign-in saves goes where the program keeps it, usually your home folder, which agents below full access can read. It has no
+                terminal, so a full-screen program cannot be answered, and it does not run on native Windows yet.
+              </p>
+            </div>
+          </div>
         </section>
 
         <section id="changes" aria-labelledby="changes-title">

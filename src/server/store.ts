@@ -46,6 +46,7 @@ import type {
   SecretAsk,
   StepItem,
   StepsAnswer,
+  InteractiveSession,
   SearchResult,
   SharedPage,
 } from '../shared/types';
@@ -391,6 +392,22 @@ function toPart(r: PartRow): MessagePart {
         type: 'handover',
         ...parseJson(r.data, { id: '', reason: '', modes: ['screencast' as const], status: 'expired' as const }),
       };
+    case 'interactive': {
+      const d = parseJson<Record<string, unknown>>(r.data, {});
+      const status = d.status === 'proposed' || d.status === 'started' ? d.status : 'dismissed';
+      return {
+        type: 'interactive',
+        id: typeof d.id === 'string' ? d.id : '',
+        folder: typeof d.folder === 'string' ? d.folder : '',
+        run: typeof d.run === 'string' ? d.run : '',
+        ...(typeof d.reason === 'string' ? { reason: d.reason } : {}),
+        ...(d.workdir === true ? { workdir: true } : {}),
+        configFiles: Array.isArray(d.configFiles) ? d.configFiles.filter((f): f is string => typeof f === 'string') : [],
+        ...(d.blocked === 'automation' || d.blocked === 'windows' ? { blocked: d.blocked } : {}),
+        status,
+        ...(d.session && typeof d.session === 'object' ? { session: d.session as InteractiveSession } : {}),
+      };
+    }
     case 'memory': {
       const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
       return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
@@ -440,7 +457,8 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'outbox':
     case 'secrets':
     case 'command':
-    case 'handover': {
+    case 'handover':
+    case 'interactive': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }
@@ -917,6 +935,16 @@ export class Store {
           o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted, notRun: 'interrupted' as const } : o,
         );
         settle.run(JSON.stringify({ ...c, outcomes, status: overallStatus(outcomes) }), r.id);
+      }
+      // A command the user ran from its card stopped with that server: its card can start it again.
+      const interactive = db
+        .prepare(`SELECT message_id, idx, data FROM message_parts WHERE type = 'interactive' AND data LIKE '%"state":"running"%'`)
+        .all() as { message_id: string; idx: number; data: string | null }[];
+      for (const r of interactive) {
+        const data = parseJson<{ session?: Partial<InteractiveSession> } & Record<string, unknown>>(r.data, {});
+        if (data.session?.state !== 'running') continue;
+        const { asking: _asking, ...session } = data.session;
+        expire.run(JSON.stringify({ ...data, session: { ...session, state: 'stopped' } }), r.message_id, r.idx);
       }
     });
   }

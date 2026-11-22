@@ -2602,6 +2602,42 @@ export function createApp({
     }
   });
 
+  // An interactive command's card (docs/architecture.md, "Interactive commands"): the user starts it
+  // (never an agent, nor an automation's run), types into it, answers its password helper, cancels it,
+  // sends its masked output to the team, or does not run it.
+  app.post('/api/conversations/:id/messages/:messageId/interactive/:partId', async (c) => {
+    const b = await body<{ action?: unknown; workdir?: unknown; seen?: unknown; text?: unknown; hidden?: unknown; askId?: unknown }>(c);
+    const [id, messageId, partId] = [c.req.param('id'), c.req.param('messageId'), c.req.param('partId')];
+    const text = () => {
+      if (typeof b.text !== 'string') throw new HttpError(400, t().invalidField('text'));
+      return b.text;
+    };
+    switch (b.action) {
+      case 'start': {
+        const seen = Array.isArray(b.seen) ? b.seen.filter((f): f is string => typeof f === 'string') : [];
+        return c.json(await orchestrator.startInteractive(id, messageId, partId, { workdir: b.workdir === true, seen }));
+      }
+      case 'input':
+        orchestrator.interactiveInput(id, messageId, partId, text(), b.hidden === true);
+        return c.json({ ok: true });
+      case 'answer':
+        if (typeof b.askId !== 'string') throw new HttpError(400, t().invalidField('askId'));
+        orchestrator.interactiveAnswer(id, messageId, partId, b.askId, b.text === undefined ? undefined : text());
+        return c.json({ ok: true });
+      case 'cancel':
+        orchestrator.cancelInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'send':
+        await orchestrator.sendInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'dismiss':
+        await orchestrator.dismissInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      default:
+        throw new HttpError(400, t().invalidField('action'));
+    }
+  });
+
   // Try a saved fixed command of this chat's working directory: in the background, its card follows it.
   app.post('/api/conversations/:id/commands/:commandId/try', async (c) => {
     const b = await body<{ extra?: unknown; approve?: unknown }>(c);

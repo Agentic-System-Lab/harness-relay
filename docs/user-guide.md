@@ -750,6 +750,17 @@ Fixed commands need Harness Relay's own sandbox, so they do not run on native Wi
 
 What this keeps safe, below full access on macOS and Linux: no agent's sandbox can read the secrets, the code that runs with them shows you its changes before it does, and what runs reaches only the hosts you saw. A command you allow outside a sandbox (every command Cursor or Antigravity runs, or one Claude Code asks to run outside its sandbox), and every agent with full access, runs with your rights and could read them while a fixed command runs. The details are in [Architecture → Secrets and fixed commands](architecture.md#secrets-and-fixed-commands).
 
+### Commands you run yourself
+
+Some steps only you can take at a command line: a sign-in that shows a link or a code (`gcloud auth login --no-launch-browser`, `npm login`), or a password prompt (`sudo -A …`). Agents cannot type into the commands they run, so instead an agent asks you to run it yourself: its reply shows a **Run a command yourself** card with the command line and why, and the team waits for you, as for a question.
+
+- **Where it runs.** In an empty folder of its own, unless you choose **The working directory** (offered first when the agent says the command needs it, as `git push` does). There the card lists the configuration files a program may load (`.npmrc`, `.env`, `package.json`, `.git/config`…), which agents can change: look at them before you start. If others appear before you click Start, it does not start and the card shows the new list.
+- **Start** runs it with your rights on this computer, outside every agent's sandbox, with Harness Relay's own short list of environment variables (your `PATH`, home, user, shell and language; no API key or token of the server's). Nothing runs until you click it, and a card an automation's run proposed (nobody was watching when the agent wrote it) cannot be started: ask in the chat for it again. What a sign-in saves goes where the program keeps it, usually your home folder (`~/.config/gcloud`, `~/.npmrc`), which agents below full access can read.
+- **While it runs**, the card shows its output, with the page to open and the code to enter picked out (click a code to copy it). Type a line and press Enter to send it, as it is (an empty line too); **Hide what I type** keeps it out of the card and masks it should the program print it, and it turns on by itself when the program seems to ask for a password. The values of this working directory's secrets are masked too. `sudo -A`, ssh and git ask through Harness Relay's password helper: the card then shows their question with a hidden field, **Answer** or **Refuse** (the helper needs a Node.js; the card says when there is none). **Cancel** stops it, and it stops by itself after 15 minutes.
+- **Send the output to the team** (once it has ended) posts how it ended and its masked output as your answer, and the team goes on. Until then the agents see nothing of it. **Run it again** starts it anew; **Don't run** tells the team you did not run it.
+
+It has no terminal, so a program that needs one (a full-screen program, or a prompt that works only in a terminal) cannot be answered here. It does not run on native Windows yet; the card says so. See [Architecture → Interactive commands](architecture.md#interactive-commands).
+
 ### Reviewing and applying changes
 
 When an agent changes files, its reply ends with a card listing the files (A added, M modified, D deleted, with lines added/removed):
