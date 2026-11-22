@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { GH_SIGNED_OUT, PUBLISH_SETUP, type PublishedApp } from '../src/shared/types';
 import { openDatabase } from '../src/server/db';
@@ -173,7 +173,9 @@ function cloud(o: CloudOptions = {}) {
 function runner(base: string, o: { signedOut?: boolean; taken?: string[] } = {}) {
   const gh: string[][] = [];
   const run = vi.fn(async (opts: SpawnOptions): Promise<SpawnResult> => {
-    if (!/(^|[\\/])gh(\.exe)?$/.test(opts.bin)) return runProcess(opts);
+    // git runs for real; anything else is gh, whose path differs by system (`GH.EXE` on Windows, say),
+    // and which must never reach GitHub from a test.
+    if (/^git(\.exe)?$/i.test(basename(opts.bin))) return runProcess(opts);
     gh.push(opts.args);
     const ok = (stdout: string) => ({ code: 0, signal: null, stdout, stderr: '', timedOut: false, aborted: false }) as SpawnResult;
     if (o.signedOut) return { ...ok(''), code: 4, stderr: 'To get started with GitHub CLI, please run:  gh auth login' };
