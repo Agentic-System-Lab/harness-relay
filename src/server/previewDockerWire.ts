@@ -140,6 +140,8 @@ for (;;) {
   if (Date.now() > deadline) process.exit(3);
   await sleep(300);
 }
+// The open stdin would keep it running: say the port is up now.
+process.exit(0);
 `;
 export const REQUEST_LIMIT = 1024 * 1024;
 export const RESPONSE_LIMIT = 8 * 1024 * 1024;

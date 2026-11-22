@@ -402,6 +402,8 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
           timeoutMs: 60_000,
         });
         if (watching.aborted || closed) return;
+        // A check Relay's own time limit stopped says nothing, whatever `docker exec` exited with.
+        if (r.timedOut) continue;
         if (r.code === 0) {
           page = true;
           emit({ type: 'page' });

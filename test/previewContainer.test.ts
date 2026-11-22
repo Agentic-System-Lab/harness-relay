@@ -132,6 +132,12 @@ function fakeDocker(
       portCheck = deferred<SpawnResult>();
       current.resolve(result('', 3));
     },
+    /** Relay's own time limit stops a check that hung: whatever `docker exec` then exits with says nothing. */
+    checkKilled: (code: number) => {
+      const current = portCheck;
+      portCheck = deferred<SpawnResult>();
+      current.resolve({ ...result('', code), timedOut: true });
+    },
     exit: (code: number) => {
       const current = exit;
       exit = deferred<SpawnResult>();
@@ -439,6 +445,23 @@ describe('what the review found', () => {
     s.docker.openPort();
     await expect.poll(() => s.events.some((e) => e.type === 'page')).toBe(true);
     expect(checks()).toHaveLength(2);
+    await s.preview.stop();
+  });
+
+  it('asks again after a check its own time limit stopped, whatever exit code that left', async () => {
+    const s = start(pythonApp, 'Dockerfile');
+    await expect.poll(() => s.phases().at(-1)).toBe('running');
+    const checks = () => s.docker.calls.filter((c) => c.args[0] === 'exec' && c.args.at(-1) === '30');
+    await expect.poll(() => checks().length).toBe(1);
+    // A killed `docker exec` may say 0: that is not the port answering.
+    s.docker.checkKilled(0);
+    await expect.poll(() => checks().length).toBe(2);
+    expect(s.events.some((e) => e.type === 'page')).toBe(false);
+    // Nor does any other code end the watch.
+    s.docker.checkKilled(143);
+    await expect.poll(() => checks().length).toBe(3);
+    s.docker.openPort();
+    await expect.poll(() => s.events.some((e) => e.type === 'page')).toBe(true);
     await s.preview.stop();
   });
 
