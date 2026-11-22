@@ -40,9 +40,15 @@ async function signInSite(): Promise<{ server: Server; url: string; posted: stri
   return { server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, posted };
 }
 
-/** The Chromium the chat's browser starts: the system's, else Playwright's (CI may have only its headless shell). */
+/**
+ * The Chromium the chat's browser starts: RELAY_BROWSER's, else the system's, else Playwright's (CI may have
+ * only its headless shell). On Windows Playwright's, as the Browser test of `app-lifecycle.spec.ts` does:
+ * the system's Chrome or Edge there does not start under the test server's own home, which has no AppData
+ * folder (the hand-over's card and the browser for the user alone never came on CI's Windows runners).
+ */
 async function aBrowser(): Promise<string> {
-  const found = findBrowser({ configured: process.env.RELAY_BROWSER });
+  const configured = process.env.RELAY_BROWSER;
+  const found = configured || process.platform !== 'win32' ? findBrowser({ configured }) : undefined;
   if (found) return found;
   const shell = await chromium.launchServer();
   try {

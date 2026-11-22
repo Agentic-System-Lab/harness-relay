@@ -5,7 +5,8 @@
  * card and the screencast panel use. With a real Chromium: test/browser.test.ts.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -27,7 +28,7 @@ const {
   handoverWindowAt,
   inputCalls,
   keyCodeOf,
-  ownerAllows,
+  ownerVerdict,
 } = await import('../src/server/browser/handover');
 const { BLOCKED_SITE_PERMISSIONS, BrowserService, cookieParams, launchArgs, launchEnv, profilePrefs } =
   await import('../src/server/browser/session');
@@ -369,14 +370,39 @@ describe("a hand-over's ticket", () => {
 
 describe('a browser for the user alone', () => {
   it("asks nobody: the internet, yes; here, only its own page's host, or the address the user typed for that one opening", () => {
-    expect(ownerAllows({ nearby: false, key: 'example.com' })).toBe(true);
-    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', typed: '192.168.1.20:8080' })).toBe(true);
-    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: '192.168.1.20:8080' })).toBe(true);
+    const device = { key: '192.168.1.20:8080', nearby: true, addresses: [] };
+    expect(ownerVerdict({ nearby: false, key: 'example.com' })).toBe('allow');
+    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', typed: device })).toBe('allow');
+    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: device })).toBe('allow');
     // A page elsewhere reaching a device on the network (a link, a form, a script), whoever opened it before.
-    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: 'evil.example' })).toBe(false);
-    expect(ownerAllows({ nearby: true, key: '192.168.1.20:8080', top: '192.168.1.20:8080', typed: undefined })).toBe(true);
-    expect(ownerAllows({ nearby: true, key: '192.168.1.21', top: '192.168.1.20:8080', typed: '192.168.1.20:8080' })).toBe(false);
-    expect(ownerAllows({ nearby: true })).toBe(false);
+    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: { key: 'evil.example', nearby: false, addresses: [] } })).toBe(
+      'unasked',
+    );
+    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: device, typed: undefined })).toBe('allow');
+    expect(ownerVerdict({ nearby: true, key: '192.168.1.21', top: device, typed: device })).toBe('unasked');
+    expect(ownerVerdict({ nearby: true })).toBe('unasked');
+  });
+
+  it('keeps a name to where it led when the user opened it: a public page whose name comes to lead here, or elsewhere here, is refused', () => {
+    // Opened while it led to the internet, its name leads to the router now (DNS rebinding): its own requests, and a page it opens, refused.
+    const rebinding = { key: 'rebind.example', nearby: false, addresses: ['93.184.215.14'] };
+    expect(ownerVerdict({ nearby: false, key: 'rebind.example', addresses: ['93.184.215.14'], top: rebinding })).toBe('allow');
+    expect(ownerVerdict({ nearby: true, key: 'rebind.example', addresses: ['192.168.1.1'], top: rebinding })).toBe('moved');
+    // Typed while it led to the internet: no more than the page shown.
+    expect(ownerVerdict({ nearby: true, key: 'rebind.example', addresses: ['192.168.1.1'], typed: rebinding })).toBe('moved');
+    // Opened here as the user's, by its name: to the addresses it had then, not another device here.
+    const router = { key: 'router.lan', nearby: true, addresses: ['192.168.1.1'] };
+    expect(ownerVerdict({ nearby: true, key: 'router.lan', addresses: ['192.168.1.1'], top: router })).toBe('allow');
+    expect(ownerVerdict({ nearby: true, key: 'router.lan', addresses: ['192.168.1.30'], top: router })).toBe('moved');
+    expect(
+      ownerVerdict({
+        nearby: true,
+        key: 'router.lan',
+        addresses: ['192.168.1.30'],
+        top: router,
+        typed: { ...router, addresses: ['192.168.1.30'] },
+      }),
+    ).toBe('allow');
   });
 
   it('reads the selection in a field, else on the page, else a focused field but a password', () => {
@@ -698,6 +724,54 @@ describe('a call its CLI gave up', () => {
         stdio.revoke();
       }
     } finally {
+      await gateway.stop();
+    }
+  });
+
+  it('drops a cancellation the program passes on for a call not going on: a later call with that id is not taken for it', async () => {
+    const seen: string[] = [];
+    const gateway = new ToolGateway(join(root, 'gw3'), join(root, 'gw3-tmp'), () => process.execPath);
+    gateway.register([waiting(seen)]);
+    await gateway.start();
+    const stdio = gateway.grant(ctx(), ['browser'])!;
+    // As the program a CLI starts speaks to the server, over its socket.
+    const sock = connect(gateway.socketPath);
+    try {
+      sock.setEncoding('utf8');
+      let buffer = '';
+      type Answer = { id: number; result?: { content: { text: string }[] } };
+      const answers = new Map<number, (m: Answer) => void>();
+      sock.on('data', (chunk: string) => {
+        buffer += chunk;
+        for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
+          const m = JSON.parse(buffer.slice(0, i)) as Answer;
+          buffer = buffer.slice(i + 1);
+          answers.get(m.id)?.(m);
+        }
+      });
+      await new Promise<void>((done) => (sock.connecting ? sock.once('connect', () => done()) : done()));
+      const write = (m: unknown) => sock.write(JSON.stringify(m) + '\n');
+      const call = (id: number, args: Record<string, unknown>) => {
+        const answer = new Promise<string>((done) => answers.set(id, (m) => done(m.result!.content[0]!.text)));
+        write({ id, method: 'call', name: 'wait_for_user', arguments: args });
+        return answer;
+      };
+      write({ token: readFileSync(stdio.spec.env.RELAY_GATEWAY_TOKEN_FILE!, 'utf8').trim() });
+      // Before any call with that id: dropped.
+      write({ method: 'cancel', target: 5 });
+      expect(await call(5, { answerMs: 300 })).toBe('the user answered');
+      // After its call ended (it came late): dropped too.
+      write({ method: 'cancel', target: 5 });
+      expect(await call(5, { answerMs: 300 })).toBe('the user answered');
+      // While its call goes on: that call ends.
+      const going = call(6, {});
+      await new Promise((r) => setTimeout(r, 200));
+      write({ method: 'cancel', target: 6 });
+      expect(await going).toBe('given up');
+      expect(seen).toEqual(['answered', 'answered', 'gone']);
+    } finally {
+      sock.destroy();
+      stdio.revoke();
       await gateway.stop();
     }
   });
