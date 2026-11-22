@@ -1,6 +1,7 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
+import { truncatedNote } from '../shared/diff';
 import type { FileChange } from '../shared/types';
 import { HttpError } from './errors';
 import { tail } from './process';
@@ -455,10 +456,13 @@ export function parseDiffFiles(output: string): FileChange[] {
  * (`a/<folder>/src/x.ts`), so the diffs of several repositories can be read one after another.
  */
 export async function diffText(root: string, base: string, head: string, folder?: string): Promise<string> {
-  const prefix = folder ? ['--src-prefix', `a/${folder}/`, '--dst-prefix', `b/${folder}/`] : [];
+  // Git's own prefixes always, whatever the user's config says (`diff.noprefix`, `diff.srcPrefix`…):
+  // the diff dialog reads each file's path after them (`src/web/diff.ts`).
+  const sub = folder ? `${folder}/` : '';
+  const prefix = ['--src-prefix', `a/${sub}`, '--dst-prefix', `b/${sub}`];
   const r = await git(root, ['diff', '--no-color', '--no-renames', ...prefix, base, head], { maxCapture: MAX_DIFF_BYTES, keepStart: true });
   if (!r.stdoutTruncated) return r.stdout;
-  return `${r.stdout}\n\n… diff truncated (${Math.round(r.stdoutSize / 1024)} KB total)\n`;
+  return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
 }
 
 /** Create (or recreate) a worktree on `branch` starting at `base`. */
@@ -496,6 +500,15 @@ export async function applyPatchIn(dir: string, p: CheckedPatch): Promise<void> 
 
 export async function worktreeHead(path: string): Promise<string> {
   return out(await git(path, ['rev-parse', 'HEAD']));
+}
+
+/**
+ * Whether a worktree holds anything since `base`, the snapshot it was made from: a commit on top of
+ * it, or a change not committed yet (a turn the server did not see through).
+ */
+export async function worktreeChanged(path: string, base: string): Promise<boolean> {
+  if ((await worktreeHead(path)) !== base) return true;
+  return out(await git(path, ['status', '--porcelain', '--untracked-files=all'])) !== '';
 }
 
 /** Commit everything in a worktree; returns the new HEAD, or null when nothing changed. */

@@ -7,10 +7,10 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, Conversation } from '../src/shared/types';
+import { TEAM_WORKTREE, type ChatMessage, type Conversation } from '../src/shared/types';
 import { checksHold, latestChecks } from '../src/shared/checks';
 import {
   agentMessages,
@@ -265,6 +265,84 @@ describe('team checks', () => {
       { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', worktree: true, by: 'Bob' }] },
       { rule: 'commits', status: 'na', reason: expect.any(String) },
     ]);
+  });
+
+  it('in its own worktree, checks the team’s work there: not what another conversation changes in the folder meanwhile', async () => {
+    const conv = checked({ checks: { protectedPaths: ['.env', 'Bob.txt'], commitPattern: '^feat', commands: [{ id: 'c', run: 'true' }] } });
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    // Another conversation writes in the folder, and goes on doing so while the team works.
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = other.agents.filter((a) => a.id === 'a');
+    await orchestrator.send(other.id, 'go');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    fake.gate = Promise.resolve();
+    fake.during = (name) => {
+      if (name === 'Bob') writeFileSync(join(project, '.env'), 'A=3\n'); // the other conversation's change
+    };
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    expect(calls.at(-1)!.cwd).toBe(conv.worktrees[TEAM_WORKTREE]![0]!.path);
+    expect(lastCard(conv).checks!.outcomes).toEqual([
+      { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }] },
+      {
+        rule: 'commits',
+        status: 'na',
+        reason:
+          "The team works in this conversation's own worktree, whose result is applied without its commits, so the commit format is not checked.",
+      },
+      // Run when the result is applied.
+      expect.objectContaining({ rule: 'command', status: 'na', reason: expect.stringContaining("this conversation's own worktree") }),
+    ]);
+    // The briefing gives the rules as they are checked there: no commit format, the commands at the apply.
+    const briefing = calls.at(-1)!.systemPrompt!;
+    expect(briefing).not.toContain("Every commit's subject must match");
+    // Native Windows runs no commands, so its briefing names none.
+    expect(briefing.includes("when the team's result is applied")).toBe(process.platform !== 'win32');
+    // Check again looks there too.
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    expect(lastCard(conv).checks!.outcomes[0]).toEqual({
+      rule: 'paths',
+      status: 'failed',
+      findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }],
+    });
+    release();
+    await finish(other.id);
+  });
+
+  it('checks in the team’s worktree a result that did not pass in the folder, from where its run began', async () => {
+    const conv = checked({ checks: { protectedPaths: ['.env', 'Bob.txt'] } });
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    // In the folder: Bob adds a protected file.
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(lastCard(conv).checks).toMatchObject({ status: 'failed', outcomes: [{ findings: [{ path: 'Bob.txt', by: 'Bob' }] }] });
+    // Another conversation takes the folder; the team's next run, in its own worktree, has not put it back.
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = other.agents.filter((a) => a.id === 'a');
+    const before = calls.length;
+    await orchestrator.send(other.id, 'go');
+    await vi.waitFor(() => expect(calls).toHaveLength(before + 1));
+    fake.gate = Promise.resolve();
+    await orchestrator.send(conv.id, 'look again');
+    await finish(conv.id);
+    expect(calls.at(-1)!.cwd).toBe(conv.worktrees[TEAM_WORKTREE]![0]!.path);
+    // Still failing, as the run in the folder found it; `.env` (ignored, so not in the copy) is not taken for removed.
+    expect(lastCard(conv).checks!.outcomes[0]).toEqual({
+      rule: 'paths',
+      status: 'failed',
+      findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }],
+    });
+    // Removed in the copy: it passes.
+    fake.during = (name, cwd) => name === 'Bob' && rmSync(join(cwd, 'Bob.txt'), { force: true });
+    await orchestrator.send(conv.id, 'remove it');
+    await finish(conv.id);
+    expect(lastCard(conv).checks!.outcomes[0]).toMatchObject({ rule: 'paths', status: 'passed' });
+    release();
+    await finish(other.id);
   });
 
   it('checks what was done when the team stops to ask the user something', async () => {
@@ -904,6 +982,37 @@ describe('team checks: applying a parallel result', () => {
     expect(readFileSync(join(project, 'Bob.txt'), 'utf8')).toBe('Bob\n');
     // The card that held it says it was applied anyway: still not a pass, and nothing more to apply.
     expect(applyCard(conv).checks).toMatchObject({ status: 'failed', applied: true });
+  });
+
+  it("holds the team's own result the same way, naming no member, and applies it anyway when asked", async () => {
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    other.agents = other.agents.filter((a) => a.id === 'a');
+    await orchestrator.send(other.id, 'go');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    fake.gate = Promise.resolve();
+    const conv = conversation({ mode: 'roundtable', permission: 'full', checks: { protectedPaths: ['Bob.txt'], commitPattern: '^feat' } });
+    conv.agents = conv.agents.filter((a) => a.id === 'b');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    release();
+    await finish(other.id);
+    const held = await withLang('en', () => orchestrator.applyAgentWork(conv.id, TEAM_WORKTREE));
+    expect(held).toEqual({ files: [], held: applyCard(conv).id });
+    expect(applyCard(conv).checks).toMatchObject({
+      status: 'failed',
+      applyOf: { agentId: TEAM_WORKTREE, name: 'the team' },
+      outcomes: [
+        { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added' }] },
+        { rule: 'commits', status: 'na', reason: expect.stringContaining("this conversation's own worktree") },
+      ],
+    });
+    expect(applyCard(conv).checks!.outcomes[0]!.findings![0]!.by).toBeUndefined();
+    const forced = await orchestrator.applyAgentWork(conv.id, TEAM_WORKTREE, { force: true });
+    expect(forced.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
+    expect(applyCard(conv).checks).toMatchObject({ status: 'failed', applied: true });
+    expect(conv.worktrees[TEAM_WORKTREE]!.every((w) => w.needsReset)).toBe(true);
   });
 
   it.skipIf(process.platform === 'win32')(

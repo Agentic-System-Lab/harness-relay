@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dataLockFile, lockDataDir, openDatabase } from '../src/server/db';
+import { dataLockFile, fileKey, lockDataDir, openDatabase } from '../src/server/db';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, resolveInRoot, zipPlan } from '../src/server/files';
 import { FILE_LIMITS, type Conversation } from '../src/shared/types';
 
@@ -122,7 +122,7 @@ describe('previewFile', () => {
     const note = join(project, 'file2.txt');
     let checks = 0;
     expect(() =>
-      readPreview(note, 'file2.txt', 'Note changed', () => statSync(++checks === 1 ? note : join(project, 'file10.txt'))),
+      readPreview(note, 'file2.txt', 'Note changed', () => statSync(++checks === 1 ? note : join(project, 'file10.txt'), { bigint: true })),
     ).toThrow('Note changed');
     expect(checks).toBe(2);
   });
@@ -389,5 +389,15 @@ describe('the files the server holds SQLite locks on', () => {
       db.close();
       lock.close();
     }
+  });
+
+  it('are told apart by their whole file id, which a plain number rounds above 2^53 (Windows)', () => {
+    // An NTFS id is its record's sequence number above 48 bits of record: a folder and a file made in it
+    // just after it have ids next to each other, which as numbers can be the same one.
+    const folder = 1n << 53n;
+    const file = folder + 1n;
+    expect(Number(folder)).toBe(Number(file));
+    expect(fileKey({ dev: 7n, ino: folder })).not.toBe(fileKey({ dev: 7n, ino: file }));
+    expect(fileKey({ dev: 7n, ino: file })).toBe(`7:${file}`);
   });
 });

@@ -7,17 +7,24 @@ import {
   MAX_ACCOUNT_LABEL,
   type AccountRunSettings,
   type CheckList,
+  LAB_MODES,
+  type LabSettings,
   isEndpointCli,
   isOpenProvider,
   nativeItemsFor,
   nativeOffFor,
+  nativeOnFor,
+  runNativeOff,
+  runNativeOn,
   PROVIDERS,
   SANDBOX_TERMINAL_SUPPORT,
   VOICE_LANGUAGES,
   VOICE_MODELS,
   type LeadAgentSettings,
   type NativeItemsOff,
+  type NativeOnPart,
   type NativePart,
+  type Permission,
   type Provider,
   type ProviderAccountUpdate,
   type ProviderAccountView,
@@ -28,6 +35,7 @@ import {
 } from '../shared/types';
 import type { RunBackends } from './agents/types';
 import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backends';
+import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
 import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
@@ -68,7 +76,7 @@ interface AccountSettings extends AccountRunSettings {
 }
 
 /** A new account's run settings: the CLI's own defaults, nothing left out. */
-const freshRun = (): AccountRunSettings => ({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} });
+const freshRun = (): AccountRunSettings => ({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] });
 
 /** Applies an update's run settings to an account's: what the CLI cannot leave out is dropped. */
 function applyRun(p: Provider, run: AccountRunSettings, u: ProviderAccountUpdate): void {
@@ -76,6 +84,7 @@ function applyRun(p: Provider, run: AccountRunSettings, u: ProviderAccountUpdate
   if (u.defaultEffort !== undefined) run.defaultEffort = u.defaultEffort.trim();
   if (u.nativeOff !== undefined) run.nativeOff = nativeOffFor(p, u.nativeOff);
   if (u.nativeItems !== undefined) run.nativeItems = nativeItemsFor(p, u.nativeItems);
+  if (u.nativeOn !== undefined) run.nativeOn = nativeOnFor(p, u.nativeOn);
 }
 
 /** Env var each CLI reads an API key from. Codex keys go through `codex login --with-api-key` instead. */
@@ -305,12 +314,13 @@ export class SettingsStore {
       defaultEffort: '',
       nativeOff: [],
       nativeItems: {},
+      nativeOn: [],
       sandboxTerminal: false,
     });
     this.providers = Object.fromEntries(PROVIDERS.map((p) => [p, empty()])) as Record<Provider, ProviderSettings>;
     const rows = db
       .prepare(
-        'SELECT provider, bin, api_key, account_label, default_model, default_effort, native_off, native_items, sandbox_terminal FROM provider_settings',
+        'SELECT provider, bin, api_key, account_label, default_model, default_effort, native_off, native_items, native_on, sandbox_terminal FROM provider_settings',
       )
       .all() as {
       provider: Provider;
@@ -321,6 +331,7 @@ export class SettingsStore {
       default_effort: string;
       native_off: string;
       native_items: string;
+      native_on: string;
       sandbox_terminal: number;
     }[];
     for (const r of rows) {
@@ -333,6 +344,7 @@ export class SettingsStore {
         defaultEffort: r.default_effort,
         nativeOff: nativeOffFor(r.provider, r.native_off.split(',')),
         nativeItems: nativeItemsFor(r.provider, parseJson(r.native_items)),
+        nativeOn: nativeOnFor(r.provider, r.native_on.split(',')),
         sandboxTerminal: SANDBOX_TERMINAL_SUPPORT.includes(r.provider) && r.sandbox_terminal === 1,
       };
     }
@@ -343,7 +355,7 @@ export class SettingsStore {
     >;
     const accounts = db
       .prepare(
-        `SELECT id, provider, label, api_key, default_model, default_effort, native_off, native_items
+        `SELECT id, provider, label, api_key, default_model, default_effort, native_off, native_items, native_on
          FROM provider_accounts ORDER BY position, created_at`,
       )
       .all() as {
@@ -355,6 +367,7 @@ export class SettingsStore {
       default_effort: string;
       native_off: string;
       native_items: string;
+      native_on: string;
     }[];
     for (const a of accounts) {
       if (PROVIDERS.includes(a.provider) && !isOpenProvider(a.provider) && ACCOUNT_ID_RE.test(a.id)) {
@@ -366,6 +379,7 @@ export class SettingsStore {
           defaultEffort: a.default_effort,
           nativeOff: nativeOffFor(a.provider, a.native_off.split(',')),
           nativeItems: nativeItemsFor(a.provider, parseJson(a.native_items)),
+          nativeOn: nativeOnFor(a.provider, a.native_on.split(',')),
         });
       }
     }
@@ -587,11 +601,11 @@ export class SettingsStore {
     const position = this.accountList[p].indexOf(a);
     this.db
       .prepare(
-        `INSERT INTO provider_accounts (id, provider, label, api_key, position, created_at, default_model, default_effort, native_off, native_items)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO provider_accounts (id, provider, label, api_key, position, created_at, default_model, default_effort, native_off, native_items, native_on)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET label = excluded.label, api_key = excluded.api_key, position = excluded.position,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
-           native_off = excluded.native_off, native_items = excluded.native_items`,
+           native_off = excluded.native_off, native_items = excluded.native_items, native_on = excluded.native_on`,
       )
       .run(
         a.id,
@@ -604,6 +618,7 @@ export class SettingsStore {
         a.defaultEffort,
         a.nativeOff.join(','),
         JSON.stringify(a.nativeItems),
+        a.nativeOn.join(','),
       );
   }
 
@@ -734,6 +749,24 @@ export class SettingsStore {
       .run(JSON.stringify(this.leadAgent));
   }
 
+  /**
+   * Settings → Labs: the mode saved there; until it is changed there, the environment's (`RELAY_RLM`,
+   * else `RELAY_RUN_CODE`); else off.
+   */
+  labs(env: Pick<ServerConfig, 'runCode' | 'rlmModel'> = CONFIG): LabSettings & { source: 'saved' | 'env' | 'default' } {
+    const saved = parseJson(this.appSetting('labs') ?? 'null') as Partial<LabSettings> | null;
+    if (saved && (LAB_MODES as readonly unknown[]).includes(saved.mode) && (saved.mode !== 'rlm' || typeof saved.rlmModel === 'string'))
+      return { mode: saved.mode!, ...(saved.mode === 'rlm' ? { rlmModel: saved.rlmModel } : {}), source: 'saved' };
+    if (env.rlmModel) return { mode: 'rlm', rlmModel: env.rlmModel, source: 'env' };
+    if (env.runCode) return { mode: 'code', source: 'env' };
+    return { mode: 'off', source: 'default' };
+  }
+
+  /** Keeps Settings → Labs' mode (validated by the caller: `validLabs()`), over the environment's from now on. */
+  setLabs(labs: LabSettings): void {
+    this.saveAppSetting('labs', JSON.stringify({ mode: labs.mode, ...(labs.mode === 'rlm' ? { rlmModel: labs.rlmModel } : {}) }));
+  }
+
   /** Voice input settings. */
   get voice(): VoiceSettings {
     return { ...this.voiceSettings };
@@ -754,12 +787,12 @@ export class SettingsStore {
     const s = this.providers[p];
     this.db
       .prepare(
-        `INSERT INTO provider_settings (provider, bin, api_key, account_label, default_model, default_effort, native_off, native_items, sandbox_terminal)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO provider_settings (provider, bin, api_key, account_label, default_model, default_effort, native_off, native_items, native_on, sandbox_terminal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(provider) DO UPDATE SET
            bin = excluded.bin, api_key = excluded.api_key, account_label = excluded.account_label,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
-           native_off = excluded.native_off, native_items = excluded.native_items,
+           native_off = excluded.native_off, native_items = excluded.native_items, native_on = excluded.native_on,
            sandbox_terminal = excluded.sandbox_terminal`,
       )
       .run(
@@ -771,6 +804,7 @@ export class SettingsStore {
         s.defaultEffort,
         s.nativeOff.join(','),
         JSON.stringify(s.nativeItems),
+        s.nativeOn.join(','),
         s.sandboxTerminal ? 1 : 0,
       );
   }
@@ -811,6 +845,28 @@ export class SettingsStore {
   /** Single items of what this CLI loads by itself in the account's home that Harness Relay's runs leave out. */
   nativeItems(p: Provider, account?: string): NativeItemsOff {
     return Object.fromEntries(Object.entries(this.run(p, account).nativeItems).map(([kind, ids]) => [kind, [...(ids ?? [])]]));
+  }
+
+  /**
+   * What one run of this CLI as the account leaves out and turns on, at the run's permission: the
+   * account's choices, with the subagents of the CLIs that have them at full access only left out below
+   * it (`runNativeOff`).
+   */
+  runNative(
+    p: Provider,
+    account: string | undefined,
+    permission: Permission,
+  ): { nativeOff: NativePart[]; nativeItems: NativeItemsOff; nativeOn: NativeOnPart[] } {
+    return {
+      nativeOff: runNativeOff(p, permission, this.nativeOff(p, account)),
+      nativeItems: this.nativeItems(p, account),
+      nativeOn: runNativeOn(p, permission, this.nativeOn(p, account)),
+    };
+  }
+
+  /** What Harness Relay's runs of this CLI as the account turn on that they otherwise leave off (`NATIVE_ON_SUPPORT`). */
+  nativeOn(p: Provider, account?: string): NativeOnPart[] {
+    return [...this.run(p, account).nativeOn];
   }
 
   /** Whether the user lets this CLI's commands use a terminal in the relay sandbox (`ProviderSettingsView.sandboxTerminal`). */
@@ -896,6 +952,7 @@ export class SettingsStore {
         defaultEffort: run.defaultEffort,
         nativeOff: this.nativeOff(p, id),
         nativeItems: this.nativeItems(p, id),
+        nativeOn: this.nativeOn(p, id),
       };
     });
   }

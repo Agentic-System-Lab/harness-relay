@@ -22,6 +22,8 @@ import type {
   AlertPrefs,
   ApiBackend,
   ModelBackendsView,
+  LabSettings,
+  LabsView,
   ModelEndpointUpdate,
   AgentConfig,
   ApprovalAnswer,
@@ -505,6 +507,8 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Steering on or off, at any time (also while the team replies). */
+  setSteer: (id: string, on: boolean) => request<{ steer: boolean }>('PUT', `/api/conversations/${id}/steer`, { on }),
   /** Team checks: the latest result's card. */
   recheckChecks: (id: string, messageId: string, confirm = false) =>
     request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),
@@ -535,12 +539,13 @@ export const api = {
   /** Delete a share's gist (its link stops working) and forget it. */
   deleteShare: (id: string) => request<{ ok: true }>('DELETE', `/api/shares/${id}`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
-  agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
+  /** `agentId`: an agent's, or `TEAM_WORKTREE` for the team's own worktrees. */
+  agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${encodeURIComponent(agentId)}/diff`),
   /** Team checks run first: one that does not pass applies nothing (`held`, its card's id), unless `force`. */
   applyAgent: (id: string, agentId: string, o: { force?: boolean; confirm?: boolean } = {}) =>
     request<{ ok: true; files: FileChange[]; held?: string }>(
       'POST',
-      `/api/conversations/${id}/agents/${agentId}/apply`,
+      `/api/conversations/${id}/agents/${encodeURIComponent(agentId)}/apply`,
       o.force || o.confirm ? o : undefined,
     ),
 
@@ -599,6 +604,17 @@ export const api = {
       target,
       signal,
     ),
+  /** The app a finished turn made, from the files it added or changed (404: none that runs). */
+  appPreviewChanged: (id: string, messageId: string, signal?: AbortSignal) =>
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string; shown: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/changed`,
+      { messageId },
+      signal,
+    ),
+  /** A single-use address that opens a running preview's page in a tab of its own. */
+  appPreviewTab: (id: string, session: string) =>
+    request<{ url: string }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/tab`, {}),
   startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
     request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
   /**
@@ -671,6 +687,9 @@ export const api = {
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  // Settings → Labs
+  labs: () => request<LabsView>('GET', '/api/labs'),
+  updateLabs: (b: LabSettings) => request<LabsView>('PUT', '/api/labs', b),
   endpointModels: (b: { baseUrl: string; endpointId?: string; apiKey?: string | null }, signal?: AbortSignal) =>
     request<{ models: string[] }>('POST', '/api/backends/endpoint-models', b, signal),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),

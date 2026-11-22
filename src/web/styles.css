@@ -2804,6 +2804,34 @@ details.sub .model-picker {
   display: none;
 }
 
+/* A chat the preview panel (or the window) leaves narrow: the header's actions become icons, their
+   names kept for screen readers and in their tooltips, so that they all stay on the row. Phones have
+   them in the ⋯ menu instead (see the 560px rules). */
+.chat-head {
+  container: chat-head / inline-size;
+}
+
+@media (min-width: 561px) {
+  @container chat-head (width < 900px) {
+    .chat-head-actions .head-button {
+      padding-inline: 9px;
+    }
+
+    .chat-head-actions .head-button svg {
+      display: block;
+    }
+
+    .chat-head-actions .head-button .button-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+}
+
 /* ⋯ opens those actions as a menu on phones (see the 560px rules). */
 .more-button {
   display: none;
@@ -3485,6 +3513,28 @@ a.branch-source:hover {
   text-align: left;
 }
 
+/*
+ * A call that started a subagent: its name and model, how many actions it took; open, its own calls,
+ * joined to it by a line down their left (a subagent of its own one level further in), then what it
+ * reported back.
+ */
+.tool-group ul.subagent-steps {
+  margin: 3px 0 2px 5px;
+  padding: 0 0 0 13px;
+  border-top: none;
+  border-left: 1px solid var(--border);
+}
+
+.subagent-model {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.subagent-row .tool-line .activity-count {
+  color: var(--muted);
+}
+
 /* File changes */
 
 .changes-card {
@@ -3639,6 +3689,94 @@ a.branch-source:hover {
   min-height: 0;
 }
 
+/* A diff: one section for each file, folded until opened. The list scrolls under its totals, and an
+   open file's head stays at the top while its lines scroll by. */
+.diff-files {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.diff-files-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+
+.diff-files-head .link-button {
+  margin-left: auto;
+}
+
+.diff-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.diff-file {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.diff-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+}
+
+.diff-file-head:hover {
+  background: var(--surface);
+}
+
+.diff-file-head[aria-expanded='true'] {
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+
+.diff-file-head > .group-chevron {
+  color: var(--muted);
+}
+
+/* The whole path, on more lines when it needs them: the file to open is told by its name. */
+.diff-file-head .file-path {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.diff-file-head .diffstat {
+  flex-shrink: 0;
+}
+
+.diff-note {
+  margin: 0;
+}
+
+/* The file a diff cut short was cut in. */
+.diff-cut {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+
 .diff-view {
   margin: 0;
   /* One column as wide as the longest line, so every line's background spans it when scrolled sideways. */
@@ -3654,15 +3792,15 @@ a.branch-source:hover {
   padding: 10px 0;
 }
 
+.diff-file > .diff-view {
+  border-radius: 0 0 10px 10px;
+  /* A long file scrolls in its own box, so that its sideways scrollbar stays in view. */
+  max-height: 70vh;
+}
+
 .diff-view > div {
   padding: 0 14px;
   white-space: pre;
-}
-
-.diff-view .d-file {
-  font-weight: 700;
-  margin-top: 10px;
-  color: var(--text);
 }
 
 .diff-view .d-meta {
@@ -5442,6 +5580,13 @@ details.sub summary {
   max-height: 18rem;
   overflow: auto;
   overflow-wrap: anywhere;
+}
+
+/* Settings → Model connections: each model's context window and output limit, side by side where they fit. */
+.endpoint-limit-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 8px 12px;
 }
 
 /* Voice input: setup dialog and Settings card */
@@ -8590,8 +8735,9 @@ summary + .checks-editor-body {
   transform: translateX(calc(13px * -3 / 24)) rotate(90deg);
 }
 
-/* What a CLI loads by itself (Settings, in each CLI's card) */
-.native-setup > summary .badge {
+/* What a CLI loads by itself, and its subagents and workflows (Settings, in each CLI's card) */
+.native-setup > summary .badge,
+.cli-features > summary .badge {
   margin-left: 8px;
   vertical-align: 1px;
 }
@@ -9966,7 +10112,9 @@ a.share-action {
   background: var(--accent, var(--ok));
 }
 
-.usage-limit.warn .usage-bar > span {
+/* Near the end, or used up while the account runs on past it, billed (credits, usage credits…): a warning, not a stop. */
+.usage-limit.warn .usage-bar > span,
+.usage-limit.paid .usage-bar > span {
   background: var(--warn);
 }
 
@@ -9996,8 +10144,97 @@ a.share-action {
   align-self: flex-start;
 }
 
+/* The preview panel's width: the default one, or the one its divider was dragged to on this
+   browser (--preview-width, see ChatView), always leaving the chat 360 pixels. Percentages are of
+   .main's width, for the chat's margin and the panel (positioned in .main) alike. */
+.chat {
+  --preview-w: min(var(--preview-width, min(43%, 760px)), calc(100% - 360px));
+}
+
 .chat.previewing {
-  margin-inline-end: min(43%, 760px);
+  margin-inline-end: var(--preview-w);
+}
+
+/* The divider between the chat and the panel: drag it, or focus it and use the arrow keys. */
+.app-preview-resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--preview-w) - 4px);
+  z-index: 3;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.app-preview-resize::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.app-preview-resize:hover::after,
+.app-preview-resize:focus-visible::after,
+.resizing-preview .app-preview-resize::after {
+  background: var(--info);
+}
+
+.app-preview-resize:focus-visible {
+  outline: none;
+}
+
+/* While it is dragged, the page and the terminal must not take the pointer. */
+.resizing-preview {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizing-preview iframe,
+.resizing-preview .xterm {
+  pointer-events: none;
+}
+
+/* The header's Preview button, pressed while the panel shows. */
+.head-button.preview-head-button.on {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+}
+
+/* After the team's last reply: the app it made, ready to preview. */
+.preview-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--info) 55%, transparent);
+}
+
+.preview-ready-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--info);
+}
+
+.preview-ready-text {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preview-ready-text code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.preview-ready > button {
+  flex: none;
 }
 
 .app-preview {
@@ -10006,7 +10243,7 @@ a.share-action {
   inset-inline-end: 0;
   display: flex;
   flex-direction: column;
-  width: min(43%, 760px);
+  width: var(--preview-w);
   min-width: 0;
   overflow: auto;
   background: var(--bg);
@@ -10030,6 +10267,18 @@ a.share-action {
 
 .app-preview .drawer-head h2 {
   margin: 0;
+}
+
+/* New tab, right beside the title; Close stays at the end. */
+.app-preview .drawer-head {
+  gap: 10px;
+}
+
+.app-preview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: auto;
 }
 
 .app-preview-settings,
@@ -10121,6 +10370,60 @@ a.share-action {
   margin: 0 18px 10px;
 }
 
+/* What it runs from, folded while it runs (the details open below), and the page/terminal switch. */
+.app-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview-bar .app-preview-views {
+  margin: 0 0 0 auto;
+}
+
+.app-preview-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-inline-start: -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-preview-summary:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.app-preview-summary svg {
+  flex: none;
+  transition: transform 0.15s;
+}
+
+.app-preview-summary.open svg {
+  transform: rotate(90deg);
+}
+
+.app-preview-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-preview-bar + .app-preview-settings {
+  border-bottom: 1px solid var(--border);
+}
+
 .app-preview-recipe {
   padding: 0 18px 12px;
 }
@@ -10160,6 +10463,63 @@ a.share-action {
     width: 100%;
     border: 0;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
+/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
+.labs-options {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.labs-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.labs-option.on {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+.labs-option input {
+  margin: 2px 0 0;
+}
+.labs-option-title {
+  font-weight: 600;
+}
+.labs-option-body {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+}
+.labs-tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.labs-tradeoffs ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.labs-model {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.labs-model input {
+  max-width: 420px;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .labs-tradeoffs {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

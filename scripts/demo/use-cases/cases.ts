@@ -426,10 +426,25 @@ async function showDiff(s: Session, id: string, file: RegExp, mark: string): Pro
   await sleep(1000);
   s.mark(mark, { agent: by.agentName, provider: by.provider });
   await moveClick(card.getByRole('button', { name: M(s).changes.turnDiff }), { after: 1200 });
+  await openDiffFiles(s, file);
   await sleep(5000);
   await page.keyboard.press('Escape');
   await sleep(900);
   return true;
+}
+
+/**
+ * In the diff dialog just opened, which lists each file folded, opens the file `file` names (every
+ * file without one, or when it is not there), so that its lines are read on camera.
+ */
+async function openDiffFiles(s: Session, file?: RegExp): Promise<void> {
+  const dialog = s.page.getByRole('dialog');
+  const heads = dialog.locator('.diff-file-head');
+  await heads.first().waitFor();
+  const named = file ? heads.filter({ hasText: file }).first() : null;
+  if (named && (await named.count())) await s.moveClick(named, { after: 800 });
+  else if ((await heads.count()) > 1) await s.moveClick(dialog.getByRole('button', { name: M(s).changes.expandAll }), { after: 800 });
+  else await s.moveClick(heads.first(), { after: 800 });
 }
 
 /** Sends what waits in the outbox, each card as it is shown; how many went. */
@@ -498,6 +513,7 @@ const fixABug: UseCase = {
     await sleep(1200);
     mark('diff', { agent: best.m.agentName, provider: best.m.provider, lines: best.lines });
     await moveClick(target.getByRole('button', { name: M(s).changes.turnDiff }), { after: 1200 });
+    await openDiffFiles(s);
     await sleep(3200);
     await page.keyboard.press('Escape');
     await sleep(900);

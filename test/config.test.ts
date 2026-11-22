@@ -16,6 +16,7 @@ describe('server configuration from the environment', () => {
       voiceModelBaseUrl: undefined,
       voiceEngineBaseUrl: undefined,
       voiceDir: undefined,
+      runCode: false,
     });
     expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
     const blank = readConfig({
@@ -24,8 +25,52 @@ describe('server configuration from the environment', () => {
       RELAY_TURN_TIMEOUT_MIN: '',
       RELAY_VOICE_DIR: '  ',
       RELAY_VOICE_MODEL_BASE_URL: '',
+      RELAY_RUN_CODE: ' ',
     });
     expect(blank).toEqual({ config, problems: [] });
+  });
+
+  it('turns on RLM mode with its sub-model as <backend>/<model>, which turns run_code on too', () => {
+    expect(readConfig({ RELAY_RLM: ' anthropic/claude-haiku-5-5 ' })).toMatchObject({
+      config: { runCode: true, rlmModel: 'anthropic/claude-haiku-5-5' },
+      problems: [],
+    });
+    // One of the user's own endpoints, whose model name may hold a `/` itself.
+    expect(readConfig({ RELAY_RLM: 'homelab/Qwen/Qwen3-30B-A3B', RELAY_RUN_CODE: 'on' }).config).toMatchObject({
+      runCode: true,
+      rlmModel: 'homelab/Qwen/Qwen3-30B-A3B',
+    });
+    for (const off of ['', 'off', 'OFF']) {
+      const read = readConfig({ RELAY_RLM: off });
+      expect(read.problems).toEqual([]);
+      expect(read.config.rlmModel).toBeUndefined();
+      expect(read.config.runCode).toBe(false);
+    }
+    // Not a model: `on` names none.
+    for (const raw of ['on', 'claude-haiku-5-5', '/model', 'openai/']) {
+      const read = readConfig({ RELAY_RLM: raw });
+      expect(read.config.rlmModel).toBeUndefined();
+      expect(read.problems).toEqual([
+        `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+      ]);
+    }
+    // RLM mode is run_code's: turning run_code off with it is refused rather than one of them ignored.
+    expect(readConfig({ RELAY_RLM: 'openai/gpt-5.4-nano', RELAY_RUN_CODE: 'off' }).problems).toEqual([
+      'RELAY_RLM needs run_code: leave RELAY_RUN_CODE unset, or set it to on.',
+    ]);
+  });
+
+  it('gives agents run_code only when RELAY_RUN_CODE is on, and refuses a value that is neither on nor off', () => {
+    expect(readConfig({ RELAY_RUN_CODE: 'on' })).toMatchObject({ config: { runCode: true }, problems: [] });
+    expect(readConfig({ RELAY_RUN_CODE: ' ON ' }).config.runCode).toBe(true);
+    expect(readConfig({ RELAY_RUN_CODE: 'off' })).toMatchObject({ config: { runCode: false }, problems: [] });
+    expect(readConfig({ RELAY_RUN_CODE: 'Off' }).config.runCode).toBe(false);
+    // Not read as on: the server refuses to start rather than guess.
+    for (const raw of ['1', 'true', 'yes', 'enabled']) {
+      const read = readConfig({ RELAY_RUN_CODE: raw });
+      expect(read.config.runCode).toBe(false);
+      expect(read.problems).toEqual([`RELAY_RUN_CODE=${raw} is neither on nor off.`]);
+    }
   });
 
   it("takes another cloud's Microsoft sign-in and Graph over https, or a stand-in's over http on this computer only", () => {
@@ -185,5 +230,7 @@ describe('server configuration from the environment', () => {
   it("reads this server's environment once, which the tests leave unset", () => {
     expect(CONFIG_PROBLEMS).toEqual([]);
     expect(limitsOf(CONFIG)).toEqual(DEFAULT_LIMITS);
+    expect(CONFIG.runCode).toBe(false);
+    expect(CONFIG.rlmModel).toBeUndefined();
   });
 });

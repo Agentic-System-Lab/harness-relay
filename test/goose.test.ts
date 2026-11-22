@@ -43,11 +43,13 @@ import {
   gooseAfterSession,
   gooseBriefing,
   gooseCallInfo,
+  gooseContextEnv,
   gooseEndpointFile,
   gooseEndpointKeyVar,
   gooseEndpointProvider,
   gooseError,
   gooseExtensionsEnv,
+  goosePlatformExtensions,
   gooseFilterUpdate,
   gooseHideTool,
   gooseHintFiles,
@@ -287,6 +289,18 @@ describe("Goose's settings per run", () => {
     }
   });
 
+  it("gives Goose the member's limit of model calls a turn, an inherited one taken out", () => {
+    const limited = context({ limits: { steps: 40 } }, { GOOSE_MAX_TURNS: '5' });
+    prepareGoose(limited, { realHome: '/h', bash: '/bin/bash' });
+    expect(limited.env.GOOSE_MAX_TURNS).toBe('40');
+    // None, or another CLI's: Goose's own default (an inherited one is not passed on).
+    for (const limits of [undefined, { usd: 3 }]) {
+      const ctx = context(limits ? { limits } : {}, { GOOSE_MAX_TURNS: '5' });
+      prepareGoose(ctx, { realHome: '/h', bash: '/bin/bash' });
+      expect(ctx.env).not.toHaveProperty('GOOSE_MAX_TURNS');
+    }
+  });
+
   it("keeps Goose's own shell on Windows, where the POSIX wrapper cannot run", () => {
     const ctx: OpenRunContext = { ...context({ model: 'homelab/muse-glimmer-30b-nvfp4' }), platform: 'win32' };
     ctx.env.GOOSE_SHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
@@ -464,6 +478,23 @@ describe("Goose's settings per run", () => {
       summon: { enabled: true, type: 'platform', name: 'summon', description: '', bundled: true },
       todo: { enabled: true, type: 'platform', name: 'todo', description: '', bundled: true },
     });
+    // Its subagents left out (the account's switch): no `summon`, which they come from.
+    expect(Object.keys(JSON.parse(gooseExtensionsEnv(['subagents'])))).toEqual(['analyze', 'todo']);
+    expect(goosePlatformExtensions(['subagents'])).toEqual(['analyze', 'todo']);
+  });
+
+  it("runs one subagent at a time on the user's own endpoint, and leaves its subagents' extension out when they are off", () => {
+    const endpoint = context({ model: 'homelab/muse-glimmer-30b-nvfp4', nativeOff: ['subagents'] });
+    prepareGoose(endpoint, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(endpoint.env.GOOSE_MAX_CONCURRENT_SUBAGENTS).toBe('1');
+    expect(endpoint.env.EXTENSIONS).toBe(gooseExtensionsEnv(['subagents']));
+    const api = context({ model: 'openai/gpt-5.4-mini' });
+    prepareGoose(api, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(api.env).not.toHaveProperty('GOOSE_MAX_CONCURRENT_SUBAGENTS');
+    // A new session with what it loads itself left out names its whole list: without `summon` too.
+    const both = context({ nativeOff: ['mcp', 'subagents'] });
+    const listed = (gooseSessionParams(both, 'new')._meta as { enabledExtensions: { name?: string }[] }).enabledExtensions;
+    expect(listed.map((e) => e.name)).toEqual(['developer', 'analyze', 'todo']);
   });
 
   it("names providers and key variables for endpoints apart from Goose's own", () => {
@@ -477,6 +508,47 @@ describe("Goose's settings per run", () => {
     expect(gooseMode('read-only')).toBe('approve');
     expect(gooseMode('edit')).toBe('approve');
     expect(gooseMode('full')).toBe('auto');
+  });
+
+  it("writes each endpoint model's context window in its provider file, and the run's limits and short-window settings in variables", () => {
+    const limited: RunBackends = {
+      ...BACKENDS,
+      endpoints: [
+        {
+          ...BACKENDS.endpoints[0]!,
+          models: ['muse-glimmer-30b-nvfp4', 'big'],
+          limits: { 'muse-glimmer-30b-nvfp4': { context: 32768, output: 4096 }, big: { context: 262144 } },
+        },
+        BACKENDS.endpoints[1]!,
+      ],
+    };
+    expect(gooseEndpointFile(limited.endpoints[0]!, 'typed')).toMatchObject({
+      models: [{ name: 'muse-glimmer-30b-nvfp4', context_limit: 32768 }, { name: 'big', context_limit: 262144 }, { name: 'typed' }],
+    });
+    const ctx = context({ model: 'homelab/muse-glimmer-30b-nvfp4', backends: limited });
+    prepareGoose(ctx, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(ctx.env).toMatchObject({
+      GOOSE_MAX_TOKENS: '4096',
+      GOOSE_MAX_TOOL_RESPONSE_SIZE: '12288',
+      GOOSE_TOOL_PAIR_SUMMARIZATION: 'true',
+    });
+    const file = JSON.parse(readFileSync(join(ctx.home.state, 'config', 'custom_providers', 'relay-homelab.json'), 'utf8'));
+    expect(file.models).toEqual([
+      { name: 'muse-glimmer-30b-nvfp4', context_limit: 32768 },
+      { name: 'big', context_limit: 262144 },
+    ]);
+    // A large window: only the tool response limit, where it is below Goose's own; none without limits.
+    expect(gooseContextEnv({ context: 262144 })).toEqual({ GOOSE_MAX_TOOL_RESPONSE_SIZE: '98304' });
+    expect(gooseContextEnv({ context: 1_000_000 })).toEqual({});
+    expect(gooseContextEnv({ context: 65536 })).toMatchObject({ GOOSE_TOOL_PAIR_SUMMARIZATION: 'true' });
+    expect(gooseContextEnv({ context: 65537 })).not.toHaveProperty('GOOSE_TOOL_PAIR_SUMMARIZATION');
+    expect(gooseContextEnv(undefined)).toEqual({});
+    // An inherited one is taken out, as every GOOSE_ variable is, and a run without limits sets none.
+    const plain = context({ model: 'homelab/muse-glimmer-30b-nvfp4' }, { GOOSE_TOOL_PAIR_SUMMARIZATION: 'true', GOOSE_MAX_TOKENS: '99' });
+    prepareGoose(plain, { realHome: '/home/user', bash: '/bin/bash' });
+    expect(plain.env).not.toHaveProperty('GOOSE_TOOL_PAIR_SUMMARIZATION');
+    expect(plain.env).not.toHaveProperty('GOOSE_MAX_TOKENS');
+    expect(plain.env).not.toHaveProperty('GOOSE_MAX_TOOL_RESPONSE_SIZE');
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
@@ -2046,6 +2118,9 @@ describe("a resumed Goose session's own row", () => {
       // A list sealed for another session is not this one's.
       restoreGooseSession(ctx.home.state, sealed, 's2');
       expect(names(row(file))).toEqual(['developer', 'analyze', 'summon', 'todo', 'p1:plug', 'lib']);
+      // A run with its subagents off resumes it without their extension (Goose ignores a list sent with the load).
+      prepareGoose({ ...ctx, o: { ...ctx.o, sessionId: 's1', nativeOff: ['subagents'] } }, { realHome: '/h', bash: '/bin/bash' });
+      expect(names(row(file))).toEqual(['developer', 'analyze', 'todo', 'p1:plug', 'lib']);
       // Emptied with the state folder.
       emptyStateFolder(ctx.home.root, 'conv.c1.a1');
       expect(existsSync(sealed)).toBe(false);

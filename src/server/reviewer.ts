@@ -15,7 +15,8 @@ import {
 } from '../shared/types';
 import { quoteChecker, reviewStart } from '../shared/review';
 import { t } from './i18n';
-import { historyForLead, parsePlanReply } from './planner';
+import type { OutputSchema } from './agents/types';
+import { historyForLead, leadReply, strictObject } from './planner';
 
 /*
  * Lead review (`ConversationSettings.leadReview`): once the team has answered, the lead agent (Settings)
@@ -205,15 +206,20 @@ export function buildReviewPrompt(
   agents: AgentConfig[],
   settings: Pick<ConversationSettings, 'permission' | 'cwd' | 'extraCwds'>,
   worktrees: MemberWorktrees[] = [],
+  team: string[] = [],
 ): string {
   const history = material.history.trim();
   const dirs = cwdsOf(settings);
-  const isolated = worktrees.length
+  const isolated = team.length
     ? `
+The team worked in this conversation's own git ${team.length === 1 ? 'worktree' : 'worktrees'} (another conversation was changing the working directories): what it changed is there, not in the working directories, until the user applies it. You may read ${team.length === 1 ? 'it' : 'them'}: ${team.join(', ')}
+`
+    : worktrees.length
+      ? `
 The team worked in parallel, each member in git worktrees of its own: what a member changed is there, not in the working directories, until the user applies it. You may read them:
 ${worktrees.map((w) => `- @${w.name}: ${w.dirs.join(', ')}`).join('\n')}
 `
-    : '';
+      : '';
   return `The team has just answered. Review what it said since your last review, for the user, who reads it next: point out the places that need the user's close attention, and suggest what to do next.
 ${
   history
@@ -250,7 +256,7 @@ A highlight about one reply gives its number as "reply", and as "quote" the word
 
 Next steps: at most ${REVIEW_LIMITS.nextSteps} concrete steps that move the work on, the most important first. "by": "team" for work the team can do, with "message": the message the user can send the team to ask for it, naming the members who should do it with @Name; "by": "user" for what only the user can do (decide, try it on their own machine, deploy, give access). None when the work is done and nothing is left to do.
 
-Do not repeat or summarize each reply: the user reads them. Write the summary, notes and steps in the language the user writes in; quotes stay in the reply's own words. Do not use tools unless a highlight depends on checking a file (in the working directories${worktrees.length ? ", or a member's worktrees above" : ''}), and change nothing.
+Do not repeat or summarize each reply: the user reads them. Write the summary, notes and steps in the language the user writes in; quotes stay in the reply's own words. Do not use tools unless a highlight depends on checking a file (in the working directories${team.length ? ", or the team's worktree above" : worktrees.length ? ", or a member's worktrees above" : ''}), and change nothing.
 
 Reply with only this JSON object, in a \`\`\`json code block, with your review:
 {"summary": "<where the team got to: one or two sentences>", "highlights": [{"kind": ${REVIEW_KINDS.map((k) => `"${k}"`).join(' | ')}, "reply": <its number>, "quote": "<exact words of that reply>", "note": "<why the user should look at it: one or two sentences>"}], "nextSteps": [{"text": "<the step: one short sentence>", "by": "team" | "user", "message": "<for the team: the message to send it>"}]}`;
@@ -318,13 +324,48 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
   return { ...(summary ? { summary } : {}), highlights, nextSteps };
 }
 
-/** The review in the lead's reply text (a ```json block, or the outermost braces). */
-export function parseReviewReply(text: string, replies: ChatMessage[]): Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> {
+/**
+ * The review the lead's answer holds: its structured answer (`REVIEW_SCHEMA`), when its CLI gave one,
+ * else its reply text's JSON (a ```json block, or the outermost braces).
+ */
+export function parseReviewReply(
+  text: string,
+  replies: ChatMessage[],
+  structured?: unknown,
+): Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> {
   let raw: Record<string, any>;
   try {
-    raw = parsePlanReply(text);
+    raw = leadReply(text, structured);
   } catch {
     throw new Error(t().reviewUnparsable);
   }
   return decideReview(raw, replies);
 }
+
+/**
+ * The review as JSON Schema (`buildReviewPrompt()`'s object, strict as `PLAN_SCHEMA` is), for a lead whose
+ * CLI can be asked for one: null for a highlight's reply and quote about the replies as a whole, and for
+ * the message of the user's own step.
+ */
+export const REVIEW_SCHEMA: OutputSchema = strictObject({
+  summary: { type: 'string', description: 'Where the team got to: one or two sentences' },
+  highlights: {
+    type: 'array',
+    description: `At most ${REVIEW_LIMITS.highlights}, the most important first; none is fine`,
+    items: strictObject({
+      kind: { type: 'string', enum: REVIEW_KINDS },
+      reply: { type: ['integer', 'null'], description: "The reply's number; null for the replies as a whole" },
+      quote: { type: ['string', 'null'], description: 'Exact words of that reply, as plain text; null with no reply' },
+      note: { type: 'string' },
+    }),
+  },
+  nextSteps: {
+    type: 'array',
+    description: `At most ${REVIEW_LIMITS.nextSteps}, the most important first; none when the work is done`,
+    items: strictObject({
+      text: { type: 'string' },
+      by: { type: 'string', enum: ['team', 'user'] },
+      message: { type: ['string', 'null'], description: 'For the team: the message to send it; null for the user' },
+    }),
+  },
+});

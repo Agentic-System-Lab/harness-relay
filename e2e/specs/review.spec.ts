@@ -200,7 +200,7 @@ test.describe('lead review', () => {
     expect(lastReview()).toContain('<message from="user">\nGo e2e:slowreview\n</message>');
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
-    await expect(drawer).toContainText('lead review alone can be saved now');
+    await expect(drawer).toContainText('lead review and steering alone can be saved now');
     const save = drawer.getByRole('button', { name: 'Save', exact: true });
     await expect(save).toBeDisabled();
     await drawer.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();

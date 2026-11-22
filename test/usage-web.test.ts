@@ -45,6 +45,14 @@ describe('what is left of a limit', () => {
   it('colours the bar as it fills', () => {
     expect([0, 79.9, 80, 99, 100].map((usedPercent) => usageLevel({ usedPercent }))).toEqual(['ok', 'ok', 'warn', 'warn', 'out']);
   });
+
+  it('marks a limit used up that the account runs past, billed, apart from one that stops it', () => {
+    expect(usageLevel({ usedPercent: 100, paidPast: true }, 'credits')).toBe('paid');
+    expect(usageLevel({ usedPercent: 90, paidPast: true }, 'credits')).toBe('warn');
+    // Nothing pays now (credits used up, a spend limit reached), or the payer does not cover it.
+    expect(usageLevel({ usedPercent: 100, paidPast: true })).toBe('out');
+    expect(usageLevel({ usedPercent: 100 }, 'credits')).toBe('out');
+  });
 });
 
 describe('when a limit starts over', () => {
@@ -67,6 +75,19 @@ describe("a limit's line", () => {
     const l: UsageLimit = { span: 'week', usedPercent: 55, resetsAt: now + 2 * 3_600_000 };
     expect(usageLine(l, en, 'en', now)).toBe('45% left · 55% used · resets in 2 h');
     expect(usageLine(l, zhTW, 'zh-TW', now)).toBe('剩 45% · 已用 55% · 2 小時後重置');
+  });
+
+  it('says a limit used up runs on what pays past it, in either language, and only then', () => {
+    const l: UsageLimit = { span: 'week', usedPercent: 100, resetsAt: now + 2 * 3_600_000, paidPast: true };
+    expect(usageLine(l, en, 'en', now, 'credits')).toBe('Plan limit reached; using credits (billed) · 100% used · resets in 2 h');
+    expect(usageLine(l, zhTW, 'zh-TW', now, 'credits')).toBe('已達方案上限，正在使用點數（另外計費） · 已用 100% · 2 小時後重置');
+    expect(usageLine(l, en, 'en', now, 'usageCredits')).toContain('Plan limit reached; using usage credits (extra usage, billed)');
+    expect(usageLine({ ...l, used: 1500, total: 1500 }, en, 'en', now, 'additionalUsage')).toBe(
+      'Plan limit reached; using additional paid usage · 1,500 of 1,500 requests used · resets in 2 h',
+    );
+    expect(usageLine(l, zhTW, 'zh-TW', now, 'payAsYouGo')).toContain('已達方案上限，正在隨用隨付（另外計費）');
+    expect(usageLine(l, en, 'en', now)).toBe('0% left · 100% used · resets in 2 h');
+    expect(usageLine({ ...l, usedPercent: 40 }, en, 'en', now, 'credits')).toBe('60% left · 40% used · resets in 2 h');
   });
 
   it('counts requests for a limit of requests', () => {

@@ -14,6 +14,8 @@ import {
   PI_ENV,
   PI_GATE_COMMAND,
   PI_GATE_PATH,
+  PI_PLAN_TOOL,
+  piPlanEntries,
   PI_GATE_TITLE,
   PI_HEADER_MAX,
   PI_LEVELS,
@@ -48,6 +50,8 @@ import {
   piModelLevels,
   piModelRef,
   piModels,
+  piCompaction,
+  piModelLimits,
   piModelsJson,
   piNative,
   piProcess,
@@ -338,6 +342,45 @@ describe('Pi: home and config', () => {
     });
   });
 
+  it("writes each endpoint model's context window and output limit, and compaction to fit a short window", async () => {
+    const limited = {
+      ...backendRunOf('homelab/muse-glimmer-30b-nvfp4'),
+      endpoint: {
+        ...backends.endpoints[0]!,
+        models: ['muse-glimmer-30b-nvfp4', 'big', 'out-only', 'none'],
+        limits: { 'muse-glimmer-30b-nvfp4': { context: 32768 }, big: { context: 262144, output: 32000 }, 'out-only': { output: 2048 } },
+      },
+    };
+    expect((piModelsJson(limited) as any).providers['relay-homelab'].models).toEqual([
+      // A quarter of the window for an answer (Pi would take 128,000 and 16,384).
+      { id: 'muse-glimmer-30b-nvfp4', name: 'muse-glimmer-30b-nvfp4', reasoning: false, contextWindow: 32768, maxTokens: 8192 },
+      { id: 'big', name: 'big', reasoning: false, contextWindow: 262144, maxTokens: 32000 },
+      { id: 'out-only', name: 'out-only', reasoning: false, maxTokens: 2048 },
+      { id: 'none', name: 'none', reasoning: false },
+    ]);
+    // Compacting with the next answer's room free, keeping a quarter of the window; Pi's own figures at most.
+    expect(piCompaction(limited)).toEqual({
+      'relay-homelab/muse-glimmer-30b-nvfp4': { reserveTokens: 8192, keepRecentTokens: 8192 },
+      'relay-homelab/big': { reserveTokens: 16384, keepRecentTokens: 20000 },
+    });
+    expect(piCompaction(backendRunOf('openai/gpt-5.4-nano'))).toEqual({});
+    expect(piModelLimits(undefined)).toEqual({});
+    expect(piSettings(piCompaction(limited))).toMatchObject({
+      cacheWarming: 'off',
+      compaction: { modelOverrides: { 'relay-homelab/muse-glimmer-30b-nvfp4': { reserveTokens: 8192, keepRecentTokens: 8192 } } },
+    });
+    expect(piSettings({})).not.toHaveProperty('compaction');
+    const ctx = context({}, 'homelab/muse-glimmer-30b-nvfp4');
+    ctx.run = limited;
+    await preparePi(ctx);
+    const agentDir = join(ctx.tmpDir, 'pi-agent');
+    expect(JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf8'))).toEqual(piSettings(piCompaction(limited)));
+    expect(JSON.parse(readFileSync(join(agentDir, 'models.json'), 'utf8')).providers['relay-homelab'].models[0]).toMatchObject({
+      contextWindow: 32768,
+      maxTokens: 8192,
+    });
+  });
+
   it('writes the tool library into mcp.json with its secrets in variables', () => {
     const { json, env } = piMcpJson([stdio, http, { ...stdio, name: 'shout' }]);
     expect(json).toEqual({
@@ -477,7 +520,8 @@ describe('Pi: home and config', () => {
     }
     const base = ['--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-approve'];
     const brief = ['--append-system-prompt', '<tmp>/pi-agent/harness-relay-briefing.md'];
-    expect(got[0]).toEqual(['--mode', 'rpc', '--model', 'openai/gpt-5.4-nano', ...base, '--no-mcp', ...brief]);
+    // Full access too: the gate is loaded for its plan tool (`HARNESS_RELAY_PI_UNGATED` keeps it from asking).
+    expect(got[0]).toEqual(['--mode', 'rpc', '--model', 'openai/gpt-5.4-nano', ...base, '-e', PI_GATE_PATH, '--no-mcp', ...brief]);
     expect(got[1]).toEqual([
       '--mode',
       'rpc',
@@ -504,7 +548,7 @@ describe('Pi: home and config', () => {
       '--no-context-files',
       ...brief,
       '--tools',
-      expect.stringMatching(/^read,.*ls,mcp__\*$/),
+      expect.stringMatching(/^read,.*ls,update_plan,mcp__\*$/),
     ]);
     // An effort that is no Pi level is not passed (Pi would refuse to start); the turn says why.
     expect(got[3]).toEqual([
@@ -531,6 +575,8 @@ describe('Pi: home and config', () => {
       '--model',
       'openai/gpt-5.4-nano',
       ...base,
+      '-e',
+      PI_GATE_PATH,
       '--no-mcp',
       '--session',
       join(ctx.home.root, 'sessions', 'x_abc.jsonl'),
@@ -842,6 +888,31 @@ describe('Pi: events from recorded runs', () => {
     });
   });
 
+  it("shows the gate's plan tool as the plan, never as a tool row", () => {
+    const events: AgentEvent[] = [];
+    const h = createPiEventHandler((e) => events.push(e));
+    h.handle({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Plan:' } });
+    const plan = [
+      { step: 'Read the tests', status: 'completed' },
+      { step: 'Fix the parser', status: 'in_progress' },
+      { step: 'Ship', status: 'later' },
+      { step: ' ', status: 'pending' },
+    ];
+    h.handle({ type: 'tool_execution_start', toolCallId: 'p1', toolName: PI_PLAN_TOOL, args: { plan } });
+    h.handle({ type: 'tool_execution_start', toolCallId: 'p1', toolName: PI_PLAN_TOOL, args: { plan } }); // once
+    h.handle({ type: 'tool_execution_end', toolCallId: 'p1', toolName: PI_PLAN_TOOL, result: { content: [] } });
+    h.handle({ type: 'tool_execution_start', toolCallId: 'p2', toolName: PI_PLAN_TOOL, args: {} }); // no plan in it
+    h.closeOpen(true);
+    const entries = [
+      { text: 'Read the tests', status: 'completed' },
+      { text: 'Fix the parser', status: 'in_progress' },
+      { text: 'Ship', status: 'pending' },
+    ];
+    expect(events.filter((e) => e.type !== 'text' && e.type !== 'text_end')).toEqual([{ type: 'plan', entries }]);
+    expect(piPlanEntries({ plan })).toEqual(entries);
+    expect(piPlanEntries({ plan: 'x' })).toBeUndefined();
+  });
+
   it('a stopped run leaves its rows not finished', () => {
     const events: AgentEvent[] = [];
     const h = createPiEventHandler((e) => events.push(e));
@@ -871,6 +942,48 @@ describe('Pi: events from recorded runs', () => {
       { type: 'tool_end', id: 't4', ok: true },
     ]);
     expect(piRunUsage(g.usage, { kind: 'openai' })).toEqual({});
+  });
+
+  // As Pi 1.5.1's `AgentSessionEvent` has them (its `dist/core/agent-session.d.ts`, `docs/json.md`), not recorded from a run.
+  it("notes what Pi reports about its own run, and puts a tool's own calls under it", () => {
+    const events: AgentEvent[] = [];
+    const h = createPiEventHandler((e) => events.push(e));
+    return en(async () => {
+      h.handle({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Working' } });
+      h.handle({ type: 'compaction_start', reason: 'threshold' });
+      h.handle({
+        type: 'compaction_end',
+        reason: 'threshold',
+        result: { summary: '…', firstKeptEntryId: 'e9', tokensBefore: 120000 },
+        aborted: false,
+        willRetry: false,
+      });
+      h.handle({ type: 'compaction_end', reason: 'manual', aborted: true, willRetry: false });
+      h.handle({
+        type: 'compaction_end',
+        reason: 'overflow',
+        aborted: false,
+        willRetry: false,
+        errorMessage: 'Context overflow recovery failed',
+      });
+      h.handle({ type: 'auto_retry_start', attempt: 2, maxAttempts: 3, delayMs: 4000, errorMessage: '529 overloaded' });
+      h.handle({ type: 'auto_retry_end', success: true, attempt: 2 });
+      h.handle({ type: 'auto_retry_end', success: false, attempt: 3, finalError: '529 overloaded' });
+      h.handle({ type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: 'timeout' });
+      h.handle({ type: 'tool_execution_start', toolCallId: 'x1', toolName: 'review', args: { path: 'a.ts' } });
+      h.handle({ type: 'tool_execution_start', toolCallId: 'x2', toolName: 'read', args: { path: 'a.ts' }, parentToolCallId: 'x1' });
+      expect(events).toEqual([
+        { type: 'text', text: 'Working' },
+        { type: 'text_end' },
+        { type: 'notice', text: "Pi compacted the conversation's context to make room." },
+        { type: 'notice', text: "Pi could not compact the conversation's context: Context overflow recovery failed" },
+        { type: 'notice', text: "Pi's request to its model failed; retrying (attempt 2 of 3): 529 overloaded" },
+        { type: 'notice', text: 'Pi retried and still failed: 529 overloaded' },
+        { type: 'notice', text: "Pi's request to its model failed; retrying (attempt 1 of 3): timeout" },
+        { type: 'tool_start', id: 'x1', name: 'review', detail: 'a.ts' },
+        { type: 'tool_start', id: 'x2', name: 'Read', detail: 'a.ts', kind: 'read', parentId: 'x1' },
+      ]);
+    });
   });
 
   it('turns provider errors into what the user can act on', () => {
@@ -1033,8 +1146,9 @@ describe('Pi: turns', () => {
     expect(Object.keys(s.files).sort()).toEqual(
       expect.arrayContaining(['auth.json', 'models.json', 'settings.json', 'mcp.json', 'harness-relay-briefing.md']),
     );
-    // Full access: no gate, no check for it, no thinking level touched; stdin closed at the end.
-    expect(s.argv).not.toContain('-e');
+    // Full access: the gate only for its plan tool, asking nothing (no check for it), no thinking level
+    // touched; stdin closed at the end.
+    expect(s.argv).toContain(PI_GATE_PATH);
     expect(r.log().map((m) => m.type ?? (m.stdinClosed ? 'closed' : 'start'))).toEqual(['start', 'get_state', 'prompt', 'closed']);
     expect(existsSync(s.env.PI_CODING_AGENT_DIR)).toBe(false); // the run's temp folder is gone
   });
@@ -1154,7 +1268,42 @@ describe('Pi: turns', () => {
     expect(JSON.parse(uiAnswers(r)[0]!.value)).toMatchObject({ allow: false });
     const gate = (await import(PI_GATE_PATH)).default as (pi: any) => void;
     const handlers: Record<string, any> = {};
-    gate({ registerCommand: () => undefined, on: (ev: string, h: any) => (handlers[ev] = h) });
+    const tools: Record<string, any> = {};
+    gate({
+      registerCommand: () => undefined,
+      registerTool: (tool: any) => (tools[tool.name] = tool),
+      on: (ev: string, h: any) => (handlers[ev] = h),
+    });
+    // Its plan tool: registered with a plain JSON Schema, answering only, and never asked about.
+    expect(tools[PI_PLAN_TOOL].parameters).toMatchObject({ type: 'object', required: ['plan'] });
+    const plan = [{ step: 'Read', status: 'completed' }];
+    expect(await tools[PI_PLAN_TOOL].execute('p1', { plan })).toEqual({
+      content: [{ type: 'text', text: 'Plan updated.' }],
+      details: { plan },
+    });
+    const asked: unknown[] = [];
+    expect(
+      await handlers.tool_call(
+        { toolName: PI_PLAN_TOOL, toolCallId: 'p1', input: { plan } },
+        { hasUI: true, ui: { input: async (...a: unknown[]) => asked.push(a) } },
+      ),
+    ).toBeUndefined();
+    expect(asked).toEqual([]);
+    // Ungated (full access, no hooks): the plan tool alone, no call stopped.
+    const ungated: Record<string, any> = {};
+    const ungatedTools: Record<string, any> = {};
+    process.env.HARNESS_RELAY_PI_UNGATED = '1';
+    try {
+      gate({
+        registerCommand: () => undefined,
+        registerTool: (t: any) => (ungatedTools[t.name] = t),
+        on: (ev: string, h: any) => (ungated[ev] = h),
+      });
+    } finally {
+      delete process.env.HARNESS_RELAY_PI_UNGATED;
+    }
+    expect(Object.keys(ungatedTools)).toEqual([PI_PLAN_TOOL]);
+    expect(ungated).toEqual({});
     const call = { toolName: 'bash', toolCallId: 'x', input: {}, parentToolCallId: 'p' };
     const ask = (value: unknown) => handlers.tool_call(call, { hasUI: true, signal: undefined, ui: { input: async () => value } });
     expect(await ask(JSON.stringify({ allow: true }))).toBeUndefined();
@@ -1381,11 +1530,26 @@ describe("Pi: the team's hooks", () => {
   it.skipIf(process.platform === 'win32')('has the gate show results only when the turn has after hooks', async () => {
     const plain = context({ permission: 'full', hooks: fake() });
     await preparePi(plain);
-    expect(plain.env.HARNESS_RELAY_PI_AFTER).toBeUndefined();
+    expect(plain.env.HARNESS_RELAY_PI_AFTER).toBe('0');
     expect(piArgs(plain)).toContain(PI_GATE_PATH);
     const after = context({ permission: 'full', hooks: fake(undefined, true) });
     await preparePi(after);
     expect(after.env.HARNESS_RELAY_PI_AFTER).toBe('1');
+    // Gated with hooks; with full access and none, loaded for its plan tool only, asking nothing.
+    expect(plain.env.HARNESS_RELAY_PI_UNGATED).toBe('0');
+    const ungated = context({ permission: 'full' });
+    await preparePi(ungated);
+    expect(ungated.env.HARNESS_RELAY_PI_UNGATED).toBe('1');
+    expect(piArgs(ungated)).toContain(PI_GATE_PATH);
+    const below = context({ permission: 'read-only' });
+    await preparePi(below);
+    expect(below.env.HARNESS_RELAY_PI_UNGATED).toBe('0');
+    // What the server's own environment holds never reaches the gate: a Harness Relay started from a
+    // full-access Pi member's command has HARNESS_RELAY_PI_UNGATED=1 (and _AFTER=1) in its environment.
+    const inherited = context({ permission: 'edit' });
+    Object.assign(inherited.env, { HARNESS_RELAY_PI_UNGATED: '1', HARNESS_RELAY_PI_AFTER: '1' });
+    await preparePi(inherited);
+    expect(inherited.env).toMatchObject({ HARNESS_RELAY_PI_UNGATED: '0', HARNESS_RELAY_PI_AFTER: '0' });
   });
 
   it('reads a call as the hooks see it: a command, a file its own tools change (a full path), or another tool', () => {

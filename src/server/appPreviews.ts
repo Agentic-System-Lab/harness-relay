@@ -15,6 +15,8 @@ interface Session {
   address: URL;
   parent: string;
   ticket: string;
+  /** Single-use addresses that open its page in a tab of its own, each until its time (see `tab`). */
+  tabTickets: Map<string, number>;
   cookie: string;
   cookieMessage: string;
   failedMessage: string;
@@ -48,6 +50,9 @@ const COOKIE = '__Host-relay-preview';
 const OPEN = '/.relay-preview/open/';
 const IDLE = 30 * 60_000;
 const MAX_AGE = 2 * 60 * 60_000;
+/** How long the address for a new tab can be opened, and how many may wait at once. */
+const TAB_TICKET = 60_000;
+const TAB_TICKETS = 8;
 
 function headersFor(parent: string) {
   return new Headers({
@@ -65,7 +70,7 @@ function bridge(parent: string): string {
   return (
     '<script>(()=>{const relay=' +
     JSON.stringify(parent) +
-    ';addEventListener("message",e=>{if(e.source===parent&&e.origin===relay&&e.data==="relay-preview-reload")location.reload()});let count=0;const report=value=>{if(count++<50)parent.postMessage({type:"relay-preview-error",message:String(value).slice(0,2048)},' +
+    ';addEventListener("message",e=>{if(e.source===parent&&e.origin===relay&&e.data==="relay-preview-reload")location.reload()});let count=0;const report=value=>{if(parent!==window&&count++<50)parent.postMessage({type:"relay-preview-error",message:String(value).slice(0,2048)},' +
     JSON.stringify(parent) +
     ')};addEventListener("error",e=>report(e.message||"Resource failed to load"),true);addEventListener("unhandledrejection",e=>report(e.reason));const original=console.error;console.error=(...args)=>{original.apply(console,args);report(args.join(" "))}})()</script>'
   );
@@ -77,7 +82,7 @@ function errorPage(session: Session, status = 403, message = session.cookieMessa
   return new Response(
     '<!doctype html><meta charset="utf-8"><p>' +
       message +
-      '</p><script>parent.postMessage({type:"relay-preview-error",message:' +
+      '</p><script>if(parent!==window)parent.postMessage({type:"relay-preview-error",message:' +
       JSON.stringify(message) +
       '},' +
       JSON.stringify(session.parent) +
@@ -128,6 +133,7 @@ export class AppPreviews {
       live,
       browser,
       ticket: randomBytes(32).toString('hex'),
+      tabTickets: new Map(),
       cookie: randomBytes(32).toString('hex'),
       cookieMessage: t().previewCookie,
       failedMessage: t().previewServiceFailed,
@@ -242,6 +248,24 @@ export class AppPreviews {
   }
 
   /**
+   * A single-use address for the browser that started it to open its page in a tab of its own, good
+   * for a minute: the frame's ticket is spent, and a tab gets no cookie the frame was given.
+   */
+  tab(conversation: string, id: string, browser?: string): string {
+    const s = this.sessions.get(id);
+    if (!s || s.conversation !== conversation || s.controller.signal.aborted || s.closing || !s.service)
+      throw new HttpError(404, t().previewTarget);
+    if (s.browser !== browser) throw new HttpError(403, t().previewOrigin);
+    const now = this.now();
+    for (const [token, until] of s.tabTickets) if (until <= now) s.tabTickets.delete(token);
+    if (s.tabTickets.size >= TAB_TICKETS) throw new HttpError(429, t().previewBusy);
+    const token = randomBytes(32).toString('hex');
+    s.tabTickets.set(token, now + TAB_TICKET);
+    s.idle = now + IDLE;
+    return new URL(OPEN + token, s.address).href;
+  }
+
+  /**
    * The files a running preview was tried with, for publishing it: for the browser that started it,
    * once its page answered, taken again and refused when they changed since (`PUBLISH_CHANGED`).
    */
@@ -293,8 +317,12 @@ export class AppPreviews {
       return new Response(null, { status: 404 });
     const url = new URL(request.url);
     if (url.pathname.startsWith(OPEN)) {
-      if (request.method !== 'GET' || !s.ticket || url.pathname !== OPEN + s.ticket) return new Response(null, { status: 403 });
-      s.ticket = '';
+      const token = url.pathname.slice(OPEN.length);
+      const frame = Boolean(s.ticket) && token === s.ticket;
+      const tab = (s.tabTickets.get(token) ?? 0) > this.now();
+      if (request.method !== 'GET' || (!frame && !tab)) return new Response(null, { status: 403 });
+      if (frame) s.ticket = '';
+      else s.tabTickets.delete(token);
       const headers = headersFor(s.parent);
       headers.set('set-cookie', COOKIE + '=' + s.cookie + '; Path=/; HttpOnly; Secure; SameSite=None; Partitioned');
       headers.set('content-type', 'text/html; charset=utf-8');
@@ -305,14 +333,15 @@ export class AppPreviews {
       .get('cookie')
       ?.split(/;\s*/)
       .includes(COOKIE + '=' + s.cookie);
-    // Firefox classifies an explicit reload of the frame as a user navigation with no initiator.
-    const frameReload =
+    // A navigation the user made in this browser, which no other site can make: Firefox reloading the
+    // frame, or a reload or the address bar in the page's own tab (see `tab`).
+    const userNavigation =
       cookie &&
       site === 'none' &&
       request.method === 'GET' &&
       request.headers.get('sec-fetch-mode') === 'navigate' &&
-      request.headers.get('sec-fetch-dest') === 'iframe';
-    if (site && site !== 'same-origin' && !frameReload) return errorPage(s);
+      ['iframe', 'document'].includes(request.headers.get('sec-fetch-dest') ?? '');
+    if (site && site !== 'same-origin' && !userNavigation) return errorPage(s);
     // WebKit omits Secure cookies on plain HTTP *.localhost. The signed-in browser redeems its
     // ticket before it can use the unguessable hostname for same-origin requests over loopback.
     // Remote delivery requires the cookie. Both credentials terminate here.

@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { Conversation } from '../src/shared/types';
+import { TEAM_WORKTREE, type Conversation } from '../src/shared/types';
 import {
   agentMessages,
   agents,
@@ -111,12 +111,15 @@ describe('several working directories', () => {
     await finish(writer.id);
   });
 
-  it('tells a schedule that another conversation writes in one of them, before setting up its run', async () => {
+  it("sends a schedule's message while another conversation writes in one of them: its team works in worktrees of its own", async () => {
     const docs = docsFolder();
     let release!: () => void;
     fake.gate = new Promise((r) => (release = r));
     const writer = conversation({ mode: 'roundtable', cwd: docs });
+    writer.agents = [agents[0]!];
     await orchestrator.send(writer.id, 'go');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    fake.gate = Promise.resolve();
     const conv = conversation({ mode: 'roundtable', extraCwds: [docs] });
     conv.schedule = {
       text: 'scheduled check',
@@ -131,8 +134,9 @@ describe('several working directories', () => {
       nextRunAt: 1,
     };
     store.saveSchedule(conv);
-    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'busy', reason: expect.stringContaining(docs) });
-    expect(conv.messages).toEqual([]);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'sent' });
+    await finish(conv.id);
+    expect(conv.worktrees[TEAM_WORKTREE]!.map((w) => w.root)).toEqual([project, docs]);
     release();
     await finish(writer.id);
   });
@@ -193,18 +197,45 @@ describe('several working directories', () => {
     await orchestrator.cleanupWorktrees(conv);
   });
 
-  it('keeps another conversation from writing in any of them meanwhile', async () => {
+  it('gives another conversation writing in one of them meanwhile a worktree of each of its own, and applies all of its result or none of it', async () => {
     const docs = docsFolder();
     let release!: () => void;
     fake.gate = new Promise((r) => (release = r));
-    const first = conversation({ mode: 'roundtable', extraCwds: [docs] });
-    const second = conversation({ mode: 'relay', cwd: docs });
+    const first = conversation({ mode: 'roundtable', cwd: docs });
+    first.agents = [agents[0]!];
     await orchestrator.send(first.id, 'go');
-    await expect(orchestrator.send(second.id, 'go')).rejects.toThrow(/正在修改/);
-    release();
-    await finish(first.id);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    fake.gate = Promise.resolve();
+    // In both folders, one of which the first conversation is changing.
+    const second = conversation({ mode: 'relay', extraCwds: [docs] });
+    second.agents = [agents[1]!];
     await orchestrator.send(second.id, 'go');
     await finish(second.id);
+    const team = second.worktrees[TEAM_WORKTREE]!;
+    expect(team.map((w) => [w.root, basename(w.path)])).toEqual([
+      [project, basename(project)],
+      [docs, basename(docs)],
+    ]);
+    expect(calls[1]).toMatchObject({ name: 'Bob', cwd: team[0]!.path, addDirs: [team[1]!.path] });
+    expect(calls[1]!.systemPrompt).toContain('works in its OWN git worktrees, copies of them');
+    const [bob] = agentMessages(second);
+    expect(bob!.changes!.map((c) => [c.root, c.isolated, c.branch])).toEqual([
+      [project, true, team[0]!.branch],
+      [docs, true, team[1]!.branch],
+    ]);
+    expect(await orchestrator.agentDiff(second.id, TEAM_WORKTREE)).toContain(`+++ b/${basename(docs)}/Bob.txt`);
+    release();
+    await finish(first.id);
+
+    // A file in the way in one of them: nothing is applied anywhere.
+    writeFileSync(join(docs, 'Bob.txt'), 'in the way\n');
+    await expect(orchestrator.applyAgentWork(second.id, TEAM_WORKTREE)).rejects.toThrow();
+    expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('original\n');
+    rmSync(join(docs, 'Bob.txt'));
+    const { files } = await orchestrator.applyAgentWork(second.id, TEAM_WORKTREE);
+    expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'Bob.txt', 'shared.txt']);
+    expect(readFileSync(join(docs, 'Bob.txt'), 'utf8')).toBe('Bob was here\n');
+    await orchestrator.cleanupWorktrees(second);
   });
 
   it('in parallel mode, gives each agent a worktree of each, and applies all of a result or none of it', async () => {

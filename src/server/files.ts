@@ -1,7 +1,27 @@
-import { closeSync, constants, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type Stats } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  openSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  type BigIntStats,
+} from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FilePreview, type FileRoot, type ZipSize } from '../shared/types';
+import {
+  FILE_LIMITS,
+  TEAM_WORKTREE,
+  cwdsOf,
+  type Conversation,
+  type FileEntry,
+  type FilePreview,
+  type FileRoot,
+  type ZipSize,
+} from '../shared/types';
 import { mediaType } from '../shared/media';
 import { fileKey, withheldFileKeys } from './db';
 import { HttpError } from './errors';
@@ -18,21 +38,21 @@ import type { ZipEntry } from './zip';
  */
 
 /**
- * The folders of a conversation that can be browsed: its working directories, then each agent's
- * worktrees of them (see `FileRoot.id`).
+ * The folders of a conversation that can be browsed: its working directories, then the team's own
+ * worktrees of them (`TEAM_WORKTREE`), then each agent's (see `FileRoot.id`).
  */
 export function fileRoots(conv: Conversation): FileRoot[] {
   const cwds = cwdsOf(conv.settings);
   const key = (base: string, i: number) => (i ? `${base}:${i}` : base);
   const roots: FileRoot[] = cwds.map((path, i) => ({ id: key('cwd', i), path, ...(i ? { cwd: i } : {}) }));
-  for (const a of conv.agents) {
+  for (const id of [TEAM_WORKTREE, ...conv.agents.map((a) => a.id)]) {
     cwds.forEach((cwd, i) => {
       // The worktree of the repository the folder is in: the innermost, when one is inside another.
-      const wt = (conv.worktrees[a.id] ?? []).filter((w) => inRepo(w.root, cwd)).sort((x, y) => y.root.length - x.root.length)[0];
+      const wt = (conv.worktrees[id] ?? []).filter((w) => inRepo(w.root, cwd)).sort((x, y) => y.root.length - x.root.length)[0];
       if (!wt) return;
       try {
         const dir = worktreeDir(wt.root, cwd, wt.path);
-        if (existsSync(dir)) roots.push({ id: key(a.id, i), path: dir, agentId: a.id, ...(i ? { cwd: i } : {}) });
+        if (existsSync(dir)) roots.push({ id: key(id, i), path: dir, agentId: id, ...(i ? { cwd: i } : {}) });
       } catch {
         /* not a usable worktree */
       }
@@ -84,7 +104,7 @@ function hiddenNatively(realRoot: string, real: string): boolean {
 /** Whether `real` is one of the files this server withholds (`withheldFileKeys`), which it must never open itself. */
 function withheldHere(real: string, locked = withheldFileKeys()): boolean {
   try {
-    return locked.has(fileKey(statSync(real)));
+    return locked.has(fileKey(statSync(real, { bigint: true })));
   } catch {
     return false;
   }
@@ -145,13 +165,13 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
         const inside = within(realRoot, target);
         if (inside === undefined || hidden(inside)) continue;
       }
-      const st = statSync(target);
+      const st = statSync(target, { bigint: true });
       if ((!st.isDirectory() && !st.isFile()) || locked.has(fileKey(st))) continue;
       entries.push({
         name: d.name,
         kind: st.isDirectory() ? 'dir' : 'file',
-        size: st.isDirectory() ? 0 : st.size,
-        mtime: Math.floor(st.mtimeMs),
+        size: st.isDirectory() ? 0 : Number(st.size),
+        mtime: Number(st.mtimeMs),
         ...(d.isSymbolicLink() ? { link: true } : {}),
       });
     } catch {
@@ -171,29 +191,30 @@ export function previewFile(root: string, rel: string): FilePreview {
  * The preview of the file at `real`, shown under `path`. The caller has checked that it may be read;
  * a missing file, or anything but a file, is a 404.
  */
-export function readPreview(real: string, path: string, notFound = t().fileNotFound, authorizedFile?: () => Stats): FilePreview {
+export function readPreview(real: string, path: string, notFound = t().fileNotFound, authorizedFile?: () => BigIntStats): FilePreview {
   let st;
   try {
-    st = authorizedFile ? authorizedFile() : statSync(real);
+    st = authorizedFile ? authorizedFile() : statSync(real, { bigint: true });
   } catch {
     throw new HttpError(404, notFound);
   }
   if (!st.isFile() || withheldFileKeys().has(fileKey(st))) throw new HttpError(404, notFound);
   const file = { real };
-  const base = { path, size: st.size, mtime: Math.floor(st.mtimeMs) };
+  const size = Number(st.size);
+  const base = { path, size, mtime: Number(st.mtimeMs) };
   const media = mediaType(file.real);
   if (media) return { ...base, kind: media.startsWith('video/') ? 'video' : 'image' };
-  const length = Math.min(st.size, FILE_LIMITS.maxPreviewBytes);
+  const length = Math.min(size, FILE_LIMITS.maxPreviewBytes);
   const buf = Buffer.alloc(length);
   const flags = authorizedFile ? constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0) : constants.O_RDONLY;
   const fd = openSync(file.real, flags);
   try {
-    const opened = fstatSync(fd);
+    const opened = fstatSync(fd, { bigint: true });
     // A vault authorizes a particular note. Recheck the selection and the path while holding its descriptor.
     if (
       !opened.isFile() ||
       fileKey(opened) !== fileKey(st) ||
-      (authorizedFile && (opened.nlink !== 1 || fileKey(authorizedFile()) !== fileKey(opened)))
+      (authorizedFile && (opened.nlink !== 1n || fileKey(authorizedFile()) !== fileKey(opened)))
     )
       throw new HttpError(404, notFound);
     readSync(fd, buf, 0, length, 0);
@@ -202,7 +223,7 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   }
   if (buf.subarray(0, 8000).includes(0)) return { ...base, kind: 'binary' };
   let text = new TextDecoder('utf-8').decode(buf);
-  const truncated = st.size > length;
+  const truncated = size > length;
   if (truncated) text = text.replace(/�+$/, ''); // a character cut in half at the end
   return { ...base, kind: 'text', text, ...(truncated ? { truncated: true } : {}) };
 }
@@ -274,22 +295,22 @@ export async function zipPlan(
       return undefined; // gone, or a broken link
     }
   };
-  const statOf = async (path: string): Promise<Stats | undefined> => {
+  const statOf = async (path: string): Promise<BigIntStats | undefined> => {
     try {
-      return await stat(path);
+      return await stat(path, { bigint: true });
     } catch {
       return undefined;
     }
   };
   /** Count an entry in; false once that is too much. */
-  const add = (name: string, st: Stats, source?: string): boolean => {
+  const add = (name: string, st: BigIntStats, source?: string): boolean => {
     items++;
     if (source) {
       plan.files++;
-      plan.bytes += st.size;
+      plan.bytes += Number(st.size);
     }
     if (items > limits.items || plan.bytes > limits.bytes) return false;
-    plan.entries.push({ name, mtime: st.mtimeMs, mode: st.mode, ...(source ? { source } : {}) });
+    plan.entries.push({ name, mtime: Number(st.mtimeMs), mode: Number(st.mode), ...(source ? { source } : {}) });
     return true;
   };
 

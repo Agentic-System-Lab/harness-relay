@@ -28,6 +28,7 @@ import {
   type TeamPreset,
   type ToolLibraryView,
   type UsageLimit,
+  type UsagePayer,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
@@ -35,6 +36,7 @@ import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
 import { familiesForLead, familyOf, guideMark, roleGuidesForLead, unlistedFamily } from './roleGuides';
 import { validateAgents } from './validate';
+import type { OutputSchema } from './agents/types';
 
 /*
  * Auto team: before the team answers a new question, the lead agent (Settings) chooses the team for
@@ -236,6 +238,34 @@ function privateEndpoint(provider: Provider, model: string | undefined, staffing
   return undefined;
 }
 
+/**
+ * Whether one of an account's limits is used up for this model now: not yet reset, and for the whole
+ * plan or for this model (with no model chosen and no default, for any model the CLI lists). Copilot's
+ * completions are unrelated to chat, and its premium request quotas do not apply to every model it
+ * lists (the catalog does not say which models consume them).
+ */
+function limitUsedUp(
+  provider: Provider,
+  catalog: ProviderModels | undefined,
+  model: string | undefined,
+  label: string | undefined,
+  limit: UsageLimit,
+  now: number,
+): boolean {
+  if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= now)) return false;
+  if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
+  if (!limit.scope && !limit.model) return true;
+  const scopes = [
+    ...(limit.model ? [limit.model] : []),
+    ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
+  ];
+  return scopes.some((scope) =>
+    model
+      ? scopeMatches(provider, scope, model, label)
+      : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
+  );
+}
+
 /** An exhausted window explains why the specific assignment is unavailable on a fallback card. */
 function modelAvailability(
   provider: Provider,
@@ -257,25 +287,35 @@ function modelAvailability(
   if (usage?.problem === 'cliMissing') return 'unavailable';
   // An endpoint uses its own backend, even when the same CLI's subscription is exhausted.
   if (option?.endpoint || endpoint) return 'available';
-  if (usage?.none === 'signedOut' || usage?.none === 'noAllowance') return 'unavailable';
+  // A plan without a subscription allowance (Muse Code's Meta sign-in) is billed by use, as a key is.
+  if (usage?.none === 'signedOut') return 'unavailable';
+  // A limit the account's payer pays past (credits, usage credits, additional usage) does not stop it.
   return (
-    usage?.limits.find((limit) => {
-      if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= staffing.now)) return false;
-      // Copilot's completions are unrelated to chat. Premium request quotas do not apply to every
-      // model it lists, and the catalog does not say which models consume them.
-      if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
-      if (!limit.scope && !limit.model) return true;
-      const scopes = [
-        ...(limit.model ? [limit.model] : []),
-        ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
-      ];
-      return scopes.some((scope) =>
-        model
-          ? scopeMatches(provider, scope, model, option?.label)
-          : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
-      );
-    }) ?? (usage?.planUsageBlocked ? 'unavailable' : 'available')
+    usage?.limits.find(
+      (limit) => !(limit.paidPast && usage.payer) && limitUsedUp(provider, catalog, model, option?.label, limit, staffing.now),
+    ) ?? (usage?.planUsageBlocked && !usage.payer ? 'unavailable' : 'available')
   );
+}
+
+/**
+ * What an available assignment runs on, billed, because its plan's included usage is used up for it
+ * (a limit its payer pays past, or the plan's block), when it does: for the lead, which prefers others.
+ */
+function paidUsage(
+  provider: Provider,
+  catalog: ProviderModels | undefined,
+  chosen: string | undefined,
+  usage: AccountUsage | undefined,
+  staffing: Staffing,
+): UsagePayer | undefined {
+  if (!usage?.payer) return undefined;
+  const model = chosen || catalog?.defaultModel;
+  const option = catalog?.models.find((m) => m.id === model);
+  // An endpoint runs on its own backend, not on the plan.
+  if (option?.endpoint || privateEndpoint(provider, model, staffing)) return undefined;
+  const used =
+    usage.planUsageBlocked || usage.limits.some((l) => l.paidPast && limitUsedUp(provider, catalog, model, option?.label, l, staffing.now));
+  return used ? usage.payer : undefined;
 }
 
 type ModelAssignment = Pick<AgentConfig, 'provider' | 'account' | 'model'>;
@@ -365,15 +405,20 @@ export async function plannerContext(
   // Keep accounts with at least one usable model, even when their default cannot run.
   const accounts: NonNullable<PlannerContext['accounts']> = {};
   const available = usable.flatMap(({ provider, ids }) => {
-    const kept = staffing
-      ? ids.filter((id) => {
-          const c = catalogFor(catalog, provider, id);
-          const usage = usageFor(staffing, provider, id);
-          return [undefined, ...(c?.models.map((m) => m.id) ?? [])].some(
-            (m) => modelAvailability(provider, c, m, usage, staffing) === 'available',
-          );
-        })
-      : ids;
+    /** How an account runs at best: 'free' on its plan's included usage, 'paid' only past it, or not at all. */
+    const runs = (id: string): 'free' | 'paid' | undefined => {
+      if (!staffing) return 'free';
+      const c = catalogFor(catalog, provider, id);
+      const usage = usageFor(staffing, provider, id);
+      const models = [undefined, ...(c?.models.map((m) => m.id) ?? [])].filter(
+        (m) => modelAvailability(provider, c, m, usage, staffing) === 'available',
+      );
+      if (!models.length) return undefined;
+      return models.some((m) => !paidUsage(provider, c, m, usage, staffing)) ? 'free' : 'paid';
+    };
+    const ranked = ids.map((id) => ({ id, runs: runs(id) })).filter((a) => a.runs);
+    // The accounts that still run on their plan first: new members get one before one billed past it.
+    const kept = [...ranked.filter((a) => a.runs === 'free'), ...ranked.filter((a) => a.runs === 'paid')].map((a) => a.id);
     if (!kept.length) return [];
     accounts[provider] = kept;
     return [provider];
@@ -561,17 +606,34 @@ function names(list: string[], max = TOOL_NAMES_MAX): string {
   return list.length > max ? `${list.slice(0, max).join(', ')}, … (${list.length - max} more)` : list.join(', ');
 }
 
+/** What an account runs on past its plan, as the lead reads it. */
+const PAYER_FOR_LEAD: Record<UsagePayer, string> = {
+  credits: 'paid credits',
+  usageCredits: 'paid usage credits (extra usage)',
+  additionalUsage: 'paid additional usage',
+  payAsYouGo: 'paid pay-as-you-go usage',
+};
+
+/** What the assignment runs on, billed, because its plan's included usage is used up for it (`paidUsage`). */
+function paidFor(ctx: PlannerContext, provider: Provider, account: string | undefined, model?: string): UsagePayer | undefined {
+  if (!ctx.staffing) return undefined;
+  const id = account ?? '';
+  return paidUsage(provider, catalogFor(ctx.catalog, provider, id), model, usageFor(ctx.staffing, provider, id), ctx.staffing);
+}
+
 /**
  * A CLI's models as the lead reads them: each one's name, its efforts and its default effort, and with
  * `guided` (the lead reads role guides) the guide its role follows (`familyOf`).
  */
-function modelsForLead(p: Provider, c: ProviderModels, guided: boolean): string {
+function modelsForLead(p: Provider, c: ProviderModels, guided: boolean, paid?: (model: string) => UsagePayer | undefined): string {
   return c.models
     .map((m) => {
       const efforts = effortsFor(c, m.id);
       const family = guided ? familyOf(p, m.id, m) : undefined;
+      const payer = paid?.(m.id);
       const notes = [
         m.label && m.label !== m.id ? m.label : '',
+        payer ? 'plan limit reached' : '',
         m.latest ? "always its family's newest" : '',
         efforts.length ? `efforts ${efforts.join('/')}` : '',
         m.defaultEffort ? `default effort ${m.defaultEffort}` : '',
@@ -607,7 +669,25 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
             }
           : catalog;
       if (!defaultAllowed) lines.push('  The default model is unavailable. Choose an explicit model below.');
-      if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided)}`);
+      // Models whose plan usage is used up but that run on, billed: all of them in one line.
+      const hasDefault = defaultAllowed && (Boolean(c?.defaultModel) || !c?.models.length);
+      const paidDefault = hasDefault ? paidFor(ctx, p, account) : undefined;
+      const each = [...(hasDefault ? [paidDefault] : []), ...(c?.models ?? []).map((m) => paidFor(ctx, p, account, m.id))];
+      const allPaid = each.length && each.every(Boolean) ? each[0] : undefined;
+      const somePaid = each.find(Boolean);
+      const listedPaid = each.slice(hasDefault ? 1 : 0).some(Boolean);
+      if (allPaid)
+        lines.push(
+          `  Its plan's included usage is used up: it runs on ${PAYER_FOR_LEAD[allPaid]}, billed for each turn. Prefer other coding agents when they fit the role as well.`,
+        );
+      else if (somePaid)
+        lines.push(
+          listedPaid
+            ? `  Models marked "plan limit reached" run on ${PAYER_FOR_LEAD[somePaid]}, billed for each turn${paidDefault ? ' (the default model too)' : ''}. Prefer its other models, or other coding agents, when they fit the role as well.`
+            : `  The default model's plan limit is reached: it runs on ${PAYER_FOR_LEAD[somePaid]}, billed for each turn. Prefer other models or coding agents when they fit the role as well.`,
+        );
+      const paid = allPaid ? undefined : (model: string) => paidFor(ctx, p, account, model);
+      if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided, paid)}`);
       const unlisted =
         guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
       const defaults = [
@@ -823,6 +903,96 @@ export function parsePlanReply(text: string): Record<string, any> {
   throw new Error(t().planUnparsable);
 }
 
+/*
+ * The lead's answers as JSON Schemas, for a lead whose CLI can be asked for one (`RunOptions.outputSchema`:
+ * Claude Code and Codex on their makers' models). Each mirrors the JSON its prompt asks for, in the form
+ * Codex's strict structured output takes (and Claude Code too): every object lists all its properties
+ * as required and allows no others, so a field the answer has none of is null (`leadReply()` leaves the
+ * nulls out, as if the field were not there); a nullable array or object is an `anyOf` with null.
+ */
+
+/** A string, number… that may be null. */
+const orNull = (type: 'string' | 'integer', description?: string) => ({ type: [type, 'null'], ...(description ? { description } : {}) });
+/** An object of these properties, all of them required, no others. */
+export const strictObject = (properties: Record<string, unknown>, description?: string): OutputSchema => ({
+  type: 'object',
+  ...(description ? { description } : {}),
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+const MODE_SCHEMA = { type: 'string', enum: MODES };
+
+/** A member of a new or adapted team, as TEAM_FIELDS has it. */
+const PLAN_MEMBER_SCHEMA = strictObject({
+  name: { type: 'string', description: 'Letters, digits, _ or - only, unique' },
+  provider: { type: 'string', enum: PROVIDERS },
+  role: { type: 'string' },
+  model: orNull('string', "null for its coding agent's default"),
+  effort: orNull('string', "null for its coding agent's default"),
+});
+
+/** The team design (`buildPlannerPrompt()`, `decidePlan()`): one object for every choice, the others' fields null. */
+export const PLAN_SCHEMA: OutputSchema = strictObject({
+  choice: { type: 'string', enum: ['keep', 'template', 'adapted', 'custom'] },
+  templateId: orNull('string', 'For "template": the template\'s id'),
+  baseTemplateId: orNull('string', 'For "adapted": the id of the template it starts from'),
+  name: orNull('string', 'For "adapted" and "custom": a short team name'),
+  description: orNull('string', 'For "adapted" and "custom": one line'),
+  mode: { anyOf: [MODE_SCHEMA, { type: 'null' }] },
+  rounds: orNull('integer', '1-5'),
+  maxHops: orNull('integer', '1-30'),
+  agents: {
+    anyOf: [{ type: 'array', items: PLAN_MEMBER_SCHEMA }, { type: 'null' }],
+    description: 'For "adapted" and "custom": the whole team',
+  },
+  reason: { type: 'string' },
+});
+
+/** The changed team (`buildRevisePrompt()`, `decideRevision()`): null for what a member keeps. */
+export const REVISION_SCHEMA: OutputSchema = strictObject({
+  mode: MODE_SCHEMA,
+  rounds: { type: 'integer', description: '1-5' },
+  maxHops: { type: 'integer', description: '1-30' },
+  agents: {
+    type: 'array',
+    description: 'Every member, in speaking order',
+    items: strictObject({
+      name: { type: 'string' },
+      provider: { type: 'string', enum: PROVIDERS },
+      role: orNull('string', 'Only for a new member or a role you rewrite; null keeps it'),
+      model: orNull('string', 'null keeps what it has; "" for its coding agent\'s default'),
+      effort: orNull('string', 'null keeps what it has; "" for its coding agent\'s default'),
+      was: orNull('string', 'Its current name: only for a member you renamed or moved to another coding agent'),
+    }),
+  },
+  reason: { type: 'string' },
+});
+
+/** `v` with its null properties left out, all the way down (and null items of arrays). */
+export function withoutNulls(v: unknown): unknown {
+  if (Array.isArray(v)) return v.filter((x) => x !== null).map(withoutNulls);
+  if (v && typeof v === 'object')
+    return Object.fromEntries(
+      Object.entries(v)
+        .filter(([, x]) => x !== null)
+        .map(([k, x]) => [k, withoutNulls(x)]),
+    );
+  return v;
+}
+
+/**
+ * The lead's answer as an object: the structured answer its CLI gave in the shape asked for
+ * (`RunResult.structured`), its nulls left out; else, when it gave none or not an object with
+ * something in it, the JSON object in its reply's text (`parsePlanReply()`).
+ */
+export function leadReply(text: string, structured?: unknown): Record<string, any> {
+  const raw = withoutNulls(structured);
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length) return raw as Record<string, any>;
+  return parsePlanReply(text);
+}
+
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -830,7 +1000,10 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
 
 /** Keep the requested model if another account offers it, then try that CLI's other models. */
 function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgentSettings, requireListed: boolean): void {
-  if (memberAvailable(ctx, member, requireListed)) return;
+  if (memberAvailable(ctx, member, requireListed)) {
+    if (paidFor(ctx, member.provider, member.account, member.model)) toIncludedUsage(ctx, member);
+    return;
+  }
   const { provider, model, account } = member;
   const effective = assignmentModel(ctx, member);
   const staffing = ctx.staffing!;
@@ -872,6 +1045,27 @@ function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgent
     return;
   }
   throw new PlanUnavailableError(endpoint ? t().planEndpointUnavailable(effective!) : t().planNoAvailableModel(false));
+}
+
+/**
+ * A member whose assignment runs billed past its account's plan (`paidFor`) moves to the same model on
+ * another account of its CLI that still runs it on its plan's included usage, when there is one.
+ */
+function toIncludedUsage(ctx: PlannerContext, member: AgentConfig): void {
+  const { provider, model, account = '' } = member;
+  const effective = assignmentModel(ctx, member);
+  const free = (ctx.accounts?.[provider] ?? [])
+    .filter((id) => id !== account)
+    .map((id) => ({
+      provider,
+      account: id,
+      model: !model && effective === catalogFor(ctx.catalog, provider, id)?.defaultModel ? undefined : effective,
+    }))
+    .find((a) => memberAvailable(ctx, a, true) && !paidFor(ctx, provider, a.account, a.model));
+  if (!free) return;
+  member.model = free.model;
+  if (free.account) member.account = free.account;
+  else delete member.account;
 }
 
 /**
@@ -1080,8 +1274,8 @@ export function fallbackPlan(
 
 /**
  * Members who stay on from the current team (same name, ignoring case, and same CLI) keep their ids,
- * so their CLI sessions — what they learned in this conversation — carry on, and their accounts and
- * tools as the user set them. Automatic designs pass the account already selected by availability.
+ * so their CLI sessions — what they learned in this conversation — carry on, and their accounts,
+ * tools and limits as the user set them. Automatic designs pass the account already selected by availability.
  */
 export function keepMemberIds(next: AgentConfig[], current: AgentConfig[], keepAccount = true): AgentConfig[] {
   const taken = new Set<string>();
@@ -1089,16 +1283,23 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[], keepA
     const same = current.find((c) => !taken.has(c.id) && c.provider === a.provider && c.name.toLowerCase() === a.name.toLowerCase());
     if (!same) return a;
     taken.add(same.id);
-    const { account: _account, tools: _tools, ...rest } = a;
+    const { account: _account, tools: _tools, limits: _limits, ...rest } = a;
     const account = keepAccount ? same.account : a.account;
-    return { ...rest, id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(account ? { account } : {}) };
+    return {
+      ...rest,
+      id: same.id,
+      ...(same.tools ? { tools: same.tools } : {}),
+      ...(same.limits ? { limits: same.limits } : {}),
+      ...(account ? { account } : {}),
+    };
   });
 }
 
 /** A member as a team design keeps it, its empty fields left out: two of them are the same member when these are. */
 function memberKey(a: AgentConfig): string {
   const tools = Object.entries(a.tools ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
-  return JSON.stringify([a.name, a.provider, a.role.trim(), a.model || '', a.effort || '', a.account || '', tools]);
+  const limits = Object.entries(a.limits ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+  return JSON.stringify([a.name, a.provider, a.role.trim(), a.model || '', a.effort || '', a.account || '', tools, limits]);
 }
 
 /**
@@ -1135,7 +1336,14 @@ export function planFollowsTeam(
 export function fromTemplate(agents: AgentConfig[], template: TeamPreset): AgentConfig[] {
   return agents.map((a) => {
     const was = template.agents.find((t) => t.provider === a.provider && t.name.toLowerCase() === a.name.toLowerCase());
-    return was ? { ...a, ...(was.tools ? { tools: was.tools } : {}), ...(was.account ? { account: was.account } : {}) } : a;
+    return was
+      ? {
+          ...a,
+          ...(was.tools ? { tools: was.tools } : {}),
+          ...(was.limits ? { limits: was.limits } : {}),
+          ...(was.account ? { account: was.account } : {}),
+        }
+      : a;
   });
 }
 
@@ -1316,7 +1524,7 @@ Reply with only this JSON object, in a \`\`\`json code block, with the whole tea
  *    over, and the listed one has no role or the same one: that one (renamed, though the lead did not
  *    say so).
  * A matched member keeps what the lead does not change — its id (and with it its CLI session, which
- * starts afresh on another CLI), its account and its tools — and the role, model and effort the lead left out (null, or a
+ * starts afresh on another CLI), its account, its tools and its limits — and the role, model and effort the lead left out (null, or a
  * blank role, is left out; a model or effort of its old CLI does not carry over to another one). A role
  * the lead copied, trimmed, stays as the user wrote it. A changed model or effort, and every new or moved
  * member, is fitted to the CLIs here (`fitAgents`); a member who stays on its CLI keeps it even when that
@@ -1388,8 +1596,8 @@ export function decideRevision(
     // A new member based on another (a misused "was") starts from that one's role.
     const role = given ?? same?.role ?? basedOn[i]?.role ?? '';
     return {
-      // Its tools stay as the user set them: the lead does not change them.
-      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}) } : {}),
+      // Its tools and limits stay as the user set them: the lead does not change them.
+      ...(same ? { id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(same.limits ? { limits: same.limits } : {}) } : {}),
       // Its account stays while it stays on the same CLI.
       ...(sameCli && same?.account ? { account: same.account } : {}),
       name,

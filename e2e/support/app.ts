@@ -114,10 +114,15 @@ export const reviewCards = (page: Page) => page.locator('.review-card');
 /** The lead agent's team card that waits for the user. */
 export const awaitingPlan = (page: Page) => page.locator('.plan-card.awaiting');
 
-/** Confirms the team the lead agent proposed. */
-export async function confirmTeam(page: Page): Promise<void> {
+/**
+ * Confirms the team the lead agent proposed, once its card waits (within `timeoutMs`: the card
+ * comes after the lead's turn and a model check of each member, every one a CLI started anew, all
+ * at once; on Windows, slow to start programs, a team of four took 14 s on CI, and the server
+ * gives those checks a minute).
+ */
+export async function confirmTeam(page: Page, timeoutMs = 30_000): Promise<void> {
   const card = awaitingPlan(page).last();
-  await expect(card).toBeVisible();
+  await expect(card).toBeVisible({ timeout: timeoutMs });
   await card.getByRole('button', { name: 'Confirm team' }).click();
   await expect(awaitingPlan(page)).toHaveCount(0);
 }
@@ -131,6 +136,17 @@ export async function askAndConfirm(page: Page, text: string): Promise<void> {
 /** A member's replies, by its name in the chat (`Claude`, not `@Claude`). */
 export function replies(page: Page, name: string): Locator {
   return page.locator('.msg-agent').filter({ has: page.locator('.msg-head strong', { hasText: new RegExp(`^@${escape(name)}$`) }) });
+}
+
+/**
+ * Open the app preview panel's source and controls, which fold away while a preview runs or starts
+ * (its summary row: the folder and who made it).
+ */
+export async function previewControls(panel: Locator): Promise<void> {
+  const summary = panel.locator('.app-preview-summary');
+  await expect(summary).toBeVisible();
+  if ((await summary.getAttribute('aria-expanded')) !== 'true') await summary.click();
+  await expect(summary).toHaveAttribute('aria-expanded', 'true');
 }
 
 /**

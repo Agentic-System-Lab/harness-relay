@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
 import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES } from '../shared/types';
@@ -34,8 +34,8 @@ function entryStat(location: PreviewLocation, name: string) {
   const rel = join(location.folder, name);
   const path = join(location.root, rel);
   if (location.isPrivate(path) || relative(path, resolveInRoot(location.root, rel).real)) throw missing();
-  const stat = lstatSync(path);
-  if (!stat.isFile() || stat.nlink !== 1) throw missing();
+  const stat = lstatSync(path, { bigint: true });
+  if (!stat.isFile() || stat.nlink !== 1n) throw missing();
   return stat;
 }
 
@@ -284,6 +284,109 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
   }
   if (kind === 'truncated') return { folder, entry, mode: 'static' as const };
   throw new HttpError(400, t().previewProjectEntry, PREVIEW_NO_RECIPE);
+}
+
+/** A file or folder at or below a root. */
+function inside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** A regular file there, not a link (what `hasEntry` accepts, before its finer checks). */
+function regularFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** A folder's real path, as the roots are compared in (a data folder or a working directory reached through a link). */
+function real(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Where the files a turn added or changed are now: the member's (or the team's) own worktree for an isolated change. */
+function changedFiles(conv: Conversation, msg: Conversation['messages'][number], lookup: Lookup): string[] {
+  const worktrees = replyWorktrees(conv, msg, lookup);
+  const files: string[] = [];
+  for (const c of msg.changes ?? []) {
+    const where = c.isolated ? worktrees.find((w) => w.root === c.root && (!c.branch || w.branch === c.branch))?.path : c.root;
+    if (!where) continue;
+    const base = real(where);
+    for (const f of c.files) if (f.status !== 'D') files.push(join(base, ...f.path.split('/')));
+  }
+  return files;
+}
+
+/**
+ * The app a finished turn made, from the files it added or changed: a compose file, a Dockerfile or
+ * a package.json says its folder runs; an index page belongs to the nearest folder above it, inside
+ * the same working directory, that has one of those (`public/index.html` its npm project), and any
+ * page also opens as it is when that project does not run. The shallowest that runs is the app (the
+ * more telling file first at the same depth), as `detectPreviewTarget` confirms.
+ */
+export function changedPreviewTarget(conv: Conversation, input: { messageId?: unknown }, lookup: Lookup, settings?: SettingsStore) {
+  const { messageId } = input;
+  if (typeof messageId !== 'string' || messageId.length > 256) throw new HttpError(400, t().previewTarget);
+  const msg = conv.messages.find((m) => m.id === messageId && m.author.kind === 'agent');
+  if (!msg) throw missing();
+  const roots = mediaRoots(conv, msg, lookup)
+    .slice(0, -1)
+    .flatMap((dir) => {
+      try {
+        return [realpathSync.native(dir)];
+      } catch {
+        return [];
+      }
+    });
+  const runs = [...CONTAINER_ENTRIES, 'package.json'];
+  const found = new Map<string, { folder: string; entry?: string; depth: number; rank: number; root: string }>();
+  const add = (root: string, folder: string, entry?: string) => {
+    const rank = entry ? 3 : runs.findIndex((n) => regularFile(join(folder, n))) < CONTAINER_ENTRIES.length ? 0 : 1;
+    const depth = relative(root, folder).split(sep).filter(Boolean).length;
+    const key = folder + '\0' + (entry ?? '');
+    if (!found.has(key)) found.set(key, { folder, entry, depth, rank, root });
+  };
+  for (const file of changedFiles(conv, msg, lookup)) {
+    const name = basename(file);
+    const page = /\.html?$/i.test(name);
+    if ((!page && !runs.includes(name)) || file.split(sep).includes('node_modules')) continue;
+    const root = roots.find((r) => inside(r, file));
+    if (!root) continue;
+    const folder = dirname(file);
+    if (!page) {
+      add(root, folder);
+      continue;
+    }
+    // An index page's project: the nearest folder above it that runs (a report or another page stays a page).
+    if (/^index\.html?$/i.test(name)) {
+      for (let dir = folder; ; dir = dirname(dir)) {
+        if (runs.some((n) => regularFile(join(dir, n)))) {
+          add(root, dir);
+          break;
+        }
+        if (dir === root || !inside(root, dirname(dir))) break;
+      }
+    }
+    add(root, folder, name);
+  }
+  const ranked = [...found.values()].sort((a, b) => a.depth - b.depth || a.rank - b.rank);
+  for (const { folder, entry, root } of ranked) {
+    try {
+      const app = detectPreviewTarget(conv, { folder, messageId, ...(entry && { entry }) }, lookup, settings);
+      // Where it is in its working directory (or the member's worktree), as the card shows it.
+      const shown = [...relative(root, app.folder).split(sep).filter(Boolean), app.entry].join('/');
+      return { ...app, shown };
+    } catch {
+      /* Not one that runs (no lockfile, no script): the next. */
+    }
+  }
+  throw missing();
 }
 
 /** Browser writes show their own Origin. Proxies (including Vite's) preserve the UI Host. */

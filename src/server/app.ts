@@ -11,7 +11,7 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews } from './appPreviews';
-import { detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
+import { changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import { AppPublisher } from './publish';
 import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
@@ -42,6 +42,7 @@ import {
   SHARE_FILE_REFUSED,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
+  TEAM_WORKTREE,
   TRACKING_LIMITS,
   VOICE_MAX_SECONDS,
   cwdsOf,
@@ -67,11 +68,12 @@ import {
   type ZipCheck,
   PERMISSION_ORDER,
   type Permission,
+  type LabsView,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { hasRules } from '../shared/checks';
-import { servingPort } from './relaySandbox';
+import { gatewayNode, sandboxAvailable, servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
@@ -129,6 +131,7 @@ import {
   validateAccountUpdate,
   validateAgents,
   validateLead,
+  validLabs,
   validateMcpServer,
   validateProviderUpdate,
   validateInboxRead,
@@ -229,6 +232,11 @@ export interface AppDeps {
   oauth?: OAuthService;
   /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
   mcpOAuth?: McpOAuth;
+  /**
+   * Why Settings → Labs' modes cannot run on this computer (no sandbox for the code, no Node.js), in the
+   * request's language, or undefined when they can (a fake in tests: the real one starts a sandbox).
+   */
+  labsUnavailable?: () => Promise<string | undefined>;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -342,6 +350,12 @@ export function createApp({
   mcpOAuth = settings.mcpOAuth,
   previews = new AppPreviews('test'),
   publisher = new AppPublisher(settings.publish, { owner: 'test' }),
+  labsUnavailable = async () => {
+    if (process.platform === 'win32') return t().labsWindows;
+    if (!gatewayNode()) return t().labsNoNode;
+    const sandbox = await sandboxAvailable();
+    return sandbox.ok ? undefined : sandbox.reason;
+  },
 }: AppDeps): Hono {
   const app = new Hono();
   const hostedApps = new HostedAppChecks(settings);
@@ -637,6 +651,21 @@ export function createApp({
 
   app.get('/api/backends', (c) => c.json(settings.backends.view()));
 
+  // --- Labs: experimental ways agents use Harness Relay's own tools (runCode.ts) --------------------
+
+  /** Settings → Labs as the page shows it: the mode on now, where it comes from, and whether it can run here. */
+  const labsView = async (): Promise<LabsView> => {
+    const unavailable = await labsUnavailable();
+    return { ...settings.labs(), ...(unavailable ? { unavailable } : {}) };
+  };
+  app.get('/api/labs', async (c) => c.json(await labsView()));
+  app.put('/api/labs', async (c) => {
+    // Only a model connection set up now: an API backend with its key, or an endpoint.
+    const configured = settings.backends.configured();
+    settings.setLabs(validLabs(await body<unknown>(c), configured));
+    return c.json(await labsView());
+  });
+
   app.post('/api/backends/endpoint-models', async (c) => {
     const { baseUrl, endpointId, apiKey } = validateEndpointCatalog(await body<unknown>(c));
     const key = apiKey === undefined ? settings.backends.endpointCatalogKey(endpointId, baseUrl) : apiKey;
@@ -665,13 +694,15 @@ export function createApp({
   app.put('/api/backends/endpoints/:id', async (c) => {
     const id = validEndpointId(c.req.param('id'));
     const endpoint = validateEndpoint(await body<unknown>(c));
+    // The context windows the server reports, read from the same answers as the check (none asked for a new name only).
+    let reported: Awaited<ReturnType<typeof verifyEndpointModels>> | undefined;
     if (endpoint.verifyModels && !settings.backends.isEndpointRename(id, endpoint)) {
       const revision = settings.backends.endpointRevision(id);
       const key = endpoint.apiKey === undefined ? settings.backends.endpointCatalogKey(id, endpoint.baseUrl) : endpoint.apiKey;
-      await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models, endpoint.allowMissingMetadata);
+      reported = await verifyEndpointModels(endpoint.baseUrl, key, endpoint.models, endpoint.allowMissingMetadata);
       if (settings.backends.endpointRevision(id) !== revision) throw new HttpError(409, t().endpointVerifyChanged);
     }
-    changingBackends(() => settings.backends.putEndpoint(id, endpoint));
+    changingBackends(() => settings.backends.putEndpoint(id, endpoint, reported));
     return c.json(settings.backends.view());
   });
 
@@ -1643,6 +1674,8 @@ export function createApp({
     // Lead review may be switched (on the team design card) while this request is read and its
     // workspace prepared: that switch came after this request, so it stands.
     const reviewBefore = Boolean(conv.settings.leadReview);
+    // So may steering (its own request, while the team replies): that switch stands too.
+    const steerBefore = Boolean(conv.settings.steer);
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const save = () => {
       if (b.title !== undefined) conv.title = String(b.title).trim().slice(0, 200) || conv.title;
@@ -1670,6 +1703,10 @@ export function createApp({
       if (Boolean(conv.settings.leadReview) !== reviewBefore) {
         if (conv.settings.leadReview) next.leadReview = true;
         else delete next.leadReview;
+      }
+      if (Boolean(conv.settings.steer) !== steerBefore) {
+        if (conv.settings.steer) next.steer = true;
+        else delete next.steer;
       }
       conv.agents = agents;
       conv.settings = next;
@@ -2100,6 +2137,12 @@ export function createApp({
     const input = await body<Partial<AppPreviewRequest>>(c);
     return c.json(detectPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
   });
+  // The app a finished turn made, from the files it added or changed (the card, the header's button and the panel opening by itself).
+  app.post('/api/conversations/:id/preview/changed', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const input = await body<{ messageId?: unknown }>(c);
+    return c.json(changedPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
+  });
   app.post('/api/conversations/:id/preview', async (c) => {
     const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));
     const address = previewAddress(parent, servingPort(), CONFIG.previewDomain);
@@ -2198,6 +2241,12 @@ export function createApp({
       await terminal.resize(cols, rows);
     }
     return c.json({ ok: true });
+  });
+  // A single-use address that opens the preview's page in a tab of its own, for the browser that started it.
+  app.post('/api/conversations/:id/preview/:previewId/tab', (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    return c.json({ url: previews.tab(conv.id, c.req.param('previewId'), sessions.get(c.req.raw)) });
   });
   // Runs the main service again: with its own command, or with the command line given.
   app.post('/api/conversations/:id/preview/:previewId/run', async (c) => {
@@ -2306,13 +2355,14 @@ export function createApp({
     return sendFile(c, fileInRoot(rootPath(roots, root), path), true);
   });
 
-  /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent. */
+  /** The name a root's ZIP file goes by: an agent's worktree is named after the folder and the agent (the team's, `team`). */
   const zipName = (c: Context, root: string): string | undefined => {
     const conv = getConv(c.req.param('id') ?? '');
     const found = fileRoots(conv).find((r) => r.id === root);
     if (!found?.agentId) return undefined;
     const agent = conv.agents.find((a) => a.id === found.agentId);
-    return `${basename(cwdsOf(conv.settings)[found.cwd ?? 0] ?? conv.settings.cwd)}-${agent?.name ?? found.agentId}`;
+    const owner = found.agentId === TEAM_WORKTREE ? 'team' : (agent?.name ?? found.agentId);
+    return `${basename(cwdsOf(conv.settings)[found.cwd ?? 0] ?? conv.settings.cwd)}-${owner}`;
   };
 
   // What downloading a folder as a ZIP file would hold: all of it, or (when that is too much) only
@@ -2459,6 +2509,14 @@ export function createApp({
     if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
     const conv = orchestrator.setLeadReview(c.req.param('id'), b.on);
     return c.json({ leadReview: Boolean(conv.settings.leadReview) });
+  });
+
+  // Steering on or off, at any time (Team settings' box, also while the team replies): read as each message is sent.
+  app.put('/api/conversations/:id/steer', async (c) => {
+    const b = await body<{ on?: unknown }>(c);
+    if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
+    const conv = orchestrator.setSteer(c.req.param('id'), b.on);
+    return c.json({ steer: Boolean(conv.settings.steer) });
   });
 
   // Decline it: the current team stays, and answers the question.

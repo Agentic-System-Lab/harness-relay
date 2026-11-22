@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, send } from '../support/app';
+import { composer, finishedReply, openTeamChat, previewControls, send } from '../support/app';
 
 test.skip(process.env.E2E_PREVIEW_DOCKER !== '1', 'Requires a local Docker engine running Linux containers.');
 // The test server has a home of its own. Docker Desktop and OrbStack keep the Compose and buildx
@@ -64,12 +64,15 @@ test('a built frontend and a SQLite backend run through the signed-in preview pa
   const panel = page.getByLabel('App preview', { exact: true });
   const frame = panel.frameLocator('iframe');
   await expect(frame.getByRole('heading')).toHaveText('Built inside Docker', { timeout: 150_000 });
+  await previewControls(panel);
   await panel.getByRole('button', { name: 'Stop preview' }).click();
   await panel.getByRole('button', { name: 'Close' }).click();
   await previews.nth(1).click();
   await expect(frame.locator('output')).toHaveText('0 entries', { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Save entry' }).click();
   await expect(frame.locator('output')).toHaveText('1 entries');
+  // Another target: its controls are folded again.
+  await previewControls(panel);
   const read = page.waitForResponse((r) => r.url().endsWith('/api/entries') && r.request().method() === 'GET' && r.status() === 200);
   await panel.getByRole('button', { name: 'Reload page' }).click();
   expect(await (await read).json()).toHaveLength(1);
@@ -118,6 +121,7 @@ test('a Dockerfile app in another language shows its build in the terminal, then
   await expect(panel.locator('.xterm-rows')).toContainText('serving on 8000');
   await panel.getByRole('radio', { name: 'Page' }).click();
   await expect(frame.getByRole('heading')).toBeVisible();
+  await previewControls(panel);
   await panel.getByRole('button', { name: 'Stop preview' }).click();
   await expect(panel.locator('iframe')).toHaveCount(0);
 });
@@ -144,6 +148,7 @@ test('a terminal app takes typed input, runs again with another command, opens a
   await page.keyboard.press('Enter');
   await expect(screen).toContainText('Hello, Relay');
   await expect(panel.getByRole('status')).toHaveText('The app exited (exit code 0).');
+  await previewControls(panel);
   const command = panel.getByRole('textbox', { name: 'Command' });
   await expect(command).toHaveValue('python /greet.py');
   await command.fill('python /greet.py --again');
@@ -227,6 +232,7 @@ test('a compose app reaches its own Redis service by name, with project files mo
   expect(network.IPAM.Config.map((c) => c.Gateway ?? '')).toEqual(network.IPAM.Config.map(() => ''));
   const volumes = docker('inspect', '--format', '{{range .Mounts}}{{.Name}} {{end}}', cache).split(' ').filter(Boolean);
   expect(volumes.length).toBeGreaterThan(0);
+  await previewControls(panel);
   await panel.getByRole('button', { name: 'Stop preview' }).click();
   await expect(panel.locator('iframe')).toHaveCount(0);
   await expect.poll(() => docker('ps', '-aq', '--filter', 'label=com.docker.compose.project=' + project)).toBe('');

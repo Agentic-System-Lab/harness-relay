@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, type MailServer, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, parseBackendModel, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -42,6 +42,20 @@ export interface ServerConfig extends ServerLimits {
    */
   microsoftImap?: MailServer;
   microsoftSmtp?: MailServer;
+  /**
+   * Settings → Labs' mode until it is changed there (`SettingsStore.labs()`): whether agents get the
+   * gateway's `run_code` tool (`RELAY_RUN_CODE=on`): JavaScript that calls the turn's other Harness Relay
+   * tools as functions, run in Harness Relay's own sandbox with no network (`runCode.ts`). Off by
+   * default: agents call those tools one at a time, as before.
+   */
+  runCode: boolean;
+  /**
+   * RLM mode (`RELAY_RLM=<backend>/<model>`, a model connection of Settings), as Labs' mode until it is
+   * changed there: `run_code` keeps a `state` for the rest of the agent's turn and gives the code
+   * `llm_query()`, a question to this sub-model, which the server asks with no tools (`llmQuery.ts`). It
+   * turns `run_code` on. undefined = off.
+   */
+  rlmModel?: string;
   /**
    * Stand-ins on this computer for publishing a previewed app, in the end-to-end tests only: Render's
    * API (`RELAY_RENDER_API_URL`), Neon's (`RELAY_NEON_API_URL`) and a folder of bare repositories in
@@ -153,6 +167,31 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return { host, port, security: starttls ? 'starttls' : 'tls' };
   };
 
+  // `on` or `off` (any letter case); unset or blank is off. Anything else is refused rather than read as either.
+  const onOff = (name: string): boolean => {
+    const raw = env[name]?.trim();
+    if (!raw || raw.toLowerCase() === 'off') return false;
+    if (raw.toLowerCase() === 'on') return true;
+    problems.push(`${name}=${raw} is neither on nor off.`);
+    return false;
+  };
+
+  // RLM mode: off, or the sub-model as `<backend>/<model>`. Whether that connection is set up is found
+  // out when the code asks it (Settings can change it meanwhile).
+  const rlm = (): string | undefined => {
+    const raw = env.RELAY_RLM?.trim();
+    if (!raw || raw.toLowerCase() === 'off') return undefined;
+    if (parseBackendModel(raw)) return raw;
+    problems.push(
+      `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+    );
+    return undefined;
+  };
+  const rlmModel = rlm();
+  const runCode = onOff('RELAY_RUN_CODE');
+  if (rlmModel && env.RELAY_RUN_CODE?.trim().toLowerCase() === 'off')
+    problems.push('RELAY_RLM needs run_code: leave RELAY_RUN_CODE unset, or set it to on.');
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const previewDomain = env.RELAY_PREVIEW_DOMAIN?.trim().toLowerCase();
   if (
@@ -177,6 +216,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
     microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
+    runCode: runCode || Boolean(rlmModel),
+    ...(rlmModel ? { rlmModel } : {}),
     renderApiUrl: local('RELAY_RENDER_API_URL'),
     neonApiUrl: local('RELAY_NEON_API_URL'),
     publishGitDir: folder('RELAY_PUBLISH_GIT_DIR'),

@@ -670,7 +670,18 @@ async function cursorTurn(peer, s, u, steps) {
       return done('end_turn');
     }
     if (step.type === 'think') await u.thought(step.text);
-    if (step.type === 'todo') u.plan(step.entries);
+    if (step.type === 'todo') {
+      // Agent mode: its to-do tool's call, and the list as a `cursor/update_todos` request it does not wait
+      // for (as cursor-agent 2026.11.11 sends it); plan mode's `plan` update comes from its plan tool only.
+      if (s.mode === 'agent') {
+        const id = nextId();
+        const todos = step.entries.map((e, i) => ({ id: String(i + 1), content: e.text, status: e.status }));
+        const title = `Update TODOs: ${step.entries.map((e) => e.text).join(', ')}`;
+        u.toolCall({ toolCallId: id, title, kind: 'other', status: 'in_progress', rawInput: { _toolName: 'updateTodos', todos } });
+        peer.request('cursor/update_todos', { toolCallId: id, todos, merge: false }).catch(() => undefined);
+        update(id, { status: 'completed' });
+      } else u.plan(step.entries);
+    }
     if (step.type === 'tool') {
       const id = nextId();
       u.toolCall({ toolCallId: id, title: `List \`${s.cwd}\``, kind: 'read', status: 'in_progress', rawInput: { path: s.cwd } });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Stats } from 'node:fs';
+import { lstatSync, type Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import vm from 'node:vm';
@@ -197,6 +197,39 @@ export interface StoredBaseline {
   byCommit: Record<string, string>;
 }
 
+/**
+ * A baseline taken in the working directories, for a run in copies of them (the team's own worktrees,
+ * made from the working directories as they were when that run began): each folder (`moves`: from a
+ * working directory to its copy) and who changed what in it, moved to its copy. A protected file that is
+ * in the working directory but not in its copy is left out: git ignores it, so the copy never has it, and
+ * it is not the team's to have removed.
+ */
+export function baselineIn(baseline: StoredBaseline, moves: readonly { from: string; to: string }[]): StoredBaseline {
+  const copyOf = new Map(moves.map((m) => [m.from, m.to]));
+  const there = (path: string) => {
+    try {
+      lstatSync(path);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const folders = baseline.folders.map((f) => {
+    const copy = copyOf.get(f.cwd);
+    if (!copy) return f;
+    if (!f.manifest) return { ...f, cwd: copy };
+    const kept = Object.entries(f.manifest).filter(([path]) => there(join(copy, path)) || !there(join(f.cwd, path)));
+    return { ...f, cwd: copy, manifest: Object.fromEntries(kept) };
+  });
+  const byPath: Record<string, string> = {};
+  for (const [key, by] of Object.entries(baseline.byPath)) {
+    const [cwd = '', path = ''] = key.split('\0');
+    const copy = copyOf.get(cwd);
+    byPath[copy ? pathKey(copy, path) : key] = by;
+  }
+  return { ...baseline, folders, byPath };
+}
+
 /** Where a run's folders are: each working directory with its repository's root (`RunWorkspace.folders`). */
 export interface CheckFolders {
   folders: { cwd: string; root: string }[];
@@ -204,6 +237,8 @@ export interface CheckFolders {
   exclude: string[];
   /** The mode keeps the team's commits in the working directories (roundtable, relay). */
   commits: boolean;
+  /** The folders are the team's own worktrees (`TEAM_WORKTREE`), whose result is applied without its commits. */
+  team?: boolean;
 }
 
 /** A protected file a member changed in its own worktree (parallel mode): applying its result would bring it. */
@@ -494,7 +529,8 @@ async function evaluate(
   }
 
   if (list.commitPattern) {
-    if (!where.commits) outcomes.push({ rule: 'commits', status: 'na', reason: t().checksCommitsParallel });
+    if (!where.commits)
+      outcomes.push({ rule: 'commits', status: 'na', reason: where.team ? t().checksCommitsTeam : t().checksCommitsParallel });
     else {
       const made: (MadeCommit & { root: string })[] = [];
       const errors: string[] = [];

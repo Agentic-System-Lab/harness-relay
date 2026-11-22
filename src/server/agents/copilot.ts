@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
+import { agentLimitsFor, endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
 import { isPublishCommand } from '../commands';
 import { t } from '../i18n';
@@ -46,6 +46,7 @@ import {
   type ApprovalRequest,
   type RunOptions,
   type RunResult,
+  type RunUsage,
 } from './types';
 import { guardGlobs, isGuarded, type WriteGuard } from '../writeGuard';
 
@@ -478,7 +479,7 @@ export const COPILOT_SECRET_VARS = ['COPILOT_GITHUB_TOKEN', 'COPILOT_PROVIDER_AP
  * The arguments of a run: ACP; below full access its sandbox (the flag, so that it fails closed),
  * full access allows everything; the other working directories; the keys kept from commands; and what
  * the run leaves out of what Copilot loads by itself (skills by its skill tool, the built-in MCP
- * servers, single MCP servers by name); the model (`--model`) and the reasoning effort
+ * servers, single MCP servers by name); no question form (`--no-ask-user`); the model (`--model`) and the reasoning effort
  * (`--reasoning-effort`). On an endpoint the model is in `COPILOT_MODEL` instead (`copilotEnv`): a BYOK
  * model given with `--model` as well refuses any effort ("does not support reasoning effort
  * configuration"), and takes it this way (copilot 1.0.109).
@@ -493,6 +494,8 @@ export function copilotArgs(o: {
   effort?: string;
   /** The team's protected paths, which its own write tools may not write (`copilotGuardArgs`). */
   guard?: WriteGuard;
+  /** The member's own limit: the AI credits its session may use (`--max-ai-credits`, a soft cap, at least 30). */
+  maxAiCredits?: number;
 }): string[] {
   const off = new Set(o.nativeOff ?? []);
   return [
@@ -501,11 +504,15 @@ export function copilotArgs(o: {
     ...copilotGuardArgs(o.guard),
     ...(o.addDirs ?? []).flatMap((d) => ['--add-dir', d]),
     `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`,
+    // Its question form (`ask_user`): over ACP without elicitation it is refused and the model told; the
+    // agent asks in its reply instead (`[ASK_USER]`). In Copilot 1.0.112's help.
+    '--no-ask-user',
     ...(off.has('skills') ? ['--excluded-tools', 'skill'] : []),
     ...(off.has('mcp') ? ['--disable-builtin-mcps'] : []),
     ...(off.has('mcp') ? [] : (o.nativeItems?.mcp ?? []).flatMap((name) => ['--disable-mcp-server', name])),
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--reasoning-effort', o.effort] : []),
+    ...(o.maxAiCredits ? ['--max-ai-credits', String(o.maxAiCredits)] : []),
   ];
 }
 
@@ -1146,12 +1153,39 @@ interface CallState {
   locations?: { path?: string }[];
 }
 
+/**
+ * The runtime events a turn subscribes to in `initialize` (Copilot sends only those a client names, as
+ * `github.com/copilot/sessionEvent` notifications: `{ sessionId, type, data, agentId? }`, `agentId` on a
+ * subagent's own; `copilot help acp` and `schemas/session-events.schema.json` of Copilot 1.0.112): its
+ * subagents, its tools' runs (a subagent's with `parentToolCallId`, the call that started it) and what
+ * it reports about its own run.
+ */
+export const COPILOT_EVENTS = [
+  'subagent.started',
+  'subagent.completed',
+  'subagent.failed',
+  'tool.execution_start',
+  'tool.execution_complete',
+  'session.compaction_complete',
+  'assistant.turn_retry',
+  'session.model_change',
+] as const;
+
+/** Where a model change came from that is Copilot's own, not the client's: its automatic switch. */
+const COPILOT_OWN_MODEL_CHANGE = new Set(['automatic', 'auto_tier_recommendation']);
+
 /** Turns Copilot's ACP `session/update` payloads into AgentEvents. */
 export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
   const calls = new Map<string, CallState>();
   const open = new Set<string>();
   const ended = new Set<string>();
   const refused = new Map<string, string>();
+  /** The subagents' calls (`subagent.started`'s `toolCallId`): their name and model, and whether they run on in the background. */
+  const subagents = new Map<string, { agent?: string; model?: string; background?: boolean; done?: boolean }>();
+  /** Subagents' calls that answered while their subagent works on in the background: they end with it. */
+  const heldCalls = new Set<string>();
+  /** A subagent's own calls: the call each one goes under. */
+  const parents = new Map<string, string>();
   /** Copilot's own error lines (`Error: …`), held until the turn ends: its failure, or text after all. */
   const errors: string[] = [];
   let inText = false;
@@ -1202,16 +1236,27 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
     open.add(id);
     const detail = detailOf(c);
     const kind = toolCallKind(c.kind);
+    const sub = subagents.get(id);
+    const parentId = parents.get(id);
     emit({
       type: 'tool_start',
       id,
       name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'),
       ...(detail ? { detail } : {}),
       ...(kind ? { kind } : {}),
+      ...(parentId ? { parentId } : {}),
+      ...(sub?.agent ? { agent: sub.agent } : {}),
+      ...(sub?.model ? { model: sub.model } : {}),
     });
   };
 
   const finish = (id: string, c: CallState, u: Record<string, any>) => {
+    // A subagent started in the background answers at once: its row ends with the subagent.
+    const sub = subagents.get(id);
+    if (sub?.background && !sub.done && u.status === 'completed' && !refused.has(id)) {
+      heldCalls.add(id);
+      return;
+    }
     open.delete(id);
     ended.add(id);
     const out = u.rawOutput && typeof u.rawOutput === 'object' ? (u.rawOutput as Record<string, any>) : undefined;
@@ -1278,8 +1323,9 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
       case 'tool_call':
       case 'tool_call_update': {
         const id = String(u.toolCallId ?? '');
-        if (!id || ended.has(id)) break;
-        closeText();
+        if (!id || ended.has(id) || heldCalls.has(id)) break;
+        // A subagent's own call does not close the agent's words.
+        if (!parents.has(id)) closeText();
         const c = remember(id, u);
         // A call Copilot reports only once it is over (refused before it started) gets its row too.
         if (!open.has(id)) start(id, c);
@@ -1289,11 +1335,119 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
     }
   }
 
+  /** A subagent's call named, on its row once it has one (else when it gets one). */
+  const nameSubagent = (id: string, agent?: string, model?: string) => {
+    const sub = subagents.get(id) ?? {};
+    subagents.set(id, { ...sub, ...(agent ? { agent } : {}), ...(model ? { model } : {}) });
+    if ((open.has(id) || ended.has(id)) && (agent || model)) {
+      emit({ type: 'tool_start', id, name: 'task', ...(agent ? { agent } : {}), ...(model ? { model } : {}) });
+    }
+  };
+
+  /**
+   * A runtime event (`github.com/copilot/sessionEvent`): a subagent started or ended, a subagent's own
+   * call, or a note about Copilot's own run (the root agent's only, not a subagent's).
+   */
+  function runtime(p: Record<string, any> | undefined): void {
+    const type = typeof p?.type === 'string' ? p.type : '';
+    const d = (p?.data && typeof p.data === 'object' ? p.data : {}) as Record<string, any>;
+    const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    const call = text(d.toolCallId);
+    switch (type) {
+      case 'subagent.started':
+        if (!call) return;
+        subagents.set(call, { ...subagents.get(call), background: d.executionMode === 'background' });
+        nameSubagent(call, text(d.agentDisplayName) ?? text(d.agentName), text(d.model));
+        return;
+      case 'subagent.completed':
+      case 'subagent.failed': {
+        if (!call) return;
+        const sub = subagents.get(call) ?? {};
+        subagents.set(call, { ...sub, done: true });
+        if (text(d.model) && !sub.model) nameSubagent(call, undefined, text(d.model));
+        if (!heldCalls.delete(call)) return;
+        open.delete(call);
+        ended.add(call);
+        const failed = type === 'subagent.failed' || d.cancelled === true;
+        emit({ type: 'tool_end', id: call, ok: !failed, ...(failed && text(d.error) ? { error: clip(d.error, 240) } : {}) });
+        return;
+      }
+      case 'tool.execution_start': {
+        const parent = text(d.parentToolCallId);
+        if (!call || !parent || parent === call) return;
+        parents.set(call, parent);
+        // Shown here unless Copilot reports it as a call of its own too, which then names it in full.
+        if (open.has(call) || ended.has(call)) {
+          emit({ type: 'tool_start', id: call, name: String(d.toolName ?? 'tool'), parentId: parent });
+          return;
+        }
+        open.add(call);
+        const detail = summarizeInput(d.arguments) ?? (text(d.toolTitle) ? clip(d.toolTitle) : undefined);
+        emit({
+          type: 'tool_start',
+          id: call,
+          name: String(d.toolTitle ?? d.toolName ?? 'tool'),
+          ...(detail ? { detail } : {}),
+          parentId: parent,
+        });
+        return;
+      }
+      case 'tool.execution_complete': {
+        if (!call || !parents.has(call) || ended.has(call) || calls.has(call)) return;
+        open.delete(call);
+        ended.add(call);
+        const ok = d.success === true;
+        const said = Array.isArray(d.result?.content)
+          ? d.result.content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('\n')
+          : text(d.result?.content);
+        const error = ok ? undefined : text(d.error?.message);
+        emit({
+          type: 'tool_end',
+          id: call,
+          ok,
+          ...(ok && said?.trim() ? { output: tailText(said) } : {}),
+          ...(error ? { error: clip(error, 240) } : {}),
+        });
+        return;
+      }
+    }
+    if (p?.agentId) return; // a subagent's own run
+    switch (type) {
+      case 'session.compaction_complete':
+        closeText();
+        emit({
+          type: 'notice',
+          text: d.success === false ? t().cliCompactFailed('Copilot', text(d.error) ?? text(d.failureReason)) : t().cliCompacted('Copilot'),
+        });
+        return;
+      case 'assistant.turn_retry':
+        closeText();
+        emit({ type: 'notice', text: t().cliRetrying('Copilot', undefined, undefined, text(d.reason)) });
+        return;
+      case 'session.model_change':
+        // Its own switch only (a rate limit's, say), not the model this turn set.
+        if (!text(d.newModel) || !(text(d.cause) || COPILOT_OWN_MODEL_CHANGE.has(d.source))) return;
+        closeText();
+        emit({ type: 'notice', text: t().cliModelSwitched('Copilot', text(d.previousModel) ?? '', d.newModel) });
+        return;
+    }
+  }
+
   return {
     handle,
+    runtime,
     /** Remember why a call was refused, to show under it. */
     refused(toolCallId: string, label: string) {
       refused.set(toolCallId, label);
+    },
+    /** The turn is over: a subagent still at work in the background was cut off with it. */
+    cutOff() {
+      for (const id of [...heldCalls]) {
+        heldCalls.delete(id);
+        open.delete(id);
+        ended.add(id);
+        emit({ type: 'tool_end', id, ok: false, error: t().backgroundCutOff });
+      }
     },
     /**
      * The turn is over. Its error lines are why it failed when it reports no usage (a model call that
@@ -1308,6 +1462,62 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
         emit({ type: 'text_end' });
       }
       return undefined;
+    },
+  };
+}
+
+/**
+ * The runtime events the client subscribes to in `initialize` (`clientCapabilities._meta["github.com/copilot"].events`):
+ * Copilot sends a client only those it lists, each as a `COPILOT_SESSION_EVENT` notification
+ * (`copilot help acp`): what the chat shows (`COPILOT_EVENTS`), and `assistant.usage`, one for each model
+ * call, a subagent's and compaction's too.
+ */
+export const COPILOT_RUNTIME_EVENTS: readonly string[] = [...COPILOT_EVENTS, 'assistant.usage'];
+export const COPILOT_SESSION_EVENT = 'github.com/copilot/sessionEvent';
+
+/** The nano AI units in one AI credit, as `copilotUsage.totalNanoAiu` counts them (`copilot help billing`). */
+const NANO_AIU = 1e9;
+
+/**
+ * A turn's model calls as its `assistant.usage` events report them (session-events schema, Copilot
+ * 1.0.112), each counted once: the input with the cache reads and writes added, which Copilot keeps
+ * apart (it prices each of them apart: `copilot help billing`), and the output as it is (the reasoning
+ * is part of it); and the AI credits of the calls that report them (`copilotUsage.totalNanoAiu`).
+ */
+export function createCopilotUsage() {
+  const seen = new Set<string>();
+  let calls = 0;
+  let input = 0;
+  let output = 0;
+  let nanoAiu = 0;
+  let credited = false;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+  return {
+    /** A `COPILOT_SESSION_EVENT` notification's params; any other event is not counted. */
+    add(params: Record<string, any>): void {
+      if (params?.type !== 'assistant.usage' || !params.data || typeof params.data !== 'object') return;
+      const d = params.data as Record<string, any>;
+      const id = typeof params.id === 'string' ? params.id : typeof d.accounting?.usageId === 'string' ? d.accounting.usageId : undefined;
+      if (id !== undefined) {
+        if (seen.has(id)) return;
+        seen.add(id);
+      }
+      calls++;
+      input += num(d.inputTokens) + num(d.cacheReadTokens) + num(d.cacheWriteTokens);
+      output += num(d.outputTokens);
+      const aiu = d.copilotUsage?.totalNanoAiu;
+      if (typeof aiu === 'number' && Number.isFinite(aiu) && aiu >= 0) {
+        nanoAiu += aiu;
+        credited = true;
+      }
+    },
+    /** The tokens counted, or none when no call was reported. */
+    get tokens(): Pick<RunUsage, 'inputTokens' | 'outputTokens'> {
+      return calls ? { inputTokens: input, outputTokens: output } : {};
+    },
+    /** The AI credits counted, when a call reported any. */
+    get aiCredits(): number | undefined {
+      return credited ? nanoAiu / NANO_AIU : undefined;
     },
   };
 }
@@ -1385,6 +1595,7 @@ export const copilotRunner: AgentRunner = {
       teamHooks,
     });
     const effort = endpoint ? endpointEffort('copilot', o.effort) : o.effort?.trim() || undefined;
+    const maxAiCredits = endpoint ? undefined : agentLimitsFor('copilot', o.limits)?.aiCredits;
     const args = (withEffort: boolean) =>
       copilotArgs({
         permission: o.permission,
@@ -1394,6 +1605,8 @@ export const copilotRunner: AgentRunner = {
         model: endpoint ? undefined : o.model?.trim() || undefined,
         effort: withEffort ? effort : undefined,
         ...(o.guard ? { guard: o.guard } : {}),
+        // Its own models only: the user's own endpoint uses no AI credits.
+        ...(maxAiCredits ? { maxAiCredits } : {}),
       });
     const prepare = (prep: () => CopilotRun): CopilotRun => {
       try {
@@ -1485,7 +1698,19 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createCopilotUpdateHandler(o.onEvent);
+  const usage = createCopilotUsage();
+  /** What the turn used so far, kept when it fails or is stopped. */
+  const spent = (): RunUsage | undefined => (usage.tokens.inputTokens === undefined ? undefined : usage.tokens);
   conn.onNotification = (method, params) => {
+    // The runtime events it subscribed to, of this turn's session: its subagents' and its notes (not while
+    // its policy is checked), and the usage of each model call.
+    if (method === COPILOT_SESSION_EVENT) {
+      if (!opening && sessionId && params?.sessionId === sessionId) {
+        if (!policy) updates.runtime(params);
+        usage.add(params);
+      }
+      return;
+    }
     if (method !== 'session/update' || opening) return;
     if (!sessionId || params?.sessionId !== sessionId) return;
     const u = params?.update;
@@ -1561,7 +1786,12 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
   try {
     const init = await conn.request('initialize', {
       protocolVersion: 1,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+        // The runtime events it sends only to a client that names them.
+        _meta: { 'github.com/copilot': { events: [...COPILOT_RUNTIME_EVENTS] } },
+      },
     });
     const caps = init?.agentCapabilities ?? {};
     const mcpServers = how.policyOnly ? [] : acpMcpServers(o.mcpServers ?? [], Boolean(caps.mcpCapabilities?.http), 'copilot');
@@ -1631,15 +1861,23 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       prompt: acpPrompt(o.prompt, caps.promptCapabilities?.image ? o.images : []),
     });
     const failed = updates.finish(Boolean(result?.usage));
+    updates.cutOff();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (failed) throw new AgentRunError(failed);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().copilotCancelled);
-    // The turn's: one process per turn, and its count starts when the process opens the session.
-    return { sessionId, ...acpTokens(result?.usage) };
+    // The turn's: one process per turn, and its count starts when the process opens the session. Its
+    // model calls' own events when the answer has none; their AI credits, which it never has.
+    const answered = acpTokens(result?.usage);
+    const tokens = answered.inputTokens === undefined && answered.outputTokens === undefined ? usage.tokens : answered;
+    const aiCredits = usage.aiCredits;
+    return { sessionId, ...tokens, ...(aiCredits !== undefined ? { aiCredits } : {}) };
   } catch (err) {
-    if (userAborted) throw new AgentRunError(t().stopped, true);
-    if (err instanceof AgentRunError) throw err;
-    throw new AgentRunError(err instanceof Error ? err.message : String(err));
+    if (userAborted) throw new AgentRunError(t().stopped, true, spent());
+    if (err instanceof AgentRunError) {
+      err.usage ??= spent();
+      throw err;
+    }
+    throw new AgentRunError(err instanceof Error ? err.message : String(err), false, spent());
   } finally {
     opening = false;
     o.signal.removeEventListener('abort', onAbort);

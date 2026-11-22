@@ -20,6 +20,7 @@ import { HttpError } from '../src/server/errors';
 import { removeTree } from '../src/server/fsRemove';
 import { triggerKey } from '../src/shared/schedule';
 import {
+  type MessageChanges,
   ATTACHMENT_LIMITS,
   FILE_LIMITS,
   OPEN_PROVIDERS,
@@ -30,6 +31,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   DEFAULT_LIMITS,
+  TEAM_WORKTREE,
   type ChatMessage,
   type CliLoginView,
   type Conversation,
@@ -662,6 +664,155 @@ describe('app preview control and content', () => {
     writeFileSync(join(worktree, 'package.json'), '{}');
     expect((await target({ messageId: 'isolated', entry: 'package.json' })).status).toBe(400);
   });
+  it('finds the app a turn made from the files it changed: the nearest folder that says how it runs, in the files of its own', async () => {
+    const second = join(root, 'second-' + n);
+    mkdirSync(second);
+    const conv = await createConversation({ extraCwds: [second] });
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const changed = (id: string, repo: string, files: string[], extra: Partial<MessageChanges> = {}) =>
+      live.messages.push({
+        id,
+        author: { kind: 'agent', agentId },
+        createdAt: Date.now(),
+        parts: [],
+        status: 'done',
+        changes: [
+          {
+            root: repo,
+            base: 'b',
+            head: 'h',
+            isolated: false,
+            files: files.map((path) => ({ path, status: 'A' as const, added: 1, deleted: 0 })),
+            ...extra,
+          },
+        ],
+      });
+    const find = (body: object) => app.request('/api/conversations/' + conv.id + '/preview/changed', json('POST', body));
+    const found = async (messageId: string) => (await find({ messageId })).json();
+    // A page in an npm project's public/: the project, which runs its start script.
+    mkdirSync(join(project, 'shop', 'public'), { recursive: true });
+    writeFileSync(join(project, 'shop', 'public', 'index.html'), '<h1>shop</h1>');
+    writeFileSync(join(project, 'shop', 'package.json'), JSON.stringify({ scripts: { start: 'node server.js' } }));
+    writeFileSync(join(project, 'shop', 'package-lock.json'), emptyLockfile);
+    changed('page', project, ['shop/public/index.html']);
+    expect(await found('page')).toEqual({
+      folder: join(project, 'shop'),
+      entry: 'package.json',
+      mode: 'server',
+      shown: 'shop/package.json',
+    });
+    // At the same depth, a Dockerfile says more than a package.json; what runs nothing does not count.
+    mkdirSync(join(project, 'api'));
+    writeFileSync(join(project, 'api', 'Dockerfile'), 'FROM scratch');
+    changed('both', project, ['shop/public/index.html', 'api/Dockerfile', 'notes.md']);
+    expect(await found('both')).toEqual({ folder: join(project, 'api'), entry: 'Dockerfile', mode: 'container', shown: 'api/Dockerfile' });
+    // A page with nothing above it that runs: the page as it is.
+    mkdirSync(join(project, 'docs'));
+    writeFileSync(join(project, 'docs', 'guide.html'), '<h1>guide</h1>');
+    changed('guide', project, ['docs/guide.html']);
+    expect(await found('guide')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static', shown: 'docs/guide.html' });
+    // A project without a lockfile does not run: the next candidate, or none.
+    mkdirSync(join(project, 'lib'));
+    writeFileSync(join(project, 'lib', 'package.json'), JSON.stringify({ scripts: { start: 'node .' } }));
+    changed('unlocked', project, ['lib/package.json', 'docs/guide.html']);
+    expect(await found('unlocked')).toEqual({
+      folder: join(project, 'docs'),
+      entry: 'guide.html',
+      mode: 'static',
+      shown: 'docs/guide.html',
+    });
+    changed('nothing', project, ['lib/package.json']);
+    expect((await find({ messageId: 'nothing' })).status).toBe(404);
+    // A page that is not the index of a project stays a page, though a project around it runs.
+    mkdirSync(join(project, 'shop', 'reports'));
+    writeFileSync(join(project, 'shop', 'reports', 'summary.html'), '<h1>summary</h1>');
+    changed('report', project, ['shop/reports/summary.html']);
+    expect(await found('report')).toEqual({
+      folder: join(project, 'shop', 'reports'),
+      entry: 'summary.html',
+      mode: 'static',
+      shown: 'shop/reports/summary.html',
+    });
+    // An index page whose project does not run (a package.json for tools only) opens as it is.
+    mkdirSync(join(project, 'lib', 'www'));
+    writeFileSync(join(project, 'lib', 'www', 'index.html'), '<h1>www</h1>');
+    changed('tools', project, ['lib/www/index.html']);
+    expect(await found('tools')).toEqual({
+      folder: join(project, 'lib', 'www'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'lib/www/index.html',
+    });
+    // The second working directory: its own project, though the first has one at the same place.
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { start: 'node a.js' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    writeFileSync(join(second, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(second, 'package-lock.json'), emptyLockfile);
+    changed('second', second, ['package.json']);
+    expect(await found('second')).toEqual({ folder: second, entry: 'package.json', mode: 'build', shown: 'package.json' });
+    // A parallel member's change: the files in its own worktree, not the working directory's.
+    const worktree = join(root, 'changed-worktree-' + n);
+    mkdirSync(join(worktree, 'site'), { recursive: true });
+    writeFileSync(join(worktree, 'site', 'index.html'), '<h1>mine</h1>');
+    live.worktrees[agentId] = [{ root: project, path: worktree, branch: 'relay/mine', base: 'b', needsReset: false }];
+    changed('isolated', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
+    expect(await found('isolated')).toEqual({
+      folder: join(worktree, 'site'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'site/index.html',
+    });
+    // The worktree recorded through a link (a data folder under /tmp on a Mac): found at its real path.
+    const linked = join(root, 'changed-link-' + n);
+    symlinkSync(worktree, linked, 'junction');
+    live.worktrees[agentId] = [{ root: project, path: linked, branch: 'relay/mine', base: 'b', needsReset: false }];
+    changed('linked', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
+    expect(await found('linked')).toEqual({
+      folder: join(realpathSync.native(worktree), 'site'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'site/index.html',
+    });
+    // A deleted file, another's reply, or no reply at all.
+    live.messages.push({
+      id: 'gone',
+      author: { kind: 'agent', agentId },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'done',
+      changes: [
+        { root: project, base: 'b', head: 'h', isolated: false, files: [{ path: 'api/Dockerfile', status: 'D', added: 0, deleted: 1 }] },
+      ],
+    });
+    expect((await find({ messageId: 'gone' })).status).toBe(404);
+    expect((await find({ messageId: 'missing' })).status).toBe(404);
+    expect((await find({})).status).toBe(400);
+  });
+
+  it('gives the browser that started a preview a single-use address that opens its page in a tab of its own', async () => {
+    const conv = await createConversation();
+    writeFileSync(join(project, 'index.html'), '<h1>in a tab</h1>');
+    const route = '/api/conversations/' + conv.id + '/preview';
+    const preview = (await (await app.request(route, json('POST', { mode: 'static', folder: '', entry: 'index.html' }))).json()) as {
+      url: string;
+      id: string;
+    };
+    const res = await app.request(route + '/' + preview.id + '/tab', json('POST', {}));
+    expect(res.status).toBe(200);
+    const tab = new URL(((await res.json()) as { url: string }).url);
+    expect(tab.host).toBe(new URL(preview.url).host);
+    const open = (path: string, headers = {}) => app.request(tab.origin + path, { headers: { host: tab.host, ...headers } });
+    const opened = await open(tab.pathname);
+    expect(opened.status).toBe(200);
+    const cookie = opened.headers.get('set-cookie')!.split(';')[0]!;
+    expect((await open(tab.pathname)).status).toBe(403);
+    const reload = { cookie, 'sec-fetch-site': 'none', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+    expect(await (await open('/', reload)).text()).toContain('in a tab');
+    expect((await app.request(route + '/unknown/tab', json('POST', {}))).status).toBe(404);
+    expect((await app.request(route + '/' + preview.id + '/tab', json('POST', {}, { origin: 'http://localhost:5555' }))).status).toBe(403);
+  });
+
   it('serves only the selected snapshot at its preview origin and revokes it when the conversation is deleted', async () => {
     const conv = await createConversation();
     writeFileSync(join(project, 'index.html'), '<h1>my preview</h1>');
@@ -792,7 +943,7 @@ describe('settings', () => {
     const provider = (body: unknown) => app.request('/api/settings/providers/claude', json('PUT', body));
     expect((await provider({ bin: 123 })).status).toBe(400);
     // Defaults and what runs leave out are each account's: named here, the whole request is refused.
-    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }]) {
+    for (const field of [{ defaultModel: 'sonnet' }, { defaultEffort: 'low' }, { nativeOff: [] }, { nativeItems: {} }, { nativeOn: [] }]) {
       expect((await provider({ bin: '/opt/claude-x', ...field })).status, JSON.stringify(field)).toBe(400);
     }
     const unchanged = (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
@@ -830,6 +981,29 @@ describe('settings', () => {
     expect(withItems.nativeItems).toEqual({ skills: ['commit'], mcpTools: ['mcp__local__fetch'] });
     expect(withItems.nativeOff).toEqual(['hooks', 'agents', 'plugins']);
 
+    // What runs turn on (its workflows, and ultracode with them): known parts only, what the CLI has.
+    expect((await account({ nativeOn: 'workflows' })).status).toBe(400);
+    expect((await account({ nativeOn: ['workflows', 'autopilot'] })).status).toBe(400);
+    const ultra = ((await (await account({ nativeOn: ['ultracode'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'claude',
+    )!;
+    expect(ultra.accounts[0]!.nativeOn).toEqual([]); // ultracode needs workflows
+    const flows = ((await (await account({ nativeOn: ['ultracode', 'workflows'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'claude',
+    )!;
+    expect(flows.accounts[0]!.nativeOn).toEqual(['workflows', 'ultracode']);
+    // Its subagents off, as a part of its own: kept beside the rest.
+    const noAgents = (
+      (await (await account({ nativeOff: ['hooks', 'agents', 'plugins', 'subagents'] })).json()) as SettingsView
+    ).providers.find((p) => p.provider === 'claude')!;
+    expect(noAgents.accounts[0]!.nativeOff).toEqual(['hooks', 'agents', 'plugins', 'subagents']);
+    // A CLI with no workflow switch keeps none.
+    const codex = (body: unknown) => app.request('/api/settings/providers/codex/accounts/default', json('PUT', body));
+    const codexView = ((await (await codex({ nativeOn: ['workflows'] })).json()) as SettingsView).providers.find(
+      (p) => p.provider === 'codex',
+    )!;
+    expect(codexView.accounts[0]!.nativeOn).toEqual([]);
+
     // OpenHands' terminal in the sandbox: a boolean, off by default, no secret in it.
     const openhands = (body: unknown) => app.request('/api/settings/providers/openhands', json('PUT', body));
     expect((await openhands({ sandboxTerminal: 'yes' })).status).toBe(400);
@@ -843,7 +1017,7 @@ describe('settings', () => {
     const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
     expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
     // Back as they were, for the tests after this one.
-    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {} })).status).toBe(200);
+    expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] })).status).toBe(200);
   });
 
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
@@ -1164,6 +1338,40 @@ describe('settings', () => {
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps steering as asked (only `true` turns it on), turns it off with a PATCH, and switches it at any time on its own', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const on = (await (await post({ agents, settings: { cwd: project, steer: true } })).json()) as Conversation;
+    expect(on.settings.steer).toBe(true);
+    const odd = (await (await post({ agents, settings: { cwd: project, steer: 'yes' } })).json()) as Conversation;
+    expect(odd.settings.steer).toBeUndefined();
+
+    const off = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...on.settings, steer: false } }));
+    expect(((await off.json()) as Conversation).settings.steer).toBeUndefined();
+    expect(store.get(on.id)!.settings.steer).toBeUndefined();
+
+    const set = (id: string, body: unknown) => app.request(`/api/conversations/${id}/steer`, json('PUT', body));
+    const res = await set(on.id, { on: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ steer: true });
+    expect(store.get(on.id)!.settings.steer).toBe(true);
+    expect((await set(on.id, { on: 'yes' })).status).toBe(400);
+    // Switched while a settings change prepares the workspace: the switch came later, and stands.
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementationOnce(async () => {
+      orchestrator.setSteer(on.id, false);
+      return { isolated: false };
+    });
+    const saved = await app.request(
+      `/api/conversations/${on.id}`,
+      json('PATCH', { settings: { ...store.get(on.id)!.settings, rounds: 2 } }),
+    );
+    expect(saved.status).toBe(200);
+    expect(store.get(on.id)!.settings).toMatchObject({ rounds: 2 });
+    expect(store.get(on.id)!.settings.steer).toBeUndefined();
+    prepare.mockRestore();
+    expect((await set('nope', { on: true })).status).toBe(404);
+  });
+
   it('keeps team checks as given, tidied, refuses one that cannot be used, and keeps them with a template', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
@@ -1297,8 +1505,20 @@ describe('settings', () => {
       apply.mockResolvedValueOnce({ files: [] });
       await at({ confirm: true });
       expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: true });
+      // The team's own worktrees, by their key as the page encodes it.
+      apply.mockResolvedValueOnce({ files: [] });
+      await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/apply`, json('POST', {}));
+      expect(apply).toHaveBeenLastCalledWith('conv', TEAM_WORKTREE, { force: false, confirm: false });
     } finally {
       apply.mockRestore();
+    }
+    const diff = vi.spyOn(orchestrator, 'agentDiff').mockResolvedValue('diff');
+    try {
+      const res = await app.request(`/api/conversations/conv/agents/${encodeURIComponent(TEAM_WORKTREE)}/diff`, { headers: HOST });
+      expect(await res.text()).toBe('diff');
+      expect(diff).toHaveBeenCalledWith('conv', TEAM_WORKTREE);
+    } finally {
+      diff.mockRestore();
     }
   });
 
@@ -1798,6 +2018,36 @@ describe('accounts', () => {
     // One the CLI does not have is the default account.
     const other = (await (await call('PUT', '/api/settings', { lead: { provider: 'claude', account: id } })).json()) as SettingsView;
     expect(other.lead).toEqual({ provider: 'claude' });
+  });
+
+  it("keeps each member's own limit for the CLIs that have one, drops another CLI's, and refuses one out of bounds", async () => {
+    const { call, store: s } = accountsApp();
+    const res = await call('POST', '/api/conversations', {
+      agents: [
+        { name: 'Ann', provider: 'claude', role: '', limits: { usd: 1.5 } },
+        { name: 'Bob', provider: 'opencode', role: '', limits: { steps: 30, usd: 9 } },
+        { name: 'Cy', provider: 'codex', role: '', limits: { usd: 4 } },
+        { name: 'Di', provider: 'claude', role: '', limits: null },
+      ],
+      settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+    });
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    expect(conv.agents.map((a) => a.limits)).toEqual([{ usd: 1.5 }, { steps: 30 }, undefined, undefined]);
+    expect(s.get(conv.id)!.agents[0]!.limits).toEqual({ usd: 1.5 });
+    for (const limits of [{ aiCredits: 10 }, { aiCredits: 30.5 }, { aiCredits: 'many' }]) {
+      const bad = await call('POST', '/api/presets', {
+        name: 'Capped',
+        agents: [{ name: 'Pilot', provider: 'copilot', role: '', limits }],
+      });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toBe('Agent "Pilot" has an invalid limit: it must be from 30 to 1000000');
+    }
+    const saved = await call('POST', '/api/presets', {
+      name: 'Capped',
+      agents: [{ name: 'Pilot', provider: 'copilot', role: '', limits: { aiCredits: 60 } }],
+    });
+    expect(((await saved.json()) as TeamPreset).agents[0]!.limits).toEqual({ aiCredits: 60 });
   });
 });
 
@@ -3350,6 +3600,16 @@ describe('browsing files', () => {
     // Its ZIP file is named after the folder and the agent.
     const check = await get(`${base}/zip/check?root=${encodeURIComponent(`${agentId}:1`)}&path=`);
     expect(check.status).toBe(200);
+
+    // The team's own worktree (a run while another conversation wrote in the folder): listed first, as `@team`.
+    const wtT = join(root, `wt-team-${n}`);
+    mkdirSync(wtT);
+    writeFileSync(join(wtT, 'team.md'), '# Team\n');
+    live.worktrees[TEAM_WORKTREE] = [{ root: project, path: wtT, branch: `relay/x/${TEAM_WORKTREE}`, base: 'b', needsReset: false }];
+    expect((await (await get(base)).json()).roots).toContainEqual({ id: TEAM_WORKTREE, path: wtT, agentId: TEAM_WORKTREE });
+    const teamZip = await get(`${base}/zip?root=${encodeURIComponent(TEAM_WORKTREE)}&path=`);
+    expect(teamZip.status).toBe(200);
+    expect(teamZip.headers.get('content-disposition')).toContain(`filename*=UTF-8''${basename(project)}-team.zip`);
   });
 
   it('downloads a folder, or the whole working directory, as a ZIP file', async () => {
