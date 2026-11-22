@@ -94,6 +94,7 @@ import { splitMemory, type MemoryOp } from '../shared/memory';
 import {
   defaultFixedCommandDeps,
   dropPin,
+  commandFiles,
   manifestChanges,
   manifestDigest,
   pinChanges,
@@ -929,7 +930,7 @@ export class Orchestrator {
   private commandRuns = new Map<string, AbortController>();
   private commandWork = new Set<Promise<unknown>>();
   /** What a schedule's fixed command found while the team could not take its message: sent at the time's retry. */
-  private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource }>();
+  private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource; command: string }>();
   /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
   interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
   /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
@@ -1467,12 +1468,14 @@ export class Orchestrator {
     const old = store.pin(id);
     let pin: CommandPin;
     try {
-      pin = await takePin(part.folder, id);
+      pin = await takePin(part.folder, id, commandFiles(proposal, part.folder));
     } catch (err) {
       throw new HttpError(409, (err as Error).message);
     }
     const command = store.saveCommand(part.folder, id, proposal, pin);
     await dropPin(id, old, pin);
+    // The other cards proposing this name in the chat would replace it now.
+    this.markNamesakes(conv, part.folder, proposal.name, part.id);
     part.proposal = proposal;
     part.status = 'saved';
     part.commandId = id;
@@ -1523,7 +1526,7 @@ export class Orchestrator {
       const old = this.settings.handoffs.pin(cmd.id);
       let pin: CommandPin;
       try {
-        pin = await takePin(cmd.folder, cmd.id);
+        pin = await takePin(cmd.folder, cmd.id, commandFiles(cmd, cmd.folder));
       } catch (err) {
         throw new HttpError(409, (err as Error).message);
       }
@@ -1545,15 +1548,36 @@ export class Orchestrator {
   }
 
   /** What changed in a fixed command's code since it was pinned: the files, and git's diff of them (its secrets masked). */
-  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string; digest: string }> {
+  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string; missing: string[]; digest: string }> {
     const { cmd } = this.ownCommand(convId, commandId);
     const pin = this.settings.handoffs.pin(cmd.id);
-    if (!pin) return { changed: [], diff: '', digest: '' };
-    const now = await pinManifest(cmd.folder);
+    if (!pin) return { changed: [], diff: '', missing: [], digest: '' };
+    let now: Awaited<ReturnType<typeof pinManifest>>;
+    try {
+      now = await pinManifest(cmd.folder, commandFiles(cmd, cmd.folder));
+    } catch (err) {
+      throw new HttpError(409, (err as Error).message);
+    }
     const changed = manifestChanges(pin.manifest, now);
-    const diff = await pinDiff(cmd.folder, pin, changed).catch(() => '');
+    // Masked whole before it is cut, so that no value's start shows at the cut.
+    const values = Object.values(this.settings.handoffs.values(cmd.folder));
+    const { diff, missing } = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', missing: changed }));
     // What Approve sends back: this code, the one this diff shows, and no later one.
-    return { changed, diff: maskValues(diff, Object.values(this.settings.handoffs.values(cmd.folder))), digest: manifestDigest(now) };
+    return { changed, diff, missing, digest: manifestDigest(now) };
+  }
+
+  /** Marks the proposed cards of a chat that name a command saved now: saving one of them would replace it. */
+  private markNamesakes(conv: Conversation, folder: string, name: string, except: string): void {
+    for (const m of conv.messages) {
+      let changed = false;
+      for (const p of m.parts) {
+        if (p.type !== 'command' || p.id === except || p.status !== 'proposed' || p.folder !== folder) continue;
+        if (p.proposal.name !== name || p.replaces) continue;
+        p.replaces = true;
+        changed = true;
+      }
+      if (changed) this.saveCard(conv, m);
+    }
   }
 
   /**
@@ -1583,7 +1607,7 @@ export class Orchestrator {
         return run;
       }
       const pin = store.pin(cmd.id);
-      const changed = pin ? await pinChanges(cmd.folder, pin) : [];
+      const changed = pin ? await pinChanges(cmd.folder, pin, commandFiles(cmd, cmd.folder)) : [];
       if (!pin || changed.length) {
         const run: FixedCommandRun = { at: Date.now(), source, status: 'changed', changed: changed.slice(0, 50) };
         record(run);
@@ -1613,7 +1637,13 @@ export class Orchestrator {
       record(run);
       return run;
     } catch (err) {
-      const reason = maskValues((err as Error).message, Object.values(store.values(cmd.folder)));
+      let values: string[] = [];
+      try {
+        values = Object.values(store.values(cmd.folder));
+      } catch {
+        /* the credential store failed too: the message, which names no value of ours, as it is */
+      }
+      const reason = maskValues((err as Error).message, values);
       const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason };
       record(run);
       return run;
@@ -1934,6 +1964,13 @@ export class Orchestrator {
   async answerOutbox(convId: string, itemId: string, action: 'send' | 'discard'): Promise<OutboxItem> {
     const conv = this.store.get(convId);
     if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
+    // A fixed command's run is refused while a run writes in its folder, before its item is decided:
+    // Send can be clicked again once that is done.
+    const pending = action === 'send' ? this.outbox.get(itemId) : undefined;
+    if (pending?.tool === FIXED_COMMAND_TOOL && pending.convId === convId && pending.status === 'pending') {
+      const cmd = this.settings.handoffs.command(String(this.outbox.argsOf(itemId)?.commandId ?? ''));
+      if (cmd && this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    }
     const item = await this.outbox.answer(convId, itemId, action, (name) =>
       name === FIXED_COMMAND_TOOL ? this.fixedCommandSender(convId) : this.gateway?.tool(name),
     );
@@ -2350,7 +2387,9 @@ export class Orchestrator {
     // (busy) is kept for the time's retry, never run again for it.
     let found: { event: string; eventSource: EventSource } | undefined;
     if (s.command && opts.event === undefined) {
-      found = this.heldCommandEvents.get(convId);
+      // Held for this command only (the schedule may have another now).
+      const held = this.heldCommandEvents.get(convId);
+      if (held?.command === s.command) found = { event: held.event, eventSource: held.eventSource };
       if (!found) {
         const blocked = s.newChat ? undefined : this.scheduleBlocked(conv);
         if (blocked) return blocked;
@@ -2361,7 +2400,11 @@ export class Orchestrator {
       this.heldCommandEvents.delete(convId);
     }
     const sent = await this.deliverScheduled(conv, s, at, opts, tracking, found);
-    if (found && sent.result === 'busy') this.heldCommandEvents.set(convId, found);
+    // Not sent (busy, or skipped by a pause or a full queue that came while it ran): what it found waits
+    // for the next try, the command having perhaps recorded it as seen.
+    if (found && s.command && (sent.result === 'busy' || sent.result === 'skipped')) {
+      this.heldCommandEvents.set(convId, { ...found, command: s.command });
+    }
     return sent;
   }
 
@@ -2442,15 +2485,17 @@ export class Orchestrator {
     const cmd = this.settings.handoffs.command(id);
     if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };
     if (this.commandRuns.has(cmd.id)) return { result: 'busy', reason: t().handoffs.commandRunning };
-    const run = await this.executeCommand(conv, cmd, 'schedule', {});
+    // Its own team (or another chat) writing in the folder: tried again a little later, as for any busy moment.
+    if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
+    const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
     if (run.status === 'passed') return { result: 'ran' };
     if (run.status === 'changed') return { result: 'failed', reason: t().handoffs.runLine(run) };
     const what =
       run.status === 'news'
         ? `found something new (exit code ${FIXED_COMMAND_NEWS})`
         : run.status === 'failed'
-          ? `failed (exit code ${run.exitCode ?? '?'})${run.reason ? `: ${run.reason}` : ''}`
-          : `could not run${run.reason ? `: ${run.reason}` : ''}`;
+          ? `failed (exit code ${run.exitCode ?? '?'})${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`
+          : `could not run${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`;
     return {
       event: `The fixed command "${cmd.name}" (${cmd.run}) ${what}.${run.output ? `\n\nIts output, secrets masked:\n${run.output}` : ''}`,
     };

@@ -138,6 +138,12 @@ describe('hand-off blocks in a reply', () => {
     for (const run of ['echo a\u202e', 'rm \u200b-rf', 'echo \u0007', 'x\ufeffy'])
       expect(checkProposal({ name: 'post', run }), JSON.stringify(run)).toBeUndefined();
     expect(checkProposal({ name: 'post', run: 'echo a\tb' })).toBeDefined();
+    // Drawn as nothing: tag characters, variation selectors, Hangul fillers, the soft hyphen.
+    for (const run of ['python3 post.py\u{e0001}', 'rm\ufe0f -rf', 'echo \u3164', 'cur\u00adl x', 'a\u034fb'])
+      expect(checkProposal({ name: 'post', run }), JSON.stringify(run)).toBeUndefined();
+    // A reply written with CRLF line ends.
+    expect(checkProposal({ name: 'post', run: 'cd x\r\npython3 post.py' })!.run).toBe('cd x\npython3 post.py');
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'Node_Modules/pkg' })).toBeUndefined();
     expect(hiddenCharacters('plain line')).toBe(false);
     // Not from inside a folder of installed packages, whose code is not pinned.
     expect(checkProposal({ name: 'post', run: 'x', cwd: 'node_modules/pkg' })).toBeUndefined();
@@ -156,7 +162,12 @@ describe('hand-off blocks in a reply', () => {
     expect(maskValues('token=abcd1234 and abcd1234xyz, key=ab', ['abcd1234', 'abcd1234xyz', 'ab'])).toBe('token=•••• and ••••, key=ab');
     // A value cut in two at the output's ends shows neither part.
     expect(maskEdges('…\nz-123456 then done', ['tok-xyz-123456'])).toBe('…\n•••• then done');
-    expect(maskEdges('it was tok-xy', ['tok-xyz-123456'])).toBe('it was ••••');
+    // Output is kept from its end: only its start is ever cut, and text not cut is left as it is.
+    expect(maskEdges('it was tok-xy', ['tok-xyz-123456'])).toBe('it was tok-xy');
+    expect(maskEdges('z-123456 then', ['tok-xyz-123456'], true)).toBe('•••• then');
+    expect(maskEdges('word count 5\nhello pass', ['password'])).toBe('word count 5\nhello pass');
+    // Two values that overlap are masked as one, with nothing of either showing.
+    expect(maskValues('key abcdefgh1234 end', ['abcdefgh', 'efgh1234'])).toBe('key •••• end');
     expect(maskEdges('nothing here', ['tok-xyz-123456'])).toBe('nothing here');
   });
 });
@@ -237,6 +248,17 @@ describe('the store of secrets and fixed commands', () => {
     expect(new HandoffStore(db).secretNames('/w')).toHaveLength(2);
     store.deleteSecret('/w', 'TOKEN');
     expect(store.values('/w')).toEqual({ APP_SECRET: 'sec-456' });
+    // All or none: a store that fails partway puts back what it had set.
+    let calls = 0;
+    const set = (store as unknown as { secrets: SecretStore }).secrets.set;
+    (store as unknown as { secrets: SecretStore }).secrets.set = (k, v) => {
+      if (++calls === 2) throw new Error('locked');
+      set(k, v);
+    };
+    expect(() => store.setSecrets('/w', { APP_SECRET: 'sec-789', NEW_ONE: 'new-value' })).toThrow();
+    (store as unknown as { secrets: SecretStore }).secrets.set = set;
+    expect(store.values('/w')).toEqual({ APP_SECRET: 'sec-456' });
+    expect(values.has(secretEntry('/w', 'NEW_ONE'))).toBe(false);
     store.deleteSecret('/w', 'APP_SECRET');
     expect(values.size).toBe(0);
     expect(store.folders()).toEqual([]);

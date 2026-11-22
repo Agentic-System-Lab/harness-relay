@@ -234,7 +234,7 @@ export function CommandCard({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => formOf(part.proposal));
   const [extra, setExtra] = useState('');
-  const [diff, setDiff] = useState<{ changed: string[]; diff: string; digest: string } | null>(null);
+  const [diff, setDiff] = useState<{ changed: string[]; diff: string; missing: string[]; digest: string } | null>(null);
   const actions = commandActions(part);
   const p = part.proposal;
   const run = part.run;
@@ -336,6 +336,7 @@ export function CommandCard({
               </button>
               {diff &&
                 (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
+              {diff && diff.diff && diff.missing.length > 0 && <p className="muted small">{c.someNoDiff(diff.missing.join(', '))}</p>}
             </>
           )}
           {run.output && (

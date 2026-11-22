@@ -1075,7 +1075,8 @@ export const en: Messages = {
         'These files changed since it was saved, so it did not run. Look at the changes; approving pins its code again and runs it.',
       showDiff: 'Show the changes',
       hideDiff: 'Hide the changes',
-      noDiff: 'No diff to show (git may ignore these files).',
+      noDiff: 'No diff to show (git may ignore these files, or they are outside the repository or git’s own).',
+      someNoDiff: (files) => `No diff to show for these (git may ignore them, or they are outside the repository or git’s own): ${files}`,
       approve: 'Approve the changes and run',
       approveNeedsDiff: 'Look at the changes first',
       replaces:

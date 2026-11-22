@@ -67,7 +67,7 @@ function hooksIn(dir: string): string[] {
   }
 }
 
-/** `core.hooksPath` as a repository's `.git/config` sets it, if it does (its `[core]` section only). */
+/** `core.hooksPath` as a repository's `.git/config` sets it, if it does (its `[core]` section only; fixed commands' pins read it too). */
 export function hooksPathOf(config: string): string | undefined {
   let core = false;
   let found: string | undefined;

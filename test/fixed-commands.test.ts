@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, type FixedCommand } from '../src/shared/types';
 import {
@@ -18,8 +19,13 @@ import {
   readSecretsFile,
   runFixedCommand,
   secretsFile,
+  commandFiles,
+  gitConfigPin,
   manifestDigest,
   pinManifest,
+  pinnedCwd,
+  manifestChanges,
+  dropPin,
   takePin,
   type FixedCommandDeps,
 } from '../src/server/fixedCommands';
@@ -278,6 +284,7 @@ describe("a fixed command's pin", () => {
     writeFileSync(join(dir, 'post.py'), 'print("v1")\n');
     writeFileSync(join(dir, 'queue.csv'), 'id,text\n');
     const pin = await takePin(dir, 'c1');
+    // The code (git's configuration as `git init` wrote it says nothing it would run).
     expect(Object.keys(pin.manifest)).toEqual(['post.py']);
     expect(pin.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(await pinChanges(dir, pin)).toEqual([]);
@@ -286,7 +293,8 @@ describe("a fixed command's pin", () => {
     writeFileSync(join(dir, 'post.py'), 'print("v2")\n');
     writeFileSync(join(dir, 'json.py'), 'planted = True\n');
     expect(await pinChanges(dir, pin)).toEqual(['json.py', 'post.py']);
-    const diff = await pinDiff(dir, pin, ['post.py']);
+    const { diff, missing } = await pinDiff(dir, pin, ['post.py']);
+    expect(missing).toEqual([]);
     expect(diff).toContain('-print("v1")');
     expect(diff).toContain('+print("v2")');
     expect(diff).not.toContain('json.py');
@@ -329,5 +337,151 @@ describe("a fixed command's pin", () => {
 describe("the relay sandbox's run folders", () => {
   it('are the folders the relay sandbox uses', () => {
     expect(relaySandboxDirs()).toEqual([relaySandboxRoot(), relaySandboxHostRoot()]);
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("a fixed command's pin, against what could change its code unseen", () => {
+  const gitIn = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+
+  it('refuses a link that leads out of the folder or into .git, and keeps one into a top folder of packages by its target', async () => {
+    const dir = folder();
+    const outside = folder();
+    writeFileSync(join(outside, 'run.py'), 'print(1)\n');
+    symlinkSync(join(outside, 'run.py'), join(dir, 'post.py'));
+    await withLang('en', () => expect(pinManifest(dir)).rejects.toThrow(/post\.py is a link that leads out of the folder/));
+    const other = folder();
+    // A link that leads nowhere yet, outside: what appears there later would run.
+    symlinkSync(join(outside, 'later.py'), join(other, 'post.py'));
+    await expect(pinManifest(other)).rejects.toThrow();
+    const pkgs = folder();
+    mkdirSync(join(pkgs, 'node_modules', 'x'), { recursive: true });
+    symlinkSync(join(pkgs, 'node_modules', 'x'), join(pkgs, 'x'));
+    expect((await pinManifest(pkgs)).x).toEqual({ kind: 'link', target: join(pkgs, 'node_modules', 'x') });
+  });
+
+  it('pins what a link inside the folder leads to, whatever its name, and every executable file', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'data.txt'), 'print(1)\n');
+    symlinkSync('data.txt', join(dir, 'post.py'));
+    writeFileSync(join(dir, 'deploy'), '#!/bin/sh\necho 1\n', { mode: 0o755 });
+    const before = await pinManifest(dir);
+    expect(Object.keys(before).sort()).toEqual(['deploy', 'post.py']);
+    writeFileSync(join(dir, 'data.txt'), 'print(2)\n');
+    writeFileSync(join(dir, 'deploy'), '#!/bin/sh\necho 2\n', { mode: 0o755 });
+    expect(manifestChanges(before, await pinManifest(dir))).toEqual(['deploy', 'post.py']);
+  });
+
+  it('pins the files its command line names, outside the folder or in a folder of packages too', async () => {
+    const dir = folder();
+    const outside = folder();
+    writeFileSync(join(outside, 'run.py'), 'print(1)\n');
+    mkdirSync(join(dir, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', '.bin', 'tool.js'), '1\n');
+    const named = commandFiles({ run: `python3 ${join(outside, 'run.py')} && node node_modules/.bin/tool.js` }, dir);
+    const before = await pinManifest(dir, named);
+    expect(Object.keys(before).sort()).toEqual([`named:${join(outside, 'run.py')}`, 'named:node_modules/.bin/tool.js']);
+    writeFileSync(join(outside, 'run.py'), 'print(2)\n');
+    writeFileSync(join(dir, 'node_modules', '.bin', 'tool.js'), '2\n');
+    expect(manifestChanges(before, await pinManifest(dir, named))).toHaveLength(2);
+  });
+
+  it("pins git's configuration and hooks, but not what git init writes", async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    // A folder that is not a repository yet: Harness Relay makes one for the team's first turn.
+    const before = await pinManifest(dir);
+    gitIn(dir, 'init', '-q');
+    expect(manifestChanges(before, await pinManifest(dir))).toEqual([]);
+    const inited = await pinManifest(dir);
+    gitIn(dir, 'config', 'core.fsmonitor', './evil.sh');
+    writeFileSync(join(dir, '.git', 'hooks', 'pre-push'), '#!/bin/sh\n', { mode: 0o755 });
+    expect(manifestChanges(inited, await pinManifest(dir))).toEqual(['.git/config', '.git/hooks/pre-push']);
+    const set = await pinManifest(dir);
+    // A file the config includes, and the folder core.hooksPath names.
+    writeFileSync(join(dir, 'extra.cfg'), '[core]\n\tpager = less\n');
+    gitIn(dir, 'config', 'include.path', '../extra.cfg');
+    mkdirSync(join(dir, 'hooks'));
+    writeFileSync(join(dir, 'hooks', 'pre-commit'), '#!/bin/sh\n');
+    gitIn(dir, 'config', 'core.hooksPath', 'hooks');
+    const withInclude = await pinManifest(dir);
+    expect(manifestChanges(set, withInclude)).toEqual(
+      expect.arrayContaining([
+        '.git/config',
+        `.git/config:include:${join(dir, 'extra.cfg')}`,
+        `.git/hooksPath:${join(dir, 'hooks')}/pre-commit`,
+      ]),
+    );
+    writeFileSync(join(dir, 'extra.cfg'), '[core]\n\tpager = ./evil.sh\n');
+    expect(manifestChanges(withInclude, await pinManifest(dir))).toEqual([`.git/config:include:${join(dir, 'extra.cfg')}`]);
+  });
+
+  it('reads a git config as a pin takes it', () => {
+    expect(gitConfigPin('[core]\n\trepositoryformatversion = 0\n\tbare = false\n', '/r').lines).toBe('');
+    expect(gitConfigPin('[core]\n\tbare = false\n\tsshCommand = ssh -i x\n# note\n', '/r').lines).toBe('[core]\nsshCommand = ssh -i x');
+    expect(gitConfigPin('[includeIf "gitdir:~/w/"]\n\tpath = "../x.cfg"\n', '/r/.git').includes).toEqual(['/r/x.cfg']);
+  });
+
+  it("shows the diff of a command's files when its folder is below its repository's top, and says which files have none", async () => {
+    const repo = folder();
+    await ensureRepo(repo);
+    const dir = join(repo, 'pkg', 'post');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'post.py'), 'print("v1")\n');
+    writeFileSync(join(repo, '.gitignore'), 'secret.py\n');
+    writeFileSync(join(dir, 'secret.py'), 'x = 1\n');
+    const pin = await takePin(dir, 'sub');
+    writeFileSync(join(dir, 'post.py'), 'print("v2") # tok-123456\n');
+    writeFileSync(join(dir, 'secret.py'), 'x = 2\n');
+    const changed = await pinChanges(dir, pin);
+    expect(changed).toEqual(['post.py', 'secret.py']);
+    const { diff, missing } = await pinDiff(dir, pin, changed, ['tok-123456']);
+    expect(diff).toContain('+print("v2") # ••••');
+    expect(diff).not.toContain('tok-123456');
+    expect(missing).toEqual(['secret.py']);
+  });
+
+  it('keeps one snapshot ref a command: the new one after a re-pin, the old one when an approval is refused', async () => {
+    const dir = folder();
+    await ensureRepo(dir);
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    const refs = () =>
+      execFileSync('git', ['-C', dir, 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/commands/r1'], { encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean);
+    const first = await takePin(dir, 'r1');
+    writeFileSync(join(dir, 'post.py'), 'print(2)\n');
+    const second = await takePin(dir, 'r1');
+    await dropPin('r1', first, second);
+    expect(refs()).toEqual([`refs/harness-relay/commands/r1/${second.commit}`]);
+    // A refused approval drops the pin it took, and keeps the old one.
+    writeFileSync(join(dir, 'post.py'), 'print(3)\n');
+    const refused = await takePin(dir, 'r1');
+    await dropPin('r1', refused, second);
+    expect(refs()).toEqual([`refs/harness-relay/commands/r1/${second.commit}`]);
+    await dropPin('r1', second);
+    expect(refs()).toEqual([]);
+  });
+
+  it('runs only from a folder that is, through links, in the working directory and not in its packages', () => {
+    const dir = folder();
+    mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(join(dir, 'tools'));
+    symlinkSync(join(dir, 'node_modules', 'pkg'), join(dir, 'via'));
+    expect(pinnedCwd(dir, join(dir, 'tools'))).toBe(true);
+    expect(pinnedCwd(dir, join(dir, 'via'))).toBe(false);
+    expect(pinnedCwd(dir, join(dir, 'node_modules', 'pkg'))).toBe(false);
+    expect(pinnedCwd(dir, folder())).toBe(false);
+  });
+
+  it('drops a value its secrets file cut short at the read-back limit', () => {
+    const dir = folder();
+    const file = join(dir, 'secrets.env');
+    const value = 'v'.repeat(HANDOFF_LIMITS.secretValue);
+    const many = Array.from({ length: HANDOFF_LIMITS.commandSecrets + 2 }, (_, i) => `K${i}=${value}`).join('\n');
+    writeFileSync(file, `${many}\n`);
+    const back = readBack(file);
+    // Every value it kept is whole; the one at the cut is left out.
+    for (const v of Object.values(back)) expect(v).toBe(value);
+    expect(Object.keys(back).length).toBeGreaterThanOrEqual(HANDOFF_LIMITS.commandSecrets);
   });
 });

@@ -174,6 +174,10 @@ const zhTW = {
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
     commandRunning: '這個固定指令正在執行，請等它結束。',
     changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
+    linkOutside: (path: string) =>
+      `${path} 是連到資料夾外面（或 .git 裡）的連結，那裡的內容可能在沒被發現的情況下改變，所以無法鎖定固定指令的程式碼。`,
+    pinTooLarge: (mb: number) => `這個資料夾的程式碼超過 ${mb} MB，無法鎖定固定指令的程式碼。`,
+    cwdOutside: (cwd: string) => `${cwd} 不在工作目錄裡，或在已安裝套件的資料夾裡，那裡的程式碼不會被鎖定。`,
     folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
@@ -1553,6 +1557,10 @@ const en: ServerMessages = {
     badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
     commandRunning: 'This fixed command is running; wait until it ends.',
     changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
+    linkOutside: (path) =>
+      `${path} is a link that leads out of the folder (or into .git), where what it leads to could change unseen, so the fixed command's code cannot be pinned.`,
+    pinTooLarge: (mb) => `This folder's code is over ${mb} MB, too much to pin the fixed command's code.`,
+    cwdOutside: (cwd) => `${cwd} is not in the working directory, or is in a folder of installed packages, whose code is not pinned.`,
     folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>

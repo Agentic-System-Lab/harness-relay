@@ -142,10 +142,24 @@ export class HandoffStore {
     if (names.size > HANDOFF_LIMITS.secretsPerFolder) {
       throw new HttpError(400, t().handoffs.tooManySecrets(HANDOFF_LIMITS.secretsPerFolder));
     }
-    // One entry a secret (a credential store keeps each small: Windows' at 2,560 bytes).
+    // One entry a secret (a credential store keeps each small: Windows' at 2,560 bytes). All or none:
+    // those set before one failed are put back as they were.
+    const before = this.values(folder);
+    const done: string[] = [];
     try {
-      for (const [name, value] of entries) this.secrets.set(secretEntry(folder, name), value.trim());
+      for (const [name, value] of entries) {
+        this.secrets.set(secretEntry(folder, name), value.trim());
+        done.push(name);
+      }
     } catch {
+      for (const name of done) {
+        try {
+          if (before[name] !== undefined) this.secrets.set(secretEntry(folder, name), before[name]!);
+          else this.secrets.delete(secretEntry(folder, name));
+        } catch {
+          /* the store failed again: the next set replaces it */
+        }
+      }
       throw new HttpError(503, t().handoffs.storage);
     }
     const f = this.folder(folder, true);

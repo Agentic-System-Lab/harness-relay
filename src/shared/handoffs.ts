@@ -119,9 +119,12 @@ export function commandFolder(value: string | undefined): string | undefined {
  * What a command line the user approves on a card (a fixed command's, an interactive command's) may
  * not hold, as it would not show what runs: control characters but tab and line feed (C0, DEL, C1),
  * bidirectional overrides, embeddings, isolates and marks, zero-width characters, the word joiner and
- * invisible operators, the byte order mark and Unicode's line separators.
+ * invisible operators, the soft hyphen and other characters drawn as nothing (Hangul fillers, the
+ * combining grapheme joiner, Mongolian and Khmer ones), variation selectors, tag characters, the byte
+ * order mark and Unicode's line separators.
  */
-const HIDDEN_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
+const HIDDEN_CHARS =
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
 
 /** Whether a command line holds something `HIDDEN_CHARS` refuses. */
 export function hiddenCharacters(line: string): boolean {
@@ -150,7 +153,7 @@ export function checkProposal(p: {
   if (hosts.length > HANDOFF_LIMITS.hosts || secrets.length > HANDOFF_LIMITS.commandSecrets) return undefined;
   const cwd = commandFolder(p.cwd);
   // Not inside a folder of installed packages, whose code the pin passes over.
-  if (cwd === undefined || UNPINNED_TOP.includes(cwd.split('/')[0]!)) return undefined;
+  if (cwd === undefined || UNPINNED_TOP.includes(cwd.split('/')[0]!.toLowerCase())) return undefined;
   return {
     name,
     run,
@@ -362,39 +365,51 @@ export function secretValueProblem(value: string): 'empty' | 'short' | 'long' | 
 export const UNPINNED_TOP = ['node_modules', '.venv', 'venv', '__pycache__', '.next', '.turbo', 'target'];
 
 /**
- * `text` with the part of a value its start or end cut in two (output kept from its end, or cut at a
- * limit) replaced by dots too: a value's last characters at the very start, its first at the very end,
- * four at least.
+ * Output kept from its end (`keptOutput()`'s `…` line first, or `cut` when its start was dropped before):
+ * the end of a value its cut left at its very start replaced by dots too, four characters at least.
+ * Text whose start was not cut is left as it is.
  */
-export function maskEdges(text: string, values: readonly string[]): string {
-  let out = text;
+export function maskEdges(text: string, values: readonly string[], cut = false): string {
+  const at = text.startsWith('…\n') ? 2 : 0;
+  if (!at && !cut) return text;
+  let best = 0;
   for (const v of values) {
-    if (v.length < 5) continue;
     for (let k = v.length - 1; k >= 4; k--) {
-      const head = v.slice(v.length - k);
-      const at = out.startsWith('…\n') ? 2 : 0;
-      if (out.startsWith(head, at)) {
-        out = `${out.slice(0, at)}••••${out.slice(at + k)}`;
-        break;
-      }
-    }
-    for (let k = v.length - 1; k >= 4; k--) {
-      if (out.endsWith(v.slice(0, k))) {
-        out = `${out.slice(0, out.length - k)}••••`;
+      if (text.startsWith(v.slice(v.length - k), at)) {
+        best = Math.max(best, k);
         break;
       }
     }
   }
-  return out;
+  return best ? `${text.slice(0, at)}••••${text.slice(at + best)}` : text;
 }
 
 /**
- * `text` with every one of `values` replaced by dots: the longest first, so one that holds another is
- * masked whole. Values shorter than four characters are left (they would mask ordinary words).
+ * `text` with every one of `values` replaced by dots, wherever each is found (one holding another, or
+ * two that overlap, masked as one). Values shorter than four characters are left (they would mask
+ * ordinary words).
  */
 export function maskValues(text: string, values: readonly string[]): string {
-  const kept = [...new Set(values.filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
-  let out = text;
-  for (const v of kept) out = out.split(v).join('••••');
-  return out;
+  const kept = [...new Set(values.filter((v) => v.length >= 4))];
+  if (!kept.length) return text;
+  // Every place any value is found in the text as it is, then those that touch or overlap merged: two
+  // values sharing characters are masked as one, with nothing of either left showing.
+  const spans: [number, number][] = [];
+  for (const v of kept) {
+    for (let at = text.indexOf(v); at !== -1; at = text.indexOf(v, at + 1)) spans.push([at, at + v.length]);
+  }
+  if (!spans.length) return text;
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let out = '';
+  let from = 0;
+  let [s, e] = spans[0]!;
+  for (const [a, b] of spans.slice(1)) {
+    if (a <= e) e = Math.max(e, b);
+    else {
+      out += `${text.slice(from, s)}••••`;
+      from = e;
+      [s, e] = [a, b];
+    }
+  }
+  return `${out}${text.slice(from, s)}••••${text.slice(e)}`;
 }

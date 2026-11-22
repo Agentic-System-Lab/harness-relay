@@ -465,6 +465,33 @@ export async function diffText(root: string, base: string, head: string, folder?
   return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
 }
 
+/**
+ * Git's diff of some files alone between two commits (paths from the repository's top, taken as they
+ * are: no glob), with git's own prefixes; '' for none. Cut at `MAX_DIFF_BYTES` as `diffText()` is.
+ */
+export async function diffPaths(root: string, base: string, head: string, paths: readonly string[]): Promise<string> {
+  if (!paths.length) return '';
+  const r = await git(
+    root,
+    [
+      'diff',
+      '--no-color',
+      '--no-renames',
+      '--src-prefix',
+      'a/',
+      '--dst-prefix',
+      'b/',
+      base,
+      head,
+      '--',
+      ...paths.map((p) => `:(literal)${p}`),
+    ],
+    { maxCapture: MAX_DIFF_BYTES, keepStart: true },
+  );
+  if (!r.stdoutTruncated) return r.stdout;
+  return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
+}
+
 /** Create (or recreate) a worktree on `branch` starting at `base`. */
 export async function createWorktree(root: string, path: string, branch: string, base: string): Promise<void> {
   if (existsSync(path)) await removeWorktree(root, path);

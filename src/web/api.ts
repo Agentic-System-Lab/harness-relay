@@ -590,7 +590,7 @@ export const api = {
   /** The fixed commands of a chat's working directory. */
   conversationCommands: (id: string) => request<FixedCommand[]>('GET', `/api/conversations/${encodeURIComponent(id)}/commands`),
   commandDiff: (id: string, commandId: string) =>
-    request<{ changed: string[]; diff: string; digest: string }>(
+    request<{ changed: string[]; diff: string; missing: string[]; digest: string }>(
       'GET',
       `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/diff`,
     ),

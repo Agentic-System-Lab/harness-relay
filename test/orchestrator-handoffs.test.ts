@@ -587,6 +587,43 @@ describe('fixed command cards', () => {
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
   });
 
+  it('refuses Send while a run writes in its folder, the item left waiting for another click', async () => {
+    const { conv, msg, part } = await propose();
+    await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    fake.reply = () => 'Ready.\n\n<command-run name="post">Hi</command-run>';
+    await orchestrator.send(conv.id, 'post it');
+    await finish(conv.id);
+    const item = agentMessages(store.get(conv.id)!)
+      .at(-1)!
+      .parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox')!;
+    const locks = (orchestrator as unknown as { dirLocks: Map<string, string> }).dirLocks;
+    locks.set(orchestrator.handoffFolder(conv), 'another-conversation');
+    try {
+      await expect(orchestrator.answerOutbox(conv.id, item.id, 'send')).rejects.toMatchObject({ status: 409 });
+      expect(orchestrator.outbox!.get(item.id)!.status).toBe('pending');
+    } finally {
+      locks.delete(orchestrator.handoffFolder(conv));
+    }
+    expect((await orchestrator.answerOutbox(conv.id, item.id, 'send')).status).toBe('sent');
+    expect(ran).toHaveLength(1);
+  });
+
+  it('marks the other proposals of a name once one is saved', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print("v1")\n');
+    fake.reply = () => 'Two.\n\n<command name="post">python3 post.py</command>\n<command name="post">python3 post.py --v2</command>';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    const cards = msg.parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
+    expect(cards).toHaveLength(2);
+    await orchestrator.saveCommand(conv.id, msg.id, cards[0]!.id);
+    const after = agentMessages(store.get(conv.id)!)
+      .at(-1)!
+      .parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
+    expect(after[1]!.replaces).toBe(true);
+  });
+
   it('refuses an outbox run once the command it was queued for changed its hosts or secrets', async () => {
     const { conv, msg, part } = await propose();
     const saved = await orchestrator.saveCommand(conv.id, msg.id, part.id);
@@ -704,6 +741,46 @@ describe('a schedule that runs a fixed command first', () => {
     await finish(conv.id);
     expect(ran).toHaveLength(1);
     expect(store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!.event).toContain('1 new item');
+  });
+
+  it('waits, as busy, while a run writes in its folder, and never runs a held finding for another command', async () => {
+    const { conv } = await scheduled();
+    const locks = (orchestrator as unknown as { dirLocks: Map<string, string> }).dirLocks;
+    locks.set(orchestrator.handoffFolder(conv), conv.id);
+    try {
+      expect(await withLang('en', () => orchestrator.sendScheduled(conv.id))).toMatchObject({
+        result: 'busy',
+        reason: /writing in its folder/,
+      });
+      expect(ran).toHaveLength(0);
+    } finally {
+      locks.delete(orchestrator.handoffFolder(conv));
+    }
+    // A finding held for "check", then the schedule runs another command: that one runs.
+    const reserved = (orchestrator as unknown as { reserved: Map<string, Promise<void>> }).reserved;
+    play = () => {
+      reserved.set(conv.id, Promise.resolve());
+      return { code: 10, stdout: 'from check' };
+    };
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('busy');
+    reserved.delete(conv.id);
+    const folder = orchestrator.handoffFolder(conv);
+    const { takePin } = await import('../src/server/fixedCommands');
+    const other = settings.handoffs.commandId(folder, 'other');
+    settings.handoffs.saveCommand(
+      folder,
+      other,
+      { name: 'other', run: 'python3 check.py --other', hosts: [], secrets: [] },
+      await takePin(folder, other),
+    );
+    const c = store.get(conv.id)!;
+    c.schedule = { ...c.schedule!, command: other };
+    store.saveSchedule(c);
+    play = () => ({ code: 10, stdout: 'from other' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    expect(ran).toHaveLength(2);
+    expect(store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!.event).toContain('from other');
   });
 
   it('does not run while the conversation waits for the user', async () => {
