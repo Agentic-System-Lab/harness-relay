@@ -11,7 +11,7 @@ import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import type { ApprovalAnswer } from '../shared/types';
 import { AgentRunError, type ApprovalRequest } from './agents/types';
 import { currentLang, t, withLang } from './i18n';
-import { DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT, apiPort } from './ports';
+import { DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT, apiPort, devWebPort } from './ports';
 import { CONTROL_CHANNEL, CommandNotFoundError, type ControlChannel, runProcess, runSync, sleepSync } from './process';
 import {
   RELAY_ROOT,
@@ -325,7 +325,8 @@ export function servingPort(): number {
 
 /**
  * Harness Relay's own ports: this server's (`apiPort()`, and the one it got when that is 0: any free
- * one), 8787, and `npm run dev`'s API and Vite's (`ports.ts`).
+ * one), 8787, and `npm run dev`'s API and Vite's (`ports.ts`): 8789 and 5173, and the port its Vite
+ * took when 5173 was in use (`devWebPort()`).
  */
 export function relayPorts(env: NodeJS.ProcessEnv = process.env, listening: number | undefined = listeningPort): number[] {
   const port = apiPort(env);
@@ -336,6 +337,7 @@ export function relayPorts(env: NodeJS.ProcessEnv = process.env, listening: numb
       DEFAULT_PORT,
       DEV_API_PORT,
       DEV_WEB_PORT,
+      devWebPort(env),
     ]),
   ];
 }

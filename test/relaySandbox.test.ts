@@ -613,6 +613,12 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
     expect(relayPorts({ npm_lifecycle_event: 'dev' })).toEqual([8789, 8787, 5173]);
   });
 
+  it('takes the ports npm run dev took when 8789 and 5173 were in use', () => {
+    expect(relayPorts({ npm_lifecycle_event: 'dev', PORT: '8790', RELAY_DEV_WEB_PORT: '5174' })).toEqual([8790, 8787, 8789, 5173, 5174]);
+    // Not a port: the usual ones alone.
+    expect(relayPorts({ RELAY_DEV_WEB_PORT: 'abc' })).toEqual([8787, 8789, 5173]);
+  });
+
   it('takes the port the server got too, when PORT=0 let it pick a free one', () => {
     expect(relayPorts({ PORT: '0' }, 51234)).toEqual([51234, 8787, 8789, 5173]);
     expect(relayPorts({ PORT: '9000' }, 9000)).toEqual([9000, 8787, 8789, 5173]);

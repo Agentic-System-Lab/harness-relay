@@ -91,7 +91,7 @@ Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787
 
 - After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 - To use it from your phone, share it with your tailnet: [Use it from your phone (Tailscale)](docs/remote-access.md#1-share-the-server-with-your-tailnet).
-- Working on Harness Relay itself? Run `npm run dev` instead (at http://localhost:5173): see [Running](docs/developer-guide.md#running) in the developer guide.
+- Working on Harness Relay itself? Run `npm run dev` instead (at http://localhost:5173, or the next free port when that one is taken): see [Running](docs/developer-guide.md#running) in the developer guide.
 
 <a id="open-source-agents-and-model-backends"></a>
 <a id="open-source-agents-and-custom-models"></a>
@@ -125,7 +125,7 @@ Agents can change your files and run commands, so Harness Relay keeps them withi
 | --- | --- |
 | `npm start` | Serve the built UI and the API from one process on http://127.0.0.1:8787 |
 | `npm run login` | Print another one-time sign-in link, for when the one `npm start` printed is used or old |
-| `npm run dev` | For development: the API server (port 8789, auto-restart) and Vite (port 5173) |
+| `npm run dev` | For development: the API server (port 8789, auto-restart) and Vite (port 5173), each on the next free port when its own is taken |
 | `npm run format:check`, `npm run typecheck`, `npm test`, `npm run build` | What CI runs for every pull request (`npm run format` formats the code with Prettier) |
 
 The other commands (end-to-end tests, the desktop app, the website, the demo, [checking an agent CLI's new version](docs/developer-guide.md#checking-a-clis-new-version)) are in the [developer guide](docs/developer-guide.md#running), with what [CI](docs/developer-guide.md#continuous-integration) runs.

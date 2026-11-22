@@ -826,6 +826,18 @@ describe('masked keys and endpoint addresses', () => {
     expect(validEndpointUrl('http://10.0.0.5:8787/v1', 8787, own)).toBe('http://10.0.0.5:8787/v1');
     expect(validEndpointUrl('http://localhost:11434/v1', 8787, own)).toBe('http://localhost:11434/v1');
   });
+
+  it("refuses the port npm run dev's Vite took when 5173 was in use", () => {
+    const own = ['192.168.1.20'];
+    expect(validEndpointUrl('http://localhost:5174/v1', 8790, own)).toBe('http://localhost:5174/v1');
+    vi.stubEnv('RELAY_DEV_WEB_PORT', '5174');
+    try {
+      expect(() => withLang('en', () => validEndpointUrl('http://localhost:5174/v1', 8790, own))).toThrow(/Harness Relay's own address/);
+      expect(() => withLang('en', () => validEndpointUrl('http://127.0.0.1:8790', 8790, own))).toThrow(/Harness Relay's own address/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('model backends over HTTP, and the open agents in Settings', () => {
