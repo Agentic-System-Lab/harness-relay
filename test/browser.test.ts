@@ -428,6 +428,12 @@ describe.skipIf(!chromium)('the browser itself', () => {
         return void req.on('close', () => (hangClosed = true));
       }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
+      if (url.pathname === '/handover')
+        // A field over the top half of the page and a button over the bottom half: clicked by where they are.
+        return res.end(
+          `<title>Hand over</title><input id="f" style="position:fixed;left:0;top:0;width:100%;height:50%;font-size:40px">` +
+            `<button style="position:fixed;left:0;top:50%;width:100%;height:50%" onclick="document.title = 'Clicked ' + document.getElementById('f').value">Go</button>`,
+        );
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
       if (url.pathname === '/search')
@@ -825,6 +831,82 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await expect(clicking).rejects.toThrow('The turn ended');
       expect((await browser.snapshot(ctx(own))).title).toBe('Never loads');
       await browser.close('conv-turn-ends', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'hands the page to the user as a screencast: frames at the size of their panel, their clicks and typing, and only how it ended back to the agent',
+    async () => {
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      const own = ctx({ convId: 'conv-handover', permission: 'full', handoverCard: card as never });
+      const handing = browser.handOver(own, 'Sign in to the test site', `http://127.0.0.1:${port}/handover?code=secret`);
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+      // This computer shows no window here (no `windowAt`): the screencast only. The card's page has no query.
+      expect(cards[0]).toMatchObject({
+        reason: 'Sign in to the test site',
+        url: `http://127.0.0.1:${port}/handover`,
+        modes: ['screencast'],
+      });
+      const id = String(cards[0]!.id);
+      // Meanwhile another call of the chat's waits for the hand-over.
+      let read = false;
+      const waiting = browser.snapshot(ctx({ convId: 'conv-handover', permission: 'full' })).then((p) => ((read = true), p));
+      expect(browser.handovers.answer('conv-handover', id, { action: 'start', mode: 'window' })).toBe('mode');
+      expect(browser.handovers.answer('conv-handover', id, { action: 'start', mode: 'screencast' })).toBeUndefined();
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('active'), { timeout: slow(10_000) });
+      const frames: { width: number; height: number }[] = [];
+      const locations: string[] = [];
+      await vi.waitFor(() => {
+        const watching = browser.handovers.watch('conv-handover', id, (e) => {
+          if (e.type === 'frame') frames.push({ width: e.width, height: e.height });
+          if (e.type === 'location') locations.push(e.url);
+        });
+        expect(typeof watching).toBe('function');
+      });
+      // A phone's panel: the page is laid out to it.
+      expect(await browser.handovers.input('conv-handover', id, [{ type: 'viewport', width: 400, height: 700 }])).toBeUndefined();
+      await vi.waitFor(() => expect(frames.at(-1)).toEqual({ width: 400, height: 700 }), { timeout: slow(10_000) });
+      expect(locations[0]).toBe(`http://127.0.0.1:${port}/handover?code=secret`);
+      await browser.handovers.input('conv-handover', id, [
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.25, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.25, clicks: 1 },
+        { type: 'text', text: '注音' },
+        { type: 'key', key: 'x', code: 'KeyX', keyCode: 88, text: 'x' },
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.75, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.75, clicks: 1 },
+      ]);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(read).toBe(false);
+      expect(browser.handovers.answer('conv-handover', id, { action: 'done', note: 'Typed it' })).toBeUndefined();
+      expect(await handing).toEqual({
+        text: `The user took over the browser and handed it back, saying: "Typed it". The page is open as they left it. What they signed in to stays in this conversation's browser: read the page with browser_snapshot before going on.`,
+      });
+      expect(cards[0]).toMatchObject({ status: 'done', mode: 'screencast', note: 'Typed it' });
+      // The agents' calls go on with the page as the user left it, at their own size again.
+      expect((await waiting).title).toBe('Clicked 注音x');
+      expect(await browser.handovers.input('conv-handover', id, [{ type: 'text', text: 'late' }])).toBe('missing');
+
+      // Declined: the agent hears so, and its note.
+      const declining = browser.handOver(own, 'Again');
+      await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(10_000) });
+      expect(browser.handovers.answer('conv-handover', String(cards[1]!.id), { action: 'cancel', note: 'Not now' })).toBeUndefined();
+      expect(await declining).toEqual({ text: 'The user declined to take over the browser, saying: "Not now".', isError: true });
+      expect(cards[1]).toMatchObject({ status: 'declined', note: 'Not now' });
+
+      // The turn ends while it waits: the card says so, and the call fails as a turn's call does.
+      const turn = new AbortController();
+      const ending = browser.handOver({ ...own, signal: turn.signal }, 'Once more');
+      await vi.waitFor(() => expect(cards[2]?.status).toBe('pending'), { timeout: slow(10_000) });
+      turn.abort();
+      await expect(ending).rejects.toThrow('The turn ended');
+      expect(cards[2]).toMatchObject({ status: 'expired', ended: 'turn' });
+      await browser.close('conv-handover', true);
     },
     slow(60_000),
   );

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 625 tests in 51 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 628 tests in 52 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -63,6 +63,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Available apps in drafts](#available-apps-in-drafts) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App setup and confirmations](#app-setup-and-confirmations) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App access through a chat](#app-access-through-a-chat) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
+| [Taking over the browser](#taking-over-the-browser) | [`handover.spec.ts`](specs/handover.spec.ts) | 3 | [User guide → Harness Relay's tools](../docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar), [Architecture → Harness Relay's own tools](../docs/architecture.md#tool-library) |
 | [Accounts that sign in with OAuth](#accounts-that-sign-in-with-oauth) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [User guide → Harness Relay's tools](../docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar), [Proposals → OAuth](../docs/proposals/oauth.md) |
 | [Direct Microsoft Teams](#direct-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [User guide → Connect Microsoft Teams](../docs/user-guide.md#connect-microsoft-teams-and-send-a-message) |
 | [MCP servers that sign in](#mcp-servers-that-sign-in) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → MCP servers that sign in themselves](../docs/architecture.md#mcp-servers-that-sign-in-themselves) |
@@ -479,6 +480,18 @@ Against stand-ins for Render's and Neon's APIs on this computer (`support/cloud.
 
 The [Google Docs and Slack confirmation cases](#app-setup-and-confirmations) also disable the relevant tool after a confirmed write, try it again and verify that the document or delivered message count stays the same.
 
+## Taking over the browser
+
+[`handover.spec.ts`](specs/handover.spec.ts) has Claude Code's fake hand the chat's browser (the system's Chromium, else Playwright's) to the user with `browser_hand_over` (`e2e:mcp`), on a sign-in page of the test's own: a field over the page's top half, a button over its bottom half, which records what is posted. In full access, so no host is asked about.
+
+| Scenario | What it checks |
+| --- | --- |
+| Signed in through the screencast with a mouse and keys, handed back with a note | The card (the agent's reason, the page, that what the user signs in to stays with the chat's browser), the sidebar's **Needs you**; **Show it here** opens the panel at the page's address; a click on the frame focuses the field, keys typed in the typing box and an input method's text reach it, a click on the button posts it (the page's server gets `someone注音`) and the address follows; **Hide for now**, the note on the card, **Done: hand it back**; the reply says only that the user handed it back, with the note, never what was typed; the card says **Handed back (in the chat)**. |
+| Declined | **Decline** with a note: the agent hears it, the card says **Declined**, nothing is posted. |
+| On a phone, in Chinese | A 390-pixel touch screen in Traditional Chinese: the panel takes the screen, a tap on the frame is a click, text typed into the typing box reaches the page, **完成，交回給助理** hands it back. |
+
+The window on the computer Harness Relay runs on is not opened here (it would open on the developer's screen): its launch, its environment and the hand-over's ticket are in `test/handover.test.ts`, the screencast against a real Chromium in `test/browser.test.ts`.
+
 ## Accounts that sign in with OAuth
 
 [`oauth.spec.ts`](specs/oauth.spec.ts): **Settings → Apps and tools → Common apps**, under **Mail → Outlook** or **Calendar → Outlook**, against a stand-in for Microsoft's sign-in page and Graph on this computer, and stand-ins for Exchange Online's IMAP and SMTP that take XOAUTH2 with the stand-in's tokens for Exchange Online only, which the test's server is pointed at (`RELAY_MICROSOFT_LOGIN_URL`, `RELAY_MICROSOFT_GRAPH_URL`, `RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`).
@@ -835,6 +848,7 @@ The scenarios tried with each CLI (most of them as a test per CLI, the rest with
 | A library HTTP MCP server's own sign-in (and its page on another host confirmed first), its access token in the server's `Authorization` header, and left out of a turn once its sign-in no longer works | ✓ | — | — | — | — | — | — |
 | Team checks: a protected file found and whose turn it was in, the waiting messages held, Skip, Check again, Ask a member to fix it, an app that cannot be previewed sent back by itself, commands (full access, and in Harness Relay's own sandbox), and a parallel result held back until applied anyway | ✓ | — | — | — | — | — | — |
 | Harness Relay's own tools through the gateway: a mail that waits in the outbox until the user's Send; below full access, the CLI's own question answered and the gateway's card for an act | ✓ | ✓ (over loopback HTTP, below full access) | — | — | — | ✓ (over loopback HTTP, below full access) | — |
+| Taking over the browser (`browser_hand_over`): the screencast with a mouse, keys and touch, declined | ✓ | — | — | — | — | — | — |
 | Common app access enabled and revoked in Settings, verified by two turns in the same chat | ✓ | — | — | — | — | — | — |
 | A signed-in Drive account can search files and stops providing access when Google is turned off. In full access, Google Docs and Obsidian wait for confirmation before writing. Direct Teams and Slack posts wait for Send. | ✓ | — | — | — | — | — | — |
 | A long-term memory note saved in its reply, shown in a card, and given to a later chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -915,6 +929,7 @@ The local preview scenarios use loopback hostnames and a phone-sized browser vie
 
 ## What they do not cover
 
+- **A hand-over's window, and its screencast below full access.** No spec opens the window on the computer Harness Relay runs on (it would open on the developer's screen): its launch arguments and environment, where it is offered and the hand-over's ticket are in `test/handover.test.ts`, and it was tried by hand on a Mac (the window at the page, a `chrome://` page and a file sent back, a new tab closed, a sign-in's session cookie kept after the window closed). Nor do the specs answer a question about a new host from the panel, a real input method's composition (they insert its text), a paste, or a site that takes the browser for an automated one.
 - **Most of long-term memory.** End-to-end tests save, recall, set aside, restore, pin and tidy notes, and switch memory off. The following cases are covered offline (`test/memory.test.ts`, `test/orchestrator-memory.test.ts`): corrections and forgets, notes waiting for the user (review), the user's own notes kept from agents, a note of one folder, recall once per session, automatic tidying and the rules its changes follow.
 - **Most of secrets and fixed commands.** End-to-end tests give a secret, save, try and share a fixed command and send one run from the outbox, with Claude Code's fake only: the blocks are plain text the server reads, so every CLI's reply is read the same way. Offline: the blocks' shapes and what stays text, masking, the store (`test/handoffs.test.ts`), the run's sandbox, environment, secrets file and a renewed value, and the pin on a real repository (`test/fixed-commands.test.ts`), a changed pin, an automation's fixed command and its outcomes (`test/orchestrator-handoffs.test.ts`), and the routes (`test/handoffs-api.test.ts`). That no agent's own sandbox reads a run's secrets file is the adapters' (`agentProtectedReads()`), not tried end to end.
 - **Most of steps cards.** End-to-end tests give steps with Claude Code's fake only: the block is plain text the server reads, so every CLI's reply is read the same way. Offline: the block's shapes and what stays text (`test/steps.test.ts`), parallel and relay modes, a reply of steps alone, an ask marker beside them, ticks after a restart and the answer that cannot be posted (`test/orchestrator-steps.test.ts`), what the routes refuse (`test/steps-api.test.ts`), and the steps on a shared page, in the copy and the transcript (`test/steps-web.test.ts`) and in AgentsView (`test/agentsview.test.ts`).

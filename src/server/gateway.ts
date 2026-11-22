@@ -8,6 +8,7 @@ import {
   OPEN_PROVIDERS,
   type ApprovalAnswer,
   type GatewayTier,
+  type HandoverPart,
   type OutboxItem,
   type OutboxPreview,
   type Lang,
@@ -62,6 +63,12 @@ export interface GatewayContext {
   /** Puts a `send` call in the outbox, for the user to send; returns the item (an equal one waiting is returned instead). */
   toOutbox?: (item: Pick<OutboxItem, 'tool' | 'title' | 'preview'> & { args: Record<string, unknown> }) => OutboxItem;
   /**
+   * Shows the card of a hand-over of the chat's browser in the reply (`browser_hand_over`), and keeps it
+   * up to date as the hand-over goes; the conversation waits for the user meanwhile. Undefined where nobody
+   * may be asked (as `ask`, and in a run nobody may be watching).
+   */
+  handoverCard?: (part: HandoverPart) => { update(change: Partial<HandoverPart>): void };
+  /**
    * Counts tokens a tool spent itself for the turn (RLM's sub-model, `llm_query()`), which go into the
    * turn's reply with the CLI's own (`withSubModelTokens()` in `runCode.ts`).
    */
@@ -105,6 +112,11 @@ export interface GatewayTool {
    * is neither listed nor called. Undefined: always.
    */
   offered?(): boolean;
+  /**
+   * Only the agent may call it, never code through a scoped tool (`run_code`): it hands something to the
+   * user (`browser_hand_over`), whose time no limit of the code's should count.
+   */
+  direct?: boolean;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
@@ -742,7 +754,7 @@ export class ToolGateway {
    * as the turn's own (`call()`), its approval card saying that code asked; nothing once the turn is over.
    */
   private scopeOf(grant: Grant, gone?: () => boolean): GatewayScope {
-    const tools = this.toolsFor(grant).filter((t) => !t.scoped);
+    const tools = this.toolsFor(grant).filter((t) => !t.scoped && !t.direct);
     return {
       tools,
       gone: () => Boolean(gone?.()),

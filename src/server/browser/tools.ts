@@ -116,6 +116,37 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       run: async (a, ctx) => snapshot(browser.type(ctx, refOf(a), String(a.text ?? ''), a.submit === true)),
     },
     {
+      name: 'browser_hand_over',
+      group: 'browser',
+      // The gateway runs it at once: its own card is the user's question, in every permission, and nothing
+      // happens on the page but what the user does there.
+      tier: 'read',
+      direct: true,
+      description:
+        "Hand the open page of this conversation's browser to the user when it needs them: a sign-in, a two-factor code, a CAPTCHA, a consent screen. Never ask the user for a password or code to type yourself; hand the page over instead. The user is shown the page (in a window on the computer Harness Relay runs on, or in the chat) and acts on it themselves, while this call and the conversation's other browser calls wait: until they hand it back, decline, or the time runs out (15 minutes to start, 30 once started). It says only how it ended and the user's note, never what they typed. With url, that page is opened first. What the user signs in to stays in this conversation's browser: afterwards, read the page with browser_snapshot. Never use it for a page that shows a secret (a token or key generator): ask the user to open that one in their own browser. Not available in a run nobody is watching.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          reason: {
+            type: 'string',
+            description:
+              'What the user should do on the page, and why, in their language (shown on the card), e.g. "Sign in to your account, then hand it back".',
+          },
+          url: { type: 'string', description: 'A page to open first (http or https); without it, the page open now.' },
+        },
+        required: ['reason'],
+        additionalProperties: false,
+      },
+      describe: (a) => ({ title: t().gw.handOver(String(a.reason ?? '')) }),
+      unavailable,
+      run: async (a, ctx) => {
+        const reason = String(a.reason ?? '').trim();
+        if (!reason) return { text: 'reason is required: say what the user should do on the page', isError: true };
+        const url = typeof a.url === 'string' && a.url.trim() ? a.url.trim() : undefined;
+        return browser.handOver(ctx, reason, url);
+      },
+    },
+    {
       name: 'browser_screenshot',
       group: 'browser',
       tier: 'read',

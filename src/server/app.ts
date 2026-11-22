@@ -58,6 +58,9 @@ import {
   PUSH_GONE,
   PUSH_TAKEN,
   type ApprovalAnswer,
+  HANDOVER_LIMITS,
+  type HandoverAnswer,
+  type HandoverScreenEvent,
   type CheckList,
   type Conversation,
   type ServerLimits,
@@ -83,6 +86,7 @@ import { freshTracking } from '../shared/tracking';
 import { hasRules } from '../shared/checks';
 import { gatewayNode, sandboxAvailable, servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
+import { Handovers, checkInputs, type HandoverRefusal } from './browser/handover';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
 import type { McpOAuth } from './oauth/mcp';
@@ -240,6 +244,8 @@ export interface AppDeps {
   alerts?: AlertWatcher;
   /** Checks what an automation that starts when something happens waits for, on the user's Check now (`scheduler.ts`). */
   scheduler?: Pick<Scheduler, 'check'>;
+  /** The hand-overs of the chats' browsers going on (`browser/handover.ts`): the browser tools' own, else none. */
+  handovers?: Handovers;
   /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
   oauth?: OAuthService;
   /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
@@ -375,6 +381,7 @@ export function createApp({
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
   previews = new AppPreviews('test'),
+  handovers = new Handovers(),
   publisher = new AppPublisher(settings.publish, { owner: 'test' }),
   labsUnavailable = async () => {
     if (process.platform === 'win32') return t().labsWindows;
@@ -2650,6 +2657,85 @@ export function createApp({
     }
     return value;
   }
+
+  // A hand-over of the chat's browser (`browser_hand_over`): why the user's answer, watcher or input was not taken.
+  const handoverRefused = (why: HandoverRefusal | undefined) => {
+    if (why === 'missing') throw new HttpError(404, t().handoverNotFound);
+    if (why === 'state') throw new HttpError(409, t().handoverNotNow);
+    if (why === 'mode') throw new HttpError(400, t().invalidField('mode'));
+  };
+
+  // The user's answer to a hand-over of the chat's browser: start it (in a window on the computer Harness
+  // Relay runs on, or as a screencast in the chat), decline it, hand it back, or cancel it; with a note
+  // to the agent. Only the first answer of each step counts.
+  app.post('/api/conversations/:id/handovers/:handoverId', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ action?: unknown; mode?: unknown; note?: unknown }>(c);
+    const note = typeof b.note === 'string' && b.note.trim() ? b.note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined;
+    let answer: HandoverAnswer;
+    if (b.action === 'start') {
+      if (b.mode !== 'window' && b.mode !== 'screencast') throw new HttpError(400, t().invalidField('mode'));
+      answer = { action: 'start', mode: b.mode };
+    } else if (b.action === 'done' || b.action === 'cancel') answer = { action: b.action, ...(note ? { note } : {}) };
+    else throw new HttpError(400, t().invalidField('action'));
+    handoverRefused(handovers.answer(conv.id, c.req.param('handoverId'), answer));
+    return c.json({ ok: true });
+  });
+
+  // A hand-over's screencast, as SSE, for any signed-in browser (read with fetch: its key in the header):
+  // the page's frames (the latest one only, for a browser that falls behind), where it is, the windows
+  // it opened and the pages refused, and that it ended.
+  app.get('/api/conversations/:id/handovers/:handoverId/screen', (c) => {
+    const conv = getConv(c.req.param('id'));
+    let frame: HandoverScreenEvent | undefined;
+    const queue: HandoverScreenEvent[] = [];
+    let ended = false;
+    let wake: (() => void) | undefined;
+    const watching = handovers.watch(conv.id, c.req.param('handoverId'), (e) => {
+      if (e.type === 'frame') frame = e;
+      else queue.push(e);
+      if (e.type === 'ended') ended = true;
+      wake?.();
+    });
+    if (typeof watching === 'string') handoverRefused(watching);
+    const unwatch = watching as () => void;
+    c.header('cache-control', 'no-store');
+    return streamSSE(c, async (stream) => {
+      stream.onAbort(() => {
+        unwatch();
+        wake?.();
+      });
+      while (!stream.aborted) {
+        while (!stream.aborted && (queue.length || (frame && !ended))) {
+          const next = queue.length ? queue.shift()! : frame!;
+          if (next === frame) frame = undefined;
+          await stream.writeSSE({ data: JSON.stringify(next) });
+        }
+        if (ended) break;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = undefined;
+        if (!stream.aborted && !queue.length && !frame && !ended) await stream.writeSSE({ event: 'ping', data: '' });
+      }
+      unwatch();
+    });
+  });
+
+  // What the user does in a hand-over's screencast panel (clicks, scrolls, keys, text, an address,
+  // Back and Forward, its size), in order: to the page, while they have it.
+  app.post('/api/conversations/:id/handovers/:handoverId/input', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ events?: unknown }>(c);
+    const events = checkInputs(b.events);
+    if (typeof events === 'string') throw new HttpError(400, t().invalidField('events'));
+    handoverRefused(await handovers.input(conv.id, c.req.param('handoverId'), events));
+    return c.json({ ok: true });
+  });
 
   // Answer an agent's request to do something its permission does not cover.
   app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {

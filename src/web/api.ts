@@ -28,6 +28,8 @@ import type {
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
+  HandoverAnswer,
+  HandoverInput,
   ChatMessage,
   CheckCommand,
   CheckList,
@@ -459,6 +461,29 @@ export const api = {
   branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  /** The user's answer to a hand-over of the chat's browser: start it, decline it, hand it back or cancel it. */
+  answerHandover: (id: string, handoverId: string, answer: HandoverAnswer) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}`, answer),
+  /**
+   * A hand-over's screencast, as the server streams it (SSE). Read with fetch, not EventSource, so that
+   * the key goes in its header like every other request's.
+   */
+  handoverScreen: async (id: string, handoverId: string, signal: AbortSignal): Promise<Response> => {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}/screen`, {
+      headers: headers(false, readKey()),
+      signal,
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+    }
+    return res;
+  },
+  /** What the user did in a hand-over's screencast panel, in order. */
+  handoverInput: (id: string, handoverId: string, events: HandoverInput[]) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}/input`, {
+      events,
+    }),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
   saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
   addDiscoveredCalendar: (b: CalendarAccountUpdate) => request<ConnectorsView>('POST', '/api/connectors/calendar', b),

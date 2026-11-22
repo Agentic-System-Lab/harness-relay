@@ -2192,6 +2192,92 @@ export interface ApprovalReview {
   reason?: string;
 }
 
+/*
+ * Taking over the chat's browser (`browser_hand_over`, `src/server/browser/handover.ts`): an agent hands
+ * the page to the user when it needs them (a sign-in, a two-factor code, a CAPTCHA, a consent screen),
+ * and the call waits until the user hands it back.
+ */
+
+/**
+ * How the user is shown the page: in a window of the browser itself on the computer Harness Relay runs
+ * on, or in the chat, as Chromium's screencast, with the user's clicks and keys sent back.
+ */
+export type HandoverMode = 'window' | 'screencast';
+
+/**
+ * Where a hand-over stands: waiting for the user to start it (or decline), in the user's hands, or over:
+ * handed back (`done`), declined before it started, cancelled once started, or over by itself (`expired`:
+ * the time ran out, the turn ended, or the window could not open, `HandoverPart.ended` says which).
+ */
+export type HandoverStatus = 'pending' | 'active' | 'done' | 'declined' | 'cancelled' | 'expired';
+
+/** How a hand-over ended by itself: its time ran out, the turn ended, or the browser could not be shown. */
+export type HandoverEnded = 'timeout' | 'turn' | 'failed';
+
+/**
+ * Where a hand-over's window opens, when it can: beside the desktop app (`desktop`), or on the computer
+ * the server runs on (`server`: a Mac signed in at its screen, Linux with a display, Windows).
+ */
+export type HandoverWindowAt = 'desktop' | 'server';
+
+/**
+ * A hand-over's limits: the minutes the user has to start it, then to hand it back; the longest note to
+ * the agent, text typed at once, and events in one request of the screencast's.
+ */
+export const HANDOVER_LIMITS = { startMinutes: 15, useMinutes: 30, noteMax: 2000, textMax: 2000, eventsMax: 100 } as const;
+
+/**
+ * What the screencast panel is told (`GET /api/conversations/:id/handovers/:handoverId/screen`): a frame
+ * of the page (a JPEG, its size in the page's own pixels), where the page is now, a new window the page
+ * opened (closed: the browser keeps to one tab) or a page it was refused, and that the hand-over is over.
+ */
+export type HandoverScreenEvent =
+  | { type: 'frame'; data: string; width: number; height: number }
+  | { type: 'location'; url: string; back: boolean; forward: boolean }
+  | { type: 'notice'; kind: 'popup' | 'refused'; url?: string }
+  | { type: 'ended' };
+
+/** Modifier keys as Chromium's input takes them: Alt 1, Ctrl 2, Meta (⌘) 4, Shift 8. */
+export type HandoverModifiers = number;
+
+/**
+ * What the user does in the screencast panel (`POST /api/conversations/:id/handovers/:handoverId/input`),
+ * in order. `x` and `y` are fractions (0 to 1) of the frame shown, which the server turns into the
+ * page's own pixels. A key with `text` types it (a key of a hardware keyboard); `text` alone inserts it
+ * as typed (an on-screen keyboard, an input method's composed text, a paste). `command`: an editing
+ * command a shortcut stands for. `viewport`: the panel's size, which the page is laid out to (as a desktop
+ * browser's window of that size: no phone emulation, whose zoomed-out pages take input elsewhere than
+ * where the frame shows them).
+ */
+export type HandoverInput =
+  | {
+      type: 'mouse';
+      action: 'down' | 'up' | 'move';
+      x: number;
+      y: number;
+      button?: 'left' | 'middle' | 'right' | 'none';
+      clicks?: number;
+      modifiers?: HandoverModifiers;
+    }
+  | { type: 'wheel'; x: number; y: number; dx: number; dy: number; modifiers?: HandoverModifiers }
+  | {
+      type: 'key';
+      key: string;
+      code?: string;
+      keyCode?: number;
+      text?: string;
+      modifiers?: HandoverModifiers;
+      command?: 'selectAll' | 'undo' | 'redo';
+    }
+  | { type: 'text'; text: string }
+  | { type: 'navigate'; url: string }
+  | { type: 'history'; to: 'back' | 'forward' | 'reload' }
+  | { type: 'viewport'; width: number; height: number; scale?: number };
+
+/** The user's answer to a hand-over: start it (one of its modes), hand it back, or decline or cancel it. */
+export type HandoverAnswer =
+  { action: 'start'; mode: HandoverMode } | { action: 'done'; note?: string } | { action: 'cancel'; note?: string };
+
 /** One step of an agent's plan / to-do list. */
 export interface PlanEntry {
   text: string;
@@ -2294,6 +2380,29 @@ export type MessagePart =
    * `answer`: what they sent, after which the card no longer changes.
    */
   | { type: 'steps'; items: StepItem[]; answer?: StepsAnswer }
+  /**
+   * The agent handed the chat's browser to the user (`browser_hand_over`): why, in its words; the page;
+   * how it can be shown (`modes`, the window's only where this computer can show one, and where it opens);
+   * where it stands, and the user's note when they wrote one.
+   */
+  | {
+      type: 'handover';
+      id: string;
+      reason: string;
+      /** The page open when it was asked (its address without the query, as the card shows it). */
+      url?: string;
+      modes: HandoverMode[];
+      windowAt?: HandoverWindowAt;
+      status: HandoverStatus;
+      /** How the user took it over, once they did. */
+      mode?: HandoverMode;
+      /** When it ends by itself unless the user starts it or hands it back first (milliseconds since the epoch). */
+      deadline?: number;
+      /** The user's words to the agent, as they handed it back, declined or cancelled. */
+      note?: string;
+      /** Why it ended by itself (`expired`). */
+      ended?: HandoverEnded;
+    }
   /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.
@@ -2420,6 +2529,9 @@ export interface FolderHandoffs {
   secrets: { name: string; setAt: number }[];
   commands: FixedCommand[];
 }
+
+/** A hand-over's card in a reply (`browser_hand_over`). */
+export type HandoverPart = Extract<MessagePart, { type: 'handover' }>;
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };

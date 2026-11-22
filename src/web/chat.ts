@@ -6,6 +6,7 @@ import type {
   ConversationBranch,
   ConversationSummary,
   MessagePart,
+  HandoverPart,
   Mode,
   PlanEntry,
   ProgressStatus,
@@ -388,6 +389,8 @@ export type Segment =
   | { kind: 'approval'; part: ApprovalPart; key: number }
   | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
   | { kind: 'outbox'; part: OutboxPart; key: number }
+  /** The agent handed the chat's browser to the user (`browser_hand_over`). */
+  | { kind: 'handover'; part: HandoverPart; key: number }
   /** What the reply saved to long-term memory. */
   | { kind: 'memory'; part: MemoryPart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
@@ -454,6 +457,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'outbox':
         out.push({ kind: 'outbox', part: p, key: i });
+        break;
+      case 'handover':
+        out.push({ kind: 'handover', part: p, key: i });
         break;
       case 'memory':
         if (p.notes.length) out.push({ kind: 'memory', part: p, key: i });

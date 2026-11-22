@@ -386,6 +386,11 @@ function toPart(r: PartRow): MessagePart {
           status: 'dismissed' as const,
         }),
       };
+    case 'handover':
+      return {
+        type: 'handover',
+        ...parseJson(r.data, { id: '', reason: '', modes: ['screencast' as const], status: 'expired' as const }),
+      };
     case 'memory': {
       const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
       return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
@@ -434,7 +439,8 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'memory':
     case 'outbox':
     case 'secrets':
-    case 'command': {
+    case 'command':
+    case 'handover': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }
@@ -871,20 +877,27 @@ export class Store {
 
   constructor(private db: Database) {
     // A previous server process died mid-turn: its replies are aborted, an approval they still waited
-    // on can no longer be answered (expired, as when a run is stopped), and a tool call they still
-    // showed running ended without a result (as a stopped run closes it). Also in replies an older
-    // server already marked aborted.
+    // on can no longer be answered (expired, as when a run is stopped), nor a hand-over of the browser
+    // taken or handed back, and a tool call they still showed running ended without a result (as a
+    // stopped run closes it). Also in replies an older server already marked aborted.
     transaction(db, () => {
       const waiting = db
         .prepare(
-          `SELECT p.message_id, p.idx, p.data FROM message_parts p JOIN messages m ON m.id = p.message_id
-           WHERE m.status = 'streaming' AND p.type = 'approval'`,
+          `SELECT p.message_id, p.idx, p.type, p.data FROM message_parts p JOIN messages m ON m.id = p.message_id
+           WHERE m.status = 'streaming' AND p.type IN ('approval', 'handover')`,
         )
-        .all() as { message_id: string; idx: number; data: string | null }[];
+        .all() as { message_id: string; idx: number; type: string; data: string | null }[];
       const expire = db.prepare('UPDATE message_parts SET data = ? WHERE message_id = ? AND idx = ?');
       for (const r of waiting) {
         const data = parseJson<Record<string, unknown>>(r.data, {});
-        if (data.status === 'pending') expire.run(JSON.stringify({ ...data, status: 'expired' }), r.message_id, r.idx);
+        if (data.status === 'pending' || (r.type === 'handover' && data.status === 'active')) {
+          const { deadline: _deadline, ...rest } = data;
+          expire.run(
+            JSON.stringify({ ...rest, status: 'expired', ...(r.type === 'handover' ? { ended: 'turn' } : {}) }),
+            r.message_id,
+            r.idx,
+          );
+        }
       }
       db.prepare(
         `UPDATE message_parts SET tool_status = 'error' WHERE type = 'tool' AND tool_status = 'running'
