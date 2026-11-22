@@ -2490,6 +2490,26 @@ export class Orchestrator {
     return this.lockedFolder(conv, [conv.settings.cwd]);
   }
 
+  /**
+   * Whether a run may be writing in `folder` (a real path) now: the conversation's own, as for
+   * `folderInUse()`, or any conversation's (its own included) holding a lock on a folder around or
+   * inside it (a run writing there, a result being applied, a team check's commands, an action allowed
+   * in a read-only run). The Files panel changes a file only when none is, so that each turn's changes
+   * stay its own. Nothing is started or changed.
+   */
+  writingIn(convId: string, folder: string): boolean {
+    const conv = this.store.get(convId);
+    if (conv) {
+      const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
+      const run = this.runs.get(convId);
+      if (run?.lockRoots || this.reserved.has(convId)) return true;
+      if (writes && (run ? !run.ws.isolated : this.starting.has(convId))) return true;
+    }
+    const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+    for (const held of this.dirLocks.keys()) if (within(folder, held) || within(held, folder)) return true;
+    return false;
+  }
+
   /** Whether another conversation's lock covers one of these working directories of this one (around it or inside it). */
   private lockedFolder(conv: Conversation, folders: string[]): boolean {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);

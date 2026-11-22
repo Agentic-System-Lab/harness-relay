@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
@@ -30,7 +31,11 @@ import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   PREVIEW_NOT_READY,
   DEFAULT_ACCOUNT,
+  FILE_EDIT_LIMITS,
   FILE_LIMITS,
+  FOLDER_BUSY,
+  type FileSaveRequest,
+  type FileUploadRequest,
   keyOnlyAccount,
   GROUP_LIMITS,
   LANGS,
@@ -85,6 +90,7 @@ import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
 import { attachmentPath, decodeAttachments, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
+import { rootReadOnly, saveText, uploadFile } from './fileEdit';
 import { zipStream } from './zip';
 import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
@@ -2370,7 +2376,18 @@ export function createApp({
     } catch {
       throw new HttpError(404, t().fileRootNotFound);
     }
-    return c.json({ roots, root, canonicalRoot, ...listFolder(canonicalRoot, path) });
+    const readOnly = rootReadOnly(
+      roots.find((r) => r.id === root)!,
+      agentFolderOptions(settings),
+    );
+    return c.json({
+      roots,
+      root,
+      canonicalRoot,
+      ...listFolder(canonicalRoot, path),
+      writable: !readOnly,
+      ...(readOnly ? { readOnly } : {}),
+    });
   });
 
   app.get('/api/conversations/:id/files/preview', (c) => {
@@ -2426,6 +2443,47 @@ export function createApp({
     };
     if (c.req.method === 'HEAD') return new Response(null, { headers });
     return new Response(Readable.toWeb(Readable.from(zipStream(plan.entries))) as ReadableStream, { headers });
+  });
+
+  // --- Changing files in the working directory (the Files panel) ---------------
+
+  /**
+   * The working directory a files write names (`root`: a `FileRoot.id`, `cwd` when absent), checked to
+   * take writes (`rootReadOnly`: never an agent's worktree) and that no run may be writing in it now
+   * (409 `FOLDER_BUSY`). The caller writes at once, without awaiting anything, so that no run can start
+   * writing there between this check and its write.
+   */
+  function writableRoot(convId: string, rootId: unknown): string {
+    if (rootId !== undefined && typeof rootId !== 'string') throw new HttpError(400, t().invalidField('root'));
+    const conv = getConv(convId);
+    const root = fileRoots(conv).find((r) => r.id === (rootId || 'cwd'));
+    if (!root) throw new HttpError(404, t().fileRootNotFound);
+    const readOnly = rootReadOnly(root, agentFolderOptions(settings));
+    if (readOnly) throw new HttpError(403, readOnly);
+    let real: string;
+    try {
+      real = realpathSync(root.path);
+    } catch {
+      throw new HttpError(404, t().fileRootNotFound);
+    }
+    if (orchestrator.writingIn(conv.id, real)) throw new HttpError(409, t().filesEdit.busy, FOLDER_BUSY);
+    return root.path;
+  }
+
+  /** A write's body may be at most `bytes` (413 before it is read in full); the routes' checks are exact. */
+  const writeLimit = (bytes: number) => bodyLimit({ maxSize: bytes, onError: (c) => c.json({ error: t().filesEdit.tooLarge }, 413) });
+
+  // A text file saved over the version the panel loaded (`version`), or made new (`version: null`).
+  // JSON escapes can make text up to six times longer (`\u0001`), hence the body's limit.
+  app.put('/api/conversations/:id/files/text', writeLimit(FILE_EDIT_LIMITS.maxEditBytes * 6 + 64 * 1024), async (c) => {
+    const b = await body<Partial<FileSaveRequest>>(c);
+    return c.json(saveText(writableRoot(c.req.param('id'), b.root), b.path, b.text, b.version));
+  });
+
+  // A file uploaded into a folder, base64 as attachments are: one a request, a file there replaced only with `replace`.
+  app.post('/api/conversations/:id/files/upload', writeLimit(Math.ceil(FILE_EDIT_LIMITS.maxUploadBytes / 3) * 4 + 64 * 1024), async (c) => {
+    const b = await body<Partial<FileUploadRequest>>(c);
+    return c.json(uploadFile(writableRoot(c.req.param('id'), b.root), b.dir ?? '', b.name, b.data, b.replace === true));
   });
 
   /**

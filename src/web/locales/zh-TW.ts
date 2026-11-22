@@ -24,6 +24,7 @@ import type {
   VoiceLanguage,
   VoiceModelId,
 } from '../../shared/types';
+import type { FileNameProblem } from '../../shared/fileNames';
 import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
@@ -2521,6 +2522,47 @@ export const zhTW = {
       `「${name}」太大，無法整個打包成 ZIP 檔，通常是因為裡面有 node_modules 這類被 git 忽略的檔案。\n\n要只下載沒有被 git 忽略的檔案嗎？共 ${files.toLocaleString('zh-TW')} 個檔案、${size}。`,
     zipTooBig: (name: string, items: number, gb: number) =>
       `「${name}」太大，無法打包成 ZIP 檔：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
+  },
+  // Editing and uploading in the Files panel (src/web/fileEdit.ts, components/FileEditor.tsx).
+  filesEdit: {
+    edit: '編輯',
+    editHint: (name: string) => `編輯 ${name}`,
+    editorLabel: (name: string) => `${name} 的內容`,
+    saving: '儲存中…',
+    saveKey: '按 Ctrl+S 或 ⌘S 儲存',
+    unsaved: '尚未儲存',
+    discard: '要放棄還沒儲存的修改嗎？',
+    changed: (name: string) =>
+      `你開始編輯之後，「${name}」被改過了（可能是助理或另一台裝置）。重新載入會看到最新的版本，但這裡的修改會不見；需要的話請先複製。`,
+    copyMine: '複製我的修改',
+    keepEditing: '繼續編輯',
+    newFile: '新增檔案',
+    newFileName: '新檔案的名稱',
+    newFilePlaceholder: '例如 notes.md',
+    create: '建立',
+    exists: (name: string) => `「${name}」已經存在。`,
+    upload: '上傳檔案',
+    uploadHint: (folder: string) => `上傳檔案到「${folder}」`,
+    dropHere: (folder: string) => `放開即可上傳到「${folder}」`,
+    uploading: (done: number, total: number, name: string) => `正在上傳第 ${done} 個（共 ${total} 個）：${name}…`,
+    uploaded: (n: number) => `已上傳 ${n} 個檔案。`,
+    replaceConfirm: (names: string[]) => `這個資料夾裡已經有：\n${names.join('\n')}\n\n要取代它們嗎？選「取消」只上傳其他檔案。`,
+    replaceOne: (name: string) => `「${name}」已經存在，要取代它嗎？`,
+    refusedFolder: (name: string) => `「${name}」是資料夾：請上傳裡面的檔案。`,
+    refusedSize: (name: string, mb: number) => `「${name}」太大：最多 ${mb} MB。`,
+    refusedTooMany: (n: number) => `一次最多上傳 ${n} 個檔案，其餘的沒有上傳。`,
+    refusedDuplicate: (name: string) => `「${name}」選了兩次，只上傳一次。`,
+    refusedIsFolder: (name: string) => `這裡已經有叫「${name}」的資料夾。`,
+    badName: (name: string) => `「${name}」不能當檔名。`,
+    nameProblem: {
+      empty: '請輸入檔名。',
+      separator: '檔名不能有 / 或 \\。',
+      dots: '「.」和「..」不是檔名。',
+      control: '檔名不能有控制字元或不完整的字元。',
+      reserved: '檔名不能有 < > : " | ? *、不能以句點或空格結尾，也不能是 Windows 保留給裝置的名稱（CON、NUL、COM1…）。',
+      git: '.git 是 git 自己的資料夾。',
+      tooLong: '檔名最多 255 個位元組。',
+    } as Record<FileNameProblem, string>,
   },
   settings: {
     title: '設定與登入',

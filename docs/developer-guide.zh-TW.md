@@ -36,6 +36,7 @@ src/
   shared/review.ts         首席 agent 審閱：下一次審閱從哪裡讀起、在回覆中找出審閱引用的文字（伺服器與介面共用）、每則回覆的標記
   shared/notify.ts         通知：對話裡哪些變化要告訴使用者（回覆完、需要你），以及通知文字的細節（伺服器與介面共用）
   shared/diff.ts           伺服器截斷 diff 時加在最後的說明（伺服器寫入，diff 對話框辨認）
+  shared/fileNames.ts      「檔案」面板給新檔案或上傳檔案的名稱，伺服器和頁面用同樣的規則檢查
   shared/cliVersions.ts    Harness Relay 最近一次以哪個版本驗證過各個 agent CLI：唯一寫下的地方，供設定裡安裝開源 agent、使用指南與 scripts/cli-check.ts 使用
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
@@ -119,7 +120,8 @@ src/
     fsRemove.ts            不跟隨連結移除執行留下的東西；只有在清掃確定沒有殘留的啟動時，才恢復擁有者的權限
     tools.ts               工具庫：MCP 伺服器（機密值放在 keyring；HTTP 伺服器自己的登入跟著它保存）、skill（SKILL.md 的 front matter）、記憶；每位成員拿到哪些
     previewFiles.ts        應用程式預覽的檔案快照、公開資源篩選與 HTTP 回應
-    files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽、路徑檢查、資料夾 zip 的內容
+    files.ts               瀏覽對話的檔案：可瀏覽的資料夾、列表、預覽（以及它的版本）、路徑檢查、資料夾 zip 的內容
+    fileEdit.ts            從「檔案」面板修改檔案：可以寫入的根目錄、依版本儲存文字檔、新檔案、上傳；一次寫入且不跟隨連結
     zip.ts                 邊送邊寫的 ZIP 檔（deflate、data descriptor、UTF-8 檔名）
     folderPicker.ts        工作目錄輸入框用的系統選擇資料夾視窗（AppleScript、zenity／kdialog、Windows Forms）：用哪一個、它的指令、它的回答
     native.ts              各 CLI 自己載入的內容（它的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶檔），不送 prompt 查詢（Cursor 的，以及 Antigravity 的 MCP 伺服器與指示檔、Copilot 的 hook 與自訂 agent、Muse Code 的 MCP 伺服器與 hook，從它們會讀的檔案取得），以及 Harness Relay 執行時不載入哪些
@@ -151,6 +153,7 @@ src/
     oauth.ts               頁面中用 OAuth 登入的帳號：服務的 app 必須允許的重新導向網址、服務的頁面送回 /oauth/callback 的內容、行事曆的名稱、每個帳號為行事曆與郵件提供什麼、新的登入要求哪些用途、MCP 伺服器那一列怎麼說明它的登入、別處的登入頁面打開前要確認什麼，以及編輯後是不是另一台伺服器
     templates.ts           範本編輯器的純邏輯：範本有沒有被修改
     files.ts               檔案瀏覽的純邏輯：路徑導覽列、篩選、程式語言、行數、資料夾 zip 的選擇
+    fileEdit.ts            「檔案」面板編輯與上傳的純邏輯：何時提供編輯、文字框裡的內容、儲存快捷鍵、選取或拖放的檔案會送出哪些
     cwds.ts                工作目錄輸入框的純邏輯：使用中的工作目錄有哪些符合輸入的內容（`~` 代表家目錄，`/` 與 `\` 視為相同）、清單如何回應按鍵與箭頭按鈕，以及它的標籤（每個資料夾只加一次、Enter 與 Backspace、選擇資料夾視窗開在哪裡）
     download.ts            在使用者點下前，先確認回覆連結的檔案能不能下載（連結出現一會兒後的 HEAD 請求），以及檔案不存在時點擊會做什麼
     share.ts               分享頁不需要 DOM 的部分：拿掉哪些內容、圖片的大小預算、頁面與它的 CSP、Harness Relay 的頁尾；回覆連結的檔案（從下載連結讀回、每個連結會變成什麼、勾選哪些並在重新檢查時保留、哪些看起來像機密）
@@ -202,7 +205,7 @@ src/
                            NotificationsSettings（設定 → 通知與提示音）、
                            InboxButton（側邊欄收合按鈕旁的鈴鐺）、InboxDialog（它打開的通知收件匣）、
                            GhHelp（GitHub CLI 沒安裝或沒登入時該怎麼做，以及在那裡登入它）、LoginLinks（登入的連結與代碼，在那裡與設定頁共用）、
-                           FileBrowser（「檔案」對話框）、NativeSetupPanel（CLI 自己載入的內容）、
+                           FileBrowser（「檔案」對話框）、FileEditing（它的編輯器、新增檔案與上傳；filesEdit.css）、NativeSetupPanel（CLI 自己載入的內容）、
                            Deferred（第一次顯示時才載入的部分，lazyPart：載入不了或畫不出來時提示重新載入頁面）、
                            GrokTrust（Grok 對資料夾的信任）、SectionTitle、
                            CwdInput（工作目錄輸入框：每個資料夾一個標籤、輸入內容後的 Enter 鍵、資料夾按鈕，以及使用中工作目錄的清單）、
@@ -549,12 +552,14 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/conversations/:id/preview/:previewId/publish` | `PublishRequest`（`{ name?, env?, database?, public: true }`）→ `PublishedApp`，立即回應，`state: 'publishing'`。檢查同 plan，另外 `public` 必須是 `true`、設定要完整（400，代碼 `publish-setup`）、名稱要是新的且符合 `APP_NAME`、最多 100 個變數。那個應用程式發布中為 409，已有兩個在進行時為 429。 |
 | `GET /api/publish/apps/:appId` | → `PublishedApp`，含目前或上一次發布的步驟（`repo`、`push`、`database`、`init`、`service`、`build`，Render 的部署狀態在 `detail`）。 |
 | `DELETE /api/publish/apps/:appId` | `?database=1` 或 `?forget=1` → `{ ok: true }`。刪除它的 Render 服務（也包括 Render 建立了卻沒回應的服務）；有 `database=1` 時也刪除 Neon 專案；GitHub 儲存庫保留。`forget=1` 只把它從清單移除。發布中、取消發布中，或目前的 Render 金鑰碰不到它的工作區時為 409。 |
-| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），所選根目錄的完整實際路徑 `canonicalRoot`，以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項）。資料夾以外的路徑一律 404 |
-| `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`：檔案的文字（前 512 KB），或標示它是圖片、影片或二進位檔 |
+| `GET /api/conversations/:id/files?root=&path=` | → `FileListing`：可瀏覽的資料夾（`roots`：`cwd`，其他工作目錄為 `cwd:1`…，平行模式下再加上每位成員在每個工作目錄的 worktree：`<agent>`、`<agent>:1`…），所選根目錄的完整實際路徑 `canonicalRoot`，以及 `root` 裡 `path` 的項目（資料夾在前；`.git` 與指向外面的連結不列出；最多 2,000 項），以及「檔案」面板能不能修改這個根目錄裡的檔案（`writable`；不能時 `readOnly` 說明原因：成員的 worktree，或不允許可編輯模式的資料夾）。資料夾以外的路徑一律 404 |
+| `GET /api/conversations/:id/files/preview?root=&path=` | → `FilePreview`：檔案的文字（前 512 KB），或標示它是圖片、影片或二進位檔；不超過 512 KB、完整的 UTF-8 文字檔且不是經由連結到達時，附上面板可據以編輯的 `version`（位元組的 SHA-256） |
 | `GET /api/conversations/:id/files/raw?root=&path=` | → 資料夾裡的圖片或影片，提供方式和媒體端點相同（其他檔案一律 404） |
 | `GET /api/conversations/:id/files/download?root=&path=` | → 以下載提供資料夾裡的任何檔案，方式和訊息的下載端點相同（資料夾、資料夾外或 `.git` 裡的都是 404） |
 | `GET /api/conversations/:id/files/zip/check?root=&path=` | → `ZipCheck` `{ all, unignored? }`：把資料夾（`path` 為 '' 時是最上層）下載成 ZIP 檔會包含多少，`{ files, bytes }`；檔案與資料夾超過 10,000 個或 1 GB 時為 null。`all` 為 null 時，`unignored` 是只包沒被 git 忽略的檔案時的同樣資訊（也太大，或資料夾不在 repository 裡時為 null）。不會讀取或壓縮任何檔案；404 的情況和列表相同 |
 | `GET /api/conversations/:id/files/zip?root=&path=&unignored=` | → 資料夾的 ZIP 檔，邊送邊壓縮（`application/zip`、attachment、`nosniff`、sandbox），裡面的項目放在以資料夾命名的資料夾裡；內容和瀏覽時列出的相同（不含 `.git`、只跟隨指向裡面的連結、每個資料夾只放一次、保留空資料夾），保留權限，檔名對任何解壓縮工具都安全；成員 worktree 的最上層命名為 `<工作目錄>-<成員>`；`unignored=1`：只包沒被 git 忽略的檔案（包括裡面的其他 repository）。太大時為 413；404 的情況和列表相同；`HEAD` 只回傳標頭 |
+| `PUT /api/conversations/:id/files/text` | `FileSaveRequest` `{ root?, path, text, version }` → `FileWritten` `{ path, size, mtime, version }`：把文字存回載入時的那個版本（`version` 取自預覽），或建立新檔案（`version: null`），一次寫入（暫存檔改名蓋過去），保留權限位元、CRLF 換行與位元組順序記號。只寫入允許可編輯模式的工作目錄（成員的 worktree，或包含 Harness Relay、家目錄或某個 CLI 自己資料夾的資料夾回 403），絕不透過連結（403）、不寫進 `.git` 或伺服器保留不給的檔案（404）或 Harness Relay 保護的位置（403）；唯讀檔案 403，資料夾 409。檔案已不是載入時的版本（或已不存在）回 409 `file-changed`，新檔案已存在回 `file-exists`，有任務可能正在那個資料夾寫入時回 `folder-busy`；含 NUL、不成對的 surrogate，或（新檔案）名稱在某個系統不能用時回 400；超過 512 KB 或請求內容超過上限回 413 |
+| `POST /api/conversations/:id/files/upload` | `FileUploadRequest` `{ root?, dir, name, data, replace? }` → `FileWritten`：把一個檔案（base64）放進資料夾 `dir`，最多 20 MB（413）；只有 `replace: true` 時才取代同名檔案（否則 409 `file-exists`）。拒絕的情況和儲存相同，名稱在某個系統不能用時回 400 |
 | `GET /api/conversations/:id/messages/:messageId/diff` | → 該回合修改的 unified diff（純文字；改了多個 repository 時一個接一個，路徑以各自的資料夾名稱開頭） |
 | `GET /api/conversations/:id/agents/:agentId/diff` | → 某個 agent 整份 worktree 結果的 unified diff（純文字；它所有的 worktree，同樣標出資料夾）；`@team`（`TEAM_WORKTREE`，網址中是 `%40team`）是團隊自己的 worktree，另一個對話正在修改資料夾時團隊在那裡工作 |
 | `POST /api/conversations/:id/agents/:agentId/apply` | `{ force?, confirm? }`（或沒有內容）→ `{ files, held? }`：把 agent 的 worktree 結果（`@team` 則是團隊自己的）套用到工作目錄（它所有的 worktree，先檢查每一份 patch：任何一份有衝突時回 409，什麼都不套用；另一個對話正在寫入其中一個時也回 409）；有團隊檢查時先在加上這個結果的資料夾上檢查，沒通過就什麼都不套用（`held`：卡片的 id），除非 `force`（卡片的「仍要套用」，只套用那張卡片檢查過的結果；之後改過的會再檢查一次）；`confirm` 會執行因結果改到設定而擋下的指令 |
@@ -1007,11 +1012,14 @@ npx vitest test/store.test.ts
 - `test/webPreview.test.ts`：從回覆或資料夾取得預覽目標（`Dockerfile` 或 compose 檔是容器預覽）、frame 的來源與錯誤文字、終端機串流的 SSE 訊息、面板在各階段的狀態，以及回報用的終端機文字。也測試團隊做出的應用程式：回覆在程式碼之外連結的檔案、預覽從哪個入口開始（最淺的資料夾，再依 compose 或 Dockerfile、npm、首頁）、相對於所在工作目錄的修改檔案路徑、最新一則連結或做出應用程式的完成回覆（修改內容送到時會重新讀取）、已處理過的回覆（重試後退回的回覆與平行模式的回覆）、哪些會自動開始（容器只在完全存取下），以及拖曳寬度的上下限與儲存的值。其他語言的應用程式入口（`app.py`、`main.go`…）也會提出，輔助模組和依賴資料夾裡的檔案不會。
 - `test/previewFiles.test.ts`：從實際資料夾建立預覽快照，檢查連結、保護檔案、大小上限、取消、重建及靜態回應的路徑和 MIME 類型。容器快照保留任何語言的檔案與固定版本用的點開頭檔案，但不含建置產物與虛擬環境。
 - `test/files.test.ts`：用真的暫存資料夾測試瀏覽檔案：資料夾外、經由符號連結或進入 `.git`（不分大小寫）的路徑、列表順序與項目上限、文字 / 圖片 / 二進位檔的預覽與長檔案截斷、raw 只給媒體檔、下載可以給資料夾以外的任何檔案，以及對話提供的資料夾。經由連結進入的資料夾保留當初要求的路徑，截斷的列表保留顯示順序的前面幾項。也測試資料夾 ZIP 檔的內容（`zipPlan`）：以資料夾命名、不含 `.git` 也不含指向外面的連結、每個資料夾只放一次（繞回去的連結會略過）、保留空資料夾、超過上限就放棄（資料夾也算在內，所以一堆空資料夾也會停下）、保留權限、最上層用指定的名稱、略過 `.git.`，以及要求時只包沒被 git 忽略的檔案（追蹤中與未追蹤的檔案，不含已刪除或被忽略的，也不含指向外面或 `.git` 的追蹤中連結；包括裡面其他 repository 沒忽略的檔案；不在 repository 裡時就是全部）。每個工作目錄，以及每位 agent 在每一個的 worktree（資料夾在另一個 repository 裡面時，取最內層的）。用不同大小寫指定資料夾時，內容也一樣（macOS、Windows）。伺服器握有 SQLite 鎖的檔案不會被列出、讀取、下載或放進 ZIP，並以完整的檔案 ID 辨認（`fileKey`，來自 `bigint` 的 stat：一般數字會把 Windows 的 64 位元 ID 四捨五入）。
+- `test/fileEdit.test.ts`：用真的暫存資料夾測試從「檔案」面板修改檔案（`src/server/fileEdit.ts`）：依載入的版本儲存，檔案改過或已不存在時拒絕；新檔案，已有檔案時拒絕；保留權限位元（Windows 除外）、CRLF 與位元組順序記號，其他位置的 hard link 保持原樣；只限文字且不超過 512 KB；不寫進 `.git`、資料夾外、經由連到資料夾或檔案的連結（內外皆然）、資料夾本身、唯讀檔案、伺服器保留不給的檔案或 Harness Relay 的資料資料夾；上傳，只在要求時取代檔案，某個系統不能用的名稱，超過上限的檔案，不能寫入的資料夾；可以寫入的根目錄（不是成員的 worktree，也不是不允許可編輯模式的資料夾）；預覽只為完整的 UTF-8 文字附上版本；檔名規則（`src/shared/fileNames.ts`）。
+- `test/files-edit-api.test.ts`：透過 HTTP 測試「檔案」面板的寫入（`PUT …/files/text`、`POST …/files/upload`）：列表的 `writable`、儲存與它的 409 `file-changed`、新檔案與 `file-exists`、不合法的請求內容與名稱；`.git`、連結與資料夾外的路徑；成員的 worktree 與包含資料資料夾的資料夾維持唯讀；有任務在資料夾寫入時回 409 `folder-busy`（這個對話自己的或其他對話的，自己資料夾裡的對話則不受影響），停止後即可儲存；請求內容超過上限與超過 512 KB 的文字（413）；來自其他主機或來源、或不是 JSON 的請求；上傳、取代與超過上限的上傳。
 - `test/media.test.ts`：回覆中哪些網址是這台電腦上的檔案（相對與絕對路徑、`file:` 網址、`檔案:行號`；其他 scheme、其他網站、錨點與資料夾都不是）、媒體類型、只在允許的資料夾裡解析媒體與下載的檔案（不跟隨指向外面的連結，也不包含任何大小寫的 `.git`；不會查詢資料夾外的路徑；接受經由連結寫出的資料夾絕對路徑）、回覆的檔案從哪些資料夾、依什麼順序取得、檔案為什麼不能下載（不存在或是資料夾，或在資料夾外、在 `.git` 裡，經由連結也一樣）、下載檔名標頭（RFC 5987 加上 ASCII 備用名稱）、位元組範圍；複製到分支的平行模式回覆，從它分支出來的對話找到 worktree（分支的分支再往上找，或經由 `earlier` 的段落找，絕不用分支自己的）。在團隊自己的 worktree 裡做的回覆，不論哪位成員寫的，都在那裡找到。有多個工作目錄時，在每一個中尋找，也在它所在 repository 的每個 worktree 中尋找。
 - `test/zip.test.ts`：ZIP 寫入器，用解壓縮工具讀檔的方式讀回來（`test/zipReader.ts`）：UTF-8 檔名的資料夾與檔案、以 data descriptor 和 Unix 權限 deflate 壓縮、空檔案、空的壓縮檔、打不開的檔案會略過、讀取錯誤會讓壓縮檔以錯誤結束、下載中止時關閉開著的檔案（剛送出標頭時也是）；檔名處理成安全的形式（`\`、`..`、`:`、開頭的 `/`、控制字元）並保留權限；MS-DOS 時間。
 - `test/highlight-web.test.ts`：檔案瀏覽的語法上色（`src/web/highlight.ts`）：highlight.js 的 class、用別名指定語言、沒有的語言回傳 null、文字會跳脫，讓檔案無法在頁面裡放入標記，以及從樹狀結構只保留 span 與它的 class。
 - `test/chunks-web.test.ts`：載入不了的頁面部分（`src/web/chunks.ts`）：頁面為它重新載入一次，之後一分鐘內不再重載；分頁無法記下時、或時間不可靠時也不重載；頁面重新載入時那部分會等著，否則以保留原因的 `PartLoadError` 失敗。
 - `test/files-web.test.ts`：檔案瀏覽的路徑導覽列、篩選、程式語言與行數。也測試把資料夾下載成 ZIP 檔時的選擇：全部、只包沒被 git 忽略的檔案，或太大。
+- `test/fileEdit-web.test.ts`：頁面中「檔案」面板的編輯與上傳（`src/web/fileEdit.ts`）：何時提供編輯（可寫入的根目錄、帶版本的完整文字檔）、文字框的 LF 換行與怎樣算是有修改、Ctrl+S 或 ⌘S、選取或拖放的檔案會送出哪些（哪些會取代列表中的檔案，以及被拒絕的：資料夾、不合法的名稱、太大、同名兩次、同名的資料夾、超過一次的上限），以及新檔案的名稱。
 - `test/memory-web.test.ts`：介面中的長期記憶：依狀態與搜尋計數並顯示記憶、清單一開始顯示哪一類、資料夾名稱與選項、記憶的作者與取代它的記憶、整理的狀態文字（沒有多餘的分隔符號）、回覆的卡片作為一個 segment、pass 的回覆下方仍顯示、卡片對每則記憶提供的操作（回覆擱置的記憶沒有操作），以及分享頁面不包含它。
 - `test/memory-api.test.ts`：長期記憶的 HTTP API：檢視、設定、新增、修改與刪除記憶（404）、拒絕的請求（400）、沒有可整理的記憶時立即整理（409，用請求的語言），以及寫入時的 Host 檢查。
 - `test/diff-web.test.ts`：diff 對話框的區塊（`src/web/diff.ts`）：把 diff 拆成各個檔案，每個檔案的狀態（新增、修改、刪除、只改權限）、增刪行數（開頭像 `---` 或 `+++` 的 hunk 行也算進去，二進位檔沒有行數）與它自己的行；路徑含空格、被 git 加上引號（跳脫字元與 UTF-8 八進位）、前面有資料夾名稱、沒有 git 的前綴，或從 `---`/`+++` 行取得；emoji 保持完整；改變類型的檔案（git 寫成刪除再新增）算成一個檔案；diff 被截斷的說明（`src/shared/diff.ts`，伺服器寫的文字）另外保留，並標示被截斷的檔案，後面接著另一個資料夾的 diff 時也一樣；每一行的顏色。也在真的暫存 repository 上確認：伺服器的 diff（`diffText()`，也含資料夾名稱）裡找到的檔案，就是變更卡片列出的那些（`diffFiles()`），包括 git 會加引號的檔名、只改權限與改變類型的檔案，使用者自己設定了 git 前綴（`diff.noprefix`、`diff.srcPrefix`/`diff.dstPrefix`、`diff.mnemonicPrefix`）時也一樣。
@@ -1081,7 +1089,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/chat.spec.ts` — 新對話：首席 agent 的團隊卡片、確認後的回答；不詢問直接使用團隊；所有 CLI 組成的團隊依序回答（有登入的七個，以及五個開源 agent；CLI 比首席 agent 為新問題組的團隊上限五位還多的那一半，會分成人數差不多的幾個團隊，各在自己的對話裡回答，所以有登入的七個分成四人與三人的團隊）；追問時另組團隊。
 - `e2e/specs/activity.spec.ts` — 各 CLI 的思考、工具呼叫（它自己列出目錄的工具，含輸出）與待辦清單（Cline 與 Pi 沒有）；Markdown 回答（標題、清單、表格、程式碼）。
 - `e2e/specs/approvals.spec.ts` — 各 CLI 執行指令前的詢問（Pi 與 Copilot 在編輯模式下，針對 `npm publish`）：允許（會執行）、附註後拒絕（附註顯示在卡片上；轉交給 Claude Code、Grok、OpenCode、Goose 與 Pi，Codex、Cursor、Muse Code、Cline 與 OpenHands 則丟掉它，Antigravity 與 Copilot 結束它們的回合）；「一律允許」讓下一次同樣的請求自動通過；請求等待時停止；各 CLI 在完整權限下不詢問就執行指令並寫到任何地方；自動拒絕的對話。
-- `e2e/specs/files.spec.ts` — 編輯模式：寫入檔案、`git init`、變更卡片與這一回合的差異（檔案的區塊預設收合，可展開再收合）；各 CLI 在唯讀對話中都不寫入任何檔案（Claude Code 與 Pi 沒有檔案工具，Cursor 被它自己的規則拒絕，其他的詢問後被拒絕），以及自動拒絕時 Grok 顯示的原因；各 CLI 的回合各自記下變更，分成兩個團隊；平行模式的 worktree 與套用其中一份結果；檔案瀏覽器與檔案預覽；把資料夾下載成 ZIP（它的檔案，沒有 `.git`），以及太大的資料夾改為提供不含 git 忽略的檔案。
+- `e2e/specs/files.spec.ts` — 編輯模式：寫入檔案、`git init`、變更卡片與這一回合的差異（檔案的區塊預設收合，可展開再收合）；各 CLI 在唯讀對話中都不寫入任何檔案（Claude Code 與 Pi 沒有檔案工具，Cursor 被它自己的規則拒絕，其他的詢問後被拒絕），以及自動拒絕時 Grok 顯示的原因；各 CLI 的回合各自記下變更，分成兩個團隊；平行模式的 worktree 與套用其中一份結果；檔案瀏覽器與檔案預覽；把資料夾下載成 ZIP（它的檔案，沒有 `.git`），以及太大的資料夾改為提供不含 git 忽略的檔案；在「檔案」中編輯文字檔（保留 CRLF、儲存時檔案已有較新版本會被拒絕並可重新載入、有未儲存的修改時關閉前會先詢問）、新增檔案，以及用檔案選擇器和拖放上傳（同名檔案確認後才取代），還有任務在資料夾寫入時儲存會被拒絕。
 - `e2e/specs/folders.spec.ts` — 編輯模式下，自動拒絕時對話沒有的資料夾各 CLI 都碰不到（開源 agent 的寫入由 Harness Relay 自己的沙箱拒絕，Copilot 的由它自己的沙箱不詢問就拒絕），而使用者允許後 Claude Code、Codex、Cursor 與 Antigravity 能寫到那裡；多個工作目錄：在輸入框中加入與移除資料夾、各 CLI 在每個資料夾寫檔且變更卡片依資料夾列出、diff 每個檔案一個收合的區塊（可一次全部展開與收合）（Windows 上的 Grok 只從簡報得知它們，Cursor 寫入第二個前會詢問）、檔案瀏覽器的資料夾、平行模式中每個資料夾的 worktree 一起套用，以及設定中的預設工作目錄。在 Linux 上測試選擇資料夾視窗（假的 zenity）：在視窗中選的資料夾加進輸入框、對話在這些資料夾中開始、視窗開在最後一個資料夾裡並允許多選，以及在沒有 UTF-8 locale 的伺服器上用中文時，視窗標題是中文並帶 `LC_CTYPE=C.UTF-8`，按取消則不加入任何資料夾。
 - `e2e/specs/turns.spec.ts` — 向使用者提問並取得回答、略過問題、接力交棒、只有被 @ 的成員回答、之後的回合 PASS、各 CLI 的回答被停止、它的錯誤（結束程式與協定之內的錯誤）與重試、下一回合接續自己的 session、CLI 遺失 session 的成員帶著到目前為止的對話重新開始、回答途中送出的訊息交給下一位成員。
 - `e2e/specs/scroll.spec.ts` — 捲動對話：往上捲之後，訊息框上方中間的箭頭（與它置中對齊、蓋在訊息上、沒有東西蓋住它）用點擊（訊息框保有焦點與文字，或維持沒有焦點）、Enter（焦點接著移到訊息框）把對話帶回最後，減少動態效果時立刻到達，回到最後就消失；慢慢串流的長回覆進行中，往上捲的讀者停在原處並看到箭頭，按下去就回到最後並跟著回覆的其餘部分；箭頭在等待區的訊息上方，@ 成員清單打開時隱藏。
@@ -1117,7 +1125,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/sandbox-setup.spec.ts` — 沙箱缺東西時新對話跳出的對話框（伺服器的回答由測試提供）：強烈建議、按「先不要」就留給設定 → 沙箱且不再詢問、從對話框安裝與它的結果、這裡無法安裝的附上指令且沒有安裝按鈕（Escape 只在這個頁面關掉）、什麼都不缺時不詢問，以及在開發版 build（StrictMode）中也一樣。
 - `e2e/specs/voice.spec.ts` — 設定中的語音輸入安裝（GET /api/voice 的狀態加上一個安裝，因為真正的安裝要下載）：步驟排成一列、給螢幕閱讀器的步驟狀態（目前的步驟有 `aria-current`）、下載百分比與進度條的填色；安裝失敗時停下的步驟。也檢查兩個建立頁及聊天輸入列的麥克風安裝標示、使用附件或語音時建立頁的按鈕位置，以及離開頁面後才取得麥克風權限時是否釋放音軌。
 - `e2e/specs/i18n.spec.ts` — 繁體中文的介面（包括首頁的標語）與首席 agent 卡片，而 prompt 仍是英文；登入頁與伺服器自己的訊息為中文。在桌面 app 的視窗裡（user agent 有 Electron），頁面在打開時與每次選擇語言時把語言告訴 app（`PUT /api/desktop/lang`）；其他瀏覽器從不會。
-- `e2e/specs/mobile.spec.ts` — 手機畫面：從選單開啟側邊欄、以觸控送出、對話的釘選按鈕不用滑鼠移上去就顯示並可點一下釘選、標題列的動作收在 ⋯ 之下、頁面不會左右捲動；在 320px 和 280px 下，範本編輯視窗、團隊設定、每一種新排程（兩種語言，英文另外在 400px 和 430px、中文另外在 250px 和 360px 下：時間選單一律顯示選定的觸發方式，並檢查一週七天排成幾列；要等兩件事時每件各在自己的框裡、各有移除按鈕；儲存為列尾的方式後再打開抽屜，選中的方式在這一列的可見範圍內）與對話的排程都不會左右捲動，只有一欄時新增成員卡列出所有 CLI；首頁的標語變小且每行不換行，點 logo 會收起側邊欄；往上捲之後，回到最後的箭頭在訊息框上方中間，手指可點的範圍比它大，點一下把對話帶到最後，鍵盤維持原狀（訊息框的焦點不會被拿走，也不會被給予）。
+- `e2e/specs/mobile.spec.ts` — 手機畫面：從選單開啟側邊欄、以觸控送出、對話的釘選按鈕不用滑鼠移上去就顯示並可點一下釘選、以觸控在「檔案」中為 CSV 檔加一列、標題列的動作收在 ⋯ 之下、頁面不會左右捲動；在 320px 和 280px 下，範本編輯視窗、團隊設定、每一種新排程（兩種語言，英文另外在 400px 和 430px、中文另外在 250px 和 360px 下：時間選單一律顯示選定的觸發方式，並檢查一週七天排成幾列；要等兩件事時每件各在自己的框裡、各有移除按鈕；儲存為列尾的方式後再打開抽屜，選中的方式在這一列的可見範圍內）與對話的排程都不會左右捲動，只有一欄時新增成員卡列出所有 CLI；首頁的標語變小且每行不換行，點 logo 會收起側邊欄；往上捲之後，回到最後的箭頭在訊息框上方中間，手指可點的範圍比它大，點一下把對話帶到最後，鍵盤維持原狀（訊息框的焦點不會被拿走，也不會被給予）。
 
 假 CLI 檢查的是 Harness Relay 這一側的協定，不是 CLI 本身：CLI 若改變輸出，會由轉接器測試中錄下的訊息，以及執行真正 CLI 的[實機測試](#實機測試)發現。它們也不執行 CLI 自己的沙箱：Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 推算它們的沙箱會允許什麼，而開源 agent 的假 CLI 是真的在 Harness Relay 自己的沙箱中執行；真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`e2e/live/sandbox.spec.ts`）檢查。
 

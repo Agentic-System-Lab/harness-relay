@@ -11,11 +11,13 @@ import {
 import { filePreviewTarget, type PreviewSelection } from '../appPreview';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { canEdit } from '../fileEdit';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
 import { highlightHtml } from '../highlight';
 import { formatBytes, relativeTime } from '../util';
 import { CopyButton } from './CopyButton';
-import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon } from './icons';
+import { FileEditor, useFolderWrites } from './FileEditing';
+import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon, PencilIcon } from './icons';
 import { Markdown } from './Markdown';
 import { useDialog } from './useDialog';
 
@@ -37,7 +39,15 @@ export function FileBrowser({
 }) {
   const t = useT();
   const dialog = useRef<HTMLDivElement>(null);
-  useDialog(dialog, onClose);
+  /** A file being edited holds changes not saved: leaving it asks first. */
+  const unsaved = useRef(false);
+  /** Runs `go` unless there are unsaved changes the user would rather keep. */
+  const leaving = (go: () => void) => {
+    if (unsaved.current && !confirm(t.filesEdit.discard)) return;
+    unsaved.current = false;
+    go();
+  };
+  useDialog(dialog, () => leaving(onClose));
   const start = lastPlace.get(conv.id) ?? { root: 'cwd', dir: '' };
   const [root, setRoot] = useState(start.root);
   const [dir, setDir] = useState(start.dir);
@@ -49,6 +59,11 @@ export function FileBrowser({
   /** The folder being zipped (its name), and why the last one could not be. */
   const [zipping, setZipping] = useState<string | null>(null);
   const [zipError, setZipError] = useState('');
+  /** A file just made, which opens for editing (once: not when it is opened again later). */
+  const [editOnOpen, setEditOnOpen] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (editOnOpen !== undefined && file !== editOnOpen) setEditOnOpen(undefined);
+  }, [file, editOnOpen]);
 
   useEffect(() => {
     lastPlace.set(conv.id, { root, dir, file });
@@ -79,7 +94,7 @@ export function FileBrowser({
     if (e.kind === 'dir') {
       setDir(path);
       setQuery('');
-    } else setFile(path);
+    } else if (path !== file) leaving(() => setFile(path));
   };
 
   /** A folder's name in the list: with several working directories, each also by its folder's name. */
@@ -135,9 +150,24 @@ export function FileBrowser({
     });
   };
   const loading = !listing || listing.path !== dir || listing.root !== root;
+  const folderName = dir.split('/').pop() || rootName(root);
+  const writes = useFolderWrites({
+    convId: conv.id,
+    root,
+    dir,
+    folderName,
+    entries: !loading ? listing.entries : [],
+    writable: !loading && Boolean(listing.writable),
+    readOnly: loading ? undefined : listing.readOnly,
+    onWritten: () => setReload((n) => n + 1),
+    onCreated: (path) => {
+      setEditOnOpen(path);
+      setFile(path);
+    },
+  });
 
   return (
-    <div className="modal-scrim" onClick={onClose}>
+    <div className="modal-scrim" onClick={() => leaving(onClose)}>
       <div
         ref={dialog}
         className={`modal file-browser ${file ? 'has-file' : ''}`}
@@ -157,9 +187,12 @@ export function FileBrowser({
               aria-label={t.files.rootLabel}
               value={root}
               onChange={(e) => {
-                setRoot(e.target.value);
-                setDir('');
-                setFile(undefined);
+                const next = e.target.value;
+                leaving(() => {
+                  setRoot(next);
+                  setDir('');
+                  setFile(undefined);
+                });
               }}
             >
               {roots.map((r) => (
@@ -169,7 +202,7 @@ export function FileBrowser({
               ))}
             </select>
           )}
-          <button className="icon-button" onClick={onClose} aria-label={t.common.close}>
+          <button className="icon-button" onClick={() => leaving(onClose)} aria-label={t.common.close}>
             ×
           </button>
         </header>
@@ -179,7 +212,12 @@ export function FileBrowser({
         </p>
 
         <div className="file-browser-body">
-          <section className="file-pane" aria-label={t.files.title}>
+          <section
+            className={`file-pane ${writes.dropping ? 'dropping' : ''}`}
+            aria-label={t.files.title}
+            data-drop={t.filesEdit.dropHere(folderName)}
+            {...writes.dropProps}
+          >
             <nav className="file-crumbs" aria-label={t.files.rootLabel}>
               {crumbs(dir).map((c, i, all) => (
                 <span key={c.path}>
@@ -226,10 +264,14 @@ export function FileBrowser({
               </button>
             </div>
             {!loading && !listError && (
-              <button className="ghost small-button folder-preview-button" onClick={() => previewApp({ folder: dir, mode: 'static' })}>
-                {t.appPreview.openFolder}
-              </button>
+              <div className="file-actions">
+                <button className="ghost small-button folder-preview-button" onClick={() => previewApp({ folder: dir, mode: 'static' })}>
+                  {t.appPreview.openFolder}
+                </button>
+                {writes.buttons}
+              </div>
             )}
+            {!loading && !listError && writes.panel}
             {zipping ? (
               <p className="muted small" role="status">
                 {t.files.zipPreparing(zipping)}
@@ -291,8 +333,14 @@ export function FileBrowser({
                 root={root}
                 rootPath={rootPath}
                 path={file}
+                writable={!loading && Boolean(listing.writable)}
+                startEditing={editOnOpen === file}
                 onPreview={previewApp}
-                onBack={() => setFile(undefined)}
+                onBack={() => leaving(() => setFile(undefined))}
+                onDirty={(dirty) => {
+                  unsaved.current = dirty;
+                }}
+                onSaved={() => setReload((n) => n + 1)}
               />
             ) : (
               <p className="muted preview-empty">{t.files.pick}</p>
@@ -327,27 +375,52 @@ function Preview({
   root,
   rootPath,
   path,
+  writable,
+  startEditing,
   onBack,
   onPreview,
+  onDirty,
+  onSaved,
 }: {
   conv: Conversation;
   root: string;
   rootPath: string;
   path: string;
+  /** The Files panel may write in this root (`FileListing.writable`). */
+  writable: boolean;
+  /** Open in the editor once loaded (a file just made). */
+  startEditing: boolean;
   onBack: () => void;
   onPreview: (target: NonNullable<ReturnType<typeof filePreviewTarget>>) => void;
+  onDirty: (dirty: boolean) => void;
+  /** The file was saved: the list shows its new size. */
+  onSaved: () => void;
 }) {
   const t = useT();
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [error, setError] = useState('');
   const [source, setSource] = useState(false);
+  const [editing, setEditing] = useState(false);
   const name = path.split('/').pop() ?? path;
 
   const load = useCallback(() => {
     setError('');
-    api.previewFile(conv.id, root, path).then(setPreview, (e: Error) => setError(e.message));
+    api.previewFile(conv.id, root, path).then(setPreview, (e: Error) => {
+      setError(e.message);
+      setEditing(false); // gone, say: nothing to edit
+    });
   }, [conv.id, root, path]);
   useEffect(load, [load]);
+  const editable = canEdit({ writable }, preview);
+  /** Editing, while the file can still be edited (not once a reload found it too large or gone). */
+  const inEditor = editing && editable;
+  // A file just made opens in the editor, once.
+  const started = useRef(false);
+  useEffect(() => {
+    if (!startEditing || started.current || !editable) return;
+    started.current = true;
+    setEditing(true);
+  }, [startEditing, editable]);
 
   const raw = api.rawFileUrl(conv.id, root, path);
   const app = filePreviewTarget(path);
@@ -370,12 +443,18 @@ function Preview({
           )}
         </div>
         <div className="preview-actions">
+          {editable && !inEditor && (
+            <button className="ghost small-button file-edit-button" onClick={() => setEditing(true)} title={t.filesEdit.editHint(name)}>
+              <PencilIcon size={14} />
+              {t.filesEdit.edit}
+            </button>
+          )}
           {app && preview && (
             <button className="ghost small-button" onClick={() => onPreview(app)}>
               {t.appPreview.open}
             </button>
           )}
-          {preview?.kind === 'text' && isMarkdown(name) && (
+          {!inEditor && preview?.kind === 'text' && isMarkdown(name) && (
             <div className="segmented" role="radiogroup">
               <button role="radio" aria-checked={!source} className={!source ? 'on' : ''} onClick={() => setSource(false)}>
                 {t.files.rendered}
@@ -402,13 +481,32 @@ function Preview({
             </a>
           )}
           <CopyButton className="ghost small-button" label={t.files.copyPath} icon={<CopyIcon size={14} />} text={() => fullPath} />
-          <button className="icon-button" onClick={load} aria-label={t.files.refresh} title={t.files.refresh}>
-            ↻
-          </button>
+          {/* Not while editing: what was typed would go. */}
+          {!inEditor && (
+            <button className="icon-button" onClick={load} aria-label={t.files.refresh} title={t.files.refresh}>
+              ↻
+            </button>
+          )}
         </div>
       </div>
       {error ? (
         <p className="error-line">{error}</p>
+      ) : inEditor && preview ? (
+        <FileEditor
+          key={preview.version}
+          convId={conv.id}
+          root={root}
+          path={path}
+          preview={preview}
+          onDirty={onDirty}
+          onReload={load}
+          onDone={(saved) => {
+            setEditing(false);
+            if (!saved) return;
+            load();
+            onSaved();
+          }}
+        />
       ) : !preview ? (
         <p className="muted small">{t.common.loading}</p>
       ) : preview.kind === 'image' ? (

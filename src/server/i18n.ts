@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { FileNameProblem } from '../shared/fileNames';
 import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
 import { LANGS, type Lang } from '../shared/types';
 
@@ -1178,6 +1179,39 @@ const zhTW = {
   zipTooBig: (items: number, gb: number) =>
     `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   fileRootNotFound: '這個資料夾已經不存在',
+  // Changing files from the Files panel (fileEdit.ts)
+  filesEdit: {
+    worktreeReadOnly: '助理的 worktree 在這裡只能檢視：要改動工作目錄，請套用它的結果。',
+    relayFolder: '「檔案」不會改動這個資料夾：裡面有 Harness Relay 本身、它的資料或語音輸入的資料夾。',
+    agentFolder: (folder: string) =>
+      `「檔案」不會改動這個資料夾：它包含 ${folder}，那裡決定助理怎麼執行（家目錄或某個程式助理自己的資料夾）。`,
+    link: '「檔案」不會透過符號連結寫入：請到它實際所在的位置開啟。',
+    protectedPath: '「檔案」不會寫入這裡：Harness Relay 不讓助理碰這個位置（它的資料、瀏覽器的設定檔或存放權杖的檔案）。',
+    isFolder: (name: string) => `這裡已經有一個叫「${name}」的資料夾。`,
+    readOnlyFile: (name: string) => `「${name}」是唯讀檔案。`,
+    badName: (name: string, problem: FileNameProblem) =>
+      `「${name}」不能當檔名：${
+        {
+          empty: '請輸入檔名。',
+          separator: '檔名不能有 / 或 \\。',
+          dots: '「.」和「..」不是檔名。',
+          control: '檔名不能有控制字元或不完整的字元。',
+          reserved: '檔名不能有 < > : " | ? *、不能以句點或空格結尾，也不能是 Windows 保留給裝置的名稱（CON、NUL、COM1…）。',
+          git: '.git 是 git 自己的資料夾。',
+          tooLong: '檔名最多 255 個位元組。',
+        }[problem]
+      }`,
+    notText: '這裡只能儲存文字：不能有 NUL 字元或不完整的字元。',
+    textTooLarge: (kb: number) => `內容太大，無法在這裡儲存：最多 ${kb} KB 的文字。`,
+    uploadTooLarge: (name: string, mb: number) => `「${name}」太大，無法上傳：最多 ${mb} MB。`,
+    tooLarge: '要傳送的內容太大。',
+    exists: (name: string) => `「${name}」已經存在。`,
+    changed: (name: string) => `你開啟「${name}」之後，它已經被改過了。請重新載入以查看最新版本。`,
+    gone: (name: string) => `「${name}」已經不在了。`,
+    moved: '儲存期間資料夾有變動，請再試一次。',
+    cannotWrite: (name: string, why: string) => `無法寫入「${name}」（${why}）。如果有其他程式開著它，請先關閉再試一次。`,
+    busy: '有任務正在改動這個資料夾裡的檔案（這個對話或其他對話的團隊）。請等它結束後再儲存。',
+  },
 
   // Workspace
   gitMissing: '這個操作需要 Git。請安裝 Git 後再試一次。',
@@ -2481,6 +2515,40 @@ const en: ServerMessages = {
   zipTooBig: (items, gb) =>
     `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
+  filesEdit: {
+    worktreeReadOnly: "An agent's worktree is read-only here: apply its result to change the working directory.",
+    relayFolder: 'Files does not change this folder: it holds Harness Relay itself, its data or voice input’s folder.',
+    agentFolder: (folder) =>
+      `Files does not change this folder: it holds ${folder}, which decides how the agents run (the home folder or a coding agent's own folder).`,
+    link: 'Files does not write through a symbolic link: open the file where it really is.',
+    protectedPath:
+      "Files does not write here: Harness Relay keeps this place from the agents (its data, a browser's profile or a file of tokens).",
+    isFolder: (name) => `There is a folder named "${name}" here.`,
+    readOnlyFile: (name) => `"${name}" is read-only.`,
+    badName: (name, problem) =>
+      `"${name}" cannot be a file's name: ${
+        {
+          empty: 'give it a name.',
+          separator: 'a name cannot have / or \\.',
+          dots: '. and .. are not names.',
+          control: 'a name cannot have control characters or broken characters.',
+          reserved:
+            'a name cannot have < > : " | ? *, end with a dot or a space, or be a name Windows keeps for devices (CON, NUL, COM1…).',
+          git: ".git is git's own folder.",
+          tooLong: 'a name is at most 255 bytes.',
+        }[problem]
+      }`,
+    notText: 'Only text can be saved here: no NUL character or broken character.',
+    textTooLarge: (kb) => `Too large to save here: at most ${kb} KB of text.`,
+    uploadTooLarge: (name, mb) => `"${name}" is too large to upload: at most ${mb} MB.`,
+    tooLarge: 'What was sent is too large.',
+    exists: (name) => `"${name}" exists already.`,
+    changed: (name) => `"${name}" changed since you opened it. Reload it to see the new version.`,
+    gone: (name) => `"${name}" is no longer there.`,
+    moved: 'The folder changed while saving. Try again.',
+    cannotWrite: (name, why) => `Could not write "${name}" (${why}). If another program has it open, close it and try again.`,
+    busy: "A run is changing files in this folder (this chat's team, or another chat's). Save once it is done.",
+  },
 
   gitMissing: 'This action needs Git. Install Git and try again.',
   gitInstallUnavailable: 'Automatic Git installation is unavailable on this computer.',
