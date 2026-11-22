@@ -225,8 +225,10 @@ export function CommandCard({
       {actions.decide && <p className="muted small">{c.hint}</p>}
       {run && tone && (
         <div className={`handoff-run-result handoff-${tone.tone}`} role="status">
-          <strong>{c.result[run.status]}</strong>
-          {tone.code && run.exitCode !== undefined && <span className="muted small"> · {c.exitCode(run.exitCode)}</span>}
+          <div>
+            <strong>{c.result[run.status]}</strong>
+            {tone.code && run.exitCode !== undefined && <span className="muted small"> · {c.exitCode(run.exitCode)}</span>}
+          </div>
           {run.reason && <p className="small">{run.reason}</p>}
           {run.status === 'changed' && (
             <>
