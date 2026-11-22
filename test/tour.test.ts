@@ -50,6 +50,7 @@ describe('guided tour', () => {
         'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
+        'Long-term memory',
         'Adjust any time',
       ]);
       expect(titles(21)).toEqual([
@@ -64,6 +65,7 @@ describe('guided tour', () => {
         'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
+        'Long-term memory',
         'Adjust any time',
       ]);
       expect(titles(22)).toEqual([
@@ -78,6 +80,7 @@ describe('guided tour', () => {
         'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
+        'Long-term memory',
         'Adjust any time',
       ]);
       for (let version = 23; version <= 32; version++) {
@@ -91,6 +94,7 @@ describe('guided tour', () => {
           'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
+          'Long-term memory',
           'Adjust any time',
         ]);
       }
@@ -104,6 +108,7 @@ describe('guided tour', () => {
           'File permission and changes',
           'Browse the working directory',
           'Automations',
+          'Long-term memory',
           'Adjust any time',
         ]);
       }
@@ -115,14 +120,29 @@ describe('guided tour', () => {
           'When the team needs you',
           'File permission and changes',
           'Browse the working directory',
+          'Long-term memory',
           'Adjust any time',
         ]);
-      expect(titles(39)).toEqual(['When the team needs you', 'File permission and changes', 'Browse the working directory']);
+      expect(titles(39)).toEqual([
+        'When the team needs you',
+        'File permission and changes',
+        'Browse the working directory',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
       // Publishing a preview came to the files step.
-      expect(titles(40)).toEqual(['When the team needs you', 'File permission and changes', 'Browse the working directory']);
+      expect(titles(40)).toEqual([
+        'When the team needs you',
+        'File permission and changes',
+        'Browse the working directory',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
       // "Approve for me" came to the steps on what needs the user and on the file permission.
-      expect(titles(41)).toEqual(['When the team needs you', 'File permission and changes']);
-      expect(tourIndices(42)).toEqual([]);
+      expect(titles(41)).toEqual(['When the team needs you', 'File permission and changes', 'Long-term memory', 'Adjust any time']);
+      // Long-term memory came, in Labs, which the Settings step names.
+      expect(titles(42)).toEqual(['Long-term memory', 'Adjust any time']);
+      expect(tourIndices(43)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -174,6 +194,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: '45c9108490fb' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 43, fingerprint: '96a3ae553afa' });
   });
 });

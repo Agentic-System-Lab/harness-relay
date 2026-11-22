@@ -368,6 +368,16 @@ const zhTW = {
   museAccountLogin:
     'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以額外的 Muse Code 帳號只能用 Meta API key。預設帳號才用 Meta 帳號登入。',
 
+  // Long-term memory
+  memoryNoteNotFound: '找不到這則記憶',
+  memoryNoteEmpty: '記憶的內容不能是空的',
+  memoryFull: (max: number) => `長期記憶最多 ${max} 則，請先刪掉一些再新增。`,
+  memoryTidying: '首席 agent 正在整理記憶，請等它完成。',
+  memoryTidyUnparsable: '首席 agent 的回覆裡沒有 JSON 格式的變更。',
+  memoryReplyRemoved: '記下它的回覆已重試或因編輯而移除',
+  memoryOff: '長期記憶已關閉。',
+  memoryNothingToTidy: '還沒有記憶可以整理。',
+
   // Conversations and runs
   defaultTitle: '新對話',
   conversationNotFound: '找不到對話',
@@ -1624,6 +1634,16 @@ const en: ServerMessages = {
   museConfigFailed: (err) => `Could not prepare Muse Code's settings for this turn: ${err}`,
   museAccountLogin:
     "On macOS Muse Code keeps its Meta sign-in in the login keychain under names its folders do not change, so another account's sign-in could replace the default one's: an extra Muse Code account runs on a Meta API key only. Only the default account signs in with a Meta account.",
+
+  // Long-term memory
+  memoryNoteNotFound: 'Memory note not found',
+  memoryNoteEmpty: 'A memory note cannot be empty',
+  memoryFull: (max: number) => `Long-term memory holds at most ${max} notes: delete some before adding more.`,
+  memoryTidying: 'The lead agent is tidying the memory: wait until it is done.',
+  memoryTidyUnparsable: "The lead agent's reply held no changes as JSON.",
+  memoryReplyRemoved: 'The reply that saved it was retried or edited away',
+  memoryOff: 'Long-term memory is off.',
+  memoryNothingToTidy: 'There are no notes to tidy yet.',
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',

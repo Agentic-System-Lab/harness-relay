@@ -623,6 +623,142 @@ export interface ToolLibraryUpdate {
   browser?: string;
 }
 
+// --- Long-term memory: notes the agents keep across conversations ----------------------------
+// (src/shared/memory.ts, src/server/memory.ts; docs/architecture.md, "Long-term memory")
+
+/**
+ * How a note's author knows what it says: the user said it, an agent checked it, or an agent
+ * concluded it without checking.
+ */
+export const MEMORY_BASES = ['user', 'checked', 'inferred'] as const;
+export type MemoryBasis = (typeof MEMORY_BASES)[number];
+
+/**
+ * Where a note stands: `active`, agents get it; `pending`, it waits for the user to keep it (agents
+ * do not get it yet); `archived`, set aside (forgotten by an agent, removed by tidying or by the user),
+ * kept for the user to restore or delete. Nothing an agent does deletes a note.
+ */
+export const MEMORY_STATES = ['active', 'pending', 'archived'] as const;
+export type MemoryState = (typeof MEMORY_STATES)[number];
+
+/** Who wrote a note, or last changed it: the user, a conversation's agent, or the lead agent tidying. */
+export type MemoryAuthor = { kind: 'user' } | { kind: 'agent'; name: string; provider: Provider } | { kind: 'lead'; provider: Provider };
+
+export interface MemoryNote {
+  id: string;
+  text: string;
+  /** The working directory it holds in (a conversation with it among its folders); absent: every conversation. */
+  cwd?: string;
+  basis: MemoryBasis;
+  state: MemoryState;
+  /**
+   * In every briefing in its scope, the layer always loaded: `user` when the user pinned it (only the
+   * user unpins it), `lead` when tidying chose it.
+   */
+  pinned?: 'user' | 'lead';
+  author: MemoryAuthor;
+  /**
+   * The notes this one takes the place of: an agent's correction (`pending` until the user keeps it,
+   * which sets the old one aside), or the notes tidying merged into it (set aside already).
+   */
+  replaces?: string[];
+  /** Where it was written: the conversation and reply (absent for one the user wrote in Settings, or once that conversation was deleted). */
+  conversationId?: string;
+  messageId?: string;
+  /** Why it was set aside, as its remover said (in the words the agent or the lead agent used). */
+  reason?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** When an agent was last given it with a conversation's messages (recall). */
+  usedAt?: number;
+}
+
+export interface MemorySettings {
+  /** Agents read the notes and save new ones. An experiment in Settings → Labs, off by default. */
+  enabled: boolean;
+  /** Agents' new notes and corrections wait for the user to keep them. */
+  review: boolean;
+  /** The lead agent tidies the notes in the background now and then (`MEMORY_LIMITS.tidyAfterChanges`, `tidyHours`). */
+  autoTidy: boolean;
+}
+
+/** The lead agent's last tidying: when it ended, how many changes it made, what it said, or why it failed. */
+export interface MemoryTidyReport {
+  at: number;
+  changes: number;
+  summary?: string;
+  error?: string;
+}
+
+export interface MemoryView {
+  settings: MemorySettings;
+  /** Every note, the ones waiting for the user first, then the pinned ones, then the newest. */
+  notes: MemoryNote[];
+  /** The titles of the conversations notes came from, by id (those still there). */
+  sources: Record<string, string>;
+  lastTidy?: MemoryTidyReport;
+  /** The lead agent is tidying the notes now. */
+  tidying: boolean;
+  /** Notes saved or changed since the last tidying. */
+  changedSinceTidy: number;
+}
+
+export interface MemoryNoteCreate {
+  text: string;
+  /** Absent: everywhere. */
+  cwd?: string;
+  pinned?: boolean;
+}
+
+export interface MemoryNoteUpdate {
+  text?: string;
+  /** Null: everywhere. */
+  cwd?: string | null;
+  pinned?: boolean;
+  /** `active` keeps a waiting note or restores a set-aside one; `archived` sets it aside. */
+  state?: 'active' | 'archived';
+}
+
+export const MEMORY_LIMITS = {
+  /** A note's length. */
+  noteChars: 1000,
+  /** Notes kept, whatever their state: past it an agent's new note is not saved. */
+  maxNotes: 1000,
+  /** Blocks taken from one reply. */
+  perReply: 8,
+  /** The pinned notes in a briefing, in all. */
+  pinnedChars: 4000,
+  /** Notes tidying may pin. */
+  pinnedNotes: 12,
+  /** Notes recalled for one turn, and their length in all. */
+  recallNotes: 6,
+  recallChars: 3000,
+  /** The lead agent tidies by itself once this many notes changed, at most once in `tidyHours`. */
+  tidyAfterChanges: 5,
+  tidyHours: 12,
+  /** Notes one tidying reads (the newest), and how much of each source conversation. */
+  tidyNotes: 300,
+  tidySourceChars: 3000,
+} as const;
+
+/** One note a reply saved, corrected or forgot (`MessagePart` `memory`), as its card shows it. */
+export interface MemoryPartNote {
+  /** The note's id; absent when nothing was saved (`skipped`). */
+  id?: string;
+  text: string;
+  op: 'saved' | 'updated' | 'forgotten';
+  /** Where the note stands now (`deleted`: the user deleted it), or `skipped`: the block was not taken. */
+  status: MemoryState | 'deleted' | 'skipped';
+  cwd?: string;
+  basis?: MemoryBasis;
+  /**
+   * Why a block was not taken: `unknown`, no such note; `user-note`, the user's own note, which only
+   * the user changes or removes (a correction of one waits for them); `full`, the memory holds
+   * `MEMORY_LIMITS.maxNotes` notes; `empty`, the block had no text.
+   */
+  skipped?: 'unknown' | 'user-note' | 'full' | 'empty';
+}
+
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
 
 /**
@@ -2067,6 +2203,8 @@ export type MessagePart =
   | { type: 'progress'; status: ProgressStatus; text: string }
   /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
   | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
+  /** What the reply saved to long-term memory (its `<remember>` and `<forget>` blocks, taken out of its text). */
+  | { type: 'memory'; notes: MemoryPartNote[] }
   /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.

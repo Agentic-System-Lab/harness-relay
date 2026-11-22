@@ -40,12 +40,17 @@ import type {
   ToolCallKind,
   ToolStatus,
   MessageStatus,
+  MemoryAuthor,
+  MemoryNote,
+  MemoryPartNote,
   SearchResult,
   SharedPage,
 } from '../shared/types';
 import {
   ALERT_KINDS,
   ATTACHMENT_LIMITS,
+  MEMORY_BASES,
+  MEMORY_STATES,
   PERMISSION_ORDER,
   PROGRESS_STATUSES,
   PROVIDERS,
@@ -355,6 +360,10 @@ function toPart(r: PartRow): MessagePart {
       };
     case 'notice':
       return { type: 'notice', text: r.text ?? '' };
+    case 'memory': {
+      const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
+      return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
+    }
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
       return {
@@ -383,6 +392,7 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
     case 'approval':
     case 'attachment':
+    case 'memory':
     case 'outbox': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
@@ -763,6 +773,51 @@ export interface TaskRequest {
  * SQLite-backed persistence. Conversations being used are kept in memory (the orchestrator mutates
  * them while streaming); changes are written back explicitly, message writes debounced.
  */
+interface MemoryRow {
+  id: string;
+  text: string;
+  cwd: string | null;
+  basis: string;
+  state: string;
+  pinned: string | null;
+  author: string;
+  replaces: string | null;
+  conversation_id: string | null;
+  message_id: string | null;
+  reason: string | null;
+  created_at: number;
+  updated_at: number;
+  used_at: number | null;
+}
+
+/** Who wrote a note, as kept (JSON); one this server cannot read is the user's. */
+function memoryAuthorOf(json: string): MemoryAuthor {
+  const a = parseJson<Record<string, unknown>>(json, {});
+  const provider = (PROVIDERS as readonly unknown[]).includes(a.provider) ? (a.provider as Provider) : undefined;
+  if (a.kind === 'agent' && typeof a.name === 'string' && provider) return { kind: 'agent', name: a.name, provider };
+  if (a.kind === 'lead' && provider) return { kind: 'lead', provider };
+  return { kind: 'user' };
+}
+
+function toMemoryNote(r: MemoryRow): MemoryNote {
+  return {
+    id: r.id,
+    text: r.text,
+    ...(r.cwd ? { cwd: r.cwd } : {}),
+    basis: (MEMORY_BASES as readonly string[]).includes(r.basis) ? (r.basis as MemoryNote['basis']) : 'inferred',
+    state: (MEMORY_STATES as readonly string[]).includes(r.state) ? (r.state as MemoryNote['state']) : 'archived',
+    ...(r.pinned === 'user' || r.pinned === 'lead' ? { pinned: r.pinned } : {}),
+    author: memoryAuthorOf(r.author),
+    ...(r.replaces ? { replaces: r.replaces.split(',').filter(Boolean) } : {}),
+    ...(r.conversation_id ? { conversationId: r.conversation_id } : {}),
+    ...(r.message_id ? { messageId: r.message_id } : {}),
+    ...(r.reason ? { reason: r.reason } : {}),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    ...(r.used_at ? { usedAt: r.used_at } : {}),
+  };
+}
+
 export class Store {
   private cache = new Map<string, Conversation>();
   private dirty = new Map<string, Set<string>>();
@@ -1159,6 +1214,8 @@ export class Store {
     const below = this.branchesPast(id, gone);
     transaction(this.db, () => {
       this.db.prepare('UPDATE schedules SET last_chat_id = NULL WHERE last_chat_id = ?').run(id);
+      // Long-term memory outlives the conversation: its notes only lose where they came from.
+      this.db.prepare('UPDATE memories SET conversation_id = NULL, message_id = NULL WHERE conversation_id = ?').run(id);
       const save = this.db.prepare('UPDATE conversations SET branch = ? WHERE id = ?');
       for (const [convId, branch] of below) save.run(JSON.stringify(branch), convId);
       this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
@@ -2040,5 +2097,95 @@ export class Store {
   /** Removes every notification. */
   clearNotifications(): void {
     this.db.prepare('DELETE FROM notifications').run();
+  }
+
+  // Long-term memory ------------------------------------------------------------------------
+
+  /** Every note, whatever its state, the most recently changed first. */
+  memoryNotes(): MemoryNote[] {
+    return (this.db.prepare('SELECT * FROM memories ORDER BY updated_at DESC, rowid DESC').all() as unknown as MemoryRow[]).map(
+      toMemoryNote,
+    );
+  }
+
+  memoryNote(id: string): MemoryNote | undefined {
+    const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as MemoryRow | undefined;
+    return row ? toMemoryNote(row) : undefined;
+  }
+
+  /** How many notes there are, whatever their state. */
+  memoryCount(): number {
+    return Number((this.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number }).n);
+  }
+
+  /** Saves a note, new or changed (the whole row). */
+  saveMemoryNote(n: MemoryNote): void {
+    this.db
+      .prepare(
+        `INSERT INTO memories (id, text, cwd, basis, state, pinned, author, replaces, conversation_id, message_id, reason, created_at, updated_at, used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           text = excluded.text, cwd = excluded.cwd, basis = excluded.basis, state = excluded.state, pinned = excluded.pinned,
+           author = excluded.author, replaces = excluded.replaces, conversation_id = excluded.conversation_id,
+           message_id = excluded.message_id, reason = excluded.reason, updated_at = excluded.updated_at, used_at = excluded.used_at`,
+      )
+      .run(
+        n.id,
+        n.text,
+        nul(n.cwd),
+        n.basis,
+        n.state,
+        nul(n.pinned),
+        JSON.stringify(n.author),
+        n.replaces?.length ? n.replaces.join(',') : null,
+        // A conversation deleted meanwhile is not linked to.
+        n.conversationId && !this.deleted.has(n.conversationId) ? n.conversationId : null,
+        n.conversationId && !this.deleted.has(n.conversationId) ? nul(n.messageId) : null,
+        nul(n.reason),
+        n.createdAt,
+        n.updatedAt,
+        nul(n.usedAt),
+      );
+  }
+
+  /** Several memory writes as one: all of them, or none when one fails. `fn` may not start a transaction itself. */
+  memoryWrites<T>(fn: () => T): T {
+    return transaction(this.db, fn);
+  }
+
+  deleteMemoryNote(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM memories WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /** Notes given to an agent with a conversation's messages: when they last were. */
+  touchMemoryNotes(ids: readonly string[], at = Date.now()): void {
+    if (!ids.length) return;
+    transaction(this.db, () => {
+      const touch = this.db.prepare('UPDATE memories SET used_at = ? WHERE id = ?');
+      for (const id of ids) touch.run(at, id);
+    });
+  }
+
+  /** The conversations' titles, of those of `ids` that are still there. */
+  conversationTitles(ids: readonly string[]): Record<string, string> {
+    const out: Record<string, string> = {};
+    const get = this.db.prepare('SELECT title FROM conversations WHERE id = ?');
+    for (const id of new Set(ids)) {
+      if (this.deleted.has(id)) continue;
+      const title = this.cache.get(id)?.title ?? (get.get(id) as { title: string } | undefined)?.title;
+      if (title !== undefined) out[id] = title;
+    }
+    return out;
+  }
+
+  /** The long-term memory's settings and last tidying, as kept (JSON under `memory` in app_settings). */
+  memoryMeta(): string | undefined {
+    return (this.db.prepare("SELECT value FROM app_settings WHERE key = 'memory'").get() as { value: string } | undefined)?.value;
+  }
+
+  saveMemoryMeta(json: string): void {
+    this.db
+      .prepare("INSERT INTO app_settings (key, value) VALUES ('memory', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(json);
   }
 }

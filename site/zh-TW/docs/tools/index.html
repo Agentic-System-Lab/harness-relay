@@ -19,7 +19,7 @@
     <meta property="og:title" content="給團隊的工具 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在常用 App 連結郵件、行事曆、Google Drive 與文件、Slack、Teams、Obsidian、GitHub 和瀏覽器。設定 OAuth、選擇助理，並審核要送出的訊息與文件變更。工具庫收錄 MCP 伺服器、skill、記憶和 hook。"
+      content="在常用 App 連結郵件、行事曆、Google Drive 與文件、Slack、Teams、Obsidian、GitHub 和瀏覽器。設定 OAuth、選擇助理，並審核要送出的訊息與文件變更。工具庫收錄 MCP 伺服器、skill、記憶和 hook；實驗室有長期記憶。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -227,7 +227,7 @@
           </div>
         </div>
         <p class="lead">
-          開啟<b>設定 → App 與工具</b>。在<b>常用 App</b> 分頁連結服務，並選擇哪些助理可以使用各項內建工具。<b>工具庫</b>分頁可加入自己的 MCP 伺服器、skill、記憶、hook 與團隊檢查預設。
+          開啟<b>設定 → App 與工具</b>。在<b>常用 App</b> 分頁連結服務，並選擇哪些助理可以使用各項內建工具。<b>工具庫</b>分頁可加入自己的 MCP 伺服器、skill、記憶、hook 與團隊檢查預設。agent 的長期記憶是<a href="#labs">實驗室</a>裡的實驗功能。
         </p>
       </header>
 
@@ -328,7 +328,16 @@
                   </details>
                 </li>
                 <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
-                <li><a href="#labs">實驗室：還在試驗中的工具用法</a></li>
+                <li>
+                  <details>
+                    <summary>實驗室：還在試驗中的功能</summary>
+                    <ol>
+                      <li><a href="#labs" aria-label="實驗室：還在試驗中的功能概覽">概覽</a></li>
+                      <li><a href="#labs-tools">助理怎麼使用 Harness Relay 的工具</a></li>
+                      <li><a href="#long-term-memory">長期記憶</a></li>
+                    </ol>
+                  </details>
+                </li>
               </ol>
             </details>
           </li>
@@ -627,10 +636,22 @@
         </section>
 
         <section id="labs" aria-labelledby="labs-title">
-          <h2 id="labs-title">實驗室：還在試驗中的工具用法</h2>
+          <h2 id="labs-title">實驗室：還在試驗中的功能</h2>
           <p>
-            <b>設定與登入 → 實驗室</b>是最後一張卡片，放的是還在試驗中的做法。每一種預設都關閉，一次只能開一種，改了以後從 agent 的下一個回合開始生效。它們只改變 agent 使用這一頁 Harness Relay
-            工具的方式，所以 agent 要先拿到其中一些工具。
+            <b>設定與登入 → 實驗室</b>是最後一張卡片，放的是還在試驗中的功能，每一項都要你開啟才會使用。它分成兩個部分，下面各有說明：
+          </p>
+          <ul>
+            <li><a href="#labs-tools">助理怎麼使用 Harness Relay 的工具</a>：讓 agent 寫程式來用工具，或分段閱讀長文字，一次只能開一種。</li>
+            <li><a href="#long-term-memory">長期記憶</a>：agent 為之後的對話保留的記憶。</li>
+          </ul>
+          <p><a href="../../../assets/media/docs/tools-labs-desktop-zh-TW.webp">實驗室桌面版畫面</a> · <a href="../../../assets/media/docs/tools-labs-phone-zh-TW.webp">實驗室手機版畫面</a></p>
+        </section>
+
+        <section id="labs-tools" aria-labelledby="labs-tools-title">
+          <h2 id="labs-tools-title">助理怎麼使用 Harness Relay 的工具</h2>
+          <p>
+            在<b>設定與登入 → 實驗室 → 助理怎麼使用 Harness Relay 的工具</b>中，這些做法一次只能開一種，改了以後從 agent 的下一個回合開始生效。它們只改變 agent 使用這一頁 Harness Relay
+            工具的方式，所以 agent 要先拿到其中一些工具。選<b>關閉（預設）</b>時，agent 照平常的方式一次呼叫一個工具，每一步都在對話裡看得到。
           </p>
           <ul>
             <li>
@@ -645,7 +666,20 @@
             </li>
           </ul>
           <p>兩種都不能在 Windows 上使用，在 Harness Relay 自己的沙箱啟動不了的地方也不行：Linux 上需要 bubblewrap，可以在<b>設定 → 沙箱</b>安裝。卡片上會說明。</p>
-          <p><a href="../../../assets/media/docs/tools-labs-desktop-zh-TW.webp">實驗室桌面版畫面</a> · <a href="../../../assets/media/docs/tools-labs-phone-zh-TW.webp">實驗室手機版畫面</a></p>
+        </section>
+
+        <section id="long-term-memory" aria-labelledby="long-term-memory-title">
+          <h2 id="long-term-memory-title">長期記憶</h2>
+          <p>這是一項實驗功能，要你開啟才會使用：在<b>設定與登入 → 實驗室 → 長期記憶</b>勾選<b>讓助理讀取和記下長期記憶</b>。之後 agent 會把在對話中學到、之後的對話也用得到的事記下來，例如你的偏好和決定，或查證過的事實；在你要它記住某件事，或明顯值得保留時記下。每則記憶都會顯示在記下它的回覆下方的<b>長期記憶</b>卡片裡，你可以在那裡擱置或還原它。釘選的記憶會帶進每個對話；其他記憶在和你說的話相關時才提供給 agent。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/tools-memory-card-zh-TW.webp"><img src="../../../assets/media/docs/tools-memory-card-zh-TW.webp" width="754" height="78" alt="回覆下方的長期記憶卡片：記下「我們都在週五發版，週一不發版」，標示使用中，並有擱置按鈕。" loading="lazy" /></a>
+            <figcaption>記下記憶的回覆下方的卡片。</figcaption>
+          </figure>
+          <p>開啟後，實驗室的同一部分可以搜尋、新增、編輯、釘選、擱置與刪除記憶，也可以選擇新記憶是否要等你保留。首席 agent 會不時對照記憶來自的對話整理它們，也可以按<b>立即整理</b>馬上進行；它從不修改你寫的記憶，agent 也從不刪除記憶。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/labs-long-term-memory-zh-TW.webp"><img src="../../../assets/media/docs/labs-long-term-memory-zh-TW.webp" width="870" height="738" alt="實驗室裡開啟的長期記憶：三個開關、立即整理、新增記憶的輸入框，以及三則使用中的記憶，其中一則已釘選，每則都標出怎麼知道的、作者，以及釘選或取消釘選、編輯與擱置按鈕。" loading="lazy" /></a>
+            <figcaption>依狀態列出每則記憶，以及作者和來自哪個對話。</figcaption>
+          </figure>
         </section>
 
         <aside class="doc-more" aria-label="技術細節">
@@ -657,6 +691,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶">工具庫</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#各-cli-自己載入的內容">各 agent 自己載入的內容</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#實驗室">實驗室</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#長期記憶">長期記憶</a></li>
             </ul>
           </div>
         </aside>

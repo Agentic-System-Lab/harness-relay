@@ -347,6 +347,7 @@ test.describe('team checks', () => {
     await page.goto(`${relay.base}/#/settings/tools`);
     const hooks = await openToolCategory(page, 'Hooks');
     const checks = await openToolCategory(page, 'Default team checks');
+    // Hooks come after Memory (long-term memory is in Labs).
     await expect(page.locator('.library-category:has(.memory-input) + details')).toHaveAccessibleName('Hooks');
     await expect(checks.getByLabel('Protected paths')).toBeVisible();
     await expect(checks.locator('details')).toHaveCount(0);

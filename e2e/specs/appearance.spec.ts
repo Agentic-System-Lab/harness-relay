@@ -86,7 +86,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 13');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 14');
     await expect(update.locator('.tour-art')).toHaveCount(0);
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
@@ -105,7 +105,7 @@ test.describe('the guided tour', () => {
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 13');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 14');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -133,7 +133,10 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Connect apps to your chats');
     await update.getByRole('button', { name: 'Next' }).click();
-    // The Settings step: Labs and the subagents' and workflows' switches were added to it.
+    await expect(update).toHaveAccessibleName('Long-term memory');
+    await expect(update).toContainText('Settings → Labs → Long-term memory');
+    await update.getByRole('button', { name: 'Next' }).click();
+    // The Settings step: Labs (long-term memory among it) and the subagents' and workflows' switches were added to it.
     await expect(update).toHaveAccessibleName('Adjust any time');
     await update.getByRole('button', { name: 'Done', exact: true }).click();
     await page.reload();
@@ -158,6 +161,8 @@ test.describe('the guided tour', () => {
     await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Long-term memory');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Adjust any time');
     await update.getByRole('button', { name: 'Done', exact: true }).click();

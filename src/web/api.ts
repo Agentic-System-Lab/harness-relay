@@ -89,6 +89,10 @@ import type {
   TeamRevision,
   ToolLibraryUpdate,
   ToolLibraryView,
+  MemoryNoteCreate,
+  MemoryNoteUpdate,
+  MemorySettings,
+  MemoryView,
   UpdateStatus,
   VoiceModelId,
   VoiceSettingsUpdate,
@@ -558,6 +562,14 @@ export const api = {
   // Tool library
   tools: () => request<ToolLibraryView>('GET', '/api/tools'),
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
+  // Long-term memory: each change answers with the whole view.
+  memory: () => request<MemoryView>('GET', '/api/memory'),
+  memorySettings: (s: Partial<MemorySettings>) => request<MemoryView>('PUT', '/api/memory/settings', s),
+  addMemoryNote: (n: MemoryNoteCreate) => request<MemoryView>('POST', '/api/memory/notes', n),
+  editMemoryNote: (id: string, patch: MemoryNoteUpdate) =>
+    request<MemoryView>('PATCH', `/api/memory/notes/${encodeURIComponent(id)}`, patch),
+  deleteMemoryNote: (id: string) => request<MemoryView>('DELETE', `/api/memory/notes/${encodeURIComponent(id)}`),
+  tidyMemory: () => request<MemoryView>('POST', '/api/memory/tidy'),
   startAppSignIn: (app: keyof typeof import('../shared/apps').APP_SERVERS) =>
     request<OAuthSignInView>('POST', `/api/apps/${app}/signin`, { origin: location.origin }),
   addObsidianVaults: (paths: string[]) => request<ToolLibraryView>('POST', '/api/apps/obsidian', { paths }),

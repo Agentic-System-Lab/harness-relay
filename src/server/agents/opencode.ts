@@ -1843,9 +1843,12 @@ export const opencodeAcp: AcpAgentSpec = {
   usage: opencodeUsage,
 };
 
-/** OpenCode's runner: the generic ACP turn, with its errors said as the backend's. */
-export function opencodeRunner(deps: Partial<AcpTurnDeps> = {}): AgentRunner {
-  const inner = acpRunner(opencodeAcp, deps);
+/**
+ * OpenCode's runner: the generic ACP turn, with its errors said as the backend's. `port` chooses its
+ * server's port (`prepareOpencode`); the tests give one of their own.
+ */
+export function opencodeRunner(deps: Partial<AcpTurnDeps> = {}, port?: () => Promise<number>): AgentRunner {
+  const inner = acpRunner(port ? { ...opencodeAcp, prepare: (ctx) => prepareOpencode(ctx, port) } : opencodeAcp, deps);
   return {
     provider: 'opencode',
     async run(o) {

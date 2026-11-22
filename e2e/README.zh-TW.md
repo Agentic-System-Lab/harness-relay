@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 48 個 spec 檔、611 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 49 個 spec 檔、615 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -57,6 +57,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [長期記憶](#長期記憶) | [`memory.spec.ts`](specs/memory.spec.ts) | 4 | [使用指南 → 長期記憶](../docs/user-guide.zh-TW.md#長期記憶)、[架構 → 長期記憶](../docs/architecture.zh-TW.md#長期記憶) |
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
@@ -201,7 +202,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在**團隊設定**底部展開**進階設定**，每條規則的名稱都在輸入框上方，`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
 | 團隊做的應用程式必須能在預覽中開啟，沒通過時自動交回團隊 | Claude Code | 在**團隊設定**的**進階設定**勾選**團隊做的應用程式必須能在預覽中開啟**和**沒通過時自動交回團隊修正**（對話的清單兩個都有）。假 CLI 寫出 `snake/main.py`：卡片上 **應用程式預覽** 未通過，指出 `snake` 和缺少的 Dockerfile，Relay 自動送出的訊息（「sent by Relay automatically, attempt 1 of 3」，標著 **Relay's fix 1/3**）讓 Claude 再發言一次；卡片說明已自動交回。那一輪沒改任何東西，所以不會再有新卡片。 |
 | 團隊設定重新載入後保留新版規則 | — | 另一個工作階段更新受保護路徑。抽屜重新載入後，修改 commit 格式並儲存會保留新版路徑。 |
-| 記憶下方的 Hooks 與團隊檢查預設分別驗證、儲存 | — | 在**設定 → App 與工具 → 工具庫**中，展開**記憶**下方的 **Hooks** 與**團隊檢查預設**才會顯示各自的編輯欄位。兩區各自驗證資料夾與時限。收合團隊檢查並儲存 hook 後，再展開團隊檢查時，草稿指令及無效的資料夾仍在。儲存團隊檢查也會保留 hook 的草稿。重新載入可看到已儲存的值。在桌面與 320 px 寬的畫面上，移除按鈕都在 hook 卡片右上角。移除最後一個 hook 也會保留已儲存的指令。 |
+| 記憶下方的 Hooks 與團隊檢查預設分別驗證、儲存 | — | 在**設定 → App 與工具 → 工具庫**中，**Hooks** 緊接在**記憶**之後（長期記憶在實驗室）；展開 **Hooks** 與**團隊檢查預設**才會顯示各自的編輯欄位。兩區各自驗證資料夾與時限。收合團隊檢查並儲存 hook 後，再展開團隊檢查時，草稿指令及無效的資料夾仍在。儲存團隊檢查也會保留 hook 的草稿。重新載入可看到已儲存的值。在桌面與 320 px 寬的畫面上，移除按鈕都在 hook 卡片右上角。移除最後一個 hook 也會保留已儲存的指令。 |
 | 團隊設定要求有效的 hook 資料夾和時限 | — | 資料夾或時限無效時不可儲存。修正後，儲存按鈕重新啟用。 |
 | 在團隊設定設的 hook 在成員的呼叫前後執行：「執行前」的 hook 拒絕指令，「執行後」的 hook 沒通過時交回給它 | Claude Code | 在完整權限的對話裡，**Team settings** 加上兩個 hook：**Before**、**Commands**，印出指令後失敗；**After**、**File changes**，印出檔名後失敗（對話設定裡兩個都有）。執行 `echo e2e-approval` 的回覆說團隊的 hook 拒絕了它，附上 hook 的話，回覆裡的註記說 hook 拒絕了 `` `echo e2e-approval` ``；寫入 `notes.txt` 的回覆說出「執行後」hook 的話（`lint: notes.txt has 1 problem`），註記說它沒有通過，檔案也寫入了（「執行後」的 hook 不會撤銷任何事）。Windows 上略過（那裡還不能執行 hook）。 |
 | 唯讀對話不檢查 | Claude Code | 唯讀對話設了同樣的清單，想寫入的回覆不會有卡片。 |
@@ -395,6 +396,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
 | 完全存取以下，Copilot 透過本機 HTTP 使用 Harness Relay 自己的工具，權杖只在 header 裡，它的郵件在待送出匣等待 | Copilot | 在可編輯模式下，把**郵件**給 Copilot：假 Copilot（和真的一樣只接受 HTTP 與 SSE 的 MCP server）在 `session/new` 拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `Authorization` header；它在那裡呼叫 `mail_send`，沒有卡片：回覆說郵件在待送出匣等待，並附上它的卡片。啟動 Copilot 的參數中都沒有這個權杖。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動、時間與加進哪個行事曆，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
+
+## 長期記憶
+
+[`memory.spec.ts`](specs/memory.spec.ts)：成員跨對話保留的記憶，這是**設定 → 實驗室**裡的實驗功能，要使用者開啟才會使用（用到它的測試會先透過 API 開啟）。假 CLI 用 `e2e:remember` 把使用者說的話記成一則記憶（回覆最後的 `<remember>` 區塊），用 `e2e:recall` 說出這個回合拿到哪些記憶（簡報 `<memory_notes>` 裡的與 prompt `<recalled_memory>` 裡的）。假首席 agent 整理時，會釘選第一則還沒釘選、由 agent 寫的記憶（`fake-cli/lib/plan.cjs` 的 `tidyReply`）。
+
+| 情境 | CLI | 檢查內容 |
+| --- | --- | --- |
+| 每個 CLI 記下的記憶從回覆文字中取出成卡片，之後對話的成員會拿到它 | 兩組團隊 | 每位成員的回覆有使用者說的話、沒有 `<remember>` 標籤，並有一張顯示這則記憶與**使用中**的**長期記憶**卡片；這則記憶只保留一則，記為使用者說的（`basis: user`），由 agent 寫下；在新對話中，相關的問題（`Which script do I deploy with?`）讓每位成員在它的回合拿到這則記憶。 |
+| 從卡片擱置再還原一則記憶、在設定中釘選，並由首席 agent 整理 | Claude Code | 先透過 API 加入一則使用者的記憶；卡片的**擱置**與**還原**會改變它顯示的狀態；**設定 → 實驗室 → 長期記憶**顯示每則記憶怎麼知道的與作者；在使用者的記憶按**釘選**後變成**取消釘選**；**立即整理**顯示假首席 agent 的摘要，以及它釘選了 agent 的記憶（檢視中：一則由使用者釘選、一則由首席 agent 釘選、一項變更）；之後新對話的回合不論問什麼，都拿到這兩則釘選的記憶。 |
+| 在實驗室開啟之前都是關閉的：不記下記憶、沒有卡片，實驗室只顯示開關 | Claude Code | 記憶維持一開始的關閉狀態，假 CLI 沒有拿到任何記憶，回覆沒有卡片；寫了一則記憶的回覆（`e2e:remember`）也沒有卡片，什麼都沒保留。工具庫沒有**長期記憶**類別；在**設定 → 實驗室**中，**長期記憶**顯示關閉的開關，沒有**新增記憶**和**立即整理**；開啟後才顯示它們，重新載入後仍是開啟。 |
 
 ## 草稿中可用的 App
 
@@ -707,7 +718,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合），以及**需要你的時候**與**檔案權限與修改**（替我核准），最後是現在提到實驗室與 subagent、workflow 開關的「設定」那一步。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合）、**需要你的時候**與**檔案權限與修改**（替我核准），以及新的**長期記憶**步驟（指向**設定 → 實驗室 → 長期記憶**），最後是現在提到實驗室（包括長期記憶）與 subagent、workflow 開關的「設定」那一步。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -802,6 +813,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
+| 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | ✓ | ✓ | —（只有離線測試） | —（不能） | —（只有離線測試） | —（還不能） | —（還不能） |
@@ -838,6 +850,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 透過 gateway 使用 Harness Relay 自己的工具，經由本機 HTTP：郵件在待送出匣等待 | ✓（macOS 上也在完全存取以下） | — | — | — | — |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 附加的圖片 | ✓ | ✓ | —（只有路徑） | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | —（還不能） | —（只有離線測試） | —（還不能） | —（還不能） | —（只有離線測試） |
@@ -874,6 +887,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
+- **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。

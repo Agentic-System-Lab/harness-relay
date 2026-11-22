@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -145,6 +146,30 @@ const backends = (): RunBackends => ({
 /** The specs the fake relay sandbox was given, by run folder. */
 const specs = new Map<string, RelaySandboxSpec>();
 
+/** Whether nothing listens on `port` on 127.0.0.1 (and it may be listened on). */
+const portFree = (port: number) =>
+  new Promise<boolean>((resolvePort) => {
+    const server = createServer();
+    server.once('error', () => resolvePort(false));
+    server.listen(port, '127.0.0.1', () => server.close(() => resolvePort(true)));
+  });
+
+/**
+ * The fake's own server's port, below every system's ephemeral ports (Linux's from 32768, macOS's
+ * and Windows' from 49152). The adapter's own `freeLoopbackPort()` takes one of those, which another
+ * test file's connection can take before the fake listens on it (EADDRINUSE, seen on CI).
+ */
+async function fakeServerPort(): Promise<number> {
+  for (let i = 0; i < 50; i++) {
+    const port = 20000 + Math.floor(Math.random() * 12000);
+    if (await portFree(port)) return port;
+  }
+  throw new Error('no free port for the fake OpenCode server');
+}
+
+/** OpenCode's runner, its server on `fakeServerPort()`. */
+const runner = (deps: Partial<AcpTurnDeps>) => opencodeRunner(deps, fakeServerPort);
+
 /** A relay sandbox that runs the command as it is, keeping the spec it was given. */
 const fakeSandbox = (dir: string): Partial<AcpTurnDeps> => ({
   platform: 'darwin',
@@ -236,7 +261,7 @@ function turn(fixture: string, over: Partial<RunOptions> = {}, answer?: (req: Ap
   return { o, events, approvals, log, abort, dir, home };
 }
 
-const runTurn = (r: Turn) => opencodeRunner({ ...fakeSandbox(r.dir), runTmpDir: join(r.dir, 'run-tmp') }).run(r.o);
+const runTurn = (r: Turn) => runner({ ...fakeSandbox(r.dir), runTmpDir: join(r.dir, 'run-tmp') }).run(r.o);
 /** The turn's member's OpenCode database. */
 const dbOf = (r: Turn) => join(r.home, 'private', STATE_KEY, 'data', 'opencode', 'opencode.db');
 /** The turn's model calls, written to its database as the fake starts (after the run read what was there). */
@@ -316,7 +341,7 @@ describe('OpenCode turns replayed from the real CLI', () => {
     for (const permission of ['read-only', 'edit'] as const) {
       const r = turn('text-only', { permission, model: 'homelab/muse-glimmer-30b-nvfp4' });
       await expect(
-        withLang('en', () => opencodeRunner({ ...fakeSandbox(r.dir), platform: 'linux', runTmpDir: join(r.dir, 'run-tmp') }).run(r.o)),
+        withLang('en', () => runner({ ...fakeSandbox(r.dir), platform: 'linux', runTmpDir: join(r.dir, 'run-tmp') }).run(r.o)),
       ).rejects.toThrow(/On Linux, OpenCode runs only with full access/);
       expect(r.log()).toEqual([]); // the CLI never started
       expect(specs.has(r.dir)).toBe(false);

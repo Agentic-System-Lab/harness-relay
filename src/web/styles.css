@@ -10486,11 +10486,12 @@ a.share-action {
   }
 }
 
-/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
+/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs (in a
+   settings-part, whose gap spaces them), then long-term memory's part. */
 .labs-options {
   display: grid;
   gap: 10px;
-  margin: 12px 0;
+  margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
@@ -10531,7 +10532,6 @@ a.share-action {
 .labs-model {
   display: grid;
   gap: 6px;
-  margin-bottom: 12px;
 }
 .labs-model input,
 .labs-model select {
@@ -10542,6 +10542,188 @@ a.share-action {
   .labs-tradeoffs {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Long-term memory: a reply's card, and its notes in Settings (LongTermMemory.tsx) */
+.memory-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--info) 35%, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.memory-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.memory-card-notes,
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-card-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 0.9rem;
+}
+
+.memory-op {
+  font-weight: 600;
+}
+
+.memory-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.memory-status {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.memory-pending .memory-status {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+
+.memory-archived .memory-text,
+.memory-deleted .memory-text,
+.memory-skipped .memory-text {
+  color: var(--muted);
+}
+
+.memory-deleted .memory-text {
+  text-decoration: line-through;
+}
+
+.memory-actions,
+.memory-row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.long-term-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.memory-tidy {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.memory-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.memory-scope select {
+  max-width: 16rem;
+}
+
+.memory-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-search {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.memory-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+.memory-row.memory-pending {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+
+.memory-row-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.memory-pin {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--info);
+}
+
+.memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 0;
+}
+
+.memory-id {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+.memory-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 3.5rem;
+}
+
+.memory-scope > span {
+  white-space: nowrap;
 }
 
 /* Publishing a previewed app (the preview panel's dialog, and Settings → Publish to the cloud) */

@@ -440,6 +440,9 @@ describe('the docs', () => {
       'per-member',
       'own-setup',
       'labs',
+      // Labs' two parts.
+      'labs-tools',
+      'long-term-memory',
     ];
     const pages = docs.filter((d) => d.path === 'docs/tools/');
     expect(pages.map((page) => page.lang).sort()).toEqual(['en', 'zh-TW']);

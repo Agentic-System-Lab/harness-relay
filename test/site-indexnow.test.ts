@@ -214,7 +214,7 @@ function step(
   });
   const written = readFileSync(output, 'utf8');
   const outputs = outputsOf(written);
-  return {
+  const result = {
     status: r.status,
     out: r.stdout + r.stderr,
     calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean),
@@ -224,6 +224,10 @@ function step(
     changed: (outputs.pages ?? '').split('\n').filter(Boolean),
     body: existsSync(body) ? JSON.parse(readFileSync(body, 'utf8')) : undefined,
   };
+  // Two copies of the site each (over 100 MB): gone once read, not all left to afterAll, whose time a
+  // busy runner's disk overran (10 s) with every run's copies at once.
+  rmSync(run, { recursive: true, force: true });
+  return result;
 }
 
 const edit = (dir: string, path: string, change: (text: string) => string) =>

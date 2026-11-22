@@ -19,7 +19,7 @@
     <meta property="og:title" content="Tools for the team · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks."
+      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks; Labs holds long-term memory."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -230,7 +230,7 @@
           </div>
         </div>
         <p class="lead">
-          Open <b>Settings → Apps and tools</b>. Use <b>Common apps</b> to connect your services and choose which assistants can use each built-in tool. Use <b>Tool library</b> to add MCP servers, skills, memory, hooks and default team checks.
+          Open <b>Settings → Apps and tools</b>. Use <b>Common apps</b> to connect your services and choose which assistants can use each built-in tool. Use <b>Tool library</b> to add MCP servers, skills, memory, hooks and default team checks. The agents’ long-term memory is an experiment in <a href="#labs">Labs</a>.
         </p>
       </header>
 
@@ -331,7 +331,16 @@
                   </details>
                 </li>
                 <li><a href="#own-setup">What each agent loads by itself</a></li>
-                <li><a href="#labs">Labs: experimental ways to use the tools</a></li>
+                <li>
+                  <details>
+                    <summary>Labs: experimental features</summary>
+                    <ol>
+                      <li><a href="#labs" aria-label="Labs: experimental features overview">Overview</a></li>
+                      <li><a href="#labs-tools">How assistants use Harness Relay's tools</a></li>
+                      <li><a href="#long-term-memory">Long-term memory</a></li>
+                    </ol>
+                  </details>
+                </li>
               </ol>
             </details>
           </li>
@@ -659,11 +668,26 @@
         </section>
 
         <section id="labs" aria-labelledby="labs-title">
-          <h2 id="labs-title">Labs: experimental ways to use the tools</h2>
+          <h2 id="labs-title">Labs: experimental features</h2>
           <p>
-            <b>Settings &amp; sign-in → Labs</b>, the last card, holds ways of working that are still experimental. Each is off
-            by default, only one can be on at a time, and a change applies from an agent's next turn. They change only how
-            agents use Harness Relay's tools on this page, so an agent needs some of them first.
+            <b>Settings &amp; sign-in → Labs</b>, the last card, holds features that are still experimental, each off until you
+            turn it on. It has two parts, each described below:
+          </p>
+          <ul>
+            <li><a href="#labs-tools">How assistants use Harness Relay's tools</a>: let agents script the tools, or read a long
+              text in parts, one at a time.</li>
+            <li><a href="#long-term-memory">Long-term memory</a>: notes agents keep for later chats.</li>
+          </ul>
+          <p><a href="../../assets/media/docs/tools-labs-desktop-en.webp">Labs on desktop</a> · <a href="../../assets/media/docs/tools-labs-phone-en.webp">Labs on a phone</a></p>
+        </section>
+
+        <section id="labs-tools" aria-labelledby="labs-tools-title">
+          <h2 id="labs-tools-title">How assistants use Harness Relay's tools</h2>
+          <p>
+            In <b>Settings &amp; sign-in → Labs → How assistants use Harness Relay's tools</b>, only one of these can be on at a
+            time, and a change applies from an agent's next turn. They change only how agents use Harness Relay's tools on this
+            page, so an agent needs some of them first. With <b>Off (default)</b>, agents call one tool at a time, and every step
+            shows in the chat.
           </p>
           <ul>
             <li>
@@ -686,7 +710,28 @@
             </li>
           </ul>
           <p>Neither works on Windows, nor where Harness Relay's own sandbox cannot start: on Linux it needs bubblewrap, which <b>Settings → Sandboxes</b> installs. The card says so.</p>
-          <p><a href="../../assets/media/docs/tools-labs-desktop-en.webp">Labs on desktop</a> · <a href="../../assets/media/docs/tools-labs-phone-en.webp">Labs on a phone</a></p>
+        </section>
+
+        <section id="long-term-memory" aria-labelledby="long-term-memory-title">
+          <h2 id="long-term-memory-title">Long-term memory</h2>
+          <p>An experiment, off until you turn it on: in <b>Settings &amp; sign-in → Labs → Long-term memory</b>, tick
+              <b>Let agents read and save long-term memory</b>. Agents then save what they learn in a chat that later chats
+              can use, such as your preferences and decisions or a fact they checked, when you ask them to remember
+              something or when it is clearly worth keeping. Each note shows in a
+              <b>Long-term memory</b> card under the reply that saved it, where you can set it aside or restore it. Pinned notes
+              come with every chat; the others reach an agent when they bear on what you said.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/tools-memory-card-en.webp"><img src="../../assets/media/docs/tools-memory-card-en.webp" width="754" height="78" alt="A Long-term memory card under a reply: Saved, We release on Fridays, never on Mondays, In use, and a Set aside button." loading="lazy" /></a>
+            <figcaption>The card under a reply that saved a note.</figcaption>
+          </figure>
+          <p>Once it is on, the same part of Labs lets you search, add, edit, pin, set aside and delete notes, and choose
+              whether new notes wait for you to keep them. Now and then the lead agent tidies them against the chats they
+              came from, or at once with <b>Tidy up now</b>; it never changes notes you wrote, and agents never delete a
+              note.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/labs-long-term-memory-en.webp"><img src="../../assets/media/docs/labs-long-term-memory-en.webp" width="870" height="771" alt="The Long-term memory part of Labs, turned on: its three switches, Tidy up now, a box to add a note, and three notes in use, one pinned, each with how it is known, who wrote it and its Pin or Unpin, Edit and Set aside buttons." loading="lazy" /></a>
+            <figcaption>Every note, by state, with who wrote it and the chat it came from.</figcaption>
+          </figure>
         </section>
 
         <aside class="doc-more" aria-label="Technical details">
@@ -698,6 +743,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#tool-library-mcp-servers-skills-and-memory">Tool library</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#what-each-cli-loads-by-itself">What each agent loads by itself</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#labs">Labs</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#long-term-memory">Long-term memory</a></li>
             </ul>
           </div>
         </aside>
