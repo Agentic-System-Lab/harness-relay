@@ -2209,7 +2209,128 @@ export type MessagePart =
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.
    */
-  | { type: 'notice'; text: string };
+  | { type: 'notice'; text: string }
+  /**
+   * The secrets the reply asked the user for (its `<secret>` blocks, taken out of its text): their
+   * names and why, never a value. `folder`: the working directory they are kept for.
+   */
+  | { type: 'secrets'; id: string; folder: string; asks: SecretAsk[] }
+  /**
+   * A fixed command the reply proposed (its `<command>` block, taken out of its text): the user saves
+   * it for the working directory, or not. `run`: its last run from this card.
+   */
+  | {
+      type: 'command';
+      id: string;
+      folder: string;
+      proposal: CommandProposal;
+      status: 'proposed' | 'saved' | 'dismissed';
+      commandId?: string;
+      run?: FixedCommandRun;
+    };
+
+/**
+ * A secret an agent asked the user for (a `<secret>` block, `src/shared/handoffs.ts`). The value is
+ * kept in the credential store for the working directory and given only to the fixed commands that
+ * name it: never to an agent, the chat or the database.
+ */
+export interface SecretAsk {
+  name: string;
+  /** What the agent calls it, for the card. */
+  label?: string;
+  /** Why it needs it, in the agent's words. */
+  reason?: string;
+  /** `saved`: the user gave it; `declined`: they said no. */
+  status: 'waiting' | 'saved' | 'declined';
+  /** The folder had a value for this name already when it was asked: saving replaces it. */
+  had?: boolean;
+}
+
+/** What a `<command>` block proposes: a command line for the working directory, the hosts it reaches and the secrets it gets. */
+export interface CommandProposal {
+  name: string;
+  run: string;
+  hosts: string[];
+  secrets: string[];
+  /** Where it runs: a folder relative to the working directory (its top when absent). */
+  cwd?: string;
+}
+
+/** How one run of a fixed command went, as its card shows it. Its output has every secret it holds masked. */
+export interface FixedCommandRun {
+  at: number;
+  source: 'try' | 'schedule' | 'outbox';
+  /**
+   * `passed`: exit code 0; `news`: `FIXED_COMMAND_NEWS`, something new for the team; `failed`: any
+   * other code; `error`: it could not run (`reason`); `changed`: not run, its pinned code changed since
+   * it was saved (`changed`); `running`: under way.
+   */
+  status: 'running' | 'passed' | 'news' | 'failed' | 'error' | 'changed';
+  exitCode?: number | null;
+  durationMs?: number;
+  output?: string;
+  reason?: string;
+  /** `changed`: the pinned files that changed, added or went since it was saved, relative to its folder. */
+  changed?: string[];
+}
+
+/**
+ * A fixed command the user saved for a working directory (docs/architecture.md, "Fixed commands"):
+ * run by Harness Relay itself in its own sandbox, reaching only its hosts, with its secrets in a file,
+ * pinned to the code in its folder.
+ */
+export interface FixedCommand extends CommandProposal {
+  id: string;
+  /** The working directory it belongs to (its real path). */
+  folder: string;
+  createdAt: number;
+  /** When its code was last pinned (saved, or changes approved). */
+  pinnedAt: number;
+  lastRun?: FixedCommandRun;
+}
+
+/** The exit code a fixed command uses to say it found something new for the team (in a schedule, its output goes to them). */
+export const FIXED_COMMAND_NEWS = 10;
+
+/** Limits of secrets and fixed commands. */
+export const HANDOFF_LIMITS = {
+  /** Secrets a reply may ask for, and a working directory may keep. */
+  secretsPerReply: 5,
+  secretsPerFolder: 30,
+  /** Characters of a secret's name, its label, an agent's reason, and bytes of its value. */
+  secretName: 64,
+  label: 80,
+  reason: 500,
+  secretValue: 16 * 1024,
+  /** Fixed commands a working directory may keep, and a reply may propose. */
+  commandsPerFolder: 20,
+  commandsPerReply: 3,
+  commandName: 40,
+  commandLine: 2000,
+  /** Hosts and secrets one command may name. */
+  hosts: 10,
+  commandSecrets: 10,
+  /** What one run may take on its standard input (an outbox run), in bytes. */
+  input: 16 * 1024,
+  /** Minutes a run may take. */
+  timeoutMin: 10,
+  /** Characters of a run's output kept. */
+  output: 8000,
+  /** Pinned files a command's folder may have. */
+  pinnedFiles: 5000,
+} as const;
+
+/** A secret's name: an environment variable's (upper case, digits and `_`, not starting with a digit). */
+export const SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]{0,63}$/;
+/** A fixed command's name: lower case letters, digits, `-` and `_`. */
+export const COMMAND_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/** A working directory's secrets and fixed commands, for Settings: names only, never a value. */
+export interface FolderHandoffs {
+  folder: string;
+  secrets: { name: string; setAt: number }[];
+  commands: FixedCommand[];
+}
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };

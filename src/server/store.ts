@@ -43,6 +43,7 @@ import type {
   MemoryAuthor,
   MemoryNote,
   MemoryPartNote,
+  SecretAsk,
   SearchResult,
   SharedPage,
 } from '../shared/types';
@@ -360,6 +361,25 @@ function toPart(r: PartRow): MessagePart {
       };
     case 'notice':
       return { type: 'notice', text: r.text ?? '' };
+    case 'secrets': {
+      const d = parseJson<{ id?: unknown; folder?: unknown; asks?: unknown }>(r.data, {});
+      return {
+        type: 'secrets',
+        id: typeof d.id === 'string' ? d.id : '',
+        folder: typeof d.folder === 'string' ? d.folder : '',
+        asks: Array.isArray(d.asks) ? (d.asks as SecretAsk[]) : [],
+      };
+    }
+    case 'command':
+      return {
+        type: 'command',
+        ...parseJson(r.data, {
+          id: '',
+          folder: '',
+          proposal: { name: '', run: '', hosts: [], secrets: [] },
+          status: 'dismissed' as const,
+        }),
+      };
     case 'memory': {
       const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
       return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
@@ -393,7 +413,9 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'approval':
     case 'attachment':
     case 'memory':
-    case 'outbox': {
+    case 'outbox':
+    case 'secrets':
+    case 'command': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }

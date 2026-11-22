@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
-import { LANGS, type Lang } from '../shared/types';
+import { FIXED_COMMAND_NEWS, LANGS, type FixedCommandRun, type Lang } from '../shared/types';
 
 /*
  * Language of user-facing server text (errors, system notes, adapter messages).
@@ -41,7 +41,99 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
   return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
 }
 
+/** A fence for `text` in a message: one backtick more than its longest run of them, three at least. */
+function fenced(text: string): string {
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const mark = '`'.repeat(longest + 1);
+  return `${mark}\n${text}\n${mark}`;
+}
+
+/** How a fixed command's run went, in a line (zh-TW). */
+function runLineZh(run: FixedCommandRun): string {
+  const why = run.reason ? `：${run.reason}` : '';
+  switch (run.status) {
+    case 'running':
+      return '執行中';
+    case 'passed':
+      return '完成（結束碼 0）';
+    case 'news':
+      return `完成，有新的內容（結束碼 ${FIXED_COMMAND_NEWS}）`;
+    case 'failed':
+      return `失敗（結束碼 ${run.exitCode ?? '?'}）${why}`;
+    case 'changed':
+      return `沒有執行：儲存之後，它的程式碼改過了（${(run.changed ?? []).slice(0, 5).join('、')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}）。請在它的卡片上檢查變更再試跑。`;
+    default:
+      return `無法執行${why}`;
+  }
+}
+
+/** How a fixed command's run went, in a line (English). */
+function runLineEn(run: FixedCommandRun): string {
+  const why = run.reason ? `: ${run.reason}` : '';
+  switch (run.status) {
+    case 'running':
+      return 'running';
+    case 'passed':
+      return 'done (exit code 0)';
+    case 'news':
+      return `done, with something new (exit code ${FIXED_COMMAND_NEWS})`;
+    case 'failed':
+      return `failed (exit code ${run.exitCode ?? '?'})${why}`;
+    case 'changed':
+      return `not run: its code changed since it was saved (${(run.changed ?? []).slice(0, 5).join(', ')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}). Check the changes on its card, then try it again.`;
+    default:
+      return `could not run${why}`;
+  }
+}
+
 const zhTW = {
+  handoffs: {
+    storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',
+    badName: (name: string) => `「${name}」不是有效的密鑰名稱：只能用大寫英文字母、數字和底線，而且不能以數字開頭。`,
+    badValue: (name: string, problem: 'empty' | 'long' | 'lines') =>
+      problem === 'empty'
+        ? `${name} 是空的。`
+        : problem === 'long'
+          ? `${name} 太長了（最多 16 KB）。`
+          : `${name} 不能有換行。`,
+    tooManySecrets: (n: number) => `一個工作目錄最多保存 ${n} 個密鑰。`,
+    secretNotFound: (name: string) => `這個工作目錄沒有叫 ${name} 的密鑰。`,
+    commandNotFound: '找不到這個固定指令，可能已經刪除了。',
+    tooManyCommands: (n: number) => `一個工作目錄最多保存 ${n} 個固定指令。`,
+    tooManyFiles: (n: number) => `這個資料夾的程式碼和設定檔超過 ${n} 個，無法鎖定固定指令的程式碼。`,
+    windows: '固定指令要在 Harness Relay 自己的沙箱裡執行，原生 Windows 上還沒有這個沙箱。',
+    missingSecrets: (names: string) => `還沒有提供這些密鑰：${names}。`,
+    inputTooLong: (n: number) => `要交給指令的輸入太長了（最多 ${Math.round(n / 1024)} KB）。`,
+    timedOut: (min: number) => `執行超過 ${min} 分鐘，已經停止。`,
+    hostsRefused: (hosts: string) => `沙箱擋下了它要連的主機：${hosts}。需要的話，請把這些主機加進這個固定指令。`,
+    networkRefused: '沙箱擋下了它的網路連線。',
+    sandboxRefused: '沙箱擋下了它要做的事（例如寫到工作目錄以外）。',
+    noCommand: (name: string) => `這個工作目錄沒有叫「${name}」的固定指令，所以沒有放進待送出匣。`,
+    outboxTitle: (name: string) => `執行一次固定指令「${name}」`,
+    fieldCommand: '指令',
+    fieldFolder: '資料夾',
+    fieldHosts: '可連的主機',
+    cardNotFound: '找不到這張卡片。',
+    cardDecided: '這張卡片已經回覆過了。',
+    noValues: '請至少填一個值，或選擇不提供。',
+    badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
+    commandRunning: '這個固定指令正在執行，請等它結束。',
+    commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
+    commandAnswer: (name: string, run?: FixedCommandRun) =>
+      run
+        ? `我已儲存固定指令「${name}」並試跑了一次：${runLineZh(run)}。${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`
+        : `我已儲存固定指令「${name}」。`,
+    secretsAnswer: (saved: string[], declined: string[]) =>
+      [
+        saved.length ? `我已提供 ${saved.join('、')}，它存在這個工作目錄的憑證儲存區，只會交給列出它的固定指令。` : '',
+        declined.length ? `我現在不提供 ${declined.join('、')}。` : '',
+      ]
+        .filter(Boolean)
+        .join(''),
+    notKept: (why: string) => `它寫回的新值沒有保存：${why}`,
+    commandChangedSince: (name: string) => `固定指令「${name}」在這次執行放進待送出匣之後改過了，所以沒有執行。`,
+    runLine: runLineZh,
+  },
   publish: {
     unreachable: (host: string) => `無法連到 ${host}，或它的回應無法讀取。請稍後再試。`,
     badAnswer: '雲端服務的回應不是預期的格式。',
@@ -1286,6 +1378,51 @@ const zhTW = {
 export type ServerMessages = typeof zhTW;
 
 const en: ServerMessages = {
+  handoffs: {
+    storage: 'There is no credential store on this computer to keep secrets in.',
+    badName: (name) => `"${name}" is not a valid secret name: capital letters, digits and underscores only, not starting with a digit.`,
+    badValue: (name, problem) =>
+      problem === 'empty' ? `${name} is empty.` : problem === 'long' ? `${name} is too long (16 KB at most).` : `${name} cannot have line breaks.`,
+    tooManySecrets: (n) => `A working directory keeps ${n} secrets at most.`,
+    secretNotFound: (name) => `This working directory has no secret named ${name}.`,
+    commandNotFound: 'This fixed command was not found; it may have been removed.',
+    tooManyCommands: (n) => `A working directory keeps ${n} fixed commands at most.`,
+    tooManyFiles: (n) => `This folder has more than ${n} code and configuration files, too many to pin a fixed command's code to.`,
+    windows: "Fixed commands run in Harness Relay's own sandbox, which native Windows does not have yet.",
+    missingSecrets: (names) => `These secrets were not given yet: ${names}.`,
+    inputTooLong: (n) => `The input for the command is too long (${Math.round(n / 1024)} KB at most).`,
+    timedOut: (min) => `It ran for more than ${min} minutes and was stopped.`,
+    hostsRefused: (hosts) => `The sandbox refused the hosts it tried to reach: ${hosts}. Add them to this fixed command if it needs them.`,
+    networkRefused: 'The sandbox refused its network connection.',
+    sandboxRefused: 'The sandbox refused something it tried to do (such as writing outside the working directory).',
+    noCommand: (name) => `This working directory has no fixed command named "${name}", so nothing was put in the outbox.`,
+    outboxTitle: (name) => `Run the fixed command "${name}" once`,
+    fieldCommand: 'Command',
+    fieldFolder: 'Folder',
+    fieldHosts: 'Hosts it may reach',
+    cardNotFound: 'This card was not found.',
+    cardDecided: 'This card was answered already.',
+    noValues: 'Fill in at least one value, or choose not to give them.',
+    badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
+    commandRunning: 'This fixed command is running; wait until it ends.',
+    commandDismissed: (name) => `I did not save the fixed command "${name}".`,
+    commandAnswer: (name, run) =>
+      run
+        ? `I saved the fixed command "${name}" and tried it once: ${runLineEn(run)}.${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`
+        : `I saved the fixed command "${name}".`,
+    secretsAnswer: (saved, declined) =>
+      [
+        saved.length
+          ? `I gave ${saved.join(', ')}: kept in this working directory's credential store, for the fixed commands that name ${saved.length > 1 ? 'them' : 'it'} only.`
+          : '',
+        declined.length ? `I will not give ${declined.join(', ')} for now.` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    notKept: (why) => `The new value it wrote back was not kept: ${why}`,
+    commandChangedSince: (name) => `The fixed command "${name}" changed after this run was put in the outbox, so it was not run.`,
+    runLine: runLineEn,
+  },
   publish: {
     unreachable: (host: string) => `${host} could not be reached, or its answer could not be read. Try again in a moment.`,
     badAnswer: 'The cloud service answered in a form Harness Relay does not expect.',

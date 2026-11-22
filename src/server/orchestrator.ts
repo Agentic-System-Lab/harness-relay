@@ -34,7 +34,13 @@ import type {
   TeamPreset,
   TeamRevision,
   CheckFinding,
+  CommandProposal,
+  FixedCommand,
+  FixedCommandRun,
+  SecretAsk,
 } from '../shared/types';
+import { HANDOFF_LIMITS } from '../shared/types';
+import { checkProposal, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
 import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
@@ -69,6 +75,7 @@ import {
   GATEWAY_SANDBOXED_MCP,
   gatewayToolNamed,
   reservedMcpName,
+  type GatewayTool,
   type ToolGateway,
 } from './gateway';
 import { outboxAnswerText, type Outbox } from './outbox';
@@ -79,6 +86,7 @@ import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
+import { dropPin, pinChanges, pinDiff, runFixedCommand, takePin } from './fixedCommands';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -720,6 +728,27 @@ function takeAsk(msg: ChatMessage): boolean {
 }
 
 /**
+ * Takes a finished reply's hand-off blocks (`<secret>`, `<command>`, `<command-run>`: see
+ * `src/shared/handoffs.ts`) out of its text, anywhere in it; returns them in order.
+ */
+function takeHandoffBlocks(msg: ChatMessage): HandoffBlock[] {
+  const blocks: HandoffBlock[] = [];
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const split = splitHandoffs(part.text);
+    if (!split.blocks.length) continue;
+    blocks.unshift(...split.blocks);
+    if (split.text) part.text = split.text;
+    else msg.parts.splice(i, 1);
+  }
+  return blocks;
+}
+
+/** The name outbox items of fixed command runs are kept under (no gateway tool has it). */
+export const FIXED_COMMAND_TOOL = 'relay_fixed_command';
+
+/**
  * Take the `<progress>` block off the end of a reply (see `src/shared/tracking.ts`): what it says, or
  * undefined when the reply's last text has none. The reply keeps it as a `progress` part.
  */
@@ -824,6 +853,9 @@ export class Orchestrator {
   private checking = new Map<string, AbortController>();
   /** That work, until it has finished its clean-up (`settled()` waits for it). */
   private checkWork = new Set<Promise<unknown>>();
+  /** Fixed commands' runs under way, by command id (one at a time each), and the work of those Try it started. */
+  private commandRuns = new Map<string, AbortController>();
+  private commandWork = new Set<Promise<unknown>>();
   /**
    * Steering: per conversation, the messages being sent while the team replies, one after another in the
    * order they were sent (each waits for the one before it to go into running turns or into the queue).
@@ -1014,6 +1046,7 @@ export class Orchestrator {
       ...[...this.revisions.values()].flatMap((set) => [...set].map((r) => r.done)),
       ...[...this.branching.values()].flatMap((set) => [...set]),
       ...this.checkWork,
+      ...this.commandWork,
       this.grouper.settled(),
       this.memory.settled(),
     ]);
@@ -1046,6 +1079,305 @@ export class Orchestrator {
     if (item.result !== undefined) part.result = item.result;
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** The working directory a conversation's secrets and fixed commands are kept for: its first one, as a real path. */
+  handoffFolder(conv: Conversation): string {
+    return realPath(conv.settings.cwd);
+  }
+
+  /**
+   * Takes a finished reply's hand-off blocks out of its text and records them: the secrets it asks for
+   * and the fixed commands it proposes become cards that wait for the user (returns whether there is
+   * one); a run of a saved fixed command goes to the outbox, for the user to send.
+   */
+  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig): boolean {
+    const blocks = takeHandoffBlocks(msg);
+    if (!blocks.length) return false;
+    const folder = this.handoffFolder(conv);
+    const store = this.settings.handoffs;
+    const asks: SecretAsk[] = [];
+    for (const b of blocks) {
+      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name) || asks.length >= HANDOFF_LIMITS.secretsPerReply) continue;
+      asks.push({
+        name: b.name,
+        ...(b.label ? { label: b.label } : {}),
+        ...(b.reason ? { reason: b.reason } : {}),
+        status: 'waiting',
+        ...(store.has(folder, b.name) ? { had: true } : {}),
+      });
+    }
+    if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder, asks });
+    let proposed = 0;
+    for (const b of blocks) {
+      if (b.kind !== 'command' || proposed >= HANDOFF_LIMITS.commandsPerReply) continue;
+      const { kind: _kind, ...proposal } = b;
+      msg.parts.push({ type: 'command', id: randomUUID(), folder, proposal, status: 'proposed' });
+      proposed++;
+    }
+    for (const b of blocks) {
+      if (b.kind !== 'command-run') continue;
+      const cmd = store.commandByName(folder, b.name);
+      if (!cmd || !this.outbox) {
+        msg.parts.push({ type: 'notice', text: t().handoffs.noCommand(b.name) });
+        continue;
+      }
+      const { item, existing } = this.outbox.add(
+        {
+          convId: conv.id,
+          messageId: msg.id,
+          agentId: agent.id,
+          agentName: agent.name,
+          tool: FIXED_COMMAND_TOOL,
+          title: t().handoffs.outboxTitle(cmd.name),
+          preview: {
+            fields: [
+              { label: t().handoffs.fieldCommand, value: cmd.run },
+              { label: t().handoffs.fieldFolder, value: cmd.cwd ? join(folder, cmd.cwd) : folder },
+              ...(cmd.hosts.length ? [{ label: t().handoffs.fieldHosts, value: cmd.hosts.join(', ') }] : []),
+            ],
+            ...(b.input ? { body: b.input } : {}),
+          },
+        },
+        // What the card showed, pinned: a command saved again with another command line is not run for it.
+        { commandId: cmd.id, run: cmd.run, input: b.input },
+      );
+      if (!existing) msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
+    }
+    return asks.length > 0 || proposed > 0;
+  }
+
+  /** A secrets or command card of a reply. */
+  private handoffCard<K extends 'secrets' | 'command'>(
+    convId: string,
+    messageId: string,
+    partId: string,
+    type: K,
+  ): { conv: Conversation; msg: ChatMessage; part: Extract<MessagePart, { type: K }> } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    const part = msg?.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type && 'id' in p && p.id === partId);
+    if (!msg || !part) throw new HttpError(404, t().handoffs.cardNotFound);
+    return { conv, msg, part };
+  }
+
+  private saveCard(conv: Conversation, msg: ChatMessage): void {
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** Posts the user's answer to a card as their message, which the team takes as the answer to its question. */
+  private async answerCard(convId: string, text: string): Promise<void> {
+    try {
+      await this.send(convId, text);
+    } catch (err) {
+      // The card's answer is kept; the message waits for the user to send it when it cannot go now.
+      if (!(err instanceof HttpError)) throw err;
+    }
+  }
+
+  /**
+   * The user's answer to a secrets card: the values given (kept for the card's folder, in the credential
+   * store, never in the chat), or none (`decline`). Asks left without a value are declined. The answer
+   * the team gets names them, never a value.
+   */
+  async answerSecrets(
+    convId: string,
+    messageId: string,
+    partId: string,
+    answer: { values?: Record<string, string>; decline?: boolean },
+  ): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
+    const waiting = part.asks.filter((a) => a.status === 'waiting');
+    if (!waiting.length) throw new HttpError(409, t().handoffs.cardDecided);
+    let saved: string[] = [];
+    if (!answer.decline) {
+      const values = Object.fromEntries(
+        Object.entries(answer.values ?? {}).filter(
+          (e): e is [string, string] => waiting.some((a) => a.name === e[0]) && typeof e[1] === 'string' && Boolean(e[1].trim()),
+        ),
+      );
+      if (!Object.keys(values).length) throw new HttpError(400, t().handoffs.noValues);
+      this.settings.handoffs.setSecrets(part.folder, values);
+      saved = Object.keys(values);
+    }
+    for (const a of waiting) a.status = saved.includes(a.name) ? 'saved' : 'declined';
+    this.saveCard(conv, msg);
+    const declined = waiting.filter((a) => a.status === 'declined').map((a) => a.name);
+    await this.answerCard(convId, t().handoffs.secretsAnswer(saved, declined));
+  }
+
+  /** The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as it is now. */
+  async saveCommand(convId: string, messageId: string, partId: string, edits: Partial<CommandProposal> = {}): Promise<FixedCommand> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    const proposal = checkProposal({ ...part.proposal, ...edits });
+    if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
+    const store = this.settings.handoffs;
+    const id = store.commandId(part.folder, proposal.name);
+    if (this.commandRuns.has(id)) throw new HttpError(409, t().handoffs.commandRunning);
+    if (store.command(id)) await dropPin(id, store.pin(id));
+    let pin;
+    try {
+      pin = await takePin(part.folder, id);
+    } catch (err) {
+      throw new HttpError(409, (err as Error).message);
+    }
+    const command = store.saveCommand(part.folder, id, proposal, pin);
+    part.proposal = proposal;
+    part.status = 'saved';
+    part.commandId = id;
+    delete part.run;
+    this.saveCard(conv, msg);
+    return command;
+  }
+
+  /** The user does not save a proposed fixed command: the team is told. */
+  async dismissCommand(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    part.status = 'dismissed';
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.commandDismissed(part.proposal.name));
+  }
+
+  /**
+   * The user tells the team about a saved command's card: that it is saved, and, with `share`, how its
+   * last run from the card went (its output, its secrets masked).
+   */
+  async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
+    const { part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
+    const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
+    await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
+  }
+
+  /** A saved command of this conversation's working directory. */
+  private ownCommand(convId: string, commandId: string): { conv: Conversation; cmd: FixedCommand } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const cmd = this.settings.handoffs.command(commandId);
+    if (!cmd || cmd.folder !== this.handoffFolder(conv)) throw new HttpError(404, t().handoffs.commandNotFound);
+    return { conv, cmd };
+  }
+
+  /**
+   * Try it, on a fixed command's card: one run, in the background (its card follows it). `approve`: the
+   * user saw what changed in its code and approves it, which pins it again first. `extra`: words added
+   * to its command line for this run only.
+   */
+  async tryCommand(convId: string, commandId: string, o: { extra?: string; approve?: boolean } = {}): Promise<void> {
+    const { conv, cmd } = this.ownCommand(convId, commandId);
+    if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
+    if (o.approve) {
+      await dropPin(cmd.id, this.settings.handoffs.pin(cmd.id));
+      try {
+        this.settings.handoffs.repin(cmd.id, await takePin(cmd.folder, cmd.id));
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(409, (err as Error).message);
+      }
+    }
+    const work = this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}) });
+    this.commandWork.add(work);
+    void work.finally(() => this.commandWork.delete(work));
+  }
+
+  /** What changed in a fixed command's code since it was pinned: the files, and git's diff of them (its secrets masked). */
+  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string }> {
+    const { cmd } = this.ownCommand(convId, commandId);
+    const pin = this.settings.handoffs.pin(cmd.id);
+    if (!pin) return { changed: [], diff: '' };
+    const changed = await pinChanges(cmd.folder, pin);
+    const diff = await pinDiff(cmd.folder, pin, changed).catch(() => '');
+    return { changed, diff: maskValues(diff, Object.values(this.settings.handoffs.values(cmd.folder))) };
+  }
+
+  /**
+   * One run of a fixed command (Try it, an outbox item, a schedule), which never throws: refused while
+   * another run of it is under way, and not run when its pinned code changed (`changed`). Its secrets
+   * renewed in the run are kept; its card in `conv` follows it.
+   */
+  private async executeCommand(
+    conv: Conversation | undefined,
+    cmd: FixedCommand,
+    source: FixedCommandRun['source'],
+    o: { extra?: string; stdin?: string },
+  ): Promise<FixedCommandRun> {
+    const store = this.settings.handoffs;
+    const record = (run: FixedCommandRun) => {
+      store.setLastRun(cmd.id, run);
+      if (conv) this.updateCommandCards(conv.id, cmd.id, run);
+    };
+    if (this.commandRuns.has(cmd.id)) return { at: Date.now(), source, status: 'error', reason: t().handoffs.commandRunning };
+    const abort = new AbortController();
+    this.commandRuns.set(cmd.id, abort);
+    try {
+      const pin = store.pin(cmd.id);
+      const changed = pin ? await pinChanges(cmd.folder, pin) : [];
+      if (!pin || changed.length) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'changed', changed: changed.slice(0, 50) };
+        record(run);
+        return run;
+      }
+      record({ at: Date.now(), source, status: 'running' });
+      const { run, written } = await runFixedCommand(cmd, source, {
+        values: store.values(cmd.folder),
+        ...(o.extra !== undefined ? { extra: o.extra } : {}),
+        ...(o.stdin !== undefined ? { stdin: o.stdin } : {}),
+        protectedPaths: protectedReads(),
+        privateRoots: privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
+        signal: abort.signal,
+      });
+      if (Object.keys(written).length) {
+        try {
+          store.setSecrets(cmd.folder, written);
+        } catch (err) {
+          run.reason = t().handoffs.notKept((err as Error).message);
+        }
+      }
+      record(run);
+      return run;
+    } catch (err) {
+      const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: (err as Error).message };
+      record(run);
+      return run;
+    } finally {
+      this.commandRuns.delete(cmd.id);
+    }
+  }
+
+  /** The command cards of a conversation for this fixed command show its run. */
+  private updateCommandCards(convId: string, commandId: string, run: FixedCommandRun): void {
+    const conv = this.store.get(convId);
+    if (!conv) return;
+    for (const msg of conv.messages) {
+      let changed = false;
+      for (const p of msg.parts) {
+        if (p.type === 'command' && p.commandId === commandId) {
+          p.run = run;
+          changed = true;
+        }
+      }
+      if (changed) this.saveCard(conv, msg);
+    }
+  }
+
+  /** What Send does for an outbox item of a fixed command's run: that run, once, with the item's input on its standard input. */
+  private fixedCommandSender(convId: string): { send: NonNullable<GatewayTool['send']> } {
+    return {
+      send: async (args) => {
+        const conv = this.store.get(convId);
+        const cmd = typeof args.commandId === 'string' ? this.settings.handoffs.command(args.commandId) : undefined;
+        if (!conv || !cmd || cmd.folder !== this.handoffFolder(conv)) throw new Error(t().handoffs.commandNotFound);
+        if (args.run !== cmd.run) throw new Error(t().handoffs.commandChangedSince(cmd.name));
+        const run = await this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' });
+        const text = t().handoffs.runLine(run);
+        if (run.status === 'passed' || run.status === 'news') return text;
+        throw new Error(text);
+      },
+    };
   }
 
   /**
@@ -1096,7 +1428,9 @@ export class Orchestrator {
   async answerOutbox(convId: string, itemId: string, action: 'send' | 'discard'): Promise<OutboxItem> {
     const conv = this.store.get(convId);
     if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
-    const item = await this.outbox.answer(convId, itemId, action, (name) => this.gateway?.tool(name));
+    const item = await this.outbox.answer(convId, itemId, action, (name) =>
+      name === FIXED_COMMAND_TOOL ? this.fixedCommandSender(convId) : this.gateway?.tool(name),
+    );
     this.updateOutboxCard(item);
     this.systemNote(conv, outboxAnswerText(item));
     this.emitStatus(conv.id);
@@ -5313,17 +5647,28 @@ export class Orchestrator {
       // Long-term memory's blocks, anywhere in the reply, come out first: the ask marker and a
       // <progress> block end it.
       this.takeMemory(conv, msg, agent);
+      // Secrets asked for and fixed commands proposed wait for the user, as a question does.
+      const handedOff = this.takeHandoffs(conv, msg, agent);
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
       const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
-      if (takeAsk(msg)) msg.asked = true;
+      if (takeAsk(msg) || handedOff) msg.asked = true;
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
       // A reply that only reported on the goal, or only asked to send something, said something.
       msg.passed =
         isPass(text) ||
-        (!text && !msg.parts.some((p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox' || p.type === 'memory'));
+        (!text &&
+          !msg.parts.some(
+            (p) =>
+              p.type === 'tool' ||
+              p.type === 'progress' ||
+              p.type === 'outbox' ||
+              p.type === 'memory' ||
+              p.type === 'secrets' ||
+              p.type === 'command',
+          ));
       msg.status = 'done';
       msg.meta = {
         ...msg.meta,

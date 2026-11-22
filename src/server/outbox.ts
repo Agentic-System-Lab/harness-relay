@@ -185,7 +185,7 @@ export class Outbox {
     convId: string,
     id: string,
     action: 'send' | 'discard',
-    tool: (name: string) => GatewayTool | undefined,
+    tool: (name: string) => Pick<GatewayTool, 'send'> | undefined,
   ): Promise<OutboxItem> {
     const row = this.db.prepare('SELECT * FROM outbox WHERE id = ? AND conversation_id = ?').get(id, convId) as OutboxRow | undefined;
     if (!row) throw new HttpError(404, t().outboxNotFound);
