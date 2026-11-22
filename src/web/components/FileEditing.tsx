@@ -339,26 +339,30 @@ export function useFolderWrites({
   };
   const buttons = writable && (
     <>
+      {/* Icons, named for screen readers and in their tooltips: the row keeps to one line in the narrow list column. */}
       <button
         type="button"
-        className="ghost small-button"
+        className="ghost small-button file-action-icon"
         disabled={busy}
         onClick={() => {
           setCreating((c) => !c);
           setErrors([]);
         }}
         aria-expanded={creating}
+        aria-label={t.filesEdit.newFile}
+        title={t.filesEdit.newFile}
       >
-        <PlusIcon size={14} /> {t.filesEdit.newFile}
+        <PlusIcon size={14} />
       </button>
       <button
         type="button"
-        className="ghost small-button"
+        className="ghost small-button file-action-icon"
         disabled={busy}
         onClick={() => picker.current?.click()}
+        aria-label={t.filesEdit.upload}
         title={t.filesEdit.uploadHint(folderName)}
       >
-        <UploadIcon /> {t.filesEdit.upload}
+        <UploadIcon />
       </button>
       <input
         ref={picker}

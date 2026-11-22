@@ -2,9 +2,24 @@
 
 .file-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
+  min-width: 0;
+}
+
+/* The preview's label gives way first, should the column be narrower still. */
+.file-actions .folder-preview-button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* New file and Upload: icons, as round as the preview button is tall. */
+.file-actions .file-action-icon {
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 4px 9px;
 }
 
 .file-actions .small-button,
