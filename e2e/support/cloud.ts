@@ -55,6 +55,15 @@ export async function startCloud(o: { databaseHost?: string } = {}): Promise<Fak
         const path = p.slice('/render/v1'.length);
         if (method === 'GET' && path === '/owners')
           return send(200, [{ owner: { id: 'tea-e2e', name: 'Relay Test', type: 'user' }, cursor: 'x' }]);
+        if (method === 'GET' && path === '/services') {
+          const name = url.searchParams.get('name');
+          const ownerId = url.searchParams.get('ownerId');
+          const found = [...services].filter(([, s]) => s.name === name && s.ownerId === ownerId);
+          return send(
+            200,
+            found.map(([id, s]) => ({ service: { id, name: s.name, ownerId: s.ownerId, repo: s.repo, serviceDetails: {} }, cursor: id })),
+          );
+        }
         if (method === 'POST' && path === '/services') {
           const id = `srv-e2e${++n}`;
           const deployId = `dep-e2e${++n}`;
@@ -77,6 +86,7 @@ export async function startCloud(o: { databaseHost?: string } = {}): Promise<Fak
           deploys.set(id, ['update_in_progress', 'live']);
           return send(201, { id, status: 'created', commit: { id: body?.commitId } });
         }
+        if (deploy && method === 'GET' && !deploy[2]) return send(200, []);
         if (deploy && method === 'GET') {
           const states = deploys.get(deploy[2]!) ?? ['live'];
           return send(200, { id: deploy[2], status: states.length > 1 ? states.shift() : states[0] });

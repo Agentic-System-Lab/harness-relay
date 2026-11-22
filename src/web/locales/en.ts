@@ -2343,7 +2343,7 @@ export const en: Messages = {
       cwd: 'Default folder',
       sessions: 'Agent sessions',
       shares: 'Shares',
-      publish: 'Publish to the cloud',
+      publish: 'Publishing',
       browsers: 'Browsers',
       'home-screen': 'Connect your phone',
       tour: 'Tour',

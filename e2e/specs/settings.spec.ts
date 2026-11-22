@@ -306,6 +306,7 @@ test.describe('settings', () => {
       'Default folder',
       'Agent sessions',
       'Shares',
+      'Publishing',
       'Browsers',
       'Connect your phone',
       'Tour',
