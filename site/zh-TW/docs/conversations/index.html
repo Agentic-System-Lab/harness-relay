@@ -407,7 +407,14 @@
             </a>
             <figcaption>在手機上也能直接操作預覽中的網頁。</figcaption>
           </figure>
-          <p>Relay 會自動判斷如何啟動應用程式。靜態 HTML 或含 <code>index.html</code> 的靜態資料夾會直接開啟。若 npm 專案含有 lockfile，並提供 start 指令或預設的 <code>server.js</code>，就會執行 <code>npm start</code>；只有建置指令的前端會執行 <code>npm run build</code>。<code>Dockerfile</code> 或 <code>compose.yaml</code> 可以是任何語言：面板先在終端機顯示建置過程，應用程式提供網頁後就顯示網頁；在終端機執行的程式則留在終端機，可以在裡面輸入、用其他參數再執行一次，或開啟 shell。只有建置會連網。沒有任何執行方式的資料夾，會提供 <b>請 agent 加上 Dockerfile</b>。這類預覽需要 Docker Compose v2，Docker Desktop 與 OrbStack 都已內建。執行 Relay 的電腦若缺少 Docker，在支援的系統上可按 <b>安裝 Docker</b>。若已安裝，請啟動本機的 Linux 容器引擎。Docker 就緒後，Relay 會自動繼續預覽。</p>
+          <p>Relay 會自動判斷如何啟動應用程式。靜態 HTML 或含 <code>index.html</code> 的靜態資料夾會直接開啟。若 npm 專案含有 lockfile，並提供 start 指令或預設的 <code>server.js</code>，就會執行 <code>npm start</code>；只有建置指令的前端會執行 <code>npm run build</code>。<code>Dockerfile</code> 或 <code>compose.yaml</code> 可以是任何語言：面板先在終端機顯示建置過程，應用程式提供網頁後就顯示網頁；在終端機執行的程式則留在終端機，可以在裡面輸入、用其他參數再執行一次，或開啟 shell。</p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/app-preview-terminal-zh-TW.webp">
+              <img src="../../../assets/media/docs/app-preview-terminal-zh-TW.webp" width="768" height="450" alt="預覽面板中由 Dockerfile 建置的終端機程式，上方有「再執行一次」、「指令」與「開啟 shell」。" loading="lazy" />
+            </a>
+            <figcaption>在終端機執行的程式會留在終端機：可以直接輸入、用其他參數再執行一次，或開啟 shell。</figcaption>
+          </figure>
+          <p>只有建置會連網。沒有任何執行方式的資料夾，會提供 <b>請 agent 加上 Dockerfile</b>。這類預覽需要 Docker Compose v2，Docker Desktop 與 OrbStack 都已內建。執行 Relay 的電腦若缺少 Docker，在支援的系統上可按 <b>安裝 Docker</b>。若已安裝，請啟動本機的 Linux 容器引擎。Docker 就緒後，Relay 會自動繼續預覽。</p>
           <figure class="doc-figure">
             <a href="../../../assets/media/docs/app-preview-docker-setup-zh-TW.webp">
               <img src="../../../assets/media/docs/app-preview-docker-setup-zh-TW.webp" width="460" height="191" alt="「設定 Docker」視窗中的「安裝 Docker」、「重新檢查」與「取消」按鈕。" loading="lazy" />
