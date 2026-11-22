@@ -2,7 +2,7 @@
 
 # One preview for every app
 
-**Status.** Not started. The three mechanisms it depends on were tried against a real engine (below, "What was tried"). It extends the [app preview runtime](app-preview-runtime.md), whose static and npm paths stay as they are.
+**Status.** Steps 1 to 3 are built (a `Dockerfile` app, the terminal, compose), with step 4's line in the agents' briefing and the draft to the agent; the [user guide](../user-guide.md#previewing-an-app), [architecture](../architecture.md#container-previews) and [developer guide](../developer-guide.md#app-preview-runtime) describe them. Still open: step 4's builder of Relay's own with limits and a registry-only proxy, and generated builds. The open questions were settled as recommended, with one change found while building it (below, "Open questions"). It extends the [app preview runtime](app-preview-runtime.md), whose static and npm paths stay as they are.
 
 ## What exists, and what is missing
 
@@ -52,7 +52,7 @@ Unlike the npm path, the build needs the network: `pip install`, `go mod downloa
 
 Each service runs with today's hardening: all capabilities dropped, `no-new-privileges`, the CPU, memory and process limits, no host mounts, no Docker socket, Relay's owner label for cleanup, and the same idle and maximum lifetimes. A single container has `--network=none`. Compose services share one internal network and reach each other by name, and nothing outside.
 
-Two things differ from the npm path, because Relay no longer controls the image. The image chooses its user, and root is allowed without capabilities. Its own filesystem is writable and disposable, instead of read-only with a scratch folder. **Reload** keeps the running containers and their data, **Rebuild** builds from a new snapshot, and **Stop** removes the containers, networks, volumes and image.
+Two things differ from the npm path, because Relay no longer controls the image. The image chooses its user, and root keeps only the five capabilities official images need to hand their files to their own user and switch to it (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID`, `SETGID`): postgres, redis and nginx do not start without them. Ports below 1024 are open to any user in the namespace instead of `NET_BIND_SERVICE`. Its own filesystem is writable and disposable, instead of read-only with a scratch folder. **Reload** keeps the running containers and their data, **Rebuild** builds from a new snapshot, and **Stop** removes the containers, networks, volumes and image.
 
 ## Reaching the app
 
@@ -87,11 +87,11 @@ Limits apply per service and to the preview as a whole.
 
 ## Open questions
 
-1. **The build's network in steps 1 to 3:** the default network, as described, or the registry-only proxy from the start?
-2. **Root in the container:** allowed without capabilities, as proposed, or refused unless the image sets a non-root `USER`?
-3. **Base images:** any registry, or Docker Official Images plus a list the user keeps?
-4. **No recipe at all:** only the draft to the agent, or also a generated build (Railpack) behind a button?
-5. **Disk:** how much image and build cache to keep, and whether Settings shows it with a button to clear it.
+1. **The build's network in steps 1 to 3:** the default network, as built. The registry-only proxy is still step 4.
+2. **Root in the container:** allowed, with the five capabilities above rather than none, since official images need them.
+3. **Base images:** any registry, for now.
+4. **No recipe at all:** only the draft to the agent, for now; a generated build (Railpack) is still open.
+5. **Disk:** each preview's images are removed when it stops, and at startup those a crash left; BuildKit's cache is left to Docker. Whether Settings shows it with a button to clear it is still open.
 
 ## Delivery
 

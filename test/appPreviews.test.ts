@@ -90,6 +90,58 @@ describe('preview lifecycle', () => {
   });
 });
 
+describe('container previews', () => {
+  it('answer before the build, give their terminal only to the browser that started them, and count its use as activity', async () => {
+    mkdirSync(join(root, 'svc', 'target'), { recursive: true });
+    for (const [name, text] of Object.entries({
+      'svc/Dockerfile': 'FROM scratch',
+      'svc/main.go': 'package main',
+      'svc/.env': 'TOKEN=1',
+      'svc/target/app': 'bin',
+    }))
+      writeFileSync(join(root, name), text);
+    const terminal = { subscribe: vi.fn(), input: vi.fn(() => true), resize: vi.fn(), run: vi.fn() };
+    const stop = vi.fn(async () => {});
+    const container = vi.fn((_: { files: ReadonlyMap<string, Buffer>; recipe: string }) => ({
+      request: async () => new Response('page'),
+      stop,
+      terminal,
+    }));
+    let now = 0;
+    const service = new AppPreviews('relay', vi.fn(), () => now, container);
+    const target: PreviewTarget = { root, folder: 'svc', entry: 'Dockerfile', mode: 'container' };
+    const s = await service.start('chat', target, address(), parent, new AbortController().signal, undefined, undefined, 'browser-1');
+    expect(s.terminal).toBe(true);
+    const [{ files, recipe }] = container.mock.calls[0]!;
+    expect(recipe).toBe('Dockerfile');
+    expect([...files.keys()].sort()).toEqual(['Dockerfile', 'main.go']);
+    expect(service.terminal('chat', s.id, 'browser-1')).toBe(terminal);
+    expect(() => service.terminal('chat', s.id, 'browser-2')).toThrow(expect.objectContaining({ status: 403 }));
+    expect(() => service.terminal('chat', s.id, undefined)).toThrow(expect.objectContaining({ status: 403 }));
+    expect(() => service.terminal('other', s.id, 'browser-1')).toThrow(expect.objectContaining({ status: 404 }));
+    // Using the terminal keeps an idle preview alive; its page is served as any other.
+    const url = new URL(s.url);
+    now += 25 * 60_000;
+    service.terminal('chat', s.id, 'browser-1');
+    now += 25 * 60_000;
+    expect((await view(service, url, url.pathname)).status).toBe(200);
+    await service.stop('chat', s.id);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(() => service.terminal('chat', s.id, 'browser-1')).toThrow(expect.objectContaining({ status: 404 }));
+    // An npm or static preview has no terminal.
+    const plain = await service.start(
+      'chat',
+      { root, folder: '', entry: 'package.json', mode: 'server' },
+      address(),
+      parent,
+      new AbortController().signal,
+    );
+    expect(plain.terminal).toBeUndefined();
+    expect(() => service.terminal('chat', plain.id, undefined)).toThrow(expect.objectContaining({ status: 404 }));
+    await service.close();
+  });
+});
+
 describe('npm workspaces', () => {
   it('copies the workspace root with its lockfile and runs the selected member', async () => {
     for (const [name, text] of Object.entries({

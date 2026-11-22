@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { mentionsInMarkdown, unknownMentions } from '../src/shared/mentions';
-import { filePreviewTarget, previewErrorDraft, previewFrameError, recordPreviewError, safePreviewSession } from '../src/web/appPreview';
+import {
+  NO_TERMINAL,
+  filePreviewTarget,
+  nextTerminalState,
+  previewErrorDraft,
+  previewFrameError,
+  recordPreviewError,
+  safePreviewSession,
+  sseMessages,
+  terminalEvent,
+  terminalTail,
+  terminalText,
+} from '../src/web/appPreview';
 
 describe('app preview targets', () => {
   it('offers HTML and npm project links and preserves the exact path for the server', () => {
@@ -11,6 +23,14 @@ describe('app preview targets', () => {
     expect(filePreviewTarget('C:\\my project\\package.json')).toEqual({ mode: 'build', folder: 'C:/my project', entry: 'package.json' });
     expect(filePreviewTarget('build/index.html.js')).toBeUndefined();
     expect(filePreviewTarget('other-package.json')).toBeUndefined();
+  });
+
+  it('offers a Dockerfile or a compose file as a container preview', () => {
+    expect(filePreviewTarget('api/Dockerfile')).toEqual({ mode: 'container', folder: 'api', entry: 'Dockerfile' });
+    expect(filePreviewTarget('compose.yaml')).toEqual({ mode: 'container', folder: '', entry: 'compose.yaml' });
+    expect(filePreviewTarget('C:\\app\\docker-compose.yml')).toEqual({ mode: 'container', folder: 'C:/app', entry: 'docker-compose.yml' });
+    expect(filePreviewTarget('api/Dockerfile.dev')).toBeUndefined();
+    expect(filePreviewTarget('api/dockerfile')).toBeUndefined();
   });
 
   it('embeds only the returned HTTP(S) origin on a hostname separate from Relay', () => {
@@ -74,5 +94,36 @@ describe('app preview frame reports', () => {
     expect(reports).toHaveLength(10);
     expect(reports[0]).toBe('Problem 0');
     expect(recordPreviewError(reports, reports[0]!)).toBe(reports);
+  });
+});
+
+describe('a container preview terminal', () => {
+  it('reads complete SSE messages, keeping a part for the next read and leaving out pings', () => {
+    const first = sseMessages('data: {"type":"page"}\n\nevent: ping\ndata: \n\ndata: {"type":"phase",');
+    expect(first.messages).toEqual(['{"type":"page"}']);
+    const second = sseMessages(first.rest + '"phase":"running"}\r\n\r\n');
+    expect(second).toEqual({ messages: ['{"type":"phase","phase":"running"}'], rest: '' });
+    expect(terminalEvent(second.messages[0]!)).toEqual({ type: 'phase', phase: 'running' });
+    expect(terminalEvent('{"type":"other"}')).toBeUndefined();
+    expect(terminalEvent('not json')).toBeUndefined();
+  });
+
+  it('follows the phases: the page only while it runs, the last command after it exits', () => {
+    let state = nextTerminalState(NO_TERMINAL, { type: 'phase', phase: 'building' });
+    state = nextTerminalState(state, { type: 'phase', phase: 'running', command: 'python app.py' });
+    state = nextTerminalState(state, { type: 'page' });
+    expect(state).toMatchObject({ phase: 'running', command: 'python app.py', page: true });
+    state = nextTerminalState(state, { type: 'phase', phase: 'exited', code: 2 });
+    expect(state).toMatchObject({ phase: 'exited', code: 2, command: 'python app.py', page: false });
+    state = nextTerminalState(state, { type: 'phase', phase: 'starting' });
+    expect(state).toMatchObject({ phase: 'starting', command: undefined, page: false });
+    expect(nextTerminalState(state, { type: 'closed' })).toMatchObject({ closed: true, page: false });
+    expect(nextTerminalState(state, { type: 'output', data: '' })).toBe(state);
+  });
+
+  it('turns what the terminal showed into plain lines for a message', () => {
+    const raw = '\x1b]0;title\x07\x1b[1mBuilding\x1b[0m\r\n50%\r100%\r\n\x1b[31mError: boom\x1b[0m\r\n\x1b[?2004hprompt> ';
+    expect(terminalText(raw)).toBe('Building\n100%\nError: boom\nprompt> ');
+    expect(terminalTail('a\nb\nc\n\n', 2)).toBe('b\nc');
   });
 });

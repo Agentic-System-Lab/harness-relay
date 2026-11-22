@@ -1,5 +1,5 @@
 import { t } from './i18n';
-import { tail } from './process';
+import { tail, type SpawnResult } from './process';
 import { randomUUID } from 'node:crypto';
 import { checked, localDocker, checkDockerEngine, type Docker, type DockerOptions } from './previewDocker';
 import { lockedPreviewPackages, fetchPreviewPackage, type LockedPreviewPackage } from './previewDockerPackages';
@@ -37,21 +37,25 @@ export class PreviewCleanupError extends Error {
 }
 
 // Official Node 22.23.5 / Debian bookworm, index for Linux amd64 and arm64.
-const IMAGE = 'docker.io/library/node@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee';
-const LABEL = 'io.harness-relay.preview.owner';
+export const PREVIEW_NODE_IMAGE = 'docker.io/library/node@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee';
+const IMAGE = PREVIEW_NODE_IMAGE;
+export const PREVIEW_LABEL = 'io.harness-relay.preview.owner';
+const LABEL = PREVIEW_LABEL;
 const DIGEST = /^[a-f0-9]{64}$/;
-const NODE = ['/usr/local/bin/node', '--input-type=module', '-e'];
+export const NODE = ['/usr/local/bin/node', '--input-type=module', '-e'];
 const MIB = 1024 * 1024;
 const MAX_PACKAGES = 96 * MIB;
 const MAX_TARBALL = 24 * MIB;
 const PROXIES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'FTP_PROXY'];
-const LIMITS = `
+/** The engine enforces the container's limits: memory and process maxima as arguments, else the npm path's. */
+export const LIMITS = `
 import fs from 'node:fs';
 const read = name => fs.readFileSync('/sys/fs/cgroup/'+name,'utf8').trim();
 const [quota,period] = read('cpu.max').split(/\\s+/).map(Number);
 if (!(quota > 0 && period > 0 && quota <= period)) throw Error('Docker CPU quota is unavailable.');
 const within = (file, max) => Number(read(file)) > 0 && Number(read(file)) <= max;
-if (!within('memory.max',805306368) || Number(read('memory.swap.max')) !== 0 || !within('pids.max',96))
+const memoryMax = Number(process.argv[1] || 805306368), pidsMax = Number(process.argv[2] || 96);
+if (!within('memory.max',memoryMax) || Number(read('memory.swap.max')) !== 0 || !within('pids.max',pidsMax))
   throw Error('Docker memory or process quota is unavailable.');
 const status = fs.readFileSync('/proc/self/status','utf8');
 if (process.getuid() !== 1000 || !/^CapEff:\\s*0+$/m.test(status) || !/^NoNewPrivs:\\s*1$/m.test(status) || !/^Seccomp:\\s*2$/m.test(status))
@@ -75,7 +79,7 @@ while (true) {
 }
 `;
 
-function ownerLabel(owner: string): string {
+export function ownerLabel(owner: string): string {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(owner)) throw new Error(t().previewDocker.invalidOwner);
   return LABEL + '=' + owner;
 }
@@ -98,9 +102,65 @@ async function sweep(docker: Docker, filters: string[]): Promise<void> {
   }
 }
 
+/** Containers first, then what they used: networks, volumes and the images built for them. */
+export async function sweepPreviewResources(docker: Docker, filter: string): Promise<void> {
+  await sweep(docker, [filter]);
+  for (const [kind, list, removal] of [
+    ['network', ['network', 'ls', '-q', '--no-trunc'], ['network', 'rm']],
+    ['volume', ['volume', 'ls', '-q'], ['volume', 'rm', '-f']],
+    ['image', ['image', 'ls', '-q', '--no-trunc'], ['image', 'rm', '-f']],
+  ] as const) {
+    const found = checked(await docker([...list, '--filter', filter]), t().previewDocker.find);
+    if (found.stdoutTruncated) throw new Error(t().previewDocker.containerCount);
+    const ids = found.stdout.trim().split(/\s+/).filter(Boolean);
+    for (const id of ids) {
+      if (!/^(?:sha256:)?[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(id)) throw new Error(t().previewDocker.invalidDocker);
+    }
+    if (!ids.length) continue;
+    const r = await docker([...removal, ...ids]);
+    // An image another preview still uses, or one already gone, is left for the next sweep.
+    if (r.code !== 0 && kind !== 'image') checked(r, t().previewDocker.remove);
+  }
+}
+
 export async function cleanupPreviewRuntimes(owner: string): Promise<void> {
   const label = ownerLabel(owner);
-  await sweep(await localDocker(), ['label=' + label]);
+  await sweepPreviewResources(await localDocker(), 'label=' + label);
+}
+
+/**
+ * HTTP to an app through the fixed forwarder program, run with `exec` in a container that shares
+ * the app's network namespace, on `port` there. At most 8 requests at a time.
+ */
+export function previewForwarder(
+  exec: (args: string[], options: DockerOptions) => Promise<SpawnResult>,
+  lifetime: AbortSignal,
+  port: number,
+): (request: Request) => Promise<Response> {
+  let active = 0;
+  return async (request) => {
+    if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(request.method)) return new Response(null, { status: 405 });
+    if (active >= 8) return new Response(null, { status: 429 });
+    active++;
+    try {
+      const requestSignal = AbortSignal.any([request.signal, lifetime, AbortSignal.timeout(15000)]);
+      const stdin = await encodePreviewRequest(request, requestSignal);
+      const result = checked(
+        await exec([...NODE, FORWARD_HTTP, String(port)], {
+          stdin,
+          signal: requestSignal,
+          timeoutMs: 15000,
+          maxCapture: RESPONSE_LIMIT + 32769,
+        }),
+        t().previewDocker.http,
+        false,
+      );
+      if (result.stdoutTruncated) throw new Error(t().previewDocker.responseSize);
+      return decodePreviewResponse(result.stdoutBytes, request.method);
+    } finally {
+      active--;
+    }
+  };
 }
 
 async function seedCache(
@@ -313,31 +373,13 @@ export async function startPreviewRuntime(opts: {
     }
     setup.throwIfAborted();
     signal.addEventListener('abort', onAbort, { once: true });
-    let active = 0;
+    const forward = previewForwarder(exec, lifetime.signal, APP_PORT);
     return {
       stop,
       async request(request) {
         if (closed || signal.aborted) return new Response(null, { status: 410 });
-        if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(request.method))
-          return new Response(null, { status: 405 });
-        if (active >= 8) return new Response(null, { status: 429 });
-        active++;
-        try {
-          if (serverFailure) throw serverFailure;
-          const requestSignal = AbortSignal.any([request.signal, lifetime.signal, AbortSignal.timeout(15000)]);
-          const stdin = await encodePreviewRequest(request, requestSignal);
-          const forwarded = exec([...NODE, FORWARD_HTTP], {
-            stdin,
-            signal: requestSignal,
-            timeoutMs: 15000,
-            maxCapture: RESPONSE_LIMIT + 32769,
-          });
-          const result = checked(await forwarded, t().previewDocker.http, false);
-          if (result.stdoutTruncated) throw new Error(t().previewDocker.responseSize);
-          return decodePreviewResponse(result.stdoutBytes, request.method);
-        } finally {
-          active--;
-        }
+        if (serverFailure && ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(request.method)) throw serverFailure;
+        return forward(request);
       },
     };
   } catch (e) {

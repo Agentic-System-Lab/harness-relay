@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 582 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 588 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -50,7 +50,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 6 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
+| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 12 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
@@ -292,6 +292,12 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Missing Docker for a build | Claude Code | Canceling the setup dialog leaves the preview stopped. Install Docker starts one installation when selected. Once a simulated engine is ready, the build starts exactly once. |
 | Installed engine unavailable | Claude Code | A stopped engine can be checked again. Once it is ready, a project with both npm scripts opens its backend exactly once. |
 | Build and SQLite backend through the signed-in panel | Claude Code | With `E2E_PREVIEW_DOCKER=1` and local Docker running Linux containers, opens two project links directly, shows built HTML, writes an entry through the backend API, keeps it on refresh, starts empty after a rebuild and closes the frame on Stop. |
+| Container preview of a Dockerfile, simulated | Claude Code | With a simulated engine and terminal stream: the panel says the app has no network, opens the page when the app serves one, shows the build and the app's output in its terminal, offers the running command, sends keystrokes (Escape and Tab too, on a phone where the panel is a dialog), and runs it again as it is, with an edited command line, and as a shell. |
+| A failed container build, simulated | Claude Code | A compose file from Files: a failed build says so, offers no Run again, and the terminal's last lines, without their colours, go into the report with the existing draft. |
+| A folder with nothing to run | Claude Code | A Go folder without a Dockerfile: the panel names the Dockerfile and **Ask the agent for a Dockerfile** puts a draft for the team in the composer. |
+| A Python Dockerfile app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the panel opens on its terminal, then the page, which has no network and is served on the image's `EXPOSE`d port; the terminal holds the server's output. |
+| A terminal app through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`, from Files: the prompt appears, typed input is answered, the exit code shows; an edited command runs it again with arguments, a failing exit goes into the report, and **Open a shell** gives a shell with `PORT` set. |
+| A compose app with Redis through Docker | Claude Code | With `E2E_PREVIEW_DOCKER=1`: the web service built from the project reaches Redis by its service name once it is healthy, reads a project file mounted into it, takes a variable's default, and has no network outside. |
 
 ## Working directories and other folders
 
@@ -821,11 +827,12 @@ The app preview panel is shared by all CLIs. The Files and draft scenarios use C
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), "Without gh" is skipped on Windows, and the viewer's download test is skipped in WebKit, which under Playwright downloads nothing a link opens (also on a page without a frame, sent as an attachment).
 - The four tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 
-The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel test.
+The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel tests: an npm build and backend, a `Dockerfile` app, a terminal app and a compose app.
 
 ## What they do not cover
 
 - **Physical phones and production preview domains.** Browser checks use a phone viewport and a synthetic HTTPS setup for remote mode. Check physical devices, DNS, certificates and proxy routing in the deployment. The standalone Docker check, `npx tsx scripts/preview-runtime-check.ts`, also runs on Linux CI.
+- **Container previews on Windows and macOS CI.** Their live Docker tests run on Linux CI and by hand (OrbStack on macOS); the Engine API over Windows' named pipe has not been tried. Elsewhere the panel's terminal is tested with a simulated stream.
 
 - **Most of team checks.** End-to-end tests exercise the editor, protected paths, commands and hooks with Claude Code's fake where a CLI is needed. The following cases are covered offline: the commit format, a member's worktree in parallel mode, a run that stopped to ask, the lead review reading the result, an automation's run nobody watched, a template's list copied into a chat, commands held back by changed settings, Check again running them in the background and the commands run in a check tree when a parallel result is applied (its dependencies linked in) (`test/orchestrator-checks.test.ts`, `test/checks.test.ts`, `test/checkCommands.test.ts`), as is each CLI writing a protected file (the checks read the disk, whatever wrote it). The two openings a command can have (every local port on macOS, every Unix socket on Linux) are tried only by hand, as `scripts/sandbox-check.ts` does not run a check's command.
 - **Native Git installation.** The Git dialog tests simulate missing Git and installer responses. `test/git-install.test.ts` checks platform-specific installer choices with fake processes.

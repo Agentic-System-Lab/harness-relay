@@ -3,6 +3,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
+import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES } from '../shared/types';
 import { HttpError } from './errors';
 import { fileRoots, readPreview, resolveInRoot } from './files';
 import { mediaRoots, replyWorktrees } from './media';
@@ -23,6 +24,9 @@ export interface PreviewTarget {
 }
 
 type PreviewLocation = Pick<PreviewTarget, 'root' | 'folder'> & { isPrivate: (path: string) => boolean };
+/** What a container preview starts from, in the order a folder is looked at: compose first, then a Dockerfile. */
+export const CONTAINER_ENTRIES: readonly string[] = PREVIEW_RECIPES;
+const isContainerEntry = (entry: string) => CONTAINER_ENTRIES.includes(entry);
 type Lookup = (id: string) => Conversation | undefined;
 const missing = () => new HttpError(404, t().previewTarget);
 
@@ -71,7 +75,9 @@ function locatePreviewEntry(
       (entry) =>
         typeof entry !== 'string' ||
         entry.length > 255 ||
-        (entry !== 'package.json' && (!/\.html?$/i.test(entry) || entry.includes('/') || !isPreviewAsset(entry))),
+        (entry !== 'package.json' &&
+          !isContainerEntry(entry) &&
+          (!/\.html?$/i.test(entry) || entry.includes('/') || !isPreviewAsset(entry))),
     )
   )
     throw new HttpError(400, t().previewTarget);
@@ -104,7 +110,7 @@ function locatePreviewEntry(
       /* A relative reply link can belong to another of the member's working directories. */
     }
   }
-  throw new HttpError(404, entries.length > 1 ? t().previewFolderEntry : t().previewTarget);
+  throw entries.length > 1 ? new HttpError(404, t().previewFolderEntry, PREVIEW_NO_RECIPE) : new HttpError(404, t().previewTarget);
 }
 
 export function previewTarget(
@@ -114,6 +120,12 @@ export function previewTarget(
   settings?: SettingsStore,
 ): PreviewTarget {
   const { mode } = input;
+  if (mode === 'container') {
+    const entry = input.entry;
+    if (typeof entry !== 'string' || !isContainerEntry(entry)) throw new HttpError(400, t().previewTarget);
+    const { location } = locatePreviewEntry(conv, input, [entry], lookup, settings);
+    return { ...location, entry, mode };
+  }
   if (mode !== 'static' && mode !== 'build' && mode !== 'server') throw new HttpError(400, t().previewTarget);
   const selected = input.entry ?? (mode === 'static' ? 'index.html' : 'package.json');
   if (input.messageId === undefined && (mode === 'static' ? selected === 'package.json' : selected !== 'package.json'))
@@ -236,7 +248,7 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
   const { location, entry } = locatePreviewEntry(
     conv,
     input,
-    input.entry === undefined ? ['package.json', 'index.html'] : [input.entry],
+    input.entry === undefined ? [...CONTAINER_ENTRIES, 'package.json', 'index.html'] : [input.entry],
     lookup,
     settings,
   );
@@ -246,6 +258,12 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
     (typeof input.expectedFolder !== 'string' || !isAbsolute(input.expectedFolder) || relative(input.expectedFolder, folder))
   )
     throw new HttpError(409, t().previewFolderChanged);
+  if (isContainerEntry(entry)) return { folder, entry, mode: 'container' as const };
+  // A project that says how it runs (a compose file or a Dockerfile) runs that way, npm or not.
+  if (entry === 'package.json') {
+    const recipe = CONTAINER_ENTRIES.find((name) => hasEntry(location, name));
+    if (recipe) return { folder, entry: recipe, mode: 'container' as const };
+  }
   let kind = entry === 'package.json' ? undefined : indexKind(location, entry);
   if (kind === 'static') return { folder, entry, mode: 'static' as const };
   if (entry === 'package.json' || hasEntry(location, 'package.json')) {
@@ -265,7 +283,7 @@ export function detectPreviewTarget(conv: Conversation, input: Partial<AppPrevie
     if (kind !== 'source') return { folder, entry: 'index.html', mode: 'static' as const };
   }
   if (kind === 'truncated') return { folder, entry, mode: 'static' as const };
-  throw new HttpError(400, t().previewProjectEntry);
+  throw new HttpError(400, t().previewProjectEntry, PREVIEW_NO_RECIPE);
 }
 
 /** Browser writes show their own Origin. Proxies (including Vite's) preserve the UI Host. */

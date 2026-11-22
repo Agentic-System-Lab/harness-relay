@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppPreviews } from './appPreviews';
+import { startContainerPreview } from './previewContainer';
 import { cleanupPreviewRuntimes, startPreviewRuntime } from './previewRuntime';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
@@ -261,15 +262,16 @@ function recoverPreviews(): Promise<void> {
     }));
 }
 if (!previewRecovered) void recoverPreviews().catch((err: unknown) => console.error('[preview] startup cleanup:', err));
-const previews = new AppPreviews(previewOwner, (options) =>
-  startPreviewRuntime({
-    ...options,
-    beforeDocker: async () => {
-      await recoverPreviews();
-      options.signal.throwIfAborted();
-      mkdirSync(previewMarker, { recursive: true, mode: 0o700 });
-    },
-  }),
+const beforePreviewDocker = (signal: AbortSignal) => async () => {
+  await recoverPreviews();
+  signal.throwIfAborted();
+  mkdirSync(previewMarker, { recursive: true, mode: 0o700 });
+};
+const previews = new AppPreviews(
+  previewOwner,
+  (options) => startPreviewRuntime({ ...options, beforeDocker: beforePreviewDocker(options.signal) }),
+  Date.now,
+  (options) => startContainerPreview({ ...options, beforeDocker: beforePreviewDocker(options.signal) }),
 );
 const app = createApp({
   previews,

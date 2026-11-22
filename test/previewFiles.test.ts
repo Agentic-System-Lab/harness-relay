@@ -57,10 +57,50 @@ describe('preview snapshots', () => {
     linkSync(join(root, 'outside.html'), join(root, 'project/linked.html'));
     mkdirSync(join(root, 'other', 'public'), { recursive: true });
     symlinkSync(join(root, 'other'), join(root, 'project/linked-dir'), 'junction');
-    for (const mode of ['static', 'server', 'build'] as const) {
+    for (const mode of ['static', 'server', 'build', 'container'] as const) {
       expect([...(await previewSnapshot(root, 'project', mode)).keys()]).toEqual(['index.html']);
     }
     await expect(previewSnapshot(root, 'project/linked-dir/public', 'static')).rejects.toThrow();
+  });
+
+  it('gives a container build any language’s files, with the dotfiles that pin versions, but no build output or virtualenv', async () => {
+    for (const name of [
+      'Dockerfile',
+      'compose.yaml',
+      'requirements.txt',
+      'app/main.py',
+      'go.mod',
+      'go.sum',
+      'Cargo.lock',
+      'src/main.rs',
+      'Gemfile',
+      'Makefile',
+      '.dockerignore',
+      '.python-version',
+      '.env',
+      '.git/config',
+      'target/debug/app',
+      'venv/bin/python',
+      '.venv/bin/python',
+      'node_modules/x/index.js',
+    ])
+      put('polyglot/' + name);
+    expect([...(await previewSnapshot(root, 'polyglot', 'container')).keys()].sort()).toEqual([
+      '.dockerignore',
+      '.python-version',
+      'Cargo.lock',
+      'Dockerfile',
+      'Gemfile',
+      'Makefile',
+      'app/main.py',
+      'compose.yaml',
+      'go.mod',
+      'go.sum',
+      'requirements.txt',
+      'src/main.rs',
+    ]);
+    // The npm runtime still gets only what an npm build reads.
+    expect([...(await previewSnapshot(root, 'polyglot', 'build')).keys()]).not.toContain('app/main.py');
   });
 
   it('supplies source and lockfiles only to the runtime', async () => {

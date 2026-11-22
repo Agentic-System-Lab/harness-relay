@@ -732,19 +732,24 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ### 預覽應用程式
 
-按回覆中 HTML 或 `package.json` 連結旁的 **預覽應用程式**。在 **檔案** 裡，可以打開檔案再按 **預覽應用程式**，或進入專案的資料夾後按 **預覽這個資料夾**。Relay 會自動辨識起始頁面或 npm 指令並開啟應用程式。首頁若載入 `/src/main.tsx` 這類尚未編譯的原始碼，會使用同資料夾的 npm 專案。平行模式下，回覆裡的連結會開啟該成員自己 worktree 裡的版本，也可以直接在「檔案」選取該 worktree。
+按回覆中 HTML、`package.json`、`Dockerfile` 或 compose 檔連結旁的 **預覽應用程式**。在 **檔案** 裡，可以打開檔案再按 **預覽應用程式**，或進入專案的資料夾後按 **預覽這個資料夾**。Relay 會自動辨識起始頁面、npm 指令、Dockerfile 或 compose 檔並開啟應用程式。首頁若載入 `/src/main.tsx` 這類尚未編譯的原始碼，會使用同資料夾的 npm 專案。平行模式下，回覆裡的連結會開啟該成員自己 worktree 裡的版本，也可以直接在「檔案」選取該 worktree。
 
 | 模式 | 專案需要什麼 | 可以試什麼 |
 | --- | --- | --- |
 | **靜態網站** | 準備好要公開的資料夾，內有 `index.html` 或你選的 HTML 頁面，以及頁面需要的本機資源。這個模式不需要 Docker。 | 開啟頁面、點連結、操作 JavaScript。請選原本就打算發布的資料夾。JSON 檔、source map 與後端原始碼目錄都會略過。 |
 | **建置前端** | Node.js 前端專案，內有 `package.json`、`package-lock.json`（第 2 或第 3 版），而 npm 的 `build` script 會產生 `dist/index.html`。有後端入口時會啟動後端。 | 建置 Vite 應用程式並開啟產生的頁面。 |
 | **執行後端** | 有相同兩個檔案的 Node.js 專案，並提供 npm 的 `start` script 或預設的 `server.js` 入口。即使同時提供 `build` script，Relay 也會執行 `npm start`。HTTP 伺服器要監聽 `127.0.0.1`，連接埠取自 `process.env.PORT`（4173）。 | 透過表單呼叫應用程式自己的 API。這次執行寫進暫存空間的資料，在重新整理頁面後仍會保留。 |
+| **任何語言** | 資料夾裡有 `Dockerfile`，任何語言都可以。網頁應用程式在映像檔 `EXPOSE` 的那一個 port 提供 HTTP，或在 `PORT`（4173）。有 `Dockerfile` 的專案即使也是 npm 專案，也會用 `Dockerfile` 執行。 | Flask、Go 或 Rust 應用程式的網頁，終端機裡有它的紀錄。 |
+| **多個服務** | 一個 `compose.yaml`（或 `compose.yml`、`docker-compose.yml`），服務從專案建置或使用公開映像檔，例如資料庫。網頁來自第一個有 `ports` 的服務，用其中第一項容器那一側的 port；不會在這台電腦上開放任何 port。 | 有自己 PostgreSQL 的待辦應用程式，資料庫用專案裡的 `init.sql` 建立。 |
+| **終端機程式** | 從終端機讀寫、不提供網頁的 `Dockerfile` 或 compose 服務：命令列工具、文字介面、遊戲、資料庫的 shell。 | 在裡面輸入、看到它的顏色與排版、用其他參數再執行一次，或在它的映像檔裡開一個 shell。 |
 
 預覽啟動時，Relay 會複製目前的檔案，包含 agent 尚未 commit 的修改。按 **重新載入頁面** 會重新載入目前預覽裡的頁面，並保留後端這次寫入的資料。agent 繼續修改後，按 **重建預覽** 取得新的副本。若重新整理 Relay 聊天頁面本身，預覽就會關閉。**將錯誤加入訊息** 會把錯誤文字放進草稿，你可以檢查內容、補上操作步驟，再送給團隊。**停止預覽** 會釋放副本並結束後端。手機上可按 **返回應用程式預覽**，在編輯草稿後回到原頁面。重建或停止時，這次執行寫入的資料會清除。
 
 ![手機寬度下，應用程式預覽面板顯示可操作的網頁](media/app-preview-zh-TW.png)
 
-npm 工作區裡的專案（上層 `package.json` 的 `workspaces` 列出的資料夾）會使用工作區根目錄的 `package-lock.json`：Relay 會複製整個工作區根目錄，安裝根目錄與這個專案的相依套件，再執行這個專案自己的 script。Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。若 `package.json` 加了相依套件卻沒有執行 `npm install`，錯誤訊息會指出是哪一個：請執行 `npm install` 更新鎖定檔，再重試預覽。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。
+npm 工作區裡的專案（上層 `package.json` 的 `workspaces` 列出的資料夾）會使用工作區根目錄的 `package-lock.json`：Relay 會複製整個工作區根目錄，安裝根目錄與這個專案的相依套件，再執行這個專案自己的 script。`Dockerfile` 或 compose 的預覽一律先開啟終端機：先是建置過程，接著是應用程式自己的輸出。應用程式開始在它的 HTTP port 接受連線時，面板會切到 **網頁**，**終端機** 就在旁邊。一直沒有的話，終端機就是預覽：點一下就能輸入。應用程式結束時，面板會顯示結束代碼。**再執行一次** 會重新執行；修改 **指令** 再按 **執行這行指令** 就能用其他參數執行，**開啟 shell** 則用同一個映像檔開新容器並進入 shell。建置失敗或應用程式以錯誤結束時，**將錯誤加入訊息** 也會帶上終端機的最後幾行。只有建置會連網，用來下載套件與映像檔；應用程式本身沒有網路，也拿不到這台電腦的檔案、環境變數或 `.env`。compose 的服務之間可以用名稱互連，但連不到外面。會接觸到這台電腦的設定（`privileged`、主機網路、Docker socket、專案以外的檔案）Relay 會拿掉，並在終端機說明拿掉了什麼。服務掛載的專案檔案（例如 `./db/init.sql`）會複製進去。沒有任何執行方式的資料夾，面板會提供 **請 agent 加上 Dockerfile**，產生一份給團隊的草稿。這類預覽需要 Docker Compose v2，Docker Desktop 與 OrbStack 都已內建。
+
+Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需要安裝 Docker。若 `package.json` 加了相依套件卻沒有執行 `npm install`，錯誤訊息會指出是哪一個：請執行 `npm install` 更新鎖定檔，再重試預覽。npm 預覽會等候執行 Relay 的電腦上的 Docker 引擎就緒。若尚未安裝，**設定 Docker** 會在支援的系統上提供 **安裝 Docker**。也可以取消，之後再回來設定。若已安裝，請啟動引擎，Windows 請使用 Linux 容器模式。引擎就緒後，Relay 會自動繼續預覽。按 **重新檢查** 可立即查看狀態。
 
 ![「設定 Docker」視窗中的「安裝 Docker」、「重新檢查」與「取消」按鈕。](../site/assets/media/docs/app-preview-docker-setup-zh-TW.webp)
 

@@ -49,6 +49,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { createApp, hookHash } = await import('../src/server/app');
+const { AppPreviews } = await import('../src/server/appPreviews');
 const { openDatabase, withholdFile } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -428,6 +429,110 @@ describe('app preview control and content', () => {
     rmSync(join(project, 'package-lock.json'));
     writeFileSync(join(web, 'package-lock.json'), emptyLockfile);
     expect(await (await target()).json()).toEqual(chosen);
+  });
+
+  it('chooses a container recipe: compose before a Dockerfile, either before npm, and says when a folder has none', async () => {
+    const conv = await createConversation();
+    const target = (input: object) =>
+      app.request('/api/conversations/' + conv.id + '/preview/target', json('POST', { folder: '', ...input }));
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
+    writeFileSync(join(project, 'package-lock.json'), emptyLockfile);
+    writeFileSync(join(project, 'index.html'), '<h1>Home</h1>');
+    expect(await (await target({})).json()).toEqual({ folder: project, entry: 'package.json', mode: 'build' });
+    writeFileSync(join(project, 'Dockerfile'), 'FROM python:3.13-slim');
+    const docker = { folder: project, entry: 'Dockerfile', mode: 'container' };
+    expect(await (await target({})).json()).toEqual(docker);
+    // A link to the npm project runs the way the project says it runs.
+    expect(await (await target({ entry: 'package.json' })).json()).toEqual(docker);
+    expect(await (await target({ entry: 'Dockerfile' })).json()).toEqual(docker);
+    // A link to a page is still that page.
+    expect(await (await target({ entry: 'index.html' })).json()).toEqual({ folder: project, entry: 'index.html', mode: 'static' });
+    writeFileSync(join(project, 'docker-compose.yml'), 'services: {}');
+    expect(await (await target({})).json()).toEqual({ ...docker, entry: 'docker-compose.yml' });
+    writeFileSync(join(project, 'compose.yaml'), 'services: {}');
+    expect(await (await target({})).json()).toEqual({ ...docker, entry: 'compose.yaml' });
+    for (const entry of ['Dockerfile.dev', 'dockerfile', '../Dockerfile', 'sub/Dockerfile'])
+      expect((await target({ entry })).status).toBe(400);
+    // Starting one checks its entry again.
+    const start = (input: object) => app.request('/api/conversations/' + conv.id + '/preview', json('POST', { folder: '', ...input }));
+    expect((await start({ mode: 'container', entry: 'package.json' })).status).toBe(400);
+    expect((await start({ mode: 'container' })).status).toBe(400);
+    mkdirSync(join(project, 'go'));
+    writeFileSync(join(project, 'go', 'main.go'), 'package main');
+    expect((await start({ mode: 'container', entry: 'Dockerfile', folder: 'go' })).status).toBe(404);
+    const none = await target({ folder: 'go' });
+    expect(none.status).toBe(404);
+    expect(await none.json()).toMatchObject({ code: 'preview-no-recipe' });
+    writeFileSync(join(project, 'go', 'package.json'), '{}');
+    const noScript = await target({ folder: 'go', entry: 'package.json' });
+    expect(noScript.status).toBe(400);
+    expect(await noScript.json()).toMatchObject({ code: 'preview-no-recipe', error: expect.stringContaining('Dockerfile') });
+  });
+
+  it("streams a container preview's terminal to the browser that started it, takes its keystrokes and size, and runs it again", async () => {
+    const events: object[] = [
+      { type: 'output', data: Buffer.from('Your name? ').toString('base64'), replay: true },
+      { type: 'phase', phase: 'running', command: 'python app.py' },
+    ];
+    const terminal = {
+      subscribe: vi.fn((listener: (e: object) => void) => {
+        for (const e of events) listener(e);
+        setTimeout(() => listener({ type: 'closed' }), 10);
+        return () => {};
+      }),
+      input: vi.fn((data: string) => data !== 'after exit'),
+      resize: vi.fn(async () => {}),
+      run: vi.fn(async () => {}),
+    };
+    const stop = vi.fn(async () => {});
+    const container = vi.fn(() => ({ request: async () => new Response('page'), stop, terminal }));
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    const previews = new AppPreviews('test', undefined, Date.now, container);
+    app = createApp({
+      auth: null,
+      store,
+      settings,
+      hub,
+      orchestrator,
+      providers: new ProviderService(settings),
+      folderPicker: noPicker,
+      previews,
+    });
+    const conv = await createConversation();
+    writeFileSync(join(project, 'Dockerfile'), 'FROM python:3.13-slim');
+    const route = '/api/conversations/' + conv.id + '/preview';
+    const started = await app.request(route, json('POST', { mode: 'container', folder: '', entry: 'Dockerfile' }));
+    const session = (await started.json()) as { id: string; terminal?: boolean };
+    expect(session.terminal).toBe(true);
+    expect(container).toHaveBeenCalledWith(expect.objectContaining({ recipe: 'Dockerfile' }));
+
+    const stream = await get(route + '/' + session.id + '/terminal');
+    expect(stream.headers.get('content-type')).toContain('text/event-stream');
+    const text = await stream.text();
+    expect(text.match(/^data: .*$/gm)!.map((line) => JSON.parse(line.slice(6)))).toEqual([...events, { type: 'closed' }]);
+
+    const send = (body: object, path = '/terminal', headers = {}) =>
+      app.request(route + '/' + session.id + path, json('POST', body, headers));
+    expect((await send({ input: 'Relay\r' })).status).toBe(200);
+    expect(terminal.input).toHaveBeenLastCalledWith('Relay\r');
+    expect((await send({ input: 'after exit' })).status).toBe(409);
+    expect((await send({ input: 3 })).status).toBe(400);
+    expect((await send({ cols: 120, rows: 40 })).status).toBe(200);
+    expect(terminal.resize).toHaveBeenLastCalledWith(120, 40);
+    for (const size of [{ cols: 0, rows: 40 }, { cols: 120 }, { cols: 1.5, rows: 2 }, { cols: 2000, rows: 40 }])
+      expect((await send(size)).status).toBe(400);
+    expect((await send({ command: 'python app.py --debug' }, '/run')).status).toBe(200);
+    expect(terminal.run).toHaveBeenLastCalledWith('python app.py --debug');
+    expect((await send({}, '/run')).status).toBe(200);
+    expect(terminal.run).toHaveBeenLastCalledWith(undefined);
+    for (const command of ['', '  ', 'a\nb', 7, 'x'.repeat(5000)]) expect((await send({ command }, '/run')).status).toBe(400);
+    expect((await send({ input: 'x' }, '/terminal', { origin: 'http://localhost:5555' })).status).toBe(403);
+    expect((await app.request(route + '/unknown/terminal', json('POST', { input: 'x' }))).status).toBe(404);
+    expect((await get(route + '/unknown/terminal')).status).toBe(404);
+    expect(terminal.run).toHaveBeenCalledTimes(2);
+    expect((await app.request(route + '/' + session.id, json('DELETE', {}))).status).toBe(200);
+    expect(stop).toHaveBeenCalled();
+    expect((await send({ input: 'x' })).status).toBe(404);
   });
 
   it('recognizes literal imports of local source in inline modules without running them or reading other script text as imports', async () => {

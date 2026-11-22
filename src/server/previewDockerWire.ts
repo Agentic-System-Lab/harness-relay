@@ -115,6 +115,22 @@ visit(root,0);
 `;
 
 export const APP_PORT = 4173;
+
+/** Waits until something accepts connections on the port given after the program, as long as it takes. */
+export const WAIT_PORT = `
+import net from 'node:net';
+import {setTimeout as sleep} from 'node:timers/promises';
+const port = Number(process.argv[1]);
+for (;;) {
+  const up = await new Promise(resolve => {
+    const socket = net.connect(port,'127.0.0.1');
+    socket.once('connect',()=>{socket.destroy();resolve(true)});
+    socket.once('error',()=>{socket.destroy();resolve(false)});
+  });
+  if (up) break;
+  await sleep(300);
+}
+`;
 export const REQUEST_LIMIT = 1024 * 1024;
 export const RESPONSE_LIMIT = 8 * 1024 * 1024;
 const RESPONSE_HEADERS = ['content-type', 'etag', 'location'] as const;
@@ -164,7 +180,8 @@ const body = input.subarray(line+1);
 headers.host = 'preview.invalid';
 if (body.length) headers['content-length'] = String(body.length);
 const timeout = setTimeout(() => process.exit(1), 12000);
-const req = http.request({hostname:'127.0.0.1', port:${APP_PORT}, method, path, headers, maxHeaderSize:16384});
+// The app's port inside the namespace: the one argument after the program, else PORT's default.
+const req = http.request({hostname:'127.0.0.1', port:Number(process.argv[1]) || ${APP_PORT}, method, path, headers, maxHeaderSize:16384});
 req.on('error', error => { console.error(error.message); process.exit(1); });
 req.on('response', async res => {
   try {

@@ -255,3 +255,118 @@ test.describe('Docker setup for previews', () => {
     expect(docker.starts).toEqual(['server']);
   });
 });
+
+test.describe('container previews', () => {
+  /** Docker ready, the start answered as a container preview, its terminal stream played once from `events`. */
+  async function mockContainer(page: Page, events: object[]) {
+    const runs: unknown[] = [];
+    const typed: unknown[] = [];
+    await page.route('**/api/apps/docker/install', (route) =>
+      route.fulfill({ json: { state: 'ready', available: true, canInstall: false } }),
+    );
+    const preview = new URL(page.url());
+    preview.hostname = 'p-container.localhost';
+    await page.route(preview.origin + '/app', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<h1>Served from a container</h1>' }),
+    );
+    await page.route('**/api/conversations/*/preview', (route) =>
+      route.fulfill({ json: { id: 'container-preview', origin: preview.origin, url: preview.origin + '/app', terminal: true } }),
+    );
+    let streams = 0;
+    await page.route('**/preview/container-preview/terminal', async (route) => {
+      if (route.request().method() === 'POST') {
+        typed.push(route.request().postDataJSON());
+        return route.fulfill({ json: { ok: true } });
+      }
+      // The first stream plays the events; a reconnection waits, as a live stream does.
+      if (streams++) return new Promise(() => {});
+      return route.fulfill({
+        contentType: 'text/event-stream',
+        body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''),
+      });
+    });
+    await page.route('**/preview/container-preview/run', (route) => {
+      runs.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route('**/preview/container-preview', (route) => route.fulfill({ json: { ok: true } }));
+    return { runs, typed };
+  }
+  const output = (text: string, replay?: boolean) => ({
+    type: 'output',
+    data: Buffer.from(text).toString('base64'),
+    ...(replay ? { replay } : {}),
+  });
+
+  test('a Dockerfile shows the build in a terminal, opens the page when the app serves one, and runs again', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'api'));
+    writeFileSync(join(relay.workDir, 'api', 'Dockerfile'), 'FROM python:3.13-slim\nCMD ["python", "app.py"]\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    const container = await mockContainer(page, [
+      output('#1 building\r\n', true),
+      { type: 'phase', phase: 'running', command: 'python app.py' },
+      output('serving on 8000\r\n'),
+      { type: 'page' },
+    ]);
+    await send(page, 'Try the API.\n[API](api/Dockerfile)');
+    await (await finishedReply(page, 'Claude')).getByRole('button', { name: 'Preview app' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel).toContainText('The app runs in a Docker container with no network.');
+    await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Served from a container');
+    await expect(panel.getByRole('radio', { name: 'Page' })).toBeChecked();
+    await panel.getByRole('radio', { name: 'Terminal' }).click();
+    await expect(panel.locator('.xterm-rows')).toContainText('#1 building');
+    await expect(panel.locator('.xterm-rows')).toContainText('serving on 8000');
+    await expect(panel.getByRole('textbox', { name: 'Command' })).toHaveValue('python app.py');
+    await panel.locator('.xterm-screen').click();
+    await page.keyboard.type('hi');
+    const typedText = () => container.typed.map((body) => (body as { input?: string }).input ?? '').join('');
+    await expect.poll(typedText).toBe('hi');
+    // Escape and Tab belong to the app's terminal, even on a phone, where the panel is a dialog.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await panel.locator('.xterm-screen').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'App preview' })).toBeVisible();
+    await expect.poll(typedText).toBe('hi\x1b');
+    await panel.getByRole('button', { name: 'Run again' }).click();
+    await expect.poll(() => container.runs).toEqual([{}]);
+    await panel.getByRole('textbox', { name: 'Command' }).fill('python app.py --debug');
+    await panel.getByRole('button', { name: 'Run this command' }).click();
+    await panel.getByRole('button', { name: 'Open a shell' }).click();
+    await expect.poll(() => container.runs).toEqual([{}, { command: 'python app.py --debug' }, { command: '/bin/sh' }]);
+  });
+
+  test('a failed build says so and its terminal goes into the report to the agent', async ({ page, relay }) => {
+    writeFileSync(join(relay.workDir, 'compose.yaml'), 'services:\n  app:\n    build: .\n');
+    writeFileSync(join(relay.workDir, 'Dockerfile'), 'FROM python:3.13-slim\nRUN pip install nothing-here\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await mockContainer(page, [
+      output('\x1b[1m#5 RUN pip install nothing-here\x1b[0m\r\nERROR: No matching distribution found for nothing-here\r\n', true),
+      { type: 'phase', phase: 'failed', error: 'Building the image of app failed.' },
+    ]);
+    await composer(page).fill('My draft');
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.locator('.app-preview-status')).toHaveText('The preview failed. The terminal says why.');
+    await expect(panel.getByRole('button', { name: 'Run again' })).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Add errors to message' }).click();
+    await expect(composer(page)).toHaveValue(
+      /#5 RUN pip install nothing-here\n\s+ERROR: No matching distribution found for nothing-here[\s\S]*My draft/,
+    );
+  });
+
+  test('a folder with no way to run it offers to ask the agent for a Dockerfile', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'tool'));
+    writeFileSync(join(relay.workDir, 'tool', 'main.go'), 'package main\nfunc main() {}\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const files = page.getByRole('dialog', { name: 'Files' });
+    await files.getByRole('button', { name: 'tool', exact: true }).click();
+    await files.getByRole('button', { name: 'Preview this folder' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.getByRole('alert')).toContainText('Dockerfile');
+    await panel.getByRole('button', { name: 'Ask the agent for a Dockerfile' }).click();
+    await expect(composer(page)).toHaveValue(/^Please add a Dockerfile to .*tool \(and a compose\.yaml/);
+  });
+});

@@ -2,10 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { previewFileResponse, previewSnapshot } from './previewFiles';
+import { startContainerPreview, type PreviewTerminal } from './previewContainer';
 import { PreviewCleanupError, startPreviewRuntime } from './previewRuntime';
 import type { PreviewTarget } from './previewTarget';
 
-type Service = Awaited<ReturnType<typeof startPreviewRuntime>>;
+type Service = Awaited<ReturnType<typeof startPreviewRuntime>> & { terminal?: PreviewTerminal };
 interface Session {
   conversation: string;
   address: URL;
@@ -23,6 +24,8 @@ interface Session {
   closing?: Promise<void>;
   requests: number;
   live?: () => boolean;
+  /** The signed-in browser that started it: only that one reads and types into its terminal. */
+  browser?: string;
 }
 
 /** The member's folder inside its workspace root, both relative to the same working directory. */
@@ -83,6 +86,7 @@ export class AppPreviews {
     private owner: string,
     private runtime = startPreviewRuntime,
     private now = Date.now,
+    private container: (options: Parameters<typeof startContainerPreview>[0]) => Service = startContainerPreview,
   ) {}
 
   async start(
@@ -93,12 +97,15 @@ export class AppPreviews {
     signal: AbortSignal,
     live?: () => boolean,
     exists?: () => boolean,
+    browser?: string,
   ) {
     signal.throwIfAborted();
     const previous = [...this.sessions.values()].find((s) => s.conversation === conversation);
     if (previous) {
-      if ((!previous.service && !previous.retryCleanup) || previous.closing) throw new HttpError(409, t().previewBusy);
-      await this.stop(conversation);
+      // One the user just stopped may still be removing its containers: the new one waits for that.
+      if (previous.closing) await previous.closing.catch(() => {});
+      else if (!previous.service && !previous.retryCleanup) throw new HttpError(409, t().previewBusy);
+      else await this.stop(conversation);
       if ([...this.sessions.values()].some((s) => s.conversation === conversation)) throw new HttpError(409, t().previewBusy);
     }
     signal.throwIfAborted();
@@ -110,6 +117,7 @@ export class AppPreviews {
       address,
       parent,
       live,
+      browser,
       ticket: randomBytes(32).toString('hex'),
       cookie: randomBytes(32).toString('hex'),
       cookieMessage: t().previewCookie,
@@ -133,6 +141,15 @@ export class AppPreviews {
       if (target.mode === 'static') {
         if (!files.has(target.entry)) throw new HttpError(404, t().previewTarget);
         session.service = { request: async (req) => previewFileResponse(files, req, target.entry), stop: async () => {} };
+      } else if (target.mode === 'container') {
+        // It answers at once: the build and its services report through the terminal.
+        session.service = this.container({
+          files,
+          executables: files.executables,
+          recipe: target.entry,
+          signal: lifetime,
+          owner: this.owner,
+        });
       } else {
         try {
           session.service = await this.runtime({
@@ -153,7 +170,12 @@ export class AppPreviews {
     try {
       await session.pending;
       if (exists && !exists()) throw new HttpError(404, t().conversationNotFound);
-      return { id, url: new URL(OPEN + session.ticket, address).href, origin: address.origin };
+      return {
+        id,
+        url: new URL(OPEN + session.ticket, address).href,
+        origin: address.origin,
+        ...(session.service?.terminal ? { terminal: true } : {}),
+      };
     } catch (err) {
       await this.stop(conversation, id);
       if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) throw new HttpError(409, t().stopped);
@@ -187,6 +209,19 @@ export class AppPreviews {
         return s.closing;
       }),
     );
+  }
+
+  /**
+   * A container preview's terminal, for the browser that started it. Using it keeps the preview
+   * from expiring as idle, as loading its page does.
+   */
+  terminal(conversation: string, id: string, browser?: string): PreviewTerminal {
+    const s = this.sessions.get(id);
+    if (!s || s.conversation !== conversation || s.controller.signal.aborted || s.closing || !s.service?.terminal)
+      throw new HttpError(404, t().previewTarget);
+    if (s.browser !== browser) throw new HttpError(403, t().previewOrigin);
+    s.idle = this.now() + IDLE;
+    return s.service.terminal;
   }
 
   private expire() {

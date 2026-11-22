@@ -12,7 +12,7 @@ import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserL
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews } from './appPreviews';
 import { detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
-import type { AppPreviewRequest } from '../shared/types';
+import type { AppPreviewRequest, PreviewTerminalEvent } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -2113,7 +2113,88 @@ export function createApp({
     const browser = sessions.get(c.req.raw);
     const live = browser && auth ? () => auth.hasSession(browser) : undefined;
     c.header('cache-control', 'no-store');
-    return c.json(await previews.start(conv.id, target, address, parent.origin, c.req.raw.signal, live, () => Boolean(store.get(conv.id))));
+    return c.json(
+      await previews.start(conv.id, target, address, parent.origin, c.req.raw.signal, live, () => Boolean(store.get(conv.id)), browser),
+    );
+  });
+  // A container preview's terminal: what it shows, as SSE, for the browser that started it.
+  app.get('/api/conversations/:id/preview/:previewId/terminal', (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const previewId = c.req.param('previewId');
+    const browser = sessions.get(c.req.raw);
+    const terminal = previews.terminal(conv.id, previewId, browser);
+    c.header('cache-control', 'no-store');
+    return streamSSE(c, async (stream) => {
+      let closed = false;
+      const queue: PreviewTerminalEvent[] = [];
+      let wake: (() => void) | undefined;
+      const unsubscribe = terminal.subscribe((event) => {
+        queue.push(event);
+        if (event.type === 'closed') closed = true;
+        wake?.();
+      });
+      stream.onAbort(() => {
+        closed = true;
+        wake?.();
+      });
+      let ping = Date.now();
+      while (!stream.aborted) {
+        while (queue.length) await stream.writeSSE({ data: JSON.stringify(queue.shift()) });
+        if (closed) break;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = undefined;
+        if (Date.now() - ping >= 15_000) {
+          ping = Date.now();
+          // Still this browser's, still running: that also keeps it from expiring as idle.
+          try {
+            previews.terminal(conv.id, previewId, browser);
+          } catch {
+            break;
+          }
+          await stream.writeSSE({ event: 'ping', data: '' });
+        }
+      }
+      unsubscribe();
+    });
+  });
+  app.post('/api/conversations/:id/preview/:previewId/terminal', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ input?: unknown; cols?: unknown; rows?: unknown }>(c);
+    const terminal = previews.terminal(conv.id, c.req.param('previewId'), sessions.get(c.req.raw));
+    if (b.input !== undefined) {
+      if (typeof b.input !== 'string' || b.input.length > 65536) throw new HttpError(400, t().invalidField('input'));
+      if (!terminal.input(b.input)) throw new HttpError(409, t().previewDocker.notRunning);
+    }
+    if (b.cols !== undefined || b.rows !== undefined) {
+      const cols = Number(b.cols);
+      const rows = Number(b.rows);
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 1000 || rows > 1000)
+        throw new HttpError(400, t().invalidField('cols'));
+      await terminal.resize(cols, rows);
+    }
+    return c.json({ ok: true });
+  });
+  // Runs the main service again: with its own command, or with the command line given.
+  app.post('/api/conversations/:id/preview/:previewId/run', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ command?: unknown }>(c);
+    if (
+      b.command !== undefined &&
+      (typeof b.command !== 'string' || !b.command.trim() || b.command.length > 4096 || /[\0\r\n]/.test(b.command))
+    )
+      throw new HttpError(400, t().invalidField('command'));
+    const terminal = previews.terminal(conv.id, c.req.param('previewId'), sessions.get(c.req.raw));
+    await terminal.run(b.command as string | undefined);
+    return c.json({ ok: true });
   });
   app.delete('/api/conversations/:id/preview/:previewId', async (c) => {
     previewParent(c.req.header('host') ?? '', c.req.header('origin'));

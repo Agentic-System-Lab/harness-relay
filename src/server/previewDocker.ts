@@ -53,8 +53,11 @@ export function hasDockerCli() {
 
 // The CLI as configured for Relay's user discovers the local socket. Pin it for all later calls,
 // including cleanup, so changing Docker contexts cannot send files to another daemon.
-export type DockerOptions = Pick<SpawnOptions, 'signal' | 'stdin' | 'timeoutMs' | 'maxCapture'>;
-export type Docker = (args: string[], options?: DockerOptions) => Promise<SpawnResult>;
+export type DockerOptions = Pick<SpawnOptions, 'signal' | 'stdin' | 'timeoutMs' | 'maxCapture' | 'onSpawn' | 'cwd'>;
+export type Docker = ((args: string[], options?: DockerOptions) => Promise<SpawnResult>) & {
+  /** The local socket or named pipe every call goes to, for the Engine API (a container's terminal). */
+  endpoint?: string;
+};
 
 class MissingDocker extends Error {}
 class DockerAccessDenied extends Error {}
@@ -82,7 +85,11 @@ export async function localDocker(signal?: AbortSignal, machine = realHost()): P
   const fixed = { ...env };
   delete fixed.DOCKER_HOST;
   delete fixed.DOCKER_CONTEXT;
-  return (args, options) => cli(['--host', host, ...args], fixed, options);
+  // Compose reads its project, files and profiles from these. Relay names every one itself.
+  for (const key of Object.keys(fixed)) if (/^COMPOSE_/i.test(key)) delete fixed[key];
+  const docker: Docker = (args, options) => cli(['--host', host, ...args], fixed, options);
+  docker.endpoint = host;
+  return docker;
 }
 
 export async function checkDockerEngine(docker: Docker, signal?: AbortSignal, platform = process.platform): Promise<void> {

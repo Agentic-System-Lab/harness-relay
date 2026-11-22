@@ -800,7 +800,8 @@ export interface NativeSetup {
 export interface AppPreviewRequest {
   /** Canonical folder pinned from Files or from resolving a reply's target. */
   expectedFolder?: string;
-  mode: 'static' | 'build' | 'server';
+  /** `container`: a Dockerfile or compose file, built and run with Docker, with a terminal. */
+  mode: 'static' | 'build' | 'server' | 'container';
   folder: string;
   entry?: string;
   root?: string;
@@ -811,7 +812,35 @@ export interface AppPreviewSession {
   id: string;
   url: string;
   origin: string;
+  /**
+   * A container preview: it answers before the build, and its terminal (`…/preview/:id/terminal`)
+   * says how it goes; its page opens once the app serves one (a `page` event).
+   */
+  terminal?: boolean;
 }
+
+/** The files a container preview starts from, in the order a folder is looked at: compose first, then a Dockerfile. */
+export const PREVIEW_RECIPES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml', 'Dockerfile'] as const;
+
+/** The error code of a folder with no way to preview it: the panel offers to ask an agent for a Dockerfile. */
+export const PREVIEW_NO_RECIPE = 'preview-no-recipe';
+
+/** What a container preview's terminal stream sends (`GET …/preview/:id/terminal`, as SSE). */
+export type PreviewTerminalEvent =
+  /** Terminal bytes, base64. `replay`: everything so far, sent first to each new stream. */
+  | { type: 'output'; data: string; replay?: boolean }
+  /** Where the preview is. `command`: the main service's command line while it runs. */
+  | {
+      type: 'phase';
+      phase: 'building' | 'starting' | 'running' | 'exited' | 'failed';
+      code?: number;
+      error?: string;
+      command?: string;
+    }
+  /** The app accepts connections on its HTTP port: its page can open. */
+  | { type: 'page' }
+  /** The preview stopped. */
+  | { type: 'closed' };
 
 /** A folder that can be browsed: a working directory, or an agent's worktree of one (parallel mode). */
 export interface FileRoot {

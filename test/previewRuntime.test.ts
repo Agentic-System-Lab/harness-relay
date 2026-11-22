@@ -119,13 +119,29 @@ it('explains a missing Docker engine and never executes npm on the host', async 
   await expect(startPreviewRuntime(opts())).rejects.toThrow(/Docker/);
   expect(command).not.toHaveBeenCalled();
 });
-it('sweeps only IDs returned by the persistent installation owner label', async () => {
-  command.mockImplementation(async (o) => (o.args.includes('ps') ? result(id + '\n') : docker(o)));
+it('sweeps only IDs returned by the persistent installation owner label, containers first, then their networks, volumes and images', async () => {
+  const listed: Record<string, string> = { ps: id, network: 'net1', volume: 'relay-preview-x_data', image: 'sha256:' + 'c'.repeat(64) };
+  command.mockImplementation(async (o) => {
+    const kind = o.args.includes('ps') ? 'ps' : (['network', 'volume', 'image'].find((k) => o.args[2] === k) ?? '');
+    return o.args.includes('ls') || o.args.includes('ps') ? result((listed[kind] ?? '') + '\n') : docker(o);
+  });
   await cleanupPreviewRuntimes(owner);
-  expect(command.mock.calls.find(([o]) => o.args.includes('ps'))![0].args.join(' ')).toContain(
-    'label=io.harness-relay.preview.owner=' + owner,
-  );
-  expect(command.mock.calls.at(-1)![0].args).toEqual(expect.arrayContaining(['rm', '-f', id]));
+  const calls = command.mock.calls.map(([o]) => o.args.slice(2));
+  const filter = ['--filter', 'label=io.harness-relay.preview.owner=' + owner];
+  for (const kind of ['network', 'volume', 'image']) expect(calls).toContainEqual(expect.arrayContaining([kind, 'ls', ...filter]));
+  expect(calls.find((a) => a[0] === 'ps')).toEqual(expect.arrayContaining(filter));
+  const removals = calls.filter((a) => a.includes('rm'));
+  expect(removals).toEqual([
+    ['rm', '-f', id],
+    ['network', 'rm', 'net1'],
+    ['volume', 'rm', '-f', 'relay-preview-x_data'],
+    ['image', 'rm', '-f', 'sha256:' + 'c'.repeat(64)],
+  ]);
+});
+it('refuses a listed name that could be read as an option before removing anything of its kind', async () => {
+  command.mockImplementation(async (o) => (o.args.includes('ls') && o.args.includes('network') ? result('--force\n') : docker(o)));
+  await expect(cleanupPreviewRuntimes(owner)).rejects.toThrow();
+  expect(command.mock.calls.some(([o]) => o.args.includes('network') && o.args.includes('rm'))).toBe(false);
 });
 it('round trips exact bytes with Unicode names and refuses unsafe or malformed build output', () => {
   const files = new Map([['資 料/pic.png', Buffer.from([0, 13, 255, 254])]]);

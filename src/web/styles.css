@@ -10097,6 +10097,58 @@ a.share-action {
   padding: 0;
 }
 
+.app-preview iframe[hidden] {
+  display: none;
+}
+
+/* A container preview: its command line, the page/terminal switch and the terminal itself. */
+.app-preview-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-preview-command input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.app-preview-views {
+  align-self: flex-start;
+  margin: 0 18px 10px;
+}
+
+.app-preview-recipe {
+  padding: 0 18px 12px;
+}
+
+.app-preview-terminal {
+  display: flex;
+  flex: 1 0 240px;
+  flex-direction: column;
+  min-height: 240px;
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
+.app-preview-terminal[hidden] {
+  display: none;
+}
+
+.app-preview-terminal > p {
+  margin: 6px 12px 0;
+  color: #a1a1aa;
+}
+
+.app-preview-terminal-screen {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 6px 10px;
+}
+
 @media (max-width: 1100px) {
   .chat.previewing {
     margin-inline-end: 0;

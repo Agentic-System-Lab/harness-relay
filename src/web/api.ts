@@ -593,6 +593,31 @@ export const api = {
     ),
   startAppPreview: (id: string, target: AppPreviewRequest, signal: AbortSignal) =>
     request<AppPreviewSession>('POST', `/api/conversations/${encodeURIComponent(id)}/preview`, target, signal),
+  /**
+   * A container preview's terminal, as the server streams it (SSE). Read with fetch, not EventSource,
+   * so that the key goes in its header like every other request's.
+   */
+  appPreviewTerminal: async (id: string, session: string, signal: AbortSignal): Promise<Response> => {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/terminal`, {
+      headers: headers(false, readKey()),
+      signal,
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+    }
+    return res;
+  },
+  /** Keystrokes for a container preview's terminal, or its new size. */
+  appPreviewTerminalSend: (id: string, session: string, body: { input?: string; cols?: number; rows?: number }) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/terminal`, body),
+  /** Runs a container preview's app again: with its own command, or with the command line given. */
+  appPreviewRun: (id: string, session: string, command?: string) =>
+    request<{ ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/run`,
+      command === undefined ? {} : { command },
+    ),
   stopAppPreview: (id: string, session: string) =>
     request<{ ok: true }>(
       'DELETE',

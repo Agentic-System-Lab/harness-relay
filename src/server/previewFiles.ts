@@ -70,6 +70,14 @@ function sourceFile(path: string): boolean {
   );
 }
 
+/**
+ * A container build may need any of the project's files, in any language. Dotfiles stay out, as
+ * everywhere (secrets often hide there), apart from these, which only pin versions or shape the
+ * build context. Folders that hold installed dependencies or build output stay out too.
+ */
+const CONTAINER_DOTFILES = new Set(['.dockerignore', '.python-version', '.nvmrc', '.node-version', '.ruby-version', '.tool-versions']);
+const CONTAINER_SKIPPED = /^(?:target|venv|__pypackages__|bower_components)$/;
+
 function sameVersion(a: BigIntStats, b: BigIntStats): boolean {
   return a.dev === b.dev && a.ino === b.ino && a.ctimeNs === b.ctimeNs && a.mtimeNs === b.mtimeNs && a.size === b.size;
 }
@@ -179,7 +187,7 @@ export function previewFolderParts(folder: string): string[] {
 export async function previewSnapshot(
   root: string,
   folder: string,
-  mode: 'static' | 'build' | 'server',
+  mode: 'static' | 'build' | 'server' | 'container',
   signal?: AbortSignal,
   isPrivate = previewPrivatePath(),
 ): Promise<PreviewSnapshot> {
@@ -241,12 +249,15 @@ export async function previewSnapshot(
         // retained below. Even a tree of empty folders cannot consume unlimited work.
         total += Buffer.byteLength(item.name);
         if (++items > limits.items || total > limits.totalBytes) throw tooLarge();
-        if (!safeName(item.name) || item.isSymbolicLink()) continue;
+        const container = mode === 'container';
+        const dotfile = container && item.isFile() && CONTAINER_DOTFILES.has(item.name);
+        if ((!safeName(item.name) && !dotfile) || item.isSymbolicLink()) continue;
         const path = join(dir, item.name);
         const name = prefix + item.name;
         if (item.isDirectory()) {
-          if (mode !== 'static' || !privateSource.test(item.name)) await walk(path, name + '/', level + 1, selecting);
-        } else if (item.isFile() && (mode === 'static' ? isPreviewAsset(name) : sourceFile(name))) {
+          if (container ? !CONTAINER_SKIPPED.test(item.name) : mode !== 'static' || !privateSource.test(item.name))
+            await walk(path, name + '/', level + 1, selecting);
+        } else if (item.isFile() && (container || (mode === 'static' ? isPreviewAsset(name) : sourceFile(name)))) {
           await readFile(path, name, await lstat(path, { bigint: true }));
         }
       }
