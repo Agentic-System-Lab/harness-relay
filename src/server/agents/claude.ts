@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import {
   agentLimitsFor,
   endpointEffort,
+  NATIVE_OFF_SUPPORT,
   PROVIDER_LABEL,
   type NativeItemsOff,
   type NativeOnPart,
@@ -996,6 +997,12 @@ export function claudeArgs(o: {
   jsonSchema?: OutputSchema;
   /** The member's own limit: the US dollars the turn may cost, by Claude Code's own estimate (`--max-budget-usd`). */
   maxBudgetUsd?: number;
+  /**
+   * RLM's sub-model (`RunOptions.toolless`): the system prompt in place of Claude Code's own
+   * (`--system-prompt`), and no session kept (`--no-session-persistence`). Its tools, MCP servers and the
+   * rest are left out by `nativeOff` (`claudeToolless()` gives all of them).
+   */
+  toolless?: boolean;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -1010,7 +1017,7 @@ export function claudeArgs(o: {
     'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--append-system-prompt',
+    o.toolless ? '--system-prompt' : '--append-system-prompt',
     o.systemPrompt,
     // Variadic; the next `--flag` ends the list.
     ...withAllowedTools([...claudeAllowedTools(o.permission), ...reads]),
@@ -1049,8 +1056,31 @@ export function claudeArgs(o: {
     // Claude Code counts it for this process alone, which runs this turn alone.
     ...(o.maxBudgetUsd ? ['--max-budget-usd', String(o.maxBudgetUsd)] : []),
     ...optional.flatMap((f) => OPTIONAL_FLAGS[f]),
-    ...(o.sessionId ? ['--resume', o.sessionId] : ['--session-id', o.newSessionId!]),
+    ...(o.toolless ? ['--no-session-persistence'] : o.sessionId ? ['--resume', o.sessionId] : ['--session-id', o.newSessionId!]),
   ];
+}
+
+/**
+ * A run of RLM's sub-model (`RunOptions.toolless`) as the other runs' options say it: everything
+ * Claude Code loads by itself left out, its built-in tools among them (`--tools ""`), and nothing of
+ * Harness Relay's (no MCP servers, hooks, guard, folders besides the working directory, schema or session).
+ */
+export function claudeToolless(o: RunOptions): RunOptions {
+  return {
+    ...o,
+    mcpServers: [],
+    nativeOff: [...NATIVE_OFF_SUPPORT.claude],
+    nativeItems: {},
+    nativeOn: [],
+    addDirs: [],
+    readDirs: [],
+    attachmentsDir: undefined,
+    hooks: undefined,
+    guard: undefined,
+    outputSchema: undefined,
+    sessionId: undefined,
+    onSteer: undefined,
+  };
 }
 
 /** Text of a `tool_result` block's content (a string or text blocks). */
@@ -1530,7 +1560,8 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
 
 export const claudeRunner: AgentRunner = {
   provider: 'claude',
-  async run(o): Promise<RunResult> {
+  async run(given): Promise<RunResult> {
+    const o = given.toolless ? claudeToolless(given) : given;
     // The servers' tokens go in a private file for this turn, not on the command line (which `ps` shows).
     const mcp = o.mcpServers?.length ? privateTempFile('mcp.json', JSON.stringify(claudeMcpConfig(o.mcpServers))) : undefined;
     try {
@@ -1669,7 +1700,8 @@ async function runClaudeTurn(
     maxBudgetUsd?: number;
   },
 ): Promise<RunResult> {
-  const newSessionId = o.sessionId ? undefined : randomUUID();
+  // RLM's sub-model keeps no session (`--no-session-persistence`): it names none.
+  const newSessionId = o.sessionId || o.toolless ? undefined : randomUUID();
   // What the session had used before this turn, for a Claude Code that does not say what the run alone
   // used (it then reports the session's totals; `claudeTurnUsage`).
   const resumed = o.sessionId ? claudeSessionFile(o.env, o.cwd, o.sessionId) : undefined;
@@ -1699,6 +1731,7 @@ async function runClaudeTurn(
     ...(o.guard ? { guard: o.guard } : {}),
     ...(run.jsonSchema ? { jsonSchema: run.jsonSchema } : {}),
     ...(run.maxBudgetUsd ? { maxBudgetUsd: run.maxBudgetUsd } : {}),
+    ...(o.toolless ? { toolless: true } : {}),
     skip: unsupported,
   });
 

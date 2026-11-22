@@ -392,7 +392,7 @@ export function SettingsPage({
           </div>
         </section>
 
-        <LabsCard />
+        <LabsCard providers={providers} catalog={catalog} />
       </div>
     </div>
   );

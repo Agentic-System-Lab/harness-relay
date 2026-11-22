@@ -28,6 +28,8 @@ afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 
 import {
   COPILOT_AGENT_MODE,
+  COPILOT_NO_TOOL,
+  COPILOT_NO_TOOL_NOTICE,
   COPILOT_NOTES,
   COPILOT_RUNTIME_EVENTS,
   COPILOT_SECRET_VARS,
@@ -39,6 +41,7 @@ import {
   copilotConfigPath,
   copilotDevWrites,
   copilotTempDirs,
+  copilotToolless,
   copilotStartsSomething,
   copilotEffortRefusal,
   copilotEnv,
@@ -2191,5 +2194,79 @@ describe.skipIf(process.platform === 'win32')("Copilot and the team checks' prot
       });
       expect(copilotPermissionDecision('edit', call('read', { path: '/work/app/.env' }), CWD, [], [], guard)).toEqual({ run: 'allow' });
     });
+  });
+});
+
+describe("RLM's sub-model through Copilot (a toolless run)", () => {
+  it('makes no tool available to the model, MCP servers included, and leaves out what Copilot loads by itself', () => {
+    const args = copilotArgs({ permission: 'read-only', nativeOff: ['skills', 'mcp', 'memory', 'hooks', 'plugins'], toolless: true });
+    expect(args).toContain(`--available-tools=${COPILOT_NO_TOOL}`);
+    expect(args).toContain('--disable-builtin-mcps');
+    expect(copilotArgs({ permission: 'read-only' }).some((a) => a.startsWith('--available-tools'))).toBe(false);
+    const o = copilotToolless({
+      bin: 'copilot',
+      env: {},
+      prompt: 'q',
+      systemPrompt: 's',
+      cwd: '/tmp/x',
+      permission: 'read-only',
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+      toolless: true,
+      mcpServers: [{ name: 'relay', transport: 'http', command: '', args: [], url: 'http://127.0.0.1:1/mcp', env: {}, headers: {} }],
+      addDirs: ['/docs'],
+      sessionId: 'old',
+    });
+    expect(o).toMatchObject({
+      mcpServers: [],
+      addDirs: [],
+      sessionId: undefined,
+      nativeOff: ['skills', 'mcp', 'memory', 'hooks', 'plugins'],
+    });
+  });
+
+  it("drops Copilot's own lines about the allowlist before the reply, and nothing of the reply", () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e), { toolless: true });
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Info: Disabled tools: bash, create, edit' } });
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: COPILOT_NO_TOOL_NOTICE } });
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'SQLite, ' } });
+    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'SSE' } });
+    expect(
+      events
+        .filter((e) => e.type === 'text')
+        .map((e) => (e as { text: string }).text)
+        .join(''),
+    ).toBe('SQLite, SSE');
+    // In one chunk with the reply's first words.
+    const one: AgentEvent[] = [];
+    const h2 = createCopilotUpdateHandler((e) => one.push(e), { toolless: true });
+    h2.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${COPILOT_NO_TOOL_NOTICE}SQLite` } });
+    expect(one).toEqual([{ type: 'text', text: 'SQLite' }]);
+    // Another run shows such a line as text when the reply goes on after it.
+    const member: AgentEvent[] = [];
+    const h3 = createCopilotUpdateHandler((e) => member.push(e));
+    h3.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: COPILOT_NO_TOOL_NOTICE } });
+    h3.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' SQLite' } });
+    expect(member.some((e) => e.type === 'text' && e.text.includes('Info:'))).toBe(true);
+  });
+
+  it("gives a home with the system prompt alone, and no link to the account's sessions", () => {
+    const account = mkdtempSync(join(tmpdir(), 'relay-copilot-acct-'));
+    try {
+      writeFileSync(join(account, 'copilot-instructions.md'), 'My own rules.');
+      const run = prepareCopilotRun(
+        account,
+        { permission: 'read-only', cwd: account, nativeOff: ['skills', 'mcp', 'memory', 'hooks', 'plugins'], toolless: true },
+        'Answer.',
+      );
+      const names = readdirSync(run.dir);
+      expect(names).not.toContain('session-state');
+      expect(names).not.toContain('session-store.db');
+      expect(readFileSync(join(run.dir, 'copilot-instructions.md'), 'utf8')).toBe('Answer.\n');
+      run.done();
+    } finally {
+      rmSync(account, { recursive: true, force: true });
+    }
   });
 });

@@ -3028,15 +3028,56 @@ export function parseBackendModel(id: string): BackendModel | undefined {
 }
 
 /**
+ * The CLIs RLM mode's sub-model can be asked through (Settings → Labs), as one of their accounts, with
+ * their plan rather than a model connection's key: those whose runs Harness Relay can give no tool at all
+ * (`RunOptions.toolless`), seen in the requests they send their model (Claude Code 2.1.330, Copilot
+ * 1.0.112, Muse Code 1.4.23). Codex keeps `apply_patch` whatever its settings, Grok signed in may run the
+ * agent that would remove its tools as its default one, and Antigravity and Cursor have no switch for
+ * their tools (docs/architecture.md, "Code that calls the tools").
+ */
+export const SUB_MODEL_CLIS = ['claude', 'copilot', 'muse'] as const satisfies readonly Provider[];
+export type SubModelCli = (typeof SUB_MODEL_CLIS)[number];
+export const isSubModelCli = (p: string): p is SubModelCli => (SUB_MODEL_CLIS as readonly string[]).includes(p);
+
+/** RLM's sub-model through a CLI: `cli:<provider>[:<account>][/<model>]`. */
+export interface CliSubModel {
+  provider: SubModelCli;
+  /** One of its accounts besides the default one; empty: the default account. */
+  account: string;
+  /** The model, as the CLI names it; absent: the account's default model, else the CLI's own. */
+  model?: string;
+}
+
+const CLI_SUB_MODEL_RE = /^cli:([a-z]+)(?::([a-z0-9]{1,32}))?(?:\/(.+))?$/;
+
+/**
+ * Reads RLM's sub-model through a CLI: `cli:claude/haiku`, `cli:copilot:work`, `cli:muse/muse-spark-1.3`.
+ * Undefined when it is not one (a model connection's `<backend>/<model>` among them: an endpoint's id
+ * has no `:`), or its CLI is not one of `SUB_MODEL_CLIS`.
+ */
+export function parseCliSubModel(id: string): CliSubModel | undefined {
+  const m = CLI_SUB_MODEL_RE.exec(id.trim());
+  if (!m || !isSubModelCli(m[1]!)) return undefined;
+  const model = m[3]?.trim();
+  return { provider: m[1], account: m[2] ?? '', ...(model ? { model } : {}) };
+}
+
+/** RLM's sub-model through a CLI as Settings keeps it (`parseCliSubModel()` reads it back). */
+export function cliSubModelId(m: CliSubModel): string {
+  return `cli:${m.provider}${m.account ? `:${m.account}` : ''}${m.model?.trim() ? `/${m.model.trim()}` : ''}`;
+}
+
+/**
  * Settings → Labs: an experimental way for agents to use Harness Relay's own tools, one at a time
  * (`runCode.ts`). `code`: `run_code`, code that calls the tools; `rlm`: the same with a `state` kept for
- * the turn and `llm_query()` to a sub-model (`rlmModel`, `<backend>/<model>`, a model connection).
+ * the turn and `llm_query()` to a sub-model (`rlmModel`: `<backend>/<model>` on a model connection, or
+ * `cli:<provider>[:<account>][/<model>]` through a CLI, `parseCliSubModel()`).
  */
 export const LAB_MODES = ['off', 'code', 'rlm'] as const;
 export type LabMode = (typeof LAB_MODES)[number];
 export interface LabSettings {
   mode: LabMode;
-  /** With `rlm`: the sub-model, as `<backend>/<model>`. */
+  /** With `rlm`: the sub-model, as `<backend>/<model>` or `cli:<provider>[:<account>][/<model>]`. */
   rlmModel?: string;
 }
 /** `GET /api/labs`: the mode on now, and where it comes from. */
