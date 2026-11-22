@@ -16,7 +16,7 @@ import { t } from '../i18n';
 import { runProcess } from '../process';
 import { localDocker, type Docker } from '../previewDocker';
 import { createRepo, githubLogin, pushSnapshot, repoExists, type Run } from './git';
-import { runInitScripts } from './initdb';
+import { checkInitScript, runInitScripts } from './initdb';
 import { NEON_REGION, NeonApi, type NeonDatabase } from './neon';
 import {
   APP_NAME,
@@ -245,7 +245,13 @@ export class AppPublisher {
       if (code !== GH_MISSING && code !== GH_SIGNED_OUT) throw err;
       github = { problem: code };
     }
-    const name = existing?.name ?? (await this.freeName(suggestName(source.folder), github.login).catch(() => suggestName(source.folder)));
+    this.checkScripts(spec.databases, existing);
+    // A new app, or a first try whose repository was never made: a name neither an app here nor a repository has.
+    const name = existing?.repo
+      ? existing.name
+      : await this.freeName(existing?.name ?? suggestName(source.folder), github.login, existing?.id).catch(
+          () => existing?.name ?? suggestName(source.folder),
+        );
     return {
       kind: spec.kind,
       serviceType: spec.serviceType,
@@ -279,14 +285,23 @@ export class AppPublisher {
    * The name the dialog suggests: the folder's, or with `-2`… when an app here or a repository of the
    * account already has it (a repository stays after its app is unpublished).
    */
-  private async freeName(base: string, login: string | undefined): Promise<string> {
+  private async freeName(base: string, login: string | undefined, except?: string): Promise<string> {
     for (let n = 1; n <= 9; n++) {
       const name = n === 1 ? base : `${base.slice(0, 37).replace(/-+$/, '')}-${n}`;
-      if (this.store.apps().some((a) => a.name === name)) continue;
+      if (this.store.apps().some((a) => a.name === name && a.id !== except)) continue;
       if (login && (await repoExists(login, name, this.run()))) continue;
       return name;
     }
     return base;
+  }
+
+  /** The init scripts of the databases still to set up: refused before anything is made when they cannot run. */
+  private checkScripts(databases: DatabaseSpec[], app?: AppRecord) {
+    for (const db of databases) {
+      if (app?.serviceId && app.databases.some((d) => d.service === db.service)) continue;
+      const done = app?.databases.find((d) => d.service === db.service)?.scriptsDone ?? 0;
+      for (const script of db.scripts.slice(done)) checkInitScript(script.name, script.sql);
+    }
   }
 
   /** The app's Render workspace is one the key reaches: else its service cannot be deployed or deleted with it. */
@@ -312,7 +327,8 @@ export class AppPublisher {
     const missing = this.missing({ ...spec, databases });
     if (missing.length)
       throw new HttpError(400, missing[0]!.startsWith('neon') ? t().publish.setupNeon : t().publish.setupRender, PUBLISH_SETUP);
-    if (app?.serviceId) this.sameWorkspace(app);
+    if (app?.serviceId || app?.serviceTried) this.sameWorkspace(app);
+    this.checkScripts(databases, app);
     if ([...this.jobs.values()].filter((j) => j.active).length >= MAX_JOBS) throw new HttpError(429, t().publish.tooMany);
     if (!app) {
       const name = request.name ?? suggestName(source.folder);
@@ -345,8 +361,8 @@ export class AppPublisher {
       app.state = 'publishing';
       delete app.error;
       delete app.interrupted;
-      // A service not made yet goes to the workspace chosen now.
-      if (!app.serviceId) app.ownerId = this.store.render.ownerId!;
+      // A service Render was never asked for goes to the workspace chosen now.
+      if (!app.serviceId && !app.serviceTried) app.ownerId = this.store.render.ownerId!;
     }
     app.conversationId = source.conversationId;
     this.store.put(app);
@@ -445,7 +461,7 @@ export class AppPublisher {
               name,
               database: project.database,
               role: project.role,
-              initialized: false,
+              scriptsDone: 0,
             });
             this.store.put(app);
           },
@@ -456,27 +472,16 @@ export class AppPublisher {
     } else end('database', 'skipped');
 
     begin('init');
-    const scripts = made.filter(({ spec: db }) => db.scripts.length && !app.databases.find((d) => d.service === db.service)?.initialized);
+    // Each script runs as one transaction and is counted once it committed: a later try goes on after it.
+    const scripts = made.filter(
+      ({ spec: db }) => db.scripts.length > (app.databases.find((d) => d.service === db.service)?.scriptsDone ?? 0),
+    );
     for (const { spec: db, neon } of scripts) {
       const record = app.databases.find((d) => d.service === db.service)!;
-      try {
-        await runInitScripts(neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker);
-      } catch (err) {
-        // Its scripts ran in part: the app never used it, so it goes, and the next try starts on a new one.
-        if (!signal.aborted) {
-          const gone = await this.neon()
-            .deleteProject(record.projectId)
-            .then(() => true)
-            .catch(() => false);
-          if (gone) {
-            app.databases = app.databases.filter((d) => d !== record);
-            this.store.put(app);
-          }
-        }
-        throw err;
-      }
-      record.initialized = true;
-      this.store.put(app);
+      await runInitScripts(neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker, record.scriptsDone, (n) => {
+        record.scriptsDone = n;
+        this.store.put(app);
+      });
     }
     end('init', scripts.length ? 'done' : 'skipped');
 
@@ -487,6 +492,10 @@ export class AppPublisher {
       // One a try that stopped while Render made it left behind (its answer never came): taken, not made again.
       const left = await render.findService(app.name, app.ownerId, repo);
       const vars = databaseEnv(spec.env, made, env);
+      if (!left) {
+        app.serviceTried = true;
+        this.store.put(app);
+      }
       const service =
         left ??
         (await render.createService(
@@ -536,16 +545,26 @@ export class AppPublisher {
    * Takes the app down: its Render service, and its Neon projects when `database` (Neon keeps them to
    * restore for 7 days). The GitHub repository stays: deleting one needs a scope gh does not have by default.
    */
-  async unpublish(id: string, database: boolean) {
+  async unpublish(id: string, database: boolean, forget = false) {
     const app = this.store.app(id);
     if (!app) throw new HttpError(404, t().publish.notFound);
     if (this.running(id) || this.unpublishing.has(id)) throw new HttpError(409, t().publish.busy);
+    // Removed from the list alone: what is on Render, Neon and GitHub stays (an account no key reaches any more).
+    if (forget) {
+      this.store.remove(id);
+      this.jobs.delete(id);
+      return;
+    }
     this.unpublishing.add(id);
     try {
-      if (app.serviceId) {
+      if (app.serviceId || app.serviceTried) {
         // A key for another workspace would find no service there, and the app would stay online.
         this.sameWorkspace(app);
-        await this.render().deleteService(app.serviceId);
+        const render = this.render();
+        // A service Render made for a try whose answer never came is found as a retry finds it.
+        const serviceId =
+          app.serviceId ?? (app.repo ? (await render.findService(app.name, app.ownerId, `https://github.com/${app.repo}`))?.id : undefined);
+        if (serviceId) await render.deleteService(serviceId);
       }
       if (database && app.databases.length) {
         const neon = this.neon();

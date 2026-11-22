@@ -72,7 +72,9 @@ const zhTW = {
       `「${name}」發布在另一個 Render 工作區，目前的金鑰碰不到它。請改用能存取那個工作區的金鑰，再更新或取消發布。`,
     databasesChanged: '這個應用程式的資料庫和上次發布時不同（例如 compose 檔多了 PostgreSQL 服務）。請先取消發布，再重新發布。',
     initMeta: (name: string, command: string) =>
-      `${name} 用了 psql 的 ${command} 指令：它可能在這台電腦上執行程式、讀寫檔案或連到別處，所以不會執行。只能用 SQL，以及 \\echo、\\set、\\unset。`,
+      `${name} 用了 psql 自己的指令（${command}）。Relay 只把初始化腳本當成一般的 SQL 送到 Neon 執行，所以請改成只有 SQL 的腳本。`,
+    initSize: (name: string, kb: number) => `${name} 超過 ${kb} KB，太長了，無法當成初始化腳本執行。`,
+    initBinary: (name: string) => `${name} 含有 NUL 位元組，不是可以執行的 SQL 文字。`,
     initFailed: (name: string, detail: string) => `在 Neon 上執行 ${name} 失敗：${detail || '沒有說明'}`,
     storage: '無法存取這台電腦的憑證儲存區，金鑰無法保存。',
     interrupted: 'Harness Relay 在發布途中停止了。請再發布一次。',
@@ -1254,7 +1256,9 @@ const en: ServerMessages = {
     databasesChanged:
       "This app's databases differ from its last publish (its compose file has another PostgreSQL service, say). Unpublish it, then publish it again.",
     initMeta: (name: string, command: string) =>
-      `${name} uses psql's ${command} command, which could run a program, read or write a file on this computer or connect elsewhere, so it is not run. Only SQL, \\echo, \\set and \\unset are.`,
+      `${name} uses psql's own commands (${command}). Relay sends an init script to Neon as plain SQL, so keep it to SQL alone.`,
+    initSize: (name: string, kb: number) => `${name} is over ${kb} KB, too long to run as an init script.`,
+    initBinary: (name: string) => `${name} holds a NUL byte: it is not SQL text that can run.`,
     initFailed: (name: string, detail: string) => `Running ${name} on Neon failed: ${detail || 'no details'}`,
     storage: 'The credential store on this computer is unavailable, so the key cannot be kept.',
     interrupted: 'Harness Relay stopped during the publish. Publish again.',

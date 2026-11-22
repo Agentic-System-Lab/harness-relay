@@ -635,21 +635,77 @@ describe('trying again, and what the review found', () => {
   });
 
   it(
-    'deletes a database whose init scripts failed part way, so that the next try starts on a new one',
+    'goes on after the init scripts that committed: a failed one ran as one transaction, so the next try runs it again on the same database',
     async () => {
       const s = setup({ dockerFails: 1 });
       await connected(s);
       const failed = await withLang('en', async () => until(s.publisher, (await s.publisher.publish(source(), { public: true })).id));
       expect(failed).toMatchObject({
         state: 'failed',
-        databases: [],
+        databases: [{ service: 'db' }],
         error: expect.stringContaining('Running db/init.sql on Neon failed'),
       });
-      expect(s.cloud.projects.size).toBe(0);
+      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toBe(0);
       const again = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
       expect(again).toMatchObject({ state: 'live', databases: [{ service: 'db' }] });
       expect(s.cloud.projects.size).toBe(1);
       expect(s.docker.runs).toHaveLength(2);
+      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toBe(1);
+      // An update runs none, and checks none: the scripts ran once, for good.
+      const changed = source({ files: new Map([...source().files, ['db/init.sql', Buffer.from('\\c other\nSELECT 1;')]]) });
+      expect((await s.publisher.plan(changed)).existing?.id).toBe(again.id);
+      await until(s.publisher, (await s.publisher.publish(changed, { public: true })).id);
+      expect(s.docker.runs).toHaveLength(2);
+    },
+    slow(30_000),
+  );
+
+  it("refuses, before anything is made, a first publish whose init script has psql's own commands", async () => {
+    const s = setup();
+    await connected(s);
+    const bad = source({ files: new Map([...source().files, ['db/init.sql', Buffer.from('\\c todo\nCREATE TABLE t ();')]]) });
+    await withLang('en', async () => {
+      await expect(s.publisher.plan(bad)).rejects.toMatchObject({ status: 400, message: /uses psql's own commands \(\\c\)/ });
+      await expect(s.publisher.publish(bad, { public: true })).rejects.toMatchObject({ status: 400 });
+    });
+    expect(s.cloud.requests.filter((r) => r.method !== 'GET')).toEqual([]);
+  });
+
+  it(
+    'unpublishes a service Render made for a try whose answer never came, keeps that try in its workspace, and can forget an app',
+    async () => {
+      const s = setup({ createFails: 5, createFailsAfterMaking: true });
+      await connected(s);
+      const failed = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(failed.state).toBe('failed');
+      expect(s.cloud.services.size).toBe(1);
+      // Another workspace now: the try keeps its own, where its service may be, rather than making another.
+      await s.publisher.setRenderKey(OTHER_RENDER_KEY);
+      await withLang('en', () => expect(s.publisher.publish(source(), { public: true })).rejects.toMatchObject({ status: 409 }));
+      await s.publisher.setRenderKey(RENDER_KEY);
+      await s.publisher.unpublish(failed.id, true);
+      expect(s.cloud.services.size).toBe(0);
+      expect(s.cloud.projects.size).toBe(0);
+      // Forgetting removes the record alone.
+      const t = setup();
+      await connected(t);
+      const app = await until(t.publisher, (await t.publisher.publish(source(), { public: true })).id);
+      await t.publisher.unpublish(app.id, true, true);
+      expect(t.publisher.view().apps).toEqual([]);
+      expect(t.cloud.services.size).toBe(1);
+      expect(t.cloud.projects.size).toBe(1);
+    },
+    slow(30_000),
+  );
+
+  it(
+    'suggests a free name again for a failed first try whose repository was never made',
+    async () => {
+      const s = setup({ taken: ['todo-app'] });
+      await connected(s);
+      const failed = await until(s.publisher, (await s.publisher.publish(source(), { public: true, name: 'todo-app' })).id);
+      expect(failed.state).toBe('failed');
+      expect(await s.publisher.plan(source())).toMatchObject({ name: 'todo-app-2', existing: { id: failed.id, name: 'todo-app' } });
     },
     slow(30_000),
   );

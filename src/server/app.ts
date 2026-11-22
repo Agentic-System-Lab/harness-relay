@@ -2249,7 +2249,7 @@ export function createApp({
   });
   app.get('/api/publish/apps/:appId', (c) => c.json(publisher.app(c.req.param('appId'), conversationGone)));
   app.delete('/api/publish/apps/:appId', async (c) => {
-    await publisher.unpublish(c.req.param('appId'), c.req.query('database') === '1');
+    await publisher.unpublish(c.req.param('appId'), c.req.query('database') === '1', c.req.query('forget') === '1');
     return c.json({ ok: true });
   });
   // A running preview the browser that started it tried: what publishing it would do, then publishing it.

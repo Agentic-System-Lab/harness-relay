@@ -65,13 +65,13 @@ function AppRow({ app, onGone, onNote }: { app: PublishedApp; onGone: (id: strin
   const [database, setDatabase] = useState(false);
   const [busy, setBusy] = useState(false);
   const when = (ms: number) => new Date(ms).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' });
-  const remove = async () => {
+  const remove = async (forget = false) => {
     setBusy(true);
     onNote({ text: '' });
     try {
-      await api.unpublishApp(app.id, database);
+      await api.unpublishApp(app.id, database, forget);
       onGone(app.id);
-      onNote({ text: c.repoKept(app.repo) });
+      onNote({ text: forget ? c.forgotten(app.name) : c.repoKept(app.repo) });
     } catch (e) {
       onNote({ text: (e as Error).message, error: true });
       setBusy(false);
@@ -116,6 +116,7 @@ function AppRow({ app, onGone, onNote }: { app: PublishedApp; onGone: (id: strin
         {asking && (
           <div className="publish-unpublish" role="group" aria-label={c.unpublish}>
             <p className="small">{c.confirmUnpublish(app.name)}</p>
+            <p className="muted small">{c.forgetHint}</p>
             {app.databases.length > 0 && (
               <label className="check-row small">
                 <input type="checkbox" checked={database} disabled={busy} onChange={(e) => setDatabase(e.target.checked)} />
@@ -125,6 +126,9 @@ function AppRow({ app, onGone, onNote }: { app: PublishedApp; onGone: (id: strin
             <div className="button-row">
               <button type="button" className="ghost small-button danger" disabled={busy} onClick={() => void remove()}>
                 {busy ? c.unpublishing : c.confirm}
+              </button>
+              <button type="button" className="ghost small-button" disabled={busy} title={c.forgetHint} onClick={() => void remove(true)}>
+                {c.forget}
               </button>
               <button type="button" className="ghost small-button" disabled={busy} onClick={() => setAsking(false)}>
                 {t.common.cancel}

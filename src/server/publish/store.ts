@@ -25,7 +25,10 @@ export interface AppRecord {
   /** Its address: Render's, and a static page's path when it is not the folder's index. */
   url?: string;
   path?: string;
-  databases: { service: string; projectId: string; name: string; database: string; role: string; initialized: boolean }[];
+  /** Its Neon projects, and how many of each one's init scripts have run (each in a transaction of its own). */
+  databases: { service: string; projectId: string; name: string; database: string; role: string; scriptsDone: number }[];
+  /** Render was asked to make its service, whether or not its answer came: it may have one there not recorded. */
+  serviceTried?: boolean;
   createdAt: number;
   publishedAt?: number;
   state: 'publishing' | 'live' | 'failed';

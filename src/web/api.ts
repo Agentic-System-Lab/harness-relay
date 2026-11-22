@@ -640,8 +640,11 @@ export const api = {
   updateNeon: (body: { orgId?: string }) => request<PublishSettingsView>('PATCH', '/api/publish/neon', body),
   removeNeon: () => request<PublishSettingsView>('DELETE', '/api/publish/neon'),
   publishedApp: (appId: string) => request<PublishedApp>('GET', `/api/publish/apps/${encodeURIComponent(appId)}`),
-  unpublishApp: (appId: string, database: boolean) =>
-    request<{ ok: true }>('DELETE', `/api/publish/apps/${encodeURIComponent(appId)}${database ? '?database=1' : ''}`),
+  unpublishApp: (appId: string, database: boolean, forget = false) =>
+    request<{ ok: true }>(
+      'DELETE',
+      `/api/publish/apps/${encodeURIComponent(appId)}${forget ? '?forget=1' : database ? '?database=1' : ''}`,
+    ),
   stopAppPreview: (id: string, session: string) =>
     request<{ ok: true }>(
       'DELETE',

@@ -176,10 +176,16 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
               </ul>
               {plan.databaseOptional && configurable(plan) && (
                 <label className="check-row">
-                  <input type="checkbox" checked={database} onChange={(e) => setDatabase(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={database}
+                    disabled={databaseTicked(plan)}
+                    onChange={(e) => setDatabase(e.target.checked)}
+                  />
                   {p.addDatabase}
                 </label>
               )}
+              {plan.databaseOptional && configurable(plan) && databaseTicked(plan) && <p className="muted small">{p.databaseMade}</p>}
               {database && !plan.neonReady && !plan.missing.length && (
                 <p className="warn-text small">
                   {p.setup.neon} · <a href={settingsHref('publish')}>{p.openSettings}</a>
@@ -221,6 +227,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
               <fieldset className="publish-env">
                 <legend>{p.env}</legend>
                 <p className="muted small">{p.envHint}</p>
+                {existing && <p className="warn-text small">{p.envAgain}</p>}
                 {rows.map((r, i) => (
                   <div className="publish-env-row" key={i}>
                     <input

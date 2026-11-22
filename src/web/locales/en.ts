@@ -2163,6 +2163,8 @@ export const en: Messages = {
     envRemove: (key: string) => `Remove ${key || 'this variable'}`,
     envInvalid: 'A name has letters, digits and underscores, does not start with a digit, and is used once.',
     envKept: 'An update keeps the variables the service has on Render.',
+    envAgain: 'The last publish failed before its Render service was made. Relay keeps no variable values: enter them again.',
+    databaseMade: 'The last publish made this database, and this one goes on with it; unpublish to remove it.',
     freeNotes:
       'Free plans: a web service sleeps after 15 minutes without requests and takes about a minute to wake; files it wrote in its container are lost when it restarts (what is in the database stays).',
     networkNote: 'Unlike the preview, the published app has a network.',
@@ -2240,6 +2242,10 @@ export const en: Messages = {
         `Unpublish "${name}"? Its Render service is deleted and its address stops working. The GitHub repository stays.`,
       deleteDatabase: 'Delete its Neon databases too (Neon keeps them 7 days, to restore)',
       confirm: 'Unpublish',
+      forget: 'Remove from the list only',
+      forgetHint:
+        'Removes it from this list alone: what is on Render, Neon and GitHub stays (when the current key no longer reaches its workspace, say).',
+      forgotten: (name: string) => `"${name}" was removed from the list. What it has on Render, Neon and GitHub is still there.`,
       repoKept: (repo: string) => `Unpublished. The GitHub repository ${repo} stays; delete it on GitHub if you no longer need it.`,
     },
   },

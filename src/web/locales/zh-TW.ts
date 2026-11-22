@@ -2153,6 +2153,8 @@ export const zhTW = {
     envRemove: (key: string) => `移除 ${key || '這個變數'}`,
     envInvalid: '變數名稱只能有英文字母、數字和底線，不能以數字開頭，也不能重複。',
     envKept: '更新時保留 Render 上現有的環境變數。',
+    envAgain: '上一次發布失敗，還沒建立 Render 服務：Relay 不保存環境變數的值，請再輸入一次。',
+    databaseMade: '上一次發布已建立這個資料庫，這次會繼續使用；要移除請取消發布。',
     freeNotes:
       '免費方案：web service 閒置 15 分鐘會休眠，下次有人開啟時約需一分鐘喚醒；重新啟動後，寫在容器裡的檔案會消失（存在資料庫的資料不受影響）。',
     networkNote: '和預覽不同，上線的應用程式可以連上網路。',
@@ -2222,6 +2224,9 @@ export const zhTW = {
       confirmUnpublish: (name: string) => `取消發布「${name}」？Render 上的服務會被刪除，網址將無法再開啟。GitHub 儲存庫會保留。`,
       deleteDatabase: '同時刪除 Neon 資料庫（Neon 會保留 7 天，期間可以還原）',
       confirm: '確定取消發布',
+      forget: '只從清單移除',
+      forgetHint: '只把它從這個清單移除：Render、Neon 與 GitHub 上的東西都會保留（例如目前的金鑰已碰不到它的工作區時）。',
+      forgotten: (name: string) => `已把「${name}」從清單移除。Render、Neon 與 GitHub 上的東西都還在。`,
       repoKept: (repo: string) => `已取消發布。GitHub 儲存庫 ${repo} 仍保留，需要時可以到 GitHub 刪除。`,
     },
   },
