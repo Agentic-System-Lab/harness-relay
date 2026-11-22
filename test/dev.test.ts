@@ -233,10 +233,16 @@ describe('npm run dev: ports on this computer', () => {
     expect(await tryListen(port, '0.0.0.0')).toBe('taken');
   });
 
+  // On Windows only `::` tried for IPv6 alone finds it: a socket for both may listen beside it there.
   it.skipIf(!ipv6)('counts a port as taken when something listens on it at every IPv6 address (::)', async () => {
     const port = await listen('::', 0, true);
     expect(await portFree(port, LOCAL_BINDS)).toBe(false);
     expect(await tryListen(port, '::')).toBe('taken');
+  });
+
+  it.skipIf(!ipv6)('counts a port as taken when something listens on it at :: for IPv4 and IPv6 both', async () => {
+    const port = await listen('::');
+    expect(await portFree(port, LOCAL_BINDS)).toBe(false);
   });
 
   it('leaves an address that is not on this computer out of the way', async () => {
