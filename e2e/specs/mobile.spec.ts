@@ -701,10 +701,41 @@ test.describe('on a phone', () => {
     await page.getByRole('button', { name: 'More' }).tap();
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).tap();
     await expect(page.getByRole('dialog', { name: 'Team settings' }).locator('input[value="Claude"]')).toBeVisible();
+    /** The tops of a row's buttons: one value when they are on one line. */
+    const tops = (row: Locator) =>
+      row.locator('button').evaluateAll((bs) => [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))]);
+    const levels = page.locator('.drawer .segmented.levels');
     for (const width of widths) {
       await page.setViewportSize({ width, height: 640 });
       expect(await sideways('.drawer')).toBeLessThanOrEqual(1);
       expect(await page.locator('.drawer .add-card-list').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+      // The four permission levels stay on one row, which scrolls sideways inside itself.
+      expect(await tops(levels)).toHaveLength(1);
+      expect(await levels.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    }
+  });
+
+  test("on a narrow phone, voice input's languages stay on one row that scrolls sideways, in either language", async ({ page, relay }) => {
+    const row = page.locator('.segmented.voice-languages');
+    for (const lang of ['en', 'zh-TW'] as const) {
+      await page.evaluate((l) => localStorage.setItem('relay:lang', l), lang);
+      await page.setViewportSize(viewport);
+      await page.goto(`${relay.base}/#/settings/voice`);
+      await page.reload();
+      await expect(row.locator('button')).toHaveCount(4);
+      for (const width of [320, 280]) {
+        await page.setViewportSize({ width, height: 640 });
+        const line = await row
+          .locator('button')
+          .evaluateAll((bs) => [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))]);
+        expect(line, `${lang} at ${width}px`).toHaveLength(1);
+        // Each name whole, on one line of its own; the row scrolls, the page does not.
+        expect(await row.locator('button').evaluateAll((bs) => bs.every((b) => b.scrollHeight <= b.clientHeight + 1))).toBe(true);
+        expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(
+          1,
+        );
+      }
     }
   });
 

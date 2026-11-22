@@ -268,7 +268,8 @@ export const zhTW = {
     cwdFull: (max: number) => `最多 ${max} 個工作目錄`,
     permission: '檔案權限（所有成員共用）',
     parallelNote: '平行模式：每位成員在自己的 git worktree 工作，不會互相覆蓋；完成後在聊天中檢視 diff，再選擇要套用誰的結果。',
-    sharedNote: '成員直接在工作目錄修改檔案，每回合改了什麼都會記錄下來；同一個目錄一次只允許一個對話修改。',
+    sharedNote:
+      '成員直接在工作目錄修改檔案，每回合改了什麼都會記錄下來。另一個對話正在修改這個資料夾時，這個對話會在自己的 git worktree 工作，直到你套用它的結果。',
     gitInitNote: '工作目錄若還不是 git repository，會自動 git init。',
     approvals: '權限範圍以外的動作',
     approvalsAsk: '詢問我',

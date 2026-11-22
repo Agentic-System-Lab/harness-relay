@@ -265,7 +265,7 @@ export const en: Messages = {
     parallelNote:
       'Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.',
     sharedNote:
-      'Members change files directly in the working directory and every turn records what changed; only one conversation at a time may change a directory.',
+      'Members change files directly in the working directory and every turn records what changed. While another chat is changing the folder, this one works in a git worktree of its own until you apply its result.',
     gitInitNote: ' If the working directory is not a git repository yet, git init runs automatically.',
     approvals: 'Actions beyond the permission',
     approvalsAsk: 'Ask me',

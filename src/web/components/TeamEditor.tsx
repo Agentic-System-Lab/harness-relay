@@ -43,7 +43,7 @@ import { AccountPicker } from './AccountPicker';
 import { ChecksEditor, useChecksEnvironment } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
-import { CliPicker } from './CliPicker';
+import { CliPicker, revealChosen } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 
 export interface Team {
@@ -189,6 +189,9 @@ export function TeamEditor({
   // The permission as the picker shows it ("Approve for me" is Edit reviewed by the lead agent), and
   // what the other levels do beyond it.
   const level = permissionLevel(settings);
+  // One row that scrolls sideways where the levels do not fit: the chosen one is scrolled into view.
+  const levelsRow = useRef<HTMLDivElement>(null);
+  useEffect(() => revealChosen(levelsRow.current), [level]);
   const approvals = settings.approvals === 'deny' ? 'deny' : 'ask';
   const updateAgent = (id: string, patch: Partial<AgentConfig>) => setAgents(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const move = (i: number, d: -1 | 1) => {
@@ -444,7 +447,7 @@ export function TeamEditor({
         {!template && (
           <div className="field">
             <span>{t.team.permission}</span>
-            <div className="segmented wide levels">
+            <div ref={levelsRow} className="segmented wide levels">
               {/* A template keeps no approvals, so it has no "Approve for me". */}
               {PERMISSION_LEVELS.filter((p) => !template || p !== 'auto').map((p) => (
                 <button
