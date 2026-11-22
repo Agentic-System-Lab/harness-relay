@@ -1,14 +1,26 @@
-import { chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { lstat, open, readdir, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, SECRET_NAME_RE, type FixedCommand, type FixedCommandRun } from '../shared/types';
 import { UNPINNED_TOP, maskEdges, maskValues, secretValueProblem } from '../shared/handoffs';
 import type { CompiledPattern } from '../shared/checks';
 import { AgentRunError } from './agents/types';
 import { CONFIG_FILE, checkEnv, commandCwd, keptOutput, namedFiles, sandboxDenial } from './checkCommands';
-import { hooksPathOf } from './interactive';
+import { dirInTemp } from './protect';
 import type { CommandPin } from './handoffs';
 import { t } from './i18n';
 import { runProcess, type SpawnResult } from './process';
@@ -20,7 +32,7 @@ import {
   type RelaySandboxRunDirs,
   type SandboxAvailability,
 } from './relaySandbox';
-import { diffPaths, dropKeptCommits, forgetCommits, keepCommits, repoRoot, snapshot } from './workspace';
+import { diffPaths, dropKeptCommits, forgetCommits, keepCommits, repoGitState, repoRoot, snapshot } from './workspace';
 
 /*
  * Fixed commands (docs/architecture.md, "Secrets and fixed commands"): a command line the user saved
@@ -123,87 +135,46 @@ async function hashFile(abs: string): Promise<string> {
   }
 }
 
+/** `p` as the system finds its deepest folder that is there, the rest as it is written. */
+async function realish(p: string): Promise<string> {
+  let head = p;
+  const rest: string[] = [];
+  for (;;) {
+    const found = await realpath(head).catch(() => undefined);
+    if (found) return rest.length ? join(found, ...rest.reverse()) : found;
+    const up = dirname(head);
+    if (up === head) return p;
+    rest.push(basename(head));
+    head = up;
+  }
+}
+
 /** Whether `p` is inside `dir` (or is it). */
 const inside = (p: string, dir: string) => {
   const rel = relative(dir, p);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
 
-/** What `git init` writes in `[core]`, which says nothing git would run: left out of a pin of the config. */
-const INIT_CORE_KEYS = new Set([
-  'repositoryformatversion',
-  'filemode',
-  'bare',
-  'logallrefupdates',
-  'ignorecase',
-  'precomposeunicode',
-  'symlinks',
-]);
-
 /**
- * A git config file as a pin takes it: its lines but blank ones, comments and what `git init` writes
- * (so that a repository Harness Relay makes for a team's first turn changes nothing), and the files it
- * includes (`include.path`, `includeIf.….path`), as full paths.
+ * The settings of a repository's config that make git run nothing and that git and its users change in
+ * everyday work (who commits, remotes and the branches that track them, upkeep, colours): left out of a
+ * pin, so that `git remote add`, `push -u` or `git init` ask for no approval. Every other one is pinned:
+ * one that names a program (`core.sshCommand`, `credential.helper`, `filter.*`, `alias.*`…) or a
+ * protocol (`protocol.*.allow`, `url.*.insteadOf`) changes what a command running git runs.
  */
-export function gitConfigPin(text: string, dir: string): { lines: string; includes: string[] } {
-  const kept: string[] = [];
-  const includes: string[] = [];
-  let section = '';
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || /^[#;]/.test(line)) continue;
-    const head = /^\[\s*([^\]\s"]+)(?:\s+"[^"]*")?\s*\]/.exec(line);
-    if (head) {
-      section = head[1]!.toLowerCase();
-      kept.push(line);
-      continue;
-    }
-    const key = /^([\w.-]+)/.exec(line)?.[1]?.toLowerCase() ?? '';
-    if (section === 'core' && INIT_CORE_KEYS.has(key)) continue;
-    kept.push(line);
-    const path = (section === 'include' || section === 'includeif') && key === 'path' ? /=\s*"?([^"]*)"?\s*$/.exec(line)?.[1] : undefined;
-    if (path) includes.push(path.startsWith('~/') ? join(homedir(), path.slice(2)) : resolve(dir, path));
-  }
-  // Sections left with nothing in them say nothing either.
-  const lines = kept.filter((l, i) => !(l.startsWith('[') && (i === kept.length - 1 || kept[i + 1]!.startsWith('['))));
-  return { lines: lines.join('\n'), includes };
-}
+const BENIGN_GIT_KEY =
+  /^(?:user\.[^.]+|core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|safecrlf|quotepath)|remote\..+\.(?:url|pushurl|fetch|push|prune|prunetags|tagopt|mirror|skipdefaultupdate|skipfetchall)|branch\..+\.(?:remote|merge|rebase|pushremote|description)|maintenance\..+|gc\.auto|pull\.(?:rebase|ff)|push\.(?:default|autosetupremote|followtags)|init\.defaultbranch|fetch\.(?:prune|prunetags)|color\..+|column\..+|advice\..+|rerere\.(?:enabled|autoupdate)|extensions\.(?:worktreeconfig|objectformat)|submodule\..+\.(?:url|active))$/;
 
-/** The files git runs or reads for a command that runs git there: its config, the worktree's, and its hooks (not git's samples). */
-async function gitFiles(folder: string): Promise<[string, string][]> {
-  const root = await repoRoot(folder).catch(() => null);
-  if (!root) return [];
-  let gitDir = join(root, '.git');
-  try {
-    const st = await lstat(gitDir);
-    if (st.isFile()) {
-      // A worktree's `.git` file names its folder, which names the repository's own (`commondir`).
-      const named = /^gitdir:\s*(.+)$/m.exec(await readFile(gitDir, 'utf8'))?.[1]?.trim();
-      if (!named) return [];
-      gitDir = resolve(root, named);
-    } else if (!st.isDirectory()) return [];
-  } catch {
-    return [];
-  }
-  const common = await readFile(join(gitDir, 'commondir'), 'utf8')
-    .then((c) => resolve(gitDir, c.trim()))
-    .catch(() => gitDir);
-  const out: [string, string][] = [
-    ['.git/config', join(common, 'config')],
-    ['.git/config.worktree', join(gitDir, 'config.worktree')],
-  ];
-  const hooks = async (key: string, dir: string) => {
-    for (const name of (await readdir(dir).catch(() => [] as string[])).sort()) {
-      if (!name.endsWith('.sample')) out.push([`${key}/${name}`, join(dir, name)]);
-    }
-  };
-  await hooks('.git/hooks', join(common, 'hooks'));
-  const set = hooksPathOf(await readFile(join(common, 'config'), 'utf8').catch(() => ''));
-  if (set) {
-    const dir = set.startsWith('~/') ? join(homedir(), set.slice(2)) : resolve(root, set);
-    await hooks(`.git/hooksPath:${dir}`, dir);
-  }
-  return out;
+/** The pinned git settings of a repository (its keys and values), and its hooks (not git's samples), as full paths. */
+async function gitPinned(folder: string): Promise<{ settings: [string, string][]; hooks: [string, string][] }> {
+  const state = await repoGitState(folder).catch(() => undefined);
+  if (!state) return { settings: [], hooks: [] };
+  const settings = [...state.settings]
+    .filter(([key]) => !BENIGN_GIT_KEY.test(key))
+    .map(([key, values]): [string, string] => [key, values.join('\n')])
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  const names = (await readdir(state.hooksDir).catch(() => [] as string[])).filter((n) => !n.endsWith('.sample')).sort();
+  return { settings, hooks: names.map((n): [string, string] => [n, join(state.hooksDir, n)]) };
 }
 
 /**
@@ -240,18 +211,23 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
     if (!to || !st?.isFile()) return undefined;
     return { kind: 'file', size: st.size, hash: await hashed(to, st.size) };
   };
-  /** Where a link leads may be pinned: inside the folder, not in `.git`; a top folder of packages is let be. */
-  const leads = (p: string): 'in' | 'packages' | 'out' => {
-    const base = inside(p, real) ? real : inside(p, folder) ? folder : undefined;
+  /**
+   * Where a link leads may be pinned: inside the folder, not in `.git`; a top folder of packages is let
+   * be (by its name as it is: on Linux `Target` is another folder). A path is taken as the system finds
+   * its deepest folder that is there (`/var/…` and `/private/var/…` are one on macOS).
+   */
+  const leads = async (p: string): Promise<'in' | 'packages' | 'out'> => {
+    const found = await realish(p);
+    const base = inside(found, real) ? real : inside(found, folder) ? folder : undefined;
     if (base === undefined) return 'out';
-    const parts = relative(base, p).split(sep).filter(Boolean);
+    const parts = relative(base, found).split(sep).filter(Boolean);
     if (parts.some((x) => x.toLowerCase() === '.git')) return 'out';
-    return parts.length && UNPINNED_TOP.includes(parts[0]!.toLowerCase()) ? 'packages' : 'in';
+    return parts.length && UNPINNED_TOP.includes(parts[0]!) ? 'packages' : 'in';
   };
   const link = async (rel: string, abs: string): Promise<PinEntry> => {
     const target = await readlink(abs).catch(() => '');
     const to = await realpath(abs).catch(() => undefined);
-    const where = [leads(resolve(dirname(abs), target)), ...(to ? [leads(to)] : [])];
+    const where = [await leads(resolve(dirname(abs), target)), ...(to ? [await leads(to)] : [])];
     if (where.includes('out')) throw new AgentRunError(t().handoffs.linkOutside(rel));
     if (where.includes('packages')) return { kind: 'link', target };
     const file = await followed(abs);
@@ -266,9 +242,12 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
       const childAbs = join(abs, name);
       const st = await lstat(childAbs).catch(() => undefined);
       if (!st) continue;
-      if (st.isSymbolicLink()) add(childRel, await link(childRel, childAbs));
+      // A top folder of packages is not pinned, a link to one elsewhere neither (but by its target).
+      const packages = top && UNPINNED_TOP.includes(name);
+      if (st.isSymbolicLink())
+        add(childRel, packages ? { kind: 'link', target: await readlink(childAbs).catch(() => '') } : await link(childRel, childAbs));
       else if (st.isDirectory()) {
-        if (!(top && UNPINNED_TOP.includes(name.toLowerCase()))) await visit(childRel, childAbs, false);
+        if (!packages) await visit(childRel, childAbs, false);
       } else if (st.isFile() && (PIN_PATTERN.regex.test(childRel) || (st.mode & 0o111) !== 0)) {
         add(childRel, { kind: 'file', size: st.size, hash: await hashed(childAbs, st.size) });
       }
@@ -280,29 +259,55 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
   for (const abs of [...new Set(named)].sort()) {
     const rel = inside(abs, folder) ? relative(folder, abs).split(sep).join('/') : undefined;
     if (rel !== undefined && rel in out) continue;
+    // Outside the folder in a temp folder, where agents write, it could change while it runs: refused, as
+    // a link out of the folder is.
+    if (rel === undefined && dirInTemp(abs)) throw new AgentRunError(t().handoffs.namedInTemp(abs));
     const entry = await followed(abs);
     if (entry) add(`named:${rel ?? abs}`, entry);
   }
-  for (const [key, abs] of await gitFiles(folder)) {
-    if (key === '.git/config' || key === '.git/config.worktree') {
-      const text = await readFile(abs, 'utf8').catch(() => '');
-      const { lines, includes } = gitConfigPin(text, dirname(abs));
-      if (lines) add(key, { kind: 'file', size: lines.length, hash: createHash('sha256').update(lines).digest('hex') });
-      for (const inc of includes) {
-        const entry = await followed(inc);
-        if (entry) add(`${key}:include:${inc}`, entry);
-      }
-      continue;
-    }
+  // Git's settings as git itself reads them (includes and all), but the everyday ones, and its hooks.
+  const pinnedGit = await gitPinned(folder);
+  for (const [key, value] of pinnedGit.settings)
+    add(`git config ${key}`, { kind: 'file', size: value.length, hash: createHash('sha256').update(value).digest('hex') });
+  for (const [name, abs] of pinnedGit.hooks) {
     const entry = await followed(abs);
-    if (entry) add(key, entry);
+    if (entry) add(`git hook ${name}`, entry);
   }
   return out;
 }
 
-/** The files a command line names, as full paths from where it runs (`namedFiles()`), for its pin. */
+/** The words of a command line before a file of code it runs: an interpreter, or the shell's `source`. */
+const INTERPRETER =
+  /^(?:python[\d.]*|pypy[\d.]*|node|nodejs|deno|bun|bash|sh|zsh|dash|ksh|fish|ruby|perl|php|lua|Rscript|tsx|ts-node|source|\.)$/;
+
+/**
+ * The files of code a command line names, as full paths from where it runs, for its pin: a word with a
+ * folder in it or a script's ending (`namedFiles()`) that is code (`PIN_PATTERN`, or executable), or the
+ * word after an interpreter. Never a data file it reads or writes (`--queue data/queue.csv`, `> out/log.txt`),
+ * which may change freely.
+ */
 export function commandFiles(c: { run: string; cwd?: string }, folder: string): string[] {
-  return namedFiles(c.run, c.cwd ? join(folder, c.cwd) : folder);
+  const base = c.cwd ? join(folder, c.cwd) : folder;
+  const words = c.run.split(/[\s;&|()<>'"`=]+/).filter(Boolean);
+  const named = new Set(namedFiles(c.run, base));
+  const out: string[] = [];
+  words.forEach((w, i) => {
+    const abs = resolve(base, w);
+    const operand = i > 0 && INTERPRETER.test(basename(words[i - 1]!)) && !w.startsWith('-');
+    if (!operand && !named.has(abs)) return;
+    if (operand || PIN_PATTERN.regex.test(abs) || executable(abs)) out.push(abs);
+  });
+  return [...new Set(out)];
+}
+
+/** Whether a path leads to a file anyone may run. */
+function executable(abs: string): boolean {
+  try {
+    const st = statSync(abs);
+    return st.isFile() && (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
 }
 
 /** A pin's manifest in a few characters, which the user's Approve sends back: the code they saw the diff of. */
@@ -351,11 +356,42 @@ export async function pinChanges(folder: string, pin: CommandPin, named: readonl
   return manifestChanges(pin.manifest, await pinManifest(folder, named));
 }
 
+/** A git setting whose value may be a credential: the diff says it is set, never what it is. */
+const HIDDEN_GIT_VALUE = /token|passw|secret|auth|header|credential|cookie|key/i;
+
+/** The path of a section of git's diff (`diff --git a/P b/P`, no renames: both the same). */
+function sectionPath(header: string): string | undefined {
+  const head = 'diff --git a/';
+  if (!header.startsWith(head)) return undefined;
+  const both = header.length - head.length - ' b/'.length;
+  if (both <= 0 || both % 2) return /^diff --git a\/.* b\/(.*)$/.exec(header)?.[1];
+  return header.slice(head.length, head.length + both / 2);
+}
+
+/** A file's text as it is now, for an entry git has no diff of; undefined when it is not there or not text. */
+async function textNow(abs: string, max: number): Promise<string | undefined> {
+  const to = await realpath(abs).catch(() => undefined);
+  if (!to) return undefined;
+  const handle = await open(to, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).catch(() => undefined);
+  if (!handle) return undefined;
+  try {
+    if (!(await handle.stat()).isFile()) return undefined;
+    const buf = Buffer.alloc(max + 1);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    if (buf.subarray(0, Math.min(bytesRead, 8192)).includes(0)) return undefined;
+    const text = buf.subarray(0, Math.min(bytesRead, max)).toString('utf8');
+    return bytesRead > max ? `${text}\n…` : text;
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
- * The diff of a command's changed files since its pin, from its pinned snapshot to one taken now (git's
- * diff of those files alone, for those git does not ignore), with `values` masked before it is cut to
- * at most `max` characters; and the changed files it has no diff for (ignored, outside the repository,
- * git's own files).
+ * What changed in a command's code since its pin, to show before the user approves it: git's diff of
+ * the changed files from its pinned snapshot to one taken now (for those in the repository that git
+ * does not ignore), then, for each change git has no diff of (a git setting, a hook, a file outside the
+ * repository or ignored), what it is now. `values` are masked before it is cut to at most `max`
+ * characters. `missing`: the changes it shows nothing of (gone, or not text).
  */
 export async function pinDiff(
   folder: string,
@@ -364,26 +400,47 @@ export async function pinDiff(
   values: readonly string[] = [],
   max = 60_000,
 ): Promise<{ diff: string; missing: string[] }> {
-  const files = changed.map((p) => p.replace(/^named:/, ''));
-  if (!pin.root || !pin.commit || !files.length) return { diff: '', missing: [...changed] };
-  const { commit } = await snapshot(pin.root);
-  const prefix = folder === pin.root ? '' : `${relative(pin.root, folder).split(sep).join('/')}/`;
-  // Repository paths of the files in it (a path outside the folder, or git's own, has none).
-  const paths = files.map((p) => (isAbsolute(p) || p.startsWith('.git/') ? undefined : `${prefix}${p}`));
-  const full = await diffPaths(
-    pin.root,
-    pin.commit,
-    commit,
-    paths.filter((p): p is string => Boolean(p)),
-  );
+  if (!changed.length) return { diff: '', missing: [] };
+  const prefix = pin.root && folder !== pin.root ? `${relative(pin.root, folder).split(sep).join('/')}/` : '';
+  // Repository paths of the changed files in the folder (a git setting, a hook or a file outside has none).
+  const repoPath = (entry: string) => {
+    if (entry.startsWith('git config ') || entry.startsWith('git hook ')) return undefined;
+    const p = entry.replace(/^named:/, '');
+    return isAbsolute(p) ? undefined : `${prefix}${p}`;
+  };
+  let full = '';
+  if (pin.root && pin.commit) {
+    const paths = changed.map(repoPath).filter((p): p is string => Boolean(p));
+    const { commit } = await snapshot(pin.root);
+    full = await diffPaths(pin.root, pin.commit, commit, paths);
+  }
   const shown = new Set(
     full
       .split(/(?=^diff --git )/m)
-      .map((part) => /^diff --git a\/.* b\/(.*)$/m.exec(part.slice(0, part.indexOf('\n')))?.[1])
+      .map((part) => sectionPath(part.slice(0, part.indexOf('\n'))))
       .filter(Boolean),
   );
-  const missing = changed.filter((_, i) => !paths[i] || !shown.has(paths[i]!));
-  const text = maskValues(full, values);
+  const rest = changed.filter((e) => !repoPath(e) || !shown.has(repoPath(e)!));
+  const git = rest.some((e) => e.startsWith('git ')) ? await repoGitState(folder).catch(() => undefined) : undefined;
+  const missing: string[] = [];
+  const extra: string[] = [];
+  for (const entry of rest) {
+    if (entry.startsWith('git config ')) {
+      const key = entry.slice('git config '.length);
+      const now = git?.settings.get(key);
+      extra.push(
+        `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
+      );
+      continue;
+    }
+    const abs = entry.startsWith('git hook ')
+      ? git && join(git.hooksDir, entry.slice('git hook '.length))
+      : resolve(folder, entry.replace(/^named:/, ''));
+    const text = abs ? await textNow(abs, 20_000) : undefined;
+    if (text === undefined) missing.push(entry);
+    else extra.push(`### ${entry} (as it is now)\n${text}${text.endsWith('\n') ? '' : '\n'}`);
+  }
+  const text = maskValues([full, ...extra].filter(Boolean).join('\n'), values);
   return { diff: text.length > max ? `${text.slice(0, max)}\n…` : text, missing };
 }
 

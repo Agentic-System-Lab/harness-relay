@@ -492,6 +492,43 @@ export async function diffPaths(root: string, base: string, head: string, paths:
   return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
 }
 
+/**
+ * What git itself reads for a repository: the settings of its own config (the local and worktree scopes,
+ * with the files they include, each key's values in order), and the folder its hooks run from
+ * (`core.hooksPath` from any scope, else the repository's `hooks`). For a fixed command's pin, which
+ * pins what a command running git there would have git run. Undefined outside a repository.
+ */
+export async function repoGitState(dir: string): Promise<{ settings: Map<string, string[]>; hooksDir: string } | undefined> {
+  const root = await repoRoot(dir).catch(() => null);
+  if (!root) return undefined;
+  const list = await git(root, ['config', '--list', '--includes', '--show-origin', '--show-scope', '-z'], {
+    allowFail: true,
+    maxCapture: 1024 * 1024,
+  });
+  const settings = new Map<string, string[]>();
+  let hooksPath: string | undefined;
+  const parts = list.stdout.split('\0');
+  for (let i = 0; i + 2 < parts.length; i += 3) {
+    const scope = parts[i]!;
+    const entry = parts[i + 2]!;
+    const at = entry.indexOf('\n');
+    const key = (at === -1 ? entry : entry.slice(0, at)).toLowerCase();
+    const value = at === -1 ? '' : entry.slice(at + 1);
+    // Harness Relay's own `-c` settings are the command's, never the repository's.
+    if (scope === 'command') continue;
+    if (key === 'core.hookspath') hooksPath = value;
+    if (scope !== 'local' && scope !== 'worktree') continue;
+    settings.set(key, [...(settings.get(key) ?? []), value]);
+  }
+  const common = (await git(root, ['rev-parse', '--git-common-dir'], { allowFail: true })).stdout.trim();
+  const hooksDir = hooksPath
+    ? hooksPath.startsWith('~/')
+      ? join(homedir(), hooksPath.slice(2))
+      : resolve(root, hooksPath)
+    : join(resolve(root, common || '.git'), 'hooks');
+  return { settings, hooksDir };
+}
+
 /** Create (or recreate) a worktree on `branch` starting at `base`. */
 export async function createWorktree(root: string, path: string, branch: string, base: string): Promise<void> {
   if (existsSync(path)) await removeWorktree(root, path);
