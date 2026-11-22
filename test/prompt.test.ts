@@ -408,7 +408,8 @@ describe('asking the user', () => {
 
   it('tells agents to give the user steps to take outside the chat in a block, never asking for a secret', () => {
     const briefing = buildBriefing(conv, team[0]!);
-    expect(briefing).toContain('end your reply with the steps in a block on lines of its own: <steps>, then one short step per line');
+    expect(briefing).toContain('end your reply with the steps in a block on lines of its own: <steps>, then one numbered step per line');
+    expect(briefing).toContain('as plain text: never in a code block or backticks');
     expect(briefing).toContain(`never for questions (ask those with ${ASK_TOKEN})`);
     expect(briefing).toContain('Never ask the user for a password, token, API key or other secret');
   });

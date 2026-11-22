@@ -1720,6 +1720,7 @@ export const zhTW = {
     label: (agent: string) => `@${agent} 給你的步驟`,
     count: (done: number, total: number) => `完成 ${done} / ${total}`,
     waiting: (agent: string) => `@${agent} 在等你：這些步驟要在 Harness Relay 之外完成，做完一步就勾一步，全部好了再按「完成」。`,
+    othersWaiting: (others: string, agent: string) => `也在等你的：${others}。在這裡回覆只會交給 @${agent}，其他的仍會等你。`,
     stepDone: '已完成',
     stepOpen: '未完成',
     stepStuck: '卡在這步',

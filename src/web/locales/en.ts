@@ -1702,6 +1702,7 @@ export const en: Messages = {
     label: (agent) => `Steps from @${agent}`,
     count: (done, total) => `${done} of ${total} done`,
     waiting: (agent) => `@${agent} is waiting: do these outside Harness Relay, tick each one as you go, then press Done.`,
+    othersWaiting: (others, agent) => `Also waiting for you: ${others}. An answer here goes to @${agent} alone; they keep waiting.`,
     stepDone: 'done',
     stepOpen: 'not done',
     stepStuck: 'stuck here',

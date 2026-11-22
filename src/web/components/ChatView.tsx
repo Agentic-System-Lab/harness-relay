@@ -738,7 +738,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
-  const questions = conv.pause && !running ? askingReplies(conv.messages) : [];
+  const questions = running ? [] : askingReplies(conv.messages, conv.pause);
   // Each of them gave the user steps to take (a steps card), and asked nothing else.
   const stepsOnly = questions.length > 0 && questions.every((m) => stepsOfMessage(m));
   // The team has answered, and made or pointed at an app since the user last wrote.
@@ -748,6 +748,12 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
+  /** The agents besides this reply's that wait for an answer too ('' when none). */
+  const othersWaiting = (id: string) =>
+    questions
+      .filter((m) => m.id !== id)
+      .map((m) => `@${m.agentName ?? 'agent'}`)
+      .join(t.common.listSeparator);
 
   // An earlier card is history as soon as the next question or design arrives.
   const lastDesignOrQuestion = conv.messages.findLast((m) => m.plan || m.author.kind === 'user');
@@ -977,6 +983,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onApproval={connected ? onApproval : undefined}
                 onRetry={onRetry}
                 waitingAnswer={askIds.has(m.id)}
+                othersWaiting={askIds.has(m.id) ? othersWaiting(m.id) : undefined}
                 onSkipQuestion={onSkipQuestion}
                 onShare={onShare}
                 onBranch={onBranch}
