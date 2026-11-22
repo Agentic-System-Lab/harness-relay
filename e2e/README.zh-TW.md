@@ -496,7 +496,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 接手瀏覽器
 
-[`handover.spec.ts`](specs/handover.spec.ts) 讓 Claude Code 的假 CLI 用 `browser_hand_over`（`e2e:mcp`）把對話的瀏覽器（系統的 Chromium，否則是 Playwright 的）交給使用者，網頁是測試自己的登入頁：上半部是一個欄位、下半部是一個按鈕，它會記下送出的內容。在完全存取中執行，所以不會詢問主機。
+[`handover.spec.ts`](specs/handover.spec.ts) 讓 Claude Code 的假 CLI 用 `browser_hand_over`（`e2e:mcp`）把對話的瀏覽器（系統的 Chromium，否則是 Playwright 的；在 Windows 上用 Playwright 的，和[聊天中的 App 存取權](#聊天中的-app-存取權)的瀏覽器測試一樣，因為系統的 Chrome 或 Edge 在測試伺服器自己的家目錄下啟動不了，那裡沒有 AppData 資料夾）交給使用者，網頁是測試自己的登入頁：上半部是一個欄位、下半部是一個按鈕，它會記下送出的內容。在完全存取中執行，所以不會詢問主機。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
@@ -941,6 +941,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
+- [接手瀏覽器](#接手瀏覽器)在 Windows 上用 Playwright 的 Chromium 啟動對話的瀏覽器，而不是系統的 Chrome 或 Edge：它們在那裡的測試伺服器自己的家目錄下啟動不了（那裡沒有 AppData 資料夾）。
 
 本機預覽情境使用 loopback 主機名稱，並把瀏覽器縮成手機寬度。WebKit 的本機驗證採用已兌換的票券、專屬隨機主機名稱及同 origin 的 Fetch Metadata。Linux CI 另啟用需 Docker 的面板測試：npm 的建置與後端、`Dockerfile` 應用程式、WebSocket 應用程式、終端機程式，以及 compose 應用程式。
 

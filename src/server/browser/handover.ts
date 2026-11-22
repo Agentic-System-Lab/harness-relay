@@ -143,6 +143,12 @@ export class HandoverTicket {
     for (const w of this.watchers) w(e);
   }
 
+  /** The address told last (`emit()`). */
+  get location(): Extract<HandoverScreenEvent, { type: 'location' }> | undefined {
+    const at = this.latest.location;
+    return at?.type === 'location' ? at : undefined;
+  }
+
   /** A watcher of the screencast: given the latest frame and address at once, then each event; returns its end. */
   watch(fn: (e: HandoverScreenEvent) => void): () => void {
     this.watchers.add(fn);
@@ -448,20 +454,47 @@ export function inputCalls(e: HandoverInput, frame: { width: number; height: num
 export const USER_BROWSERS_MAX = 3;
 
 /**
- * Whether a request of a browser for the user alone goes (`key`: its host and port, as `approvalKeys()`
- * keys a fetch). Nobody is asked: the user navigates it themselves, and what it opens is never the
- * agents' (its profile goes when it closes). One to the internet goes. One to this computer or the local
- * network goes only to the host of the page open in its tab (`top`: that page's own images, scripts,
- * forms and links), or, to open a page there, to the address the user typed in its address bar (or the
- * card's own, which they confirmed) for that one opening (`typed`, until the tab shows a page again):
- * never to a host a page elsewhere leads to or reaches by itself (a link, a redirect, a script's request,
- * a form a public page posts to a device on the network), however often the user opened it before.
- * Harness Relay's own ports, link-local and metadata addresses never open, as in every browser of
- * Harness Relay's (`navigationVerdict()`).
+ * A page of a browser for the user alone (`ownerVerdict()`): its host and port (`key`, as `approvalKeys()`
+ * keys a fetch), whether it led to this computer or the local network when the user opened it (`nearby`),
+ * and the addresses its name had then (none for an address, or a name on this computer).
  */
-export function ownerAllows(o: { nearby: boolean; key?: string; top?: string; typed?: string }): boolean {
-  if (!o.nearby) return true;
-  return Boolean(o.key) && (o.key === o.top || o.key === o.typed);
+export interface OwnerPage {
+  key: string;
+  nearby: boolean;
+  addresses: readonly string[];
+}
+
+/**
+ * Whether a request of a browser for the user alone goes (`key`: its host and port; `nearby`: it leads to
+ * this computer or the local network, by the addresses its name has now). Nobody is asked: the user
+ * navigates it themselves, and what it opens is never the agents' (its profile goes when it closes). One
+ * to the internet goes. One here goes only:
+ * - to the host of the page open in its tab (`top`: that page's own images, scripts, forms, sockets and
+ *   links), when that page was itself opened here as the user's (`nearby`) and its name leads to none but
+ *   the addresses it had then;
+ * - or, to open a page in its tab, to the address the user typed in its address bar (or the card's own,
+ *   which they confirmed, or a page of theirs Back or Forward goes to) for that one opening (`typed`, until
+ *   the tab shows a page again), on the same terms.
+ *
+ * Never to a host a page elsewhere leads to or reaches by itself (a link, a redirect, a script's request,
+ * a form a public page posts to a device on the network), however often the user opened it before
+ * (`unasked`); nor, under the name of a page opened while it led to the internet, or elsewhere, here now
+ * (`moved`: DNS rebinding, a public page whose name comes to lead to the user's router). Harness Relay's
+ * own ports, link-local and metadata addresses never open, as in every browser of Harness Relay's
+ * (`navigationVerdict()`).
+ */
+export function ownerVerdict(o: {
+  nearby: boolean;
+  key?: string;
+  addresses?: readonly string[];
+  top?: OwnerPage;
+  typed?: OwnerPage;
+}): 'allow' | 'moved' | 'unasked' {
+  if (!o.nearby) return 'allow';
+  const same = [o.typed, o.top].filter((p): p is OwnerPage => Boolean(o.key) && p?.key === o.key);
+  if (!same.length) return 'unasked';
+  const now = o.addresses ?? [];
+  return same.some((p) => p.nearby && now.every((a) => p.addresses.includes(a))) ? 'allow' : 'moved';
 }
 
 /**

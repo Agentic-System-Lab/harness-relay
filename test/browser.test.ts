@@ -7,6 +7,7 @@ import { PassThrough, type Duplex } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import type { GatewayContext } from '../src/server/gateway';
+import type { HandoverInput } from '../src/shared/types';
 import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-browser-')));
@@ -447,6 +448,21 @@ describe.skipIf(!chromium)('the browser itself', () => {
         // A page that reaches another host here by itself: a request with no answer read, then a page opened.
         return res.end(
           `<title>Reach</title><script>fetch('http://localhost:${port}/csrf-fetch', { mode: 'no-cors', method: 'POST', body: 'x' }).catch(() => {}); setTimeout(() => (location = 'http://localhost:${port}/csrf-nav'), 300)</script>`,
+        );
+      if (url.pathname === '/evil-once')
+        // Once per tab: sends the tab to a device here it may not reach (refused), which its history keeps.
+        return res.end(
+          `<title>Evil</title><script>if (!sessionStorage.done) { sessionStorage.done = 1; setTimeout(() => (location = 'http://localhost:${port}/reboot?pwn=1'), 300) }</script>`,
+        );
+      if (url.pathname === '/ws-attacker')
+        // A page opening sockets to another host here, again and again.
+        return res.end(
+          `<title>Sockets</title><script>setInterval(() => { try { new WebSocket('ws://localhost:${port}/ws-pwn').onerror = () => {} } catch {} }, 25)</script>`,
+        );
+      if (url.pathname === '/rebind')
+        // A page asking its own host for something, again and again.
+        return res.end(
+          `<title>Rebind</title><script>let n = 0; setInterval(() => fetch('/rebind-fetch?n=' + n++, { mode: 'no-cors' }).catch(() => {}), 100)</script>`,
         );
       if (url.pathname === '/perms')
         // What the page may have of the site permissions: each one's state, in its title.
@@ -1009,6 +1025,115 @@ describe.skipIf(!chromium)('the browser itself', () => {
     },
     slow(60_000),
   );
+
+  describe('a browser for the user alone, against pages that reach elsewhere', () => {
+    /** What the name `rebind.test` leads to now (looked up afresh each time). */
+    let answer = ['127.0.0.1'];
+    let alone: InstanceType<typeof BrowserService>;
+    beforeAll(() => {
+      alone = new BrowserService({
+        dataDir: join(root, 'data-alone'),
+        executable: () => chromium,
+        relayPorts: () => [9, relayPort],
+        lookUp: async (host) => (host === 'rebind.test' ? answer : []),
+        addressMs: 0,
+      });
+    });
+    afterAll(() => alone?.closeAll());
+
+    /** Opens one at `url` (here, confirmed), and keeps what its screencast tells. */
+    async function open(conv: string, url: string) {
+      const id = await alone.openForUser(conv, { url, nearbyConfirmed: true });
+      const notices: string[] = [];
+      const locations: string[] = [];
+      let frames = 0;
+      await vi.waitFor(() => {
+        const watching = alone.handovers.watch(conv, id, (e) => {
+          if (e.type === 'frame') frames++;
+          if (e.type === 'notice') notices.push(`${e.kind} ${e.url}`);
+          if (e.type === 'location') locations.push(e.url);
+        });
+        expect(typeof watching).toBe('function');
+      });
+      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: slow(20_000) });
+      return { id, notices, locations, input: (events: HandoverInput[]) => alone.handovers.input(conv, id, events) };
+    }
+
+    it(
+      'keeps a name to the address it had when the user opened its page: once it leads elsewhere, neither its requests nor its pages go',
+      async () => {
+        answer = ['127.0.0.1'];
+        const page = `http://rebind.test:${port}/rebind`;
+        const b = await open('conv-rebind', page);
+        // Opened as the user confirmed it, its own requests reach its host.
+        await vi.waitFor(() => expect(hits.some((h) => h.startsWith('/rebind-fetch'))).toBe(true), { timeout: slow(10_000) });
+        // Its name now leads to another address here (DNS rebinding, as a public page's name may come to lead to the router).
+        answer = ['127.0.0.2'];
+        await new Promise((r) => setTimeout(r, 500));
+        hits.length = 0;
+        await new Promise((r) => setTimeout(r, 1500));
+        expect(hits.filter((h) => h.startsWith('/rebind-fetch'))).toEqual([]);
+        // Nor does a page of its host open, but as typed again, where it leads now.
+        await b.input([{ type: 'navigate', url: `http://rebind.test:${port}/next` }]);
+        await vi.waitFor(() => expect(b.notices).toContain(`refused http://rebind.test:${port}/next`), { timeout: slow(10_000) });
+        expect(hits).not.toContain('/next');
+        await alone.closeForUser('conv-rebind', b.id);
+      },
+      slow(60_000),
+    );
+
+    it(
+      'opens with Back and Forward only the pages the user opened, never an address a page was refused, nor with Reload on its error page',
+      async () => {
+        hits.length = 0;
+        const b = await open('conv-history', `http://127.0.0.1:${port}/evil-once`);
+        // The page sends the tab to a device here it may not reach: refused, and kept in the history.
+        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        // The user types another address, then goes Back to the refused one, and reloads it.
+        await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/next`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(10_000) });
+        b.notices.length = 0;
+        await b.input([{ type: 'history', to: 'back' }]);
+        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        b.notices.length = 0;
+        await b.input([{ type: 'history', to: 'reload' }]);
+        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
+        // A page the user opened opens again with Back, here as it did; then Forward goes to the refused one, refused.
+        b.notices.length = 0;
+        await b.input([{ type: 'history', to: 'back' }]);
+        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/evil-once`), { timeout: slow(10_000) });
+        await new Promise((r) => setTimeout(r, 500));
+        expect(b.notices).toEqual([]);
+        await b.input([{ type: 'history', to: 'forward' }]);
+        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
+        await alone.closeForUser('conv-history', b.id);
+      },
+      slow(60_000),
+    );
+
+    it(
+      'lets only the page the user typed connect to its host while it loads: a WebSocket the page still shown opens there is refused, also once the typed page is shown',
+      async () => {
+        hits.length = 0;
+        const b = await open('conv-sockets', `http://127.0.0.1:${port}/sockets`);
+        // A page's own sockets go to its host.
+        await vi.waitFor(() => expect(hits).toContain(`upgrade /ws 127.0.0.1:${port}`), { timeout: slow(10_000) });
+        await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/ws-attacker`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/ws-attacker`), { timeout: slow(10_000) });
+        await new Promise((r) => setTimeout(r, 1000));
+        hits.length = 0;
+        // The user types an address on that other host, whose page takes a while to come.
+        await b.input([{ type: 'navigate', url: `http://localhost:${port}/slow`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://localhost:${port}/slow`), { timeout: slow(10_000) });
+        expect(hits).toContain('/slow');
+        expect(hits.filter((h) => h.startsWith('upgrade /ws-pwn'))).toEqual([]);
+        await alone.closeForUser('conv-sockets', b.id);
+      },
+      slow(60_000),
+    );
+  });
 
   it(
     'denies every site the location, notifications, the camera, the microphone and reading the clipboard',

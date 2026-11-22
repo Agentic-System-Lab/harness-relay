@@ -494,7 +494,7 @@ The [Google Docs and Slack confirmation cases](#app-setup-and-confirmations) als
 
 ## Taking over the browser
 
-[`handover.spec.ts`](specs/handover.spec.ts) has Claude Code's fake hand the chat's browser (the system's Chromium, else Playwright's) to the user with `browser_hand_over` (`e2e:mcp`), on a sign-in page of the test's own: a field over the page's top half, a button over its bottom half, which records what is posted. In full access, so no host is asked about.
+[`handover.spec.ts`](specs/handover.spec.ts) has Claude Code's fake hand the chat's browser (the system's Chromium, else Playwright's; on Windows Playwright's, as the Browser test of [App access through a chat](#app-access-through-a-chat) does, since the system's Chrome or Edge does not start under the test server's own home, which has no AppData folder) to the user with `browser_hand_over` (`e2e:mcp`), on a sign-in page of the test's own: a field over the page's top half, a button over its bottom half, which records what is posted. In full access, so no host is asked about.
 
 | Scenario | What it checks |
 | --- | --- |
@@ -939,6 +939,7 @@ The app preview panel is shared by all CLIs. The Files and draft scenarios use C
 - The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), "Without gh" is skipped on Windows, and the viewer's download test is skipped in WebKit, which under Playwright downloads nothing a link opens (also on a page without a frame, sent as an attachment).
 - The four tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
+- [Taking over the browser](#taking-over-the-browser) starts the chat's browser from Playwright's Chromium on Windows, not the system's Chrome or Edge, which does not start under the test server's own home there (it has no AppData folder).
 
 The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel tests: an npm build and backend, a `Dockerfile` app, a WebSocket app, a terminal app and a compose app.
 
