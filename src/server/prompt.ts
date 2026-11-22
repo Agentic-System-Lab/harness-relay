@@ -345,6 +345,15 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
 }
 
 /**
+ * How an agent proposes a schedule for the chat (its `<schedule>` block, `src/shared/scheduleProposal.ts`),
+ * when the user asks for something to be done again later; not in a run a schedule started.
+ */
+export function proposalRules(unattended: boolean): string {
+  if (unattended) return '';
+  return `\n- When the user asks for something to be done for them again later, at set times (every morning, each Monday, once next Friday) or whenever something happens (a new mail, an event about to begin, a pull request opened, a CI run that failed, a file appearing), you can propose a schedule for this chat: write one block on lines of its own, not in a code block, <schedule>{"text": "the message the team gets each time", "repeat": {"kind": "weekly", "time": "09:00", "days": [1, 2, 3, 4, 5]}}</schedule>. "repeat" is {"kind": "daily", "time": "HH:MM"}, {"kind": "weekly", "time": "HH:MM", "days": [0-6, 0 = Sunday]}, {"kind": "interval", "hours": N}, {"kind": "once", "at": "YYYY-MM-DDTHH:MM"} or {"kind": "event", "triggers": [{"source": "mail", "from": "…", "subject": "…"}, {"source": "calendar", "minutes": 10, "title": "…"}, {"source": "github", "repo": "owner/name", "on": "pr" or "ci"}, {"source": "file", "pattern": "inbox/*.csv"}]}, in the user's local time. Add "goal" when the work has an end (the schedule then stops once it is met), and "newChat": true for a fresh chat each run. The user sees it as a card and creates it or not: nothing is scheduled until then, so say that, and propose at most one, only when the user asked for work to be done later or again.`;
+}
+
+/**
  * The CLIs whose own subagents can still be at work when the agent's reply ends, and then lose what they
  * do: Antigravity (no switch for them; Harness Relay ends `agy` 3 s after the prompt is answered, and
  * before 1.5.10 what wakes it is lost), Muse Code (it gives a subagent's result "when the session is idle"),
@@ -484,7 +493,7 @@ ${team}
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
 - If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
-- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
+- Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${proposalRules(unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
 - An app you build or change (a site, a web app, an API with a page, a game, a terminal program) is done only when the user can open it in Harness Relay's preview:
   - Give anything with a server, and any terminal program, a Dockerfile in its folder, in any language, Node too (its dependencies install in the build, so it needs no lockfile), plus a compose.yaml for a database or other services. A web app serves HTTP on the port its image EXPOSEs (in compose: the service's ports entry) or on $PORT; a terminal program reads from and writes to its terminal. A static site needs only its public HTML entry; an npm project without a Dockerfile needs its package-lock.json.
@@ -543,7 +552,15 @@ export function forwardText(m: ChatMessage): string {
     actions.length > 0
       ? `\n\n<actions>\n${actions.slice(0, 12).join('\n')}${actions.length > 12 ? `\n… and ${actions.length - 12} more` : ''}\n</actions>`
       : '';
-  return text + actionLog + changeLog(m) + memorySaved(savedNotes(m));
+  return text + actionLog + changeLog(m) + memorySaved(savedNotes(m)) + proposedSchedule(m);
+}
+
+/** A schedule the reply proposed, for teammates: what it sends, and whether the user created it yet. */
+function proposedSchedule(m: ChatMessage): string {
+  const part = m.parts.find((p) => p.type === 'schedule');
+  if (!part || part.type !== 'schedule' || !part.proposal.text) return '';
+  const status = part.status ?? 'waiting for the user';
+  return `\n\n<proposed_schedule status="${status}">\n${dataBody(JSON.stringify(part.proposal), ['proposed_schedule'])}\n</proposed_schedule>`;
 }
 
 export function senderName(conv: Conversation, m: ChatMessage): string {

@@ -15,6 +15,7 @@ import {
   type LeadAgentSettings,
   type ProviderModels,
   type ProviderStatus,
+  type ScheduleProposal,
   type ServerEvent,
 } from '../../shared/types';
 import { api, ApiError, orCreateCwd, type AttachmentUpload } from '../api';
@@ -49,7 +50,15 @@ import {
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
-import { describeRepeat, handedHook, scheduleBadgeTitle, scheduleState, scheduleTrouble } from '../schedule';
+import {
+  describeRepeat,
+  handedHook,
+  proposalDraft,
+  scheduleBadgeTitle,
+  scheduleState,
+  scheduleTrouble,
+  type ScheduleDraft,
+} from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
@@ -142,6 +151,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const [teamOpen, setTeamOpen] = useState(false);
   // Open at once for a webhook New automation made with it: the drawer shows its token, once.
   const [scheduleOpen, setScheduleOpen] = useState(() => handedHook(id) !== undefined);
+  /** A schedule a reply proposed, opened in the schedule drawer to be changed before saving it. */
+  const [proposalForm, setProposalForm] = useState<{ messageId: string; draft: ScheduleDraft }>();
   const [appPreview, setAppPreview] = useState<PreviewSelection | null>(null);
   // Hidden by the header's Preview button: it keeps running until it is closed.
   const [previewHidden, setPreviewHidden] = useState(false);
@@ -492,6 +503,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   }, []);
 
   const onAdjustTeam = useCallback(() => setTeamOpen(true), []);
+
+  const onEditProposal = useCallback((messageId: string, proposal: ScheduleProposal) => {
+    setProposalForm({ messageId, draft: proposalDraft(proposal, Date.now()) });
+    setScheduleOpen(true);
+  }, []);
 
   const retrying = useRef(false);
   const onRetry = useCallback(async (messageId: string) => {
@@ -981,6 +997,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onSkipChecks={onSkipChecks}
                 onFixChecks={onFixChecks}
                 onApplyAnyway={onApplyAnyway}
+                onEditProposal={onEditProposal}
+                hasSchedule={Boolean(conv.schedule)}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
@@ -1128,13 +1146,24 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       {diff && <DiffModal title={diff.title} load={diff.load} onClose={() => setDiff(null)} />}
 
       {scheduleOpen && (
-        <Deferred onClose={() => setScheduleOpen(false)}>
+        <Deferred
+          onClose={() => {
+            setScheduleOpen(false);
+            setProposalForm(undefined);
+          }}
+        >
           <ScheduleDrawer
+            key={proposalForm?.messageId ?? 'schedule'}
             conv={conv}
             running={running}
-            onClose={() => setScheduleOpen(false)}
+            proposal={proposalForm}
+            onClose={() => {
+              setScheduleOpen(false);
+              setProposalForm(undefined);
+            }}
             onEditTeam={() => {
               setScheduleOpen(false);
+              setProposalForm(undefined);
               setTeamOpen(true);
             }}
           />
@@ -1322,6 +1351,8 @@ function TeamDrawer({
   const [saving, setSaving] = useState(false);
   /** The lead agent is changing the team at the user's request. */
   const [revising, setRevising] = useState(false);
+  /** The lead agent writes the team checks (in the editor's advanced settings): Save waits for it. */
+  const [checksDrafting, setChecksDrafting] = useState(false);
   // Auto team: there are members to edit once the lead agent has designed a team.
   const members = !conv.settings.autoTeam || current.agents.length > 0;
   const problems = teamProblems(team, t, { members, maxAgents: maxTeamAgents });
@@ -1416,6 +1447,7 @@ function TeamDrawer({
             leadLabel={leadText}
             schedule={conv.schedule}
             convId={conv.id}
+            onDrafting={setChecksDrafting}
             checksEditorVersion={checksEditorVersion}
           />
         </fieldset>
@@ -1441,7 +1473,7 @@ function TeamDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || revising || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
+            disabled={saving || revising || checksDrafting || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
             onClick={save}
           >
             {t.common.save}

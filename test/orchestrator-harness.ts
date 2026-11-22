@@ -42,8 +42,10 @@ export const { Store } = await import('../src/server/store');
 export const { AgentRunError, runners, stateKeys } = await import('../src/server/agents');
 export const { removeTree } = await import('../src/server/fsRemove');
 export const { stateFolder } = await import('../src/server/agents/open');
-export const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
-export const { GROUPER_BRIEFING } = await import('../src/server/grouping');
+export const { PLANNER_BRIEFING, REVISER_BRIEFING, TEMPLATE_BRIEFING } = await import('../src/server/planner');
+export const { CHECKS_BRIEFING } = await import('../src/server/checksDraft');
+export const { SCHEDULE_BRIEFING } = await import('../src/server/scheduleDraft');
+export const { GROUPER_BRIEFING, ORGANIZER_BRIEFING } = await import('../src/server/grouping');
 export const { REVIEWER_BRIEFING } = await import('../src/server/reviewer');
 export const { TIDY_BRIEFING } = await import('../src/server/memory');
 export const { APPROVAL_REVIEWER_BRIEFING } = await import('../src/server/approvalReview');
@@ -145,6 +147,12 @@ export interface Fake {
   approverGate: Promise<void> | undefined;
   /** When set, the fake lead agent's CLI fails with this message when asked to review an approval request. */
   approverFail: string | undefined;
+  /** What the fake lead agent replies when asked for a draft (a template, team checks, a schedule, the sidebar's groups). */
+  draftReply: string;
+  /** When set, the fake lead agent waits for it before answering a draft (or until it is stopped). */
+  draftGate: Promise<void> | undefined;
+  /** When set, the fake lead agent's CLI fails with this message when asked for a draft. */
+  draftFail: string | undefined;
   /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
   during: ((name: string, cwd: string) => void) | undefined;
   /** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
@@ -160,9 +168,9 @@ export interface Fake {
   /** What a member's run says it spent, in its result (none by default). */
   runUsage: import('../src/server/agents/types').RunUsage | undefined;
   /** The structured answer each of the lead agent's runs gives (`RunResult.structured`), besides its text. */
-  structured: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
+  structured: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter' | 'drafter', unknown>>;
   /** The answer's shape each of the lead agent's runs was last asked for (`RunOptions.outputSchema`). */
-  schemas: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
+  schemas: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter' | 'drafter', unknown>>;
   /**
    * Steering: the agents whose fake CLI takes a message into its running turn (`RunOptions.onSteer`)
    * while it waits for its gate; `refuseSteer` names those that refuse one. A turn that took messages
@@ -193,6 +201,9 @@ const fresh = (): Fake => ({
   approverReply: '{"decision": "approve", "reason": "Installing a dependency the task needs."}',
   approverGate: undefined,
   approverFail: undefined,
+  draftReply: '{"reason": "Kept as it is."}',
+  draftGate: undefined,
+  draftFail: undefined,
   during: undefined,
   asking: new Set(),
   fail: undefined,
@@ -217,6 +228,32 @@ beforeAll(() => {
       if (o.prompt === 'Reply with exactly RELAY_MODEL_OK.') {
         o.onEvent({ type: 'text', text: 'RELAY_MODEL_OK' });
         return {};
+      }
+      if ([TEMPLATE_BRIEFING, CHECKS_BRIEFING, SCHEDULE_BRIEFING, ORGANIZER_BRIEFING].includes(o.systemPrompt ?? '')) {
+        calls.push({
+          name: 'drafter',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          ...(o.addDirs ? { addDirs: o.addDirs } : {}),
+          systemPrompt: o.systemPrompt,
+          stateKey: o.stateKey,
+          freshState: o.freshState,
+          permission: o.permission,
+          model: o.model,
+          effort: o.effort,
+        });
+        if (fake.draftGate && !o.signal?.aborted) {
+          await Promise.race([fake.draftGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) {
+          calls.findLast((c) => c.name === 'drafter')!.aborted = true;
+          throw new AgentRunError('stopped', true);
+        }
+        if (fake.draftFail) throw new Error(fake.draftFail);
+        fake.schemas.drafter = o.outputSchema;
+        o.onEvent({ type: 'text', text: fake.draftReply });
+        o.onEvent({ type: 'text_end' });
+        return { costUsd: 0.03, ...('drafter' in fake.structured ? { structured: fake.structured.drafter } : {}) };
       }
       if (o.systemPrompt === GROUPER_BRIEFING) {
         calls.push({

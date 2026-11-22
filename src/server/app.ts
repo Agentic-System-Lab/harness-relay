@@ -138,6 +138,7 @@ import {
   validateInboxRead,
   validatePushSubscription,
   validateSchedule,
+  serverTimeZone,
   validateChecks,
   validateSettings,
   validateToolLibraryUpdate,
@@ -156,7 +157,9 @@ import {
 } from './validate';
 import { VoiceService } from './voice';
 import { existingFolder, systemFolderPicker, type FolderPicker } from './folderPicker';
-import { nextRun, watchOf } from '../shared/schedule';
+import { nextRun, validTimeZone, watchOf } from '../shared/schedule';
+import { proposalUpdate } from '../shared/scheduleProposal';
+import { checkReorganize } from './grouping';
 import { currentLang, parseLang, t, withLang } from './i18n';
 import { testPayload, type AlertWatcher } from './alerts';
 import type { PushService } from './push';
@@ -613,8 +616,10 @@ export function createApp({
       agentHome?: unknown;
       agentsViewUrl?: unknown;
       agentsViewLink?: unknown;
+      chatTitles?: unknown;
       checksDefault?: unknown;
     }>(c);
+    if (b.chatTitles !== undefined && typeof b.chatTitles !== 'boolean') throw new HttpError(400, t().invalidField('chatTitles'));
     // Validate everything before saving anything; the folders last, since creating them is a side effect.
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
     // The team checks new chats start with: `null`, or a list without rules, for none.
@@ -640,6 +645,7 @@ export function createApp({
     if (viewUrl !== undefined) settings.setAgentsViewUrl(viewUrl);
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
     if (checksDefault !== undefined) settings.setChecksDefault(checksDefault ?? undefined);
+    if (typeof b.chatTitles === 'boolean') settings.setChatTitles(b.chatTitles);
     if (home !== undefined && home !== settings.agentHome) {
       settings.setAgentHome(home);
       // Another home (for every account): another sign-in, other models and other parts of its own.
@@ -1358,6 +1364,13 @@ export function createApp({
     return c.json(preset);
   });
 
+  // The template editor asks the lead agent to draft its template (the editor's template comes along):
+  // the answer is shown in the editor until the user saves it; nothing is saved here. Closing the
+  // request (the editor, or Stop) stops the lead agent.
+  app.post('/api/presets/draft', async (c) =>
+    c.json(await orchestrator.drafts.template(await body<Record<string, unknown>>(c), c.req.raw.signal)),
+  );
+
   app.delete('/api/presets/:id', (c) => {
     store.deletePreset(c.req.param('id'));
     return c.json({ ok: true });
@@ -1380,6 +1393,25 @@ export function createApp({
     const group = { id: randomUUID(), name: validGroupName(b.name, groups) };
     store.createGroup(group);
     return c.json(group);
+  });
+
+  // The lead agent's suggestions for the sidebar's groups (`request`: what the user wants, if they say),
+  // for the user to take or leave; nothing changes here.
+  app.post('/api/groups/suggest', async (c) =>
+    c.json(await orchestrator.drafts.groups(await body<Record<string, unknown>>(c), c.req.raw.signal)),
+  );
+
+  // The suggestions the user took, applied together: new groups, new names, conversations moved (each
+  // with its family of branches).
+  app.post('/api/groups/reorganize', async (c) => {
+    const checked = checkReorganize(
+      await body<unknown>(c),
+      store.listGroups(),
+      (id) => Boolean(store.get(id)),
+      () => randomUUID(),
+    );
+    store.reorganize(checked);
+    return c.json({ groups: store.listGroups(), created: checked.create });
   });
 
   app.patch('/api/groups/:id', async (c) => {
@@ -1642,6 +1674,12 @@ export function createApp({
     return { add, remove: removeAttachments };
   }
 
+  // The schedule form asks the lead agent to draft the schedule (the form's schedule and the browser's
+  // time zone come along): shown in the form until the user saves it.
+  app.post('/api/schedules/draft', async (c) =>
+    c.json(await orchestrator.drafts.schedule(await body<Record<string, unknown>>(c), c.req.raw.signal)),
+  );
+
   // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
   // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
   // until the team is confirmed, a time that comes due is skipped.
@@ -1685,8 +1723,9 @@ export function createApp({
       await orchestrator.deleteConversation(conv.id);
       throw err;
     }
-    // Sorted into the user's sidebar groups by its message, as a new chat is by its first question.
-    orchestrator.sortIntoGroup(conv, update.text);
+    // Sorted into the user's sidebar groups by its message, as a new chat is by its first question, and
+    // named after it when the user gave it no title.
+    orchestrator.sortIntoGroup(conv, update.text, !String(b.title ?? '').trim());
     // Its webhook too, when asked for (New automation's "Create a webhook too"): the token goes back this once.
     const newHook = b.hook === true ? makeHook(conv) : undefined;
     return c.json({ ...forClient(conv), ...(newHook ? { newHook } : {}) });
@@ -1764,10 +1803,42 @@ export function createApp({
   });
 
   // Set the conversation's schedule: a message the team is sent at set times (it replaces the one
-  // there was). Saving starts its times afresh; what happened last time is kept.
+  // there was). Saving starts its times afresh; what happened last time is kept. `fromProposal`: the
+  // reply whose proposed schedule the user opened in the form to save it (its card then says so).
   app.put('/api/conversations/:id/schedule', async (c) => {
     const input = await body<unknown>(c);
     const conv = getConv(c.req.param('id'));
+    const from = (input as { fromProposal?: unknown } | null)?.fromProposal;
+    if (from !== undefined && (typeof from !== 'string' || !from)) throw new HttpError(400, t().invalidField('fromProposal'));
+    if (from) orchestrator.proposalOf(conv.id, from);
+    const saved = saveSchedule(conv, input);
+    if (from) orchestrator.markProposal(conv.id, from, 'created');
+    return c.json(saved);
+  });
+
+  // A schedule an agent proposed in a reply (its card): create it as it is, in the browser's time zone,
+  // or dismiss it. Either way the card says what became of it.
+  app.post('/api/conversations/:id/messages/:messageId/schedule', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const messageId = c.req.param('messageId');
+    const b = await body<{ action?: unknown; timeZone?: unknown }>(c);
+    const proposal = orchestrator.proposalOf(conv.id, messageId);
+    if (b.action === 'dismiss') {
+      orchestrator.markProposal(conv.id, messageId, 'dismissed');
+      return c.json({ ok: true });
+    }
+    if (b.action !== 'create') throw new HttpError(400, t().invalidField('action'));
+    const tz = typeof b.timeZone === 'string' && validTimeZone(b.timeZone.trim()) ? b.timeZone.trim() : serverTimeZone();
+    const saved = saveSchedule(conv, proposalUpdate(proposal, tz));
+    orchestrator.markProposal(conv.id, messageId, 'created');
+    return c.json(saved);
+  });
+
+  /**
+   * Saves `input` as the conversation's schedule, checked as the schedule form's is (it replaces the one
+   * there was), and answers it as the browser sees it.
+   */
+  const saveSchedule = (conv: Conversation, input: unknown) => {
     const now = Date.now();
     const update = validateSchedule(input, now);
     const files = scheduleFileChanges(input);
@@ -1806,8 +1877,8 @@ export function createApp({
     if (next !== undefined) schedule.nextRunAt = next;
     store.setSchedule(conv, schedule, files.add, files.remove);
     orchestrator.emitConversation(conv);
-    return c.json(scheduleForClient(schedule));
-  });
+    return scheduleForClient(schedule);
+  };
 
   /**
    * An automation that starts when something happens, when it is on, waits for things that are there:
@@ -2514,6 +2585,12 @@ export function createApp({
   // What team checks' commands can do on this computer: its system, and why Harness Relay's sandbox
   // cannot start here, if it cannot (below full access they then cannot run).
   app.get('/api/checks/environment', async (c) => c.json(await checksEnvironment(orchestrator.checkCommandDeps)));
+
+  // The team checks editor asks the lead agent to draft its rules: for a conversation or a new chat it
+  // reads the project first, read-only. Shown in the editor until the user saves it; nothing runs here.
+  app.post('/api/checks/draft', async (c) =>
+    c.json(await orchestrator.drafts.checks(await body<Record<string, unknown>>(c), c.req.raw.signal)),
+  );
 
   app.post('/api/conversations/:id/checks/:messageId/skip', (c) =>
     c.json(orchestrator.skipChecks(c.req.param('id'), c.req.param('messageId'))),

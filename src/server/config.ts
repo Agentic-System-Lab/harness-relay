@@ -50,6 +50,11 @@ export interface ServerConfig extends ServerLimits {
    */
   runCode: boolean;
   /**
+   * Whether the lead agent names new conversations after their first message, until it is changed in
+   * Settings (`SettingsStore.chatTitles`): on unless `RELAY_CHAT_TITLES=off`.
+   */
+  chatTitles: boolean;
+  /**
    * RLM mode (`RELAY_RLM=<backend>/<model>`, a model connection of Settings), as Labs' mode until it is
    * changed there: `run_code` keeps a `state` for the rest of the agent's turn and gives the code
    * `llm_query()`, a question to this sub-model, which the server asks with no tools (`llmQuery.ts`). It
@@ -190,6 +195,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
   };
   const rlmModel = rlm();
   const runCode = onOff('RELAY_RUN_CODE');
+  // On unless set to off.
+  const chatTitles = env.RELAY_CHAT_TITLES?.trim() ? onOff('RELAY_CHAT_TITLES') : true;
   if (rlmModel && env.RELAY_RUN_CODE?.trim().toLowerCase() === 'off')
     problems.push('RELAY_RLM needs run_code: leave RELAY_RUN_CODE unset, or set it to on.');
 
@@ -218,6 +225,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
     microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
     runCode: runCode || Boolean(rlmModel),
+    chatTitles,
     ...(rlmModel ? { rlmModel } : {}),
     renderApiUrl: local('RELAY_RENDER_API_URL'),
     neonApiUrl: local('RELAY_NEON_API_URL'),

@@ -11,6 +11,7 @@ export function CreationOptions({
   onTitle,
   titlePlaceholder,
   schedule,
+  onDrafting,
 }: {
   team: Team;
   onTeam: (team: Team) => void;
@@ -20,6 +21,8 @@ export function CreationOptions({
   onTitle: (title: string) => void;
   titlePlaceholder: string;
   schedule?: ConversationSchedule;
+  /** Told while the lead agent writes the team checks: the page holds its submit button meanwhile. */
+  onDrafting?: (busy: boolean) => void;
 }) {
   const t = useT();
   return (
@@ -28,7 +31,15 @@ export function CreationOptions({
         <strong>{t.newChat.options}</strong>
         <span className="muted small">{[t.permissions[permissionLevel(team.settings)].label, ...cwdsOf(team.settings)].join(' · ')}</span>
       </summary>
-      <TeamEditor value={team} onChange={onTeam} providers={providers} catalog={catalog} teamOptionsInEditor={false} schedule={schedule} />
+      <TeamEditor
+        value={team}
+        onChange={onTeam}
+        providers={providers}
+        catalog={catalog}
+        teamOptionsInEditor={false}
+        schedule={schedule}
+        onDrafting={onDrafting}
+      />
       <label className="field">
         <span>{t.newChat.optionalTitle}</span>
         <input className="title-input" value={title} placeholder={titlePlaceholder} onChange={(e) => onTitle(e.target.value)} />

@@ -731,6 +731,12 @@ describe('Store (SQLite)', () => {
         { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
         { type: 'text', text: 'ok' },
         { type: 'progress', status: 'done', text: 'green' },
+        // A schedule it proposed, and what the user did with it.
+        {
+          type: 'schedule',
+          proposal: { text: 'again', repeat: { kind: 'once', at: '2026-12-01T09:00' }, newChat: true },
+          status: 'created',
+        },
       ],
     };
     conv.messages.push(msg, reply);
@@ -744,6 +750,17 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).trackingSchedules()).toEqual([conv.id]);
     expect(loaded.messages.find((m) => m.id === 'u1')!.event).toBe('{"a":1}');
     expect(loaded.messages.find((m) => m.id === 'r1')!.parts).toEqual(reply.parts);
+    // A proposal kept in a shape this server cannot read (an older or newer one's) is one with no message.
+    db.prepare('UPDATE message_parts SET data = \'{"proposal":{"repeat":7},"status":"maybe"}\' WHERE type = \'schedule\'').run();
+    expect(
+      new Store(reopen())
+        .get(conv.id)!
+        .messages.find((m) => m.id === 'r1')!
+        .parts.at(-1),
+    ).toEqual({
+      type: 'schedule',
+      proposal: { text: '', repeat: { kind: 'manual' } },
+    });
 
     // Without a goal, no tracking is kept; without a webhook, no token's hash.
     const again = new Store(db);
@@ -1141,6 +1158,44 @@ describe('Store groups', () => {
     // The lead agent sorted the one it was asked about; the branch stays the user's choice.
     expect(store.isSorted('b1')).toBe(true);
     expect(store.sortIntoGroup('b1', null)).toBe(false);
+  });
+
+  it('lists one conversation for each family, its oldest, the most recently used family first', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Research' });
+    store.create(member('root', 1));
+    store.create({ ...member('b1', 2, 'root'), updatedAt: 50 });
+    store.create(member('alone', 10));
+    store.moveToGroup('root', 'g1');
+    // What is in memory counts: the title as it is now.
+    store.get('alone')!.title = 'Renamed';
+    expect(store.familyHeads(10)).toEqual([
+      { id: 'root', title: 'root', groupId: 'g1' },
+      { id: 'alone', title: 'Renamed', groupId: null },
+    ]);
+    expect(store.familyHeads(1).map((h) => h.id)).toEqual(['root']);
+  });
+
+  it('makes, renames and moves in one go, each family as one and as the user’s choice', () => {
+    const store = new Store(db);
+    store.createGroup({ id: 'g1', name: 'Research' });
+    store.create(member('root', 1));
+    store.create(member('b1', 2, 'root'));
+    store.create(member('alone', 3));
+    store.reorganize({
+      create: [{ id: 'g2', name: 'Writing' }],
+      rename: [{ id: 'g1', name: 'Reading' }],
+      move: [
+        { convId: 'b1', to: 'g2' },
+        { convId: 'alone', to: 'g1' },
+      ],
+    });
+    expect(store.listGroups()).toEqual([
+      { id: 'g1', name: 'Reading' },
+      { id: 'g2', name: 'Writing' },
+    ]);
+    expect(groupsOf(store)).toEqual({ root: 'g2', b1: 'g2', alone: 'g1' });
+    expect(store.isSorted('root')).toBe(true);
   });
 });
 

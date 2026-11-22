@@ -49,6 +49,7 @@ describe('guided tour', () => {
         'Team checks',
         'Browse the working directory',
         'Automations',
+        'Groups, pins and search',
         'Connect apps to your chats',
         'Long-term memory',
         'Adjust any time',
@@ -62,8 +63,10 @@ describe('guided tour', () => {
         'When the team needs you',
         'Notifications and sound',
         'File permission and changes',
+        'Team checks',
         'Browse the working directory',
         'Automations',
+        'Groups, pins and search',
         'Connect apps to your chats',
         'Long-term memory',
         'Adjust any time',
@@ -77,8 +80,10 @@ describe('guided tour', () => {
         'When the team needs you',
         'Notifications and sound',
         'File permission and changes',
+        'Team checks',
         'Browse the working directory',
         'Automations',
+        'Groups, pins and search',
         'Connect apps to your chats',
         'Long-term memory',
         'Adjust any time',
@@ -91,8 +96,10 @@ describe('guided tour', () => {
           'While the team replies',
           'When the team needs you',
           'File permission and changes',
+          'Team checks',
           'Browse the working directory',
           'Automations',
+          'Groups, pins and search',
           'Connect apps to your chats',
           'Long-term memory',
           'Adjust any time',
@@ -106,8 +113,10 @@ describe('guided tour', () => {
           'While the team replies',
           'When the team needs you',
           'File permission and changes',
+          'Team checks',
           'Browse the working directory',
           'Automations',
+          'Groups, pins and search',
           'Long-term memory',
           'Adjust any time',
         ]);
@@ -115,34 +124,65 @@ describe('guided tour', () => {
       for (const version of [37, 38])
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
+          'Start a new chat',
           'A team for every question',
           'While the team replies',
           'When the team needs you',
           'File permission and changes',
+          'Team checks',
           'Browse the working directory',
+          'Automations',
+          'Groups, pins and search',
           'Long-term memory',
           'Adjust any time',
         ]);
       expect(titles(39)).toEqual([
+        'Start a new chat',
         'When the team needs you',
         'File permission and changes',
+        'Team checks',
         'Browse the working directory',
+        'Automations',
+        'Groups, pins and search',
         'Long-term memory',
         'Adjust any time',
       ]);
       // Publishing a preview came to the files step.
       expect(titles(40)).toEqual([
+        'Start a new chat',
         'When the team needs you',
         'File permission and changes',
+        'Team checks',
         'Browse the working directory',
+        'Automations',
+        'Groups, pins and search',
         'Long-term memory',
         'Adjust any time',
       ]);
       // "Approve for me" came to the steps on what needs the user and on the file permission.
-      expect(titles(41)).toEqual(['When the team needs you', 'File permission and changes', 'Long-term memory', 'Adjust any time']);
+      expect(titles(41)).toEqual([
+        'Start a new chat',
+        'When the team needs you',
+        'File permission and changes',
+        'Team checks',
+        'Automations',
+        'Groups, pins and search',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
       // Long-term memory came, in Labs, which the Settings step names.
-      expect(titles(42)).toEqual(['Long-term memory', 'Adjust any time']);
-      expect(tourIndices(43)).toEqual([]);
+      expect(titles(42)).toEqual([
+        'Start a new chat',
+        'Team checks',
+        'Automations',
+        'Groups, pins and search',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
+      // The lead agent writing a template, team checks and an automation, proposing one in a chat,
+      // organizing the groups and naming new chats came to those steps.
+      expect(titles(43)).toEqual(['Start a new chat', 'Team checks', 'Automations', 'Groups, pins and search']);
+      expect(tourIndices(44)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -194,6 +234,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 43, fingerprint: '96a3ae553afa' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 44, fingerprint: 'ec67de7a3e63' });
   });
 });

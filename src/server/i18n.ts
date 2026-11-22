@@ -779,6 +779,15 @@ const zhTW = {
   reviseTooLong: (max: number) => `調整說明最多 ${max} 個字`,
   reviseStopped: '已停止調整團隊',
   reviseFailed: (why: string) => `首席 agent 沒能調整團隊（${why}）。團隊維持原樣，可以換個說法再試一次。`,
+  // The lead agent's drafts (a template, team checks, an automation, the sidebar's groups)
+  draftEmpty: '請先說明想要什麼',
+  draftStopped: '已停止草擬',
+  draftFailed: (why: string) => `首席 agent 沒能完成草稿（${why}）。原本的內容維持不變，可以換個說法再試一次。`,
+  draftRulesDropped: (n: number) => `有 ${n} 條規則無法使用，已略過。`,
+  groupsNothingToOrganize: '還沒有對話可以整理',
+  // An automation an agent proposed in its reply
+  proposalNotFound: '找不到這個自動任務提議',
+  proposalDone: '這個自動任務提議已經處理過了',
 
   // Schedules
   scheduleNotFound: '這個對話沒有自動任務',
@@ -2063,6 +2072,13 @@ const en: ServerMessages = {
   reviseTooLong: (max) => `The request can be at most ${max} characters`,
   reviseStopped: 'Stopped changing the team',
   reviseFailed: (why) => `The lead agent could not change the team (${why}). The team is as it was; try saying it another way.`,
+  draftEmpty: 'Say what you want first',
+  draftStopped: 'Stopped drafting',
+  draftFailed: (why) => `The lead agent could not finish the draft (${why}). Nothing changed; try saying it another way.`,
+  draftRulesDropped: (n) => (n === 1 ? 'One rule could not be used and was left out.' : `${n} rules could not be used and were left out.`),
+  groupsNothingToOrganize: 'There are no conversations to organize yet',
+  proposalNotFound: 'This proposed automation was not found',
+  proposalDone: 'This proposed automation was dealt with already',
 
   scheduleNotFound: 'This conversation has no automation',
   scheduleTextRequired: 'Type the message the automation sends the team',

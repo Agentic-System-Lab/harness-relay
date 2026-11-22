@@ -222,6 +222,13 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         .map((n) => (n.op === 'forgotten' ? `set aside ${n.id}` : `${n.op === 'updated' ? 'corrected' : 'saved'} ${n.id}: ${n.text}`));
       return lines.length ? { type: 'text', text: `[Long-term memory: ${lines.join('; ')}]` } : undefined;
     }
+    case 'schedule':
+      return p.proposal.text
+        ? {
+            type: 'text',
+            text: `[Proposed an automation for the user to create: "${p.proposal.text}" — ${p.status ?? 'waiting for the user'}]`,
+          }
+        : undefined;
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
   }

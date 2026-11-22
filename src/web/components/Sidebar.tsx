@@ -24,6 +24,7 @@ import { SearchBox, SearchResults } from './SidebarSearch';
 // Loaded when first opened, not with the page.
 const ReportDialog = lazyPart(() => import('./ReportDialog').then((m) => m.ReportDialog));
 const StarDialog = lazyPart(() => import('./StarDialog').then((m) => m.StarDialog));
+const GroupOrganizer = lazyPart(() => import('./GroupOrganizer').then((m) => m.GroupOrganizer));
 
 interface Props {
   phoneLink: ReactNode;
@@ -72,6 +73,8 @@ export function Sidebar({
   /** Focuses the search field again when search is asked for while it is open. */
   const [searchFocus, setSearchFocus] = useState(0);
   const [creating, setCreating] = useState(false);
+  /** The lead agent's suggestions for the groups, in their dialog. */
+  const [organizing, setOrganizing] = useState(false);
   /** The CLIs' names beside their dots at the sidebar's foot (else the dots alone, on one line). */
   const [healthNames, setHealthNames] = useState(readHealthNames);
   const [reporting, setReporting] = useState(false);
@@ -163,6 +166,18 @@ export function Sidebar({
             >
               <FolderPlusIcon size={16} />
             </button>
+            {/* The lead agent organizes the conversations into groups, once there is something to organize. */}
+            {conversations.length > 0 && (
+              <button
+                type="button"
+                className="sidebar-action organize-groups"
+                onClick={() => setOrganizing(true)}
+                aria-label={t.groupsDraft.open}
+                title={t.groupsDraft.open}
+              >
+                <Logo size={16} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -247,6 +262,11 @@ export function Sidebar({
       {starring && (
         <Deferred onClose={() => setStarring(false)}>
           <StarDialog onClose={() => setStarring(false)} />
+        </Deferred>
+      )}
+      {organizing && (
+        <Deferred onClose={() => setOrganizing(false)}>
+          <GroupOrganizer groups={groups} onApplied={onChanged} onClose={() => setOrganizing(false)} />
         </Deferred>
       )}
     </aside>

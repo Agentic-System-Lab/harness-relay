@@ -341,6 +341,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     RELAY_WEB_DIR: WEB_DIR,
     RELAY_KEYRING: 'off',
     RELAY_KEYRING_SERVICE: 'harness-relay-e2e',
+    // The lead agent names no new conversation, so that a chat keeps the title its first line gives it
+    // and no lead run starts beside each first message; the specs of naming turn it on (`env`).
+    RELAY_CHAT_TITLES: 'off',
     ...homes,
     GIT_AUTHOR_NAME: 'Relay E2E',
     GIT_AUTHOR_EMAIL: 'e2e@example.com',

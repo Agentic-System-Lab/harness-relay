@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDERS, type AgentConfig, type Provider, type ProviderStatus } from '../src/shared/types';
-import { blankAgents, fitTemplateAgents, readyProviders, templateKey, type TemplateDraft } from '../src/web/templates';
+import { blankAgents, fitTemplateAgents, readyProviders, templateKey, templateTextChanges, type TemplateDraft } from '../src/web/templates';
+import { en } from '../src/web/locales/en';
 
 /** Every CLI's status, as the server lists them: `ready` installed and signed in, `installed` only installed. */
 function statuses(ready: Provider[], installed: Provider[] = []): ProviderStatus[] {
@@ -106,5 +107,15 @@ describe('a template only on CLIs that can run here', () => {
     expect(fitTemplateAgents(team, statuses(['codex']))).toEqual({ agents: team, moved: [] });
     expect(fitTemplateAgents(team, [])).toEqual({ agents: team, moved: [] });
     expect(fitTemplateAgents(team, statuses([]))).toEqual({ agents: team, moved: [] });
+  });
+});
+
+describe("the lead agent's template in the editor", () => {
+  it('lists a new name and description among what changed, spaces around them aside', () => {
+    expect(templateTextChanges({ name: 'Old', description: 'x' }, { name: 'New', description: 'x' }, en)).toEqual(['named it "New"']);
+    expect(templateTextChanges({ name: 'Same', description: 'a' }, { name: ' Same ', description: 'b' }, en)).toEqual([
+      'rewrote the description',
+    ]);
+    expect(templateTextChanges({ name: 'Same', description: 'a' }, { name: 'Same', description: ' a ' }, en)).toEqual([]);
   });
 });

@@ -9,6 +9,10 @@ import { slow } from './timeouts';
 // as it loads, and the test file's modules load after this). A test that needs one sets it itself.
 for (const k of Object.keys(process.env)) if (k.startsWith('RELAY_')) delete process.env[k];
 
+// The lead agent does not name new conversations unless a test turns it on (`SettingsStore.setChatTitles`):
+// a lead run for every first message would change what most tests' fake runners are asked.
+process.env.RELAY_CHAT_TITLES = 'off';
+
 /*
  * Windows' temporary folder may be named by its short 8.3 name (`C:\Users\RUNNER~1\…` for a user
  * name longer than eight letters, as on GitHub's runners), which `realpathSync` keeps and git and the

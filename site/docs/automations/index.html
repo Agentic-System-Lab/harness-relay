@@ -6,7 +6,7 @@
     <title>Automations · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: send your team a message at set times, or when a mail, an event, a pull request or a file comes in, and track a goal across runs."
+      content="Harness Relay docs: message your team at set times or when a mail, an event, a pull request or a file comes in, track a goal, and let the lead agent fill it in."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Automations · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How to have Harness Relay send your team a message at set times, when a new mail, an event, a pull request, a failed CI run or a file comes in, or when a program calls its webhook, and follow a goal across runs until it is reached."
+      content="How to have Harness Relay send your team a message at set times, when a new mail, an event, a pull request, a failed CI run or a file comes in, or when a program calls its webhook, and follow a goal across runs until it is reached; have the lead agent fill in the form from a sentence, or create one an agent proposes in a chat."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/automations/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/automations/",
         "name": "Automations · Harness Relay docs",
-        "description": "Harness Relay docs: send your team a message at set times, or when a mail, an event, a pull request or a file comes in, and track a goal across runs.",
+        "description": "Harness Relay docs: message your team at set times or when a mail, an event, a pull request or a file comes in, track a goal, and let the lead agent fill it in.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -272,7 +272,7 @@
             <li>When a mail from a customer arrives: “Triage this mail and draft a reply.”</li>
             <li>When a CI run fails: “CI failed: find out why.”</li>
           </ul>
-          <p>There are two ways to start one:</p>
+          <p>There are three ways to start one:</p>
           <ul>
             <li>
               <b>New automation</b>, the button with a lightning bolt beside <b>New chat</b> in the sidebar (it reads
@@ -282,6 +282,12 @@
             <li>
               <b>Automation</b> at the top of a chat you already have. Its message then goes to that chat's team, which
               you must have confirmed first.
+            </li>
+            <li>
+              A <b>Proposed automation</b> card in a reply: when you ask in a chat for something to be done later or again,
+              an agent can propose one, with its message, when it runs and its goal. <b>Create automation</b> creates it as it
+              is, <b>Change it in the form</b> opens it in the chat's <b>Automation</b> window first, and <b>Dismiss</b> sets
+              it aside. Nothing is scheduled until you create it, and it replaces the chat's current automation.
             </li>
           </ul>
           <div class="doc-note">
@@ -304,6 +310,13 @@
             <li>Choose <b>Wait for my confirmation</b> or <b>Accept the team automatically</b>, then choose whether the lead agent should review replies and click <b>Create automation</b>. Its chat opens for team design. The task runs when triggered.</li>
           </ol>
           <p>Use <b>Manage team templates</b> above the confirmation options to edit the same templates available in New chat.</p>
+          <p>
+            Or have the lead agent fill in the form: under <b>Have the lead agent fill it in</b>, at the top of the form (here,
+            and in a chat's <b>Automation</b> window), say in a sentence what should happen and when, such as "every weekday
+            at 9 a.m., sum up yesterday's merged pull requests", and click <b>Fill it in</b>. It writes the message, the
+            times, what to wait for and the options, using only the mail accounts and calendars you set up, and lists what
+            changed. Nothing runs until you review it and save.
+          </p>
           <figure class="doc-figure">
             <img
               src="../../assets/media/docs/automations-new-en.webp"

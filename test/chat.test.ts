@@ -558,6 +558,18 @@ describe("an agent's work between its words", () => {
     expect(shownSegments(segments([note]), false, false).typing).toBe(false);
   });
 
+  it('shows a schedule the reply proposed as a card of its own, also on a reply whose agent passed', () => {
+    const proposal = { type: 'schedule' as const, proposal: { text: 'Check CI', repeat: { kind: 'daily' as const, time: '08:00' } } };
+    const segs = segments([text('PASS'), proposal]);
+    expect(segs).toEqual([
+      { kind: 'text', text: 'PASS', key: 0 },
+      { kind: 'schedule', part: proposal, key: 1 },
+    ]);
+    expect(shownSegments(segs, true, false).shown.map((s) => s.kind)).toEqual(['schedule']);
+    // One a server kept that this one could not read again has nothing to create: no card.
+    expect(segments([{ type: 'schedule', proposal: { text: '', repeat: { kind: 'manual' } } }])).toEqual([]);
+  });
+
   it('keeps its key while steps stream in, and marks the row that ends the message', () => {
     const first = segments([text('On it.'), tool('a', 'running')]);
     const later = segments([text('On it.'), tool('a'), think('Hmm.'), tool('b', 'running')]);

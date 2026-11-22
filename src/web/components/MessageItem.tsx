@@ -11,6 +11,7 @@ import {
   type PlanEntry,
   type ProgressStatus,
   type ReviewHighlight,
+  type ScheduleProposal,
 } from '../../shared/types';
 import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
@@ -39,6 +40,7 @@ import {
   type ToolItem,
   type ToolPart,
   type MemoryPart,
+  type SchedulePart,
   type OutboxPart,
 } from '../chat';
 import { fallbackExplanation, mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
@@ -55,7 +57,8 @@ import { DocumentPreview, DocumentResult } from './DocumentPreview';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
-import { shownEvent } from '../schedule';
+import { browserTimeZone, describeRepeat, shownEvent } from '../schedule';
+import { proposalGaps, proposalUpdate, withoutScheduleBlocks } from '../../shared/scheduleProposal';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -316,6 +319,100 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
             </button>
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('discard')}>
               {t.outbox.discard}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * A schedule the reply proposed (its `<schedule>` block): what it would send and when, and, while it
+ * waits, creating it as it is, changing it in the schedule's form first, or dismissing it. Its times are
+ * this browser's time zone's.
+ */
+function ScheduleCard({
+  part,
+  convId,
+  messageId,
+  agentName,
+  hasSchedule,
+  onEdit,
+}: {
+  part: SchedulePart;
+  convId: string;
+  messageId: string;
+  agentName: string;
+  hasSchedule: boolean;
+  onEdit?: (messageId: string, proposal: ScheduleProposal) => void;
+}) {
+  const { t, lang } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const p = part.proposal;
+  const zone = browserTimeZone();
+  const gaps = proposalGaps(p, zone, Date.now());
+  const when = describeRepeat(proposalUpdate(p, zone).repeat, t, lang);
+  const waiting = !part.status;
+  const answer = async (action: 'create' | 'dismiss') => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.answerProposal(convId, messageId, action, zone);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className={`outbox-card schedule-proposal ${part.status ? `outbox-${part.status === 'created' ? 'sent' : 'discarded'}` : 'outbox-pending'}`}
+      aria-label={`${t.proposal.title} · @${agentName}`}
+    >
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          <ClockIcon size={16} />
+        </span>
+        <strong>{t.proposal.title}</strong>
+        {part.status && <span className="approval-waiting">{part.status === 'created' ? t.proposal.created : t.proposal.dismissed}</span>}
+      </header>
+      <dl className="outbox-fields">
+        <div>
+          <dt>{t.proposal.message}</dt>
+          <dd className="schedule-proposal-text">{p.text}</dd>
+        </div>
+        <div>
+          <dt>{t.proposal.when}</dt>
+          <dd>{when}</dd>
+        </div>
+        {p.goal && (
+          <div>
+            <dt>{t.proposal.goal}</dt>
+            <dd>{p.goal}</dd>
+          </div>
+        )}
+      </dl>
+      {p.newChat && <p className="small">{t.proposal.newChat}</p>}
+      {error && <p className="error-line">{error}</p>}
+      {waiting && (
+        <>
+          <p className="muted small">
+            {gaps.includes('past') ? t.proposal.gapPast : gaps.includes('account') ? t.proposal.gapAccount : t.proposal.note}
+            {hasSchedule ? ` ${t.proposal.replaces}` : ''}
+          </p>
+          <div className="approval-actions">
+            <button type="button" className="primary small-button" disabled={busy || gaps.length > 0} onClick={() => answer('create')}>
+              {busy ? t.proposal.creating : t.proposal.create}
+            </button>
+            {onEdit && (
+              <button type="button" className="ghost small-button" disabled={busy} onClick={() => onEdit(messageId, p)}>
+                {t.proposal.edit}
+              </button>
+            )}
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('dismiss')}>
+              {t.proposal.dismiss}
             </button>
           </div>
         </>
@@ -659,6 +756,10 @@ interface Props {
   onFixChecks?: (messageId: string, agentId: string) => Promise<unknown>;
   /** Apply a member's parallel-mode result the team checks held back. */
   onApplyAnyway?: (agentId: string, how: 'force' | 'confirm') => Promise<unknown>;
+  /** Opens a schedule the reply proposed in the schedule's form, to change it before saving it. */
+  onEditProposal?: (messageId: string, proposal: ScheduleProposal) => void;
+  /** The conversation has a schedule already (a proposed one replaces it). */
+  hasSchedule?: boolean;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -1305,6 +1406,8 @@ export const MessageItem = memo(function MessageItem({
   onSkipChecks,
   onFixChecks,
   onApplyAnyway,
+  onEditProposal,
+  hasSchedule,
 }: Props) {
   const t = useT();
 
@@ -1373,6 +1476,8 @@ export const MessageItem = memo(function MessageItem({
       onBranch={onBranch}
       onPreview={onPreview}
       marks={marks}
+      onEditProposal={onEditProposal}
+      hasSchedule={hasSchedule}
     />
   );
 });
@@ -1396,6 +1501,8 @@ function AgentMessage({
   onBranch,
   onPreview,
   marks,
+  onEditProposal,
+  hasSchedule,
 }: Pick<
   Props,
   | 'msg'
@@ -1415,6 +1522,8 @@ function AgentMessage({
   | 'onBranch'
   | 'onPreview'
   | 'marks'
+  | 'onEditProposal'
+  | 'hasSchedule'
 >) {
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
@@ -1472,7 +1581,7 @@ function AgentMessage({
               return (
                 <Markdown
                   key={s.key}
-                  text={live ? withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text)) : s.text}
+                  text={live ? withoutScheduleBlocks(withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text))) : s.text}
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}
@@ -1491,6 +1600,18 @@ function AgentMessage({
               return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
             case 'memory':
               return <MemoryCard key={s.key} part={s.part} />;
+            case 'schedule':
+              return (
+                <ScheduleCard
+                  key={s.key}
+                  part={s.part}
+                  convId={convId}
+                  messageId={msg.id}
+                  agentName={name}
+                  hasSchedule={Boolean(hasSchedule)}
+                  onEdit={onEditProposal}
+                />
+              );
             case 'notice':
               return (
                 <p key={s.key} className="warn-line small msg-notice" role="note">
