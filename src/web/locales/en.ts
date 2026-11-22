@@ -1048,7 +1048,6 @@ export const en: Messages = {
       hosts: 'Hosts it may reach',
       noHosts: 'No network',
       secrets: 'Secrets',
-      missing: 'not given yet',
       name: 'Name',
       hostsHint: 'Separated by commas, such as api.example.com',
       secretsHint: "Secrets' names, separated by commas",
@@ -1114,7 +1113,6 @@ export const en: Messages = {
       startAgain: 'Run it again',
       dismiss: "Don't run",
       stopsAt: (time) => `If it is still running at ${time}, it stops.`,
-      ranIn: (where) => `Runs in: ${where}`,
       output: 'Output (secrets and what you typed hidden are masked)',
       noOutput: 'No output yet.',
       input: 'A line to type into it',
@@ -2802,6 +2800,7 @@ export const en: Messages = {
     refusedDuplicate: (name) => `"${name}" was picked twice; it goes up once.`,
     refusedIsFolder: (name) => `There is a folder named "${name}" here.`,
     badName: (name) => `"${name}" cannot be a file's name.`,
+    sentenceGap: ' ',
     nameProblem: {
       empty: 'Give it a name.',
       separator: 'A name cannot have / or \\.',
@@ -3372,7 +3371,7 @@ export const en: Messages = {
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
-          'Edit a text file, make a new one or upload files into the folder you are in, from a phone too; a save waits while the team is writing there',
+          'Edit a text file, make a new one or upload files into the folder you are in, from a phone too; while the team is writing there, a save is refused until it is done',
           'When the team makes an app, its preview opens by itself, and Preview at the top right shows or hides it. Preview app beside an HTML, package.json, Dockerfile or compose file link, or Preview this folder in Files, opens one too. With a Dockerfile any language runs, as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it, and you can add preview errors to your message. Once it works, Publish… puts it online in your own free Render and Neon accounts (Settings → Publish to the cloud).',
           'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
         ],

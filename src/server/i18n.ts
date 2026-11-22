@@ -161,7 +161,7 @@ const zhTW = {
     noBrowser: '這台電腦找不到 Chromium、Chrome 或 Edge：請在「設定 → App 與工具 → 常用 App → 瀏覽器」安裝或指定一個。',
     browsersBusy: (n: number) => `最多只能同時開 ${n} 個只給你的瀏覽器：請先關掉一個。`,
     browserGone: '這個只給你的瀏覽器已經關閉了：請再開一個。',
-    browserRefused: 'Harness Relay 的瀏覽器不會開這個網址（Harness Relay 自己的 port 或雲端的 metadata 位址）。',
+    browserRefused: 'Harness Relay 的瀏覽器不會開這個網址（Harness Relay 自己的連接埠或雲端的中繼資料位址）。',
     noSelection: '網頁上沒有選取任何文字：請先選取那個值（或點一下放著它的欄位），再按儲存選取的文字。',
     notAsked: (name: string) => `這張卡片沒有在等 ${name}。`,
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
@@ -182,7 +182,7 @@ const zhTW = {
     commandChangedSince: (name: string) => `固定指令「${name}」在這次執行放進待送出匣之後改過了，所以沒有執行。`,
     runLine: runLineZh,
     interactiveRunning: '這個指令正在執行。',
-    interactiveAutomation: '這個指令是在自動化的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
+    interactiveAutomation: '這個指令是在自動任務的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
     interactiveWindows: '原生 Windows 上還不能從卡片執行指令。',
     interactiveTooMany: (n: number) => `同時最多只能執行 ${n} 個這樣的指令，請等其他的結束。`,
     interactiveConfigChanged: '工作目錄裡出現了卡片沒列出的設定檔。請先看過卡片上更新的清單，再啟動一次。',
@@ -1362,12 +1362,12 @@ const zhTW = {
   fileRootNotFound: '這個資料夾已經不存在',
   // Changing files from the Files panel (fileEdit.ts)
   filesEdit: {
-    worktreeReadOnly: '助理的 worktree 在這裡只能檢視：要改動工作目錄，請套用它的結果。',
+    worktreeReadOnly: 'agent 的 worktree 在這裡只能檢視：要改動工作目錄，請套用它的結果。',
     relayFolder: '「檔案」不會改動這個資料夾：裡面有 Harness Relay 本身、它的資料或語音輸入的資料夾。',
     agentFolder: (folder: string) =>
-      `「檔案」不會改動這個資料夾：它包含 ${folder}，那裡決定助理怎麼執行（家目錄或某個程式助理自己的資料夾）。`,
+      `「檔案」不會改動這個資料夾：它包含 ${folder}，那裡決定 agent 怎麼執行（家目錄或某個 CLI 自己的資料夾）。`,
     link: '「檔案」不會透過符號連結寫入：請到它實際所在的位置開啟。',
-    protectedPath: '「檔案」不會寫入這裡：Harness Relay 不讓助理碰這個位置（它的資料、瀏覽器的設定檔或存放權杖的檔案）。',
+    protectedPath: '「檔案」不會寫入這裡：Harness Relay 不讓 agent 碰這個位置（它的資料、瀏覽器的設定檔或存放權杖的檔案）。',
     isFolder: (name: string) => `這裡已經有一個叫「${name}」的資料夾。`,
     readOnlyFile: (name: string) => `「${name}」是唯讀檔案。`,
     badName: (name: string, problem: FileNameProblem) =>

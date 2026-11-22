@@ -162,7 +162,7 @@ function UploadIcon({ size = 14 }: { size?: number }) {
 function refusalText(t: Messages, r: UploadRefusal): string {
   switch (r.why) {
     case 'name':
-      return `${t.filesEdit.badName(r.name)} ${t.filesEdit.nameProblem[r.problem]}`;
+      return `${t.filesEdit.badName(r.name)}${t.filesEdit.sentenceGap}${t.filesEdit.nameProblem[r.problem]}`;
     case 'size':
       return t.filesEdit.refusedSize(r.name, FILE_EDIT_LIMITS.maxUploadBytes / 1024 / 1024);
     case 'folder':

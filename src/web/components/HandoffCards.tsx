@@ -18,7 +18,7 @@ import {
   type InteractivePart,
   type SecretsPart,
 } from '../handoffs';
-import { useT } from '../i18n';
+import { useI18n, useT } from '../i18n';
 import { CommandIcon, KeyIcon } from './icons';
 import { LoginLinks } from './LoginLinks';
 import '../handoffs.css';
@@ -411,7 +411,7 @@ export function InteractiveCard({
   messageId: string;
   agentName: string;
 }) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const c = t.handoffs.interactive;
   const { busy, error, call } = useCall();
   const [workdir, setWorkdir] = useState(() => startsInWorkdir(part));
@@ -457,7 +457,7 @@ export function InteractiveCard({
         return c.ended[x.state];
     }
   };
-  const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = (ms: number) => new Date(ms).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
   return (
     <section className={`outbox-card handoff-card interactive-card handoff-interactive-${key}`} aria-label={c.label(agentName)}>
       <header className="approval-head">

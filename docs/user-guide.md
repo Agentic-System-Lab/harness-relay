@@ -824,7 +824,7 @@ You can also change files in the working directory without asking an agent, from
 - **Edit** beside a text file opens it in a text box; **Save** (or Ctrl+S, ⌘S) writes it, keeping its line breaks (CRLF too) and its permissions. A text file up to 512 KB in UTF-8 can be edited. If the file changed after you opened it (an agent or another device saved it), the save is refused: **Copy my text**, then **Reload** to see the new version. Leaving with changes not saved asks first.
 - **New file** makes an empty file in the folder you are in and opens it for editing.
 - **Upload files** (or dropping files on the list) puts files into the folder you are in, up to 20 at a time and 20 MB each. A file of the same name is replaced only once you agree.
-- While a run writes in the folder (this chat's team in edit mode, or another chat's), saving and uploading wait: try again once it is done. This keeps each turn's changes card showing only what its agent changed.
+- While a run writes in the folder (this chat's team in edit mode, or another chat's), saving and uploading are refused: try again once it is done. This keeps each turn's changes card showing only what its agent changed.
 - Names must work on every system: no `/` or `\`, none of `<>:"|?*`, no trailing dot or space, not a name Windows keeps for devices (`CON`, `NUL`…), not `.git`.
 - Nothing is written in `.git`, through a symbolic link, or into what Harness Relay keeps from agents. An agent's worktree stays read-only (apply its result instead), and so does a working directory where edit mode is refused (one that holds Harness Relay, your home folder or a CLI's own folder).
 
