@@ -802,7 +802,11 @@ describe('layers 2 and 3: what they run', () => {
       'hook-before',
       'hook-before-full',
       'hook-after',
+      'toolless',
     ]);
+    // RLM's sub-model through a CLI: only those it can be asked through, with no shape of its own to save.
+    const toolless = SCENARIOS.find((s) => s.name === 'toolless')!;
+    expect(toolless).toMatchObject({ only: ['claude', 'copilot', 'muse'], noShape: true, permission: 'read-only' });
   });
 
   it('tells only Antigravity it is over SSH (Cursor refuses to start so where the keychain is out of reach)', () => {

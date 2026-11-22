@@ -4992,6 +4992,7 @@ export class Orchestrator {
                 usage: (u) => {
                   subModel.inputTokens += u.inputTokens;
                   subModel.outputTokens += u.outputTokens;
+                  if (u.costUsd) subModel.costUsd = (subModel.costUsd ?? 0) + u.costUsd;
                 },
                 signal: turnSignal,
               },

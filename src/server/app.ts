@@ -636,9 +636,10 @@ export function createApp({
   };
   app.get('/api/labs', async (c) => c.json(await labsView()));
   app.put('/api/labs', async (c) => {
-    // Only a model connection set up now: an API backend with its key, or an endpoint.
+    // Only a model connection set up now (an API backend with its key, or an endpoint), or an account of
+    // one of the CLIs it can be asked through.
     const configured = settings.backends.configured();
-    settings.setLabs(validLabs(await body<unknown>(c), configured));
+    settings.setLabs(validLabs(await body<unknown>(c), configured, (p, account) => settings.hasAccount(p, account)));
     return c.json(await labsView());
   });
 

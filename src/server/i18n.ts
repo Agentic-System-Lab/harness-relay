@@ -517,8 +517,10 @@ const zhTW = {
   gatewayFromCode: '由代理用 run_code 執行的程式碼發出。',
   labsBadMode: '實驗室的模式只能是關閉、讓助理寫程式呼叫工具，或分段閱讀長文字。',
   labsNoModel: '分段閱讀長文字需要選一個模型（「來源/模型」）。',
-  labsBadModel: (id: string) => `「${id}」不是「來源/模型」的格式，例如 anthropic/claude-haiku-5-5，或你的端點 id 加上模型名稱。`,
+  labsBadModel: (id: string) =>
+    `「${id}」不是「來源/模型」的格式，例如 anthropic/claude-haiku-5-5、你的端點 id 加上模型名稱，或透過 CLI 的 cli:claude/haiku。`,
   labsNoConnection: (backend: string) => `「模型連線」裡沒有設定 ${backend}：請先在「設定 → 模型連線」加上它的金鑰或端點。`,
+  labsNoCliAccount: (cli: string, account: string) => `${cli} 沒有「${account}」這個帳號：請到「設定 → ${cli}」加上它，或選另一個帳號。`,
   labsWindows: '原生 Windows 上還不能用：Harness Relay 在這裡沒有可以執行程式的沙箱。',
   labsNoNode: '這台電腦上找不到可以執行程式的 Node.js。',
   checksCommandNoFolder: (cwd: string) =>
@@ -1593,9 +1595,11 @@ const en: ServerMessages = {
   gatewayFromCode: 'Asked by code the agent runs with run_code.',
   labsBadMode: "Labs' mode is off, letting assistants script the tools, or reading long texts in parts.",
   labsNoModel: 'Reading long texts in parts needs a model ("backend/model").',
-  labsBadModel: (id) => `"${id}" is not "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint's id and a model name.`,
+  labsBadModel: (id) =>
+    `"${id}" is not "backend/model", such as anthropic/claude-haiku-5-5 or your endpoint's id and a model name, nor a CLI's, such as cli:claude/haiku.`,
   labsNoConnection: (backend) =>
     `${backend} is not set up in Model connections: add its key or endpoint under Settings → Model connections first.`,
+  labsNoCliAccount: (cli, account) => `${cli} has no account "${account}": add it under Settings → ${cli}, or pick another account.`,
   labsWindows: 'Not on native Windows yet: Harness Relay has no sandbox there to run the code in.',
   labsNoNode: 'There is no Node.js on this computer to run the code with.',
   checksCommandNoFolder: (cwd) =>

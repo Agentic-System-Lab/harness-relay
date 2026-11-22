@@ -48,6 +48,7 @@ import {
   claudeSandboxWrites,
   claudeSessionFile,
   claudeSessionTally,
+  claudeToolless,
   claudeTurnUsage,
   createClaudeParser,
   parseClaudePluginList,
@@ -1951,6 +1952,84 @@ describe("the answer's shape, a budget and a stop", () => {
       expect(err.usage).toBeUndefined();
       expect(r.lines().some((l) => l.interrupt)).toBe(true);
       setClaudeStopGrace();
+    });
+  });
+});
+
+describe("RLM's sub-model through Claude Code (a toolless run)", () => {
+  const base = { systemPrompt: 'Answer.', ask: false, newSessionId: 'new-id', permission: 'read-only' as const };
+
+  it("gives its system prompt in place of Claude Code's own, and keeps no session", () => {
+    const args = claudeArgs({ ...base, toolless: true, sessionId: 'old-id' });
+    expect(args[args.indexOf('--system-prompt') + 1]).toBe('Answer.');
+    expect(args).not.toContain('--append-system-prompt');
+    expect(args).toContain('--no-session-persistence');
+    expect(args).not.toContain('--session-id');
+    expect(args).not.toContain('--resume');
+    // Another run appends its briefing and names its session.
+    const member = claudeArgs(base);
+    expect(member).toContain('--append-system-prompt');
+    expect(member).not.toContain('--no-session-persistence');
+  });
+
+  it("leaves out everything Claude Code loads by itself, its built-in tools among them, and all of Harness Relay's", () => {
+    const o = claudeToolless({
+      bin: 'claude',
+      env: {},
+      prompt: 'q',
+      systemPrompt: 's',
+      cwd: '/tmp/x',
+      permission: 'read-only',
+      signal: new AbortController().signal,
+      onEvent: () => undefined,
+      toolless: true,
+      mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+      nativeOff: [],
+      nativeOn: ['workflows'],
+      addDirs: ['/docs'],
+      sessionId: 'old',
+      outputSchema: { type: 'object' },
+    });
+    expect(o.nativeOff).toEqual(
+      expect.arrayContaining(['tools', 'mcp', 'skills', 'hooks', 'plugins', 'instructions', 'memory', 'agents', 'subagents']),
+    );
+    expect(o).toMatchObject({ mcpServers: [], nativeOn: [], addDirs: [], sessionId: undefined, outputSchema: undefined });
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-toolless-')));
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+    const bin = writeFakeClaude(join(dir, 'claude'));
+
+    it('starts claude with no tools, MCP servers or session, whatever the options said', async () => {
+      const log = join(dir, 'log.jsonl');
+      writeFileSync(log, '');
+      await withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: log },
+          prompt: 'hello',
+          systemPrompt: 'Answer.',
+          cwd: dir,
+          permission: 'read-only',
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+          toolless: true,
+          mcpServers: [{ name: 'relay', transport: 'stdio', command: 'x', args: [], url: '', env: {}, headers: {} }],
+        }),
+      );
+      const turn = readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as { args?: string[] })
+        .find((l) => l.args?.includes('-p'));
+      const args = turn!.args!;
+      expect(args[args.indexOf('--tools') + 1]).toBe('');
+      expect(args).toContain('--strict-mcp-config');
+      expect(args).not.toContain('--mcp-config');
+      expect(args).toContain('--no-session-persistence');
+      expect(args[args.indexOf('--system-prompt') + 1]).toBe('Answer.');
     });
   });
 });

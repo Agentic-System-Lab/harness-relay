@@ -65,7 +65,7 @@ export interface GatewayContext {
    * Counts tokens a tool spent itself for the turn (RLM's sub-model, `llm_query()`), which go into the
    * turn's reply with the CLI's own (`withSubModelTokens()` in `runCode.ts`).
    */
-  usage?: (tokens: { inputTokens: number; outputTokens: number }) => void;
+  usage?: (tokens: { inputTokens: number; outputTokens: number; costUsd?: number }) => void;
   signal: AbortSignal;
 }
 

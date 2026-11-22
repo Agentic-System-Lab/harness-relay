@@ -194,6 +194,14 @@ export interface RunOptions {
    * not steered (the conversation has steering off, or it is a lead agent's run).
    */
   onSteer?: (steer: SteerTurn | undefined) => void;
+  /**
+   * A plain answer with no tool at all, for RLM mode's sub-model asked through a CLI (`cliSubModel.ts`):
+   * the CLI is given none of its own tools, MCP servers, skills, hooks, memory, subagents or plugins, nor
+   * Harness Relay's (`mcpServers` is not passed on), the system prompt is the whole of its instructions
+   * where the CLI takes one in place of its own, and no session is kept. Only the runners of
+   * `SUB_MODEL_CLIS` honour it, and it is given to no other.
+   */
+  toolless?: boolean;
 }
 
 /** A JSON Schema for `RunOptions.outputSchema`. */
