@@ -13,7 +13,7 @@
 import { createServer, type AddressInfo } from 'node:net';
 import { DEV_API_PORT, DEV_PORT_TRIES, DEV_WEB_PORT, portNumber } from '../../src/server/ports';
 
-/** Where a port must be free: both loopback addresses and both wildcard ones (`::` for IPv6 alone: `tryListen()`). */
+/** Where a port must be free: both loopback addresses and both wildcard ones (`::` tried two ways: `tryListen()`). */
 export const LOCAL_BINDS: readonly string[] = ['127.0.0.1', '::1', '0.0.0.0', '::'];
 
 /** A port refused or not found: said as it is, and nothing starts. */
@@ -24,11 +24,16 @@ export class DevPortError extends Error {}
  * when the address is not this computer's (no IPv6, a `HOST` that is not its own), which is then not
  * in the way (the server says so itself). Any other refusal (`EACCES`) is a `DevPortError` that says it.
  *
- * `::` is tried for IPv6 alone, as `0.0.0.0` is for IPv4 alone: on Windows a socket for both may
- * listen beside one on `::` for IPv6 alone, which it would then miss. A socket listening on `::` for
- * both is still found, at both (`0.0.0.0` too).
+ * `::` is tried two ways, for IPv4 and IPv6 both and for IPv6 alone: on Windows a socket on
+ * `0.0.0.0`, one on `::` for both and one on `::` for IPv6 alone may each listen beside the others,
+ * so that only a socket of the same kind finds each.
  */
-export function tryListen(port: number, host: string): Promise<'free' | 'taken' | 'absent'> {
+export async function tryListen(port: number, host: string): Promise<'free' | 'taken' | 'absent'> {
+  const found = await listenOnce(port, host, false);
+  return host === '::' && found === 'free' ? listenOnce(port, host, true) : found;
+}
+
+function listenOnce(port: number, host: string, ipv6Only: boolean): Promise<'free' | 'taken' | 'absent'> {
   return new Promise((done, fail) => {
     const probe = createServer();
     probe.once('error', (err: NodeJS.ErrnoException) => {
@@ -36,7 +41,7 @@ export function tryListen(port: number, host: string): Promise<'free' | 'taken' 
       else if (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'ENOTFOUND', 'EAI_AGAIN', 'EAI_NONAME'].includes(err.code ?? '')) done('absent');
       else fail(new DevPortError(`Cannot listen on port ${port} at ${host}: ${err.message}.`));
     });
-    probe.listen({ port, host, exclusive: true, ipv6Only: host === '::' }, () => probe.close(() => done('free')));
+    probe.listen({ port, host, exclusive: true, ipv6Only }, () => probe.close(() => done('free')));
   });
 }
 
