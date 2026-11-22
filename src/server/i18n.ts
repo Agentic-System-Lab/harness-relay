@@ -615,6 +615,31 @@ const zhTW = {
   reportShotsNotGithub: 'gh 登入的不是 github.com，截圖只能上傳到 github.com 的 gist',
   reportShotsNotFound: '這裡找不到這次上傳的截圖（可能是伺服器重新啟動過）：請到 GitHub 刪除那個 gist。',
   messageNotFound: '找不到這則訊息',
+  // A steps card (an agent's <steps> block): the user's answer, as their message says it, and its errors
+  steps: {
+    summary: (o: { agent: string; done: number; total: number; stuckAt?: number }) => {
+      if (o.total === 1) {
+        return o.stuckAt !== undefined
+          ? `${o.agent} 給我的步驟，我卡住了。`
+          : o.done
+            ? `${o.agent} 給我的步驟完成了。`
+            : `${o.agent} 給我的步驟，我還沒完成。`;
+      }
+      if (o.stuckAt !== undefined) return `${o.agent} 給我的步驟，我卡在第 ${o.stuckAt} 步（${o.total} 步中完成了 ${o.done} 步）。`;
+      if (o.done === o.total) return `${o.agent} 給我的 ${o.total} 個步驟都完成了。`;
+      if (!o.done) return `${o.agent} 給我的 ${o.total} 個步驟，我都還沒完成。`;
+      return `${o.agent} 給我的 ${o.total} 個步驟，我完成了 ${o.done} 個。`;
+    },
+    done: '完成',
+    notDone: '未完成',
+    stuck: '卡在這步',
+    note: '備註：',
+    notFound: '找不到這些步驟',
+    answered: '這些步驟已經回覆過了',
+    notWaiting: '團隊已經沒有在等這些步驟了',
+    noStep: (n: number) => `沒有第 ${n} 步`,
+    noteTooLong: (max: number) => `備註最多 ${max} 個字`,
+  },
   branchTitle: (title: string) => `分支 · ${title}`,
   branchOnlyReply: '只能從 agent 的回覆分支',
   branchStreaming: '這則之前還有回覆在進行中，請等它們完成再分支',
@@ -1890,6 +1915,30 @@ const en: ServerMessages = {
   reportShotsNotGithub: 'gh is signed in to a host other than github.com: screenshots go only to gists on github.com',
   reportShotsNotFound: 'This upload is not known here (the server may have restarted since): delete its gist on GitHub.',
   messageNotFound: 'Message not found',
+  steps: {
+    summary: (o) => {
+      if (o.total === 1) {
+        return o.stuckAt !== undefined
+          ? `I'm stuck at the step ${o.agent} gave me.`
+          : o.done
+            ? `I did the step ${o.agent} gave me.`
+            : `I haven't done the step ${o.agent} gave me.`;
+      }
+      if (o.stuckAt !== undefined) return `I'm stuck at step ${o.stuckAt} of the ${o.total} steps ${o.agent} gave me (${o.done} done).`;
+      if (o.done === o.total) return `I did all ${o.total} steps ${o.agent} gave me.`;
+      if (!o.done) return `I haven't done any of the ${o.total} steps ${o.agent} gave me.`;
+      return `I did ${o.done} of the ${o.total} steps ${o.agent} gave me.`;
+    },
+    done: 'done',
+    notDone: 'not done',
+    stuck: 'stuck here',
+    note: 'Note: ',
+    notFound: 'These steps were not found',
+    answered: 'These steps were already answered',
+    notWaiting: 'The team is no longer waiting for these steps',
+    noStep: (n) => `There is no step ${n}`,
+    noteTooLong: (max) => `A note may have at most ${max} characters`,
+  },
   branchTitle: (title) => `Branch · ${title}`,
   branchOnlyReply: "Only an agent's reply can be branched from",
   branchStreaming: 'A reply before this one is still being written; branch once it has finished',

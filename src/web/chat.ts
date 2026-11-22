@@ -16,6 +16,7 @@ import type {
   MessageChanges,
 } from '../shared/types';
 import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
+import type { StepsPart } from '../shared/steps';
 import { ApiError } from './api';
 import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
@@ -390,7 +391,9 @@ export type Segment =
   /** What the reply saved to long-term memory. */
   | { kind: 'memory'; part: MemoryPart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
-  | { kind: 'notice'; text: string; key: number };
+  | { kind: 'notice'; text: string; key: number }
+  /** Steps the reply asks the user to take outside Harness Relay. */
+  | { kind: 'steps'; part: StepsPart; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -453,6 +456,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'notice':
         out.push({ kind: 'notice', text: p.text, key: i });
+        break;
+      case 'steps':
+        if (p.items.length) out.push({ kind: 'steps', part: p, key: i });
         break;
     }
   });

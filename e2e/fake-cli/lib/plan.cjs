@@ -27,6 +27,8 @@ const DIRECTIVES = {
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
+  steps:
+    'end the reply with a <steps> block of three steps for the user to take outside Harness Relay, the first with a link (a steps card)',
   handoff: 'mention the member named, to hand the floor to it (not when that member is speaking)',
   slow: 'stream the reply slowly, about ten seconds (`=<seconds>` for another time), to be stopped or waited for; a reply of several paragraphs (`e2e:long`) one paragraph after another',
   fail: 'exit with an error on stderr',
@@ -315,6 +317,11 @@ function plan(prompt, turn) {
   if (d.widecode) text += `\n\n\`\`\`js\nconst wide = '${'wide '.repeat(80).trim()}';\n\`\`\``;
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
+  if (d.steps) {
+    text +=
+      '\n\nPlease set up the app, then come back.\n\n<steps>\n1. Open [the example console](https://example.com/console) and create an app.\n' +
+      '2. Copy the app ID.\n3. Turn on the API under **Use cases**.\n</steps>';
+  }
   if (d.progress) {
     const status = typeof d.progress === 'string' ? d.progress : 'working';
     const goal = /<tracked_goal[^>]*>\n([\s\S]*?)\n<\/tracked_goal>/.exec(turn.briefing || '');

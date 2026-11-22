@@ -34,6 +34,8 @@ import {
 } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
+import { askingReplies } from '../../shared/ask';
+import { stepsOfMessage } from '../../shared/steps';
 import {
   afterStreamError,
   applyStates as findApplyStates,
@@ -731,7 +733,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
-  const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
+  const questions = conv.pause && !running ? askingReplies(conv.messages) : [];
+  // Each of them gave the user steps to take (a steps card), and asked nothing else.
+  const stepsOnly = questions.length > 0 && questions.every((m) => stepsOfMessage(m));
   // The team has answered, and made or pointed at an app since the user last wrote.
   const readyCard = !running && ready !== undefined && ready.index > lastUser;
   // The team checks' card says it already, with its own Fix, when they check the app preview.
@@ -1069,7 +1073,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               document.getElementById(`ask-${questions[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
           >
-            ❓ {t.chat.asking(askers)}
+            {stepsOnly ? `☑ ${t.stepCard.banner(askers)}` : `❓ ${t.chat.asking(askers)}`}
           </button>
         )}
         {error && (

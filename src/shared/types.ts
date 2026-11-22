@@ -2140,6 +2140,31 @@ export interface PlanEntry {
   status: 'pending' | 'in_progress' | 'completed';
 }
 
+/**
+ * One step a reply asks the user to take outside Harness Relay (its `<steps>` block, `src/shared/steps.ts`):
+ * the agent's words (Markdown), and whether the user ticked it.
+ */
+export interface StepItem {
+  text: string;
+  done?: boolean;
+}
+
+/**
+ * The user's answer to a steps card, once sent (`POST …/steps/answer`): when, the step they are stuck at
+ * (its index), and their note. The steps they did are the items ticked then; the card no longer changes.
+ */
+export interface StepsAnswer {
+  at: number;
+  stuckAt?: number;
+  note?: string;
+}
+
+/**
+ * A steps block: at most `steps` steps, `blockChars` characters in all (past either, the block stays
+ * text); the user's note at most `noteChars`.
+ */
+export const STEPS_LIMITS = { steps: 30, blockChars: 8000, noteChars: 2000 };
+
 export type MessagePart =
   | { type: 'text'; text: string }
   /** The agent's reasoning, as far as its CLI shares it. Never forwarded to other agents. */
@@ -2205,6 +2230,12 @@ export type MessagePart =
   | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
   /** What the reply saved to long-term memory (its `<remember>` and `<forget>` blocks, taken out of its text). */
   | { type: 'memory'; notes: MemoryPartNote[] }
+  /**
+   * Steps the reply asks the user to take outside Harness Relay (its `<steps>` block, taken out of its
+   * text): the reply asks, and the team waits as for `ASK_TOKEN`. Each step is ticked as the user goes;
+   * `answer`: what they sent, after which the card no longer changes.
+   */
+  | { type: 'steps'; items: StepItem[]; answer?: StepsAnswer }
   /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.
@@ -2322,7 +2353,7 @@ export interface ChatMessage {
    * members whose turn took it, who count it as seen. It is `queued` too (it joined a discussion under way).
    */
   steered?: string[];
-  /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
+  /** An agent reply that asks the user something (it ended with `ASK_TOKEN`, or with steps for them to take): the team waited for the answer. */
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;

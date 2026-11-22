@@ -35,7 +35,8 @@ import type {
   TeamRevision,
   CheckFinding,
 } from '../shared/types';
-import { splitAsk } from '../shared/ask';
+import { askingReplies, splitAsk } from '../shared/ask';
+import { splitSteps, stepsAnswerText, stepsOfMessage, type StepsPart } from '../shared/steps';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
@@ -47,6 +48,7 @@ import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
+  STEPS_LIMITS,
   TEAM_WORKTREE,
   agentLimitsFor,
   STEER_PROVIDERS,
@@ -720,6 +722,24 @@ function takeAsk(msg: ChatMessage): boolean {
 }
 
 /**
+ * Take the steps block off a finished reply (see `src/shared/steps.ts`): the reply keeps its steps as a
+ * `steps` part, at its end. Returns whether it had one: such a reply asks the user.
+ */
+function takeSteps(msg: ChatMessage): boolean {
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const { text, steps } = splitSteps(part.text);
+    if (!steps) return false;
+    if (text) part.text = text;
+    else msg.parts.splice(i, 1);
+    msg.parts.push({ type: 'steps', items: steps.map((step) => ({ text: step })) });
+    return true;
+  }
+  return false;
+}
+
+/**
  * Take the `<progress>` block off the end of a reply (see `src/shared/tracking.ts`): what it says, or
  * undefined when the reply's last text has none. The reply keeps it as a `progress` part.
  */
@@ -1087,6 +1107,80 @@ export class Orchestrator {
     if (!changed) return;
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /**
+   * A reply's steps card while its team waits for the user (`askingReplies`, the conversation paused
+   * and idle): the message and its steps. 404 for none; 409 once answered or no longer waited for.
+   */
+  private waitingSteps(convId: string, messageId: string): { conv: Conversation; msg: ChatMessage; part: StepsPart } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    const part = msg && stepsOfMessage(msg);
+    if (!msg || !part) throw new HttpError(404, t().steps.notFound);
+    if (part.answer) throw new HttpError(409, t().steps.answered);
+    if (!conv.pause || this.isRunning(convId) || !askingReplies(conv.messages).includes(msg)) {
+      throw new HttpError(409, t().steps.notWaiting);
+    }
+    return { conv, msg, part };
+  }
+
+  /** Save a steps card's change and show it in every browser. */
+  private saveSteps(conv: Conversation, msg: ChatMessage): void {
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** The user ticks a step of a steps card as they go (or unticks it), while the team waits for them. */
+  tickStep(convId: string, messageId: string, index: number, done: boolean): void {
+    const { conv, msg, part } = this.waitingSteps(convId, messageId);
+    const item = part.items[index];
+    if (!item) throw new HttpError(400, t().steps.noStep(index + 1));
+    if (Boolean(item.done) === done) return;
+    if (done) item.done = true;
+    else delete item.done;
+    this.saveSteps(conv, msg);
+  }
+
+  /**
+   * The user's answer to a steps card: the steps they did (`done`, by index; the others are not done),
+   * the one they are stuck at, their note. It is posted as their message (`stepsAnswerText`), which the
+   * team takes as an answer to a question: the agents that asked go first. The card keeps the answer
+   * and no longer changes; one that could not be posted is as it was.
+   */
+  async answerSteps(
+    convId: string,
+    messageId: string,
+    answer: { done: number[]; stuckAt?: number; note?: string },
+  ): Promise<{ queued: boolean }> {
+    const { conv, msg, part } = this.waitingSteps(convId, messageId);
+    const { done, stuckAt } = answer;
+    const note = answer.note?.trim() ?? '';
+    for (const i of [...done, ...(stuckAt !== undefined ? [stuckAt] : [])]) {
+      if (!Number.isInteger(i) || !part.items[i]) throw new HttpError(400, t().steps.noStep(i + 1));
+    }
+    if (note.length > STEPS_LIMITS.noteChars) throw new HttpError(400, t().steps.noteTooLong(STEPS_LIMITS.noteChars));
+    const before = part.items.map((item) => ({ ...item }));
+    part.items.forEach((item, i) => {
+      // The step they are stuck at is not done, whatever its box said.
+      if (done.includes(i) && i !== stuckAt) item.done = true;
+      else delete item.done;
+    });
+    part.answer = { at: Date.now(), ...(stuckAt !== undefined ? { stuckAt } : {}), ...(note ? { note } : {}) };
+    const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
+    const name = conv.agents.find((a) => a.id === agentId)?.name ?? msg.agentName ?? 'agent';
+    const text = stepsAnswerText({ agent: `@${name}`, items: part.items, stuckAt, note, names: conv.agents.map((a) => a.name) }, t().steps);
+    // Answered on the card at once, so that a second click (here or in another browser) finds it so.
+    this.saveSteps(conv, msg);
+    try {
+      return await this.send(convId, text);
+    } catch (err) {
+      part.items = before;
+      delete part.answer;
+      this.saveSteps(conv, msg);
+      throw err;
+    }
   }
 
   /**
@@ -1985,6 +2079,8 @@ export class Orchestrator {
     const copied = conv.messages.slice(0, index + 1);
     const messages = copyMessages(copied);
     const pause = branchPause(conv, index);
+    // The branch waits for its own answer: a steps card answered here is to be answered again there.
+    if (pause) for (const m of askingReplies(messages)) if (stepsOfMessage(m)) delete stepsOfMessage(m)!.answer;
     // A branch of the conversation the reply was written in (this one, or one it was copied from).
     const titleOf = (from: string) => this.store.titleOf(from);
     let branch = branchOrigin(conv, index, messages, titleOf);
@@ -5310,20 +5406,26 @@ export class Orchestrator {
           throw freshErr;
         }
       }
-      // Long-term memory's blocks, anywhere in the reply, come out first: the ask marker and a
-      // <progress> block end it.
+      // Long-term memory's blocks, anywhere in the reply, come out first: the ask marker, a steps block
+      // and a <progress> block end it.
       this.takeMemory(conv, msg, agent);
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
       const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
-      if (takeAsk(msg)) msg.asked = true;
+      let asks = takeAsk(msg);
+      // Steps for the user to take ask them too, before or after an ask marker (which adds nothing then).
+      if (takeSteps(msg)) asks = takeAsk(msg) || true;
+      if (asks) msg.asked = true;
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
-      // A reply that only reported on the goal, or only asked to send something, said something.
+      // A reply that only reported on the goal, only asked to send something or only gave steps said something.
       msg.passed =
         isPass(text) ||
-        (!text && !msg.parts.some((p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox' || p.type === 'memory'));
+        (!text &&
+          !msg.parts.some(
+            (p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox' || p.type === 'memory' || p.type === 'steps',
+          ));
       msg.status = 'done';
       msg.meta = {
         ...msg.meta,

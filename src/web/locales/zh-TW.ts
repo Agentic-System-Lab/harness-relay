@@ -1508,6 +1508,31 @@ export const zhTW = {
     files: (n: number) => `${n} 個檔案`,
   },
 
+  // A steps card: what an agent asks the user to do outside Harness Relay (its <steps> block)
+  stepCard: {
+    label: (agent: string) => `@${agent} 給你的步驟`,
+    count: (done: number, total: number) => `完成 ${done} / ${total}`,
+    waiting: (agent: string) => `@${agent} 在等你：這些步驟要在 Harness Relay 之外完成，做完一步就勾一步，全部好了再按「完成」。`,
+    stepDone: '已完成',
+    stepOpen: '未完成',
+    stepStuck: '卡在這步',
+    noteLabel: '備註（選填）',
+    notePlaceholder: '想讓 agent 知道的事：你看到什麼、選了什麼…',
+    stuckPlaceholder: '卡在哪裡？畫面上寫了什麼？',
+    done: '完成',
+    doneSome: (done: number, total: number) => `送出（完成 ${done} / ${total}）`,
+    untickedHint: '沒勾的步驟會告訴 agent 還沒完成。',
+    stuck: '我卡住了',
+    stuckAt: '卡在',
+    stepOption: (n: number, text: string) => `第 ${n} 步：${text}`,
+    sendStuck: '送出',
+    answered: '已回覆',
+    answeredStuck: (n: number) => `卡在第 ${n} 步`,
+    note: '備註',
+    closed: '團隊已經沒有在等這些步驟了。',
+    banner: (names: string) => `${names} 給了你要做的步驟`,
+  },
+
   transcript: { user: '使用者', aborted: '（已中斷）' },
 
   signIn: {

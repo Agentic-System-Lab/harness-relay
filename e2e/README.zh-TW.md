@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 49 個 spec 檔、615 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 50 個 spec 檔、619 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -47,6 +47,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
+| [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
@@ -249,6 +250,17 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 開啟後，成員工作時送出的訊息直接送進它進行中的回合 | Claude Code、Codex | 成員回答完、它的回合在等待時（`e2e:steer=20`：它的 CLI 回合正在進行，所以能接收訊息），輸入框寫著 **（可以的話直接送進進行中的回合）**（goes into the running turn when it can）；送出的訊息立刻出現在對話中，標上 **已送進 @<名稱> 的回合**（Sent into @<name>'s turn），沒有等待區；回答說它聽到了，也沒有另一次執行回答它（只有一則回答；訊息的 `steered` 是那位成員）。 |
 | 關閉時（預設），訊息照常排隊，由下一回合回答 | Claude Code | 輸入框寫著 **（下一位發言前送達）**（delivered before the next turn）；訊息在等待區，第一則回答沒有它，第二次執行回答它，並標上 **插話**（Added mid-reply）。 |
 | 團隊回覆中，在團隊設定開啟這個設定 | Claude Code | 回合進行中，勾選 **團隊設定** 裡的勾選框（它的說明講訊息會送到哪裡），單獨儲存；下一則訊息就送進進行中的回合。 |
+
+## 要使用者做的步驟
+
+[`steps.spec.ts`](specs/steps.spec.ts)：成員把要在 Harness Relay 之外做的步驟交給使用者。假 CLI 用 `e2e:steps` 在回覆最後加上一個 `<steps>` 區塊，三個步驟，第一步附連結（這裡用 `@claude`，讓排在它後面的 Grok 等待）。
+
+| 情境 | CLI | 檢查的內容 |
+| --- | --- | --- |
+| 使用者做一步勾一步，重新載入與另一個分頁都保留，按「完成」後由那位成員先繼續 | Claude Code、Grok | 回覆顯示 **@Claude 給你的步驟**（Steps from @Claude）卡片而不是區塊（**完成 0 / 3**，每一步有一個以編號與文字命名的方框，連結到 `https://example.com/console` 並在新分頁開啟），沒有提問卡片；Grok 還沒發言；橫幅寫著 **@Claude 給了你要做的步驟**（Steps waiting for you: @Claude），側邊欄 **等你回答**，輸入框 **回答 @Claude…**。用鍵盤（空白鍵）勾的方框會存到伺服器，重新載入後仍是勾選的；在另一個分頁勾的，第一個分頁也看得到。附上備註後，**送出（完成 2 / 3）**（提示說沒勾的步驟會說成未完成）送出使用者的回答，逐步標示並附上備註；Claude 先再回答一次，接著是讀到這個回答的 Grok；卡片顯示 **已回覆**，不再有方框或按鈕，兩步完成並顯示備註。 |
+| 「我卡住了」指出卡在哪一步，並附上備註 | Claude Code、Grok | 勾了第 1 步後，**我卡住了** 讓焦點移到 **卡在**，預設是第一個沒勾的步驟；選了第 3 步、寫下原因，**送出** 送出「I'm stuck at step 3 of the 3 steps @Claude gave me (1 done).」，那一步標成 **stuck here**；Claude 的下一則回覆有那個原因；卡片顯示 **卡在第 3 步** 並標出那一步。 |
+| 改在輸入框用文字回覆時，卡片保持原樣，不再被等待 | Claude Code、Grok | 勾了第 2 步後，在輸入框打的回答照一般的回答繼續；之後卡片說團隊已不再等這些步驟，第 2 步仍是勾選的，也不再有方框。 |
+| 在手機上卡片不超出螢幕，用觸控勾選並回覆 | Claude Code、Grok | 在 Pixel 7 的螢幕上，卡片與頁面都不比螢幕寬，每個方框至少 40 px 可以點，三個都點成勾選，**完成**（全部完成）送出「I did all 3 steps @Claude gave me.」。 |
 
 ## agent 回答前做了什麼
 
@@ -814,6 +826,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
 | 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 回覆中給使用者的步驟：卡片被勾選並回覆，之後它先繼續 | ✓ | — | ✓（在它之後繼續） | — | — | — | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | ✓ | ✓ | —（只有離線測試） | —（不能） | —（只有離線測試） | —（還不能） | —（還不能） |
@@ -878,6 +891,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
+- [要使用者做的步驟](#要使用者做的步驟)的手機測試在 Firefox 中跳過，因為 Firefox 沒有手機模擬。
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
@@ -889,6 +903,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
+- **步驟卡片的大部分。**端對端測試只用 Claude Code 的假 CLI 給步驟：區塊是伺服器讀取的純文字，所以每個 CLI 的回覆都以同樣的方式讀取。離線測試涵蓋：區塊的各種寫法與留作文字的情況（`test/steps.test.ts`）、平行與接力模式、只有步驟的回覆、旁邊的提問標記、重新啟動後的勾選與送不出去的回答（`test/orchestrator-steps.test.ts`）、路由拒絕的請求（`test/steps-api.test.ts`），以及分享頁面、複製與對話紀錄中的步驟（`test/steps-web.test.ts`）與 AgentsView 中的步驟（`test/agentsview.test.ts`）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。
 - **Windows 與 macOS CI 上的容器預覽。** 它們的真實 Docker 測試在 Linux CI 與手動（macOS 上用 OrbStack）執行；經 Windows 具名管道的 Engine API 尚未試過。其他地方用模擬的串流測試面板的終端機。

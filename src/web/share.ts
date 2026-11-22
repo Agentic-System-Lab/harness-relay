@@ -40,6 +40,10 @@ export const SHARE_DROP = [
   '.event-block',
   '.changes-card',
   '.ask-card',
+  // A steps card keeps its steps and how the user left them: not what it asks of the user in the chat.
+  '.steps-wait',
+  '.steps-actions',
+  '.steps-closed',
   '.typing',
   '.live-tag',
   '.plan-confirm',

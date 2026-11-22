@@ -83,6 +83,7 @@ function threadText(m: ChatMessage): string {
   for (const p of m.parts) {
     if (p.type === 'text' && p.text.trim()) lines.push(p.text.trim());
     else if (p.type === 'attachment') lines.push(`[${p.name}]`);
+    else if (p.type === 'steps' && p.items.length) lines.push(stepLines(p));
   }
   if (m.passed && !lines.length) lines.push('[PASS]');
   if (m.status === 'error' && m.error) lines.push(`(${m.error})`);
@@ -188,6 +189,16 @@ const APPROVAL_ANSWER: Record<Extract<MessagePart, { type: 'approval' }>['status
   expired: 'expired',
 };
 const PLAN_MARK = { pending: '[ ]', in_progress: '[~]', completed: '[x]' } as const;
+const STEP_MARK = { open: '[ ]', done: '[x]', stuck: '[!]' } as const;
+
+/**
+ * A steps card's steps, one numbered line each, marked as the user left them: done, not done or where
+ * they are stuck (their answer is a message of its own).
+ */
+function stepLines(p: Extract<MessagePart, { type: 'steps' }>): string {
+  const mark = (i: number) => STEP_MARK[p.answer?.stuckAt === i ? 'stuck' : p.items[i]?.done ? 'done' : 'open'];
+  return p.items.map((s, i) => `${i + 1}. ${mark(i)} ${s.text.replace(/\n/g, '\n   ')}`).join('\n');
+}
 
 /** A part of a reply that is not a tool call, as a block of a Claude Code assistant message (none for nothing). */
 function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, unknown> | undefined {
@@ -224,6 +235,8 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     }
     case 'notice':
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
+    case 'steps':
+      return { type: 'text', text: `[Steps for the user to take outside Harness Relay${p.answer ? ', answered' : ''}:\n${stepLines(p)}]` };
   }
 }
 

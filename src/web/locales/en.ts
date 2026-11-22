@@ -1488,6 +1488,30 @@ export const en: Messages = {
     files: (n) => (n === 1 ? '1 file' : `${n} files`),
   },
 
+  stepCard: {
+    label: (agent) => `Steps from @${agent}`,
+    count: (done, total) => `${done} of ${total} done`,
+    waiting: (agent) => `@${agent} is waiting: do these outside Harness Relay, tick each one as you go, then press Done.`,
+    stepDone: 'done',
+    stepOpen: 'not done',
+    stepStuck: 'stuck here',
+    noteLabel: 'Note (optional)',
+    notePlaceholder: 'Anything the agent should know: what you saw, what you chose…',
+    stuckPlaceholder: 'What went wrong? What does the page say?',
+    done: 'Done',
+    doneSome: (done, total) => `Send (${done} of ${total} done)`,
+    untickedHint: "Steps you didn't tick are reported as not done.",
+    stuck: "I'm stuck",
+    stuckAt: 'Stuck at',
+    stepOption: (n, text) => `Step ${n}: ${text}`,
+    sendStuck: 'Send',
+    answered: 'Answered',
+    answeredStuck: (n) => `Stuck at step ${n}`,
+    note: 'Note',
+    closed: 'The team is no longer waiting for these steps.',
+    banner: (names) => `Steps waiting for you: ${names}`,
+  },
+
   transcript: { user: 'User', aborted: '(stopped)' },
 
   signIn: {
