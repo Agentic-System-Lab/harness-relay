@@ -47,7 +47,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
-| [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
+| [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 4 | [使用者說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
@@ -59,7 +59,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [密鑰與固定指令](#密鑰與固定指令) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 2 | [使用指南 → 密鑰與固定指令](../docs/user-guide.zh-TW.md#密鑰與固定指令)、[架構 → 密鑰與固定指令](../docs/architecture.zh-TW.md#密鑰與固定指令) |
+| [密鑰與固定指令](#密鑰與固定指令) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 2 | [使用者說明 → 密鑰與固定指令](../docs/user-guide.zh-TW.md#密鑰與固定指令)、[架構 → 密鑰與固定指令](../docs/architecture.zh-TW.md#密鑰與固定指令) |
 | [長期記憶](#長期記憶) | [`memory.spec.ts`](specs/memory.spec.ts) | 4 | [使用指南 → 長期記憶](../docs/user-guide.zh-TW.md#長期記憶)、[架構 → 長期記憶](../docs/architecture.zh-TW.md#長期記憶) |
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |

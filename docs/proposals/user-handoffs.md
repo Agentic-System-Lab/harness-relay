@@ -8,7 +8,7 @@
 
 In one conversation a team set up automatic posting to Threads through its API. The agent wrote a script, `setup_token.py`, that asked for the access token with hidden input (and for the app secret when the token was a short-lived one, to exchange it) and stored the token in `.secrets/threads.env` (folder 700, file 600, ignored by git), then a `verify.py` and a `post.py` that posts the next approved row of a `queue.csv`. The user had to leave Harness Relay to run `setup_token.py` in a terminal on the computer the server runs on: nothing in the chat could take a secret without keeping it, and no command an agent runs can be typed into. What came next met more of the same: posting on a schedule meant an agent's turn each time (that conversation's agent turns cost $0.09 to $0.63 each), adding a post meant asking an agent to edit `queue.csv`, and nothing let the user approve each post before it went out.
 
-## What exists today
+## What existed when it was written (2026-11-22)
 
 - **Questions.** An agent ends its reply with `[ASK_USER]` (`src/shared/ask.ts`) and the team waits; the answer is an ordinary message, kept in the database, shown in shares and given to the agents' prompts.
 - **Commands agents run.** Each CLI runs its own shell tool. Harness Relay sees what the CLI reports about a command but holds none of its processes' input, so a command that waits for typing (a password, `y/N`, a sign-in code) cannot be answered.
@@ -114,7 +114,7 @@ Limits: the browser is still driven over its debugging pipe, so a site may still
 | --- | --- | --- | --- | --- | --- |
 | 0 | Giving a secret | ✓ | ✓ the values stay out of the agents' reach | ✓ the user's own browser, or B2's for the user alone | Mostly: below full access on macOS and Linux, for secrets fixed commands use; a command allowed outside a sandbox can still read them |
 | 1 | A script on a schedule | | ✓ | | Covered, while Relay runs, on macOS and Linux |
-| 2 | Editing a file | | | | Not covered: the Files panel needs editing and upload |
+| 2 | Editing a file | | | | Built apart from S, A and B: editing and upload in the Files panel |
 | 3 | Approving a script's outward action | | ✓ outbox | | Covered for fixed commands |
 | 4 | A site the user signs in to | | | ✓ B2 | Mostly: in a window on the same computer, hardware keys and the clipboard work, though a site may still take it for automated (to be tried); through the screencast, not passkeys or hardware keys, nor sites that refuse a headless browser |
 | 5 | Another service's OAuth | ✓ a token from a generator | ✓ the exchange and the renewal with the app secret | ✓ B2 for the consent page | Partly: no provider of Relay's own for it, and a redirect URL the service accepts is the user's |
@@ -122,7 +122,7 @@ Limits: the browser is still driven over its debugging pipe, so a site may still
 | 7 | A program that keeps running | | | | Not covered |
 | 8 | Another event | | ✓ polling every hour or more | | Partly: no inbound webhook |
 | 9 | A QR code | | | ✓ B1 output, B2 page | Partly: a terminal's QR code in text may not scan |
-| 10 | "Do this, then come back" | | | | Not covered: a card of steps with **Done** is a small part of its own |
+| 10 | "Do this, then come back" | | | | Built apart from S, A and B: a card of steps, with **Done** and **I'm stuck** |
 
 ## Steps
 

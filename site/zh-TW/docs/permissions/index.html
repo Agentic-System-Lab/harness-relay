@@ -6,7 +6,7 @@
     <title>權限與核准 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。"
+      content="Harness Relay 文件：agent 不必問就能做什麼、核准、沙箱、提供密鑰或自己執行指令，以及檢視與套用 agent 的修改。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="權限與核准 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯、替我核准或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，並在保留之前檢視每則回覆的修改。"
+      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯、替我核准或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，用卡片提供密鑰給 Harness Relay 自己執行的腳本，並在保留之前檢視每則回覆的修改。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/",
         "name": "權限與核准 · Harness Relay 文件",
-        "description": "Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。",
+        "description": "Harness Relay 文件：agent 不必問就能做什麼、核准、沙箱、提供密鑰或自己執行指令，以及檢視與套用 agent 的修改。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -398,6 +398,7 @@
             <li>在你按<b>試跑</b>、在待送出匣卡片上按<b>送出</b>，或到了自動任務的時間（<b>先執行固定指令</b>）時執行；結束碼 0 時什麼都不送，也不呼叫任何模型。</li>
           </ul>
           <p>
+            <b>設定 → 密鑰與固定指令</b>會依工作目錄列出密鑰（只列名稱，可以<b>取代</b>或<b>刪除</b>）和固定指令（附上次執行的結果）。
             原生 Windows 上還不能執行固定指令。你允許在沙箱外執行的指令，以及完全存取時的每個 agent，都以你的權限執行。<a href="../automations/">自動任務</a>
           </p>
         </section>
@@ -422,7 +423,7 @@
             <svg aria-hidden="true"><use href="#i-shield" /></svg>
             <div>
               <p>
-                登入時存下的資料會放在程式自己存放的地方，通常是你的家目錄，權限低於完整存取的 agent 也讀得到。它沒有終端機，所以全螢幕的程式無法回應；原生 Windows 上也還不能執行。
+                登入時存下的資料會放在程式自己存放的地方，通常是你的家目錄，權限低於完全存取的 agent 也讀得到。它沒有終端機，所以全螢幕的程式無法回應；原生 Windows 上也還不能執行。
               </p>
             </div>
           </div>

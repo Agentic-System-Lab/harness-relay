@@ -6,7 +6,7 @@
     <title>Permissions and approvals · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make."
+      content="Harness Relay docs: what agents may do without asking, approvals, the sandboxes, giving a secret or running a command yourself, and reviewing changes."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Permissions and approvals · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit, approve for me or full access, answer approval cards, send what waits in the outbox yourself, and review each reply's changes before you keep them."
+      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit, approve for me or full access, answer approval cards, send what waits in the outbox yourself, give secrets on a card for scripts Harness Relay runs itself, and review each reply's changes before you keep them."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/",
         "name": "Permissions and approvals · Harness Relay docs",
-        "description": "Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make.",
+        "description": "Harness Relay docs: what agents may do without asking, approvals, the sandboxes, giving a secret or running a command yourself, and reviewing changes.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -442,6 +442,7 @@
             <li>when you click <b>Try it</b>, <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
           </ul>
           <p>
+            <b>Settings → Secrets and commands</b> lists each working directory's secrets, by name only (<b>Replace</b> or <b>Remove</b> one), and its fixed commands with their last run.
             Fixed commands do not run on native Windows yet. A command you allow outside a sandbox, and every agent with full access, runs with your rights. <a href="../automations/">Automations</a>
           </p>
         </section>
