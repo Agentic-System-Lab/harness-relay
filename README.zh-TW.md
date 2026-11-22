@@ -90,7 +90,7 @@ npm start
 
 - `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 - 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)。
-- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
+- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>；那個 port 被佔用時是下一個空的）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
 
 <a id="開源-agent-與模型來源"></a>
 <a id="開源-agent-與自定義模型"></a>
@@ -124,7 +124,7 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 | --- | --- |
 | `npm start` | 由同一個程序在 <http://127.0.0.1:8787> 提供建置好的介面與 API |
 | `npm run login` | 印出另一個一次性的登入連結，用在 `npm start` 印出的那個已經用過或太舊時 |
-| `npm run dev` | 開發用：API 伺服器（port 8789，自動重啟）與 Vite（port 5173） |
+| `npm run dev` | 開發用：API 伺服器（port 8789，自動重啟）與 Vite（port 5173），各自的 port 被佔用時改用下一個空的 |
 | `npm run format:check`、`npm run typecheck`、`npm test`、`npm run build` | CI 對每個 pull request 執行的檢查（`npm run format` 用 Prettier 排版程式碼） |
 
 其他指令（端對端測試、桌面 app、網站、示範影片、[檢查 agent CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）都在[開發者說明](docs/developer-guide.zh-TW.md#執行)，也說明了 [CI](docs/developer-guide.zh-TW.md#持續整合ci) 會執行什麼。

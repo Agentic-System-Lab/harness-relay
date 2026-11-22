@@ -41,7 +41,7 @@
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
 cd harness-relay
 npm install
-npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://localhost:5173
+npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://localhost:5173，被佔用時改用下一個空的 port
 ```
 
 要修改桌面 app（`desktop/`）？先執行一次 `npm install --prefix desktop`，再用 `npm run desktop` 建置並執行它；它的運作方式見[開發者說明](docs/developer-guide.zh-TW.md#桌面-app)。
