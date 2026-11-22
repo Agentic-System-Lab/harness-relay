@@ -9,6 +9,7 @@ import {
   isPass,
   parseMentions,
   renderMessage,
+  subagentRules,
   trackingSection,
 } from '../src/server/prompt';
 import { ASK_TOKEN, splitAsk } from '../src/shared/ask';
@@ -161,6 +162,18 @@ describe('isForwardable', () => {
     expect(isForwardable(agentMessage({ status: 'error', changes }))).toBe(true);
     expect(isForwardable(agentMessage({ status: 'aborted', parts: [{ type: 'text', text: 'half' }] }))).toBe(true);
     expect(isForwardable({ ...agentMessage({}), author: { kind: 'system' } })).toBe(false);
+  });
+});
+
+describe('the rule about waiting for its own subagents', () => {
+  it('asks the CLIs whose subagents can still be at work when the reply ends, unless they are off for the run', () => {
+    for (const provider of ['antigravity', 'grok', 'muse'] as const) expect(subagentRules(provider)).toMatch(/wait for every one of them/);
+    expect(subagentRules('grok', ['subagents'])).toBe('');
+    for (const provider of ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'goose', 'cline', 'openhands', 'pi'] as const)
+      expect(subagentRules(provider)).toBe('');
+    const agy = { ...team[0]!, provider: 'antigravity' as const };
+    expect(buildBriefing({ ...conv, agents: [agy, team[1]!] }, agy)).toContain('wait for every one of them to finish');
+    expect(buildBriefing(conv, team[0]!)).not.toContain('wait for every one of them');
   });
 });
 

@@ -27,6 +27,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - [Safety](#safety)
 - [Scripts](#scripts)
 - [Documentation](#documentation)
+- [Discussions](#discussions)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -62,6 +63,8 @@ These twelve examples are just a starting point. Bring your curiosity and a task
 - **Files, voice and sharing**: attach files and screenshots, browse the working directory, dictate with voice input that stays on your computer, and share a chat as Markdown or a link. ([Browsing files](docs/user-guide.md#browsing-files), [voice input](docs/user-guide.md#voice-input), [sharing](docs/user-guide.md#sharing-a-conversation))
 - **Organised**: groups, pinned chats at the top, search, each chat's status in the sidebar, notifications and sound, as push notifications on a phone, and a bell that keeps every notification, the same in every browser. ([Groups](docs/user-guide.md#groups), [pinned chats](docs/user-guide.md#pinned-conversations), [search](docs/user-guide.md#search), [notifications](docs/user-guide.md#notifications-and-sound), [notification inbox](docs/user-guide.md#notification-inbox))
 - **Apps and tools** lets you connect common apps, choose which assistants can use them, and review proposed messages, Google Docs edits and Obsidian note changes in the outbox. [Connect common apps](docs/user-guide.md#common-apps)
+- **The agents' own features**: per account, each CLI's own subagents and Claude Code's workflows on or off; a subagent's steps shown under the step that started it; a message sent straight into the speaking member's running turn; context windows for your own models; a member's own limit. ([Subagents and workflows](docs/user-guide.md#subagents-and-workflows))
+- **Labs**: experimental ways for agents to use Harness Relay's tools, off by default and one at a time: script them in Harness Relay's own sandbox (CodeAct), or read a long text in parts with a model you choose (RLM), each with what it costs. ([Labs](docs/user-guide.md#labs))
 - **Set up once for every CLI**: a CLI not found installs from its card in one click (and removes again), a tool library of MCP servers (those that sign in with OAuth signed in from it), skills and memory, several accounts per CLI, each account's plan usage, what each CLI loads by itself, and the agents' sessions in [AgentsView](https://www.agentsview.io). ([Installing a CLI](docs/user-guide.md#installing-a-cli-from-settings), [tool library](docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [accounts](docs/user-guide.md#more-than-one-account), [plan usage](docs/user-guide.md#plan-usage), [AgentsView](docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview))
 - **Local-first, on your devices**: one SQLite file and a server on `127.0.0.1`; your phone through Tailscale; an optional desktop app; English and 繁體中文. ([Use it from your phone](docs/remote-access.md#1-share-the-server-with-your-tailnet), [desktop app](#desktop-app))
 
@@ -143,6 +146,17 @@ To learn to use Harness Relay, start with the [docs on the website](https://agen
 | End-to-end test scenarios | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
 | Desktop app, for developers | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
 | Proposals (not implemented yet) | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
+
+## Discussions
+
+Questions, ideas and what you made with Harness Relay are welcome in [GitHub Discussions](https://github.com/Agentic-System-Lab/harness-relay/discussions). To report a bug, open an [issue](https://github.com/Agentic-System-Lab/harness-relay/issues/new/choose) instead.
+
+- [Q&A](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/q-a): ask how to do something, or why it works as it does
+- [Ideas](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/ideas): suggest a feature or a change, and talk it over
+- [Show and tell](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/show-and-tell): share a team, a template or a way of working you made
+- [Announcements](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/announcements): releases and news from the maintainers
+- [Polls](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/polls): vote on questions put to everyone
+- [General](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/general): anything else
 
 ## Contributing
 

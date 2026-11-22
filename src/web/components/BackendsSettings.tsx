@@ -13,12 +13,17 @@ import {
   endpointProblems,
   endpointSlug,
   endpointUpdate,
+  limitDraft,
+  limitsShown,
   normalizedBaseUrl,
   parseModelList,
+  tokenCount,
   validBaseUrl,
+  withLimit,
   type EndpointDraft,
   type EndpointProblem,
 } from '../backends';
+import { MODEL_LIMIT_RANGE } from '../../shared/modelLimits';
 import { useT } from '../i18n';
 import { sectionId } from '../route';
 import { SectionTitle } from './SectionTitle';
@@ -219,6 +224,7 @@ function Endpoints({
               {e.keyMasked ? ` · ${b.keySet(e.keyMasked)}` : ''}
               {e.keyUnreadable && ` · ${b.keyUnreadable}`}
             </p>
+            <EndpointLimitsLine endpoint={e} />
             <div className="button-row">
               <button className="ghost" onClick={() => setEditing({ id: e.id })}>
                 {b.editEndpoint}
@@ -246,6 +252,17 @@ function Endpoints({
       )}
     </>
   );
+}
+
+/** An endpoint's line in the list: its models' context windows (where each comes from) and output limits. */
+function EndpointLimitsLine({ endpoint }: { endpoint: ModelEndpointView }) {
+  const b = useT().settings.backends;
+  const shown = limitsShown(endpoint);
+  if (!shown.length) return null;
+  const items = shown.map((l) =>
+    b.limitItem(l.model, l.context ? tokenCount(l.context) : undefined, Boolean(l.fromServer), l.output ? tokenCount(l.output) : undefined),
+  );
+  return <p className="muted small">{b.limitsSummary(items.join(' · '))}</p>;
 }
 
 function EndpointForm({
@@ -305,7 +322,9 @@ function EndpointForm({
       ? b.problems.models(BACKEND_LIMITS.maxModels, BACKEND_LIMITS.maxModelId)
       : p === 'nameLong'
         ? b.problems.nameLong(BACKEND_LIMITS.maxName)
-        : b.problems[p];
+        : p === 'limits'
+          ? b.problems.limits(tokenCount(MODEL_LIMIT_RANGE.minContext), tokenCount(MODEL_LIMIT_RANGE.maxContext))
+          : b.problems[p];
   const set = (patch: Partial<EndpointDraft>) => {
     if ('baseUrl' in patch || 'apiKey' in patch || 'removeKey' in patch) resetCatalog();
     setD((cur) => {
@@ -418,6 +437,49 @@ function EndpointForm({
           />
         </label>
       </details>
+      {saveDraft.models.length > 0 && (
+        <details className="sub">
+          <summary>{b.limitsTitle}</summary>
+          <div className="sub-body">
+            <p className="muted small">{b.limitsHint}</p>
+            {saveDraft.models.map((model) => {
+              const typed = limitDraft(d, model);
+              // What the server reported is of the address it was saved with.
+              const saved = !changedUrl && endpoint?.limits && Object.hasOwn(endpoint.limits, model) ? endpoint.limits[model] : undefined;
+              const reported = saved?.reported?.context;
+              return (
+                <fieldset key={model} className="endpoint-models">
+                  <legend>
+                    <code>{model}</code>
+                  </legend>
+                  <div className="endpoint-limit-fields">
+                    <label className="field">
+                      <span>{b.contextWindow}</span>
+                      <input
+                        inputMode="numeric"
+                        value={typed.context}
+                        placeholder={reported ? b.fromServer(tokenCount(reported)) : b.askedAtSave}
+                        spellCheck={false}
+                        onChange={(e) => set({ limits: withLimit(d, model, { context: e.target.value }) })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{b.outputLimit}</span>
+                      <input
+                        inputMode="numeric"
+                        value={typed.output}
+                        placeholder={b.outputUnset}
+                        spellCheck={false}
+                        onChange={(e) => set({ limits: withLimit(d, model, { output: e.target.value }) })}
+                      />
+                    </label>
+                  </div>
+                </fieldset>
+              );
+            })}
+          </div>
+        </details>
+      )}
       {problems.map((p) => (
         <p key={p} className="warn-line">
           {problemText(p)}

@@ -24,10 +24,13 @@ import {
   type NativeAgent,
   type NativeHook,
   type NativeMemoryFile,
+  type NativePart,
   type NativeSkill,
   type Permission,
 } from '../../shared/types';
 import { backendLabel, type BackendRun } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import { commandLine, isPublishCommand } from '../commands';
 import { commandPaths, overlaps, protectedReads } from '../protect';
 import { t } from '../i18n';
@@ -250,15 +253,46 @@ function llmSettings(run: BackendRun, effort: string | null, usageId: 'agent' | 
   };
 }
 
+/**
+ * The condenser's `max_tokens` for a model whose context window is known: past it, OpenHands condenses
+ * its history to half as many tokens (counted by LiteLLM, `get_total_token_count()`, OpenHands 1.16.0).
+ * What it counts leaves out the tools' definitions (several thousand tokens of OpenHands' own; MCP
+ * servers add theirs) and the answer, so the budget is the window less
+ * `outputReserve()` and less a quarter of the window, at most 16,384, for those definitions: 16,384 of a
+ * 32,768 window, 82,688 of 131,072. It still condenses after 80 events (`max_size`). Not
+ * `max_input_tokens`, which OpenHands refuses under 16,384 tokens and does not use otherwise.
+ */
+export function openhandsCondenserTokens(l: TokenLimits | undefined): number | undefined {
+  if (!l?.context) return undefined;
+  const budget = l.context - outputReserve({ ...l, context: l.context }, 32_000) - Math.min(16_384, Math.floor(l.context / 4));
+  return budget > 0 ? budget : undefined;
+}
+
 /** The whole `agent_settings.json` of one run: its model, effort and tools (no key in it). */
-export function openhandsAgentSettings(run: BackendRun, effort: string | null, permission: Permission): Record<string, unknown> {
+export function openhandsAgentSettings(
+  run: BackendRun,
+  effort: string | null,
+  permission: Permission,
+  /** With full access, its subagents left out by the account's switch (`subagents`) take the same filter. */
+  off: readonly NativePart[] = [],
+): Record<string, unknown> {
+  // The model's context window and output limit (Settings → Model connections), when the run is on an endpoint.
+  const limits = run.kind === 'endpoint' ? runLimits(run.endpoint, run.model) : undefined;
+  const condense = openhandsCondenserTokens(limits);
   return {
     kind: 'Agent',
-    llm: llmSettings(run, effort, 'agent'),
+    // Its output limit is sent with each request (`max_output_tokens`): without one, none is.
+    llm: { ...llmSettings(run, effort, 'agent'), ...(limits?.output ? { max_output_tokens: limits.output } : {}) },
     tools: [{ name: 'terminal' }, { name: 'file_editor' }, { name: 'task_tracker' }, { name: 'task_tool_set' }],
     system_prompt_kwargs: { cli_mode: true },
-    condenser: { kind: 'LLMSummarizingCondenser', llm: llmSettings(run, effort, 'condenser'), max_size: 80, keep_first: 4 },
-    ...(permission === 'full' ? {} : { filter_tools_regex: OPENHANDS_TOOL_FILTER }),
+    condenser: {
+      kind: 'LLMSummarizingCondenser',
+      llm: llmSettings(run, effort, 'condenser'),
+      max_size: 80,
+      keep_first: 4,
+      ...(condense ? { max_tokens: condense } : {}),
+    },
+    ...(permission === 'full' && !off.includes('subagents') ? {} : { filter_tools_regex: OPENHANDS_TOOL_FILTER }),
   };
 }
 
@@ -626,7 +660,7 @@ export function prepareOpenhands(ctx: OpenRunContext, uid = process.getuid?.() ?
   const skills = join(own, 'skills');
   const skillCache = join(own, 'cache', 'skills');
   const bashrc = join(home, '.bashrc');
-  writePrivate(settings, JSON.stringify(openhandsAgentSettings(run, effort, o.permission), null, 2));
+  writePrivate(settings, JSON.stringify(openhandsAgentSettings(run, effort, o.permission, o.nativeOff), null, 2));
   writePrivate(mcp, JSON.stringify(openhandsMcpConfig(o.mcpServers ?? []), null, 2));
   const briefing = acpBriefing(o, openhandsAcp);
   if (briefing) writePrivate(join(skills, OPENHANDS_BRIEFING_SKILL), `${briefing}\n`);

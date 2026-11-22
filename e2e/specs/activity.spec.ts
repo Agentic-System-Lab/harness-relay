@@ -79,6 +79,44 @@ test.describe('what an agent does on its way to a reply', () => {
     await expect(reply.locator('details.tool-group > summary .tool-icon')).toHaveText('⚙');
   });
 
+  test("a subagent's calls fold under the call that started it, one subagent within another, its step shown while it works", async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await send(page, 'Look around e2e:subagent=4');
+    // While it reads, the folded row shows the subagent's step after its name.
+    const summary = replies(page, 'Claude').last().locator('details.tool-group > summary');
+    await expect(summary.locator('.running-name')).toHaveText('Explore › Read');
+    await expect(summary.locator('.running-detail')).toContainText('README.md');
+
+    const reply = await finishedReply(page, 'Claude');
+    // The subagent counts as one action of the agent's; its own calls are its, never the block's.
+    const group = reply.locator('details.tool-group');
+    await expect(group.locator(':scope > summary')).toContainText('1 action');
+    await group.locator(':scope > summary').click();
+    const steps = group.locator(':scope > ul > li');
+    await expect(steps).toHaveCount(1);
+    const agent = steps.first();
+    await expect(agent).toHaveClass(/subagent/);
+    await expect(agent.locator(':scope > details > summary')).toContainText('Explore');
+    await expect(agent.locator(':scope > details > summary .subagent-model')).toHaveText('haiku');
+    await expect(agent.locator(':scope > details > summary')).toContainText('3 actions');
+
+    // Open, its calls joined to it by a line, a subagent of its own one level further in, then what it reported.
+    await agent.locator(':scope > details > summary').click();
+    const own = agent.getByRole('list', { name: 'What Explore did' });
+    const names = ':scope > li > .tool-line > .tool-name, :scope > li > details > summary > .tool-line > .tool-name';
+    await expect(own.locator(names)).toHaveText(['Bash', 'Read', 'general-purpose']);
+    expect(await own.evaluate((ul) => getComputedStyle(ul).borderLeftStyle)).toBe('solid');
+    const inner = own.locator(':scope > li.subagent');
+    await inner.locator(':scope > details > summary').click();
+    await expect(inner.getByRole('list', { name: 'What general-purpose did' }).locator(names)).toHaveText(['Grep']);
+    await expect(agent.locator(':scope > details > .subagent-result')).toHaveText('The project has a README and no TODOs.');
+    // What the CLI reported about its own run: a note of Harness Relay's, not the agent's words.
+    await expect(reply.getByRole('note')).toContainText("Claude Code compacted the conversation's context");
+  });
+
   test('a reply in Markdown is rendered: heading, list, table and highlighted code', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await send(page, 'Summarize e2e:markdown');

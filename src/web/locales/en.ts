@@ -222,6 +222,12 @@ export const en: Messages = {
       on: 'Each time the team has answered, the lead agent reads the new replies, marks what needs your close attention and suggests the next steps.',
       off: "The team's answer is the end of it; the lead agent does not review the replies.",
     },
+    steer: 'Send messages into running turns while the team works',
+    steerHint: {
+      on: 'A message you send while members are working goes into the turn of the member speaking now; in parallel mode, into every turn of the round, when all of them are still running and can take it. The member sees it and answers it in that turn. When that cannot be done, it waits in the queue for the next turn as usual; a message with files always waits.',
+      off: 'A message you send while the team works waits in the queue and is delivered before the next turn; the member speaking sees it on their next turn.',
+    },
+    steerUnsupported: (names) => `Messages for ${names} wait in the queue as usual: their CLI cannot take a message into a running turn.`,
     relayOrder: 'The first member leads: they take messages that @mention no one.',
     order: 'The order is the speaking order.',
     agentName: 'Agent name',
@@ -288,12 +294,35 @@ export const en: Messages = {
       `The tool library has nothing for this CLI yet, only memory for other CLIs. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
     goToolLibrary: 'Go to Settings → Apps and tools → Tool library',
     toolProblem: 'unavailable right now',
+    limit: {
+      label: {
+        claude: 'Cost limit per turn (US$)',
+        copilot: 'AI credit limit (whole session)',
+        goose: 'Model calls per turn',
+        opencode: 'Steps per turn',
+      },
+      placeholder: 'No limit',
+      change: 'Change',
+      done: 'Done',
+      hint: {
+        claude: (min, max) =>
+          `The most one turn of this member may cost, in US dollars (${min} to ${max}), by Claude Code's own estimate; Claude Code stops the turn when it is reached. Not set on your own model endpoints, where Claude Code would price the endpoint's model as one of its own.`,
+        copilot: (min, max) =>
+          `The AI credits this member's Copilot session may use (${min} to ${max}), the earlier turns' included (from Copilot 1.0.112, its subagents' too). A soft cap: one response can go past it, and the next model call is then refused. Not set on your own model endpoints.`,
+        goose: (min, max) =>
+          `How many model calls Goose may make in one turn (${min} to ${max}; Goose's default is 1,000); then it stops and asks whether to go on.`,
+        opencode: (min, max) =>
+          `How many steps OpenCode's agent may take in one turn (one model call each, ${min} to ${max}); then it must answer in text, with no more tools.`,
+      },
+    },
     problems: {
       needAgent: 'At least one agent is needed',
       badName: (name) => `The name "${name || '(empty)'}" may only use letters, digits, _ or -`,
       duplicate: (name) => `The name @${name} is used twice`,
       tooMany: (max) => `A team may have at most ${max} ${max === 1 ? 'member' : 'members'}`,
       needCwd: 'Enter a working directory',
+      badLimit: (name, min, max, whole) =>
+        `@${name}'s limit must be ${whole ? 'a whole number' : 'a number'} from ${min} to ${max}, or empty for none`,
     },
   },
 
@@ -318,6 +347,12 @@ export const en: Messages = {
     inHours: (n) => `${n} h`,
     credits: (n) => `Credits left: ${n}`,
     creditsUnlimited: 'Credits: unlimited',
+    paying: {
+      credits: 'Plan limit reached; using credits (billed)',
+      usageCredits: 'Plan limit reached; using usage credits (extra usage, billed)',
+      additionalUsage: 'Plan limit reached; using additional paid usage',
+      payAsYouGo: 'Plan limit reached; using pay-as-you-go (billed)',
+    },
     none: {
       apiKey:
         "This account runs on an API key: the provider bills it by use, so it has no plan limits, and a regular API key cannot read the balance left. See the provider's console.",
@@ -394,6 +429,7 @@ export const en: Messages = {
     placeholderReviewing:
       'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
+    placeholderSteer: 'Add to the discussion… (goes into the running turn when it can)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,
     retryConfirm: (later, changed) =>
@@ -411,7 +447,7 @@ export const en: Messages = {
     confirmCreateCwd: (dirs) => `These working directories do not exist:\n${dirs}\nCreate them and save the team settings?`,
     drawerBusy: 'The team is replying; stop it to save',
     drawerReviewing: "The lead agent is reviewing the team's replies; stop it to save",
-    drawerBusyReview: ' (lead review alone can be saved now)',
+    drawerBusyReview: ' (lead review and steering alone can be saved now)',
     drawerPending:
       'You are adjusting the team the lead agent proposed, which waits for your confirmation: saving uses this team, and it then answers your question.',
     drawerChanged:
@@ -755,6 +791,8 @@ export const en: Messages = {
     askSkip: 'Skip, let the team go on',
     queuedTitle:
       'Sent while the team was replying and delivered before a later turn; whoever was speaking then sees it on their next turn.',
+    steeredTag: (names) => (names ? `Sent into ${names}'s turn` : 'Sent into a running turn'),
+    steeredTitle: 'Sent while the team was replying, straight into the running turns of these members: they saw it in that turn.',
     tokensIn: (n) => `${n} in`,
     tokensOut: (n) => `${n} out`,
   },
@@ -765,6 +803,8 @@ export const en: Messages = {
     todo: 'Plan',
     output: 'Output',
     status: { running: 'Running', done: 'Done', error: 'Failed' },
+    subagentSteps: (name) => `What ${name} did`,
+    subagentResult: 'What the subagent reported',
   },
 
   oauthCallback: {
@@ -1155,6 +1195,10 @@ export const en: Messages = {
     written: 'Written to the working directory',
     collapse: 'Collapse',
     more: (n) => `${n} more files…`,
+    expandAll: 'Expand all',
+    collapseAll: 'Collapse all',
+    filesShown: (n) => (n === 1 ? 'Showing 1 file: the diff was cut short' : `Showing ${n} files: the diff was cut short`),
+    cutShort: 'cut short',
     turnDiff: "View this turn's diff",
     agentResult: (name) => `View @${name}'s full result`,
     applying: 'Applying…',
@@ -1179,6 +1223,9 @@ export const en: Messages = {
     hintConfirm: 'Enter to send (the team gets it once you confirm the team) · Shift+Enter for a new line',
     hintTouch: '↑ to send · Enter for a new line · type @ to address members (only they reply) · 📎 to attach files',
     hintBusyTouch: '↑ to add it (delivered before the next turn) · Enter for a new line',
+    hintSteer: (mod) =>
+      `Enter to add it (into the running turn when it can, else before the next turn) · ${mod}+Enter to stop and ask this instead · Shift+Enter for a new line`,
+    hintSteerTouch: '↑ to add it (into the running turn when it can) · Enter for a new line',
     hintReview: 'Enter to stop the review and send it now · Shift+Enter for a new line',
     hintReviewTouch: '↑ to stop the review and send it now · Enter for a new line',
     hintConfirmTouch: '↑ to send (the team gets it once you confirm the team) · Enter for a new line',
@@ -1190,6 +1237,52 @@ export const en: Messages = {
     readFailed: 'Could not read an attached file.',
   },
 
+  labs: {
+    title: 'Labs',
+    hint: "Ways of working that are still experimental. Off by default, and only one at a time. They change only how assistants use Harness Relay's own tools (browser, mail, calendar, documents…): an assistant needs those tools from Apps and tools first. A change applies from the assistant's next turn.",
+    fromEnv: (name) => `This comes from the environment variable ${name} for now; once you save here, this setting is used instead.`,
+    unavailable: (reason) => `Not available on this computer: ${reason}`,
+    goodFor: 'Good for',
+    tradeoffs: 'Trade-offs',
+    modes: {
+      off: {
+        title: 'Off (default)',
+        what: 'Assistants call one tool at a time, as usual, and every step shows in the chat.',
+      },
+      code: {
+        title: 'Let assistants script the tools (CodeAct)',
+        what: 'An assistant can write a short program that calls these tools one after another, such as going through 50 mails and giving you only what matters, instead of asking for them one by one.',
+        good: ['Repetitive, large tool work: faster, and fewer tokens', 'The chat keeps the summary, not piles of raw data'],
+        costs: [
+          'A program with a mistake has to run again; simple tasks can take longer',
+          "The program runs in Harness Relay's sandbox: no network, and it cannot change any file, but it can read what your account can read (except protected folders)",
+          'Actions that change something still ask you first, and mails still wait in the outbox for you; at most 5 such actions per run',
+          'A run takes at most a minute by default; macOS and Linux only',
+        ],
+      },
+      rlm: {
+        title: 'Read long texts in parts (RLM)',
+        what: 'Everything above, and the program can keep a long text (a long document, a whole mailbox, a log) for the rest of the turn, ask a model you choose about one part at a time, and put the answers together. The assistant does not have to read all of it itself.',
+        good: ['Content too long for the assistant to read at once', 'Summarizing, sorting or finding key points part by part'],
+        costs: [
+          "It costs more: each question is billed on that model's key, up to 100 questions per turn, and they are not in the reply's cost",
+          'Slower: many questions, and a run takes at most 5 minutes by default',
+          'A small model may miss details, and reading in parts can miss links between them',
+          "The text goes to that model's provider; Harness Relay asks it itself, with no tools, and its key never enters the sandbox",
+          'macOS and Linux only',
+        ],
+        model: 'Model for reading in parts',
+        modelHint:
+          'Pick one from Model connections, as "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint\'s id and a model name. A cheap, fast model is usually enough.',
+        noConnections: 'No model connections yet: add an API key or endpoint under Settings → Model connections first.',
+      },
+    },
+    problems: {
+      model: 'Write it as "backend/model", such as anthropic/claude-haiku-5-5.',
+      connection: 'That backend is not in Model connections: add it under Settings → Model connections first.',
+    },
+    saved: "Saved. It applies from the assistant's next turn.",
+  },
   voice: {
     start: 'Voice input',
     stop: 'Stop and transcribe',
@@ -1852,6 +1945,27 @@ export const en: Messages = {
     chars: (n, max) => `${n} / ${max} characters`,
     saved: 'Saved',
   },
+  cliFeatures: {
+    title: 'Subagents and workflows',
+    hint: "This CLI can hand part of a turn to subagents of its own, and some can run whole workflows made of subagents. These switches apply only when Harness Relay starts it: the CLI's own settings stay as they are, and they are this account's alone.",
+    subagents: 'Let it use its own subagents (the built-in ones too)',
+    subagentsOn: 'subagents on',
+    subagentsOff: 'subagents off',
+    subagentsDefault: "subagents as the CLI's default",
+    fullAccessOnly:
+      'Below full access, Harness Relay always turns its subagents off: this switch matters only in conversations with full access.',
+    workflows: 'Let it run workflows (scripts that run many subagents at once)',
+    workflowsNote: {
+      claude:
+        'Off by default. Once on, a conversation below full access asks you with an ordinary approval card before it runs one (its Workflow tool; the card does not say what it will run), and full access runs it unasked; one workflow can run a dozen subagents at once and use many tokens.',
+      grok: 'Off by default, and always off below full access: they run in the background and are lost when the turn ends. Once on, a conversation with full access can have it run background workflows and deep research, which can use many tokens.',
+    },
+    workflowsOn: 'workflows on',
+    workflowsOff: 'workflows off',
+    ultracode: 'Ultracode: plan a workflow for every substantial task',
+    ultracodeNote: "Needs workflows on. Keeps the member's effort; uses many more tokens.",
+    ultracodeOn: 'ultracode on',
+  },
   native: {
     title: 'Skills, MCP servers, hooks, memory and more this CLI loads by itself',
     summary: (s, m, f) => `${s} skills · ${m} MCP · ${f} files`,
@@ -1928,6 +2042,7 @@ export const en: Messages = {
         hooks: 'hooks in settings files and plugins',
         agents: 'custom and plugin subagents; the built-in ones stay',
         plugins: 'every installed plugin, with its skills, subagents, hooks and MCP servers',
+        subagents: 'its Agent tool: no subagent runs at all, the built-in ones (Explore, general-purpose…) too',
       },
       codex: {
         skills: 'its instructions no longer list skills',
@@ -1938,6 +2053,8 @@ export const en: Messages = {
         hooks: "plugins' hooks too",
         agents: 'Codex has no setting that leaves out only its custom subagents',
         plugins: 'with their skills, MCP servers and hooks',
+        subagents:
+          "agents.enabled = false, with both multi-agent features off; always off below full access, where they would lose the sandbox's read entries (before Codex 0.170.0) and the approval check sees no path",
       },
       grok: {
         skills:
@@ -1950,6 +2067,8 @@ export const en: Messages = {
         agents: 'Grok has no setting that leaves out only its custom subagents',
         plugins:
           "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
+        subagents:
+          'GROK_SUBAGENTS=0; always off below full access: they run in the background and wake Grok once done, and whether that turn reaches Harness Relay still needs a live check',
       },
       cursor: {
         skills:
@@ -1963,6 +2082,7 @@ export const en: Messages = {
           "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json, your organisation's hooks and Claude Code's in ~/.claude/settings.json (which Cursor loads too, whatever you leave out of Claude Code's runs) also run in Harness Relay's runs",
         agents: 'Cursor has no setting to skip subagents for one run',
         plugins: 'Cursor loads no plugins in ACP mode',
+        subagents: 'Cursor has no switch for its subagents over ACP: they stay on',
       },
       antigravity: {
         skills:
@@ -1976,6 +2096,8 @@ export const en: Messages = {
           "Antigravity has no setting to skip hooks for one run: those in ~/.gemini/config/hooks.json and a project's .agents/hooks.json run in Harness Relay's runs too, outside any sandbox",
         agents: 'Antigravity has no setting to skip custom agents for one run',
         plugins: 'Antigravity has no setting to skip plugins for one run (their skills, rules, MCP servers and hooks load as usual)',
+        subagents:
+          'agy acp has no switch for its subagents: they stay on, and its briefing asks it not to end a turn with one still running',
       },
       copilot: {
         skills: "Its skill tool and skill list (built-in ones, ~/.copilot/skills, a project's .github/skills…) are not given",
@@ -1988,6 +2110,7 @@ export const en: Messages = {
           "Your own hooks (~/.copilot's: disableAllHooks). A project's (.github/hooks, and those in its .github/copilot or .claude settings) still run, so below full access each run asks you before them",
         agents: 'Copilot has no setting to skip custom agents for one run',
         plugins: 'Every installed plugin, with its skills and MCP servers',
+        subagents: 'Copilot has no switch for its subagents that one run can be given: they stay on',
       },
       muse: {
         skills:
@@ -2001,6 +2124,7 @@ export const en: Messages = {
           "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
         agents: 'Muse Code has no setting to skip custom agents for one run',
         plugins: 'Muse Code has no setting to skip plugins for one run',
+        subagents: 'Muse Code has no switch for its subagents that one run can be given: they stay on (its workflows are always off)',
       },
       goose: {
         skills:
@@ -2013,6 +2137,7 @@ export const en: Messages = {
         agents: 'Goose has no setting that leaves out only its custom subagents',
         plugins:
           "each plugin in the project's .agents/plugins, with its hooks, skills and MCP servers (the MCP servers from a new conversation on)",
+        subagents: "its summon extension (delegate, and load with it); its subagents' calls are asked about like Goose's own",
       },
       // The open agents: each adapter adds what its switches leave out, once its CLI has any.
       cline: {
@@ -2025,6 +2150,8 @@ export const en: Messages = {
         hooks: "Cline has no setting that leaves out hooks: those in the project's .clinerules/hooks and .cline/hooks still run",
         agents: 'Cline has no setting that leaves out custom agents',
         plugins: 'Cline leaves out plugins only one by one, by path; pick them one by one',
+        subagents:
+          'its spawn_agent tool; always off below full access, since its subagents run every tool without asking (Cline gives them no approval)',
       },
       opencode: {
         skills:
@@ -2036,6 +2163,8 @@ export const en: Messages = {
         hooks: 'OpenCode has no hooks (its plugins are not loaded in Harness Relay)',
         agents: 'its subagents general and explore (always off below full access)',
         plugins: 'OpenCode loads no plugins in Harness Relay',
+        subagents:
+          "its task tool, every subagent (permission.task: deny); always off below full access, where a subagent's question would never reach you",
       },
       openhands: {
         skills:
@@ -2049,6 +2178,7 @@ export const en: Messages = {
         agents:
           'OpenHands has no setting that leaves out subagents (.agents/agents, .openhands/agents); below full access its subagent tools are not offered, so they do not run',
         plugins: 'OpenHands does not report plugins',
+        subagents: 'its task tool; always off below full access, since its subagents act without asking',
       },
       pi: {
         skills: "Pi's own skills are never loaded in Harness Relay; the tool library's are listed in the briefing",
@@ -2060,6 +2190,7 @@ export const en: Messages = {
         hooks: "Pi's extensions are never loaded in Harness Relay, only its gate and MCP extensions",
         agents: 'Pi does not report subagents',
         plugins: "Pi's extensions, packages and a project's .pi folder are never loaded in Harness Relay",
+        subagents: 'Pi has no subagents',
       },
     },
     offCodexThreads:
@@ -2237,6 +2368,7 @@ export const en: Messages = {
       browsers: 'Browsers',
       'home-screen': 'Connect your phone',
       tour: 'Tour',
+      labs: 'Labs',
       agents: 'Agents',
       agentsAt: (name) => `Agents: ${name}`,
       openAgents: 'Open-source agents',
@@ -2349,6 +2481,17 @@ export const en: Messages = {
         "Claude Code, Codex, Grok and GitHub Copilot members still on a model of one of these (its id/…) fail their turn instead of reaching the CLI's own service. If a model of a CLI's own starts with the same name (a qwen/… of your Codex config, say), forget the endpoint to use that model again.",
       forgetDeleted: 'Forget',
       forgotten: (id) => `Forgot "${id}"`,
+      limitsTitle: 'Context windows and output limits',
+      limitsHint:
+        "How many tokens each model can hold at once (its context window, the answer's included), and the most one answer may have. Save reads the context window from the server where it reports one (vLLM and llama.cpp do); a number you type wins. The open-source assistants compact their conversation in time with it, and the RLM sub-model's questions stay within it.",
+      contextWindow: 'Context window (tokens)',
+      outputLimit: 'Output limit (tokens)',
+      fromServer: (n) => `${n} (from the server)`,
+      askedAtSave: 'Read from the server when you save',
+      outputUnset: 'Not set: each assistant picks its own',
+      limitsSummary: (items) => `Context windows: ${items}`,
+      limitItem: (model, context, fromServer, output) =>
+        `${model} ${context ? `${context}${fromServer ? ' (from the server)' : ''}` : 'unknown'}${output ? `, output limit ${output}` : ''}`,
       problems: {
         name: 'Enter a name.',
         nameLong: (n) => `The name may be at most ${n} characters.`,
@@ -2357,6 +2500,8 @@ export const en: Messages = {
         idReserved: 'openai, anthropic and xai are the names of built-in model backends.',
         url: 'The address must start with http:// or https://, without a user name, password, query or #.',
         models: (n, chars) => `At most ${n} model names, each at most ${chars} characters.`,
+        limits: (min, max) =>
+          `A context window is a whole number from ${min} to ${max}, and an output limit less than its model's context window.`,
       },
     },
     ownEndpoint: {
@@ -2596,6 +2741,7 @@ export const en: Messages = {
         body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Model connections:',
         points: [
           'Enter a provider key, or open Custom endpoints, enter your server URL and choose Load models. Choose models to show your assistants. Save verifies the selected and manually entered IDs with the server.',
+          "Open Context windows and output limits: Save reads each model's context window from vLLM or llama.cpp, and you can type one in for another server, so agents on a small model compact in time",
           'A member\'s model is "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4',
           "The Claude subscription and Grok's sign-in cannot be used by these CLIs: use an API key or your own endpoint",
           "Below full access they run in Harness Relay's own sandbox: in read-only they cannot write in the working directory, and other hosts than the model backend are asked about first (a few are refused without asking)",
@@ -2612,6 +2758,7 @@ export const en: Messages = {
           'Choose Wait for my confirmation to review the proposed team, or Start answering right away to use it immediately. New chats remember your last choice. You can also change it in the team settings.',
           'What you write before confirming goes to the team with the question; a message that @mentions a member goes straight to them, with no new team',
           '"Have the lead agent review the team\'s replies" (on in every new chat; turn it off in a chat that does not need it, also on the team design card): once the team has answered, the lead agent marks what needs a close look in the replies and suggests the next steps',
+          "In Team settings a member can also have a limit of its own, where its agent has one: Claude Code's cost per turn, Copilot's AI credits, Goose's model calls or OpenCode's steps",
           'Change the lead agent in Settings; the file permission is always yours to choose, and the lead agent never changes it',
         ],
       },
@@ -2637,9 +2784,10 @@ export const en: Messages = {
       },
       {
         title: 'While the team replies',
-        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, and the images, videos and Mermaid diagrams it makes are shown right in the chat.",
+        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, the work it hands to its own subagents folded under the step that started them, and the images, videos and Mermaid diagrams it makes right in the chat.",
         points: [
           'The message box stays open: Enter adds your message to the discussion, delivered before the next turn; until then you can edit or withdraw it',
+          'Turn on Send messages into running turns while the team works in Team settings: where its CLI can take one, your message goes straight into the speaking member\'s turn, marked "Sent into …\'s turn"',
           '⌘/Ctrl+Enter stops the team and asks your message instead',
           '■ Stop interrupts at any time; "Continue" lets the team keep going',
         ],
@@ -2759,10 +2907,11 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: 'In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
+        body: "In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, turn each CLI's own subagents and Claude Code's and Grok's workflows on or off, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.",
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
+          'Labs, the last card: experimental ways of working, off by default, one at a time',
         ],
       },
     ],

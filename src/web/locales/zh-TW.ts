@@ -228,6 +228,12 @@ export const zhTW = {
       on: '團隊每次回答完，首席 agent 會讀過新的回覆，標出你需要特別注意的地方，並建議接下來的步驟。',
       off: '團隊回答完就結束；首席 agent 不會審閱回覆。',
     },
+    steer: '團隊工作時，把訊息直接送進進行中的回合',
+    steerHint: {
+      on: '團隊工作時你送出的訊息，會直接送進正在發言那位成員的回合；平行模式下則送進這一輪每位成員的回合（前提是他們都還在進行，也都能接收）。成員在這一回合裡就會看到並回應。做不到時，訊息照常排隊，在下一回合前送達；附有檔案的訊息一律排隊。',
+      off: '團隊工作時你送出的訊息會排隊，在下一回合前送達；正在發言的成員要到下一次發言才看到。',
+    },
+    steerUnsupported: (names: string) => `${names} 用的 CLI 無法在回合中接收訊息：要給他們的訊息照常排隊。`,
     relayOrder: '第一位是隊長：訊息沒有 @ 任何人時由他先接。',
     order: '順序就是發言順序。',
     agentName: 'Agent 名稱',
@@ -304,12 +310,39 @@ export const zhTW = {
       `工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
     goToolLibrary: '前往設定 → App 與工具 → 工具庫',
     toolProblem: '目前無法使用',
+    /**
+     * A member's own limit (`AGENT_LIMITS`, `src/web/memberLimits.ts`), only for the CLIs that have one:
+     * the field's label, in its CLI's unit, and what it does (`min` to `max`).
+     */
+    limit: {
+      label: {
+        claude: '每一輪的費用上限（美元）',
+        copilot: 'AI 點數上限（整個 session）',
+        goose: '每一輪的模型呼叫上限（次）',
+        opencode: '每一輪的步數上限（步）',
+      },
+      placeholder: '不設上限',
+      change: '調整',
+      done: '收起',
+      hint: {
+        claude: (min: number, max: number) =>
+          `這位成員的一輪最多可以花多少美元（${min} 到 ${max}），以 Claude Code 自己估的費用為準；用到時 Claude Code 就停下這一輪。用你自己的模型端點時不設（Claude Code 會把端點的模型當成自家的模型來計價）。`,
+        copilot: (min: number, max: number) =>
+          `這位成員的 Copilot session 最多可以用多少 AI 點數（${min} 到 ${max}），之前各輪用的也算在內（Copilot 1.0.112 起，subagent 用的也算）。這是寬鬆的上限：一次回應可能超過，之後的模型呼叫才會被擋下。用你自己的模型端點時不設。`,
+        goose: (min: number, max: number) =>
+          `Goose 在一輪中最多可以呼叫模型幾次（${min} 到 ${max}，Goose 預設 1000）；到了它就停下來，問要不要繼續。`,
+        opencode: (min: number, max: number) =>
+          `OpenCode 的 agent 在一輪中最多可以走幾步（每步一次模型呼叫，${min} 到 ${max}）；到了它只能用文字回答，不能再用工具。`,
+      },
+    },
     problems: {
       needAgent: '至少需要一個 agent',
       badName: (name: string) => `名稱「${name || '(空白)'}」只能用字母、數字、_ 或 -`,
       duplicate: (name: string) => `名稱 @${name} 重複`,
       tooMany: (max: number) => `一個隊伍最多 ${max} 位成員`,
       needCwd: '請填寫工作目錄',
+      badLimit: (name: string, min: number, max: number, whole: boolean) =>
+        `@${name} 的上限要是 ${min} 到 ${max} 之間的${whole ? '整數' : '數字'}，或留白不設`,
     },
   },
 
@@ -334,6 +367,13 @@ export const zhTW = {
     inHours: (n: number) => `${n} 小時`,
     credits: (n: string) => `點數餘額：${n}`,
     creditsUnlimited: '點數：無上限',
+    /** A limit used up that the account keeps running past, billed (`AccountUsage.payer`). */
+    paying: {
+      credits: '已達方案上限，正在使用點數（另外計費）',
+      usageCredits: '已達方案上限，正在使用用量點數（額外用量，另外計費）',
+      additionalUsage: '已達方案上限，正在使用額外付費用量',
+      payAsYouGo: '已達方案上限，正在隨用隨付（另外計費）',
+    },
     none: {
       apiKey: '這個帳號用 API key 執行：供應商按用量計費，沒有方案額度；一般的 API key 也查不到剩餘餘額，請到供應商的主控台查看。',
       signedOut: '尚未登入，沒有方案用量。',
@@ -408,6 +448,8 @@ export const zhTW = {
     // A message sent during the review stops it and goes at once (the next review reads these replies too).
     placeholderReviewing: '首席 agent 正在審閱回覆；現在送出訊息會停止審閱並立刻送出（下一次審閱會把這些回覆一起讀）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
+    // Steering on: what is sent goes into the running turn when it can.
+    placeholderSteer: '插話給團隊…（可以的話直接送進進行中的回合）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
     retryConfirm: (later: number, changed: number) =>
@@ -425,7 +467,7 @@ export const zhTW = {
     drawerBusy: '團隊回覆中，停止後才能儲存',
     drawerReviewing: '首席 agent 正在審閱回覆，停止後才能儲存',
     // Only when the box can be saved alone: no design waits, and the draft is not in conflict.
-    drawerBusyReview: '（只改首席 agent 審閱的話，現在就能儲存）',
+    drawerBusyReview: '（只改首席 agent 審閱或插話方式的話，現在就能儲存）',
     drawerPending: '你正在調整首席 agent 提出、還在等確認的團隊：儲存後就會採用這個團隊，接著回答你的問題。',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
     drawerReload: '載入目前的團隊',
@@ -762,6 +804,9 @@ export const zhTW = {
     askNote: (name: string) => `直接在下方回覆：@${name} 會依你的回答給出完整答案，團隊再接著往下。`,
     askSkip: '略過，讓團隊繼續',
     queuedTitle: '在團隊回覆途中送出，於之後的回合送達；當時正在發言的成員，下一次發言時才會看到。',
+    // Steering: the message went into these members' running turns.
+    steeredTag: (names: string) => (names ? `已送進 ${names} 的回合` : '已送進進行中的回合'),
+    steeredTitle: '在團隊回覆途中送出，直接送進了這些成員正在進行的回合，他們在那一回合裡就看到了。',
     tokensIn: (n: string) => `輸入 ${n}`,
     tokensOut: (n: string) => `輸出 ${n}`,
   },
@@ -772,6 +817,9 @@ export const zhTW = {
     todo: '計畫',
     output: '輸出',
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
+    /** A subagent's own calls, listed under the call that started it. */
+    subagentSteps: (name: string) => `${name} 做的事`,
+    subagentResult: 'subagent 回報的結果',
   },
 
   /** The page an OAuth provider's sign-in sends the browser back to. */
@@ -1166,6 +1214,10 @@ export const zhTW = {
     written: '已寫入工作目錄',
     collapse: '收合',
     more: (n: number) => `還有 ${n} 個檔案…`,
+    expandAll: '全部展開',
+    collapseAll: '全部收合',
+    filesShown: (n: number) => `顯示 ${n} 個檔案：diff 太長，已截斷`,
+    cutShort: '已截斷',
     turnDiff: '查看這回合 diff',
     agentResult: (name: string) => `查看 @${name} 的完整結果`,
     applying: '套用中…',
@@ -1190,6 +1242,10 @@ export const zhTW = {
     // Phones and tablets: Enter starts a new line, the ↑ button sends.
     hintTouch: '按 ↑ 送出 · Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 按 📎 附加檔案',
     hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
+    // Steering on: what is sent goes into the running turn when it can.
+    hintSteer: (mod: string) =>
+      `Enter 插話（可以的話直接送進進行中的回合，否則下一位發言前送達） · ${mod}+Enter 停止並改問這個 · Shift+Enter 換行`,
+    hintSteerTouch: '按 ↑ 插話（可以的話直接送進進行中的回合） · Enter 換行',
     // The lead agent reviews the team's replies: sending stops the review and sends the message now.
     hintReview: 'Enter 停止審閱並立刻送出 · Shift+Enter 換行',
     hintReviewTouch: '按 ↑ 停止審閱並立刻送出 · Enter 換行',
@@ -1202,6 +1258,53 @@ export const zhTW = {
     readFailed: '無法讀取附加的檔案。',
   },
 
+  /** Settings → Labs: experimental ways assistants use Harness Relay's own tools, one at a time (`LabsSettings.tsx`). */
+  labs: {
+    title: '實驗室',
+    hint: '還在試驗中的做法，預設關閉，一次只能開一種。它們只改變助理使用 Harness Relay 自己工具（瀏覽器、郵件、行事曆、文件⋯⋯）的方式：助理要先在「App 與工具」拿到這些工具才用得到。改了以後，從助理的下一個回合開始生效。',
+    fromEnv: (name: string) => `目前的設定來自環境變數 ${name}；在這裡儲存之後，就以這裡為準。`,
+    unavailable: (reason: string) => `這台電腦上不能用：${reason}`,
+    goodFor: '適合',
+    tradeoffs: '要注意的代價',
+    modes: {
+      off: {
+        title: '關閉（預設）',
+        what: '助理照平常的方式，一次呼叫一個工具，每一步都在對話裡看得到。',
+      },
+      code: {
+        title: '讓助理寫程式來用工具（CodeAct）',
+        what: '助理可以寫一小段程式，在程式裡連續呼叫這些工具，例如一口氣看過 50 封信，只把重要的整理給你，而不必一封一封來回問。',
+        good: ['重複、大量的工具工作：比較快，也比較省 token', '對話裡只留下整理好的結果，不會被一大堆原始資料塞滿'],
+        costs: [
+          '程式寫錯就要重跑一次；簡單的事反而可能比較慢',
+          '程式在 Harness Relay 的沙箱裡執行：不能連網、不能修改任何檔案，但讀得到你的帳號讀得到的檔案（受保護的資料夾除外）',
+          '會改變東西的動作仍然會先問你，寄信等仍在待送出匣等你確認；一次執行最多 5 個這類動作',
+          '每次執行預設最多 1 分鐘；只能在 macOS 和 Linux 上使用',
+        ],
+      },
+      rlm: {
+        title: '分段閱讀長文字（RLM）',
+        what: '包含上一個做法的全部，再加上：程式可以把很長的文字（一份長文件、整個信箱、一份 log）在這個回合裡先存起來，一次只拿一段去問你選的模型，最後再把答案組合起來。助理不必自己把整份讀進來。',
+        good: ['長到助理一次讀不完的內容', '需要逐段摘要、分類或找重點的工作'],
+        costs: [
+          '會多花錢：每一個問題都用那個模型的金鑰計費，每個回合最多 100 個問題；這些費用不算進回覆顯示的費用',
+          '比較慢：要問很多次，每次執行預設最多 5 分鐘',
+          '小模型可能漏掉細節，分段處理也可能錯過段落之間的關聯',
+          '文字會送到那個模型的供應商；由 Harness Relay 自己詢問它，不給它任何工具，金鑰也不會進到沙箱',
+          '只能在 macOS 和 Linux 上使用',
+        ],
+        model: '分段閱讀用的模型',
+        modelHint:
+          '從「模型連線」挑一個，寫成「來源/模型」，例如 anthropic/claude-haiku-5-5，或你的端點 id 加上模型名稱。便宜、快速的模型通常就夠了。',
+        noConnections: '還沒有任何模型連線：請先到「設定 → 模型連線」加上一個 API 金鑰或端點。',
+      },
+    },
+    problems: {
+      model: '請寫成「來源/模型」，例如 anthropic/claude-haiku-5-5。',
+      connection: '「模型連線」裡沒有這個來源：請先在「設定 → 模型連線」加上它。',
+    },
+    saved: '已儲存。從助理的下一個回合開始生效。',
+  },
   voice: {
     start: '語音輸入',
     stop: '停止並轉成文字',
@@ -1854,6 +1957,27 @@ export const zhTW = {
     chars: (n: number, max: number) => `${n} / ${max} 字`,
     saved: '已儲存',
   },
+  cliFeatures: {
+    title: 'Subagent 與 workflow',
+    hint: '這個 CLI 能把回合的一部分交給它自己的 subagent，有的還能執行一整套由 subagent 組成的 workflow。這些開關只在 Harness Relay 啟動它時生效，不會修改 CLI 自己的設定，只套用在這個帳號。',
+    subagents: '讓它使用自己的 subagent（包括內建的）',
+    subagentsOn: 'subagent 開啟',
+    subagentsOff: 'subagent 關閉',
+    subagentsDefault: 'subagent 照 CLI 的預設',
+    fullAccessOnly: '完全存取以外，Harness Relay 一律關閉它的 subagent：這個開關只在完全存取的對話裡有作用。',
+    workflows: '讓它執行 workflow（一次執行多個 subagent 的腳本）',
+    // What turning them on means, for each CLI with a switch (`NATIVE_ON_SUPPORT`).
+    workflowsNote: {
+      claude:
+        '預設關閉。開啟後，完全存取以外的對話會在它執行 workflow（Workflow 工具）前以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行；一個 workflow 可能同時跑十幾個 subagent，用掉很多 token。',
+      grok: '預設關閉，完全存取以外一律關閉：它們在背景執行，回合結束時就遺失。開啟後，完全存取的對話裡它可以執行背景 workflow 與 deep research，可能用掉很多 token。',
+    } as Partial<Record<Provider, string>>,
+    workflowsOn: 'workflow 開啟',
+    workflowsOff: 'workflow 關閉',
+    ultracode: 'Ultracode：每個實質的任務都先規劃一個 workflow',
+    ultracodeNote: '需要先開啟 workflow。保留成員設定的推理強度；會用掉多得多的 token。',
+    ultracodeOn: 'ultracode 開啟',
+  },
   native: {
     title: '這個 CLI 自己載入的 skill、MCP、hook 與記憶等',
     summary: (s: number, m: number, f: number) => `${s} 個 skill · ${m} 個 MCP · ${f} 個檔案`,
@@ -1924,6 +2048,7 @@ export const zhTW = {
         hooks: '設定檔與 plugin 裡的 hook',
         agents: '自訂與 plugin 的 subagent；內建的照常提供',
         plugins: '每個已安裝的 plugin，連同它的 skill、subagent、hook 與 MCP 伺服器',
+        subagents: '它的 Agent 工具：任何 subagent 都不會執行，內建的（Explore、general-purpose…）也是',
       },
       codex: {
         skills: '指示裡不再列出 skill',
@@ -1934,6 +2059,8 @@ export const zhTW = {
         hooks: '也包括 plugin 的 hook',
         agents: 'Codex 沒有只略過自訂 subagent 的設定',
         plugins: '連同它們的 skill、MCP 伺服器與 hook',
+        subagents:
+          'agents.enabled = false，兩個 multi-agent 功能也關掉；完全存取以外一律關閉，因為它們會失去沙箱的 read 項目（Codex 0.170.0 之前），核准時的檢查也看不到路徑',
       },
       grok: {
         skills:
@@ -1946,6 +2073,8 @@ export const zhTW = {
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
         plugins:
           'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
+        subagents:
+          'GROK_SUBAGENTS=0；完全存取以外一律關閉：它們在背景執行，完成後會喚醒 Grok，而那一輪是否會送到 Harness Relay 還需要實際確認',
       },
       cursor: {
         skills:
@@ -1959,6 +2088,7 @@ export const zhTW = {
           'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json、組織的 hook，以及 ~/.claude/settings.json 裡 Claude Code 的 hook（Cursor 也會載入，不論你讓 Claude Code 的執行不載入哪些）也會在 Harness Relay 的執行中執行',
         agents: 'Cursor 沒有能單次略過 subagent 的設定',
         plugins: 'Cursor 在 ACP 模式下不載入 plugin',
+        subagents: 'Cursor 在 ACP 下沒有關閉 subagent 的開關：它們保持開啟',
       },
       antigravity: {
         skills:
@@ -1971,6 +2101,7 @@ export const zhTW = {
           'Antigravity 沒有能單次略過 hook 的設定：~/.gemini/config/hooks.json 與專案 .agents/hooks.json 的 hook 也會在 Harness Relay 的執行中執行，而且在沙箱外',
         agents: 'Antigravity 沒有能單次略過自訂 agent 的設定',
         plugins: 'Antigravity 沒有能單次略過 plugin 的設定（plugin 帶來的 skill、規則、MCP 與 hook 都照常載入）',
+        subagents: 'agy acp 沒有關閉 subagent 的開關：它們保持開啟，簡報會要它結束回合前不要留下還在跑的 subagent',
       },
       copilot: {
         skills: '它的 skill 工具與 skill 清單（內建的、~/.copilot/skills、專案 .github/skills 等）都不提供',
@@ -1983,6 +2114,7 @@ export const zhTW = {
           '你自己的 hook（~/.copilot 的，disableAllHooks）。專案的 hook（.github/hooks，以及專案 .github/copilot 或 .claude 設定裡的）仍會執行，所以低於完整權限時，每次執行前都會先問你',
         agents: 'Copilot 沒有能單次略過自訂 agent 的設定',
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
+        subagents: 'Copilot 沒有能單次關閉 subagent 的開關：它們保持開啟',
       },
       muse: {
         skills:
@@ -1995,6 +2127,7 @@ export const zhTW = {
         hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
         agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
         plugins: 'Muse Code 沒有能單次略過 plugin 的設定',
+        subagents: 'Muse Code 沒有能單次關閉 subagent 的開關：它們保持開啟（它的 workflow 一律關閉）',
       },
       goose: {
         skills:
@@ -2006,6 +2139,7 @@ export const zhTW = {
         hooks: 'hook 只來自 plugin：關掉 plugin 就不會執行',
         agents: 'Goose 沒有只略過自訂 subagent 的設定',
         plugins: '專案 .agents/plugins 裡的每個 plugin，連同它的 hook、skill 與 MCP 伺服器（MCP 伺服器從新的對話開始）',
+        subagents: '它的 summon 擴充功能（delegate，連同 load）；它的 subagent 的呼叫和 Goose 自己的一樣會詢問',
       },
       // The open agents: each adapter adds what its switches leave out, once its CLI has any.
       cline: {
@@ -2017,6 +2151,7 @@ export const zhTW = {
         hooks: 'Cline 沒有略過 hook 的設定：專案 .clinerules/hooks 與 .cline/hooks 裡的 hook 照常執行',
         agents: 'Cline 沒有略過自訂 agent 的設定',
         plugins: 'Cline 只能依路徑個別略過 plugin；請個別勾選',
+        subagents: '它的 spawn_agent 工具；完全存取以外一律關閉，因為它的 subagent 不經詢問就執行每個工具（Cline 沒有讓它們詢問）',
       },
       opencode: {
         skills: '它從 .claude/skills 與 .agents/skills 找到的 skill，以及內建的 customize-opencode（skill 工具整個關掉）',
@@ -2027,6 +2162,7 @@ export const zhTW = {
         hooks: 'OpenCode 沒有 hook（Harness Relay 裡不載入它的 plugin）',
         agents: '它的 subagent general 與 explore（完全存取以外一律關閉）',
         plugins: 'Harness Relay 裡的 OpenCode 不載入任何 plugin',
+        subagents: '它的 task 工具，所有 subagent（permission.task: deny）；完全存取以外一律關閉，因為 subagent 的提問永遠到不了你面前',
       },
       openhands: {
         skills:
@@ -2040,6 +2176,7 @@ export const zhTW = {
         agents:
           'OpenHands 沒有排除 subagent（.agents/agents、.openhands/agents）的設定；完全存取以外不提供它的 subagent 工具，所以它們不會執行',
         plugins: 'OpenHands 不回報 plugin',
+        subagents: '它的 task 工具；完全存取以外一律關閉，因為它的 subagent 不經詢問就行動',
       },
       pi: {
         skills: 'Harness Relay 裡從不載入 Pi 自己的 skill；工具庫的 skill 會列在角色說明裡',
@@ -2050,6 +2187,7 @@ export const zhTW = {
         hooks: 'Harness Relay 裡從不載入 Pi 的擴充功能，只有它的 gate 與 MCP 擴充功能',
         agents: 'Pi 不回報 subagent',
         plugins: 'Harness Relay 裡從不載入 Pi 的擴充功能、套件與專案的 .pi 資料夾',
+        subagents: 'Pi 沒有 subagent',
       },
     } as Record<Provider, Record<NativePart, string>>,
     offCodexThreads:
@@ -2224,6 +2362,7 @@ export const zhTW = {
       browsers: '已登入的瀏覽器',
       'home-screen': '連接手機',
       tour: '使用導覽',
+      labs: '實驗室',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
       agents: '助理設定',
       agentsAt: (name: string) => `助理設定：${name}`,
@@ -2340,6 +2479,17 @@ export const zhTW = {
         'Claude Code、Codex、Grok 與 GitHub Copilot 的成員若還指定這些端點的模型（端點 id/…），這一輪會失敗，不會改送到 CLI 自己的服務。如果某個 CLI 自己的模型剛好以同樣的名稱開頭（例如你 Codex 設定裡的 qwen/…），忘掉這個端點就能照常使用那個模型。',
       forgetDeleted: '忘掉',
       forgotten: (id: string) => `已忘掉「${id}」`,
+      limitsTitle: '上下文長度與輸出上限',
+      limitsHint:
+        '每個模型一次能容納多少 token（上下文長度，回答也算在內），以及一次回答最多幾個 token。儲存時會從伺服器讀取上下文長度（vLLM 與 llama.cpp 會回報）；你填的數字優先。開源助理會依它及早壓縮對話，RLM 子模型的提問也不會超過它。',
+      contextWindow: '上下文長度（token）',
+      outputLimit: '輸出上限（token）',
+      fromServer: (n: string) => `${n}（伺服器回報）`,
+      askedAtSave: '儲存時向伺服器讀取',
+      outputUnset: '未設定：由各助理決定',
+      limitsSummary: (items: string) => `上下文長度：${items}`,
+      limitItem: (model: string, context: string | undefined, fromServer: boolean, output: string | undefined) =>
+        `${model} ${context ? `${context}${fromServer ? '（伺服器回報）' : ''}` : '未知'}${output ? `，輸出上限 ${output}` : ''}`,
       problems: {
         name: '請輸入名稱。',
         nameLong: (n: number) => `名稱最多 ${n} 個字元。`,
@@ -2348,6 +2498,7 @@ export const zhTW = {
         idReserved: 'openai、anthropic、xai 是內建模型來源的名稱。',
         url: '網址需要 http:// 或 https:// 開頭，不含帳號密碼、查詢字串或 #。',
         models: (n: number, chars: number) => `模型名稱最多 ${n} 個，每個最多 ${chars} 個字元。`,
+        limits: (min: string, max: string) => `上下文長度要是 ${min} 到 ${max} 之間的整數，輸出上限要小於同一個模型的上下文長度。`,
       },
     },
     ownEndpoint: {
@@ -2587,6 +2738,7 @@ export const zhTW = {
         body: 'OpenCode、Goose、Cline、OpenHands 與 Pi 不用登入，而是用你在「設定 → 模型連線」設定的模型：',
         points: [
           '輸入服務商金鑰，或展開「自訂端點」，輸入伺服器網址後點「載入模型」。勾選助理要用的模型。按「儲存」時會向伺服器核對勾選和手動輸入的模型 ID。',
+          '展開「上下文長度與輸出上限」：儲存時會向 vLLM 或 llama.cpp 讀取每個模型的上下文長度，其他伺服器可以自己填，讓小模型的 agent 及時壓縮',
           '成員的模型寫成「模型來源/模型」，例如 openai/gpt-5.4-nano 或 homelab/muse-glimmer-30b-nvfp4',
           'Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI：請用 API key 或你自己的端點',
           '完全存取以外，它們在 Harness Relay 自己的沙箱中執行：唯讀時寫不進工作目錄，模型來源以外的主機會先問你（少數會直接拒絕）',
@@ -2603,6 +2755,7 @@ export const zhTW = {
           '選「等我確認團隊」可以先看組隊結果，選「直接開始回答」就會立即採用。下次開新對話會記住這次的選擇，也可以在團隊設定裡更改。',
           '確認前寫的訊息，確認後會跟問題一起送給團隊；@ 成員的訊息則直接交給他，不重新組隊',
           '「團隊回答後，請首席 agent 審閱回覆」（每個新對話都預設開啟，由你關閉；團隊設計卡片上也有）：團隊回答完，首席 agent 會在回覆中標出需要特別注意的地方，並建議接下來的步驟',
+          'agent 有上限可設時，團隊設定裡每位成員也能有自己的上限：Claude Code 每一輪的費用、Copilot 的 AI 點數、Goose 的模型呼叫次數或 OpenCode 的步數',
           '首席助理可以在設定頁更換；檔案權限一律由你決定，首席助理不會改動',
         ],
       },
@@ -2624,9 +2777,10 @@ export const zhTW = {
       },
       {
         title: '團隊回覆時',
-        body: '回覆會即時出現：思考過程、待辦清單和每個工具步驟都看得到，agent 產生的圖片、影片和 Mermaid 圖表直接顯示在對話中。',
+        body: '回覆會即時出現：思考過程、待辦清單和每個工具步驟都看得到，agent 交給自己 subagent 的工作收在啟動它的那一步底下，agent 產生的圖片、影片和 Mermaid 圖表直接顯示在對話中。',
         points: [
           '訊息框不會鎖住：按 Enter 插話，下一位發言前送達；送達前可以編輯或撤回',
+          '在團隊設定打開「團隊工作時，把訊息直接送進進行中的回合」：CLI 能接收時，訊息會直接送進正在發言的成員的回合，並標示「已送進…的回合」',
           '⌘/Ctrl+Enter 停止團隊，立刻改問這個',
           '■ 停止隨時中斷；「繼續」讓團隊接著做',
         ],
@@ -2746,10 +2900,11 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型連線（開源助理可用服務商金鑰或自訂端點，Claude Code、Codex、Grok 與 GitHub Copilot 也能使用自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型連線（開源助理可用服務商金鑰或自訂端點，Claude Code、Codex、Grok 與 GitHub Copilot 也能使用自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、開關各 CLI 自己的 subagent 與 Claude Code、Grok 的 workflow、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
+          '最後的「實驗室」：還在試驗中的做法，預設關閉，一次只能開一種',
         ],
       },
     ] as { title: string; body: string; points?: string[] }[],

@@ -27,6 +27,7 @@
 - [安全性](#安全性)
 - [指令](#指令)
 - [文件](#文件)
+- [討論區](#討論區)
 - [參與開發](#參與開發)
 - [授權](#授權)
 
@@ -62,6 +63,8 @@
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
 - **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
+- **agent 自己的功能**：每個帳號開關各 CLI 自己的 subagent 與 Claude Code 的 workflow；subagent 的步驟收在啟動它的那一步底下；訊息直接送進正在發言的成員進行中的回合；你自己模型的上下文長度；成員自己的上限。（[Subagent 與 workflow](docs/user-guide.zh-TW.md#subagent-與-workflow)）
+- **實驗室**：還在試驗中的 Harness Relay 工具用法，預設關閉，一次只能開一種：在 Harness Relay 自己的沙箱裡寫程式來用工具（CodeAct），或用你選的模型分段閱讀長文字（RLM），每一種都寫了代價。（[實驗室](docs/user-guide.zh-TW.md#實驗室)）
 - **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器（用 OAuth 登入的也在這裡登入）、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
 - **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
@@ -143,6 +146,17 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 | 端對端測試的情境 | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
 | 桌面 app（給開發者） | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
 | 提案（尚未實作） | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
+
+## 討論區
+
+有問題、有想法，或想分享你用 Harness Relay 做出的東西，歡迎到 [GitHub Discussions](https://github.com/Agentic-System-Lab/harness-relay/discussions)。要回報 bug，請改開 [issue](https://github.com/Agentic-System-Lab/harness-relay/issues/new/choose)。
+
+- [Q&A（問答）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/q-a)：問怎麼做某件事，或它為什麼這樣運作
+- [Ideas（想法）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/ideas)：提出新功能或修改的想法，和大家討論
+- [Show and tell（作品分享）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/show-and-tell)：分享你做的團隊、範本或工作方式
+- [Announcements（公告）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/announcements)：維護者發布的新版本與消息
+- [Polls（投票）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/polls)：參與大家的投票
+- [General（一般）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/general)：其他任何話題
 
 ## 參與開發
 

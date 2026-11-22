@@ -4,9 +4,18 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, real
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
-import { API_BACKENDS, PROVIDER_LABEL, type ModelOption, type NativeMemoryFile, type ToolCallKind } from '../../shared/types';
+import {
+  API_BACKENDS,
+  PROVIDER_LABEL,
+  type ModelOption,
+  type NativeMemoryFile,
+  type PlanEntry,
+  type ToolCallKind,
+} from '../../shared/types';
 import { commandLine } from '../commands';
 import { backendLabel, type BackendRun } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import type { HookCall, HookResult } from '../hooks';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
@@ -80,10 +89,15 @@ export const PI_GATE_COMMAND = 'harness-relay-gate';
 export const PI_RESULT_TITLE = 'harness-relay:tool_result';
 
 /**
- * Whether a run loads the gate: below full access, and with full access when the turn has the team's
- * hooks, which it asks before and after each call.
+ * Whether the gate asks about the run's calls: below full access, and with full access when the turn
+ * has the team's hooks, which it asks before and after each call. Every run loads it, for its plan tool
+ * (`PI_PLAN_TOOL`); one it does not gate has `HARNESS_RELAY_PI_UNGATED=1`, so that a gate whose
+ * variable went missing still asks (it fails closed).
  */
 export const piGated = (o: Pick<RunOptions, 'permission' | 'hooks'>): boolean => o.permission !== 'full' || Boolean(o.hooks);
+
+/** The plan tool the gate registers (Pi has no to-do tool): its calls are shown as the reply's plan, not as tool rows. */
+export const PI_PLAN_TOOL = 'update_plan';
 
 /** Pi's thinking levels (`--thinking`, `set_thinking_level`), Harness Relay's efforts for it. */
 export const PI_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -193,8 +207,11 @@ export function piModelRef(run: Pick<BackendRun, 'kind' | 'backend' | 'model'>):
   return `${piProvider(run)}/${run.model}`;
 }
 
-/** Pi's user settings for a run: no project trust, no telemetry, no cache warming between runs. */
-export function piSettings(): Record<string, unknown> {
+/**
+ * Pi's user settings for a run: no project trust, no telemetry, no cache warming between runs; and its
+ * compaction's figures for the endpoint models whose context window is known (`piCompaction()`).
+ */
+export function piSettings(compaction?: Record<string, { reserveTokens: number; keepRecentTokens: number }>): Record<string, unknown> {
   return {
     defaultProjectTrust: 'never',
     enableInstallTelemetry: false,
@@ -203,7 +220,49 @@ export function piSettings(): Record<string, unknown> {
     quietStartup: true,
     collapseChangelog: true,
     cacheWarming: 'off',
+    ...(compaction && Object.keys(compaction).length ? { compaction: { modelOverrides: compaction } } : {}),
   };
+}
+
+/** The tokens Pi keeps for one answer by default (`maxTokens`), and its compaction's (`reserveTokens`, `keepRecentTokens`; Pi 1.5.1). */
+export const PI_DEFAULTS = { maxTokens: 16_384, reserveTokens: 16_384, keepRecentTokens: 20_000 };
+
+/**
+ * An endpoint model's `contextWindow` and `maxTokens` in models.json, from its limits: Pi takes 128,000
+ * and 16,384 without them, and compacts once the context passes `contextWindow − reserveTokens`.
+ * `maxTokens` is the model's output limit, else `outputReserve()` (a quarter of the window, at most Pi's
+ * 16,384).
+ */
+export function piModelLimits(l: TokenLimits | undefined): { contextWindow?: number; maxTokens?: number } {
+  if (l?.context) return { contextWindow: l.context, maxTokens: outputReserve({ ...l, context: l.context }, PI_DEFAULTS.maxTokens) };
+  return l?.output ? { maxTokens: l.output } : {};
+}
+
+/**
+ * Pi's compaction for each model of the run's endpoint whose context window is known, as per-model
+ * overrides (`compaction.modelOverrides`, keyed `<provider>/<model>`): it starts once fewer than
+ * `reserveTokens` are free, its model's `maxTokens` (at most Pi's 16,384), so that the next answer
+ * fits; and keeps the newest `keepRecentTokens` as they are, a quarter of the window (at most Pi's
+ * 20,000), so what compaction keeps leaves room to work in. Pi's own figures suit 128,000 tokens; in a
+ * 32k window they would keep more than it compacts.
+ */
+export function piCompaction(
+  run: Pick<BackendRun, 'kind' | 'backend' | 'endpoint'>,
+): Record<string, { reserveTokens: number; keepRecentTokens: number }> {
+  if (run.kind !== 'endpoint' || !run.endpoint) return {};
+  const out: [string, { reserveTokens: number; keepRecentTokens: number }][] = [];
+  for (const id of run.endpoint.models) {
+    const l = piModelLimits(runLimits(run.endpoint, id));
+    if (!l.contextWindow || !l.maxTokens) continue;
+    out.push([
+      `${piProvider(run)}/${id}`,
+      {
+        reserveTokens: Math.min(PI_DEFAULTS.reserveTokens, l.maxTokens),
+        keepRecentTokens: Math.min(PI_DEFAULTS.keepRecentTokens, Math.floor(l.contextWindow / 4)),
+      },
+    ]);
+  }
+  return Object.fromEntries(out);
 }
 
 /** Where an API backend's models live in Pi, for a model its catalog does not have (`piModelsJson`). */
@@ -237,7 +296,12 @@ export function piModelsJson(run: BackendRun, effort?: string, known = true): { 
         baseUrl: run.endpoint.baseUrl,
         api: 'openai-completions',
         apiKey: run.endpoint.apiKey ? `$${PI_ENDPOINT_KEY_VAR}` : PI_NO_KEY,
-        models: ids.map((id) => ({ id, name: id, reasoning: id === run.model && reasoning })),
+        models: ids.map((id) => ({
+          id,
+          name: id,
+          reasoning: id === run.model && reasoning,
+          ...piModelLimits(runLimits(run.endpoint, id)),
+        })),
       },
     },
   };
@@ -426,13 +490,17 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   ];
   if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir)))
     throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
-  // The team's after hooks: the gate shows each call's result too.
-  if (o.hooks?.kinds('after').size) ctx.env.HARNESS_RELAY_PI_AFTER = '1';
+  // Both set in every run, never left to what the server's own environment holds (a Pi run of a
+  // Harness Relay started from a full-access member's command would pass on its ungated `1`): the
+  // team's after hooks, for which the gate shows each call's result too; and full access without hooks,
+  // where the gate is loaded for its plan tool only.
+  ctx.env.HARNESS_RELAY_PI_AFTER = o.hooks?.kinds('after').size ? '1' : '0';
+  ctx.env.HARNESS_RELAY_PI_UNGATED = piGated(o) ? '0' : '1';
 
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
 
-  writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings(), null, 2));
+  writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings(piCompaction(run)), null, 2));
   const known = run.kind === 'endpoint' ? true : ((await piKnownModels.has(o.bin, ctx.env, run.id)) ?? true);
   writeFile(join(agentDir, 'models.json'), JSON.stringify(piModelsJson(run, o.effort, known), null, 2));
   if (run.endpoint?.apiKey) ctx.env[PI_ENDPOINT_KEY_VAR] = run.endpoint.apiKey;
@@ -451,7 +519,7 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
     writeFile(state.briefingFile, brief + '\n');
   }
   // `--tools` with plain names would drop the MCP tools too (seen with Pi 1.5.1): `mcp__*` keeps them.
-  if (o.permission === 'read-only') state.tools = [...piReadTools(ctx.env), ...(state.mcp ? ['mcp__*'] : [])];
+  if (o.permission === 'read-only') state.tools = [...piReadTools(ctx.env), PI_PLAN_TOOL, ...(state.mcp ? ['mcp__*'] : [])];
 
   ctx.home.configPaths.push(...PI_CONFIG_NAMES.map((n) => join(agentDir, n)), join(agentDir, PI_BRIEFING_FILE));
   Object.assign(ctx.state, state);
@@ -462,7 +530,7 @@ export function piArgs(ctx: Pick<OpenRunContext, 'o' | 'run' | 'state'>): string
   const s = piState(ctx);
   const { o } = ctx;
   const args = ['--mode', 'rpc', '--model', piModelRef(ctx.run), ...PI_FLAGS];
-  if (piGated(o)) args.push('-e', PI_GATE_PATH);
+  args.push('-e', PI_GATE_PATH);
   if (s.mcp) args.push('-e', 'builtin:mcp');
   else args.push('--no-mcp');
   if (o.nativeOff?.includes('instructions')) args.push('--no-context-files');
@@ -832,10 +900,21 @@ export function piToolDetail(name: string, args: unknown): string | undefined {
   return summarizeInput(args) ?? (Object.keys(a).length ? clip(JSON.stringify(a)) : undefined);
 }
 
+/** The plan an `update_plan` call's arguments give (`PI_PLAN_TOOL`), or undefined when they hold none. */
+export function piPlanEntries(args: unknown): PlanEntry[] | undefined {
+  const plan = (args as { plan?: unknown } | undefined)?.plan;
+  if (!Array.isArray(plan)) return undefined;
+  return plan
+    .filter((x): x is { step: string; status?: unknown } => Boolean(x) && typeof x.step === 'string' && x.step.trim() !== '')
+    .map((x) => ({ text: x.step, status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
+}
+
 /** Turns Pi's session events into AgentEvents (pure: records in, events out). */
 export function createPiEventHandler(emit: (e: AgentEvent) => void) {
   let inText = false;
   const open = new Set<string>();
+  /** Calls of the plan tool, shown as the plan rather than as tool rows. */
+  const plans = new Set<string>();
   const refused = new Map<string, string>();
   let last: PiAssistantMessage | undefined;
   const usage: PiUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, messages: 0 };
@@ -879,13 +958,31 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
       }
       case 'tool_execution_start': {
         const id = String(msg.toolCallId ?? '');
-        if (!id || open.has(id)) break;
+        if (!id || open.has(id) || plans.has(id)) break;
+        if (msg.toolName === PI_PLAN_TOOL) {
+          plans.add(id);
+          const entries = piPlanEntries(msg.args);
+          if (entries) {
+            closeText();
+            emit({ type: 'plan', entries });
+          }
+          break;
+        }
         closeText();
         open.add(id);
         const name = String(msg.toolName ?? 'tool');
         const detail = piToolDetail(name, msg.args);
         const kind = piToolKind(name);
-        emit({ type: 'tool_start', id, name: piToolName(name), ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
+        // A call a tool made itself (an extension's, through `ctx.executeTool()`) goes under that tool's.
+        const parentId = typeof msg.parentToolCallId === 'string' && msg.parentToolCallId ? msg.parentToolCallId : undefined;
+        emit({
+          type: 'tool_start',
+          id,
+          name: piToolName(name),
+          ...(detail ? { detail } : {}),
+          ...(kind ? { kind } : {}),
+          ...(parentId ? { parentId } : {}),
+        });
         break;
       }
       case 'tool_execution_end': {
@@ -902,6 +999,31 @@ export function createPiEventHandler(emit: (e: AgentEvent) => void) {
         }
         break;
       }
+      // What Pi reports about its own run, as Pi 1.5.1's `AgentSessionEvent` has it (its
+      // `dist/core/agent-session.d.ts` and `docs/json.md`): a compaction once it ended (none for one
+      // that was aborted), a retried request, and a retried summary (of a compaction or a branch).
+      case 'compaction_end':
+        closeText();
+        if (typeof msg.errorMessage === 'string' && msg.errorMessage)
+          emit({ type: 'notice', text: t().cliCompactFailed('Pi', clip(msg.errorMessage, 240)) });
+        else if (msg.result && !msg.aborted) emit({ type: 'notice', text: t().cliCompacted('Pi') });
+        break;
+      case 'auto_retry_start':
+      case 'summarization_retry_scheduled': {
+        closeText();
+        const why = typeof msg.errorMessage === 'string' && msg.errorMessage ? clip(msg.errorMessage, 240) : undefined;
+        emit({ type: 'notice', text: t().cliRetrying('Pi', num(msg.attempt) || undefined, num(msg.maxAttempts) || undefined, why) });
+        break;
+      }
+      case 'auto_retry_end':
+        if (msg.success === false) {
+          closeText();
+          emit({
+            type: 'notice',
+            text: t().cliRetryFailed('Pi', typeof msg.finalError === 'string' && msg.finalError ? clip(msg.finalError, 240) : undefined),
+          });
+        }
+        break;
     }
   }
 
@@ -1195,7 +1317,12 @@ async function piSession(
     stopped();
     const started = await rpc.request(piPrompt(o));
     if (!started.success) throw new AgentRunError(t().piPromptRejected(started.error || 'prompt'));
-    if (started.data?.disposition !== 'handled') await settled;
+    if (started.data?.disposition !== 'handled') {
+      // Steering: until the run settles, a message the user sends may go into it (`piSteer`).
+      o.onSteer?.((text) => piSteer(rpc, text, () => over || userAborted));
+      await settled;
+    }
+    o.onSteer?.(undefined);
     over = true;
     if (userAborted) throw new AgentRunError(t().stopped, true);
     const last = events.last;
@@ -1208,6 +1335,7 @@ async function piSession(
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
+    o.onSteer?.(undefined);
     over = true;
     events.finish();
     events.closeOpen(ended);
@@ -1215,6 +1343,23 @@ async function piSession(
     child?.stdin?.end(); // Pi shuts down when its stdin closes
     stopSoon(deps.exitGraceMs ?? 3000);
     await exited.catch(() => undefined);
+  }
+}
+
+/**
+ * Sends a message the user wrote into Pi's running turn: its `steer` command (`{ type: "steer", message }`),
+ * which queues the message for after the current tool calls, before the next model call, and answers
+ * `{ disposition: "queued" }` (`"handled"` when an extension's input handler took it instead; Pi 1.5.1's
+ * docs/rpc-commands.md). True only when Pi queued it while the run was still going (`over`: it settled,
+ * or was stopped): Pi keeps its queue in memory, so one queued after the run settled never runs.
+ */
+export async function piSteer(rpc: Pick<PiRpc, 'request'>, text: string, over: () => boolean): Promise<boolean> {
+  if (over()) return false;
+  try {
+    const r = await rpc.request({ type: 'steer', message: text });
+    return r.success && r.data?.disposition === 'queued' && !over();
+  } catch {
+    return false;
   }
 }
 

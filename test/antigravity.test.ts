@@ -24,6 +24,7 @@ import {
   parseProcs,
   strayProcs,
   ANTIGRAVITY_RUN_PREFIX,
+  antigravityAiCredits,
   antigravityAppDir,
   antigravityApprovalRequest,
   antigravityArgs,
@@ -385,6 +386,48 @@ describe("Antigravity's settings and home for one run", () => {
     expect(Object.keys(antigravityRunSettings(own, 'edit', false))).toEqual(
       expect.not.arrayContaining(['permissions', 'trustedWorkspaces', 'statusLine', 'enableTerminalSandbox']),
     );
+  });
+
+  it("keeps the account's choice of running on its AI credits once a quota is used up, as agy's own CLI takes it, never with a key", () => {
+    // agy's ACP server reads the run's settings alone, so the choice is carried there: from the account's or the Antigravity app's.
+    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', false)).toMatchObject({ useG1Credits: true });
+    expect(antigravityRunSettings({ useG1Credits: false }, 'edit', false, false, true)).toMatchObject({ useG1Credits: true });
+    expect(antigravityRunSettings({ useG1Credits: false }, 'full', false)).not.toHaveProperty('useG1Credits');
+    expect(antigravityRunSettings({ useG1Credits: 'yes' }, 'edit', false)).not.toHaveProperty('useG1Credits');
+    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', true, false, true)).not.toHaveProperty('useG1Credits');
+    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', false, true, true)).not.toHaveProperty('useG1Credits');
+  });
+
+  it("reads whether AI credits are on from the account's settings or the Antigravity app's, and gives a run that choice", () => {
+    const gemini = join(root, 'credits', '.gemini');
+    const app = join(gemini, 'antigravity-cli');
+    mkdirSync(join(gemini, 'config'), { recursive: true });
+    mkdirSync(app, { recursive: true });
+    const runCredits = () => {
+      const run = prepareAntigravityRun(app, 'edit', false);
+      try {
+        return (JSON.parse(readFileSync(join(run.dir, 'settings.json'), 'utf8')) as Record<string, unknown>).useG1Credits;
+      } finally {
+        run.done();
+      }
+    };
+    expect(antigravityAiCredits(app)).toBe(false); // neither file yet
+    expect(runCredits()).toBeUndefined();
+    writeFileSync(join(app, 'settings.json'), JSON.stringify({ useG1Credits: true }));
+    expect(antigravityAiCredits(app)).toBe(true);
+    expect(runCredits()).toBe(true);
+    // agy's own CLI takes the app's setting over its own turned off ("inherited useG1Credits=true"), in either spelling.
+    writeFileSync(join(app, 'settings.json'), JSON.stringify({ useG1Credits: false }));
+    for (const shared of [{ userSettings: { useAiCredits: true } }, { user_settings: { use_ai_credits: true } }]) {
+      writeFileSync(join(gemini, 'config', 'config.json'), JSON.stringify({ plugins: {}, ...shared }));
+      expect(antigravityAiCredits(app)).toBe(true);
+      expect(runCredits()).toBe(true);
+    }
+    writeFileSync(join(gemini, 'config', 'config.json'), JSON.stringify({ userSettings: { useAiCredits: false } }));
+    expect(antigravityAiCredits(app)).toBe(false);
+    expect(runCredits()).toBeUndefined();
+    writeFileSync(join(gemini, 'config', 'config.json'), 'not json');
+    expect(antigravityAiCredits(app)).toBe(false);
   });
 
   it.skipIf(process.platform === 'win32')(

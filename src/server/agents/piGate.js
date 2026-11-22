@@ -11,12 +11,18 @@
 // - MCP tools go through the same `tool_call` event, so they are asked about too.
 // - It registers the command `harness-relay-gate`, which Harness Relay looks for (`get_commands`)
 //   before it sends a prompt: a run where the gate did not load does not start.
+// - It registers the tool `update_plan`, the agent's plan as a checklist, which Harness Relay shows as
+//   the reply's plan (Pi has no to-do tool of its own): it does nothing but answer, so it is never asked
+//   about. The gate is loaded in every run for it; with full access and no hooks
+//   (`HARNESS_RELAY_PI_UNGATED=1` in Pi's environment) it asks about no call.
 // - With the team's after hooks in the turn (`HARNESS_RELAY_PI_AFTER=1` in Pi's environment), each
 //   call's result is shown too, as an `input` dialog titled `harness-relay:tool_result` with
 //   `{toolCallId,toolName,input,isError,output}`; an answer `{"text":"…"}` is added to the result the
 //   model gets. Anything else, a cancelled dialog or an error, leaves the result as it was.
 
 const TITLE = 'harness-relay:tool_call';
+/** The plan tool's name (`PI_PLAN_TOOL` in pi.ts). */
+const PLAN_TOOL = 'update_plan';
 const RESULT_TITLE = 'harness-relay:tool_result';
 /** The most of a result's text shown to Harness Relay. */
 const RESULT_MAX = 16000;
@@ -27,7 +33,41 @@ export default function harnessRelayGate(pi) {
     handler: async () => undefined,
   });
 
+  // Plain JSON Schema: Pi checks tool arguments as JSON Schema, whatever built it (its docs, 1.5.1).
+  pi.registerTool({
+    name: PLAN_TOOL,
+    label: 'Update plan',
+    description:
+      'Keep your plan for a task of several steps as a short checklist the user sees beside your reply. ' +
+      'Send the whole list each time, with each step pending, in_progress (one at a time) or completed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              step: { type: 'string' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+            },
+            required: ['step', 'status'],
+          },
+        },
+      },
+      required: ['plan'],
+    },
+    async execute(_toolCallId, params) {
+      const plan = Array.isArray(params && params.plan) ? params.plan : [];
+      return { content: [{ type: 'text', text: 'Plan updated.' }], details: { plan } };
+    },
+  });
+
+  if (process.env.HARNESS_RELAY_PI_UNGATED === '1') return;
+
   pi.on('tool_call', async (event, ctx) => {
+    // The plan tool only answers: nothing to ask about.
+    if (event.toolName === PLAN_TOOL) return undefined;
     if (!ctx.hasUI) return { block: true, reason: 'Not run: Harness Relay could not be asked about this tool call.' };
     const request = { toolCallId: event.toolCallId, toolName: event.toolName, input: event.input };
     if (event.parentToolCallId) request.parentToolCallId = event.parentToolCallId;

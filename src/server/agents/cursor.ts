@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { Permission } from '../../shared/types';
+import type { Permission, PlanEntry } from '../../shared/types';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
@@ -365,17 +365,86 @@ interface CallState {
   detail?: string;
 }
 
+/** A Task call's subagent type as Cursor names it: a name, or `{ custom: name }` for one of the user's. */
+function cursorSubagentType(v: unknown): string | undefined {
+  const name = v && typeof v === 'object' ? (v as { custom?: unknown }).custom : v;
+  return typeof name === 'string' && name && name !== 'unspecified' ? name : undefined;
+}
+
+/** Whether a call is Cursor's Task tool, which starts a subagent (`rawInput._toolName: 'task'`, 2026.11.11). */
+const isTask = (c: CallState) => c.rawInput?._toolName === 'task';
+
 /**
  * Turns Cursor's ACP `session/update` payloads into AgentEvents. `readOnly`: its write tool may not
  * write or delete (`Write(**)`, which Cursor checks before it would ask), and reports such a call as
  * completed, so its writes and deletes are shown as not made.
  */
+/**
+ * Cursor's to-do list as plan entries: a `cursor/update_todos` request's todos (`{ id, content, status }`)
+ * replace the list, or with `merge` change the items of the same id and add the others (as
+ * `sendToolExtensionNotification` sends them, cursor-agent 2026.11.11's bundle). Its statuses are
+ * pending, in_progress, completed and cancelled; a cancelled item is no longer part of the plan.
+ * Undefined when the request holds no todos.
+ */
+export function cursorTodos(
+  current: readonly CursorTodo[],
+  params: Record<string, any> | undefined,
+): { todos: CursorTodo[]; entries: PlanEntry[] } | undefined {
+  const given: CursorTodo[] = (Array.isArray(params?.todos) ? params.todos : [])
+    .filter((x: any) => x && typeof x.id === 'string' && typeof x.content === 'string')
+    .map((x: any) => ({ id: x.id, content: x.content, status: typeof x.status === 'string' ? x.status : 'pending' }));
+  if (!given.length) return undefined;
+  let todos: CursorTodo[];
+  if (params?.merge === true) {
+    todos = current.map((x) => given.find((g) => g.id === x.id) ?? x);
+    for (const g of given) if (!current.some((x) => x.id === g.id)) todos.push(g);
+  } else todos = given;
+  const entries = todos
+    .filter((x) => x.status !== 'cancelled')
+    .map((x): PlanEntry => ({ text: x.content, status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
+  return { todos, entries };
+}
+
+/** One item of Cursor's to-do list. */
+export interface CursorTodo {
+  id: string;
+  content: string;
+  status: string;
+}
+
 export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnly = false) {
   const calls = new Map<string, CallState>();
   const open = new Set<string>();
+  /** Calls of its to-do tool, shown as the plan rather than as tool rows. */
+  const todoCalls = new Set<string>();
+  let todos: CursorTodo[] = [];
   const refused = new Map<string, string>();
   let inText = false;
   let serviceError: string | undefined;
+  /**
+   * The subagents' sessions (with the `subagents` client capability, Cursor 2026.11.11 makes each
+   * subagent a session of its own, announced by `subagent_spawned` on the session that started it,
+   * with `_meta.cursor.toolCallId`, its Task call): for each, that call.
+   */
+  const children = new Map<string, string>();
+  /** What each subagent last said (its words stay out of the chat): what it reported, when its call does not say. */
+  const words = new Map<string, string>();
+  /** Task calls that answered while their subagent works on in the background (`rawOutput.isBackground`). */
+  const background = new Set<string>();
+  /** The subagent's name and model each Task call's row shows. */
+  const named = new Map<string, { agent?: string; model?: string }>();
+  /**
+   * Names a Task call's subagent (its type, then the name and model Cursor gave it), when that says
+   * something new; for a call not shown yet, its row gets them when it is.
+   */
+  const nameTask = (id: string, agent?: string, model?: string) => {
+    const was = named.get(id) ?? {};
+    const now = { agent: agent ?? was.agent, model: model ?? was.model };
+    if (now.agent === was.agent && now.model === was.model) return;
+    named.set(id, now);
+    if (open.has(id) || calls.has(id))
+      emit({ type: 'tool_start', id, name: 'Task', ...(agent ? { agent } : {}), ...(model ? { model } : {}) });
+  };
 
   const closeText = () => {
     if (inText) {
@@ -396,24 +465,104 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
   const detailOf = (c: CallState) =>
     summarizeInput(c.rawInput) ?? (c.kind === 'execute' ? undefined : titleSubject(c.title) && clip(titleSubject(c.title)!));
 
+  /** The last words of the subagent a Task call started, if it said any. */
+  const saidFor = (callId: string) => {
+    for (const [session, call] of children) if (call === callId && words.get(session)?.trim()) return words.get(session)!.trim();
+    return undefined;
+  };
+
   const finish = (id: string, c: CallState, u: Record<string, any>) => {
-    open.delete(id);
     const out = u.rawOutput && typeof u.rawOutput === 'object' ? (u.rawOutput as Record<string, any>) : undefined;
+    // A background subagent's call answers at once: its row ends when the subagent does.
+    if (isTask(c) && out?.isBackground === true && u.status === 'completed') {
+      background.add(id);
+      return;
+    }
+    open.delete(id);
     const code = typeof out?.exitCode === 'number' ? out.exitCode : undefined;
     const printed = [out?.stdout, out?.stderr].filter((s): s is string => typeof s === 'string' && s.length > 0).join('\n');
     const text = acpContentText(u.content);
     const blocked = readOnly && (c.kind === 'edit' || c.kind === 'delete') && u.status === 'completed';
     const why = refused.get(id) ?? (blocked ? t().cursorReadOnlyWrite : undefined);
     const ok = u.status === 'completed' && !why && (code === undefined || code === 0);
-    const output = printed ? tailText(printed) : ok && text ? tailText(text) : undefined;
+    const said = ok && !printed && !text && isTask(c) ? saidFor(id) : undefined;
+    const output = printed ? tailText(printed) : ok && text ? tailText(text) : said ? tailText(said) : undefined;
     const error = ok ? undefined : (why ?? (code !== undefined && code !== 0 ? t().cursorExitCode(code) : text));
     const detail = !c.detail ? detailOf(c) : undefined;
     emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}), ...(detail ? { detail } : {}) });
   };
 
+  /** A call's update, the agent's own or a subagent's (`parentId`: the Task call that started it). */
+  const toolUpdate = (u: Record<string, any>, parentId?: string) => {
+    const id = String(u.toolCallId ?? '');
+    if (!id) return;
+    // Its to-do tool (`_toolName` in the input Cursor gives the call): the list comes as the plan.
+    if (todoCalls.has(id)) return;
+    if (u.sessionUpdate === 'tool_call') {
+      const c = remember(id, u);
+      if (c.rawInput?._toolName === 'updateTodos') return void todoCalls.add(id);
+      if (!open.has(id)) {
+        open.add(id);
+        c.detail = detailOf(c);
+        const kind = toolCallKind(c.kind);
+        const known = isTask(c) ? named.get(id) : undefined;
+        const agent = isTask(c) ? (known?.agent ?? cursorSubagentType(c.rawInput?.subagentType) ?? 'subagent') : undefined;
+        const model = known?.model;
+        if (agent) named.set(id, { agent, model });
+        emit({
+          type: 'tool_start',
+          id,
+          name: agent ? 'Task' : (KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool')),
+          ...(c.detail ? { detail: c.detail } : {}),
+          ...(kind ? { kind } : {}),
+          ...(parentId ? { parentId } : {}),
+          ...(agent ? { agent } : {}),
+          ...(model ? { model } : {}),
+        });
+      }
+      if (DONE.has(u.status)) finish(id, c, u);
+      return;
+    }
+    if (!open.has(id) || background.has(id)) return;
+    const c = remember(id, u);
+    if (DONE.has(u.status)) finish(id, c, u);
+  };
+
+  /** `subagent_spawned` and `subagent_state_update`, on the session that started the subagent. */
+  const lifecycle = (u: Record<string, any>) => {
+    const session = typeof u.subagentSessionId === 'string' ? u.subagentSessionId : '';
+    const meta = u._meta?.cursor ?? {};
+    if (u.sessionUpdate === 'subagent_spawned') {
+      const call = typeof meta.toolCallId === 'string' ? meta.toolCallId : '';
+      if (!session || !call) return;
+      children.set(session, call);
+      const agent = typeof u.name === 'string' && u.name ? u.name : undefined;
+      const model = typeof meta.model === 'string' && meta.model ? meta.model : undefined;
+      nameTask(call, agent, model);
+      return;
+    }
+    // `completed`, `failed`, `cancelled` or `disconnected`: the end of a background subagent's row.
+    const call = children.get(session);
+    if (!call || !background.delete(call)) return;
+    open.delete(call);
+    const ok = u.state === 'completed';
+    const said = saidFor(call);
+    emit({
+      type: 'tool_end',
+      id: call,
+      ok,
+      ...(ok && said ? { output: tailText(said) } : {}),
+      ...(!ok ? { error: u.state === 'disconnected' ? t().backgroundCutOff : String(u.state ?? 'failed') } : {}),
+    });
+  };
+
   function handle(u: Record<string, any> | undefined): void {
     if (!u) return;
     switch (u.sessionUpdate) {
+      case 'subagent_spawned':
+      case 'subagent_state_update':
+        lifecycle(u);
+        break;
       case 'agent_message_chunk': {
         const text = u.content?.text;
         if (typeof text !== 'string' || !text) break;
@@ -445,38 +594,69 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
         });
         break;
       }
-      case 'tool_call': {
+      case 'tool_call':
         closeText();
-        const id = String(u.toolCallId ?? '');
-        if (!id) break;
-        const c = remember(id, u);
-        if (!open.has(id)) {
-          open.add(id);
-          c.detail = detailOf(c);
-          const kind = toolCallKind(c.kind);
-          emit({
-            type: 'tool_start',
-            id,
-            name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'),
-            ...(c.detail ? { detail: c.detail } : {}),
-            ...(kind ? { kind } : {}),
-          });
-        }
-        if (DONE.has(u.status)) finish(id, c, u);
+        toolUpdate(u);
         break;
-      }
-      case 'tool_call_update': {
-        const id = String(u.toolCallId ?? '');
-        if (!id || !open.has(id)) break;
-        const c = remember(id, u);
-        if (DONE.has(u.status)) finish(id, c, u);
+      case 'tool_call_update':
+        toolUpdate(u);
         break;
-      }
     }
+  }
+
+  /**
+   * An update on a subagent's own session: its calls under the Task call that started it, its own
+   * subagents announced, its words kept for what it reported. False for a session that is no subagent's.
+   */
+  function child(sessionId: string, u: Record<string, any> | undefined): boolean {
+    const call = children.get(sessionId);
+    if (!call || !u) return false;
+    switch (u.sessionUpdate) {
+      case 'subagent_spawned':
+      case 'subagent_state_update':
+        lifecycle(u);
+        break;
+      case 'agent_message_chunk':
+        if (typeof u.content?.text === 'string') words.set(sessionId, (words.get(sessionId) ?? '') + u.content.text);
+        break;
+      case 'tool_call':
+      case 'tool_call_update':
+        toolUpdate(u, call);
+        break;
+    }
+    return true;
   }
 
   return {
     handle,
+    /** A `cursor/update_todos` request: the plan it makes, emitted; its call is not shown as a tool row. */
+    todos(params: Record<string, any> | undefined) {
+      if (typeof params?.toolCallId === 'string') todoCalls.add(params.toolCallId);
+      const next = cursorTodos(todos, params);
+      if (!next) return;
+      todos = next.todos;
+      closeText();
+      emit({ type: 'plan', entries: next.entries });
+    },
+    child,
+    /**
+     * `cursor/task`, which Cursor sends as a Task call completes (`{ toolCallId, description, prompt,
+     * subagentType, model?, agentId?, durationMs? }`, 2026.11.11): the subagent's name and model on its row.
+     */
+    task(p: Record<string, any> | undefined) {
+      const id = typeof p?.toolCallId === 'string' ? p.toolCallId : '';
+      const agent = cursorSubagentType(p?.subagentType);
+      const model = typeof p?.model === 'string' && p.model ? p.model : undefined;
+      if (id && calls.has(id)) nameTask(id, agent, model);
+    },
+    /** The turn is over: a background subagent Cursor did not wait for was cut off with it. */
+    finishSubagents() {
+      for (const id of [...background]) {
+        background.delete(id);
+        open.delete(id);
+        emit({ type: 'tool_end', id, ok: false, error: t().backgroundCutOff });
+      }
+    },
     /** The title, kind and input Cursor gave a call so far (its permission requests leave the input out). */
     call(toolCallId: string): CallState | undefined {
       return calls.get(toolCallId);
@@ -545,10 +725,22 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
   const updates = createCursorUpdateHandler(o.onEvent, o.permission === 'read-only');
   conn.onNotification = (method, params) => {
     if (method !== 'session/update' || replaying) return;
-    if (!sessionId || params?.sessionId !== sessionId) return;
+    if (!sessionId) return;
+    // Another session: a subagent's (the handler knows those of this turn), or not this turn's.
+    if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
     updates.handle(params.update);
   };
   conn.onRequest = async (method, params) => {
+    // Its to-do list in agent mode, sent as a request it does not wait for (no session id in it).
+    if (method === 'cursor/update_todos') {
+      if (!replaying) updates.todos(params);
+      return {};
+    }
+    // Sent as a Task call completes, without waiting for the answer: it names the call's subagent.
+    if (method === 'cursor/task') {
+      if (!replaying) updates.task(params);
+      return {};
+    }
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const skip = cursorQuestionSkip(options);
@@ -604,8 +796,14 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
   try {
     const init = await conn.request('initialize', {
       protocolVersion: 1,
-      // A model and its reasoning effort as two settings (else one entry per combination).
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, _meta: { parameterizedModelPicker: true } },
+      // A model and its reasoning effort as two settings (else one entry per combination). `subagents`:
+      // each subagent a session of its own, linked to its Task call, and a prompt that answers only once
+      // its background subagents are done (`_meta.subagents`, read by 2026.11.11's `initialize`).
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+        _meta: { parameterizedModelPicker: true, subagents: true },
+      },
     });
     // With an API key Cursor is signed in already; `authenticate` would drop the stored key.
     const methods: { id?: string }[] = Array.isArray(init?.authMethods) ? init.authMethods : [];
@@ -641,6 +839,7 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(text, o.images) });
     rememberBriefing(sessionId, briefing);
     updates.finish();
+    updates.finishSubagents();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (updates.serviceError) throw new AgentRunError(t().cursorService(updates.serviceError));
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().cursorCancelled);

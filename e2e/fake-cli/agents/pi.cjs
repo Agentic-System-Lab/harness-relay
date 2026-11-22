@@ -23,7 +23,9 @@
  * asks in edit mode), but a URL (`e2e:fetch`) is reached for real, as `bash` `curl` would, so below
  * full access through the sandbox's proxy, which asks the user about a host that is not the run's
  * model backend; with no tool for a step (a read-only chat has no `bash` or `write`) it says so.
- * Pi has no to-do lists: `e2e:todo` shows nothing. It knows of no other working directory but those
+ * Pi has no to-do tool of its own: `e2e:todo` goes through the plan tool Harness Relay's gate registers
+ * (`update_plan`, active as Pi's extension tools are, and named in read-only's `--tools`), whose
+ * `execute` it runs. It knows of no other working directory but those
  * its briefing names.
  *
  * Its model is the one `--model` names among those it knows: its catalog's (OpenAI, Anthropic and xAI
@@ -229,13 +231,14 @@ function resolveModel(ref) {
 
 // --- Extensions -----------------------------------------------------------------------------------
 
-/** What the loaded extensions registered: their commands, and their handlers by event. */
-const extensions = { commands: [], handlers: {} };
+/** What the loaded extensions registered: their commands, their tools by name, and their handlers by event. */
+const extensions = { commands: [], tools: {}, handlers: {} };
 
 /** Loads the extension at `abs` as Pi does (`-e <file>`): its default export, called with Pi's API. */
 async function loadExtension(abs) {
   const commands = [];
   const handlers = [];
+  const tools = {};
   const api = {
     registerCommand: (name, o = {}) =>
       commands.push({
@@ -245,7 +248,10 @@ async function loadExtension(abs) {
         sourceInfo: { path: abs, source: 'cli', scope: 'temporary', origin: 'top-level' },
       }),
     on: (event, handler) => handlers.push([event, handler]),
-    registerTool: () => undefined,
+    // Active unless `--tools` names others, as Pi's extension tools are.
+    registerTool: (tool) => {
+      if (tool && typeof tool.name === 'string') tools[tool.name] = tool;
+    },
     registerShortcut: () => undefined,
     registerFlag: () => undefined,
     getFlag: () => undefined,
@@ -276,6 +282,7 @@ async function loadExtension(abs) {
     return void out({ type: 'extension_error', extensionPath: abs, event: 'load', error: err && err.message ? err.message : String(err) });
   }
   extensions.commands.push(...commands);
+  Object.assign(extensions.tools, tools);
   for (const [event, handler] of handlers) (extensions.handlers[event] ||= []).push(handler);
 }
 
@@ -484,7 +491,7 @@ function rpcMain() {
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean)
-      : [...DEFAULT_TOOLS, ...mcp.map((s) => `mcp__${s}__*`)];
+      : [...DEFAULT_TOOLS, ...Object.keys(extensions.tools), ...mcp.map((s) => `mcp__${s}__*`)];
     session = openSession();
     // A resumed session keeps its own model and level (`--thinking` over its level).
     model = (session.model && registry().find((m) => `${m.provider}/${m.id}` === session.model)) || resolveModel(flag('--model'));
@@ -775,6 +782,17 @@ function rpcMain() {
           }[d.error] || step.text;
         endMessage('error', { errorMessage });
         return settle(false);
+      }
+      // Harness Relay's gate gives it a plan tool (Pi has none of its own): a to-do list goes through it.
+      if (step.type === 'todo' && extensions.tools.update_plan && isActive('update_plan')) {
+        const plan = step.entries.map((e) => ({ step: e.text, status: e.status }));
+        const tool = extensions.tools.update_plan;
+        const r = await call('update_plan', { plan }, async () => {
+          const res = await tool.execute(`plan_${process.pid}`, { plan });
+          const text = (res.content || []).map((c) => c.text || '').join('');
+          return { ok: true, text, details: res.details };
+        });
+        if (r && r.aborted) return stopped();
       }
       if (step.type === 'tool') {
         const r = isActive('ls')

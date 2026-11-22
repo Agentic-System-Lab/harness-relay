@@ -203,7 +203,7 @@ export async function previewSnapshot(
       !before.isFile() ||
       isPrivate(path) ||
       before.nlink !== 1n ||
-      withheld.has(fileKey({ dev: Number(before.dev), ino: Number(before.ino) }))
+      withheld.has(fileKey(before))
     )
       return;
     if (before.size > limits.fileBytes || total + Number(before.size) > limits.totalBytes) throw tooLarge();

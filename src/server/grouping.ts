@@ -1,7 +1,7 @@
 import type { Conversation, ConversationGroup, Provider } from '../shared/types';
 import { runners } from './agents';
-import { stateKeys } from './agents/types';
-import { parsePlanReply } from './planner';
+import { stateKeys, type OutputSchema } from './agents/types';
+import { leadReply, strictObject } from './planner';
 import type { SettingsStore } from './settings';
 import type { Store } from './store';
 
@@ -50,9 +50,17 @@ Pick the group this conversation belongs in, judging by the group names (and the
 Reply with only this JSON object: {"group": <number>}`;
 }
 
-/** The group the lead agent picked (null: none). Throws when its reply names no group of the list. */
-export function parseGroupReply(text: string, groups: ConversationGroup[]): ConversationGroup | null {
-  const value: unknown = parsePlanReply(text).group;
+/** The answer as JSON Schema (`buildGroupPrompt()`'s object), for a lead whose CLI can be asked for one. */
+export const GROUP_SCHEMA: OutputSchema = strictObject({
+  group: { type: 'integer', description: "The group's number in the list, or 0 for none" },
+});
+
+/**
+ * The group the lead agent picked (null: none), from its structured answer (`GROUP_SCHEMA`) when its CLI
+ * gave one, else its reply's text. Throws when it names no group of the list.
+ */
+export function parseGroupReply(text: string, groups: ConversationGroup[], structured?: unknown): ConversationGroup | null {
+  const value: unknown = leadReply(text, structured).group;
   if (value === null || value === 0 || value === '0') return null;
   const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
   if (Number.isInteger(n) && n >= 1 && n <= groups.length) return groups[n - 1]!;
@@ -117,11 +125,11 @@ export class AutoGrouper {
       bin: this.settings.bin(lead.provider),
       env: this.settings.env(lead.provider, lead.account),
       backends: this.settings.backendsFor(lead.provider),
-      nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-      nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+      ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
       sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
       prompt,
       systemPrompt: GROUPER_BRIEFING,
+      outputSchema: GROUP_SCHEMA,
       cwd: conv.settings.cwd,
       permission: 'read-only',
       stateKey: stateKeys.sort(conv.id),
@@ -138,7 +146,7 @@ export class AutoGrouper {
     if (result.sessionId && !signal.aborted) this.onSession?.(conv, lead.provider, result.sessionId);
     if (signal.aborted) return;
     // Groups deleted meanwhile are skipped by the store.
-    this.store.sortIntoGroup(conv.id, parseGroupReply(reply, groups)?.id ?? null);
+    this.store.sortIntoGroup(conv.id, parseGroupReply(reply, groups, result.structured)?.id ?? null);
   }
 
   /** The conversation is being deleted: stop sorting it, and wait until that has wound down. */

@@ -160,6 +160,55 @@ export interface AgentConfig {
    * gets the tool although the tool is off by default, false = it does not get a tool that is on.
    */
   tools?: Record<string, boolean>;
+  /** This member's own limits, for the CLIs that have one (`AGENT_LIMITS`); absent = none. */
+  limits?: AgentLimits;
+}
+
+// --- A member's own limits: what one turn (or session) of its CLI may spend --------------------
+
+/**
+ * A member's limits, each one a CLI's own (`AGENT_LIMITS` says whose): `usd`, the US dollars a turn may
+ * cost (Claude Code's `--max-budget-usd`, by its own estimate); `aiCredits`, the AI credits its session
+ * may use (Copilot's `--max-ai-credits`, a soft cap: one response can pass it); `steps`, the model calls
+ * a turn may make (Goose's `GOOSE_MAX_TURNS`, OpenCode's agent `steps`).
+ */
+export interface AgentLimits {
+  usd?: number;
+  aiCredits?: number;
+  steps?: number;
+}
+export type AgentLimitKey = keyof AgentLimits;
+
+/** One CLI's limit: which it is, its least and greatest value, and whether it is a whole number. */
+export interface AgentLimitSpec {
+  key: AgentLimitKey;
+  min: number;
+  max: number;
+  integer: boolean;
+  /** Not given on the user's own endpoint (Claude Code would price its model as one of its own; Copilot bills it no credits). */
+  notOnEndpoint?: boolean;
+}
+
+/** The CLIs with a limit of their own, and its bounds; the others have none. */
+export const AGENT_LIMITS: Partial<Record<Provider, AgentLimitSpec>> = {
+  claude: { key: 'usd', min: 0.01, max: 10_000, integer: false, notOnEndpoint: true },
+  // Copilot refuses a session limit under 30 AI credits.
+  copilot: { key: 'aiCredits', min: 30, max: 1_000_000, integer: true, notOnEndpoint: true },
+  goose: { key: 'steps', min: 1, max: 10_000, integer: true },
+  opencode: { key: 'steps', min: 1, max: 10_000, integer: true },
+};
+
+/** Whether `v` is a value `spec` takes. */
+export function agentLimitValid(spec: AgentLimitSpec, v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= spec.min && v <= spec.max && (!spec.integer || Number.isInteger(v));
+}
+
+/** The limits of `limits` that `provider` has and takes, or undefined when none is left. */
+export function agentLimitsFor(provider: Provider, limits: unknown): AgentLimits | undefined {
+  const spec = AGENT_LIMITS[provider];
+  if (!spec || !limits || typeof limits !== 'object') return undefined;
+  const v = (limits as Record<string, unknown>)[spec.key];
+  return agentLimitValid(spec, v) ? { [spec.key]: v } : undefined;
 }
 
 // --- Tool library: MCP servers, skills and memory every agent can be given ------------------
@@ -543,9 +592,10 @@ export interface ToolLibraryUpdate {
 /**
  * The kinds of things a CLI loads by itself that Harness Relay can leave out of its runs, all of a
  * kind at once. `agents` are the CLI's own subagents (its built-in ones stay); `tools` its built-in
- * tools.
+ * tools; `subagents` the CLI's whole subagent feature, its built-in subagents included (Codex's
+ * `agents.enabled`, Grok's `GROK_SUBAGENTS`…), which Settings shows as a switch of its own, on by default.
  */
-export const NATIVE_PARTS = ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'] as const;
+export const NATIVE_PARTS = ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins', 'subagents'] as const;
 export type NativePart = (typeof NATIVE_PARTS)[number];
 
 /**
@@ -564,24 +614,29 @@ export type NativePart = (typeof NATIVE_PARTS)[number];
  * built-in tools.
  */
 export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
-  claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins'],
-  codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins'],
-  grok: ['skills', 'mcp', 'memory', 'hooks'],
+  // Claude Code: `subagents` denies its `Agent` tool (every subagent, built-in ones too).
+  claude: ['skills', 'mcp', 'tools', 'instructions', 'memory', 'hooks', 'agents', 'plugins', 'subagents'],
+  // Codex: `subagents` is `agents.enabled=false` with both multi-agent features off.
+  codex: ['skills', 'mcp', 'instructions', 'memory', 'hooks', 'plugins', 'subagents'],
+  // Grok: `subagents` is `GROK_SUBAGENTS=0`.
+  grok: ['skills', 'mcp', 'memory', 'hooks', 'subagents'],
   cursor: [],
   antigravity: [],
   copilot: ['skills', 'mcp', 'memory', 'hooks', 'plugins'],
   // Muse Code: its MCP servers and hooks are its settings', and each run has settings of its own.
   muse: ['mcp', 'hooks'],
   // The open agents: each adapter lists what its CLI can really leave out (one line each, kept apart).
-  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`).
-  opencode: ['skills', 'instructions', 'agents'],
+  // OpenCode: skills (denied with `permission.skill`, which turns off its skill tool), the project's instruction files Harness Relay passes on, its subagents (`agent.<name>.disable`), all of them (`permission.task`).
+  opencode: ['skills', 'instructions', 'agents', 'subagents'],
 
-  goose: ['mcp', 'instructions', 'plugins'],
+  // Goose: `subagents` leaves out its `summon` extension (`delegate`).
+  goose: ['mcp', 'instructions', 'plugins', 'subagents'],
 
-  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run).
-  cline: ['skills'],
+  // Cline: its `skills` tool off (`disabledTools` in its global settings, written per run), and its `spawn_agent`.
+  cline: ['skills', 'subagents'],
 
-  openhands: [], // none: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md)
+  // OpenHands: its home is Harness Relay's, and the project's files have no switch (docs/open-agents.md); its `task` tool.
+  openhands: ['subagents'],
 
   // Pi: `--no-context-files` leaves out every AGENTS.md / CLAUDE.md it would load (none alone).
   pi: ['instructions'],
@@ -590,6 +645,66 @@ export const NATIVE_OFF_SUPPORT: Record<Provider, readonly NativePart[]> = {
 /** The parts in `parts` that `provider` can leave out, once each, in NATIVE_PARTS order. */
 export function nativeOffFor(provider: Provider, parts: readonly string[]): NativePart[] {
   return NATIVE_PARTS.filter((p) => NATIVE_OFF_SUPPORT[provider].includes(p) && parts.includes(p));
+}
+
+/**
+ * The CLIs whose subagents Harness Relay turns off below full access whatever Settings says
+ * (`subagents` left out): Codex's lose the sandbox's `read` entries before 0.170.0 and its approval
+ * check sees no path for them; Grok's run in the background and wake it once done, and whether that turn
+ * reaches Harness Relay over ACP (which its turn now waits for) still needs a live run;
+ * OpenCode's would wait on a question no one is asked; OpenHands' act without asking, and so do
+ * Cline's: its `spawn_agent` gives the subagent no tool policy and no approval callback, so its
+ * policy check asks about nothing (`@cline/core` and `@cline/agents` in Cline 3.0.75). Settings' switch
+ * then reaches their runs at full access only.
+ */
+export const SUBAGENTS_FULL_ACCESS_ONLY: readonly Provider[] = ['codex', 'grok', 'opencode', 'openhands', 'cline'];
+
+/** The parts a run of `provider` leaves out at `permission`: the account's, and its subagents where they are full access only. */
+export function runNativeOff(provider: Provider, permission: Permission, off: readonly NativePart[]): NativePart[] {
+  const forced = permission !== 'full' && SUBAGENTS_FULL_ACCESS_ONLY.includes(provider) ? ['subagents'] : [];
+  return nativeOffFor(provider, [...off, ...forced]);
+}
+
+/**
+ * What a CLI can do by itself that Harness Relay's runs leave off unless the account turns it on:
+ * `workflows`, scripts of subagents within one turn (Claude Code's `Workflow` tool); `ultracode`,
+ * Claude Code planning a workflow for every substantial task (its `"ultracode": true` setting, keeping
+ * the member's effort), which needs `workflows`.
+ */
+export const NATIVE_ON_PARTS = ['workflows', 'ultracode'] as const;
+export type NativeOnPart = (typeof NATIVE_ON_PARTS)[number];
+
+/** Which of them each CLI has a switch for. A CLI without one runs as its own default (docs/architecture.md). */
+export const NATIVE_ON_SUPPORT: Record<Provider, readonly NativeOnPart[]> = {
+  claude: ['workflows', 'ultracode'],
+  codex: [],
+  // Grok: its background workflows and deep research (`GROK_WORKFLOWS`, Grok 1.0.92's docs).
+  grok: ['workflows'],
+  cursor: [],
+  antigravity: [],
+  copilot: [],
+  muse: [],
+  opencode: [],
+  goose: [],
+  cline: [],
+  openhands: [],
+  pi: [],
+};
+
+/**
+ * What a run of `provider` turns on at `permission`: the account's, but below full access none of the
+ * workflows of a CLI whose subagents are full access only (`SUBAGENTS_FULL_ACCESS_ONLY`: Grok's run in
+ * the background as its subagents do, and are lost with the turn the same way).
+ */
+export function runNativeOn(provider: Provider, permission: Permission, on: readonly NativeOnPart[]): NativeOnPart[] {
+  const off = permission !== 'full' && SUBAGENTS_FULL_ACCESS_ONLY.includes(provider);
+  return nativeOnFor(provider, off ? [] : on);
+}
+
+/** The parts in `parts` that `provider` can turn on, once each, in NATIVE_ON_PARTS order; `ultracode` only with `workflows`. */
+export function nativeOnFor(provider: Provider, parts: readonly string[]): NativeOnPart[] {
+  const on = NATIVE_ON_PARTS.filter((p) => NATIVE_ON_SUPPORT[provider].includes(p) && parts.includes(p));
+  return on.includes('workflows') ? on : on.filter((p) => p !== 'ultracode');
 }
 
 /**
@@ -1162,6 +1277,14 @@ export interface ConversationSettings {
    */
   approvals?: 'ask' | 'deny';
   /**
+   * Steering: a message the user sends while members are working goes into their running turns, as the
+   * mode allows and as their CLIs can take one (`STEER_PROVIDERS`), instead of waiting in the queue for
+   * the next turn: in roundtable and relay mode into the turn of the member speaking now; in parallel
+   * mode into every turn of the round at once, only when all of them are still running and can take it.
+   * Otherwise it waits in the queue as before. Off by default; switched in Team settings, any time.
+   */
+  steer?: boolean;
+  /**
    * Team checks: what Harness Relay itself checks the team's work against once the team has answered,
    * whichever CLI each member runs on (`CheckList`). Copied from a template with the team; once the
    * conversation has a list, a new team or template leaves it as it is.
@@ -1261,6 +1384,15 @@ export interface CheckHook {
  * members work without them, and the chat says so.
  */
 export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot', 'muse', 'pi'];
+
+/**
+ * The CLIs whose adapters can send a message into a running turn (steering, `ConversationSettings.steer`,
+ * `RunOptions.onSteer`): Claude Code (a user message on its stream-json input, `priority: "next"`), Codex
+ * (`turn/steer`), Grok (`x.ai/interject`), Antigravity (another `session/prompt`), Goose
+ * (`_goose/unstable/session/steer`) and Pi (its `steer` command). Cursor cannot (a new prompt cancels the
+ * running one); OpenCode, Cline, OpenHands, Copilot and Muse Code count as cannot until a run shows otherwise.
+ */
+export const STEER_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'grok', 'antigravity', 'goose', 'pi'];
 
 /**
  * How many protected path patterns a list may have, the longest pattern and commit pattern, how many
@@ -1631,7 +1763,24 @@ export type MessagePart =
    * `kind`: what the call does, when its CLI says (or its adapter can tell from the tool); only
    * AgentsView's record of a member's session uses it (`memberTranscript`).
    */
-  | { type: 'tool'; id: string; name: string; detail?: string; kind?: ToolCallKind; status: ToolStatus; error?: string; output?: string }
+  | {
+      type: 'tool';
+      id: string;
+      name: string;
+      detail?: string;
+      kind?: ToolCallKind;
+      status: ToolStatus;
+      error?: string;
+      output?: string;
+      /**
+       * The call it was made under, when a subagent (or another call that runs calls, like `run_code`)
+       * made it: the id of the tool part that started that subagent. The chat shows it inside that one.
+       */
+      parentId?: string;
+      /** On a call that starts a subagent: the subagent's name and model, when the CLI says. */
+      agent?: string;
+      model?: string;
+    }
   /** The agent asked to do something its permission does not cover; the user decides. */
   | {
       type: 'approval';
@@ -1767,6 +1916,11 @@ export interface ChatMessage {
   checks?: ChecksResult;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
+  /**
+   * A user message that went into running turns (steering, `ConversationSettings.steer`): the ids of the
+   * members whose turn took it, who count it as seen. It is `queued` too (it joined a discussion under way).
+   */
+  steered?: string[];
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
@@ -2454,7 +2608,20 @@ export interface UsageLimit {
   /** A limit of a number of requests (Copilot's premium requests): how many are used, of how many. */
   used?: number;
   total?: number;
+  /**
+   * Once it is used up, the account's `payer` pays for what goes past it, so it does not stop the CLI:
+   * set only for the limits that payer covers as the CLI reports it (Codex's credits pay past the plan's
+   * own limit, not a model's), and only while the account has one (`AccountUsage.payer`).
+   */
+  paidPast?: true;
 }
+
+/**
+ * What a CLI keeps running on, billed by use, once its plan's included usage is used up: purchased
+ * credits (Codex's, Grok's prepaid credits), Claude Code's usage credits (extra usage), Copilot's
+ * additional paid usage, Grok's pay-as-you-go.
+ */
+export type UsagePayer = 'credits' | 'usageCredits' | 'additionalUsage' | 'payAsYouGo';
 
 /**
  * Why an account has no plan limits to show: it runs on an API key the provider bills by use (no
@@ -2479,10 +2646,17 @@ export interface AccountUsage {
   /** The plan, as the CLI names it ("max", "prolite", "SuperGrok"). */
   plan?: string;
   limits: UsageLimit[];
-  /** The CLI explicitly says ordinary usage on this plan is blocked. */
+  /** The CLI explicitly says ordinary usage on this plan is blocked (its included usage; `payer` may still pay past it). */
   planUsageBlocked?: boolean;
-  /** Credits beside the plan's limits (Codex's), when the account has some. */
+  /** Credits beside the plan's limits (Codex's, Antigravity's), when the account has some: for display. */
   credits?: { balance?: number; unlimited?: boolean };
+  /**
+   * What pays once the plan's included usage is used up, when the CLI keeps running then: past the limits
+   * marked `paidPast` and past `planUsageBlocked`. Set only while it can pay now (credits left or
+   * unlimited, extra usage turned on and below its spend limits, additional usage allowed); unset, a
+   * limit used up stops the CLI until it resets.
+   */
+  payer?: UsagePayer;
   /** No limits to show, and why. */
   none?: UsageNone;
   /** The CLI could not be asked, or refused: in its own words. */
@@ -2611,6 +2785,8 @@ export interface AccountRunSettings {
   nativeOff: NativePart[];
   /** Single items Harness Relay's runs leave out (see NATIVE_ITEM_SUPPORT). */
   nativeItems: NativeItemsOff;
+  /** What Harness Relay's runs turn on that they otherwise leave off (see NATIVE_ON_SUPPORT). */
+  nativeOn: NativeOnPart[];
 }
 
 /** One account of a CLI as Settings shows it. */
@@ -2638,6 +2814,8 @@ export interface ProviderAccountUpdate {
   nativeOff?: NativePart[];
   /** All the single items, replacing the current ones; kinds the CLI cannot leave out are dropped. */
   nativeItems?: NativeItemsOff;
+  /** The whole list, replacing the current one; parts the CLI cannot turn on are dropped. */
+  nativeOn?: NativeOnPart[];
 }
 
 /**
@@ -2814,6 +2992,8 @@ export interface ModelEndpointView {
   keyMasked: string;
   keyStorage: KeyStorage;
   keyUnreadable?: boolean;
+  /** Its models' context windows and output limits, by model id: only the models that have one. */
+  limits?: Record<string, ModelLimits>;
 }
 
 export interface ModelBackendsView {
@@ -2840,6 +3020,30 @@ export interface ModelEndpointUpdate {
   models: string[];
   /** string = set / replace, null = remove, absent = keep. */
   apiKey?: string | null;
+  /**
+   * The context windows and output limits the user set, by model id (models it lists only); the
+   * server's own figures are kept apart (`ModelLimits.reported`). Absent: those set before are kept.
+   */
+  limits?: Record<string, TokenLimits>;
+}
+
+/**
+ * An endpoint model's token limits: its context window (the most tokens one request may hold, its
+ * answer's included) and the most tokens one answer may have (`docs/open-agents.md`, "Context windows").
+ */
+export interface TokenLimits {
+  context?: number;
+  output?: number;
+}
+
+/**
+ * One endpoint model's limits as kept (`model_backends.model_limits`, JSON by model id): what the user
+ * set in Settings (`context`, `output`), which wins, and what the server reported the last time the
+ * endpoint was saved with a check of its models (`reported`: vLLM's `max_model_len`, llama.cpp's
+ * `meta.n_ctx`).
+ */
+export interface ModelLimits extends TokenLimits {
+  reported?: TokenLimits;
 }
 
 /** An open agent's model id, `<backend>/<model>`, taken apart. */
@@ -2862,6 +3066,26 @@ export function parseBackendModel(id: string): BackendModel | undefined {
   const backend = text.slice(0, at);
   if (!isApiBackend(backend) && !ENDPOINT_ID_RE.test(backend)) return undefined;
   return { backend, model: text.slice(at + 1) };
+}
+
+/**
+ * Settings → Labs: an experimental way for agents to use Harness Relay's own tools, one at a time
+ * (`runCode.ts`). `code`: `run_code`, code that calls the tools; `rlm`: the same with a `state` kept for
+ * the turn and `llm_query()` to a sub-model (`rlmModel`, `<backend>/<model>`, a model connection).
+ */
+export const LAB_MODES = ['off', 'code', 'rlm'] as const;
+export type LabMode = (typeof LAB_MODES)[number];
+export interface LabSettings {
+  mode: LabMode;
+  /** With `rlm`: the sub-model, as `<backend>/<model>`. */
+  rlmModel?: string;
+}
+/** `GET /api/labs`: the mode on now, and where it comes from. */
+export interface LabsView extends LabSettings {
+  /** Saved in Settings; the environment's (`RELAY_RUN_CODE`, `RELAY_RLM`) until changed there; or neither (off). */
+  source: 'saved' | 'env' | 'default';
+  /** Why the modes cannot run on this computer (no sandbox for the code), in the request's language; undefined when they can. */
+  unavailable?: string;
 }
 
 /** `<backend>/<model>`. */

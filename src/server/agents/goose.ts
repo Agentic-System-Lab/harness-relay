@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import {
+  agentLimitsFor,
   API_BACKENDS,
   isApiBackend,
   parseBackendModel,
@@ -26,6 +27,7 @@ import {
   type NativeHook,
   type NativeMcpServer,
   type NativeMemoryFile,
+  type NativePart,
   type NativePlugin,
   type NativeSkill,
   type Permission,
@@ -33,6 +35,8 @@ import {
   type ToolCallKind,
 } from '../../shared/types';
 import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../backends';
+import { runLimits, SHORT_CONTEXT, toolOutputChars } from '../contextWindow';
+import type { TokenLimits } from '../../shared/types';
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
@@ -217,10 +221,20 @@ export const GOOSE_HINT_FILES = ['.goosehints', 'AGENTS.md'];
  */
 export const GOOSE_PLATFORM_EXTENSIONS = ['analyze', 'summon', 'todo'];
 
+/** The extension its subagents come from (`delegate`), left out with them (`subagents` in `nativeOff`). */
+export const GOOSE_SUBAGENT_EXTENSION = 'summon';
+
+/** The platform extensions a run has besides `developer`: all of `GOOSE_PLATFORM_EXTENSIONS`, `summon` only with its subagents. */
+export function goosePlatformExtensions(off: readonly NativePart[] = []): string[] {
+  return off.includes('subagents')
+    ? GOOSE_PLATFORM_EXTENSIONS.filter((n) => n !== GOOSE_SUBAGENT_EXTENSION)
+    : [...GOOSE_PLATFORM_EXTENSIONS];
+}
+
 /** `EXTENSIONS` for a run (Goose takes a config key's value from its upper-case variable, as JSON). */
-export function gooseExtensionsEnv(): string {
+export function gooseExtensionsEnv(off: readonly NativePart[] = []): string {
   const entries = Object.fromEntries(
-    GOOSE_PLATFORM_EXTENSIONS.map((name) => [name, { enabled: true, type: 'platform', name, description: '', bundled: true }]),
+    goosePlatformExtensions(off).map((name) => [name, { enabled: true, type: 'platform', name, description: '', bundled: true }]),
   );
   return JSON.stringify(entries);
 }
@@ -297,9 +311,14 @@ export function cleanGooseEnv(env: NodeJS.ProcessEnv, keep: Record<string, strin
   }
 }
 
-/** A custom endpoint as a Goose provider file (`config/custom_providers/<provider>.json`). */
+/**
+ * A custom endpoint as a Goose provider file (`config/custom_providers/<provider>.json`). Each model with
+ * a context window known in Settings has it as its `context_limit`, which Goose takes before asking the
+ * server (llama.cpp's `meta.n_ctx`), its catalog or its default of 128,000 tokens; only
+ * `GOOSE_CONTEXT_LIMIT` comes first (`ContextLimitResolver`, Goose 1.58.1).
+ */
 export function gooseEndpointFile(
-  endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string },
+  endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string; limits?: Record<string, TokenLimits> },
   extraModel?: string,
 ): Record<string, unknown> {
   const models = [...new Set([...endpoint.models, ...(extraModel ? [extraModel] : [])].filter(Boolean))];
@@ -311,11 +330,42 @@ export function gooseEndpointFile(
     api_key_env: endpoint.apiKey ? gooseEndpointKeyVar(endpoint.id) : '',
     requires_auth: Boolean(endpoint.apiKey),
     base_url: endpoint.baseUrl,
-    models: models.map((name) => ({ name })),
+    models: models.map((name) => {
+      const context = runLimits(endpoint, name)?.context;
+      return { name, ...(context ? { context_limit: context } : {}) };
+    }),
     supports_streaming: true,
     // Its typed models, without asking the endpoint for its list (Goose asks when the list is empty).
     ...(models.length ? { dynamic_models: false } : {}),
   };
+}
+
+/** Goose's own limit of one tool response, in characters, beyond which it goes to a file (`GOOSE_MAX_TOOL_RESPONSE_SIZE`, Goose 1.58.1). */
+export const GOOSE_TOOL_RESPONSE_MAX = 200_000;
+
+/**
+ * The variables a run's model's limits set (Settings → Model connections), none without them:
+ * - `GOOSE_MAX_TOKENS`: its output limit, when known (otherwise Goose sends none, and the server gives
+ *   an answer what the window has left);
+ * - `GOOSE_MAX_TOOL_RESPONSE_SIZE`: one tool response at most `toolOutputChars()` (an eighth of the
+ *   window) where that is less than Goose's 200,000 characters (some 50,000 tokens); a longer one goes
+ *   to a file the agent can read in parts;
+ * - `GOOSE_TOOL_PAIR_SUMMARIZATION` in a short window (`SHORT_CONTEXT`): Goose sums up the oldest tool
+ *   calls and their results, ten at a time, once more than its cutoff (10 tool calls in such a window)
+ *   come before the turn's own, so a full compaction comes later. It costs a model call for each, which
+ *   a small window's server is spared from a compaction meanwhile.
+ * Goose compacts at 80% of the window (`GOOSE_AUTO_COMPACT_THRESHOLD`), left as it is; its persistent
+ * instructions are left out under 32,000 tokens by Goose itself.
+ */
+export function gooseContextEnv(l: TokenLimits | undefined): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (l?.output) env.GOOSE_MAX_TOKENS = String(l.output);
+  if (l?.context) {
+    const chars = toolOutputChars(l.context);
+    if (chars < GOOSE_TOOL_RESPONSE_MAX) env.GOOSE_MAX_TOOL_RESPONSE_SIZE = String(chars);
+    if (l.context <= SHORT_CONTEXT) env.GOOSE_TOOL_PAIR_SUMMARIZATION = 'true';
+  }
+  return env;
 }
 
 /** `config.yaml`: only what never differs between runs (the rest is in variables). */
@@ -467,10 +517,17 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
     GOOSE_MODEL: run.model,
     GOOSE_MODE: gooseMode(o.permission),
     ...(windows ? {} : { GOOSE_SHELL: shell, ...gooseShellEnv(deps.realHome, deps.bash) }),
-    EXTENSIONS: gooseExtensionsEnv(),
+    EXTENSIONS: gooseExtensionsEnv(o.nativeOff),
     PLUGINS: goosePluginsEnv(goosePluginDirs(o.cwd, own), o),
     CONTEXT_FILE_NAMES: JSON.stringify(o.nativeOff?.includes('instructions') ? [] : GOOSE_HINT_FILES),
+    // A model server of the user's often serves one request at a time: one subagent at once there (5 by default).
+    ...(run.kind === 'endpoint' ? { GOOSE_MAX_CONCURRENT_SUBAGENTS: '1' } : {}),
   });
+  // The member's own limit: the model calls ("turns") Goose makes for one prompt before it stops to ask.
+  const steps = agentLimitsFor('goose', o.limits)?.steps;
+  if (steps) env.GOOSE_MAX_TURNS = String(steps);
+  // The run's model's context window and output limit, and what a short window needs.
+  Object.assign(env, gooseContextEnv(run.endpoint ? runLimits(run.endpoint, run.model) : undefined));
   if (run.endpoint?.apiKey) env[gooseEndpointKeyVar(run.endpoint.id)] = run.endpoint.apiKey;
 }
 
@@ -493,7 +550,8 @@ function checkGooseSessions(ctx: OpenRunContext): void {
     if (link) throw new Error(`${link}: not a folder (a link, a file…)`);
     const pending = sealed ? pendingGooseSignIns(sealed) : [];
     if (pending.length) stripGooseSignIns(home.state, { names: pending, secrets: [] });
-    if (o.sessionId && sealed) restoreGooseSession(home.state, sealed, o.sessionId);
+    if (o.sessionId && sealed)
+      restoreGooseSession(home.state, sealed, o.sessionId, o.nativeOff?.includes('subagents') ? [GOOSE_SUBAGENT_EXTENSION] : []);
     else if (existsSync(gooseSessionsDb(home.state))) openRunDatabase(gooseSessionsDb(home.state)).close();
   } catch (err) {
     startStateOver(ctx, err as Error);
@@ -801,7 +859,13 @@ function sealedExtensions(sealed: string, sessionId: string): GooseExtension[] |
  * back once written. Fails closed: a session whose row cannot be checked is not resumed (`prepareGoose`
  * starts the state over, and the orchestrator then starts a fresh session).
  */
-export function restoreGooseSession(state: string, sealed: string, sessionId: string): void {
+export function restoreGooseSession(
+  state: string,
+  sealed: string,
+  sessionId: string,
+  /** Platform extensions this run leaves out (its subagents' `summon`), taken out of the list a session started with. */
+  leaveOut: readonly string[] = [],
+): void {
   const file = gooseSessionsDb(state);
   if (!existsSync(file)) return; // nothing to resume: the load says so
   try {
@@ -818,11 +882,12 @@ export function restoreGooseSession(state: string, sealed: string, sessionId: st
       } catch {
         /* unreadable: only the extension list is put back */
       }
-      const extensions =
+      const extensions = (
         sealedExtensions(sealed, sessionId) ??
         (storedExtensions(row.extension_data) ?? []).filter(
           (e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name),
-        );
+        )
+      ).filter((e) => !(e.type === 'platform' && typeof e.name === 'string' && leaveOut.includes(e.name)));
       data[GOOSE_EXTENSIONS_KEY] = { extensions };
       const written = JSON.stringify(data);
       const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c));
@@ -932,7 +997,7 @@ export function gooseSessionParams(ctx: OpenRunContext, method: AcpSessionMethod
     _meta: {
       enabledExtensions: [
         { type: 'platform', name: 'developer' },
-        ...GOOSE_PLATFORM_EXTENSIONS.map((name) => ({ type: 'platform', name })),
+        ...goosePlatformExtensions(ctx.o.nativeOff).map((name) => ({ type: 'platform', name })),
         ...servers.map((server) => ({ type: 'mcp', server, env_keys: [], scopes: [] })),
       ],
     },
@@ -982,6 +1047,33 @@ export async function gooseAfterRefusal(
     expectedRunId: runId,
     prompt: [{ type: 'text', text: `Harness Relay: ${refusal.reason}` }],
   });
+}
+
+/**
+ * Sends a message the user wrote into the running turn (steering, `RunOptions.onSteer`), the way a
+ * refusal's reason goes: `_goose/unstable/session/steer { sessionId, expectedRunId, prompt }`, which Goose
+ * answers with `{ runId, messageId }` once it queued the message for the run's next safe point, and
+ * refuses when no run is active or another one is ("no active run to steer", "expected active run id …";
+ * `SteerSessionRequest` with 3 elements and `SteerSessionResponse` in goose 1.58.1's binary). True only
+ * when it answered so; false before the run's id is known.
+ */
+export async function gooseSteer(
+  conn: JsonRpcConnection,
+  turn: { sessionId: string; text: string },
+  ctx: OpenRunContext,
+): Promise<boolean> {
+  const runId = ctx.state.activeRunId;
+  if (typeof runId !== 'string' || !runId) return false;
+  try {
+    const r = (await conn.request('_goose/unstable/session/steer', {
+      sessionId: turn.sessionId,
+      expectedRunId: runId,
+      prompt: [{ type: 'text', text: turn.text }],
+    })) as { runId?: unknown } | undefined;
+    return typeof r?.runId === 'string' && r.runId !== '';
+  } catch {
+    return false;
+  }
 }
 
 /** Keeps what the updates say about the run: the running turn's id (for steering). */
@@ -1813,6 +1905,7 @@ export const gooseAcp: AcpAgentSpec = {
   toolName: gooseToolName,
   toolKind: gooseToolKind,
   afterRefusal: gooseAfterRefusal,
+  steer: gooseSteer,
   filterUpdate: gooseFilterUpdate,
   usage: gooseUsage,
 };

@@ -34,8 +34,8 @@ function entryStat(location: PreviewLocation, name: string) {
   const rel = join(location.folder, name);
   const path = join(location.root, rel);
   if (location.isPrivate(path) || relative(path, resolveInRoot(location.root, rel).real)) throw missing();
-  const stat = lstatSync(path);
-  if (!stat.isFile() || stat.nlink !== 1) throw missing();
+  const stat = lstatSync(path, { bigint: true });
+  if (!stat.isFile() || stat.nlink !== 1n) throw missing();
   return stat;
 }
 

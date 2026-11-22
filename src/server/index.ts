@@ -19,7 +19,7 @@ import { desktopParent } from './parent';
 import { Updates } from './updates';
 import { relayVersion } from './about';
 import { apiPort, DEFAULT_HOST, isDevRun } from './ports';
-import { killAll } from './process';
+import { killAll, runProcess } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
@@ -37,14 +37,26 @@ import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { agentFolderOptions, clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
+import {
+  agentFolderOptions,
+  clearRunTmp,
+  dataDirInTemp,
+  makeCodespaceGhDir,
+  protectedReads,
+  relayTmpDir,
+  voiceDirProblem,
+} from './protect';
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
-import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
+import { RUN_TMP_DIR, clearOpenRunLeftovers, privateRoots } from './agents/open';
+import { runCodeTool, sandboxedRunner } from './runCode';
+import { llmComplete, llmTarget } from './llmQuery';
+import { endpointModelLimits } from './contextWindow';
 import { clearCheckTrees } from './checkCommands';
 import {
   clearRelaySandboxLeftovers,
   gatewayNode,
+  sandboxAvailable,
   localAddresses,
   noteListeningPort,
   servingPort,
@@ -169,6 +181,29 @@ gateway.register([
     teams,
   ),
 ]);
+// Settings → Labs: code that calls the tools above, in Harness Relay's own sandbox (`runCode.ts`), offered
+// only while one of its modes is on (off unless chosen there, or RELAY_RUN_CODE / RELAY_RLM until then).
+// Not on native Windows, where that sandbox does not exist.
+if (process.platform !== 'win32') {
+  gateway.register([
+    runCodeTool({
+      platform: process.platform,
+      node: () => gatewayNode(),
+      sandbox: sandboxedRunner(() => ({
+        protectedPaths: protectedReads(),
+        privateRoots: privateRoots(settings.openAgentHome('opencode'), undefined, settings.openAgentRoots()),
+      })),
+      runProcess,
+      env: process.env,
+      mode: () => settings.labs(),
+      // RLM mode's sub-model, on a model connection of Settings, looked up at each question.
+      ask: async (model, req, signal) => llmComplete(llmTarget(settings.backends.forRun(), model), req, signal),
+      // Its context window and output limit, when it is a model of the user's own endpoints that has them.
+      limits: (model) => endpointModelLimits(settings.backends.forRun(), model),
+      available: () => sandboxAvailable(),
+    }),
+  ]);
+}
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
