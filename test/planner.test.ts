@@ -26,6 +26,11 @@ import {
   parsePlanReply,
   planFollowsTeam,
   plannerContext,
+  fromTemplate,
+  leadReply,
+  withoutNulls,
+  PLAN_SCHEMA,
+  REVISION_SCHEMA,
   PLANNER_BRIEFING,
   REVISER_BRIEFING,
   sameTeam,
@@ -38,7 +43,8 @@ import {
   type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
-import { REVIEWER_BRIEFING } from '../src/server/reviewer';
+import { REVIEWER_BRIEFING, REVIEW_SCHEMA } from '../src/server/reviewer';
+import { GROUP_SCHEMA } from '../src/server/grouping';
 import { ROLE_GUIDES } from '../src/server/roleGuides';
 
 const catalog: ProviderModels[] = [
@@ -1983,5 +1989,118 @@ describe("what the lead knows of each coding agent's tools and models", () => {
         )
       ).native!.claude,
     ).toEqual({ skills: [], mcpServers: [] });
+  });
+});
+
+describe("the lead agent's answers in the shape its CLI is asked for", () => {
+  /** Where `schema` breaks the rules Codex's strict structured output (and Claude Code's) keeps: none, for each. */
+  function strictProblems(schema: unknown, at = '$'): string[] {
+    if (!schema || typeof schema !== 'object') return [];
+    const s = schema as Record<string, any>;
+    const out: string[] = [];
+    if (Array.isArray(s.anyOf)) s.anyOf.forEach((x: unknown, i: number) => out.push(...strictProblems(x, `${at}.anyOf[${i}]`)));
+    // A type list may name null and primitives, never object or array (Claude Code's strict form refuses those).
+    if (Array.isArray(s.type) && s.type.some((t: string) => t === 'object' || t === 'array'))
+      out.push(`${at}: an object or array in a type list`);
+    if (s.type === 'object') {
+      const keys = Object.keys(s.properties ?? {});
+      if (s.additionalProperties !== false) out.push(`${at}: allows other properties`);
+      if (JSON.stringify([...(s.required ?? [])].sort()) !== JSON.stringify([...keys].sort()))
+        out.push(`${at}: not every property required`);
+      for (const k of keys) out.push(...strictProblems(s.properties[k], `${at}.${k}`));
+    }
+    if (s.type === 'array') out.push(...strictProblems(s.items, `${at}[]`));
+    return out;
+  }
+
+  it('asks for every answer in a shape strict structured output takes, rooted in an object', () => {
+    for (const schema of [PLAN_SCHEMA, REVISION_SCHEMA, REVIEW_SCHEMA, GROUP_SCHEMA]) {
+      expect(schema.type).toBe('object');
+      expect(strictProblems(schema)).toEqual([]);
+    }
+    // The plan's choices and the members' CLIs are those the reply may name.
+    expect((PLAN_SCHEMA.properties as any).choice.enum).toEqual(['keep', 'template', 'adapted', 'custom']);
+    expect((PLAN_SCHEMA.properties as any).agents.anyOf[0].items.properties.provider.enum).toEqual(PROVIDERS);
+  });
+
+  it('reads the structured answer without its nulls, and the text when there is none', () => {
+    expect(withoutNulls({ a: null, b: [null, { c: null, d: 1 }], e: 'x' })).toEqual({ b: [{ d: 1 }], e: 'x' });
+    expect(leadReply('{"group": 1}', { group: 2, note: null })).toEqual({ group: 2 });
+    for (const missing of [undefined, null, 'group 2', [1], {}]) expect(leadReply('{"group": 1}', missing)).toEqual({ group: 1 });
+    expect(() => leadReply('no json here', undefined)).toThrow();
+  });
+
+  it('turns a structured design into the same team as its text, a null field as one left out', () => {
+    const shaped = {
+      choice: 'template',
+      templateId: 'builtin-debate',
+      baseTemplateId: null,
+      name: null,
+      description: null,
+      mode: null,
+      rounds: null,
+      maxHops: null,
+      agents: null,
+      reason: 'Trade-offs.',
+    };
+    const text = '{"choice":"template","templateId":"builtin-debate","reason":"Trade-offs."}';
+    // Each team gets new member ids.
+    const withoutIds = (d: ReturnType<typeof decidePlan>) => ({ ...d, agents: d.agents.map(({ id: _id, ...a }) => a) });
+    expect(withoutIds(decidePlan(leadReply('', shaped), ctx, lead))).toEqual(withoutIds(decidePlan(leadReply(text), ctx, lead)));
+    const custom = decidePlan(
+      leadReply('', {
+        ...shaped,
+        choice: 'custom',
+        templateId: null,
+        name: 'Pair',
+        mode: 'relay',
+        rounds: 1,
+        maxHops: null,
+        agents: [{ name: 'Ada', provider: 'claude', role: 'Write it.', model: null, effort: null }],
+      }),
+      ctx,
+      lead,
+    );
+    // maxHops null is the default (8), as when it is left out; the member's model and effort are its CLI's default.
+    expect(custom.settings).toEqual({ mode: 'relay', rounds: 1, maxHops: 8 });
+    expect(custom.agents[0]).toMatchObject({ name: 'Ada', provider: 'claude', model: undefined, effort: undefined });
+  });
+});
+
+describe("a member's own limits through the lead agent's designs", () => {
+  const capped: AgentConfig = { id: 'c1', name: 'Coder', provider: 'claude', role: 'Code it.', limits: { usd: 2 } };
+
+  it('stay with a member who stays on, whatever the new team says, and come from the template a member is from', () => {
+    const next: AgentConfig[] = [{ id: 'n1', name: 'coder', provider: 'claude', role: 'Code it well.', limits: { usd: 50 } }];
+    expect(keepMemberIds(next, [capped])[0]).toMatchObject({ id: 'c1', limits: { usd: 2 } });
+    // On another CLI it is another member: none of the old one's.
+    expect(keepMemberIds([{ ...next[0]!, provider: 'codex', limits: undefined }], [capped])[0]!.limits).toBeUndefined();
+    const template = {
+      id: 't',
+      name: 'T',
+      agents: [capped],
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const },
+    };
+    expect(fromTemplate([{ id: 'x', name: 'Coder', provider: 'claude', role: 'Changed.' }], template)[0]!.limits).toEqual({ usd: 2 });
+  });
+
+  it('stay with a member the lead changes on request', () => {
+    const draft: TeamDraft = { agents: [capped], settings: { mode: 'roundtable', rounds: 1, maxHops: 8 } };
+    const r = decideRevision({ agents: [{ name: 'Coder', provider: 'claude', role: 'Code it, and test it.' }] }, draft, ctx, lead);
+    expect(r.agents[0]).toMatchObject({ id: 'c1', role: 'Code it, and test it.', limits: { usd: 2 } });
+    // Structured, with the nulls of what it keeps.
+    const shaped = decideRevision(
+      leadReply('', {
+        mode: 'roundtable',
+        rounds: 1,
+        maxHops: 8,
+        agents: [{ name: 'Coder', provider: 'claude', role: null, model: null, effort: null, was: null }],
+        reason: 'Kept.',
+      }),
+      draft,
+      ctx,
+      lead,
+    );
+    expect(shaped.agents[0]).toMatchObject({ id: 'c1', role: 'Code it.', limits: { usd: 2 } });
   });
 });

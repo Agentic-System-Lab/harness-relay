@@ -18,11 +18,18 @@
  * refuses the call with its reason; once it ran, one for the `PostToolUse` entry, whose `decision:
  * block` reason it is told.
  *
+ * An `interrupt` control request (Harness Relay's Stop) ends a turn under way at once, with a result
+ * (`error_during_execution`) that carries the run's usage, as Claude Code's does.
+ *
  * Its usage is counted as Claude Code 2.1.323's: each run that reaches the model costs $0.0012, 120
  * tokens in and 40 out (a failed one too); a kept session's result reports the session's totals
  * (`total_cost_usd`, `modelUsage`), counted on from the last `cost-state` record of its file
  * (`<home>/projects/<folder>/<id>.jsonl`), where a new one is written as the run ends; `usage` and
  * `model_usage_since_last_result` are the run's own.
+ *
+ * A user message with a `uuid` that comes while a turn runs goes into it (steering), as Claude Code
+ * 2.1.330 takes one: `command_lifecycle` queued as it comes, started as the turn takes it in (an
+ * `e2e:steer` step waits for one; any other before the result), completed after the result.
  */
 const fs = require('node:fs');
 const { callMcpTool } = require('../lib/mcp.cjs');
@@ -32,7 +39,7 @@ const readline = require('node:readline');
 const { inside, notAWorkingDirectory, ownSkills, targetOf, writeFile } = require('../lib/files.cjs');
 const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record } = require('../lib/log.cjs');
-const { declined, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
+const { declined, heard, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, steerBox, wrote } = require('../lib/plan.cjs');
 const { fail, onLines, out } = require('../lib/rpc.cjs');
 const { args, flag, has, home, newId, sleep, values } = require('../lib/self.cjs');
 
@@ -189,9 +196,11 @@ function claudeStream() {
     // Its Read tool, without asking: in its folders and those of its Read rules, anywhere with full access.
     reads: mode === 'bypassPermissions' ? null : [process.cwd(), ...addDirs, ...claudeReadRules()],
     mcpSpecs: claudeMcpSpecs(),
+    steer: steerBox(),
   };
   const pending = new Map();
   let busy = false;
+  o.lifecycle = (uuid, state) => out({ type: 'command_lifecycle', command_uuid: uuid, state, uuid: newId('life'), session_id: sessionId });
 
   const reply = (m, response) => out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response } });
   const refuse = (m, error) => out({ type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error } });
@@ -253,8 +262,15 @@ function claudeStream() {
             models: [],
           });
         case 'apply_flag_settings':
-        case 'interrupt':
           return reply(m, undefined);
+        case 'interrupt':
+          reply(m, undefined);
+          // As Claude Code: a turn under way ends at once, with a result that says what it used.
+          if (busy) {
+            claudeResult(o, { subtype: 'error_during_execution', is_error: true, errors: [] });
+            process.stdout.write('', () => exitAfterLog(0));
+          }
+          return;
         case 'mcp_status':
           return reply(m, { mcpServers: [] });
         case 'get_hooks_listing':
@@ -297,6 +313,11 @@ function claudeStream() {
           return refuse(m, `Unsupported control request subtype: ${m.request && m.request.subtype}`);
       }
     }
+    // Steering: a message of the user's for the running turn.
+    if (m.type === 'user' && busy && m.uuid) {
+      o.lifecycle(m.uuid, 'queued');
+      return o.steer.take(typeof m.message.content === 'string' ? m.message.content : '', m.uuid);
+    }
     if (m.type !== 'user' || busy) return;
     busy = true;
     const content = m.message && m.message.content;
@@ -320,6 +341,11 @@ function claudeStream() {
       model: flag('--model') || null,
       effort: flag('--effort') || null,
       skills: claudeSkills().map((s) => s.name),
+      // What it may do by itself in the turn: its subagents (a deny rule for the whole Agent tool takes
+      // them all), its workflows (CLAUDE_CODE_DISABLE_WORKFLOWS) and ultracode, as Claude Code reads them.
+      subagents: !((claudeSettings().permissions || {}).deny || []).includes('Agent'),
+      workflows: process.env.CLAUDE_CODE_DISABLE_WORKFLOWS !== '1',
+      ultracode: claudeSettings().ultracode === true,
     });
     out({
       type: 'system',
@@ -399,6 +425,8 @@ function claudeResult(o, r, spent = true) {
 async function claudeTurn(steps, o) {
   let n = 0;
   let full = '';
+  /** Messages sent into the turn (steering) it took in. */
+  const taken = [];
   const tool = async (name, input, run) => {
     const id = `toolu_${++n}_${process.pid}`;
     out({
@@ -443,6 +471,58 @@ async function claudeTurn(steps, o) {
       message: { id: msgId, role: 'assistant', content: [block] },
     });
   };
+  /**
+   * A subagent's work, as Claude Code 2.1.330 reports it: its `Agent` call, its own calls with the
+   * Agent call's id as their `parent_tool_use_id` (a subagent of its own the same way), what it
+   * reported as the Agent call's result (with the line Claude Code adds for the agent that called it),
+   * and then a compaction (`system`/`compact_boundary`).
+   */
+  const subagent = async (step) => {
+    const call = (name, input, parent) => {
+      const id = `toolu_${++n}_${process.pid}`;
+      out({
+        type: 'assistant',
+        session_id: o.sessionId,
+        parent_tool_use_id: parent,
+        message: { id: `msg_tool_${n}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+      });
+      return id;
+    };
+    const answer = (id, content, parent) =>
+      out({
+        type: 'user',
+        session_id: o.sessionId,
+        parent_tool_use_id: parent,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+      });
+    const agent = call('Agent', {
+      description: 'Look around the project',
+      prompt: 'List the folder and read its README.',
+      subagent_type: 'Explore',
+      model: 'haiku',
+      run_in_background: false,
+    });
+    await sleep(20);
+    const list = call('Bash', { command: 'ls', description: 'List the working directory' }, agent);
+    await sleep(20);
+    answer(list, step.output, agent);
+    const read = call('Read', { file_path: path.join(process.cwd(), 'README.md') }, agent);
+    await sleep(step.wait || 1000);
+    answer(read, '# A fake project', agent);
+    const inner = call('Agent', { description: 'Search for TODOs', prompt: 'Find the TODOs.', subagent_type: 'general-purpose' }, agent);
+    const grep = call('Grep', { pattern: 'TODO' }, inner);
+    await sleep(20);
+    answer(grep, 'No matches found', inner);
+    answer(inner, [{ type: 'text', text: 'There are no TODOs.' }], agent);
+    answer(agent, [
+      { type: 'text', text: 'The project has a README and no TODOs.' },
+      {
+        type: 'text',
+        text: `agentId: a${n} (use SendMessage with to: 'a${n}' to continue this agent)\n<usage>subagent_tokens: 10</usage>`,
+      },
+    ]);
+    out({ type: 'system', subtype: 'compact_boundary', session_id: o.sessionId, compact_metadata: { trigger: 'auto', pre_tokens: 1000 } });
+  };
   /** The team's before hooks on a call: the reason they refused it, or undefined. */
   const hookBefore = async (tool_name, tool_input) => {
     const a = await o.hook('PreToolUse', { tool_name, tool_input });
@@ -480,6 +560,7 @@ async function claudeTurn(steps, o) {
         content: step.output,
         isError: false,
       }));
+    if (step.type === 'subagent') await subagent(step);
     if (step.type === 'mcp') {
       const spec = o.mcpSpecs[step.server];
       const name = `mcp__${step.server}__${step.tool}`;
@@ -537,12 +618,25 @@ async function claudeTurn(steps, o) {
       full += wrote(step, p.ok, p.ok ? '' : noteIn(p.message));
       if (p.ok) full += await hookAfter('Write', input, { filePath: file });
     }
+    if (step.type === 'steer') {
+      const came = await o.steer.wait(step.wait);
+      for (const m of came) o.lifecycle(m.id, 'started');
+      taken.push(...came);
+      if (came.length) await stream('text', heard(came).trim());
+      full += heard(came);
+    }
     if (step.type === 'text') {
       full += step.text;
       await stream('text', full, step.slow);
     }
   }
-  claudeResult(o, { subtype: 'success', is_error: false, result: full });
+  // What came and no step took: taken in before the turn ends.
+  const rest = o.steer.rest();
+  for (const m of rest) o.lifecycle(m.id, 'started');
+  if (rest.length) await stream('text', heard(rest).trim());
+  taken.push(...rest);
+  claudeResult(o, { subtype: 'success', is_error: false, result: full + heard(rest) });
+  for (const m of taken) o.lifecycle(m.id, 'completed');
 }
 
 module.exports = {

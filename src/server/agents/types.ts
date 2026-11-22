@@ -1,16 +1,19 @@
 import { readFileSync, statSync } from 'node:fs';
 import {
   TOOL_CALL_KINDS,
+  type AgentLimits,
   type ApiBackend,
   type ApprovalAnswer,
   type ApprovalKind,
   type NativeItemsOff,
+  type NativeOnPart,
   type NativePart,
   type Permission,
   type PlanEntry,
   type Provider,
   type ToolCallKind,
 } from '../../shared/types';
+import type { TokenLimits } from '../../shared/types';
 import { CONFIG } from '../config';
 import type { TurnHooks } from '../hooks';
 import type { WriteGuard } from '../writeGuard';
@@ -26,15 +29,35 @@ export type AgentEvent =
   | { type: 'thinking'; text: string }
   /** The agent's plan / to-do list, replacing the previous one. */
   | { type: 'plan'; entries: PlanEntry[] }
-  /** `kind`: what the call does, when the CLI says or its adapter can tell (`toolCallKind()`). */
-  | { type: 'tool_start'; id: string; name: string; detail?: string; kind?: ToolCallKind }
+  /**
+   * `kind`: what the call does, when the CLI says or its adapter can tell (`toolCallKind()`).
+   * `parentId`: the id of the call that started the subagent making this one (its `tool_start`'s id),
+   * for a subagent's call; the chat shows it inside that call. `agent` and `model`: on a call that
+   * starts a subagent, its name and model, when the CLI says. A second `tool_start` with the same id
+   * updates the call's detail, agent and model.
+   */
+  | {
+      type: 'tool_start';
+      id: string;
+      name: string;
+      detail?: string;
+      kind?: ToolCallKind;
+      parentId?: string;
+      agent?: string;
+      model?: string;
+    }
   /**
    * `error`: the CLI's stated reason when a call failed or was refused (shown under the tool).
    * `output`: the end of what the call returned.
    * `detail`: what the call was about, when the CLI only says so once it is done (a web search's
    * query); it replaces the one from `tool_start`.
    */
-  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string; detail?: string };
+  | { type: 'tool_end'; id: string; ok: boolean; error?: string; output?: string; detail?: string }
+  /**
+   * What the CLI reports about its own run, not the agent's words: it compacted the context, retried a
+   * request, switched models. Shown as Harness Relay's note in the reply, never forwarded as the agent's.
+   */
+  | { type: 'notice'; text: string };
 
 /** Something an agent wants to do that its permission does not cover. */
 export interface ApprovalRequest {
@@ -97,6 +120,8 @@ export interface RunOptions {
   nativeOff?: readonly NativePart[];
   /** Single items of what the CLI loads by itself to leave out of this run. */
   nativeItems?: NativeItemsOff;
+  /** What the CLI can do by itself that this run turns on (its workflows: `NATIVE_ON_SUPPORT`); off when absent. */
+  nativeOn?: readonly NativeOnPart[];
   /**
    * Paths the agent's sandbox may not let it read below full access: the browsers' folders,
    * Harness Relay's database and its own temporary folder (`protectedReads()`, worked out by the
@@ -140,7 +165,39 @@ export interface RunOptions {
    * (read-only → edit → full), so nothing it wrote may be read now. The session starts afresh too.
    */
   freshState?: boolean;
+  /**
+   * The member's own limits (`AgentConfig.limits`, only those of its CLI: `agentLimitsFor()`): each
+   * adapter whose CLI has one gives it (`AGENT_LIMITS`); absent = none.
+   */
+  limits?: AgentLimits;
+  /**
+   * The JSON shape the answer must have (a JSON Schema whose objects list every property as required
+   * and allow no others, as Codex's strict structured output needs), for the lead agent's turns: Claude
+   * Code (`--json-schema`) and Codex (`outputSchema` on `turn/start`) ask their maker's models for it and
+   * give it back as `RunResult.structured`; the others, and those two on the user's own endpoint, ignore
+   * it, and the caller reads the reply's text instead.
+   */
+  outputSchema?: OutputSchema;
+  /**
+   * Steering (`ConversationSettings.steer`): a runner whose CLI can take a message into its running turn
+   * (`STEER_PROVIDERS`) calls this with a way to send one (`SteerTurn`) once the turn can take one, and
+   * with undefined once it no longer can (the turn is ending or over), at the latest before `run`
+   * settles. It may call it again (another way, or undefined) as the turn goes on. Absent: the turn is
+   * not steered (the conversation has steering off, or it is a lead agent's run).
+   */
+  onSteer?: (steer: SteerTurn | undefined) => void;
 }
+
+/** A JSON Schema for `RunOptions.outputSchema`. */
+export type OutputSchema = Record<string, unknown>;
+
+/**
+ * Sends `text` into the running turn as a message of the user's. Resolves true once the CLI took it
+ * into this turn (it will reach the model before the turn ends), false when the CLI refused it or the
+ * turn ended first: the orchestrator then lets the message wait in the queue, so a false must mean the
+ * CLI will not act on it. Never rejects.
+ */
+export type SteerTurn = (text: string) => Promise<boolean>;
 
 /**
  * The state keys the orchestrator gives its runs (`RunOptions.stateKey`): a branched conversation is
@@ -178,6 +235,11 @@ export interface RunEndpoint {
   baseUrl: string;
   models: string[];
   apiKey?: string;
+  /**
+   * Its models' context windows and output limits as a run uses them (`effectiveLimits()`: the user's
+   * over the server's), by model id: only the models that have one (`runLimits()` reads them).
+   */
+  limits?: Record<string, TokenLimits>;
 }
 
 /** An MCP server to hand to a CLI, with its secret values. */
@@ -227,7 +289,20 @@ export interface RunResult {
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * The answer in the shape `RunOptions.outputSchema` asked for, as the CLI gave it (parsed JSON), when
+   * it gave one; the caller checks it, and reads the reply's text when it is missing or not an object.
+   */
+  structured?: unknown;
+  /**
+   * The AI credits the turn used, as Copilot reports them (its `assistant.usage` events), which are not
+   * US dollars; not kept with the reply yet.
+   */
+  aiCredits?: number;
 }
+
+/** What a turn spent, as `RunResult` has it. */
+export type RunUsage = Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'>;
 
 export interface AgentRunner {
   provider: Provider;
@@ -239,6 +314,8 @@ export class AgentRunError extends Error {
   constructor(
     message: string,
     public aborted = false,
+    /** What the turn had spent when it failed or was stopped, as far as its CLI said (kept with the reply). */
+    public usage?: RunUsage,
   ) {
     super(message);
   }

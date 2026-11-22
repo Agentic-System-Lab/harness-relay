@@ -1,4 +1,5 @@
 import { PROVIDERS, accountUsable, type AgentConfig, type ConversationSettings, type Provider, type ProviderStatus } from '../shared/types';
+import { limitsKey } from './memberLimits';
 import { newAgent, readyAccount } from './util';
 
 /**
@@ -84,6 +85,7 @@ export function templateKey(d: TemplateDraft): string {
       model: a.model || null,
       effort: a.effort || null,
       tools: Object.entries(a.tools ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)),
+      limits: limitsKey(a),
     })),
   });
 }

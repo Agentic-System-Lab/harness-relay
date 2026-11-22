@@ -518,7 +518,7 @@
               <h3>Your keys, or your own endpoint</h3>
               <p>
                 To connect a server, expand <b>Custom endpoints</b>, enter its URL and optional key, and click <b>Load models</b>.
-                Select the models you want and click <b>Save</b>. Relay verifies each selected or manually entered model ID with the server. Give a member its model as <code>backend/model</code>: <code>openai/gpt-5.4-nano</code>, or your endpoint’s
+                Select the models you want and click <b>Save</b>. Relay verifies each selected or manually entered model ID with the server, and reads each model’s context window from vLLM or llama.cpp (or takes the one you type), so that agents on a small model compact in time. Give a member its model as <code>backend/model</code>: <code>openai/gpt-5.4-nano</code>, or your endpoint’s
                 id and a model name, such as <code>homelab/muse-glimmer-30b-nvfp4</code>. Keys go to your OS credential
                 store, and each run gets only its own backend’s key.
               </p>
@@ -739,7 +739,8 @@
             </p>
             <p>
               <strong>You design the templates.</strong> Give each agent a position (architect, builder, reviewer,
-              skeptic), pick its model and reasoning effort, and set the speaking order. Up to eight members, several of
+              skeptic), pick its model and reasoning effort, and set the speaking order. Where its agent has one, a member gets a
+              limit of its own: Claude Code’s cost per turn, Copilot’s AI credits, Goose’s model calls or OpenCode’s steps. Up to eight members, several of
               them the same agent if you like. A team the lead agent designed can be kept as a template in one click.
             </p>
           </div>
@@ -877,7 +878,8 @@
                 <h3>Keep talking while they reply</h3>
                 <p>
                   A message sent mid-reply waits above the box and reaches the next agent before its turn. Edit or withdraw
-                  it until then, or stop the team and send it now.
+                  it until then, or stop the team and send it now. Turn on steering in Team settings, and it goes straight into
+                  the running turn of the member speaking, where its agent can take one.
                 </p>
               </div>
             </article>
@@ -900,6 +902,7 @@
             <li><b>Attach files</b>Paste screenshots or drop files. Every agent gets their paths, and the agents that take images see them directly.</li>
             <li><b>Images and video in the conversation</b>Images and videos an agent saves in the working directory show up right in the conversation.</li>
             <li><b>See what they think and do</b>Reasoning, plans and each tool’s output stream in. Mermaid blocks are drawn as diagrams.</li>
+            <li><b>Their own subagents, your call</b>A subagent’s steps fold under the step that started it. Where the agent has the switch, each account can turn its own subagents off, or Claude Code’s and Grok’s workflows on: <a href="docs/agents/#subagents">Subagents and workflows</a>.</li>
             <li><b>Voice input, on your computer</b>whisper.cpp turns speech into text locally. Nothing is installed until you ask for it.</li>
             <li><b>Copy, edit and retry</b>Copy a message or the whole conversation as Markdown. Edit your message or retry a reply, and the team answers again from there.</li>
             <li><b>Branch a conversation</b>Copy the conversation up to any reply into a new one, to try another direction while the original stays as it was.</li>
@@ -913,6 +916,7 @@
             <li><b>Use apps in a chat or automation</b>Connect a service in <a href="docs/tools/#common-apps">Common apps settings</a>. When you start a chat or create an automation, choose Common apps (the four squares before the paperclip) and select the apps you want to use.</li>
             <li><b>One tool library for every member</b>Add MCP servers, skills and memory for every member or just the agents you choose. Sign in to MCP servers that use OAuth. Set the hooks and checks that new chats and automations start with.</li>
             <li><b>Every session in AgentsView</b>Optionally, see each conversation in <a href="https://www.agentsview.io">AgentsView</a> as one thread, with every agent’s own session under it: its tool calls, tokens and cost.</li>
+            <li><b>Labs, off until you try them</b>Let agents script Harness Relay’s tools in a sandbox, or read a long text in parts with a model you choose. One at a time, each with what it costs: <a href="docs/tools/#labs">Labs</a>.</li>
             <li><b>English and 繁體中文</b>The interface follows your browser’s language, with a guided tour on the first visit.</li>
           </ul>
         </div>

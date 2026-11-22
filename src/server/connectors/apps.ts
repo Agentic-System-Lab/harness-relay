@@ -167,8 +167,8 @@ export function appTools(
         const { real, rel } = vaultPath(vault.path, a.path);
         if (!/\.md$/i.test(rel)) throw new Error(t().fileNotFound);
         const preview = readPreview(real, rel, t().fileNotFound, () => {
-          const st = lstatSync(real);
-          if (!st.isFile() || st.nlink !== 1 || vaultPath(select(vault.id).path, rel).real !== real) throw new Error(t().fileNotFound);
+          const st = lstatSync(real, { bigint: true });
+          if (!st.isFile() || st.nlink !== 1n || vaultPath(select(vault.id).path, rel).real !== real) throw new Error(t().fileNotFound);
           return st;
         });
         if (preview.kind !== 'text') throw new Error(t().fileNotFound);

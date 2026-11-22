@@ -17,10 +17,12 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
+import { cannotSteer } from '../chat';
 import { checkProblems } from '../checks';
 import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
+import { limitProblem, limitSpecOf, limitText, limitsFromText } from '../memberLimits';
 import { settingsHref } from '../route';
 import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, setTool, toolItems, toolsHintText, type ToolItem } from '../tools';
 import {
@@ -93,6 +95,8 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
       if (!NAME_RE.test(a.name)) out.push(p.badName(a.name));
       else if (seen.has(a.name.toLowerCase())) out.push(p.duplicate(a.name));
       seen.add(a.name.toLowerCase());
+      const limit = limitProblem(a);
+      if (limit) out.push(p.badLimit(a.name, limit.min, limit.max, limit.integer));
     }
   }
   if (!opts.template && !team.settings.cwd.trim()) out.push(p.needCwd);
@@ -111,6 +115,28 @@ export function LeadReviewOption({ enabled, onChange }: { enabled: boolean; onCh
       </label>
       <span className="small muted" id={hint}>
         {enabled ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Steering (`ConversationSettings.steer`): a message sent while members work goes into their running
+ * turns. Says which members' CLIs cannot take one, while it is on.
+ */
+export function SteerOption({ enabled, agents, onChange }: { enabled: boolean; agents: AgentConfig[]; onChange: (on: boolean) => void }) {
+  const t = useT();
+  const hint = useId();
+  const cannot = cannotSteer(agents);
+  return (
+    <div className="field auto-team steer-option">
+      <label className="check-row">
+        <input type="checkbox" aria-describedby={hint} checked={enabled} onChange={(e) => onChange(e.target.checked)} />
+        <span>{t.team.steer}</span>
+      </label>
+      <span className="small muted" id={hint}>
+        {enabled ? t.team.steerHint.on : t.team.steerHint.off}
+        {enabled && cannot.length > 0 && <> {t.team.steerUnsupported(cannot.map((a) => `@${a.name}`).join(', '))}</>}
       </span>
     </div>
   );
@@ -264,6 +290,8 @@ export function TeamEditor({
                     onChange={(v) => updateAgent(a.id, v)}
                   />
 
+                  <AgentLimitField key={`limit|${a.provider}`} agent={a} onChange={(limits) => updateAgent(a.id, { limits })} />
+
                   <AgentTools agent={a} items={tools} error={toolsError} onChange={(next) => updateAgent(a.id, { tools: next })} />
 
                   {state !== 'ok' && status && (
@@ -341,6 +369,9 @@ export function TeamEditor({
         )}
         {!template && teamOptionsInEditor && (
           <LeadReviewOption enabled={Boolean(settings.leadReview)} onChange={(on) => setSettings({ leadReview: on || undefined })} />
+        )}
+        {!template && teamOptionsInEditor && (
+          <SteerOption enabled={Boolean(settings.steer)} agents={agents} onChange={(on) => setSettings({ steer: on || undefined })} />
         )}
         {template && checksEditor}
         {showMembers && (
@@ -541,6 +572,72 @@ function AgentTools({
               </ul>
             </>
           )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The member's own limit, for a CLI that has one (`AGENT_LIMITS`): a line with its value (or none) that
+ * Change opens into the field and what it does, as the member's tools do, so the card stays short; open
+ * while what is typed is not a limit the CLI takes. Empty is no limit.
+ */
+function AgentLimitField({ agent, onChange }: { agent: AgentConfig; onChange: (limits: AgentConfig['limits']) => void }) {
+  const t = useT();
+  const label = useId();
+  const hint = useId();
+  // As typed (a number field's value is only a number once it is whole), for the CLI the field is keyed by.
+  const [text, setText] = useState(() => limitText(agent));
+  const [open, setOpen] = useState(false);
+  const spec = limitSpecOf(agent);
+  if (!spec) return null;
+  const cli = agent.provider as keyof typeof t.team.limit.label;
+  const bad = Boolean(limitProblem(agent));
+  const shown = open || bad;
+  // Closed, the line shows what the member holds now (a team saved meanwhile, the lead agent's change),
+  // never what was typed when the editor opened; opening the field starts from it.
+  const held = limitText(agent);
+  return (
+    <div className="field agent-limit">
+      <span id={label}>{t.team.limit.label[cli]}</span>
+      <div className="agent-tools-summary">
+        {!shown && <span className={held ? 'small' : 'muted small'}>{held || t.team.limit.placeholder}</span>}
+        {!bad && (
+          <button
+            type="button"
+            className="link-button"
+            aria-expanded={shown}
+            onClick={() => {
+              if (!open) setText(held);
+              setOpen(!open);
+            }}
+          >
+            {shown ? t.team.limit.done : t.team.limit.change}
+          </button>
+        )}
+      </div>
+      {shown && (
+        <>
+          <input
+            type="number"
+            inputMode={spec.integer ? 'numeric' : 'decimal'}
+            min={spec.min}
+            max={spec.max}
+            step={spec.integer ? 1 : 0.01}
+            value={text}
+            placeholder={t.team.limit.placeholder}
+            aria-labelledby={label}
+            aria-describedby={hint}
+            aria-invalid={bad ? true : undefined}
+            onChange={(e) => {
+              setText(e.target.value);
+              onChange(limitsFromText(agent, e.target.value));
+            }}
+          />
+          <span className="small muted" id={hint}>
+            {t.team.limit.hint[cli](spec.min, spec.max)}
+          </span>
         </>
       )}
     </div>

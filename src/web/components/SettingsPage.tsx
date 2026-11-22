@@ -51,12 +51,14 @@ import {
   type SettingsSection,
   type SettingsReturn,
 } from '../route';
-import { hasNativePanel } from '../native';
+import { hasNativePanel, hasSubagents } from '../native';
+import { CliFeatures } from './CliFeatures';
 import { assistantReadiness, statusBeforeInstall } from '../clis';
 import { useCliInstalls } from '../useCliInstalls';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { BackendsCard } from './BackendsSettings';
+import { LabsCard } from './LabsSettings';
 import { CliInstall } from './CliInstall';
 import { CwdInput } from './CwdInput';
 import { LoginLinks, LoginOutput } from './LoginLinks';
@@ -389,6 +391,8 @@ export function SettingsPage({
             </button>
           </div>
         </section>
+
+        <LabsCard />
       </div>
     </div>
   );
@@ -1030,6 +1034,8 @@ function AccountBlock({
 
       <AccountDefaults provider={provider} account={account} catalog={catalog} onSettings={onSettings} onSaved={onDefaults} />
 
+      {hasSubagents(provider) && <CliFeatures provider={provider} account={account} onSettings={onSettings} />}
+
       <NativeSetupPanel provider={provider} account={account} multi={multi} onSettings={onSettings} />
 
       {note && <p className="muted small">{note}</p>}
@@ -1272,6 +1278,8 @@ function OpenAgentCard({
           <p className="muted small">{o.sandboxTerminal.detail}</p>
         </div>
       )}
+
+      {hasSubagents(provider) && <CliFeatures provider={provider} account={account} onSettings={onSettings} />}
 
       {hasNativePanel(provider) && <NativeSetupPanel provider={provider} account={account} onSettings={onSettings} />}
 

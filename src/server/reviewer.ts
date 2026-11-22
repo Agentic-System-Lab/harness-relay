@@ -15,7 +15,8 @@ import {
 } from '../shared/types';
 import { quoteChecker, reviewStart } from '../shared/review';
 import { t } from './i18n';
-import { historyForLead, parsePlanReply } from './planner';
+import type { OutputSchema } from './agents/types';
+import { historyForLead, leadReply, strictObject } from './planner';
 
 /*
  * Lead review (`ConversationSettings.leadReview`): once the team has answered, the lead agent (Settings)
@@ -318,13 +319,48 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
   return { ...(summary ? { summary } : {}), highlights, nextSteps };
 }
 
-/** The review in the lead's reply text (a ```json block, or the outermost braces). */
-export function parseReviewReply(text: string, replies: ChatMessage[]): Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> {
+/**
+ * The review the lead's answer holds: its structured answer (`REVIEW_SCHEMA`), when its CLI gave one,
+ * else its reply text's JSON (a ```json block, or the outermost braces).
+ */
+export function parseReviewReply(
+  text: string,
+  replies: ChatMessage[],
+  structured?: unknown,
+): Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> {
   let raw: Record<string, any>;
   try {
-    raw = parsePlanReply(text);
+    raw = leadReply(text, structured);
   } catch {
     throw new Error(t().reviewUnparsable);
   }
   return decideReview(raw, replies);
 }
+
+/**
+ * The review as JSON Schema (`buildReviewPrompt()`'s object, strict as `PLAN_SCHEMA` is), for a lead whose
+ * CLI can be asked for one: null for a highlight's reply and quote about the replies as a whole, and for
+ * the message of the user's own step.
+ */
+export const REVIEW_SCHEMA: OutputSchema = strictObject({
+  summary: { type: 'string', description: 'Where the team got to: one or two sentences' },
+  highlights: {
+    type: 'array',
+    description: `At most ${REVIEW_LIMITS.highlights}, the most important first; none is fine`,
+    items: strictObject({
+      kind: { type: 'string', enum: REVIEW_KINDS },
+      reply: { type: ['integer', 'null'], description: "The reply's number; null for the replies as a whole" },
+      quote: { type: ['string', 'null'], description: 'Exact words of that reply, as plain text; null with no reply' },
+      note: { type: 'string' },
+    }),
+  },
+  nextSteps: {
+    type: 'array',
+    description: `At most ${REVIEW_LIMITS.nextSteps}, the most important first; none when the work is done`,
+    items: strictObject({
+      text: { type: 'string' },
+      by: { type: 'string', enum: ['team', 'user'] },
+      message: { type: ['string', 'null'], description: 'For the team: the message to send it; null for the user' },
+    }),
+  },
+});

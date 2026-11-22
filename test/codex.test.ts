@@ -6,6 +6,7 @@ import { isPathDetail } from '../src/web/chat';
 import {
   codexApprovalRequest,
   codexApprovalResponse,
+  CODEX_FIXED_CONFIG,
   codexConfig,
   codexEndpointEffort,
   codexElicitationResponse,
@@ -221,6 +222,159 @@ describe('codex app-server events', () => {
   });
 });
 
+describe("codex subagents and notes about its own run (shapes from Codex 0.167.0's app-server schema)", () => {
+  const spawn = (id: string, status: string, sender: string, receivers: string[]) => ({
+    type: 'collabAgentToolCall',
+    id,
+    tool: 'spawnAgent',
+    status,
+    senderThreadId: sender,
+    receiverThreadIds: receivers,
+    prompt: 'Find where dates are parsed',
+    model: 'gpt-5.5-mini',
+    reasoningEffort: 'low',
+    agentsStates: {},
+  });
+  const started = (id: string, parent: string, role: string) => ({
+    thread: {
+      id,
+      parentThreadId: parent,
+      source: { subAgent: { thread_spawn: { parent_thread_id: parent, depth: 1, agent_role: role } } },
+    },
+  });
+
+  it("folds each subagent's calls under its spawn call, a subagent's own subagent under it, and ends it with its last words", () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    h.main('main');
+    h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+    h.handle('thread/started', started('thr-a', 'main', 'explorer'));
+    h.handle('item/completed', { threadId: 'main', item: spawn('call-a', 'completed', 'main', ['thr-a']) });
+    h.handle('item/started', { threadId: 'thr-a', item: command({ id: 'exec-a', command: 'rg parseDate' }) });
+    h.handle('item/agentMessage/delta', { threadId: 'thr-a', itemId: 'm-a', delta: 'Looking.' });
+    // Its own subagent.
+    h.handle('item/started', { threadId: 'thr-a', item: spawn('call-b', 'inProgress', 'thr-a', []) });
+    h.handle('thread/started', started('thr-b', 'thr-a', 'worker'));
+    h.handle('item/started', {
+      threadId: 'thr-b',
+      item: { type: 'fileChange', id: 'p-b', status: 'inProgress', changes: [{ path: '/repo/a.ts', kind: { type: 'update' } }] },
+    });
+    h.handle('turn/completed', { threadId: 'thr-b', turn: { id: 't-b', status: 'failed', error: { message: 'usage limit' }, items: [] } });
+    h.handle('item/completed', {
+      threadId: 'thr-a',
+      item: command({ id: 'exec-a', command: 'rg parseDate', status: 'completed', exitCode: 0 }),
+    });
+    h.handle('item/completed', { threadId: 'thr-a', item: { type: 'agentMessage', id: 'm-a', text: 'Dates are parsed in src/date.ts.' } });
+    h.handle('turn/completed', { threadId: 'thr-a', turn: { id: 't-a', status: 'completed', items: [] } });
+    // A thread of no subagent of this turn's: not shown.
+    h.handle('item/started', { threadId: 'thr-other', item: command({ id: 'exec-x' }) });
+    h.handle('thread/started', started('thr-x', 'elsewhere', 'stranger'));
+    // Waiting for it: a row of its own, with the states the subagents reported.
+    const wait = (status: string, agentsStates = {}) => ({
+      type: 'collabAgentToolCall',
+      id: 'call-wait',
+      tool: 'wait',
+      status,
+      senderThreadId: 'main',
+      receiverThreadIds: ['thr-a'],
+      agentsStates,
+    });
+    h.handle('item/started', { threadId: 'main', item: wait('inProgress') });
+    h.handle('item/completed', { threadId: 'main', item: wait('completed', { 'thr-a': { status: 'completed', message: 'Found it.' } }) });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'call-a', name: 'spawn_agent', detail: 'Find where dates are parsed', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'call-a', name: 'spawn_agent', agent: 'explorer' },
+      { type: 'tool_start', id: 'exec-a', name: 'Shell', detail: 'rg parseDate', parentId: 'call-a' },
+      {
+        type: 'tool_start',
+        id: 'call-b',
+        name: 'spawn_agent',
+        detail: 'Find where dates are parsed',
+        model: 'gpt-5.5-mini',
+        parentId: 'call-a',
+      },
+      { type: 'tool_start', id: 'call-b', name: 'spawn_agent', agent: 'worker' },
+      { type: 'tool_start', id: 'p-b', name: 'Edit', detail: '/repo/a.ts', parentId: 'call-b' },
+      { type: 'tool_end', id: 'call-b', ok: false, error: 'usage limit' },
+      { type: 'tool_end', id: 'exec-a', ok: true },
+      { type: 'tool_end', id: 'call-a', ok: true, output: 'Dates are parsed in src/date.ts.' },
+      { type: 'tool_start', id: 'call-wait', name: 'wait', detail: 'explorer' },
+      { type: 'tool_end', id: 'call-wait', ok: true, output: 'explorer: Found it.' },
+    ]);
+    // An approval for a subagent's file change names its file.
+    expect(h.filePaths('p-b')).toBe('/repo/a.ts');
+  });
+
+  it("counts the subagents' tokens with the turn's, once per change of each thread's total", () => {
+    const h = createCodexUpdateHandler(() => undefined);
+    h.main('main');
+    h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+    h.handle('thread/started', started('thr-a', 'main', 'explorer'));
+    const usage = (threadId: string, input: number, output: number, total: number) =>
+      h.handle('thread/tokenUsage/updated', {
+        threadId,
+        turnId: 't',
+        tokenUsage: {
+          last: { inputTokens: input, outputTokens: output, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: input + output },
+          total: { totalTokens: total },
+        },
+      });
+    usage('main', 100, 10, 110);
+    usage('thr-a', 40, 4, 44);
+    usage('thr-a', 40, 4, 44); // the same count again
+    usage('main', 20, 2, 132);
+    usage('thr-other', 999, 99, 1098); // no thread of this turn's
+    expect(h.usage).toEqual({ inputTokens: 160, outputTokens: 16 });
+  });
+
+  it('cuts off a subagent still at work when the turn ends, and notes compaction and a rerouted model', () => {
+    const events: AgentEvent[] = [];
+    const h = withLang('en', () => {
+      const h = createCodexUpdateHandler((e) => events.push(e));
+      h.main('main');
+      h.handle('item/started', { threadId: 'main', item: spawn('call-a', 'inProgress', 'main', []) });
+      h.handle('item/completed', { threadId: 'main', item: { type: 'contextCompaction', id: 'cc-1' } });
+      h.handle('model/rerouted', {
+        threadId: 'main',
+        turnId: 't',
+        fromModel: 'gpt-5.5',
+        toModel: 'gpt-5.5-safe',
+        reason: 'highRiskCyberActivity',
+      });
+      h.finish();
+      return h;
+    });
+    expect(h.usage).toEqual({});
+    expect(events.slice(1)).toEqual([
+      { type: 'notice', text: "Codex compacted the conversation's context to make room." },
+      { type: 'notice', text: 'Codex switched models from gpt-5.5 to gpt-5.5-safe.' },
+      { type: 'tool_end', id: 'call-a', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it('gives a subagent that no spawn call started a row of its own from its activity', () => {
+    const events: AgentEvent[] = [];
+    const h = createCodexUpdateHandler((e) => events.push(e));
+    h.main('main');
+    const act = (kind: string) => ({
+      type: 'subAgentActivity',
+      id: 'act-1',
+      agentThreadId: 'thr-a',
+      agentPath: '/root/reviewer',
+      kind,
+      model: 'gpt-5.5',
+    });
+    h.handle('item/completed', { threadId: 'main', item: act('started') });
+    h.handle('item/started', { threadId: 'thr-a', item: command({ id: 'exec-a' }) });
+    h.handle('item/completed', { threadId: 'main', item: act('completed') });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'act-1', name: 'subagent', agent: 'reviewer', model: 'gpt-5.5' },
+      { type: 'tool_start', id: 'exec-a', name: 'Shell', detail: 'npm test', parentId: 'act-1' },
+      { type: 'tool_end', id: 'act-1', ok: true },
+    ]);
+  });
+});
+
 describe('codex approvals', () => {
   it('turns approval requests into what the user sees, and answers in the shape Codex expects', () => {
     const paths = (id: string) => (id === 'patch-1' ? 'src/a.ts' : undefined);
@@ -278,19 +432,21 @@ describe('codex approvals', () => {
 describe('codex thread config', () => {
   it('keeps the edit-mode sandbox off the network whatever the user config says', () => {
     expect(codexConfig('edit', 'high')).toEqual({
+      ...CODEX_FIXED_CONFIG,
       model_reasoning_effort: 'high',
       sandbox_workspace_write: { network_access: false },
     });
-    expect(codexConfig('read-only')).toEqual({});
-    expect(codexConfig('full')).toEqual({});
+    expect(codexConfig('read-only')).toEqual({ ...CODEX_FIXED_CONFIG });
+    expect(codexConfig('full')).toEqual({ ...CODEX_FIXED_CONFIG });
   });
 
   it("lets edit mode write the conversation's other working directories too", () => {
     // The legacy sandbox (Windows, nothing to protect): writable roots.
     expect(codexConfig('edit', undefined, [], { off: [] }, ['/docs', '/infra'])).toEqual({
+      ...CODEX_FIXED_CONFIG,
       sandbox_workspace_write: { network_access: false, writable_roots: ['/docs', '/infra'] },
     });
-    expect(codexConfig('read-only', undefined, [], { off: [] }, ['/docs'])).toEqual({});
+    expect(codexConfig('read-only', undefined, [], { off: [] }, ['/docs'])).toEqual({ ...CODEX_FIXED_CONFIG });
     // A permission profile: a write entry each, and a protected path is denied all the same.
     expect(codexProfile('edit', ['/x', '/docs/secret.db'], 'darwin', ['/docs'])).toEqual({
       extends: ':workspace',
@@ -327,6 +483,7 @@ describe('codex thread config', () => {
         },
       ]),
     ).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: {
         gh: { command: 'npx', args: ['gh'], env: { TOKEN: 't' } },
         docs: { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
@@ -345,6 +502,7 @@ describe('codex thread config', () => {
   it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {
     const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
     expect(codexConfig('full', undefined, [gh])).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: { gh: { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } },
     });
     // Below full access Codex asks, and the user answers in the chat.
@@ -361,6 +519,7 @@ describe('codex thread config', () => {
         user: { names: ['headroom', 'gh', 'a.b'], disabledTools: {} },
       }),
     ).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'skills.include_instructions': false,
       'features.apps': false,
       project_doc_max_bytes: 0,
@@ -370,6 +529,7 @@ describe('codex thread config', () => {
     });
     // The user's servers stay on unless MCP servers are left out.
     expect(codexConfig('read-only', undefined, [], { off: ['skills'], user: { names: ['headroom'], disabledTools: {} } })).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'skills.include_instructions': false,
     });
     expect(codexNativeConfig([])).toEqual({});
@@ -421,6 +581,7 @@ describe('codex thread config', () => {
     expect(codexMcpOff([], items, user)).toEqual({ turnOff: ['headroom'], toolsOff: { node: ['old', 'js_reset'], 'a.b': ['x/y'] } });
     expect(codexMcpOff(['mcp'], items, user)).toEqual({ turnOff: ['headroom', 'node', 'a.b'], toolsOff: {} });
     expect(codexConfig('read-only', undefined, [], { off: [], items, user })).toEqual({
+      ...CODEX_FIXED_CONFIG,
       mcp_servers: { node: { disabled_tools: ['old', 'js_reset'] }, 'a.b': { disabled_tools: ['x/y'] }, headroom: { enabled: false } },
     });
     expect(codexUserMcpConfig(undefined)).toEqual({ names: [], disabledTools: {} });
@@ -507,11 +668,14 @@ describe('codex thread config', () => {
       params: {
         cwd: '/repo',
         approvalPolicy: 'on-request',
+        // The user answers what is asked, whatever the account's `approvals_reviewer` says.
+        approvalsReviewer: 'user',
         sandbox: 'workspace-write',
         developerInstructions: 'You are @Alice',
         model: 'gpt-5.5',
         config: {
           sandbox_workspace_write: { network_access: false },
+          ...CODEX_FIXED_CONFIG,
           'features.apps': false,
           mcp_servers: { headroom: { enabled: false } },
         },
@@ -528,6 +692,7 @@ describe('codex thread config', () => {
     expect(guarded.params).toMatchObject({ permissions: 'harness-relay-1a2b' });
     expect(guarded.params).not.toHaveProperty('sandbox');
     expect(guarded.params.config).toEqual({
+      ...CODEX_FIXED_CONFIG,
       'features.apps': false,
       mcp_servers: { headroom: { enabled: false } },
       permissions: {
@@ -578,14 +743,36 @@ describe('codex thread config', () => {
         },
       },
     });
+    expect(onLab.params.config).not.toHaveProperty('model_context_window');
+    // Its context window, when Settings knows it: Codex knows none for a model not of its own catalog.
+    const limited = { ...lab, endpoint: { ...lab.endpoint, limits: { qwen3: { context: 32768 } } } };
+    expect(codexThreadRequest({ ...run, model: 'lab/qwen3' }, user, 'linux', 'harness-relay-1a2b', limited).params.config).toMatchObject({
+      model_context_window: 32768,
+      model_auto_compact_token_limit: 32768 - 8192,
+    });
+    const outputSet = { ...lab, endpoint: { ...lab.endpoint, limits: { qwen3: { context: 131072, output: 4096 } } } };
+    expect(codexThreadRequest({ ...run, model: 'lab/qwen3' }, user, 'linux', 'harness-relay-1a2b', outputSet).params.config).toMatchObject({
+      model_context_window: 131072,
+      model_auto_compact_token_limit: 131072 - 4096,
+    });
     // Full access, or a conversation that refuses automatically, never asks.
     expect(codexThreadRequest({ ...run, permission: 'full' }).params.approvalPolicy).toBe('never');
     expect(codexThreadRequest({ ...run, requestApproval: undefined }).params.approvalPolicy).toBe('never');
     // Single items go in the thread's config as well.
     expect(codexThreadRequest({ ...run, nativeOff: [], nativeItems: { plugins: ['pdf@openai'] } }).params.config).toEqual({
       sandbox_workspace_write: { network_access: false },
+      ...CODEX_FIXED_CONFIG,
       plugins: { 'pdf@openai': { enabled: false } },
     });
+    // All its subagents, the built-in ones too: below full access (the orchestrator's `runNativeOff`), or by the account's switch.
+    expect(codexThreadRequest({ ...run, nativeOff: ['subagents'] }).params.config).toMatchObject({
+      'agents.enabled': false,
+      'features.multi_agent': false,
+      'features.multi_agent_v2': false,
+    });
+    expect(codexThreadRequest({ ...run, nativeOff: [] }).params.config).not.toHaveProperty('agents.enabled');
+    // Goals off and its question form off in every thread, whatever the account's config says.
+    expect(CODEX_FIXED_CONFIG).toEqual({ 'features.goals': false, 'tools.experimental_request_user_input.enabled': false });
   });
 
   it('checks after the thread starts that Codex took the hooks and plugins switches', async () => {
@@ -756,7 +943,8 @@ describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks
   // the user's config would). FAKE_CODEX_IGNORE plays a Codex that ignores the
   // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
   // that ignores the thread's permission profile; FAKE_CODEX_PROFILE_FAILS one that cannot load it
-  // (a turn in it fails, as Codex 0.167 on Linux does). Each request goes to the log.
+  // (a turn in it fails, as Codex 0.167 on Linux does). FAKE_CODEX_SAYS (JSON) are its turn's agent
+  // messages. Each request goes to the log, and each turn's outputSchema.
   const FAKE_CODEX = `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
@@ -815,13 +1003,34 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     case 'plugin/installed':
       return reply({ marketplaces: [{ name: 'm', plugins: off('features.plugins') ? [] : [{ id: 'deck@m', installed: true, enabled: true }] }] });
     case 'turn/start':
+      log({ outputSchema: m.params.outputSchema ?? null });
       reply({ turn: { id: 'turn-1' } });
+      // Its agent messages, the last one the answer (in the shape outputSchema asks for, when it does).
+      for (const [i, text] of JSON.parse(process.env.FAKE_CODEX_SAYS || '[]').entries())
+        out({ method: 'item/completed', params: { threadId: 'thr-1', item: { type: 'agentMessage', id: 'msg-' + i, text } } });
       if (process.env.FAKE_CODEX_PROFILE_FAILS && profiled) {
         const error = { message: 'failed to load workspace requirements: invalid input parameter' };
         return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'failed', error } } }), 50);
       }
       // Asked of clients that take the experimental API.
       if (init.capabilities?.experimentalApi) out({ id: 'time-1', method: 'currentTime/read', params: { threadId: 'thr-1' } });
+      if (process.env.FAKE_CODEX_SUBAGENT) {
+        // A subagent, as Codex 0.167.0's schema has it: its spawn call, its thread, a command in it, its tokens.
+        const spawn = (status, receiverThreadIds) => ({ type: 'collabAgentToolCall', id: 'spawn-1', tool: 'spawnAgent', status,
+          senderThreadId: 'thr-1', receiverThreadIds, prompt: 'Look for the parser', model: 'gpt-5.5-mini', agentsStates: {} });
+        const child = (method, params) => out({ method, params: { threadId: 'thr-sub', turnId: 'turn-sub', ...params } });
+        out({ method: 'item/started', params: { threadId: 'thr-1', item: spawn('inProgress', []) } });
+        out({ method: 'thread/started', params: { thread: { id: 'thr-sub', parentThreadId: 'thr-1',
+          source: { subAgent: { thread_spawn: { parent_thread_id: 'thr-1', depth: 1, agent_nickname: 'Noether', agent_role: 'explorer' } } } } } });
+        out({ method: 'item/completed', params: { threadId: 'thr-1', item: spawn('completed', ['thr-sub']) } });
+        child('item/started', { item: { type: 'commandExecution', id: 'exec-sub', command: 'rg parse', status: 'inProgress' } });
+        child('item/completed', { item: { type: 'commandExecution', id: 'exec-sub', command: 'rg parse', status: 'completed', exitCode: 0, aggregatedOutput: 'src/parse.ts' } });
+        child('item/completed', { item: { type: 'agentMessage', id: 'msg-sub', text: 'It is in src/parse.ts.' } });
+        child('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 30, outputTokens: 3 }, total: { totalTokens: 33 } } });
+        child('turn/completed', { turn: { id: 'turn-sub', status: 'completed', items: [] } });
+        out({ method: 'thread/tokenUsage/updated', params: { threadId: 'thr-1', turnId: 'turn-1',
+          tokenUsage: { last: { inputTokens: 100, outputTokens: 10 }, total: { totalTokens: 110 } } } });
+      }
       return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } }), 100);
     default:
       return out({ id: m.id, error: { code: -32600, message: 'Invalid request: unknown variant ' + m.method } });
@@ -889,6 +1098,31 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         : {}),
     });
 
+  it("asks its maker's model for the answer's shape on this turn only, and gives back its last message as it", async () => {
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const shaped = run({ FAKE_CODEX_SAYS: JSON.stringify(['Looking at the groups…', '{"group":3}']) }, undefined, [], {
+      outputSchema: schema,
+    });
+    await expect(shaped.result).resolves.toMatchObject({ sessionId: 'thr-1', structured: { group: 3 } });
+    expect(shaped.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: schema });
+    // A last message that is not JSON: no structured answer (the caller reads the text).
+    const prose = run({ FAKE_CODEX_SAYS: JSON.stringify(['group three']) }, undefined, [], { outputSchema: schema });
+    expect((await prose.result).structured).toBeUndefined();
+    // Not asked for: neither sent nor read.
+    const plain = run({ FAKE_CODEX_SAYS: JSON.stringify(['{"group":3}']) });
+    expect((await plain.result).structured).toBeUndefined();
+    expect(plain.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: null });
+    // The user's own endpoint may not take it: not sent.
+    const backends = { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma'] }] };
+    const own = run({ FAKE_CODEX_SAYS: JSON.stringify(['{"group":3}']) }, undefined, [], {
+      outputSchema: schema,
+      backends,
+      model: 'homelab/gemma',
+    });
+    expect((await own.result).structured).toBeUndefined();
+    expect(own.lines().find((l) => 'outputSchema' in l)).toEqual({ outputSchema: null });
+  });
+
   it('trusts only the Relay hook on a resumed thread and keeps native hooks left out', async () => {
     const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [], { permission: 'full', sessionId: 'thr-1', hooks: teamHooks() });
     await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
@@ -935,6 +1169,21 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     } finally {
       resetCodexProfiles();
     }
+  });
+
+  it("shows a subagent's commands under the call that started it, and adds its tokens to the turn's", async () => {
+    const events: AgentEvent[] = [];
+    const r = run({ FAKE_CODEX_SUBAGENT: '1' }, undefined, [], { onEvent: (e) => events.push(e) });
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1', inputTokens: 130, outputTokens: 13 });
+    expect(events.filter((e) => e.type === 'tool_start' || e.type === 'tool_end')).toEqual([
+      { type: 'tool_start', id: 'spawn-1', name: 'spawn_agent', detail: 'Look for the parser', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'spawn-1', name: 'spawn_agent', agent: 'explorer' },
+      { type: 'tool_start', id: 'exec-sub', name: 'Shell', detail: 'rg parse', parentId: 'spawn-1' },
+      { type: 'tool_end', id: 'exec-sub', ok: true, output: 'src/parse.ts' },
+      { type: 'tool_end', id: 'spawn-1', ok: true, output: 'It is in src/parse.ts.' },
+    ]);
+    // The subagent's own words are not the agent's.
+    expect(events.some((e) => e.type === 'text' && e.text.includes('src/parse.ts'))).toBe(false);
   });
 
   it('gives its app-server the switches too, and checks them before the turn starts', async () => {

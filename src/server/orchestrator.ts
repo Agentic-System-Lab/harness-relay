@@ -41,6 +41,8 @@ import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
+  agentLimitsFor,
+  STEER_PROVIDERS,
   currentPlan,
   cwdsOf,
   isEndpointCli,
@@ -50,8 +52,9 @@ import {
   planSavable,
 } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
+import { withSubModelTokens, type SubModelTokens } from './runCode';
 import { emptyStateFolder, removeConversationState } from './agents/open';
-import { stateKeys, type ApprovalRequest, type RunOptions } from './agents/types';
+import { stateKeys, type ApprovalRequest, type RunOptions, type SteerTurn } from './agents/types';
 import {
   GATEWAY_FULL_ACCESS_ONLY,
   GATEWAY_OVER_HTTP,
@@ -84,7 +87,9 @@ import {
   keepMemberIds,
   memberAvailable,
   planFollowsTeam,
-  parsePlanReply,
+  leadReply,
+  PLAN_SCHEMA,
+  REVISION_SCHEMA,
   teamSettings,
   type PlanConversation,
   type PlanDecision,
@@ -102,10 +107,19 @@ import {
   type AttachmentPart,
   type AttachmentUpload,
 } from './attachments';
-import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
+import {
+  buildBriefing,
+  buildSteerPrompt,
+  buildTurnPrompt,
+  isForwardable,
+  isPass,
+  parseMentions,
+  type BriefingWorkspace,
+  type TurnInfo,
+} from './prompt';
 import { endpointModel } from './backends';
 import { checkModel } from './modelCheck';
-import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
+import { REVIEWER_BRIEFING, REVIEW_SCHEMA, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import {
   RunCheck,
   checksResult,
@@ -308,6 +322,17 @@ interface Run {
   scheduledQueueOnly?: boolean;
   /** The user asked a member to fix this team checks result (its message id): the member is shown it, seen or not. */
   fixChecks?: string;
+  /** Steering: the members whose running turn can take a message now (`RunOptions.onSteer`), by agent id. */
+  steers?: Map<string, TurnSteer>;
+  /** The members of the parallel round under way: a message is steered into all of them, or none. */
+  round?: string[];
+}
+
+/** A member's running turn that can take a message now (steering). */
+interface TurnSteer {
+  steer: SteerTurn;
+  /** The turn took this message: it counts as seen by the member once the turn ends well. */
+  took: (messageId: string) => void;
 }
 
 interface StartOptions {
@@ -724,6 +749,11 @@ export class Orchestrator {
   private checking = new Map<string, AbortController>();
   /** That work, until it has finished its clean-up (`settled()` waits for it). */
   private checkWork = new Set<Promise<unknown>>();
+  /**
+   * Steering: per conversation, the messages being sent while the team replies, one after another in the
+   * order they were sent (each waits for the one before it to go into running turns or into the queue).
+   */
+  private steering = new Map<string, Promise<void>>();
   /** Harness Relay's own tools (`gateway.ts`), when the server runs them, and their outbox. */
   gateway?: ToolGateway;
   outbox?: Outbox;
@@ -993,8 +1023,14 @@ export class Orchestrator {
     try {
       if ((interrupt || stopsReview) && (content || found.queue?.length)) await this.interrupt(convId);
       if (content && this.queues(found)) {
-        this.enqueue(found, text, uploads, { request });
-        return { queued: true };
+        // Steering: into the running turns when they can take it (`steerOrQueue`); else, as before, the queue.
+        if (found.settings.steer || this.steering.has(convId)) {
+          const sent = await this.steerOrQueue(found, text, uploads, request);
+          if (sent) return sent;
+        } else {
+          this.enqueue(found, text, uploads, { request });
+          return { queued: true };
+        }
       }
       const conv = this.getIdle(convId);
       if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
@@ -1012,6 +1048,108 @@ export class Orchestrator {
     } finally {
       if (held && !this.runs.get(convId)?.lockRoots) this.unlockDirs(held, convId);
     }
+  }
+
+  /**
+   * A message sent while the team replies, with steering on: it goes into the running turns the mode
+   * allows (`steerInto`), or else waits in the queue as before. One at a time per conversation, in the
+   * order they were sent, so that one steered cannot overtake one before it that waits. Undefined when
+   * the team stopped meanwhile and nothing holds the conversation: the message starts a run instead.
+   */
+  private async steerOrQueue(
+    conv: Conversation,
+    text: string,
+    uploads: AttachmentUpload[] | undefined,
+    request?: TaskRequest,
+  ): Promise<{ queued: boolean } | undefined> {
+    // The run it was sent into: one the user stops while the message is being sent keeps it in the queue.
+    const into = this.runs.get(conv.id);
+    const prior = this.steering.get(conv.id);
+    let done!: () => void;
+    const mine = new Promise<void>((resolve) => (done = resolve));
+    const chain = (prior ?? Promise.resolve()).then(() => mine);
+    this.steering.set(conv.id, chain);
+    try {
+      await prior;
+      // A message with files waits for a turn: a running turn takes text only.
+      if (!uploads?.length && (await this.steerInto(conv, text, request))) return { queued: false };
+      // Stopped meanwhile (a steer can wait seconds for its CLI's answer): it waits in the queue, as a
+      // message sent with steering off would, rather than starting a run of its own.
+      const stopped = Boolean(into?.abort.signal.aborted) && !this.deleting.has(conv.id) && !this.closing;
+      if (!this.queues(conv) && !stopped) return undefined;
+      this.enqueue(conv, text, uploads, { request });
+      return { queued: true };
+    } finally {
+      done();
+      if (this.steering.get(conv.id) === chain) this.steering.delete(conv.id);
+    }
+  }
+
+  /**
+   * The running turns a message goes into now (steering), by member: in roundtable and relay mode the
+   * turn of the member speaking; in parallel mode every turn of the round, when all of them can take it.
+   * None (it waits in the queue) when the conversation does not steer, the run is not the team's turns
+   * (the lead agent designs or reviews, a fix or a failed check holds the queue), a message waits in the
+   * queue already (the chat keeps the order they were sent in), or the message is for other members (in
+   * parallel mode, any message that names members).
+   */
+  private steerTargets(conv: Conversation, run: Run, msg: ChatMessage): [string, TurnSteer][] {
+    if (!conv.settings.steer || run.abort.signal.aborted || this.closing || this.deleting.has(conv.id)) return [];
+    if (run.designs || run.reviewing || run.fixChecks || run.scheduledQueueOnly) return [];
+    if (this.starting.has(conv.id) || this.checking.has(conv.id) || pendingPlan(conv.messages) || conv.pause) return [];
+    if (conv.queue?.length || !run.steers?.size) return [];
+    const parallel = conv.settings.mode === 'parallel';
+    const ids = parallel ? (run.round ?? []) : [...run.active];
+    if (!ids.length || (!parallel && ids.length !== 1)) return [];
+    const targets: [string, TurnSteer][] = [];
+    for (const id of ids) {
+      const steer = run.steers.get(id);
+      if (!steer) return []; // in parallel mode, all of the round or none
+      targets.push([id, steer]);
+    }
+    const recipients = ids.flatMap((id) => conv.agents.find((a) => a.id === id) ?? []);
+    // In parallel mode the round sees the same message: one that names some of its members only is for
+    // them, so it waits for the next round rather than going into every turn.
+    if (parallel && parseMentions(textOf(msg), conv.agents).length) return [];
+    return isFor(msg, recipients, conv.agents) ? targets : [];
+  }
+
+  /**
+   * Send the user's message into the running turns `steerTargets` names, all at once, and post it in the
+   * chat once one of them took it, marked with those members (`steered`), who count it as seen. A turn
+   * that ended in between or refused it does not have it: in parallel mode, a member of the round whose
+   * turn did not take it gets it with its next turn's messages (it is in the chat, unseen), and when none
+   * took it, it waits in the queue (false). Never both, never twice.
+   */
+  private async steerInto(conv: Conversation, text: string, request?: TaskRequest): Promise<boolean> {
+    const run = this.runs.get(conv.id);
+    if (!run) return false;
+    const msg: ChatMessage = {
+      id: randomUUID(),
+      author: { kind: 'user' },
+      createdAt: Date.now(),
+      parts: [{ type: 'text', text }],
+      status: 'done',
+      queued: true,
+    };
+    const targets = this.steerTargets(conv, run, msg);
+    if (!targets.length) return false;
+    const prompt = buildSteerPrompt(conv, msg);
+    const took = await Promise.all(targets.map(([, s]) => s.steer(prompt).catch(() => false)));
+    const into = targets.filter((_, i) => took[i]);
+    if (!into.length) return false;
+    msg.steered = into.map(([id]) => id);
+    for (const [, s] of into) s.took(msg.id);
+    // Deleted meanwhile: nothing to post, and nothing to queue either.
+    if (this.deleting.has(conv.id) || this.store.get(conv.id) !== conv) return true;
+    conv.messages.push(msg);
+    this.store.saveMessage(conv.id, msg, true, request);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.nameAfter(conv, msg);
+    // One of the user's own messages reached the run: they are here (as `deliverBefore` says).
+    run.refuseApprovals = false;
+    run.unattended = undefined;
+    return true;
   }
 
   /**
@@ -2435,8 +2573,34 @@ export class Orchestrator {
         this.hub.emit(convId, { type: 'message', message: msg });
         break;
       }
-      case 'tool_start':
-        msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
+      case 'tool_start': {
+        // A CLI that tells the same call again (a subagent's start, then its name) updates it in place.
+        const known = msg.parts.find((p) => p.type === 'tool' && p.id === e.id);
+        if (known?.type === 'tool') {
+          if (e.detail) known.detail = e.detail;
+          if (e.agent) known.agent = e.agent;
+          if (e.model) known.model = e.model;
+          // A call the CLI says only now was a subagent's (Copilot's runtime events come after its call).
+          if (e.parentId && !known.parentId && e.parentId !== known.id) known.parentId = e.parentId;
+          this.hub.emit(convId, { type: 'message', message: msg });
+          break;
+        }
+        msg.parts.push({
+          type: 'tool',
+          id: e.id,
+          name: e.name,
+          detail: e.detail,
+          ...(e.kind ? { kind: e.kind } : {}),
+          status: 'running',
+          ...(e.parentId ? { parentId: e.parentId } : {}),
+          ...(e.agent ? { agent: e.agent } : {}),
+          ...(e.model ? { model: e.model } : {}),
+        });
+        this.hub.emit(convId, { type: 'message', message: msg });
+        break;
+      }
+      case 'notice':
+        msg.parts.push({ type: 'notice', text: e.text });
         this.hub.emit(convId, { type: 'message', message: msg });
         break;
       case 'tool_end': {
@@ -2601,8 +2765,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildPlannerPrompt(question, conv.settings, ctx, {
           history,
@@ -2610,6 +2773,7 @@ export class Orchestrator {
           ...(run.designFor !== undefined ? { schedule: { newChat: Boolean(conv.schedule?.newChat) } } : {}),
         }),
         systemPrompt: PLANNER_BRIEFING,
+        outputSchema: PLAN_SCHEMA,
         cwd: conv.settings.cwd,
         permission: 'read-only',
         stateKey: stateKeys.lead(conv.id),
@@ -2628,14 +2792,15 @@ export class Orchestrator {
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
-      decision = decidePlan(parsePlanReply(reply), ctx, lead, current);
+      decision = decidePlan(leadReply(reply, result.structured), ctx, lead, current);
     } catch (err) {
       if (!run.abort.signal.aborted) {
         console.warn('[orchestrator] team design failed:', (err as Error).message);
         failure = (err as Error).message;
         if (ctx && !(err instanceof PlanUnavailableError)) {
           try {
-            const raw = reply.trim();
+            // What the lead answered: its text, or the structured answer its CLI gave.
+            const raw = reply.trim() || (result?.structured !== undefined ? JSON.stringify(result.structured) : '');
             const diagnostic = raw && raw !== failure ? `${failure}\n\n${raw}` : failure;
             decision = fallbackPlan(ctx, lead, diagnostic, current);
           } catch (fallbackError) {
@@ -2736,11 +2901,11 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees),
         systemPrompt: REVIEWER_BRIEFING,
+        outputSchema: REVIEW_SCHEMA,
         cwd: conv.settings.cwd,
         ...(addDirs.length ? { addDirs } : {}),
         permission: 'read-only',
@@ -2755,7 +2920,7 @@ export class Orchestrator {
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
-      review = parseReviewReply(reply, material.replies);
+      review = parseReviewReply(reply, material.replies, result.structured);
     } catch (err) {
       if (!signal.aborted) {
         console.warn('[orchestrator] lead review failed:', (err as Error).message);
@@ -3472,6 +3637,22 @@ export class Orchestrator {
     return conv;
   }
 
+  /**
+   * Turn steering on or off (Team settings' box), any time, also while the team replies: it is read as
+   * each message is sent (`steerOrQueue`).
+   */
+  setSteer(convId: string, on: boolean): Conversation {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    if (Boolean(conv.settings.steer) !== on) {
+      const { steer: _was, ...rest } = conv.settings;
+      conv.settings = on ? { ...rest, steer: true } : rest;
+      this.store.saveMeta(conv);
+      this.emitConversation(conv);
+    }
+    return conv;
+  }
+
   /** The lead agent's team becomes the conversation's team (members and how they take turns). */
   private applyPlan(conv: Conversation, plan: NonNullable<ChatMessage['plan']>): void {
     if (!plan.agents?.length || !plan.settings) return;
@@ -3700,8 +3881,7 @@ export class Orchestrator {
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
         backends: this.settings.backendsFor(lead.provider),
-        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
-        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        ...this.settings.runNative(lead.provider, lead.account, 'read-only'),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
         prompt: buildRevisePrompt(request, draft, place, ctx, {
           history: historyForLead(conv.messages),
@@ -3715,6 +3895,7 @@ export class Orchestrator {
           savedCwd: sameFolder(place.cwd, conv.settings.cwd) ? undefined : conv.settings.cwd,
         }),
         systemPrompt: REVISER_BRIEFING,
+        outputSchema: REVISION_SCHEMA,
         cwd: conv.settings.cwd,
         stateKey: stateKeys.revise(conv.id),
         permission: 'read-only',
@@ -3735,7 +3916,7 @@ export class Orchestrator {
     if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
     if (signal.aborted) throw stopped();
     try {
-      const revised = decideRevision(parsePlanReply(reply), draft, ctx, lead);
+      const revised = decideRevision(leadReply(reply, result.structured), draft, ctx, lead);
       return {
         ...revised,
         meta: {
@@ -3890,8 +4071,11 @@ export class Orchestrator {
         if (!speakers.length) continue; // the user let the team go on without answering
         // The round's turns run side by side: they all see what was sent before it starts.
         this.deliverBefore(conv, run, speakers);
+        // A message steered into the round goes into all of its turns, or into none (`steerTargets`).
+        run.round = ids(speakers);
         // Every turn settles before the run can end, even when one of them fails.
         const settled = await Promise.allSettled(speakers.map((a) => this.turn(conv, a, run, info(a))));
+        run.round = undefined;
         const failed = settled.find((r) => r.status === 'rejected');
         if (failed) throw failed.reason;
         // Side by side, a change cannot be put down to one of them.
@@ -4161,6 +4345,18 @@ export class Orchestrator {
     let turnOver = false;
     /** The session was rolled back to the one before this turn (a fresh retry failed too). */
     let keptOldSession = false;
+    /** Messages the user sent into this attempt's running turn (steering): seen once the turn ends well. */
+    let steered: string[] = [];
+    /** How the turn ended, for a message its CLI took as it was ending (`took` comes after it then). */
+    let outcome: 'done' | 'failed' | undefined;
+    const took = (messageId: string) => {
+      if (!outcome) steered.push(messageId);
+      else if (outcome === 'done' && !state.seen.includes(messageId)) {
+        state.seen.push(messageId);
+        this.store.saveAgentState(conv.id, agent.id, state);
+      }
+      // A failed turn: its messages are offered again, this one too.
+    };
     const onEvent = (e: AgentEvent) => {
       switch (e.type) {
         case 'session':
@@ -4172,11 +4368,17 @@ export class Orchestrator {
           }
           return;
         case 'text': {
-          const last = msg.parts[msg.parts.length - 1];
+          // A subagent's calls that came in since the text began do not close it: it goes on in its part.
+          let at = msg.parts.length - 1;
+          while (textOpen && at > 0 && msg.parts[at].type === 'tool' && (msg.parts[at] as { parentId?: string }).parentId) at--;
+          const last = msg.parts[at];
           if (textOpen && last?.type === 'text') last.text += e.text;
-          else msg.parts.push({ type: 'text', text: e.text });
+          else {
+            msg.parts.push({ type: 'text', text: e.text });
+            at = msg.parts.length - 1;
+          }
           textOpen = true;
-          this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: msg.parts.length - 1, text: e.text });
+          this.hub.emit(conv.id, { type: 'delta', messageId: msg.id, partIndex: at, text: e.text });
           break;
         }
         case 'text_end':
@@ -4188,8 +4390,13 @@ export class Orchestrator {
           this.activity(conv.id, msg, e);
           return;
         case 'thinking':
-        case 'tool_start':
+        case 'notice':
           textOpen = false;
+          this.activity(conv.id, msg, e);
+          return;
+        case 'tool_start':
+          // A subagent's call goes inside the call that started it, not between the agent's words.
+          if (!e.parentId) textOpen = false;
           this.activity(conv.id, msg, e);
           return;
         case 'tool_end':
@@ -4304,6 +4511,8 @@ export class Orchestrator {
       return item;
     };
 
+    // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
+    const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
     const attempt = async (fresh: boolean): Promise<RunResult> => {
       if (fresh) {
         state.sessionId = undefined;
@@ -4345,18 +4554,28 @@ export class Orchestrator {
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       };
-      // The account's own: its home has its own skills, MCP servers and hooks.
-      const nativeOff = this.settings.nativeOff(agent.provider, account);
-      const nativeItems = this.settings.nativeItems(agent.provider, account);
+      // The account's own (its home has its own skills, MCP servers and hooks), at this run's permission.
+      const { nativeOff, nativeItems, nativeOn } = this.settings.runNative(agent.provider, account, conv.settings.permission);
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
+      // The member's own limit, the one its CLI has.
+      const limits = agentLimitsFor(agent.provider, agent.limits);
       // Over loopback HTTP for the CLIs that keep its token in memory (`GATEWAY_OVER_HTTP`), else the stdio
       // program; below full access, a CLI whose sandbox holds its MCP servers gets no stdio stand-in
       // (`GATEWAY_SANDBOXED_MCP`), and one with no HTTP way at all none (`GATEWAY_FULL_ACCESS_ONLY`).
       const full = conv.settings.permission === 'full';
       // End gateway calls and hooks when the CLI finishes, fails, times out, or receives Stop.
       const turnEnd = new AbortController();
+      // Steering: while the CLI can take a message into this turn, one the user sends may go in
+      // (`steerInto`, when the conversation steers: read as each message is sent).
+      steered = [];
+      const onSteer = STEER_PROVIDERS.includes(agent.provider)
+        ? (steer: SteerTurn | undefined) => {
+            if (steer && !turnEnd.signal.aborted) (run.steers ??= new Map()).set(agent.id, { steer, took });
+            else run.steers?.delete(agent.id);
+          }
+        : undefined;
       const turnSignal = AbortSignal.any([run.abort.signal, turnEnd.signal]);
       const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], workspace, turnSignal, notice);
       const relay =
@@ -4373,6 +4592,10 @@ export class Orchestrator {
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
                 toOutbox,
+                usage: (u) => {
+                  subModel.inputTokens += u.inputTokens;
+                  subModel.outputTokens += u.outputTokens;
+                },
                 signal: turnSignal,
               },
               tools.relayGroups,
@@ -4386,6 +4609,7 @@ export class Orchestrator {
           backends: this.settings.backendsFor(agent.provider),
           nativeOff,
           nativeItems,
+          nativeOn,
           sandboxTerminal: this.settings.sandboxTerminal(agent.provider),
           prompt,
           systemPrompt: buildBriefing(
@@ -4408,6 +4632,7 @@ export class Orchestrator {
           freshState,
           model,
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
+          ...(limits ? { limits } : {}),
           signal: run.abort.signal,
           onEvent,
           requestApproval: cliApproval(Boolean(relay)),
@@ -4415,6 +4640,7 @@ export class Orchestrator {
           attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
           mcpServers: relay ? [...tools.mcpServers.filter((s) => !reservedMcpName(s.name)), relay.spec] : tools.mcpServers,
           readDirs: tools.skills.map((s) => s.dir),
+          ...(onSteer ? { onSteer } : {}),
         });
         if (result.sessionId) state.sessionId = result.sessionId;
         return result;
@@ -4423,6 +4649,7 @@ export class Orchestrator {
         throw err;
       } finally {
         turnEnd.abort();
+        run.steers?.delete(agent.id);
         relay?.revoke();
         await hooks?.dispose();
       }
@@ -4467,18 +4694,27 @@ export class Orchestrator {
         ...msg.meta,
         durationMs: Date.now() - started,
         costUsd: result.costUsd,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
+        ...withSubModelTokens(result, subModel),
       };
+      // What the user sent into the turn (steering) is in the session now, as the reply is.
+      for (const id of steered) if (!state.seen.includes(id)) state.seen.push(id);
+      outcome = 'done';
       state.seen.push(msg.id);
     } catch (err) {
+      outcome = 'failed';
       const aborted = err instanceof AgentRunError && err.aborted;
       // The session this agent resumes next holds its own reply, even a failed one, so the reply is
       // not news to it; without such a session (it starts fresh) it is shown the reply.
       if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
-      msg.meta = { ...msg.meta, durationMs: Date.now() - started };
+      // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
+      const spent = err instanceof AgentRunError ? err.usage : undefined;
+      msg.meta = {
+        ...msg.meta,
+        durationMs: Date.now() - started,
+        ...(spent ? { costUsd: spent.costUsd, ...withSubModelTokens(spent, subModel) } : {}),
+      };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {
       // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.

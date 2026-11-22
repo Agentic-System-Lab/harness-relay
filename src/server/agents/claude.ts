@@ -4,8 +4,18 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { open } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import {
+  agentLimitsFor,
+  endpointEffort,
+  PROVIDER_LABEL,
+  type NativeItemsOff,
+  type NativeOnPart,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+} from '../../shared/types';
 import { endpointRunModel, type EndpointModel } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
 import { converse, runProcess, tail } from '../process';
 import {
   AgentRunError,
@@ -19,8 +29,11 @@ import {
   type AgentRunner,
   type ApprovalRequest,
   type McpServerSpec,
+  type OutputSchema,
   type RunOptions,
   type RunResult,
+  type RunUsage,
+  type SteerTurn,
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
@@ -416,8 +429,9 @@ export function claudeRunSettings(
   denyRead: readonly string[] = [],
   env?: Record<string, string>,
   guard?: WriteGuard,
+  on: readonly NativeOnPart[] = [],
 ): Record<string, unknown> | undefined {
-  const native = claudeNativeSettings(off, pluginIds, items);
+  const native = claudeNativeSettings(off, pluginIds, items, on);
   const sandbox = claudeSandboxSettings(permission, platform, denyRead);
   const guarded = claudeGuardRules(guard, platform);
   const withGuard = (settings: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
@@ -488,11 +502,13 @@ export function claudeEndpointUrl(baseUrl: string): string {
  *   an `ANTHROPIC_API_KEY`, an `apiKeyHelper` or the user's sign-in), or `CLAUDE_ENDPOINT_NO_KEY`;
  * - no Anthropic key or sign-in token, and none of the cloud providers (Bedrock, Vertex, Foundry),
  *   which Claude Code would take first;
- * - the model for everything it runs: the turn, its background requests and its subagents.
+ * - the model for everything it runs: the turn, its background requests and its subagents;
+ * - its context window and output limit, when Settings knows them (`claudeEndpointLimitsEnv`).
  */
 export function claudeEndpointEnv(run: EndpointModel): Record<string, string> {
   const m = run.model;
   return {
+    ...claudeEndpointLimitsEnv(run),
     ANTHROPIC_BASE_URL: claudeEndpointUrl(run.endpoint.baseUrl),
     ANTHROPIC_AUTH_TOKEN: run.endpoint.apiKey || CLAUDE_ENDPOINT_NO_KEY,
     ANTHROPIC_API_KEY: '',
@@ -506,6 +522,24 @@ export function claudeEndpointEnv(run: EndpointModel): Record<string, string> {
     ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
     ANTHROPIC_SMALL_FAST_MODEL: m,
     CLAUDE_CODE_SUBAGENT_MODEL: m,
+  };
+}
+
+/**
+ * A model of the user's own endpoint whose limits Settings knows: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, the
+ * window Claude Code takes for a model id it does not recognize (else it assumes one, 200K before
+ * 2.1.323 and 1M since, and compacts only near it), and `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, the tokens it asks for one answer: the
+ * model's output limit, else `outputReserve()`. Both from Claude Code's model configuration docs, and in
+ * the binary of 2.1.327 to 2.1.330. An id that names one of Claude's own models (a gateway's alias) keeps
+ * that model's window. Empty without limits.
+ */
+export function claudeEndpointLimitsEnv(run: EndpointModel): Record<string, string> {
+  const l = runLimits(run.endpoint, run.model);
+  if (!l) return {};
+  const output = l.context ? outputReserve({ ...l, context: l.context }, 32_000) : l.output;
+  return {
+    ...(l.context ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(l.context) } : {}),
+    ...(output ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(output) } : {}),
   };
 }
 
@@ -528,9 +562,13 @@ export function claudeAllowedTools(permission: Permission): string[] {
 /**
  * Tools removed outright. Read-only drops the file-editing tools: `permissions.allow` rules in the
  * user's or a trusted project's Claude Code settings would otherwise let them run without asking.
+ * Every level drops `AskUserQuestion`, Claude Code's own question form: in `-p` it is on whenever a
+ * permission prompt tool is set (below full access when the conversation asks), and it would reach the
+ * user as an approval that sends back no answer. The briefing has the agent ask in its reply
+ * (`[ASK_USER]`) instead.
  */
 export function claudeDisallowedTools(permission: Permission): string[] {
-  return permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : [];
+  return [...(permission === 'read-only' ? ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'] : []), 'AskUserQuestion'];
 }
 
 /**
@@ -568,6 +606,38 @@ export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string,
     ...(off.includes('memory') ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
   };
 }
+
+/**
+ * Variables for what Claude Code does by itself in a run:
+ * - `CLAUDE_CODE_DISABLE_WORKFLOWS`: its dynamic workflows (the `Workflow` tool, scripts of subagents)
+ *   stay off unless the account turns them on (`NATIVE_ON_SUPPORT`): below full access the call reaches
+ *   the user as an approval that does not say what it will run, with full access it runs unasked, and
+ *   its progress comes only as `task_*` messages. Claude Code 2.1.330 reads it at start ("Set in the
+ *   environment before Claude Code starts, CLAUDE_CODE_DISABLE_WORKFLOWS disables Workflows").
+ * - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: how long `-p` waits once the turn has answered for its
+ *   background work, 10 minutes by default. That work is its background subagents and workflows, and its
+ *   background commands too (2.1.330 holds for them: `holdForBackgroundShells`), so a dev server started
+ *   in the background would hold the turn as long as the wait. Kept at its default, but with workflows
+ *   turned on, whose subagents may well run longer: then up to the turn's own time limit, less a margin
+ *   (`CLAUDE_BG_WAIT_MARGIN_MS`), so that Claude Code stops what is left and answers before Harness Relay's
+ *   own timer ends the turn.
+ */
+export function claudeFeatureEnv(on: readonly NativeOnPart[] = [], turnMs: number = TURN_TIMEOUT_MS): Record<string, string> {
+  if (!on.includes('workflows')) return { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' };
+  return { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(Math.max(60_000, turnMs - CLAUDE_BG_WAIT_MARGIN_MS)) };
+}
+
+/**
+ * Whether a run that ran out of time failed: not once the turn had answered (it was waiting for its
+ * background work, or its own wait was longer than the time left), whose answer stands, what was still
+ * at work showing as cut off (`parser.finish()`).
+ */
+export function claudeTimedOut(res: { timedOut?: boolean }, result: Record<string, any> | null): boolean {
+  return Boolean(res.timedOut) && !(result && !result.is_error);
+}
+
+/** How much sooner than the turn's time limit Claude Code stops waiting for its background work (workflows on). */
+export const CLAUDE_BG_WAIT_MARGIN_MS = 2 * 60_000;
 
 /**
  * Claude Code's name for an MCP server in its tool names and permission rules
@@ -622,16 +692,21 @@ export function claudeNativeSettings(
   off: readonly NativePart[] = [],
   pluginIds: readonly string[] = [],
   items: NativeItemsOff = {},
+  /** What the run turns on: `ultracode` (with workflows) sets `"ultracode": true`, which keeps the member's effort. */
+  on: readonly NativeOnPart[] = [],
 ): Record<string, unknown> | undefined {
   const plugins = off.includes('plugins') ? pluginIds : (items.plugins ?? []);
   const skills = off.includes('skills') ? [] : (items.skills ?? []);
   const files = off.includes('instructions') ? [] : (items.instructions ?? []);
+  // All its subagents: a rule for the whole `Agent` tool, which the built-in ones are called through too.
+  const allAgents = off.includes('subagents');
   const deny = [
     ...(off.includes('tools') ? [] : (items.tools ?? [])),
     ...(off.includes('mcp') ? [] : [...(items.mcp ?? []), ...(items.mcpTools ?? [])]),
-    ...(items.agents ?? []).map((name) => `Agent(${name})`),
+    ...(allAgents ? ['Agent'] : (items.agents ?? []).map((name) => `Agent(${name})`)),
   ];
   const settings = {
+    ...(on.includes('workflows') && on.includes('ultracode') ? { ultracode: true } : {}),
     ...(off.includes('hooks') ? { disableAllHooks: true } : {}),
     ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((id) => [id, false])) } : {}),
     ...(skills.length ? { skillOverrides: Object.fromEntries(skills.map((name) => [name, 'off'])) } : {}),
@@ -903,6 +978,8 @@ export function claudeArgs(o: {
   nativeOff?: readonly NativePart[];
   /** Single items of it to leave out. */
   nativeItems?: NativeItemsOff;
+  /** What the run turns on (its `ultracode` setting; workflows go through `claudeFeatureEnv`). */
+  nativeOn?: readonly NativeOnPart[];
   /** The installed plugins, turned off when plugins are left out. */
   pluginIds?: readonly string[];
   /** A file holding the turn's `--settings` (else they go on the command line). */
@@ -915,6 +992,10 @@ export function claudeArgs(o: {
   endpointEnv?: Record<string, string>;
   /** The team's protected paths, refused as `Edit` deny rules (`claudeGuardRules`). */
   guard?: WriteGuard;
+  /** The lead agent's turns: the answer's JSON shape (`--json-schema`), which the result carries as `structured_output`. */
+  jsonSchema?: OutputSchema;
+  /** The member's own limit: the US dollars the turn may cost, by Claude Code's own estimate (`--max-budget-usd`). */
+  maxBudgetUsd?: number;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -947,13 +1028,26 @@ export function claudeArgs(o: {
       o.pluginIds,
       o.nativeItems,
       o.settingsFile,
-      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths, o.endpointEnv, o.guard),
+      claudeRunSettings(
+        o.permission,
+        o.nativeOff,
+        o.pluginIds,
+        o.nativeItems,
+        o.platform,
+        o.protectedPaths,
+        o.endpointEnv,
+        o.guard,
+        o.nativeOn,
+      ),
     ),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
     ...(o.ask ? ['--permission-prompt-tool', 'stdio'] : []),
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--effort', o.effort] : []),
+    ...(o.jsonSchema ? ['--json-schema', JSON.stringify(o.jsonSchema)] : []),
+    // Claude Code counts it for this process alone, which runs this turn alone.
+    ...(o.maxBudgetUsd ? ['--max-budget-usd', String(o.maxBudgetUsd)] : []),
     ...optional.flatMap((f) => OPTIONAL_FLAGS[f]),
     ...(o.sessionId ? ['--resume', o.sessionId] : ['--session-id', o.newSessionId!]),
   ];
@@ -1145,6 +1239,75 @@ export function claudeHookAnswer(when: 'before' | 'after', said: string | undefi
     : { decision: 'block', reason: said };
 }
 
+/** The tools that start a subagent: `Agent`, and `Task`, the name it had before (Claude Code 2.1.330 keeps it as an alias). */
+const CLAUDE_AGENT_TOOLS = new Set(['Agent', 'Task']);
+
+/**
+ * A tool call's row. An `Agent` call names its subagent (`subagent_type`; without one Claude Code runs
+ * `general-purpose`) and the model it asked for (`model`), as the tool's input has them in Claude Code
+ * 2.1.330. `parentId`: the call whose subagent made this one.
+ */
+function claudeToolStart(block: Record<string, any>, parentId?: string): AgentEvent {
+  const input = (block.input && typeof block.input === 'object' ? block.input : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const agent = CLAUDE_AGENT_TOOLS.has(block.name) ? (text(input.subagent_type) ?? 'general-purpose') : undefined;
+  const model = agent ? text(input.model) : undefined;
+  return {
+    type: 'tool_start',
+    id: block.id,
+    name: block.name,
+    detail: summarizeInput(block.input),
+    ...(parentId ? { parentId } : {}),
+    ...(agent ? { agent } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+/**
+ * What a subagent reported (its `Agent` call's result): its words, without the line Claude Code adds
+ * for the agent that called it (`agentId: … (use SendMessage …)` and its `<usage>`).
+ */
+function agentResultText(content: unknown): string {
+  if (!Array.isArray(content)) return resultText(content);
+  return resultText(content.filter((b) => !(typeof b?.text === 'string' && /^agentId: /.test(b.text))));
+}
+
+/**
+ * The rows of a workflow's agents, from a `task_progress`'s `workflow_progress` (Claude Code 2.1.330's
+ * schema: `{ type: 'workflow_agent', index, label, state: 'start' | 'progress' | 'done' | 'error',
+ * agentType?, model?, phaseTitle?, error?, resultPreview? }`), under the `Workflow` call.
+ */
+function workflowAgents(toolUseId: string, rows: unknown, shown: Map<string, string>, emit: (e: AgentEvent) => void): void {
+  if (!Array.isArray(rows)) return;
+  for (const row of rows) {
+    if (row?.type !== 'workflow_agent' || typeof row.index !== 'number') continue;
+    const id = `${toolUseId}:agent-${row.index}`;
+    const label = typeof row.label === 'string' && row.label ? row.label : undefined;
+    const detail = label && typeof row.phaseTitle === 'string' && row.phaseTitle ? `${row.phaseTitle}: ${label}` : label;
+    const state = String(row.state ?? '');
+    const before = shown.get(id);
+    if (before === 'done' || before === 'error') continue;
+    if (before === undefined) {
+      emit({
+        type: 'tool_start',
+        id,
+        name: 'Agent',
+        agent: typeof row.agentType === 'string' && row.agentType ? row.agentType : (label ?? 'agent'),
+        ...(detail ? { detail: clip(detail) } : {}),
+        ...(typeof row.model === 'string' && row.model ? { model: row.model } : {}),
+        parentId: toolUseId,
+      });
+    }
+    shown.set(id, state);
+    if (state === 'done') {
+      const output = typeof row.resultPreview === 'string' && row.resultPreview.trim() ? tailText(row.resultPreview) : undefined;
+      emit({ type: 'tool_end', id, ok: true, ...(output ? { output } : {}) });
+    } else if (state === 'error') {
+      emit({ type: 'tool_end', id, ok: false, ...(typeof row.error === 'string' && row.error ? { error: clip(row.error, 240) } : {}) });
+    }
+  }
+}
+
 /** A `control_request` Claude Code sends on stdout (e.g. `can_use_tool`). */
 export interface ClaudeControlRequest {
   requestId: string;
@@ -1159,8 +1322,87 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
   const streamedMessages = new Set<string>();
   /** Tool calls shown as something else (the to-do list), so their results are not tool rows. */
   const hiddenTools = new Set<string>();
+  /** The calls that start a subagent (`Agent`), whose result is what the subagent reported. */
+  const agentCalls = new Set<string>();
+  /**
+   * Calls whose work goes on in the background once they answered (a background subagent, which
+   * `Agent` starts by default in 2.1.330, a `Workflow`, a background command): their row ends with
+   * their task's `task_notification`, or with the run.
+   */
+  const background = new Set<string>();
+  /** Background calls that answered and are still at work. */
+  const held = new Set<string>();
+  /** Background tasks that ended before their call answered: how. */
+  const settled = new Map<string, Extract<AgentEvent, { type: 'tool_end' }>>();
+  /** A workflow's agents' rows shown so far, with their state. */
+  const workflowRows = new Map<string, string>();
+  /** The rows of a workflow's agents still at work as the workflow ended: ended with it. */
+  const endWorkflowAgents = (toolUseId: string, ok: boolean, error?: string) => {
+    for (const [id, state] of workflowRows) {
+      if (!id.startsWith(`${toolUseId}:agent-`) || state === 'done' || state === 'error') continue;
+      workflowRows.set(id, ok ? 'done' : 'error');
+      emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}) });
+    }
+  };
   let result: Record<string, any> | null = null;
   let sessionId: string | undefined;
+
+  /**
+   * What Claude Code reports about its own run and its background tasks (`type: 'system'`), as Claude
+   * Code 2.1.330's own schemas of its stream-json messages have them: a compaction, a retried request,
+   * a fallback model; and its tasks (`task_started`, `task_progress`, `task_notification`, linked to the
+   * call that started them by `tool_use_id`).
+   */
+  const system = (ev: Record<string, any>) => {
+    const toolUseId = typeof ev.tool_use_id === 'string' && ev.tool_use_id ? ev.tool_use_id : undefined;
+    switch (ev.subtype) {
+      case 'compact_boundary':
+        emit({ type: 'notice', text: t().cliCompacted('Claude Code') });
+        break;
+      case 'status':
+        if (ev.compact_result === 'failed') {
+          const why = typeof ev.compact_error === 'string' && ev.compact_error ? clip(ev.compact_error, 240) : undefined;
+          emit({ type: 'notice', text: t().cliCompactFailed('Claude Code', why) });
+        }
+        break;
+      case 'api_retry': {
+        const n = (v: unknown) => (typeof v === 'number' && v > 0 ? v : undefined);
+        const why = typeof ev.error === 'string' && ev.error ? ev.error.replace(/_/g, ' ') : undefined;
+        emit({ type: 'notice', text: t().cliRetrying('Claude Code', n(ev.attempt), n(ev.max_retries), why) });
+        break;
+      }
+      case 'model_fallback':
+        if (typeof ev.fallback_model === 'string' && ev.fallback_model) {
+          emit({ type: 'notice', text: t().cliModelSwitched('Claude Code', String(ev.original_model ?? ''), ev.fallback_model) });
+        }
+        break;
+      case 'task_started':
+        if (toolUseId && ev.is_backgrounded === true) background.add(toolUseId);
+        break;
+      case 'task_progress':
+        if (!toolUseId) break;
+        // `agentProgressSummaries`: a line on what the subagent is doing, as its row's detail.
+        if (agentCalls.has(toolUseId) && typeof ev.summary === 'string' && ev.summary.trim()) {
+          emit({ type: 'tool_start', id: toolUseId, name: 'Agent', detail: clip(ev.summary) });
+        }
+        workflowAgents(toolUseId, ev.workflow_progress, workflowRows, emit);
+        break;
+      case 'task_notification': {
+        if (!toolUseId || !background.has(toolUseId)) break;
+        workflowAgents(toolUseId, ev.workflow_progress, workflowRows, emit);
+        const said = typeof ev.result === 'string' && ev.result.trim() ? ev.result : typeof ev.summary === 'string' ? ev.summary : '';
+        const ok = ev.status === 'completed';
+        const end: Extract<AgentEvent, { type: 'tool_end' }> = ok
+          ? { type: 'tool_end', id: toolUseId, ok, ...(said.trim() ? { output: tailText(said.trim()) } : {}) }
+          : { type: 'tool_end', id: toolUseId, ok, ...(said.trim() ? { error: clip(said, 240) } : {}) };
+        background.delete(toolUseId);
+        endWorkflowAgents(toolUseId, ok);
+        if (held.delete(toolUseId)) emit(end);
+        else settled.set(toolUseId, end);
+        break;
+      }
+    }
+  };
 
   function handle(line: string): void {
     const ev = parseJsonLine(line);
@@ -1173,10 +1415,15 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
       sessionId = ev.session_id as string;
       emit({ type: 'session', sessionId });
     }
-    // Ignore events produced inside sub-agents; only the main agent's turn goes to the chat.
-    if (ev.parent_tool_use_id) return;
+    // A subagent's calls go to the chat under the call that started it (`parentId`); nothing else of
+    // its own does (its words, its partial messages, its notes).
+    const parentId = typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id ? ev.parent_tool_use_id : undefined;
+    if (parentId && ev.type !== 'assistant' && ev.type !== 'user') return;
 
     switch (ev.type) {
+      case 'system':
+        system(ev);
+        break;
       case 'stream_event': {
         const e = ev.event ?? {};
         if (e.type === 'message_start' && e.message?.id) streamedMessages.add(e.message.id);
@@ -1199,13 +1446,19 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
         const streamed = msg.id && streamedMessages.has(msg.id);
         for (const block of Array.isArray(msg.content) ? msg.content : []) {
           if (block.type === 'tool_use') {
-            const todos = block.name === 'TodoWrite' ? todoEntries(block.input) : undefined;
+            // A subagent's to-do list is its own: not the agent's plan.
+            const todos = !parentId && block.name === 'TodoWrite' ? todoEntries(block.input) : undefined;
             if (todos) {
               hiddenTools.add(block.id);
               emit({ type: 'plan', entries: todos });
             } else {
-              emit({ type: 'tool_start', id: block.id, name: block.name, detail: summarizeInput(block.input) });
+              if (CLAUDE_AGENT_TOOLS.has(block.name)) agentCalls.add(block.id);
+              // A workflow always runs in the background, and a command asked to.
+              if (block.name === 'Workflow' || block.input?.run_in_background === true) background.add(block.id);
+              emit(claudeToolStart(block, parentId));
             }
+          } else if (parentId) {
+            continue;
           } else if (!streamed && block.type === 'thinking' && block.thinking) {
             emit({ type: 'thinking', text: block.thinking });
           } else if (!streamed && block.type === 'text' && block.text) {
@@ -1220,7 +1473,20 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
         const content = ev.message?.content;
         for (const block of Array.isArray(content) ? content : []) {
           if (block.type !== 'tool_result' || hiddenTools.has(block.tool_use_id)) continue;
-          const text = resultText(block.content).trim();
+          const id = String(block.tool_use_id);
+          const text = (agentCalls.has(id) ? agentResultText(block.content) : resultText(block.content)).trim();
+          // A background subagent's call answers at once (`status: 'async_launched'`): it is still at work.
+          if (ev.tool_use_result?.status === 'async_launched') background.add(id);
+          if (background.has(id)) {
+            const end = settled.get(id);
+            settled.delete(id);
+            if (!block.is_error) {
+              if (end) emit(end);
+              else held.add(id);
+              continue;
+            }
+            background.delete(id); // it never started
+          }
           const declined = block.is_error ? declinedNote(text) : undefined;
           const extra = !text
             ? {}
@@ -1245,6 +1511,14 @@ export function createClaudeParser(emit: (e: AgentEvent) => void, onControl?: (r
 
   return {
     handle,
+    /** Claude Code has exited: a background call still at work was cut off with the run. */
+    finish() {
+      for (const id of [...held]) {
+        held.delete(id);
+        endWorkflowAgents(id, false, t().backgroundCutOff);
+        emit({ type: 'tool_end', id, ok: false, error: t().backgroundCutOff });
+      }
+    },
     get result() {
       return result;
     },
@@ -1328,15 +1602,58 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   }
   // The endpoint's key goes in this private file, never on the command line.
   const settings = claudeSettingsFile(
-    claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv, o.guard),
+    claudeRunSettings(
+      o.permission,
+      o.nativeOff,
+      pluginIds,
+      nativeItems,
+      process.platform,
+      protectedPaths,
+      endpointEnv,
+      o.guard,
+      o.nativeOn,
+    ),
   );
+  // Its maker's models only: on the user's own endpoint the answer's shape is not asked for, and no
+  // budget is set, since Claude Code would price the endpoint's model as one of its own.
+  const jsonSchema = endpoint ? undefined : o.outputSchema;
+  const maxBudgetUsd = endpoint ? undefined : agentLimitsFor('claude', o.limits)?.usd;
   try {
-    const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
+    const result = await runClaudeTurn(o, {
+      mcpConfig,
+      pluginIds,
+      nativeItems,
+      settingsFile: settings?.file,
+      protectedPaths,
+      endpointEnv,
+      ...(jsonSchema ? { jsonSchema } : {}),
+      ...(maxBudgetUsd ? { maxBudgetUsd } : {}),
+    });
     // Claude Code prices a model it does not know as one of its own: no cost for the user's own endpoint.
     return endpoint ? { ...result, costUsd: undefined } : result;
+  } catch (err) {
+    if (endpoint && err instanceof AgentRunError && err.usage) err.usage = { ...err.usage, costUsd: undefined };
+    throw err;
   } finally {
     settings?.remove();
   }
+}
+
+/** How long Claude Code gets to end a turn the user stopped (its `interrupt`) before its process is stopped. */
+export const CLAUDE_STOP_GRACE_MS = 3000;
+let stopGraceMs = CLAUDE_STOP_GRACE_MS;
+
+/** For tests: another wait before a stopped turn's process is stopped (none: the default again). */
+export function setClaudeStopGrace(ms?: number): void {
+  stopGraceMs = ms ?? CLAUDE_STOP_GRACE_MS;
+}
+
+/**
+ * What a turn's result says it spent, kept when the turn fails or is stopped (`AgentRunError.usage`);
+ * undefined without a result.
+ */
+function resultUsage(r: Record<string, any> | null, before: ClaudeTally | undefined): RunUsage | undefined {
+  return r ? claudeTurnUsage(r, before) : undefined;
 }
 
 async function runClaudeTurn(
@@ -1348,6 +1665,8 @@ async function runClaudeTurn(
     settingsFile?: string;
     protectedPaths: readonly string[];
     endpointEnv?: Record<string, string>;
+    jsonSchema?: OutputSchema;
+    maxBudgetUsd?: number;
   },
 ): Promise<RunResult> {
   const newSessionId = o.sessionId ? undefined : randomUUID();
@@ -1372,11 +1691,14 @@ async function runClaudeTurn(
     mcpConfig: run.mcpConfig,
     nativeOff: o.nativeOff,
     nativeItems: run.nativeItems,
+    nativeOn: o.nativeOn,
     pluginIds: run.pluginIds,
     settingsFile: run.settingsFile,
     protectedPaths: run.protectedPaths,
     endpointEnv: run.endpointEnv,
     ...(o.guard ? { guard: o.guard } : {}),
+    ...(run.jsonSchema ? { jsonSchema: run.jsonSchema } : {}),
+    ...(run.maxBudgetUsd ? { maxBudgetUsd: run.maxBudgetUsd } : {}),
     skip: unsupported,
   });
 
@@ -1384,6 +1706,13 @@ async function runClaudeTurn(
   const send = (msg: unknown) => {
     if (child?.stdin?.writable) child.stdin.write(JSON.stringify(msg) + '\n');
   };
+  /** Its input is over: no more prompts, approvals' answers or steering. */
+  let inputEnded = false;
+  const steering = new ClaudeSteering((msg) => {
+    if (inputEnded || !child?.stdin?.writable) return false;
+    send(msg);
+    return true;
+  });
   const respond = (requestId: string, response: unknown) =>
     send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
 
@@ -1436,35 +1765,72 @@ async function runClaudeTurn(
 
   const parser = createClaudeParser(o.onEvent, onControl);
   const initId = `init-${randomUUID()}`;
-  const sendPrompt = () => send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+  // Never once the user stopped the run (the gate below may answer after that).
+  let prompted = false;
+  const sendPrompt = () => {
+    if (o.signal.aborted) return;
+    prompted = true;
+    send({ type: 'user', message: { role: 'user', content: claudeContent(o.prompt, o.images) } });
+    // From now on a message the user sends may go into the turn (steering).
+    o.onSteer?.(steering.steer);
+  };
+  // One prompt per run: once the turn has its result, and no message sent into it still waits for its
+  // turn (steering), the input ends and Claude Code exits.
+  const endInput = () => {
+    if (inputEnded) return;
+    inputEnded = true;
+    o.onSteer?.(undefined);
+    steering.close();
+    child?.stdin?.end();
+  };
+  const maybeEndInput = () => {
+    if (parser.result && !steering.holdsInput()) endInput();
+  };
+  steering.onChange = maybeEndInput;
   // Our own stop as well as the user's, to end the run when its subagents cannot be left out.
   const stop = new AbortController();
-  const relayStop = () => stop.abort();
+  // The user's stop: Claude Code is asked to interrupt the turn first, which ends it with a result that
+  // says what it used (and then the process, its stdin closed); it is stopped all the same after a while.
+  let grace: NodeJS.Timeout | undefined;
+  const relayStop = () => {
+    // No turn under way yet: nothing to interrupt.
+    if (!child || !prompted) return stop.abort();
+    send({ type: 'control_request', request_id: `interrupt-${randomUUID()}`, request: { subtype: 'interrupt' } });
+    grace = setTimeout(() => stop.abort(), stopGraceMs);
+    grace.unref();
+  };
   if (o.signal.aborted) stop.abort();
   else o.signal.addEventListener('abort', relayStop, { once: true });
   let failure: AgentRunError | undefined;
   // When its own subagents are left out, the prompt waits until they are denied.
-  const gate = o.nativeOff?.includes('agents')
-    ? claudeAgentsGate({
-        initId,
-        builtins: (version) => claudeBuiltinAgents(o.bin, o.env, version),
-        send,
-        start: sendPrompt,
-        fail: (detail) => {
-          failure ??= new AgentRunError(t().claudeAgentsFailed(detail));
-          stop.abort();
-        },
-      })
-    : undefined;
+  // With all its subagents left out, the `Agent` deny rule takes them all: nothing to wait for.
+  const gate =
+    o.nativeOff?.includes('agents') && !o.nativeOff.includes('subagents')
+      ? claudeAgentsGate({
+          initId,
+          builtins: (version) => claudeBuiltinAgents(o.bin, o.env, version),
+          send,
+          start: sendPrompt,
+          fail: (detail) => {
+            failure ??= new AgentRunError(t().claudeAgentsFailed(detail));
+            stop.abort();
+          },
+        })
+      : undefined;
   const res = await runProcess({
     bin: o.bin,
     args,
     cwd: o.cwd,
-    env: { ...o.env, ...claudeNativeEnv(o.nativeOff) },
+    env: { ...o.env, ...claudeNativeEnv(o.nativeOff), ...claudeFeatureEnv(o.nativeOn) },
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;
-      send({ type: 'control_request', request_id: initId, request: { subtype: 'initialize', hooks: claudeHooksConfig(o.hooks) } });
+      // `agentProgressSummaries`: a line now and then on what each subagent is doing (`task_progress`).
+      send({
+        type: 'control_request',
+        request_id: initId,
+        request: { subtype: 'initialize', hooks: claudeHooksConfig(o.hooks), agentProgressSummaries: true },
+      });
       if (!gate) sendPrompt();
     },
     signal: stop.signal,
@@ -1474,14 +1840,25 @@ async function runClaudeTurn(
         const msg = parseJsonLine(line);
         if (msg && gate(msg)) return;
       }
+      // Only a lifecycle or result line can change what holds the input: the others go by unparsed here.
+      const ev = line.includes('"command_lifecycle"') || line.includes('"result"') ? parseJsonLine(line) : null;
+      if (ev && steering.handle(ev)) return;
       parser.handle(line);
-      // One prompt per run: once the turn has its result, let Claude Code exit.
-      if (parser.result) child?.stdin?.end();
+      if (ev?.type === 'result') maybeEndInput();
     },
-  }).finally(() => o.signal.removeEventListener('abort', relayStop));
+  }).finally(() => {
+    o.signal.removeEventListener('abort', relayStop);
+    clearTimeout(grace);
+    // Gone: no message can go in any more.
+    inputEnded = true;
+    o.onSteer?.(undefined);
+    steering.close();
+  });
+  parser.finish();
   if (failure && !o.signal.aborted) throw failure;
-  if (res.aborted) throw new AgentRunError(t().stopped, true);
-  if (res.timedOut) throw new AgentRunError(t().timedOut);
+  // Stopped: what its result said it used (an interrupted turn has one), else nothing.
+  if (res.aborted || o.signal.aborted) throw new AgentRunError(t().stopped, true, resultUsage(parser.result, before));
+  if (claudeTimedOut(res, parser.result)) throw new AgentRunError(t().timedOut);
 
   const r = parser.result;
   const rejected = r ? undefined : rejectedFlag(res.stderr);
@@ -1492,14 +1869,134 @@ async function runClaudeTurn(
     if (sandboxed && why && /sandbox/i.test(why)) throw new AgentRunError(t().claudeSandbox(why));
     throw new AgentRunError(why || t().exitedWithoutReply('claude', res.code));
   }
-  if (r.is_error) {
+  const usage = claudeTurnUsage(r, before);
+  // A shape it could not answer in after its retries: the turn's text is read instead.
+  const unshaped = Boolean(run.jsonSchema) && r.subtype === 'error_max_structured_output_retries';
+  if (r.is_error && !unshaped) {
+    if (r.subtype === 'error_max_budget_usd' && run.maxBudgetUsd)
+      throw new AgentRunError(t().claudeBudgetReached(run.maxBudgetUsd), false, usage);
     const detail = typeof r.result === 'string' && r.result ? r.result : (r.errors ?? []).join('\n') || r.subtype;
-    throw new AgentRunError(String(detail || t().claudeError));
+    throw new AgentRunError(String(detail || t().claudeError), false, usage);
   }
   return {
     sessionId: parser.sessionId ?? newSessionId ?? o.sessionId,
-    ...claudeTurnUsage(r, before),
+    ...usage,
+    ...(run.jsonSchema && !unshaped && r.structured_output !== undefined ? { structured: r.structured_output } : {}),
   };
+}
+
+/** How long a message sent into a running turn waits for Claude Code to say it took it (`command_lifecycle`). */
+export const CLAUDE_STEER_ACK_MS = 5000;
+
+/**
+ * Steering a Claude Code turn (`RunOptions.onSteer`). A user message written to its stream-json input
+ * while the turn runs, with `priority: "next"` and a `uuid` of its own, goes into the running turn:
+ * Claude Code folds queued messages of priority `now` or `next` into the turn after the current tool
+ * calls, before its next model request (framed as "This is how Claude Code surfaces messages the user
+ * sends mid-turn…"; `later` waits for the turn's end, `now` may stop it). One it reads once the model
+ * has answered runs as a further turn of the same process, with a result of its own. For a message with
+ * a uuid it writes `command_lifecycle` lines (`command_uuid`, `state`: queued, started, then completed,
+ * cancelled, discarded or refused), and a result's `queued_turn_count` says how many more turns follow.
+ * All of it read in Claude Code 2.1.330 (its SDK message schema: `priority`, `command_lifecycle`,
+ * `queued_turn_count`, `cancel_async_message`; its print mode's queue), not run.
+ *
+ * So a message counts as taken once Claude Code says it queued or started it; one it says nothing about
+ * within `ackMs` is withdrawn (`cancel_async_message`, a no-op once dequeued) and counts as refused. The
+ * run's input stays open after a result while a message of ours waits for its turn or its answer, or
+ * more turns follow (`holdsInput`): ending it then would lose the message, or leave a turn without the
+ * way to answer its approvals.
+ */
+export class ClaudeSteering {
+  /** Ours, written, that Claude Code has said nothing about yet. */
+  private waiting = new Map<string, (taken: boolean) => void>();
+  /** Ours that Claude Code queued but has not started. */
+  private queued = new Set<string>();
+  /** Ours that started a turn of their own since the latest result: those turns are running. */
+  private running = new Set<string>();
+  private latest: Record<string, any> | undefined;
+  private closed = false;
+
+  constructor(
+    private write: (msg: unknown) => boolean,
+    private ackMs = CLAUDE_STEER_ACK_MS,
+  ) {}
+
+  /** The `SteerTurn` for this turn. */
+  readonly steer: SteerTurn = (text) => {
+    if (this.closed) return Promise.resolve(false);
+    const uuid = randomUUID();
+    const message = { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, priority: 'next', uuid };
+    if (!this.write(message)) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.waiting.delete(uuid)) return;
+        this.write({
+          type: 'control_request',
+          request_id: `cancel-${uuid}`,
+          request: { subtype: 'cancel_async_message', message_uuid: uuid },
+        });
+        resolve(false);
+        this.onChange?.();
+      }, this.ackMs);
+      timer.unref?.();
+      this.waiting.set(uuid, (taken) => {
+        clearTimeout(timer);
+        resolve(taken);
+      });
+    });
+  };
+
+  /** Called when what holds the input may have changed (a message taken, refused, given up on). */
+  onChange?: () => void;
+
+  /** A line of Claude Code's output, parsed: true when it was the lifecycle of a message of ours. */
+  handle(ev: Record<string, any>): boolean {
+    if (ev.type === 'result') {
+      this.latest = ev;
+      this.running.clear();
+      return false;
+    }
+    if (ev.type !== 'command_lifecycle') return false;
+    const uuid = String(ev.command_uuid ?? '');
+    const state = String(ev.state ?? '');
+    const answer = this.waiting.get(uuid);
+    // Not ours (none of Harness Relay's other messages has a uuid), or ours and done with.
+    if (!answer && !this.queued.has(uuid) && !this.running.has(uuid)) return true;
+    this.waiting.delete(uuid);
+    if (state === 'queued') {
+      this.queued.add(uuid);
+      answer?.(true);
+    } else if (state === 'started') {
+      this.queued.delete(uuid);
+      if (this.latest) this.running.add(uuid);
+      answer?.(true);
+    } else {
+      // completed, cancelled, discarded, refused: no longer waiting for a turn, and a turn it started is
+      // over (its result may still come; nothing more needs the input).
+      this.queued.delete(uuid);
+      this.running.delete(uuid);
+      answer?.(false);
+    }
+    this.onChange?.();
+    return true;
+  }
+
+  /**
+   * After a result: whether the input must stay open, because more turns follow (its
+   * `queued_turn_count`), a message of ours waits for Claude Code to say it took it or for its turn,
+   * or one of ours started a turn that has no result yet.
+   */
+  holdsInput(): boolean {
+    const more = typeof this.latest?.queued_turn_count === 'number' && this.latest.queued_turn_count > 0;
+    return more || this.waiting.size > 0 || this.queued.size > 0 || this.running.size > 0;
+  }
+
+  /** No more messages (the input is ending, or the process is gone): one still waiting counts as refused. */
+  close(): void {
+    this.closed = true;
+    for (const answer of this.waiting.values()) answer(false);
+    this.waiting.clear();
+  }
 }
 
 /** The prompt, plus attached images as image blocks. */

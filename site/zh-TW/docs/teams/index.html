@@ -358,9 +358,23 @@
             <dd>
               從這個 agent 的模型中挑一個，或選<b>自訂…</b>自己輸入。<i>預設</i>會用設定裡的預設值，或 agent 自己的預設。
             </dd>
+            <dt>上限</dt>
+            <dd>
+              Claude Code（每一輪的費用，以美元計）、Copilot（整個 session 的 AI 點數）、Goose（每一輪的模型呼叫次數）與 OpenCode（每一輪的步數）：這位成員最多可以用多少，由它的 agent 自己遵守。留空就是不設上限。
+            </dd>
             <dt>工具</dt>
             <dd>這位成員可以用工具庫裡的哪些項目。<a href="../tools/">工具</a></dd>
           </dl>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/teams-limit-zh-TW.webp"
+              width="349"
+              height="172"
+              alt="正在把 Claude Code 成員的「每一輪的費用上限」改成 2 美元，並說明這個上限的意思。"
+              loading="lazy"
+            />
+            <figcaption>上限欄會寫明它的 agent 用什麼單位計算。</figcaption>
+          </figure>
           <p>
             用箭頭把成員往前或往後移：順序就是發言順序，接力模式中由第一位帶頭。要新增成員，按標著各個 coding agent 名稱的按鈕；一個團隊最多八位成員。
           </p>
@@ -466,7 +480,11 @@
         <section id="change-the-team" aria-labelledby="change-the-team-title">
           <h2 id="change-the-team-title">在對話中修改團隊</h2>
           <p>
-            按對話上方的<b>團隊設定</b>，可以改角色、模型、推理強度、對話模式、權限或工作目錄。修改從下一回合開始生效。團隊回覆時不能儲存（首席 agent 審閱的勾選框除外）。
+            按對話上方的<b>團隊設定</b>，可以改角色、模型、推理強度、對話模式、權限或工作目錄。修改從下一回合開始生效。團隊回覆時不能儲存（首席 agent 審閱與直接送進回合的勾選框除外）。
+          </p>
+          <p>
+            <b>團隊工作時，把訊息直接送進進行中的回合</b>預設關閉。打開後，團隊工作時你寫的訊息會直接送進正在發言那位成員進行中的回合（它的 agent 能接收時：Claude Code、Codex、Grok、Antigravity、Goose 與 Pi）；否則照常等到下一回合。
+            <a href="../first-chat/#while-they-work">團隊工作時</a>
           </p>
           <p>
             也可以交給首席 agent：在<b>團隊設定</b>最上方的<b>請首席 agent 調整</b>寫下你想怎麼改，例如「加一位用 Codex 的測試人員」、「改成接力模式」或「讓

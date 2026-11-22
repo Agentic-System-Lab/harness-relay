@@ -87,7 +87,8 @@ export interface FakeLogEntry {
 /**
  * The test's fake model endpoint, a small HTTP server of its own: Harness Relay's endpoint `e2e`
  * (Settings → Model connections) with its models, unless the test asks for none (`openBackend: false`).
- * It lists two models (`GET /v1/models`), serves one more by ID, and takes the log lines of fakes
+ * It lists two models (`GET /v1/models`, the second with a context window of 32,768 tokens as vLLM
+ * reports one), serves one more by ID, and takes the log lines of fakes
  * that run in Harness Relay's own sandbox (`POST /e2e-log`), the run's backend being the one host
  * the sandbox lets a run reach.
  */
@@ -211,7 +212,14 @@ async function startFakeEndpoint(log: string): Promise<{ endpoint: FakeEndpoint;
       return;
     }
     if (req.method === 'GET' && path === '/v1/models') {
-      const data = FAKE_MODELS.map((id) => ({ id, object: 'model', created: 0, owned_by: 'e2e' }));
+      // The second reports its context window as vLLM does (`max_model_len`), which Settings reads at Save.
+      const data = FAKE_MODELS.map((id, i) => ({
+        id,
+        object: 'model',
+        created: 0,
+        owned_by: 'e2e',
+        ...(i === 1 ? { max_model_len: 32768 } : {}),
+      }));
       return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ object: 'list', data }));
     }
     if (req.method === 'GET' && path.startsWith('/v1/models/')) {

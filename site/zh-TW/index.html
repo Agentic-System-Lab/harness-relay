@@ -506,7 +506,7 @@
             <div class="excerpt-text">
               <h3>你的金鑰，或你自己的端點</h3>
               <p>
-                要連接自己的伺服器，請展開<b>自訂端點</b>，輸入網址與金鑰（選填），按<b>載入模型</b>，勾選需要的模型，再按<b>儲存</b>。Relay 會先向伺服器確認每個勾選或手動輸入的模型 ID。成員的模型寫成 <code>模型來源/模型</code>：<code>openai/gpt-5.4-nano</code>，或端點的 id 加上模型名稱，例如 <code>homelab/muse-glimmer-30b-nvfp4</code>。金鑰存在作業系統的憑證儲存區，每次執行只拿到它自己模型來源的那一把。
+                要連接自己的伺服器，請展開<b>自訂端點</b>，輸入網址與金鑰（選填），按<b>載入模型</b>，勾選需要的模型，再按<b>儲存</b>。Relay 會先向伺服器確認每個勾選或手動輸入的模型 ID，並從 vLLM 或 llama.cpp 讀取每個模型的上下文長度（或用你填的），讓用小模型的 agent 及時壓縮對話。成員的模型寫成 <code>模型來源/模型</code>：<code>openai/gpt-5.4-nano</code>，或端點的 id 加上模型名稱，例如 <code>homelab/muse-glimmer-30b-nvfp4</code>。金鑰存在作業系統的憑證儲存區，每次執行只拿到它自己模型來源的那一把。
               </p>
               <p>
                 Claude Code 與 Grok 使用自己的模型時，仍沿用各自的登入。開源 agent 使用你在這裡設定的服務商金鑰或端點。
@@ -711,7 +711,7 @@
               這類指令。大多數 agent 也能拒絕寫入受保護路徑。<a href="docs/teams/#checks">了解團隊檢查</a>。
             </p>
             <p>
-              <strong>範本由你設計。</strong>替每個 agent 決定定位（架構師、實作者、審查者、魔鬼代言人），選擇模型與推理強度，並安排發言順序。最多八位成員，同一種
+              <strong>範本由你設計。</strong>替每個 agent 決定定位（架構師、實作者、審查者、魔鬼代言人），選擇模型與推理強度，並安排發言順序。agent 有上限可設時，成員也能有自己的上限：Claude Code 每一輪的費用、Copilot 的 AI 點數、Goose 的模型呼叫次數或 OpenCode 的步數。最多八位成員，同一種
               agent 也可以有好幾位；首席 agent 設計的團隊也能一鍵存成範本。
             </p>
           </div>
@@ -837,7 +837,7 @@
               </div>
               <div class="excerpt-text">
                 <h3>回覆中也能插話</h3>
-                <p>團隊回覆時送出的訊息會先停在輸入框上方，在下一位 agent 發言前送到。送到之前可以編輯或撤回，也可以停止團隊、立刻送出。</p>
+                <p>團隊回覆時送出的訊息會先停在輸入框上方，在下一位 agent 發言前送到。送到之前可以編輯或撤回，也可以停止團隊、立刻送出。在團隊設定打開直接送進回合的選項，訊息就會直接送進正在發言那位成員進行中的回合（它的 agent 能接收時）。</p>
               </div>
             </article>
           </div>
@@ -857,6 +857,7 @@
             <li><b>附加檔案</b>貼上截圖或拖曳檔案，每個 agent 都拿得到路徑；能看圖的 agent 直接看到圖。</li>
             <li><b>對話裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>看見思考與動作</b>推理過程、計畫與每個工具的輸出即時串流；Mermaid 程式碼區塊會畫成圖表。</li>
+            <li><b>它們自己的 subagent，由你決定</b>subagent 的步驟會收在啟動它的那一步底下。agent 有開關時，每個帳號都能關掉它自己的 subagent，或打開 Claude Code 與 Grok 的 workflow：<a href="docs/agents/#subagents">Subagent 與 workflow</a>。</li>
             <li><b>語音輸入，在你的電腦上</b>whisper.cpp 在本機把語音轉成文字；需要時才安裝。</li>
             <li><b>複製、編輯與重試</b>把一則訊息或整段對話複製成 Markdown；編輯自己的訊息或重試某則回覆，團隊就從那裡重新回答。</li>
             <li><b>分支對話</b>把到某則回覆為止的對話複製成新對話，試另一個方向，原本的對話維持不變。</li>
@@ -870,6 +871,7 @@
             <li><b>在聊天中使用常用 App</b>先在<a href="docs/tools/#common-apps">常用 App 設定</a>連結你想用的服務。開啟新對話或新增自動任務時，點附件旁的「常用 App」，就能勾選這次要用的 App。</li>
             <li><b>所有成員共用的工具庫</b>加入 MCP 伺服器、skill 與記憶，開放給所有成員或選定的助理。使用 OAuth 的 MCP 伺服器可在這裡登入。新對話和自動任務一開始帶著的 hook 和團隊檢查也在這裡設定。</li>
             <li><b>在 AgentsView 中看每個 session</b>可選擇在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session：工具呼叫、token 與成本。</li>
+            <li><b>實驗室，試了才開</b>讓 agent 在沙箱裡寫程式來用 Harness Relay 的工具，或用你選的模型分段閱讀長文字。一次只能開一種，每一種都寫了代價：<a href="docs/tools/#labs">實驗室</a>。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>
         </div>

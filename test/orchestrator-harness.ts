@@ -66,6 +66,7 @@ export interface Call {
   attachmentsDir?: string;
   nativeOff?: readonly string[];
   nativeItems?: Record<string, string[]>;
+  nativeOn?: readonly string[];
   sandboxTerminal?: boolean;
   stateKey?: string;
   freshState?: boolean;
@@ -78,6 +79,8 @@ export interface Call {
   asksApproval?: boolean;
   /** The names of the MCP servers it was given. */
   mcpServers?: string[];
+  /** What was sent into its running turn (steering), and the turn took. */
+  steered?: string[];
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -140,6 +143,19 @@ export interface Fake {
   reply: ((name: string, prompt: string) => string | undefined) | undefined;
   /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
   inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
+  /** The structured answer each of the lead agent's runs gives (`RunResult.structured`), besides its text. */
+  structured: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
+  /** The answer's shape each of the lead agent's runs was last asked for (`RunOptions.outputSchema`). */
+  schemas: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
+  /**
+   * Steering: the agents whose fake CLI takes a message into its running turn (`RunOptions.onSteer`)
+   * while it waits for its gate; `refuseSteer` names those that refuse one. A turn that took messages
+   * says so in its reply ("Alice done; heard: …").
+   */
+  steer: Set<string>;
+  refuseSteer: Set<string>;
+  /** Steering: while set, a message sent into a turn waits for it before the fake CLI says whether it took it. */
+  steerWait?: Promise<void>;
 }
 
 const fresh = (): Fake => ({
@@ -162,6 +178,11 @@ const fresh = (): Fake => ({
   keptAsk: undefined,
   reply: undefined,
   inTurn: undefined,
+  structured: {},
+  schemas: {},
+  steer: new Set(),
+  refuseSteer: new Set(),
+  steerWait: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -190,9 +211,10 @@ beforeAll(() => {
           await Promise.race([fake.sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        fake.schemas.sorter = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.sorterReply });
         o.onEvent({ type: 'text_end' });
-        return { sessionId: 'sorter-session' };
+        return { sessionId: 'sorter-session', ...('sorter' in fake.structured ? { structured: fake.structured.sorter } : {}) };
       }
       if (o.systemPrompt === REVIEWER_BRIEFING) {
         calls.push({
@@ -211,9 +233,14 @@ beforeAll(() => {
         }
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
         if (fake.reviewFail) throw new Error(fake.reviewFail);
+        fake.schemas.reviewer = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.reviewReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.03, sessionId: 'reviewer-session' };
+        return {
+          costUsd: 0.03,
+          sessionId: 'reviewer-session',
+          ...('reviewer' in fake.structured ? { structured: fake.structured.reviewer } : {}),
+        };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
         calls.push({
@@ -236,9 +263,14 @@ beforeAll(() => {
         if (o.signal?.aborted && linger) await linger;
         if (o.signal?.aborted) throw new AgentRunError('stopped', true);
         if (fake.reviseFail) throw new Error(fake.reviseFail);
+        fake.schemas.reviser = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.reviseReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.02, sessionId: 'reviser-session' };
+        return {
+          costUsd: 0.02,
+          sessionId: 'reviser-session',
+          ...('reviser' in fake.structured ? { structured: fake.structured.reviser } : {}),
+        };
       }
       if (o.systemPrompt === PLANNER_BRIEFING) {
         calls.push({
@@ -254,9 +286,10 @@ beforeAll(() => {
           effort: o.effort,
         });
         if (fake.leadGate) await fake.leadGate;
+        fake.schemas.lead = o.outputSchema;
         o.onEvent({ type: 'text', text: fake.leadReply });
         o.onEvent({ type: 'text_end' });
-        return { costUsd: 0.01, sessionId: 'lead-session' };
+        return { costUsd: 0.01, sessionId: 'lead-session', ...('lead' in fake.structured ? { structured: fake.structured.lead } : {}) };
       }
       const name = /You are @(\w+)/.exec(o.systemPrompt)![1]!;
       calls.push({
@@ -270,6 +303,7 @@ beforeAll(() => {
         attachmentsDir: o.attachmentsDir,
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
+        nativeOn: o.nativeOn,
         sandboxTerminal: o.sandboxTerminal,
         stateKey: o.stateKey,
         freshState: o.freshState,
@@ -284,11 +318,22 @@ beforeAll(() => {
       // In each other working directory too.
       for (const dir of o.addDirs ?? []) writeFileSync(join(dir, `${name}.txt`), `${name} was here\n`);
       fake.during?.(name, o.cwd);
+      // Steering: from here until it ends, the turn may take a message (or refuse one).
+      const call = calls.findLast((c) => c.name === name)!;
+      if (fake.steer.has(name)) {
+        o.onSteer?.(async (text) => {
+          if (fake.steerWait) await fake.steerWait;
+          if (fake.refuseSteer.has(name)) return false;
+          (call.steered ??= []).push(text);
+          return true;
+        });
+      }
       await fake.inTurn?.(name, o);
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
         await Promise.race([fake.gates[name] ?? fake.gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
       }
+      o.onSteer?.(undefined);
       if (o.signal?.aborted) throw new AgentRunError('stopped', true);
       const failure = fake.fail?.(name, o.sessionId);
       if (failure) throw failure;
@@ -316,12 +361,28 @@ beforeAll(() => {
         o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test', kind: 'execute' });
         o.onEvent({ type: 'tool_end', id: `sh-${name}`, ok: true, output: 'ok' });
       }
+      if (o.prompt.includes('use a subagent')) {
+        // A subagent's calls between the agent's words, one the CLI says only later was a subagent's,
+        // and a note about the CLI's own run.
+        o.onEvent({ type: 'tool_start', id: `ag-${name}`, name: 'Agent', detail: 'Look around', agent: 'Explore', model: 'haiku' });
+        o.onEvent({ type: 'text', text: 'While it looks, ' });
+        o.onEvent({ type: 'tool_start', id: `rd-${name}`, name: 'Read', detail: 'a.ts', parentId: `ag-${name}` });
+        o.onEvent({ type: 'text', text: 'a word.' });
+        o.onEvent({ type: 'tool_end', id: `rd-${name}`, ok: true });
+        o.onEvent({ type: 'tool_start', id: `ls-${name}`, name: 'Shell', detail: 'ls' });
+        o.onEvent({ type: 'tool_start', id: `ls-${name}`, name: 'bash', parentId: `ag-${name}` });
+        o.onEvent({ type: 'tool_end', id: `ag-${name}`, ok: true, output: 'Found it.' });
+        o.onEvent({ type: 'notice', text: 'Claude Code compacted the conversation' });
+      }
       if (fake.asking.has(name) && !o.prompt.includes('ANSWER:')) {
         o.onEvent({ type: 'text', text: `${name} asks: A or B?\n\n[ASK_USER]` });
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
-      o.onEvent({ type: 'text', text: fake.reply?.(name, o.prompt) ?? `${name} done` });
+      const heard = call.steered?.length
+        ? `; heard: ${call.steered.map((s) => /<message from="user">\n([\s\S]*?)\n<\/message>/.exec(s)?.[1]).join(' | ')}`
+        : '';
+      o.onEvent({ type: 'text', text: (fake.reply?.(name, o.prompt) ?? `${name} done`) + heard });
       o.onEvent({ type: 'text_end' });
       return { sessionId: `session-${name}` };
     },

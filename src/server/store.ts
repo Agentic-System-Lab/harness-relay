@@ -51,6 +51,7 @@ import {
   PROVIDERS,
   TOOL_CALL_KINDS,
   TRIGGER_SOURCES,
+  agentLimitsFor,
   cwdSettings,
   pendingPlan,
   type ScheduleTrigger,
@@ -128,6 +129,7 @@ interface ConversationRow {
   auto_confirm: number;
   lead_review: number;
   approvals: string | null;
+  steer: number;
   checks: string | null;
   allow_rules: string | null;
   queue: string | null;
@@ -144,6 +146,7 @@ interface AgentRow {
   effort: string | null;
   tools: string | null;
   account: string | null;
+  limits: string | null;
 }
 
 interface MessageRow {
@@ -171,6 +174,7 @@ interface MessageRow {
   review: string | null;
   checks: string | null;
   queued: number | null;
+  steered: string | null;
   asked: number | null;
   scheduled: number | null;
   tracked: string | null;
@@ -262,6 +266,8 @@ function toAgent(r: AgentRow): AgentConfig {
   const tools = parseTools(r.tools);
   if (tools) agent.tools = tools;
   if (r.account) agent.account = r.account;
+  const limits = agentLimitsFor(r.provider, parseJson<unknown>(r.limits, undefined));
+  if (limits) agent.limits = limits;
   return agent;
 }
 
@@ -282,11 +288,41 @@ function toolsJson(a: AgentConfig): string | null {
   return a.tools && Object.keys(a.tools).length ? JSON.stringify(a.tools) : null;
 }
 
-/** What a tool part keeps in its `data` column: its kind, when it has one (one this server does not know is dropped). */
-function toolData(json: string | null): { kind?: ToolCallKind } {
+/** A member's limits as stored (JSON: `AgentLimits`), only those its CLI has; null when it has none. */
+function limitsJson(a: AgentConfig): string | null {
+  const limits = agentLimitsFor(a.provider, a.limits);
+  return limits ? JSON.stringify(limits) : null;
+}
+
+type ToolData = Pick<Extract<MessagePart, { type: 'tool' }>, 'kind' | 'parentId' | 'agent' | 'model'>;
+
+/**
+ * What a tool part keeps in its `data` column: its kind (one this server does not know is dropped), the
+ * call a subagent made it under, and a subagent's name and model, when it has them.
+ */
+function toolData(json: string | null): ToolData {
   const data = parseJson<unknown>(json, {});
-  const kind = data && typeof data === 'object' ? (data as { kind?: unknown }).kind : undefined;
-  return typeof kind === 'string' && (TOOL_CALL_KINDS as readonly string[]).includes(kind) ? { kind: kind as ToolCallKind } : {};
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const kind = typeof d.kind === 'string' && (TOOL_CALL_KINDS as readonly string[]).includes(d.kind) ? (d.kind as ToolCallKind) : undefined;
+  const out: ToolData = {};
+  if (kind) out.kind = kind;
+  for (const key of ['parentId', 'agent', 'model'] as const) {
+    const v = text(d[key]);
+    if (v) out[key] = v;
+  }
+  return out;
+}
+
+/** A tool part's `data` column (`toolData()` reads it back), or null when it has none of it. */
+function toolDataJson(p: Extract<MessagePart, { type: 'tool' }>): string | null {
+  const data: ToolData = {
+    ...(p.kind ? { kind: p.kind } : {}),
+    ...(p.parentId ? { parentId: p.parentId } : {}),
+    ...(p.agent ? { agent: p.agent } : {}),
+    ...(p.model ? { model: p.model } : {}),
+  };
+  return Object.keys(data).length ? JSON.stringify(data) : null;
 }
 
 function toPart(r: PartRow): MessagePart {
@@ -338,7 +374,7 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'notice':
       return [p.text, null, null, null, null, null, null, null];
     case 'tool':
-      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];
+      return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), toolDataJson(p)];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
     case 'progress':
@@ -416,6 +452,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     review: parseReview(r.review),
     ...checksOf(r.checks),
     queued: r.queued ? true : undefined,
+    ...steeredOf(r.steered),
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
     ...(r.event ? { event: r.event } : {}),
@@ -663,6 +700,13 @@ function parseReview(json: string | null): LeadReview | undefined {
   return review && typeof review === 'object' ? review : undefined;
 }
 
+/** The members whose running turn a user message went into (`ChatMessage.steered`, steering). */
+function steeredOf(json: string | null): Pick<ChatMessage, 'steered'> {
+  const ids = parseJson<unknown>(json, null);
+  const list = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  return list.length ? { steered: list } : {};
+}
+
 /** A system message's team checks result (`ChatMessage.checks`). */
 function checksOf(json: string | null): Pick<ChatMessage, 'checks'> {
   const checks = parseJson<ChecksResult | null>(json, null);
@@ -678,8 +722,8 @@ function checkListOf(json: string | null): Pick<ConversationSettings, 'checks'> 
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled, event, tracked, event_source, checks)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked, event_source, checks, steered)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -688,7 +732,7 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
-   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks`;
+   tracked = excluded.tracked, event_source = excluded.event_source, checks = excluded.checks, steered = excluded.steered`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -864,7 +908,7 @@ export class Store {
     const agents = (
       this.db
         .prepare(
-          'SELECT agent_id, name, provider, role, model, effort, tools, account FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
+          'SELECT agent_id, name, provider, role, model, effort, tools, account, limits FROM conversation_agents WHERE conversation_id = ? ORDER BY position',
         )
         .all(id) as unknown as AgentRow[]
     ).map(toAgent);
@@ -971,6 +1015,7 @@ export class Store {
         ...(c.auto_confirm ? { autoConfirm: true } : {}),
         ...(c.lead_review ? { leadReview: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+        ...(c.steer ? { steer: true } : {}),
         ...checkListOf(c.checks),
       },
       messages,
@@ -1005,8 +1050,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, extra_cwds,
-                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch, checks)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch, checks, steer)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -1027,6 +1072,7 @@ export class Store {
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
           s.checks ? JSON.stringify(s.checks) : null,
+          s.steer ? 1 : 0,
         );
       if (request) this.recordTask(request, conv.id, null);
       this.writeAgents(conv);
@@ -1044,7 +1090,7 @@ export class Store {
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
              extra_cwds = ?, auto_team = ?, auto_confirm = ?, lead_review = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?,
-             checks = ?
+             checks = ?, steer = ?
            WHERE id = ?`,
         )
         .run(
@@ -1064,6 +1110,7 @@ export class Store {
           conv.pause ? JSON.stringify(conv.pause) : null,
           conv.branch ? JSON.stringify(conv.branch) : null,
           s.checks ? JSON.stringify(s.checks) : null,
+          s.steer ? 1 : 0,
           conv.id,
         );
       this.writeAgents(conv);
@@ -1073,11 +1120,11 @@ export class Store {
   private writeAgents(conv: Conversation): void {
     this.db.prepare('DELETE FROM conversation_agents WHERE conversation_id = ?').run(conv.id);
     const insert = this.db.prepare(
-      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools, account)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO conversation_agents (conversation_id, agent_id, position, name, provider, role, model, effort, tools, account, limits)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     conv.agents.forEach((a, i) =>
-      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
+      insert.run(conv.id, a.id, i, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null, limitsJson(a)),
     );
   }
 
@@ -1401,6 +1448,7 @@ export class Store {
         m.tracked ? JSON.stringify(m.tracked) : null,
         m.event !== undefined ? nul(m.eventSource) : null,
         m.checks ? JSON.stringify(m.checks) : null,
+        m.steered?.length ? JSON.stringify(m.steered) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
@@ -1821,7 +1869,7 @@ export class Store {
       checks: string | null;
     }[];
     const agentStmt = this.db.prepare(
-      'SELECT agent_id, name, provider, role, model, effort, tools, account FROM preset_agents WHERE preset_id = ? ORDER BY position',
+      'SELECT agent_id, name, provider, role, model, effort, tools, account, limits FROM preset_agents WHERE preset_id = ? ORDER BY position',
     );
     const user = rows.map<TeamPreset>((r) => ({
       id: r.id,
@@ -1856,11 +1904,11 @@ export class Store {
         );
       this.db.prepare('DELETE FROM preset_agents WHERE preset_id = ?').run(p.id);
       const insert = this.db.prepare(
-        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO preset_agents (preset_id, position, agent_id, name, provider, role, model, effort, tools, account, limits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       p.agents.forEach((a, i) =>
-        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null),
+        insert.run(p.id, i, a.id, a.name, a.provider, a.role, nul(a.model), nul(a.effort), toolsJson(a), a.account || null, limitsJson(a)),
       );
     });
   }

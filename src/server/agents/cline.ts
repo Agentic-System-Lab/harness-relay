@@ -163,7 +163,12 @@ const flagsFile = (data: string) => join(data, 'cache', 'feature-flags.json');
 
 /** Its global settings: telemetry and updates off, and the tools and plugins left out of the run. */
 export function clineGlobalSettings(o: Pick<RunOptions, 'nativeOff' | 'nativeItems'> = {}): Record<string, unknown> {
-  const tools = [...(o.nativeOff?.includes('skills') ? ['skills'] : []), ...(o.nativeItems?.tools ?? [])];
+  // Its subagents: the `spawn_agent` tool, which its ACP settings have on (`enableSpawnAgent`, Cline 3.0.74).
+  const tools = [
+    ...(o.nativeOff?.includes('skills') ? ['skills'] : []),
+    ...(o.nativeOff?.includes('subagents') ? ['spawn_agent'] : []),
+    ...(o.nativeItems?.tools ?? []),
+  ];
   const plugins = o.nativeItems?.plugins ?? [];
   return {
     telemetryOptOut: true,

@@ -12,6 +12,8 @@ import type {
   AlertPrefs,
   ApiBackend,
   ModelBackendsView,
+  LabSettings,
+  LabsView,
   ModelEndpointUpdate,
   AgentConfig,
   ApprovalAnswer,
@@ -493,6 +495,8 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Steering on or off, at any time (also while the team replies). */
+  setSteer: (id: string, on: boolean) => request<{ steer: boolean }>('PUT', `/api/conversations/${id}/steer`, { on }),
   /** Team checks: the latest result's card. */
   recheckChecks: (id: string, messageId: string, confirm = false) =>
     request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),
@@ -595,6 +599,9 @@ export const api = {
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
+  // Settings → Labs
+  labs: () => request<LabsView>('GET', '/api/labs'),
+  updateLabs: (b: LabSettings) => request<LabsView>('PUT', '/api/labs', b),
   endpointModels: (b: { baseUrl: string; endpointId?: string; apiKey?: string | null }, signal?: AbortSignal) =>
     request<{ models: string[] }>('POST', '/api/backends/endpoint-models', b, signal),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),

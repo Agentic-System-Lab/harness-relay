@@ -176,6 +176,17 @@ describe('what a CLI loads by itself', () => {
     expect(turns.every((c) => c.nativeItems?.skills?.join() === 'commit')).toBe(true);
   });
 
+  it("turns on in every agent's run what the account turned on (Claude Code's workflows), and its subagents' switch with it", async () => {
+    settings.updateAccount('claude', '', { nativeOff: ['subagents'], nativeOn: ['workflows'] });
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const turns = calls.filter((c) => c.name === 'Alice' || c.name === 'Bob');
+    expect(turns).toHaveLength(2);
+    expect(turns.every((c) => c.nativeOn?.join() === 'workflows' && c.nativeOff?.join() === 'subagents')).toBe(true);
+    settings.updateAccount('claude', '', { nativeOff: [], nativeOn: [] });
+  });
+
   it("leaves it out of the lead agent's and the group sorter's runs too", async () => {
     settings.updateAccount('claude', '', { nativeOff: ['skills', 'instructions'], nativeItems: { tools: ['WebSearch'] } });
     store.createGroup({ id: 'g1', name: 'Docs' });
@@ -521,6 +532,35 @@ describe('tool calls', () => {
     ]);
     // A call whose CLI did not say what it does has no kind.
     expect(alice!.parts.find((p) => p.type === 'tool' && p.name === 'Web search')).not.toHaveProperty('kind');
+  });
+});
+
+describe("subagents' calls and the CLI's notes", () => {
+  it("keeps a subagent's calls under its call, the agent's words in one part around them, and the CLI's note apart", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    await orchestrator.send(conv.id, 'use a subagent');
+    await finish(conv.id);
+
+    const [alice] = agentMessages(conv);
+    const parts = store.get(conv.id)!.messages.find((m) => m.id === alice!.id)!.parts;
+    expect(parts.slice(0, 5)).toEqual([
+      {
+        type: 'tool',
+        id: 'ag-Alice',
+        name: 'Agent',
+        detail: 'Look around',
+        agent: 'Explore',
+        model: 'haiku',
+        status: 'done',
+        output: 'Found it.',
+      },
+      // The words go on in their part: the subagent's call that came in between does not end it.
+      { type: 'text', text: 'While it looks, a word.' },
+      { type: 'tool', id: 'rd-Alice', name: 'Read', detail: 'a.ts', parentId: 'ag-Alice', status: 'done' },
+      // Said to be a subagent's only by a second start: put under it then.
+      { type: 'tool', id: 'ls-Alice', name: 'Shell', detail: 'ls', parentId: 'ag-Alice', status: 'running' },
+      { type: 'notice', text: 'Claude Code compacted the conversation' },
+    ]);
   });
 });
 

@@ -3485,6 +3485,28 @@ a.branch-source:hover {
   text-align: left;
 }
 
+/*
+ * A call that started a subagent: its name and model, how many actions it took; open, its own calls,
+ * joined to it by a line down their left (a subagent of its own one level further in), then what it
+ * reported back.
+ */
+.tool-group ul.subagent-steps {
+  margin: 3px 0 2px 5px;
+  padding: 0 0 0 13px;
+  border-top: none;
+  border-left: 1px solid var(--border);
+}
+
+.subagent-model {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.subagent-row .tool-line .activity-count {
+  color: var(--muted);
+}
+
 /* File changes */
 
 .changes-card {
@@ -5530,6 +5552,13 @@ details.sub summary {
   max-height: 18rem;
   overflow: auto;
   overflow-wrap: anywhere;
+}
+
+/* Settings → Model connections: each model's context window and output limit, side by side where they fit. */
+.endpoint-limit-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 8px 12px;
 }
 
 /* Voice input: setup dialog and Settings card */
@@ -8678,8 +8707,9 @@ summary + .checks-editor-body {
   transform: translateX(calc(13px * -3 / 24)) rotate(90deg);
 }
 
-/* What a CLI loads by itself (Settings, in each CLI's card) */
-.native-setup > summary .badge {
+/* What a CLI loads by itself, and its subagents and workflows (Settings, in each CLI's card) */
+.native-setup > summary .badge,
+.cli-features > summary .badge {
   margin-left: 8px;
   vertical-align: 1px;
 }
@@ -10073,5 +10103,62 @@ a.share-action {
 
   .usage-limit .muted {
     margin-bottom: 4px;
+  }
+}
+
+/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
+.labs-options {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.labs-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.labs-option.on {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+.labs-option input {
+  margin: 2px 0 0;
+}
+.labs-option-title {
+  font-weight: 600;
+}
+.labs-option-body {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+}
+.labs-tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.labs-tradeoffs ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.labs-model {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.labs-model input {
+  max-width: 420px;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .labs-tradeoffs {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

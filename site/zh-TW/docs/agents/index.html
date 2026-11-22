@@ -243,6 +243,7 @@
               <ol>
                 <li><a href="#open-agents" aria-label="模型連線概覽">概覽</a></li>
                 <li><a href="#agents-on-your-server">其他 agent 也能用你自己的模型</a></li>
+                <li><a href="#context-windows">你自己模型的上下文長度</a></li>
               </ol>
             </details>
           </li>
@@ -266,6 +267,7 @@
               </ol>
             </details>
           </li>
+          <li><a href="#subagents">Subagent 與 workflow</a></li>
         </ol>
       </nav>
 
@@ -416,6 +418,22 @@
             agent 用的 API；vLLM、Ollama、LM Studio 與 llama.cpp 都提供。這時 Claude Code、Codex 與 Copilot 不需要登入；Grok 仍需要它自己的登入。Cursor、Antigravity 與 Muse Code
             只能用它們自己的服務。
           </p>
+          <h3 id="context-windows">你自己模型的上下文長度</h3>
+          <p>
+            在<b>上下文長度與輸出上限</b>底下，你在端點勾選的每個模型都有一次能容納的 token 數，以及一次回答最多的 token 數。
+            <b>儲存</b>時會從伺服器讀取上下文長度（vLLM 與 llama.cpp 會回報）；你填的數字優先。開源 agent 會依它在小模型的上下文填滿之前就壓縮對話，
+            也讓很長的工具輸出不超過它。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/agents-context-zh-TW.webp"
+              width="910"
+              height="319"
+              alt="端點兩個模型的上下文長度與輸出上限：一個是自己填的 16,384 token、輸出上限 4,096，一個是伺服器回報的 32,768。"
+              loading="lazy"
+            />
+            <figcaption>你填的數字優先於伺服器回報的。</figcaption>
+          </figure>
         </section>
 
         <section id="accounts" aria-labelledby="accounts-title">
@@ -460,6 +478,29 @@
           </figure>
         </section>
 
+        <section id="subagents" aria-labelledby="subagents-title">
+          <h2 id="subagents-title">Subagent 與 workflow</h2>
+          <p>
+            大多數 agent 都能把回合的一部分交給它自己的 subagent，Claude Code 與 Grok 還能執行一整套由 subagent 組成的 workflow。
+            每個帳號的框裡有 <b>Subagent 與 workflow</b>：它的 subagent 預設開啟，Claude Code 與 Grok 的 workflow（一次可能跑十幾個 subagent）
+            要你打開才會用。<b>Ultracode</b> 讓 Claude Code 為每個實質的任務規劃一個 workflow。subagent 做的事，會在對話中收在啟動它的那一步底下。
+          </p>
+          <p>
+            完全存取以外，Harness Relay 一律關閉 Codex、Grok、OpenCode、OpenHands 與 Cline 的 subagent，否則它們可能不經詢問、或在對話的保護之外行動。
+            Cursor、Antigravity、Copilot 與 Muse Code 沒有關閉它們的開關，框裡會說明。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/agents-subagents-zh-TW.webp"
+              width="880"
+              height="301"
+              alt="Claude Code 帳號的 Subagent 與 workflow 框：它自己的 subagent 開啟、workflow 開啟、Ultracode 關閉。"
+              loading="lazy"
+            />
+            <figcaption>這些開關只在 Harness Relay 啟動它時生效，不會修改 agent 自己的設定。</figcaption>
+          </figure>
+        </section>
+
         <aside class="doc-more" aria-label="技術細節">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
@@ -468,6 +509,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入">分別登入各個 agent</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#模型連線">模型連線</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#多個帳號">多個帳號</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#subagent-與-workflow">Subagent 與 workflow</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.zh-TW.md">開源 agent</a></li>
             </ul>
           </div>
