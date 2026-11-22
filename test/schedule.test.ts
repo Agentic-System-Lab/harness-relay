@@ -176,6 +176,11 @@ describe('validateSchedule', () => {
     });
     // Only a real true opens a new chat each time.
     expect(validateSchedule({ ...valid, newChat: 'yes' }, MON).newChat).toBe(false);
+    // A fixed command's id goes through (the route checks it is the chat's own); anything else is refused.
+    expect(validateSchedule({ ...valid, command: 'c-1_2' }, MON).command).toBe('c-1_2');
+    expect(validateSchedule({ ...valid, command: null }, MON)).not.toHaveProperty('command');
+    expect(message({ ...valid, command: '../x' })).toMatch(/command/);
+    expect(message({ ...valid, command: 5 })).toMatch(/command/);
     // Days come back once each, in order.
     expect(validateSchedule({ ...valid, repeat: { kind: 'weekly', time: '18:30', days: [5, 1, 5] } }, MON).repeat).toEqual({
       kind: 'weekly',
@@ -356,6 +361,10 @@ describe('the schedule form', () => {
     expect(draft.goal).toBe('CI passes');
     expect(toUpdate({ ...draft, goal: '  Ship it  ' }).goal).toBe('Ship it');
     expect(toUpdate({ ...draft, goal: '   ' })).not.toHaveProperty('goal');
+    // A fixed command to run first, on the schedule's own times only, never for what it waits for.
+    expect(toUpdate({ ...draft, kind: 'daily', command: 'cmd-1' }).command).toBe('cmd-1');
+    expect(toUpdate({ ...draft, kind: 'event', command: 'cmd-1' })).not.toHaveProperty('command');
+    expect(toUpdate({ ...draft, command: '' })).not.toHaveProperty('command');
     expect(draftChanged({ ...draft, goal: 'other' }, { ...saved, goal: 'CI passes' })).toBe(true);
     expect(draftChanged(draft, { ...saved, goal: 'CI passes' })).toBe(false);
     expect(draftProblems({ ...draft, goal: 'x'.repeat(2001) }, MON, en)).toContain('A goal can be at most 2000 characters');

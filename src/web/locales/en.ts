@@ -1,4 +1,4 @@
-import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
+import { FIXED_COMMAND_NEWS, HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
 import type { Messages } from './zh-TW';
 
 const EFFORT: Record<string, string> = {
@@ -621,6 +621,9 @@ export const en: Messages = {
     next: (when) => `next ${when}`,
     paused: 'paused',
     finished: 'done',
+    command: 'Run a fixed command first',
+    noCommand: "Don't: send the message",
+    commandHint: `Each time, Harness Relay first runs this fixed command in its own sandbox, with no model: exit code 0 means nothing to do, and no message goes; only exit code ${FIXED_COMMAND_NEWS} (something new) or a failure sends the message to the team, with its output (secrets masked).`,
     last: (when, result) => `Last time (${when}): ${result}`,
     results: {
       sent: 'sent',
@@ -628,6 +631,7 @@ export const en: Messages = {
       missed: 'missed (Harness Relay was not running)',
       skipped: 'not sent',
       failed: 'could not be sent',
+      ran: 'its fixed command ran and found nothing new, so nothing was sent',
     },
     problems: {
       text: 'Type the message to send the team',
@@ -705,6 +709,7 @@ export const en: Messages = {
         calendar: 'The events about to begin',
         github: 'What is new on GitHub',
         file: 'The files that appeared or changed',
+        command: "The fixed command's output",
       },
       calendarAccount: 'Calendar',
       noCalendars: 'There is no calendar yet: add one in Settings → Apps and tools → Common apps → Calendar first.',

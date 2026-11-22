@@ -128,6 +128,21 @@ describe('secrets and fixed commands API', () => {
     expect((await send('DELETE', `/api/handoffs/commands/${id}`)).status).toBe(404);
   });
 
+  it("saves a schedule's fixed command of the chat's own working directory only, and lists its commands", async () => {
+    const { conv } = chatAsking();
+    const id = settings.handoffs.commandId(root, 'check');
+    settings.handoffs.saveCommand(root, id, { name: 'check', run: 'true', hosts: [], secrets: [] }, { manifest: {} });
+    const other = settings.handoffs.commandId('/elsewhere', 'check');
+    settings.handoffs.saveCommand('/elsewhere', other, { name: 'check', run: 'true', hosts: [], secrets: [] }, { manifest: {} });
+    const listed = (await (await app.request(`/api/conversations/${conv.id}/commands`, { headers: HOST })).json()) as { id: string }[];
+    expect(listed.map((c) => c.id)).toEqual([id]);
+    const schedule = { text: 'check', repeat: { kind: 'interval', hours: 1 }, timeZone: 'UTC' };
+    expect((await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: other })).status).toBe(400);
+    const saved = await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id });
+    expect(saved.status).toBe(200);
+    expect(store.get(conv.id)!.schedule!.command).toBe(id);
+  });
+
   it('refuses an unknown card action, and extra words that are not text', async () => {
     const { conv } = chatAsking();
     expect((await send('POST', `/api/conversations/${conv.id}/messages/m2/commands/x`, { action: 'run' })).status).toBe(400);

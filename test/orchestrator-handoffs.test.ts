@@ -232,3 +232,73 @@ describe('fixed command cards', () => {
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
   });
 });
+
+describe('a schedule that runs a fixed command first', () => {
+  /** A conversation with a saved command and a schedule that runs it. */
+  const scheduled = async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'check.py'), 'print("check")\n');
+    const folder = orchestrator.handoffFolder(conv);
+    const { takePin } = await import('../src/server/fixedCommands');
+    const id = settings.handoffs.commandId(folder, 'check');
+    settings.handoffs.saveCommand(folder, id, { name: 'check', run: 'python3 check.py', hosts: [], secrets: [] }, await takePin(folder, id));
+    conv.schedule = {
+      text: 'Post what the check found.',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      command: id,
+    };
+    store.saveSchedule(conv);
+    return { conv, id };
+  };
+
+  it('keeps the command with the schedule', async () => {
+    const { conv, id } = await scheduled();
+    const { Store } = await import('../src/server/store');
+    expect(new Store(db).get(conv.id)!.schedule!.command).toBe(id);
+  });
+
+  it('sends nothing when it found nothing (exit code 0): no model runs', async () => {
+    const { conv } = await scheduled();
+    play = () => ({ code: 0, stdout: 'nothing new' });
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'ran' });
+    expect(calls).toHaveLength(0);
+    expect(store.get(conv.id)!.messages).toHaveLength(0);
+    expect(ran).toHaveLength(1);
+  });
+
+  it('sends the message with its output when it found something new, or failed', async () => {
+    const { conv } = await scheduled();
+    play = () => ({ code: 10, stdout: '2 new items' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    const message = store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!;
+    expect(textOf(message)).toBe('Post what the check found.');
+    expect(message.eventSource).toBe('command');
+    expect(message.event).toContain('found something new (exit code 10)');
+    expect(message.event).toContain('2 new items');
+    expect(calls[0]!.prompt).toContain('2 new items');
+
+    play = () => ({ code: 2, stdout: 'Traceback' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    expect(store.get(conv.id)!.messages.filter((m) => m.author.kind === 'user').at(-1)!.event).toContain('failed (exit code 2)');
+  });
+
+  it('does not run, nor send, once its code changed; and fails for a command that is gone', async () => {
+    const { conv, id } = await scheduled();
+    writeFileSync(join(project, 'check.py'), 'print("changed")\n');
+    const changed = await orchestrator.sendScheduled(conv.id);
+    expect(changed.result).toBe('failed');
+    expect(ran).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    settings.handoffs.deleteCommand(id);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('failed');
+  });
+});

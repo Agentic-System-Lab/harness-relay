@@ -1,4 +1,4 @@
-import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
+import { FIXED_COMMAND_NEWS, HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
 import type {
   OAuthProviderId,
   OAuthUse,
@@ -18,6 +18,7 @@ import type {
   ScheduleRepeat,
   ScheduleResult,
   ScheduleTrigger,
+  EventSource,
   ToolStatus,
   VoiceEngineInfo,
   VoiceEngineSource,
@@ -633,6 +634,9 @@ export const zhTW = {
     next: (when: string) => `下次 ${when}`,
     paused: '已暫停',
     finished: '已執行完畢',
+    command: '先執行固定指令',
+    noCommand: '不執行，直接送出訊息',
+    commandHint: `每次到時間，Harness Relay 先在自己的沙箱裡執行這個固定指令，不呼叫任何模型：結束碼 0 表示沒事，就不送訊息；結束碼 ${FIXED_COMMAND_NEWS} 表示有新內容，或指令失敗時，才把訊息連同它的輸出（密鑰已遮蔽）送給團隊。`,
     last: (when: string, result: string) => `上次（${when}）：${result}`,
     results: {
       sent: '已送出',
@@ -640,6 +644,7 @@ export const zhTW = {
       missed: '錯過了（當時 Harness Relay 沒有在執行）',
       skipped: '沒有送出',
       failed: '無法送出',
+      ran: '固定指令執行完畢，沒有新內容，所以沒有送出',
     } as Record<ScheduleResult, string>,
     problems: {
       text: '請輸入要傳給團隊的訊息',
@@ -720,7 +725,8 @@ export const zhTW = {
         calendar: '即將開始的行程',
         github: 'GitHub 上的新動態',
         file: '出現或變動的檔案',
-      } as Record<ScheduleTrigger['source'], string>,
+        command: '固定指令的輸出',
+      } as Record<Exclude<EventSource, 'webhook'>, string>,
       calendarAccount: '行事曆',
       noCalendars: '還沒有行事曆：請先到「設定 → App 與工具 → 常用 App → 行事曆」新增一個。',
       minutes: '開始前幾分鐘',

@@ -939,6 +939,10 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
   if (b.goal !== undefined && b.goal !== null && typeof b.goal !== 'string') bad(t().invalidField('goal'));
   const goal = typeof b.goal === 'string' ? b.goal.trim() : '';
   if (goal.length > SCHEDULE_LIMITS.maxGoal) bad(t().scheduleGoalTooLong(SCHEDULE_LIMITS.maxGoal));
+  // A fixed command's id (the route checks it is one of the conversation's working directory).
+  if (b.command !== undefined && b.command !== null && (typeof b.command !== 'string' || !/^[\w-]{1,64}$/.test(b.command)))
+    bad(t().invalidField('command'));
+  const command = typeof b.command === 'string' ? b.command : '';
   return {
     text,
     repeat: validRepeat(b.repeat, enabled, now),
@@ -948,6 +952,7 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     missed: b.missed === 'run' ? 'run' : 'skip',
     newChat: b.newChat === true,
     ...(goal ? { goal } : {}),
+    ...(command ? { command } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pendingPlan, permissionLevel, type Conversation } from '../../shared/types';
+import { pendingPlan, permissionLevel, type Conversation, type FixedCommand } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
@@ -79,6 +79,18 @@ export function ScheduleDrawer({
   /** A saved schedule without a team, in a chat whose lead agent may design one for it now. */
   const mayDesign = Boolean(saved) && !teamReady && !waitingPlan && !running && Boolean(conv.settings.autoTeam);
   const [designing, setDesigning] = useState(false);
+  // The working directory's fixed commands, which the schedule may run first.
+  const [commands, setCommands] = useState<FixedCommand[]>();
+  useEffect(() => {
+    let live = true;
+    api.conversationCommands(conv.id).then(
+      (list) => live && setCommands(list),
+      () => live && setCommands([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [conv.id]);
 
   const design = async () => {
     setDesigning(true);
@@ -270,7 +282,15 @@ export function ScheduleDrawer({
         )}
 
         <div className="schedule-form">
-          <ScheduleForm disabled={saving} draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
+          <ScheduleForm
+            disabled={saving}
+            draft={draft}
+            onEdit={edit}
+            saved={saved}
+            settings={conv.settings}
+            team={teamNames}
+            commands={commands}
+          />
 
           <div className="field">
             <span>{t.schedule.team}</span>

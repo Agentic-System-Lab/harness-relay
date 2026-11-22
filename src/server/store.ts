@@ -210,6 +210,7 @@ interface ScheduleRow {
   tracking: string | null;
   hook: string | null;
   watch: string | null;
+  command: string | null;
 }
 
 interface ChangeRow {
@@ -521,6 +522,7 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.goal && tracking ? { tracking } : {}),
     ...(hook ? { hook } : {}),
     ...(watches ? { watches } : {}),
+    ...(r.command ? { command: r.command } : {}),
   };
 }
 
@@ -1321,14 +1323,14 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
-                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch, command)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
            missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
            next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
            last_error = excluded.last_error, last_chat_id = excluded.last_chat_id, goal = excluded.goal,
-           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch`,
+           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch, command = excluded.command`,
       )
       .run(
         conv.id,
@@ -1350,6 +1352,7 @@ export class Store {
         s.goal && s.tracking ? JSON.stringify(s.tracking) : null,
         s.hook ? JSON.stringify(s.hook) : null,
         s.repeat.kind === 'event' && s.watches?.length ? JSON.stringify(s.watches) : null,
+        nul(s.command),
       );
     // A schedule without a webhook has no token either.
     if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);

@@ -2525,7 +2525,8 @@ export type ScheduleTrigger =
 export const TRIGGER_SOURCES: ScheduleTrigger['source'][] = ['mail', 'calendar', 'github', 'file'];
 
 /** Where a scheduled message's `<event>` block came from: the schedule's webhook, or what a trigger found. */
-export type EventSource = 'webhook' | ScheduleTrigger['source'];
+/** `command`: what a schedule's fixed command found (its output), sent to the team. */
+export type EventSource = 'webhook' | 'command' | ScheduleTrigger['source'];
 
 /**
  * What an automation that starts when something happens keeps of one trigger's source between checks,
@@ -2619,7 +2620,8 @@ export const WATCH_LIMITS = {
  * answer, had no confirmed team, or the previous scheduled message was still waiting), or could not
  * start (`failed`). `lastError` says why for the last two.
  */
-export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed';
+/** `ran`: its fixed command ran and found nothing for the team (exit code 0), so no message went. */
+export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed' | 'ran';
 
 /** Longest scheduled message, and the longest interval in hours; `maxGoal`: the longest goal a schedule tracks. */
 export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168, maxGoal: 2000 };
@@ -2736,6 +2738,12 @@ export interface ConversationSchedule {
    * checks, one for each trigger by its key (in the triggers' order; a trigger not checked yet has none).
    */
   watches?: ScheduleWatch[];
+  /**
+   * A fixed command of the conversation's working directory (its id) that Harness Relay runs first,
+   * each time: the message goes to the team only when it found something new (`FIXED_COMMAND_NEWS`) or
+   * failed, with its output; when it exits 0 nothing goes (`ran`), and no model runs.
+   */
+  command?: string;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -2754,7 +2762,7 @@ export interface ZonedParts {
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
 export type ScheduleUpdate = Pick<
   ConversationSchedule,
-  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'
+  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal' | 'command'
 >;
 
 /**

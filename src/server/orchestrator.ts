@@ -39,7 +39,7 @@ import type {
   FixedCommandRun,
   SecretAsk,
 } from '../shared/types';
-import { HANDOFF_LIMITS } from '../shared/types';
+import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS } from '../shared/types';
 import { checkProposal, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
 import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
@@ -458,6 +458,8 @@ interface StartOptions {
 export type ScheduledSend =
   | { result: 'sent'; chatId?: string }
   | { result: 'queued' }
+  /** Its fixed command ran and found nothing for the team: no message. */
+  | { result: 'ran' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped'; reason: string }
   | { result: 'failed'; reason: string; code?: string };
@@ -1847,7 +1849,19 @@ export class Orchestrator {
     const tracking = s.goal
       ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
       : undefined;
-    const event = opts.event !== undefined ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) } : {};
+    // A schedule with a fixed command runs it first: the team hears of it only when it found something
+    // new or failed, with its output as the message's event; when it found nothing, no model runs.
+    let found: { event: string; eventSource: EventSource } | undefined;
+    if (s.command && opts.event === undefined) {
+      const ran = await this.runScheduledCommand(conv, s.command);
+      if ('result' in ran) return ran;
+      found = { event: ran.event, eventSource: 'command' };
+    }
+    const event = found
+      ? found
+      : opts.event !== undefined
+        ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) }
+        : {};
     if (s.newChat) return this.sendInNewChat(conv, s, at, event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
@@ -1884,6 +1898,29 @@ export class Orchestrator {
       if (err instanceof HttpError && err.status === 404) throw err;
       return sendFailure(err);
     }
+  }
+
+  /**
+   * A schedule's fixed command, run as its time came: nothing for the team (`ran`), a reason it could
+   * not (`failed`: gone, or its code changed and waits for the user's approval; `busy`: a run of it is
+   * under way), or the event its message takes: what it found, or how it failed, with its output masked.
+   */
+  private async runScheduledCommand(conv: Conversation, id: string): Promise<ScheduledSend | { event: string }> {
+    const cmd = this.settings.handoffs.command(id);
+    if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };
+    if (this.commandRuns.has(cmd.id)) return { result: 'busy', reason: t().handoffs.commandRunning };
+    const run = await this.executeCommand(conv, cmd, 'schedule', {});
+    if (run.status === 'passed') return { result: 'ran' };
+    if (run.status === 'changed') return { result: 'failed', reason: t().handoffs.runLine(run) };
+    const what =
+      run.status === 'news'
+        ? `found something new (exit code ${FIXED_COMMAND_NEWS})`
+        : run.status === 'failed'
+          ? `failed (exit code ${run.exitCode ?? '?'})${run.reason ? `: ${run.reason}` : ''}`
+          : `could not run${run.reason ? `: ${run.reason}` : ''}`;
+    return {
+      event: `The fixed command "${cmd.name}" (${cmd.run}) ${what}.${run.output ? `\n\nIts output, secrets masked:\n${run.output}` : ''}`,
+    };
   }
 
   private async startScheduledMessage(conv: Conversation, sourceId: string, text: string, options: StartOptions): Promise<void> {

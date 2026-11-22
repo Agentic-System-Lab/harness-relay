@@ -1689,6 +1689,7 @@ export function createApp({
       agentState: {},
       worktrees: {},
     };
+    refuseForeignCommand(conv, update);
     const schedule: ConversationSchedule = { ...update, lang: currentLang(), updatedAt: now };
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
@@ -1788,6 +1789,7 @@ export function createApp({
     const update = validateSchedule(input, now);
     const files = scheduleFileChanges(input);
     refuseMissingTrigger(update);
+    refuseForeignCommand(conv, update);
     // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
     if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
@@ -1824,6 +1826,13 @@ export function createApp({
     orchestrator.emitConversation(conv);
     return c.json(scheduleForClient(schedule));
   });
+
+  /** A schedule's fixed command is one saved for the conversation's own working directory. */
+  const refuseForeignCommand = (conv: Conversation, update: ScheduleUpdate) => {
+    if (!update.command) return;
+    const cmd = settings.handoffs.command(update.command);
+    if (!cmd || cmd.folder !== orchestrator.handoffFolder(conv)) throw new HttpError(400, t().handoffs.commandNotFound);
+  };
 
   /**
    * An automation that starts when something happens, when it is on, waits for things that are there:
@@ -2540,6 +2549,11 @@ export function createApp({
     });
     return c.json({ ok: true }, 202);
   });
+
+  // The fixed commands of this chat's working directory (the schedule's form offers them).
+  app.get('/api/conversations/:id/commands', (c) =>
+    c.json(settings.handoffs.commands(orchestrator.handoffFolder(getConv(c.req.param('id'))))),
+  );
 
   // What changed in a fixed command's code since it was pinned, for its card.
   app.get('/api/conversations/:id/commands/:commandId/diff', async (c) =>
