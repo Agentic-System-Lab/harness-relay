@@ -539,9 +539,14 @@ function readService(
   };
 }
 
-/** Images that serve a database or a broker, not a page, even when the file publishes their port. */
+/**
+ * Images that serve a database or a broker, not a page, even when the file publishes their port:
+ * the name, then only a suffix that is still the database itself (never a web UI's: mongo-express,
+ * redis-commander, kafka-ui, opensearch-dashboards). Brokers and stores whose image serves a web
+ * console (RabbitMQ's management, MinIO, Neo4j) are left out on purpose: their page is worth showing.
+ */
 const BACKING =
-  /^(?:[^/]+\/)*(?:postgres|postgresql|postgis|mysql|mariadb|redis|valkey|mongo|mongodb|memcached|rabbitmq|elasticsearch|opensearch|cassandra|zookeeper|kafka|nats|minio|clickhouse|cockroach|cockroachdb|neo4j|influxdb|timescaledb)(?:-[a-z0-9-]*)?(?:[:@]|$)/i;
+  /^(?:[^/]+\/)*(?:postgres|postgresql|postgis|mysql|mariadb|redis|valkey|mongo|mongodb|memcached|elasticsearch|opensearch|cassandra|zookeeper|kafka|nats|clickhouse|cockroach|cockroachdb|influxdb|timescaledb)(?:-(?:server|stack(?:-server)?|ha|alpine|oss|community|enterprise))?(?:[:@]|$)/i;
 
 /** Whether an image serves a database or a broker rather than a page. */
 export function isBacking(image: string): boolean {

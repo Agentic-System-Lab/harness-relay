@@ -224,9 +224,10 @@ export function startContainerPreview(opts: ContainerOptions): ContainerPreview 
       return true;
     };
     if (await existing()) return name;
+    // Every preview waiting for it says so, not only the one making it.
+    say(t().previewDocker.builder + '…', '1');
     let creating = creatingBuilders.get(name);
     if (!creating) {
-      say(t().previewDocker.builder + '…', '1');
       creating = create(name).finally(() => creatingBuilders.delete(name));
       creatingBuilders.set(name, creating);
     }

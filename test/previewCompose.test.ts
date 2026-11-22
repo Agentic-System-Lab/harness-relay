@@ -200,6 +200,11 @@ networks:
       ).main,
     ).toBe('ui');
     expect(plan('services:\n  cache:\n    image: redis\n    ports: ["6379:6379"]').main).toBe('cache');
+    expect(
+      plan(
+        'services:\n  mongo:\n    image: mongo:7\n    ports: ["27017:27017"]\n  admin:\n    image: mongo-express\n    ports: ["8081:8081"]',
+      ).main,
+    ).toBe('admin');
   });
 
   it('plans the project folders and files a service mounts, and skips what the snapshot does not hold', () => {
@@ -215,19 +220,31 @@ networks:
     expect(p.notes.join('\n')).toMatch(/\.\/node_modules → \/app\/node_modules/);
   });
 
-  it('knows the images that serve a database rather than a page', () => {
+  it('knows the images that serve a database rather than a page, and not the web UIs beside them', () => {
     for (const image of [
       'postgres:16',
       'docker.io/library/postgres',
       'bitnami/postgresql:16',
       'redis/redis-stack:latest',
+      'redis/redis-stack-server',
       'mysql/mysql-server:8',
       'mongo@sha256:abc',
       'timescale/timescaledb-ha:pg16',
     ])
-      expect(isBacking(image)).toBe(true);
-    for (const image of ['nginx', 'python:3.13-slim', 'ghcr.io/me/postgres-admin-ui-web', 'my/app'])
-      expect(isBacking(image)).toBe(image === 'ghcr.io/me/postgres-admin-ui-web');
+      expect(isBacking(image), image).toBe(true);
+    for (const image of [
+      'nginx',
+      'python:3.13-slim',
+      'mongo-express',
+      'rediscommander/redis-commander',
+      'provectuslabs/kafka-ui',
+      'opensearchproject/opensearch-dashboards:2',
+      'rabbitmq:3-management',
+      'minio/minio',
+      'neo4j:5',
+      'ghcr.io/me/postgres-admin',
+    ])
+      expect(isBacking(image), image).toBe(false);
   });
 
   it('reads build options, an inline Dockerfile and both forms of a port', () => {
