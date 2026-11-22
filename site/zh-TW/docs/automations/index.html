@@ -387,6 +387,9 @@
               <p>有完全存取權限時，自動任務的 agent 不必詢問就能執行任何指令，而且沒有人在旁邊看著。有自動任務的對話擁有完全存取權限時，團隊設定會提醒你。見<a href="../permissions/">權限與核准</a>。</p>
             </div>
           </div>
+          <p>
+            腳本也能不靠模型做完工作：在自動任務的視窗裡，<b>先執行固定指令</b>可以選工作目錄的一個<a href="../permissions/#secrets">固定指令</a>。每次到時間，Harness Relay 會先在自己的沙箱裡執行它；結束碼 0 表示沒事，就不送訊息；結束碼 10（有新內容）或失敗時，才把訊息連同指令的輸出送給團隊。
+          </p>
         </section>
 
         <section id="goal" aria-labelledby="goal-title">

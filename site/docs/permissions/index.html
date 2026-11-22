@@ -243,6 +243,7 @@
           <li><a href="#approvals">Approval cards</a></li>
           <li><a href="#sandboxes">What the sandboxes do</a></li>
           <li><a href="#outbox">The outbox</a></li>
+          <li><a href="#secrets">Secrets and fixed commands</a></li>
           <li>
             <details>
               <summary>Review and apply changes</summary>
@@ -417,6 +418,24 @@
           <p>
             Until you answer, the conversation is marked <b>Needs you</b> and you are notified, as for an approval; the
             agent does not wait, so you can send it later. <a href="../tools/">Tools: browser, mail and calendar</a>
+          </p>
+        </section>
+
+        <section id="secrets" aria-labelledby="secrets-title">
+          <h2 id="secrets-title">Secrets and fixed commands</h2>
+          <p>
+            Agents never ask you to paste a secret (an API token, an app secret, a password) in the chat, type it in a terminal or put it in a file. They ask with a card: its masked field keeps the value in this computer's credential store, for that
+            working directory. The team is told which secrets you gave, never their values, and no agent's sandbox can read them. Harness Relay never needs the password of your own accounts.
+          </p>
+          <p>A script that needs a secret, or should run on a schedule, comes as a <b>fixed command</b> card: the command line, the hosts it may reach and the secrets it gets. Harness Relay, not an agent, runs it:</p>
+          <ul>
+            <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
+            <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
+            <li>only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
+            <li>when you click <b>Try it</b>, <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
+          </ul>
+          <p>
+            Fixed commands do not run on native Windows yet. A command you allow outside a sandbox, and every agent with full access, runs with your rights. <a href="../automations/">Automations</a>
           </p>
         </section>
 
