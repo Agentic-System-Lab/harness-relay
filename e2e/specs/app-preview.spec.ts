@@ -174,10 +174,11 @@ test.describe('the app the team made', () => {
     await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
     await expect(panel.locator('.app-preview-summary')).toHaveText('other · @Claude');
     await panel.getByRole('button', { name: 'Close' }).click();
-    await send(page, 'Change it e2e:write=other/index.html');
+    // (Another page in it: the same text written again would change nothing.)
+    await send(page, 'Change it e2e:write=other/about.html');
     await expect(replies(page, 'Claude')).toHaveCount(3);
     await finishedReply(page, 'Claude');
-    await expect(page.getByRole('region', { name: 'The app is ready to preview' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'The app is ready to preview' })).toContainText('other/about.html');
     await expect(panel).toHaveCount(0);
   });
 
@@ -190,7 +191,7 @@ test.describe('the app the team made', () => {
     await send(page, 'Package it e2e:write=api/Dockerfile');
     await finishedReply(page, 'Claude');
     const panel = page.getByLabel('App preview', { exact: true });
-    await expect(panel).toContainText('Its build runs the project’s Dockerfile, which can reach the network');
+    await expect(panel).toContainText('Its build runs the project’s Dockerfile or compose file, which can reach the network');
     await expect(panel).toContainText(join(relay.workDir, 'api'));
     await expect(panel.getByRole('button', { name: 'Start preview' })).toBeEnabled();
     await expect(panel.locator('.app-preview-summary')).toHaveCount(0);
@@ -484,7 +485,11 @@ test.describe('container previews', () => {
     ...(replay ? { replay } : {}),
   });
 
-  test('a Dockerfile shows the build in a terminal, opens the page when the app serves one, and runs again', async ({ page, relay }) => {
+  test('a Dockerfile shows the build in a terminal, opens the page when the app serves one, and runs again', async ({
+    page,
+    relay,
+    browserName,
+  }) => {
     mkdirSync(join(relay.workDir, 'api'));
     writeFileSync(join(relay.workDir, 'api', 'Dockerfile'), 'FROM python:3.13-slim\nCMD ["python", "app.py"]\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -494,10 +499,21 @@ test.describe('container previews', () => {
       output('serving on 8000\r\n'),
       { type: 'page' },
     ]);
+    // The panel never messages a frame that has not loaded the page: Chromium logs that itself (not
+    // through the page's console, which Playwright's console event reports), so its log is read.
+    const misdirected: string[] = [];
+    if (browserName === 'chromium') {
+      const cdp = await page.context().newCDPSession(page);
+      cdp.on('Log.entryAdded', ({ entry }) => {
+        if (entry.text.includes('postMessage')) misdirected.push(entry.text);
+      });
+      await cdp.send('Log.enable');
+    }
     await send(page, 'Try the API.\n[API](api/Dockerfile)');
     await (await finishedReply(page, 'Claude')).getByRole('button', { name: 'Preview app' }).click();
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Served from a container');
+    expect(misdirected).toEqual([]);
     await expect(panel.getByRole('radio', { name: 'Page' })).toBeChecked();
     await panel.getByRole('radio', { name: 'Terminal' }).click();
     await expect(panel.locator('.xterm-rows')).toContainText('#1 building');

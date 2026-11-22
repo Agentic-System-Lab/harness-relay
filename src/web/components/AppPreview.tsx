@@ -265,18 +265,23 @@ export function AppPreview({
   }, [convId, target]);
 
   // The page opens once the app serves one: the first time in a frame (its one-time ticket), later
-  // runs by reloading that frame.
+  // runs by reloading that frame, once it has loaded the page. A frame just made still holds a blank
+  // document of this page's origin: a message for the preview's would not reach it (and the browser
+  // says so), nor is there anything to reload yet.
   const pageSeen = useRef(false);
+  const frameLoaded = useRef(false);
+  frameLoaded.current = loaded;
   useEffect(() => {
     pageSeen.current = false;
   }, [session]);
   useEffect(() => {
     if (!session?.terminal || !term.page) return;
-    if (!framed) setFramed(true);
-    else frame.current?.contentWindow?.postMessage('relay-preview-reload', session.origin);
-    if (!pageSeen.current) setView('page');
+    if (!pageSeen.current) {
+      setFramed(true);
+      setView('page');
+    } else if (frameLoaded.current) frame.current?.contentWindow?.postMessage('relay-preview-reload', session.origin);
     pageSeen.current = true;
-  }, [term.page, session, framed]);
+  }, [term.page, session]);
   useEffect(() => {
     if (term.command !== undefined && term.phase === 'running') setCommandLine(term.command);
   }, [term.command, term.phase]);
