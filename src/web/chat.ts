@@ -394,7 +394,9 @@ export type Segment =
   /** The secrets the reply asks the user for. */
   | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
   /** A fixed command the reply proposes. */
-  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number };
+  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
+  /** A command the reply asks the user to run themselves. */
+  | { kind: 'interactive'; part: Extract<MessagePart, { type: 'interactive' }>; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -463,6 +465,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'command':
         out.push({ kind: 'command', part: p, key: i });
+        break;
+      case 'interactive':
+        out.push({ kind: 'interactive', part: p, key: i });
         break;
     }
   });

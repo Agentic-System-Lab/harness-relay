@@ -232,6 +232,12 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         type: 'text',
         text: `[Proposed the fixed command "${p.proposal.name}": \`${p.proposal.run}\` — ${p.status}${p.run ? `, last run ${p.run.status}` : ''}]`,
       };
+    case 'interactive':
+      // Its output reaches the team only when the user sends it (as their message): never here.
+      return {
+        type: 'text',
+        text: `[Asked the user to run \`${p.run}\` themselves — ${p.status}${p.session ? `, ${p.session.state}` : ''}]`,
+      };
   }
 }
 

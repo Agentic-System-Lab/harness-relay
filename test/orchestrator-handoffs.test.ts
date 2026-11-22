@@ -3,7 +3,11 @@
  * reply's blocks taken out into cards that wait for the user, the answer the team gets (names, never a
  * value), a proposed command saved, pinned, tried and shared, its code changing, and one run of it put
  * in the outbox and sent. The fixed commands' sandbox and process are stand-ins
- * (`orchestrator.fixedCommandDeps`); the folder is a real git repository.
+ * (`orchestrator.fixedCommandDeps`); the folder is a real git repository. And interactive commands
+ * ("Interactive commands"): a reply's `<interactive>` block taken into a card that waits, started by
+ * the user (a real `/bin/sh` where there is one), typed into hidden, its masked output sent to the team;
+ * refused for a card an automation's run proposed, and in the working directory when its configuration
+ * files changed since the card listed them.
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
@@ -17,7 +21,22 @@ import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
 import { Outbox } from '../src/server/outbox';
-import { agentMessages, calls, conversation, db, fake, finish, orchestrator, project, root, settings, store, textOf } from './orchestrator-harness';
+import { defaultInteractiveDeps } from '../src/server/interactive';
+import {
+  agentMessages,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  orchestrator,
+  project,
+  root,
+  settings,
+  store,
+  textOf,
+} from './orchestrator-harness';
+import { slow } from './timeouts';
 
 const keys = new Map<string, string>();
 let ran: { env: NodeJS.ProcessEnv; stdin?: string }[] = [];
@@ -72,6 +91,9 @@ beforeEach(() => {
   };
   orchestrator.fixedCommandDeps = deps;
   orchestrator.outbox = new Outbox(db);
+  const tmp = join(root, 'interactive-tmp');
+  mkdirSync(tmp, { recursive: true });
+  orchestrator.interactiveDeps = { ...defaultInteractiveDeps, env: { PATH: process.env.PATH ?? '' }, tmpDir: () => tmp };
 });
 
 const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
@@ -79,7 +101,11 @@ const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
   return { msg, part: msg.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type)! };
 };
 
-const userTexts = (convId: string) => store.get(convId)!.messages.filter((m) => m.author.kind === 'user').map(textOf);
+const userTexts = (convId: string) =>
+  store
+    .get(convId)!
+    .messages.filter((m) => m.author.kind === 'user')
+    .map(textOf);
 
 describe('secrets cards', () => {
   it("takes a reply's secret blocks into a card that waits, and tells every member how to ask", async () => {
@@ -219,7 +245,8 @@ describe('fixed command cards', () => {
   it('puts one run of a saved command in the outbox, which Send runs with its input', async () => {
     const { conv, msg, part } = await propose();
     await orchestrator.saveCommand(conv.id, msg.id, part.id);
-    fake.reply = () => 'Ready to post.\n\n<command-run name="post">\nHello, Threads!\n</command-run>\n<command-run name="nope">x</command-run>';
+    fake.reply = () =>
+      'Ready to post.\n\n<command-run name="post">\nHello, Threads!\n</command-run>\n<command-run name="nope">x</command-run>';
     await orchestrator.send(conv.id, 'post it');
     await finish(conv.id);
     const last = agentMessages(store.get(conv.id)!).at(-1)!;
@@ -230,5 +257,120 @@ describe('fixed command cards', () => {
     const sent = await orchestrator.answerOutbox(conv.id, item.id, 'send');
     expect(sent.status).toBe('sent');
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('interactive command cards', () => {
+  const propose = async (
+    block = '<interactive reason="To sign in to the registry.">printf \'Password: \'; IFS= read -r p; echo "got $p and $TOKEN_VALUE"</interactive>',
+  ) => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, '.npmrc'), 'registry=https://registry.example\n');
+    fake.reply = (name) =>
+      name === 'Alice' && calls.filter((c) => c.name === 'Alice').length === 1 ? `Please sign in.\n\n${block}` : 'Thanks.';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    return { conv, ...partOf(conv.id, 'interactive') };
+  };
+
+  it("takes a reply's <interactive> block into a card that waits, and tells every member how to ask", async () => {
+    const { msg, part, conv } = await propose();
+    expect(textOf(msg)).toBe('Please sign in.');
+    expect(msg.asked).toBe(true);
+    expect(part).toMatchObject({ status: 'proposed', reason: 'To sign in to the registry.', folder: orchestrator.handoffFolder(conv) });
+    expect(part.configFiles).toContain('.npmrc');
+    expect(part.blocked).toBeUndefined();
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
+    expect(calls[0]!.systemPrompt).toContain('<interactive reason="why">');
+  });
+
+  it("runs it when the user starts it, masks what was typed hidden and the folder's secrets, and sends the output once", async () => {
+    const { conv, msg, part } = await propose(
+      '<interactive>printf \'Password: \'; IFS= read -r p; echo "got $p"; echo "token tok-123456"</interactive>',
+    );
+    settings.handoffs.setSecrets(orchestrator.handoffFolder(conv), { TOKEN: 'tok-123456' });
+    await expect(orchestrator.sendInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    const started = await orchestrator.startInteractive(conv.id, msg.id, part.id);
+    expect(started).toMatchObject({ state: 'running', inWorkdir: false });
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.output).toContain('Password: '));
+    orchestrator.interactiveInput(conv.id, msg.id, part.id, 'hunter2-pass', true);
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('exited'), { timeout: slow(5000) });
+    const card = partOf(conv.id, 'interactive').part;
+    expect(card.status).toBe('started');
+    expect(card.session!.output).toContain('got ••••');
+    expect(card.session!.output).toContain('token ••••');
+    expect(JSON.stringify(store.get(conv.id))).not.toContain('hunter2-pass');
+    // Typing into it once it ended is refused.
+    expect(() => orchestrator.interactiveInput(conv.id, msg.id, part.id, 'late', false)).toThrow(expect.objectContaining({ status: 409 }));
+
+    await orchestrator.sendInteractive(conv.id, msg.id, part.id);
+    await finish(conv.id);
+    const sent = userTexts(conv.id).at(-1)!;
+    expect(sent).toContain('got ••••');
+    expect(sent).toMatch(/結束碼 0|exit code 0/);
+    expect(sent).not.toContain('hunter2-pass');
+    expect(sent).not.toContain('tok-123456');
+    expect(partOf(conv.id, 'interactive').part.session!.sent).toBe(true);
+    await expect(orchestrator.sendInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses to start in the working directory when configuration files the card did not list appeared', async () => {
+    const { conv, msg, part } = await propose('<interactive workdir="yes">pwd</interactive>');
+    expect(part.workdir).toBe(true);
+    writeFileSync(join(project, '.env'), 'X=1\n');
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: part.configFiles })).rejects.toMatchObject({
+      status: 409,
+    });
+    const listed = partOf(conv.id, 'interactive').part.configFiles;
+    expect(listed).toContain('.env');
+    await orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: listed });
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('exited'), { timeout: slow(5000) });
+    expect(partOf(conv.id, 'interactive').part.session).toMatchObject({ inWorkdir: true, exitCode: 0 });
+    expect(partOf(conv.id, 'interactive').part.session!.output.trim()).toBe(orchestrator.handoffFolder(conv));
+  });
+
+  it("does not run, telling the team, and is never started from a card an automation's run proposed", async () => {
+    const { conv, msg, part } = await propose('<interactive>npm login</interactive>');
+    await orchestrator.dismissInteractive(conv.id, msg.id, part.id);
+    await finish(conv.id);
+    expect(partOf(conv.id, 'interactive').part.status).toBe('dismissed');
+    expect(userTexts(conv.id).at(-1)).toContain('npm login');
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+
+    const other = conversation({ mode: 'relay' });
+    other.schedule = {
+      text: 'check the deploy',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(other);
+    fake.reply = () => 'The token expired.\n\n<interactive>gcloud auth login --no-launch-browser</interactive>';
+    await orchestrator.sendScheduled(other.id);
+    await finish(other.id);
+    const card = partOf(other.id, 'interactive');
+    expect(card.part.blocked).toBe('automation');
+    await expect(orchestrator.startInteractive(other.id, card.msg.id, card.part.id)).rejects.toMatchObject({ status: 409 });
+    // Another chat's card is not this chat's.
+    await expect(orchestrator.startInteractive(conv.id, card.msg.id, card.part.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("stops on Cancel, the card saying so; Cancel once it ended is refused; a branch's copy of a running card says it stopped", async () => {
+    const { conv, msg, part } = await propose('<interactive>sleep 30</interactive>');
+    await orchestrator.startInteractive(conv.id, msg.id, part.id);
+    const branch = await orchestrator.branch(conv.id, msg.id);
+    const copy = partOf(branch.id, 'interactive');
+    expect(copy.part.session?.state).toBe('stopped');
+    expect(() => orchestrator.cancelInteractive(branch.id, copy.msg.id, copy.part.id)).toThrow(expect.objectContaining({ status: 409 }));
+    orchestrator.cancelInteractive(conv.id, msg.id, part.id);
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('cancelled'), { timeout: slow(5000) });
+    expect(() => orchestrator.cancelInteractive(conv.id, msg.id, part.id)).toThrow(expect.objectContaining({ status: 409 }));
   });
 });

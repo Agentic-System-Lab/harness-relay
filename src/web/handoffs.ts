@@ -76,3 +76,65 @@ export function runTone(run: FixedCommandRun): { tone: 'ok' | 'warn' | 'bad' | '
       return { tone: 'bad', code: false };
   }
 }
+
+export type InteractivePart = Extract<MessagePart, { type: 'interactive' }>;
+
+/** What an interactive command's card offers now. */
+export interface InteractiveActions {
+  /** Start (or Start again, once a run ended): not for a card that is blocked, dismissed or running. */
+  start: boolean;
+  /** Don't run: only before it ever started. */
+  dismiss: boolean;
+  /** The input line and Cancel: while it runs. */
+  type: boolean;
+  /** Send to the team: once a run ended, and only once. */
+  send: boolean;
+  /** Its run's output was sent to the team. */
+  sent: boolean;
+}
+
+export function interactiveActions(part: InteractivePart): InteractiveActions {
+  const s = part.session;
+  const running = s?.state === 'running';
+  return {
+    start: !part.blocked && part.status !== 'dismissed' && !running,
+    dismiss: part.status === 'proposed',
+    type: running,
+    send: part.status === 'started' && Boolean(s) && !running && !s!.sent,
+    sent: Boolean(s?.sent),
+  };
+}
+
+/** Where a card offers to start it first: the working directory when the agent says it needs it, else its own empty folder. */
+export function startsInWorkdir(part: InteractivePart): boolean {
+  return Boolean(part.workdir);
+}
+
+/** What Start sends: where it runs, and the configuration files the card listed there (the server refuses it when others appeared). */
+export function startRequest(part: InteractivePart, workdir: boolean): { workdir: boolean; seen: string[] } {
+  return { workdir, seen: workdir ? [...part.configFiles] : [] };
+}
+
+/** How a run's state reads on its card: its key in the locale, and its tone for the colour. */
+export function sessionTone(s: NonNullable<InteractivePart['session']>): 'busy' | 'ok' | 'warn' | 'bad' {
+  switch (s.state) {
+    case 'running':
+      return 'busy';
+    case 'exited':
+      return s.exitCode === 0 ? 'ok' : 'bad';
+    case 'cancelled':
+    case 'stopped':
+      return 'warn';
+    default:
+      return 'bad';
+  }
+}
+
+/**
+ * Whether the line a program waits on asks for something to hide (a password, a passphrase, a token,
+ * a PIN): the card's "Hide what I type" is then on until the user changes it.
+ */
+export function wantsHidden(output: string): boolean {
+  const last = output.trimEnd().split('\n').pop() ?? '';
+  return /\b(?:pass(?:word|phrase|code)?|token|secret|pin|otp|2fa|one-time)\b|密碼|口令|權杖/i.test(last) && !/https?:\/\//.test(last);
+}

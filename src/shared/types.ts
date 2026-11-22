@@ -2227,7 +2227,84 @@ export type MessagePart =
       status: 'proposed' | 'saved' | 'dismissed';
       commandId?: string;
       run?: FixedCommandRun;
+    }
+  /**
+   * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its
+   * text): a sign-in, a CLI's login with a device code. Only the user starts it, from this card; it runs
+   * with their rights, outside the agents' sandboxes, and its output reaches the team only when they send it.
+   */
+  | {
+      type: 'interactive';
+      id: string;
+      /** The conversation's working directory: where it runs when the user chooses so. */
+      folder: string;
+      /** The command line, as the agent wrote it. */
+      run: string;
+      /** Why, in the agent's words. */
+      reason?: string;
+      /** The agent says it needs the working directory (`workdir="yes"`): the card offers it first. */
+      workdir?: boolean;
+      /**
+       * The configuration files in the working directory a program may load there (`.npmrc`, `.env`…),
+       * which agents can write: the card lists them, and starting there is refused when others appeared since.
+       */
+      configFiles: string[];
+      /** It cannot be started from this card: proposed in an automation's run, or on native Windows. */
+      blocked?: 'automation' | 'windows';
+      status: 'proposed' | 'started' | 'dismissed';
+      /** Its latest run from this card. */
+      session?: InteractiveSession;
     };
+
+/** How an interactive command's run from its card goes (`src/server/interactive.ts`), as the card shows it. */
+export interface InteractiveSession {
+  /**
+   * `running`, then how it ended: `exited` (by itself, `exitCode`), `cancelled` (the user stopped it),
+   * `timedOut` (its time limit), `failed` (it could not start: `reason`), `stopped` (the server stopped).
+   */
+  state: 'running' | 'exited' | 'cancelled' | 'timedOut' | 'failed' | 'stopped';
+  startedAt: number;
+  /** When its time limit stops it, if it still runs. */
+  endsAt: number;
+  endedAt?: number;
+  exitCode?: number | null;
+  /** It ran in the working directory, not in an empty folder of its own. */
+  inWorkdir: boolean;
+  /**
+   * What it printed and what the user typed into it (not what they typed hidden), its end only, with
+   * the folder's secret values and everything typed hidden replaced by dots.
+   */
+  output: string;
+  /** The links and codes in its output (a device sign-in's). */
+  urls: string[];
+  codes: string[];
+  /** Its password helper (`sudo -A`, ssh, git) asks for a line: the card asks the user, hidden. */
+  asking?: { id: string; prompt: string };
+  /** Whether it had the password helper; why not otherwise (no Node.js to run it with, or no way to reach it). */
+  helper: 'on' | 'no-node' | 'off';
+  reason?: string;
+  /** The user sent its output to the team. */
+  sent?: boolean;
+}
+
+/** Limits of interactive commands (`<interactive>` blocks). */
+export const INTERACTIVE_LIMITS = {
+  /** Characters of the command line, and of the agent's reason. */
+  commandLine: 2000,
+  reason: 500,
+  /** Interactive commands a reply may propose. */
+  perReply: 2,
+  /** Minutes one may run, waiting for the user included (a device code lasts about as long). */
+  timeoutMin: 15,
+  /** Characters of its output a card keeps (its end). */
+  output: 16_000,
+  /** Bytes of one line the user types into it. */
+  input: 4096,
+  /** Characters of a password helper's prompt shown. */
+  prompt: 300,
+  /** Interactive commands running at once on this server. */
+  running: 4,
+} as const;
 
 /**
  * A secret an agent asked the user for (a `<secret>` block, `src/shared/handoffs.ts`). The value is

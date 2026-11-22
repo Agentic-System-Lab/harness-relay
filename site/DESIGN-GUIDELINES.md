@@ -143,7 +143,7 @@ Keep the Tools page sections `#google-oauth-setup` and `#microsoft-oauth-setup` 
 | 3 | Connect your agents (`agents/`) | Settings & sign-in, signing in to each agent, API keys, the open-source agents' model backends, more than one account, models and the lead agent |
 | 4 | Your first chat (`first-chat/`) | A link to the full walkthrough in the reader’s language, New chat, asking, the team design card, while they work, their questions, lead review |
 | 5 | Teams and modes (`teams/`) | Auto team, the templates, members, the three modes (`#modes`), team checks (`#checks`), changing the team, writing roles |
-| 6 | Permissions and approvals (`permissions/`) | The four levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words (the team's protected paths too), the outbox, reviewing and applying changes (checked before a parallel result is applied) |
+| 6 | Permissions and approvals (`permissions/`) | The four levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words (the team's protected paths too), the outbox, commands you run yourself (`#your-commands`), reviewing and applying changes (checked before a parallel result is applied) |
 | 7 | Conversations (`conversations/`) | The list and its badges, groups, pins and search, branching, copying and editing, files, sharing, notifications |
 | 8 | Automations (`automations/`) | What starts one, its times and the things it waits for, runs nobody watches, a goal to track, the webhook |
 | 9 | Tools (`tools/`) | Harness Relay's browser, mail and calendar, the outbox, accounts you sign in to, the tool library (MCP servers, skills, memory, long-term memory and the hooks new chats start with), a member's tools, what each agent loads by itself |

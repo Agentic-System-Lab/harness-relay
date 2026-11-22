@@ -1,14 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { commandActions, filledValues, formOf, proposalOf, runTone, waitingAsks, type CommandPart, type SecretsPart } from '../handoffs';
+import {
+  commandActions,
+  filledValues,
+  formOf,
+  interactiveActions,
+  proposalOf,
+  runTone,
+  sessionTone,
+  startRequest,
+  startsInWorkdir,
+  waitingAsks,
+  wantsHidden,
+  type CommandPart,
+  type InteractivePart,
+  type SecretsPart,
+} from '../handoffs';
 import { useT } from '../i18n';
 import { CommandIcon, KeyIcon } from './icons';
+import { LoginLinks } from './LoginLinks';
 import '../handoffs.css';
 
 /*
  * The cards of what an agent hands to the user (docs/architecture.md, "Secrets and fixed commands"):
- * the secrets a reply asks for, and a fixed command it proposes. A value typed here goes to the server
- * once and is never shown again: the card keeps none, and the server never sends one back.
+ * the secrets a reply asks for, a fixed command it proposes, and a command it asks the user to run
+ * themselves ("Interactive commands"). A value typed here goes to the server once and is never shown
+ * again: the card keeps none, and the server never sends one back.
  */
 
 /** Runs a card's call, with its busy state and its error in the card. */
@@ -111,7 +128,12 @@ export function SecretsCard({
           <p className="muted small">{c.hint}</p>
           {error && <p className="error-line">{error}</p>}
           <div className="approval-actions">
-            <button type="button" className="primary small-button" disabled={busy || !Object.keys(filled).length} onClick={() => void answer(false)}>
+            <button
+              type="button"
+              className="primary small-button"
+              disabled={busy || !Object.keys(filled).length}
+              onClick={() => void answer(false)}
+            >
               {c.save}
             </button>
             <button type="button" className="ghost small-button" disabled={busy} onClick={() => void answer(true)}>
@@ -157,8 +179,7 @@ export function CommandCard({
       await api.tryCommand(convId, part.commandId!, { ...(extra.trim() ? { extra } : {}), ...(approve ? { approve: true } : {}) });
       setDiff(null);
     });
-  const toggleDiff = () =>
-    diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!)));
+  const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!))));
   const field = (key: keyof typeof form, label: string, hint?: string, multiline = false) => (
     <label className="field">
       <span>{label}</span>
@@ -239,7 +260,8 @@ export function CommandCard({
               <button type="button" className="ghost small-button" disabled={busy} onClick={toggleDiff}>
                 {diff ? c.hideDiff : c.showDiff}
               </button>
-              {diff && (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
+              {diff &&
+                (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
             </>
           )}
           {run.output && (
@@ -327,6 +349,252 @@ export function CommandCard({
               {c.continue}
             </button>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * A command a reply asks the user to run themselves (a sign-in, a CLI's login): where it runs and
+ * Start; while it runs, its masked output with the links and codes picked out, a line to type into it
+ * (hidden or not), its password helper's question and Cancel; once it ended, Send to the team.
+ */
+export function InteractiveCard({
+  part,
+  convId,
+  messageId,
+  agentName,
+}: {
+  part: InteractivePart;
+  convId: string;
+  messageId: string;
+  agentName: string;
+}) {
+  const t = useT();
+  const c = t.handoffs.interactive;
+  const { busy, error, call } = useCall();
+  const [workdir, setWorkdir] = useState(() => startsInWorkdir(part));
+  const [line, setLine] = useState('');
+  // Hidden while the program seems to ask for a password, until the user says otherwise.
+  const [hideChoice, setHideChoice] = useState<boolean | null>(null);
+  const [answer, setAnswer] = useState('');
+  const [showAnswer, setShowAnswer] = useState(false);
+  const output = useRef<HTMLPreElement>(null);
+  const s = part.session;
+  const actions = interactiveActions(part);
+  const running = s?.state === 'running';
+  const hide = hideChoice ?? wantsHidden(s?.output ?? '');
+  const key = part.status === 'dismissed' ? 'dismissed' : s ? s.state : 'proposed';
+  useEffect(() => {
+    const el = output.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [s?.output]);
+  const post = (b: Parameters<typeof api.interactiveCard>[3]) => call(() => api.interactiveCard(convId, messageId, part.id, b));
+  const sendLine = async () => {
+    if (await post({ action: 'input', text: line, hidden: hide })) {
+      setLine('');
+      setHideChoice(null);
+    }
+  };
+  const answerAsk = async (refuse: boolean) => {
+    if (!s?.asking) return;
+    const done = await post(refuse ? { action: 'answer', askId: s.asking.id } : { action: 'answer', askId: s.asking.id, text: answer });
+    if (done) {
+      setAnswer('');
+      setShowAnswer(false);
+    }
+  };
+  const ended = (x: NonNullable<InteractivePart['session']>) => {
+    switch (x.state) {
+      case 'exited':
+        return c.ended.exited(x.exitCode);
+      case 'timedOut':
+        return c.ended.timedOut(Math.round((x.endsAt - x.startedAt) / 60_000));
+      case 'running':
+        return c.status.running;
+      default:
+        return c.ended[x.state];
+    }
+  };
+  const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <section className={`outbox-card handoff-card interactive-card handoff-interactive-${key}`} aria-label={c.label(agentName)}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          <CommandIcon size={16} />
+        </span>
+        <strong>{c.title}</strong>
+        <span className="approval-waiting">{c.status[key]}</span>
+      </header>
+      <p className="small interactive-asks">
+        {c.asks(agentName)}
+        {part.reason && <> {part.reason}</>}
+      </p>
+      <dl className="outbox-fields">
+        <div>
+          <dt>{c.command}</dt>
+          <dd>
+            <code className="handoff-run">{part.run}</code>
+          </dd>
+        </div>
+        {s && (
+          <div>
+            <dt>{c.where}</dt>
+            <dd>{s.inWorkdir ? c.workdir(part.folder) : c.ownFolder}</dd>
+          </div>
+        )}
+      </dl>
+      {part.blocked && <p className="warn-line small">{c[part.blocked]}</p>}
+      {actions.start && (
+        <fieldset className="interactive-where">
+          <legend className="small">{c.where}</legend>
+          <label className="check-row">
+            <input type="radio" name={`where-${part.id}`} checked={!workdir} onChange={() => setWorkdir(false)} disabled={busy} />
+            <span>{c.ownFolder}</span>
+          </label>
+          <label className="check-row">
+            <input type="radio" name={`where-${part.id}`} checked={workdir} onChange={() => setWorkdir(true)} disabled={busy} />
+            <span className="interactive-folder">{c.workdir(part.folder)}</span>
+          </label>
+          {part.workdir && <p className="muted small">{c.agentWantsWorkdir}</p>}
+          {workdir &&
+            (part.configFiles.length ? (
+              <div className="interactive-config">
+                <p className="small">{c.configFiles}</p>
+                <ul className="handoff-changed">
+                  {part.configFiles.map((f) => (
+                    <li key={f}>
+                      <code>{f}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="muted small">{c.noConfigFiles}</p>
+            ))}
+        </fieldset>
+      )}
+      {actions.start && !s && (
+        <p className="muted small">
+          {c.rights} {c.noTerminal}
+        </p>
+      )}
+      {s && (
+        <div className={`handoff-run-result handoff-${sessionTone(s)}`}>
+          {/* Its state is announced, not each line of its output. */}
+          <p role="status">
+            <strong>{ended(s)}</strong>
+            {running && <span className="muted small"> · {c.stopsAt(time(s.endsAt))}</span>}
+          </p>
+          {s.reason && <p className="small">{s.reason}</p>}
+          {running && s.helper === 'no-node' && <p className="muted small">{c.noNode}</p>}
+          <LoginLinks login={s} />
+          <p className="muted small">{c.output}</p>
+          <pre ref={output} className="outbox-body interactive-output" tabIndex={0}>
+            {s.output || c.noOutput}
+          </pre>
+        </div>
+      )}
+      {running && s?.asking && (
+        <form
+          className="interactive-ask"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void answerAsk(false);
+          }}
+        >
+          <label htmlFor={`ask-${part.id}`} className="small">
+            {c.helperAsks} <code>{s.asking.prompt}</code>
+          </label>
+          <div className="input-row">
+            <input
+              id={`ask-${part.id}`}
+              type={showAnswer ? 'text' : 'password'}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              aria-label={c.helperField}
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              disabled={busy}
+            />
+            <button type="button" className="ghost small-button" aria-pressed={showAnswer} onClick={() => setShowAnswer((v) => !v)}>
+              {showAnswer ? c.hideAnswer : c.show}
+            </button>
+          </div>
+          <div className="approval-actions">
+            <button type="submit" className="primary small-button" disabled={busy}>
+              {c.answer}
+            </button>
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => void answerAsk(true)}>
+              {c.refuse}
+            </button>
+          </div>
+        </form>
+      )}
+      {actions.type && (
+        <form
+          className="interactive-input"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void sendLine();
+          }}
+        >
+          <label htmlFor={`line-${part.id}`} className="small">
+            {c.input}
+          </label>
+          <div className="input-row">
+            <input
+              id={`line-${part.id}`}
+              type={hide ? 'password' : 'text'}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              placeholder={c.inputPlaceholder}
+              value={line}
+              onChange={(e) => setLine(e.target.value)}
+              disabled={busy}
+            />
+            <button type="submit" className="primary small-button" disabled={busy}>
+              {c.send}
+            </button>
+          </div>
+          <label className="check-row small">
+            <input type="checkbox" checked={hide} onChange={(e) => setHideChoice(e.target.checked)} />
+            <span>{c.hide}</span>
+          </label>
+        </form>
+      )}
+      {error && <p className="error-line">{error}</p>}
+      {(actions.type || actions.send || actions.sent || actions.start || actions.dismiss) && (
+        <div className="approval-actions">
+          {actions.type && (
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => void post({ action: 'cancel' })}>
+              {c.cancel}
+            </button>
+          )}
+          {actions.send && (
+            <button type="button" className="primary small-button" disabled={busy} onClick={() => void post({ action: 'send' })}>
+              {c.sendTeam}
+            </button>
+          )}
+          {actions.sent && <span className="muted small interactive-sent">{c.sent}</span>}
+          {actions.start && (
+            <button
+              type="button"
+              className={`${actions.send ? 'ghost' : 'primary'} small-button`}
+              disabled={busy}
+              onClick={() => void post({ action: 'start', ...startRequest(part, workdir) })}
+            >
+              {s ? c.startAgain : workdir ? c.startHere : c.start}
+            </button>
+          )}
+          {actions.dismiss && (
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => void post({ action: 'dismiss' })}>
+              {c.dismiss}
+            </button>
+          )}
         </div>
       )}
     </section>

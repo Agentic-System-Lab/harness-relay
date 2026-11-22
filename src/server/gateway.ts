@@ -213,6 +213,22 @@ export interface HookProgram {
 }
 export type HookProgramMode = 'file' | 'inline';
 
+/**
+ * What answers an interactive command's password helper (`askpassShim.ts`): the line the user typed
+ * for its prompt, or undefined when they refused (or the session is over).
+ */
+export type AskpassHandler = (prompt: string) => Promise<string | undefined>;
+
+/** An interactive command's password helper's grant (`ToolGateway.askpassGrant()`). */
+export interface AskpassGrant {
+  /** Its token, for the file the helper reads it from. */
+  token: string;
+  /** The gateway's socket, and the Node.js to run the helper with. */
+  socketPath: string;
+  node: string;
+  revoke: () => void;
+}
+
 /** A turn's hook grant: its handler, and its program's token file and copy. */
 interface HookGrant {
   handle: HookHandler;
@@ -280,7 +296,8 @@ function workingFolder(): string | undefined {
 type Request =
   | { id: number; method: 'list' }
   | { id: number; method: 'call'; name?: unknown; arguments?: unknown }
-  | { id: number; method: 'hook'; when?: unknown; payload?: unknown };
+  | { id: number; method: 'hook'; when?: unknown; payload?: unknown }
+  | { id: number; method: 'askpass'; prompt?: unknown };
 
 /** How long a connection may take to show its token. */
 const TOKEN_WAIT_MS = 10_000;
@@ -308,6 +325,8 @@ export class ToolGateway {
   private readonly grants = new Map<string, Grant>();
   /** The turns' hook programs' grants, by token: each program connects once per call, and the token stays. */
   private readonly hookGrants = new Map<string, HookGrant>();
+  /** The interactive commands' password helpers' grants, by token: one a session, for each of its prompts. */
+  private readonly askGrants = new Map<string, AskpassHandler>();
   private readonly tools = new Map<string, GatewayTool>();
   readonly socketPath: string;
   /**
@@ -450,6 +469,7 @@ export class ToolGateway {
     this.httpAt = undefined;
     for (const token of [...this.grants.keys()]) this.revoke(token);
     for (const token of [...this.hookGrants.keys()]) this.revokeHook(token);
+    this.askGrants.clear();
     for (const sock of this.sockets) sock.destroy();
     if (http) {
       http.closeAllConnections();
@@ -577,6 +597,21 @@ export class ToolGateway {
     return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke };
   }
 
+  /**
+   * A grant for one interactive command's password helper (`askpassShim.ts`, `src/server/interactive.ts`):
+   * a token for that session alone, serving each run of the helper (one connection, one prompt each)
+   * until `revoke`, its prompts answered by `ask`. Its program and token's file are the session's own
+   * to write. Undefined when it cannot be given now (not listening, no Node.js to start it with).
+   */
+  askpassGrant(ask: AskpassHandler): AskpassGrant | undefined {
+    const node = this.node();
+    if (!this.server || !node || this.platform === 'win32') return undefined;
+    const token = randomBytes(32).toString('base64url');
+    const lang = currentLang();
+    this.askGrants.set(token, (prompt) => withLang(lang, () => ask(prompt)));
+    return { token, socketPath: this.socketPath, node, revoke: () => void this.askGrants.delete(token) };
+  }
+
   private revokeHook(token: string): void {
     const grant = this.hookGrants.get(token);
     if (!grant) return;
@@ -603,6 +638,7 @@ export class ToolGateway {
     let buffer = '';
     let grant: Grant | undefined;
     let hookToken: string | undefined;
+    let askToken: string | undefined;
     let hookAsked = false;
     let authed = false;
     let taken = false;
@@ -647,6 +683,8 @@ export class ToolGateway {
           if (grant?.http) grant = undefined;
           // A hook program's: its token serves each call's own connection.
           if (!grant && typeof token === 'string' && this.hookGrants.has(token)) hookToken = token;
+          // An interactive command's password helper's: one prompt on each connection, as a hook's call.
+          if (!grant && !hookToken && typeof token === 'string' && this.askGrants.has(token)) askToken = token;
           authed = true;
           clearTimeout(hello);
           if (grant && this.claimOnce) {
@@ -659,7 +697,7 @@ export class ToolGateway {
               if (grant.tokenFile) rmSync(grant.tokenFile, { force: true });
             }
           }
-          if (grant || hookToken) {
+          if (grant || hookToken || askToken) {
             this.pending.delete(sock);
             if (this.sockets.size - this.pending.size > MAX_CONNECTIONS) return sock.destroy();
           } else {
@@ -671,6 +709,25 @@ export class ToolGateway {
         }
         const req = msg as Request;
         if (typeof req?.id !== 'number') continue;
+        if (askToken) {
+          if (hookAsked) return;
+          hookAsked = true;
+          // Looked up again: a session that ended takes its helper with it.
+          const ask = this.askGrants.get(askToken);
+          const finish = (message: unknown) => {
+            reply(message);
+            sock.end();
+          };
+          if (!ask || req.method !== 'askpass' || typeof req.prompt !== 'string') {
+            finish({ id: req.id, error: ask ? 'Unknown request' : 'This command is over: Harness Relay asks nothing for it any more' });
+            continue;
+          }
+          void ask(req.prompt).then(
+            (line) => finish(line === undefined ? { id: req.id, error: 'Refused' } : { id: req.id, result: { line } }),
+            (err: Error) => finish({ id: req.id, error: err.message }),
+          );
+          continue;
+        }
         if (hookToken) {
           // Each invocation makes one call on its own connection.
           if (hookAsked) return;

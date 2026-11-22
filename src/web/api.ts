@@ -68,6 +68,7 @@ import type {
   CommandProposal,
   FixedCommand,
   FolderHandoffs,
+  InteractiveSession,
   CalendarAccountUpdate,
   ConnectorsView,
   OAuthCalendar,
@@ -524,6 +525,22 @@ export const api = {
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
       { action, ...(edits ? { edits } : {}) },
+    ),
+  /** An interactive command's card: start it, type a line into it, answer its password helper, cancel it, send its output to the team, or not run it. */
+  interactiveCard: (
+    id: string,
+    messageId: string,
+    partId: string,
+    b:
+      | { action: 'start'; workdir: boolean; seen: string[] }
+      | { action: 'input'; text: string; hidden: boolean }
+      | { action: 'answer'; askId: string; text?: string }
+      | { action: 'cancel' | 'send' | 'dismiss' },
+  ) =>
+    request<InteractiveSession | { ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/interactive/${encodeURIComponent(partId)}`,
+      b,
     ),
   /** Try a saved fixed command (in the background: its card follows it). */
   tryCommand: (id: string, commandId: string, b: { extra?: string; approve?: boolean }) =>

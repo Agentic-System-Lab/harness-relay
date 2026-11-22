@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 49 個 spec 檔、615 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 50 個 spec 檔、618 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,6 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
+| [使用者自己執行的指令](#使用者自己執行的指令) | [`interactive.spec.ts`](specs/interactive.spec.ts) | 3 | [使用者說明 → 你自己執行的指令](../docs/user-guide.zh-TW.md#你自己執行的指令)、[架構 → 互動指令](../docs/architecture.zh-TW.md#互動指令) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 20 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
@@ -285,6 +286,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 自動拒絕的對話不詢問就拒絕 | Claude Code | 指令被拒絕，沒有卡片。 |
 | 在團隊設定選「替我核准」：首席 agent 放行一個指令，把它標記的那個留給使用者 | Claude Code | 在可編輯的對話中，於團隊設定選 **替我核准**：顯示它的說明，權限範圍以外的動作那個選項消失，標頭的標籤顯示 **替我核准**，對話存成可編輯加上 `approvals: "auto"`。假的首席 agent 核准第一個指令：它直接執行，沒有等待的卡片，那一行顯示 **首席 agent 已替你核准** 與理由。被要求標記第二個（`e2e:flag`）時，它把指令留給使用者：卡片附上首席 agent 的理由等待，側邊欄顯示 **等你核准**，按 **允許** 後執行。 |
 | 「替我核准」：首席 agent 審查時不等任何人，使用者可以先回答；推送一律不送審 | Claude Code | 假的首席 agent 慢慢審查時（`e2e:slowapprove`），卡片顯示 **首席 agent 審查中**，並說明可以現在就決定，沒有提示列，也沒有 **等你核准**；按 **允許** 後指令執行，那一行顯示 **已允許**（使用者的回答）。`npm publish`（`e2e:approve=publish`）立即等使用者決定，卡片說明推送與發佈一律由使用者決定，並出現提示列；按 **拒絕** 後被拒絕。 |
+
+## 使用者自己執行的指令
+
+[`interactive.spec.ts`](specs/interactive.spec.ts)：agent 請使用者從卡片自己執行的指令（假 CLI 回覆結尾的 `<interactive>` 區塊，`e2e:interactive`）。在 macOS 與 Linux 上會真的執行（`/bin/sh`）：假 CLI 的指令會印出一個連結和一組代碼、要求輸入密碼，再印出它讀到的內容；用 `e2e:interactive=askpass` 時，改為透過密碼小幫手詢問（`$SUDO_ASKPASS`，和 `sudo -A` 執行它的方式一樣）。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 使用者啟動 agent 請他執行的指令，隱藏輸入內容，再把遮蔽後的輸出送給團隊 | Claude Code | 回覆的文字裡沒有 `<interactive>` 標籤；卡片說明原因，也說明它在所有 agent 的沙箱之外執行，預設在它自己的空資料夾裡。按**啟動**後執行：從它的輸出挑出連結和代碼（`ABCD-1234`），到了要密碼的提示時，「隱藏我輸入的內容」會自動勾選（欄位是密碼欄位）。輸入的那一行由程式印出，但已遮蔽（`Got ••••`）；卡片顯示它以結束碼 0 結束，從不顯示那個值。**把輸出送給團隊**會把它當成使用者的回答貼出，假 CLI 接著道謝；對話裡保存的是遮蔽後的輸出，從不含那個值。Windows 上略過。 |
+| 它的密碼小幫手像 `sudo -A` 的那樣，在卡片上要一行隱藏的內容 | Claude Code | 小幫手的問題連同一個隱藏欄位出現在卡片上；**回答**把那一行交給程式，程式印出時已遮蔽（`helper got ••••`）。**再執行一次**會重新啟動，**取消執行**會停止它（卡片會說明）；沒有送出時，agent 拿不到任何內容，對話裡也從不含那個值。Windows 上略過。 |
+| 在原生 Windows 上，卡片說明那裡不能執行 | Claude Code | 卡片說明原生 Windows 上還不能從卡片執行指令，也沒有**啟動**。只在 Windows 上執行。 |
 
 ## 檔案與修改
 
@@ -814,6 +825,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
 | 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 請使用者執行的指令：從卡片啟動、隱藏輸入，並回答它的密碼小幫手（不在 Windows 上） | ✓ | — | — | — | — | — | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | ✓ | ✓ | —（只有離線測試） | —（不能） | —（只有離線測試） | —（還不能） | —（還不能） |
@@ -873,6 +885,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
 - OpenCode 在完全存取以下、經由沙箱對 gateway 連接埠的開放使用 Harness Relay 自己的工具，這個測試只在 macOS 上執行，也就是 OpenCode 能在完全存取以下執行的地方。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
+- [使用者自己執行的指令](#使用者自己執行的指令)只在 macOS 與 Linux 上執行它的指令（`/bin/sh`）；在 Windows 上，它唯一的測試檢查卡片說明那裡不能執行。
 - [團隊檢查](#團隊檢查)裡，未通過指令的測試和 hook 的測試在 Windows 上略過（那裡還不能執行指令檢查和 hook），在 Harness Relay 自己沙箱裡執行的兩個測試（一輪之後的指令，以及套用平行模式結果時的指令）只在那個沙箱能用的地方執行（macOS，以及裝了 bubblewrap、socat 和 ripgrep 的 Linux）。
 - 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方 bash 腳本，在 Windows 上提供它的 PowerShell 安裝程式；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
@@ -896,6 +909,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **每個 CLI 在兩個對話同一個資料夾時的情形，以及之後的事。**端對端測試讓 Codex 在團隊自己的 worktree 裡執行；每個 CLI 都能在 worktree 裡寫入，由[平行模式](#檔案與修改)的測試涵蓋。那裡的團隊檢查、首席 agent 審閱、倒回時丟掉它、多個資料夾、巢狀的 repository，以及自動任務在那裡的執行，由離線測試涵蓋（`test/orchestrator-workspace.test.ts`、`orchestrator-folders`、`orchestrator-checks`、`orchestrator-review`、`orchestrator-schedule`）。
 - **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。
 - **其他 CLI 的「直接送進進行中的回合」。**只有 Claude Code 與 Codex 的假 CLI 會把訊息收進進行中的回合；Grok 的 `x.ai/interject`、Antigravity 再送的 `session/prompt`、Goose 的 `_goose/unstable/session/steer` 與 Pi 的 `steer` 只在離線測試裡（`test/steer.test.ts`，共用 ACP 回合的 hook 在 `test/acp-turn.test.ts`），協調器在各模式的規則（平行模式要嘛全部、要嘛都不送）則用它的假 runner 測（`test/orchestrator-steer.test.ts`）。還沒有任何真正的 CLI 在測試裡收過這樣的訊息，實機測試也還沒有。
+- **互動指令的大部分。**端對端測試從卡片啟動指令、隱藏輸入、回答它的密碼小幫手、取消它，並送出它的輸出。以下改由離線測試涵蓋（`test/interactive.test.ts`、`test/orchestrator-handoffs.test.ts`、`test/handoffs-api.test.ts`）：區塊的規則、工作目錄（列出它的設定檔，多了別的時拒絕啟動）、自動化執行提議的卡片與別的對話的卡片、時間上限、資料夾的密鑰遮蔽、拒絕小幫手的問題，以及伺服器停止時留下的執行。真正的登入（`gcloud`、`npm login`）、`sudo -A`，以及透過小幫手的 ssh 與 git，都沒有端對端試過。
 - **真正的首席 agent 判斷什麼是安全的（「替我核准」）。**假的首席 agent 依指令核准或標記；審查讀到什麼、何時不送審、時間限制、同時執行幾個，以及自動任務的執行，都在離線測試中涵蓋（`test/approvalReview.test.ts`、`test/orchestrator-approve.test.ts`、`orchestrator-schedule`）。真正的模型會怎麼決定，沒有測試。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現；那些錄音是 adapter 當初所依據的版本，所以 CLI 的新版本要用 `scripts/cli-check.ts` 對真正的 CLI 手動檢查（[開發者指南「檢查 CLI 的新版本」](../docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。

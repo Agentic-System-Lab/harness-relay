@@ -1,13 +1,15 @@
 /*
  * Secrets and fixed commands' HTTP API (src/server/app.ts): a secrets card's answer, Settings' view
  * (names only, never a value), replacing and removing a secret of a folder it lists only, removing a
- * fixed command; and the middleware's checks on these writes.
+ * fixed command; an interactive command's card (Start refused for an automation's run and for another
+ * chat's card, typing into a run that ended refused, its actions checked); and the middleware's checks
+ * on these writes.
  */
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Conversation, FolderHandoffs } from '../src/shared/types';
+import type { Conversation, FolderHandoffs, MessagePart } from '../src/shared/types';
 import type { SecretStore } from '../src/server/secrets';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-handoffs-api-')));
@@ -91,7 +93,9 @@ function chatAsking(): { conv: Conversation; partId: string } {
 describe('secrets and fixed commands API', () => {
   it("takes a secrets card's answer, and Settings lists the name, never the value", async () => {
     const { conv, partId } = chatAsking();
-    const res = await send('POST', `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`, { values: { TOKEN: 'tok-123456', N: 5 } });
+    const res = await send('POST', `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`, {
+      values: { TOKEN: 'tok-123456', N: 5 },
+    });
     expect(res.status).toBe(200);
     expect(settings.handoffs.values(root)).toEqual({ TOKEN: 'tok-123456' });
     const view = (await (await app.request('/api/handoffs', { headers: HOST })).json()) as { storage: boolean; folders: FolderHandoffs[] };
@@ -133,5 +137,73 @@ describe('secrets and fixed commands API', () => {
     expect((await send('POST', `/api/conversations/${conv.id}/messages/m2/commands/x`, { action: 'run' })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { extra: 5 })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, {})).status).toBe(404);
+  });
+});
+
+describe("an interactive command card's API", () => {
+  /** A chat whose reply asks the user to run a command, as the orchestrator records it. */
+  function chatWith(part: Partial<Extract<MessagePart, { type: 'interactive' }>> = {}, id = 'conv-i'): Conversation {
+    const conv: Conversation = {
+      id,
+      title: 't',
+      createdAt: 0,
+      updatedAt: 0,
+      agents: [{ id: 'a', name: 'Alice', provider: 'claude', role: '' }],
+      settings: { mode: 'relay', rounds: 1, maxHops: 5, permission: 'read-only', cwd: root },
+      messages: [
+        { id: 'm1', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'go' }], status: 'done' },
+        {
+          id: 'm2',
+          author: { kind: 'agent', agentId: 'a' },
+          createdAt: 2,
+          parts: [{ type: 'interactive', id: 'i1', folder: root, run: 'npm login', configFiles: [], status: 'proposed', ...part }],
+          status: 'done',
+          asked: true,
+        },
+      ],
+      agentState: {},
+      worktrees: {},
+    };
+    store.create(conv);
+    return conv;
+  }
+  const path = (conv: string) => `/api/conversations/${conv}/messages/m2/interactive/i1`;
+
+  it("refuses Start for a card an automation's run proposed, and for another chat's card", async () => {
+    chatWith({ blocked: 'automation' });
+    const res = await send('POST', path('conv-i'), { action: 'start' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("automation's run");
+    chatWith({}, 'conv-other');
+    expect((await send('POST', '/api/conversations/conv-other/messages/m2/interactive/nope', { action: 'start' })).status).toBe(404);
+    expect((await send('POST', '/api/conversations/conv-none/messages/m2/interactive/i1', { action: 'start' })).status).toBe(404);
+  });
+
+  it('refuses typing into a run that ended, sending one twice, and actions it does not know', async () => {
+    chatWith({
+      status: 'started',
+      session: {
+        state: 'exited',
+        exitCode: 0,
+        startedAt: 1,
+        endsAt: 2,
+        inWorkdir: false,
+        output: 'done\n',
+        urls: [],
+        codes: [],
+        helper: 'off',
+      },
+    });
+    expect((await send('POST', path('conv-i'), { action: 'input', text: 'x', hidden: true })).status).toBe(409);
+    expect((await send('POST', path('conv-i'), { action: 'input', text: 5 })).status).toBe(400);
+    expect((await send('POST', path('conv-i'), { action: 'answer', askId: 'q1', text: 'x' })).status).toBe(409);
+    expect((await send('POST', path('conv-i'), { action: 'cancel' })).status).toBe(409);
+    expect((await send('POST', path('conv-i'), { action: 'run' })).status).toBe(400);
+    expect((await send('POST', path('conv-i'), { action: 'send' })).status).toBe(200);
+    expect((await send('POST', path('conv-i'), { action: 'send' })).status).toBe(409);
+    expect((await send('POST', path('conv-i'), { action: 'dismiss' })).status).toBe(409);
+    // Only from this page's origin, as JSON.
+    expect((await send('POST', path('conv-i'), { action: 'start' }, { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await send('POST', path('conv-i'), { action: 'start' }, { 'content-type': 'text/plain' })).status).toBe(415);
   });
 });

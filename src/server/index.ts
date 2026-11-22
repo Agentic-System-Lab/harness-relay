@@ -20,6 +20,7 @@ import { Updates } from './updates';
 import { relayVersion } from './about';
 import { apiPort, DEFAULT_HOST, devWebPort, isDevRun } from './ports';
 import { killAll, runProcess } from './process';
+import { defaultInteractiveDeps } from './interactive';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
@@ -213,6 +214,11 @@ if (process.platform !== 'win32') {
 }
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
+// The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.
+orchestrator.interactiveDeps = {
+  ...defaultInteractiveDeps,
+  askpass: (ask) => gateway.askpassGrant(ask) ?? (gateway.unavailable() === 'no-node' ? 'no-node' : 'off'),
+};
 orchestrator.outbox = outbox;
 orchestrator.reconcileOutbox();
 settings.tools.browserStatus = () => {

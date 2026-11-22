@@ -43,12 +43,26 @@ const DIRECTIVES = {
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
   progress:
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
+  interactive:
+    'end the reply with an <interactive> block: a command for the user to run from its card, which prints a link and a code, asks for a password and prints what it read (`=askpass`: one that asks through the password helper, as `sudo -A` does)',
   mcpserver: 'choose the server for an e2e:mcp call; defaults to the Relay gateway',
   mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
   subagent:
     "hand the look around to a subagent (Explore, on haiku) that lists the working directory and reads its README, the reading taking `=<seconds>` (one by default), and then a subagent of its own that searches; then report that the CLI compacted its context (Claude Code's fake only)",
   steer:
     'wait in the turn, about ten seconds (`=<seconds>` for another time), for a message sent into it (steering), then answer, saying what it heard (Claude Code’s and Codex’s fakes; the others answer at once)',
+};
+
+/**
+ * The commands `e2e:interactive` asks the user to run (shell, run by Harness Relay from the card): a
+ * device sign-in that reads a password from its input and prints it (masked on the card), or one that
+ * asks through the password helper (`$SUDO_ASKPASS`, as `sudo -A` runs it).
+ */
+const INTERACTIVE = {
+  device:
+    '<interactive reason="To sign in to the example service.">printf \'Open https://example.test/device and enter ABCD-1234\\nPassword: \'; IFS= read -r p; printf \'Got %s\\n\' "$p"</interactive>',
+  askpass:
+    '<interactive reason="To unlock the e2e key.">p=$("$SUDO_ASKPASS" \'Passphrase for the e2e key:\'); echo "helper got $p"</interactive>',
 };
 
 function directivesIn(text) {
@@ -321,6 +335,7 @@ function plan(prompt, turn) {
     text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
   }
   if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
+  if (d.interactive) text += `\n\n${INTERACTIVE[d.interactive === 'askpass' ? 'askpass' : 'device']}`;
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   // After its answer, the turn waits for a message sent into it, and answers that too.
   if (d.steer) steps.push({ type: 'steer', wait: slowMs(d.steer) });

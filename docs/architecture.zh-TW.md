@@ -519,6 +519,20 @@ agent 的 CLI 在這段期間會一直等待；每回合的安全逾時（1 天�
 - 核准：如同使用者回答「允許」（仍會取得目錄鎖），part 為 `review: { status: 'approved', reason }`。標記為可能不安全，或審查失敗（錯誤、沒有決定、超過時間；以使用者的語言說明）：part 寫明結果與原因，這筆不再是 `reviewing`，請求如步驟 3 等使用者決定。使用者先回答時審查會停止，同時送到的審查結果不會改變任何事，part 不保留 `review`。它從不新增 `allowRules`。
 - 在自動任務啟動的執行中（`refuseApprovals`），審查核准的動作會放行；被標記、審查失敗或不送審的（推送、更多權限）會被拒絕，卡片的說明寫明是哪一種，agent 收到的則和沒有審查時一樣（`UNATTENDED_REFUSAL`）。agent 的簡報會說明超出「可編輯」的動作會被審查，自動任務的規則在拒絕時也會說明。
 
+## 互動指令
+
+只有使用者能在命令列上完成的一步（會顯示連結或裝置碼的登入、`npm login`、要密碼的提示），agent 會在回覆裡用自成一行的 `<interactive reason="…">gcloud auth login --no-launch-browser</interactive>` 區塊提出（一定要在工作目錄裡執行時加上 `workdir="yes"`，例如 `git push`）。它和其他交給使用者的區塊一起解析（`src/shared/handoffs.ts` 的 `splitHandoffs()`：程式碼裡的不算，無效的照原文留下），由協調器（`takeHandoffs()`）從回覆文字裡取出，變成一個 `interactive` 部分（每則回覆最多兩個），團隊會等待，就像 `[ASK_USER]` 一樣。簡報（`src/server/prompt.ts` 的 `handoffSection()`）會說明什麼時候用它，也說明絕不能用來要密鑰（那是 `<secret>`），也不能用在 agent 自己就能執行的指令。
+
+- **只有使用者能啟動它**，從它的卡片（`POST /api/conversations/:id/messages/:messageId/interactive/:partId`，動作 `start`）；光有區塊不會執行任何東西。自動化執行的回覆所提議的卡片（`run.unattended`：排程或觸發條件啟動了這次執行，而且使用者的訊息都還沒到）會標成 `blocked: 'automation'`，不能啟動：那則回覆是在沒人看著的情況下，根據自動化餵給它的內容寫的，所以要請使用者在聊天裡再要一次。原生 Windows 上會標成 `blocked: 'windows'`（那裡沒有 `/bin/sh`），卡片也會這樣說。
+- **怎麼執行**（`src/server/interactive.ts` 的 `InteractiveRun`）：由 `spawnInteractive()`（`process.ts`）啟動 `/bin/sh -c`，用和檢查指令相同的固定腳本（`exec 2>&1; eval "$RELAY_CHECK_COMMAND"`），指令列放在環境變數裡，以使用者的權限、在所有沙箱之外執行。環境是 `checkEnv()` 的（伺服器的 `PATH`、家目錄、使用者、shell 和語系，沒有別的：沒有 API 金鑰、沒有權杖），但拿掉它的 `CI=1`（很多程式看到它就會跳過提示），並加上 `PYTHONUNBUFFERED=1`，讓提示立刻出現。它在自己的空資料夾裡執行（`data/tmp/interactive-<id>/work`，結束時刪除；伺服器停止時留下的由 `clearRunTmp()` 清掉），使用者選擇時才在工作目錄裡執行：這時卡片會列出那裡程式可能讀取的設定檔（`workdirConfigFiles()`：`.npmrc`、`.env*`、`package.json`、`.git/config`、版本管理工具的檔案等），agent 改得到它們；如果啟動時資料夾裡有卡片沒列出的設定檔，就會拒絕（409）並更新卡片上的清單。它沒有終端機：stdin 和 stdout 都是管線。
+- **它的輸出**保留在記憶體裡（最後 128 KB），以終端機呈現的樣子顯示（`terminalText()`：去掉 ANSI 控制碼，在 `\r` 後重寫的行只顯示最後的版本），這個資料夾的密鑰值（`settings.handoffs.values()`，結束時再讀一次）和使用者隱藏輸入的內容都換成圓點（`maskValues()`），並挑出連結和代碼（`login.ts` 的 `linksAndCodes()`，和 CLI 的登入一樣）。卡片的部分保存遮蔽後的結尾（16,000 個字元），最多每 200 毫秒經由 SSE 更新一次；伺服器停止時還是 `running` 的部分，讀出來會是 `stopped`（`Store` 的建構式）。
+- **使用者輸入的內容**（`input`）照原樣加上換行送到它的 stdin（不會修剪，空行也可以）；看得見的一行會像終端機回顯那樣出現在輸出裡，隱藏的只會加進要遮蔽的內容。
+- **密碼小幫手。**給透過小幫手詢問密碼的程式用：工作階段的資料夾裡會有一個固定的 shell 腳本（`ASKPASS_SCRIPT`），用閘道程式所用的 Node.js 啟動一個固定內容的程式（`src/server/askpassShim.ts` 的 `ASKPASS_SHIM_SOURCE`），並在環境變數裡指定為 `SUDO_ASKPASS`（`sudo -A`）、`SSH_ASKPASS` 加上 `SSH_ASKPASS_REQUIRE=force`（OpenSSH 8.4 以上）和 `GIT_ASKPASS`。它只接受提示文字這一個參數，用只屬於這個工作階段的權杖（`ToolGateway.askpassGrant()`，放在 `data/tmp` 裡這個工作階段資料夾中的檔案，沙箱裡的指令讀不到；每個連線一個提示，工作階段結束就撤銷）經由閘道的 socket 傳給伺服器；卡片會要使用者輸入一行隱藏的內容（`answer`），小幫手把它印出來；使用者拒絕時則以 1 結束。沒有 Node.js 時（桌面版應用程式在登入 shell 的 `PATH` 上找不到的情況）就沒有小幫手，卡片會說明。
+- **它會結束**：自己結束、按**取消**（`cancel`）、到了時間上限（15 分鐘，`INTERACTIVE_LIMITS.timeoutMin`）、它的對話被刪除，或伺服器停止；這時它的程序群組會被終止，它結束時留下還在執行的程序也一樣。同時最多執行四個。
+- **它的輸出只有在使用者按下「把輸出送給團隊」時才會給 agent**（`send`，執行結束後，每次執行一次）：以使用者的訊息貼出（`answerCard()`），內容是它怎麼結束和遮蔽後的輸出（指令列和輸出會再用這個資料夾的值遮蔽一次）。**不執行**（`dismiss`）會告訴團隊沒有執行。AgentsView 只拿到卡片的指令和狀態，不會拿到它的輸出。
+
+登入時存下的資料會放在程式自己存放的地方，通常是使用者的家目錄（`~/.config/gcloud`、`~/.npmrc`），權限低於完整存取的 agent 也讀得到；卡片在啟動前就會說明。需要終端機的程式（全螢幕程式、沒有小幫手而直接讀 `/dev/tty` 的提示）無法在這裡回應。
+
 ## agent 活動
 
 除了回覆文字與工具列，訊息還能顯示 agent 的思考與計畫：`thinking` part（串流顯示；介面中，中間沒有回覆文字、前後相連的思考與工具呼叫會收進同一個摺疊列，串流時看得到最新一行思考）、`plan` part（agent 的待辦清單，原地更新），以及每個工具的 `output`（它回傳內容的最後一段，最多 4,000 個字元，展開工具列時顯示）。思考過程永遠不會轉交給其他 agent。

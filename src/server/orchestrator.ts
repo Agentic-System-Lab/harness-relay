@@ -37,9 +37,10 @@ import type {
   CommandProposal,
   FixedCommand,
   FixedCommandRun,
+  InteractiveSession,
   SecretAsk,
 } from '../shared/types';
-import { HANDOFF_LIMITS } from '../shared/types';
+import { HANDOFF_LIMITS, INTERACTIVE_LIMITS } from '../shared/types';
 import { checkProposal, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
 import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
@@ -87,6 +88,7 @@ import { AutoGrouper } from './grouping';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
 import { defaultFixedCommandDeps, dropPin, pinChanges, pinDiff, runFixedCommand, takePin, type FixedCommandDeps } from './fixedCommands';
+import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, type InteractiveDeps } from './interactive';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -486,6 +488,12 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   const copies = messages.map((m) => {
     const copy = { ...structuredClone(m), id: randomUUID() };
     copy.parts = copy.parts.filter((p) => p.type !== 'outbox' || p.status !== 'pending');
+    // A command the user runs from a card runs for its own conversation: the copy's card says it stopped.
+    for (const p of copy.parts) {
+      if (p.type !== 'interactive' || p.session?.state !== 'running') continue;
+      const { asking: _asking, ...session } = p.session;
+      p.session = { ...session, state: 'stopped' };
+    }
     // A branch is no run of the schedule: its replies carry no goal on.
     delete copy.tracked;
     return copy;
@@ -745,6 +753,9 @@ function takeHandoffBlocks(msg: ChatMessage): HandoffBlock[] {
   return blocks;
 }
 
+/** An interactive command's run from its card, by its conversation and card (a branch copies a card's id). */
+const interactiveKey = (convId: string, partId: string) => `${convId}\u0000${partId}`;
+
 /** The name outbox items of fixed command runs are kept under (no gateway tool has it). */
 export const FIXED_COMMAND_TOOL = 'relay_fixed_command';
 
@@ -858,6 +869,11 @@ export class Orchestrator {
   /** Fixed commands' runs under way, by command id (one at a time each), and the work of those Try it started. */
   private commandRuns = new Map<string, AbortController>();
   private commandWork = new Set<Promise<unknown>>();
+  /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
+  interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
+  /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
+  private interactive = new Map<string, { convId: string; messageId: string; partId: string; run: InteractiveRun }>();
+  private interactiveUpdates = new Map<string, NodeJS.Timeout>();
   /**
    * Steering: per conversation, the messages being sent while the team replies, one after another in the
    * order they were sent (each waits for the one before it to go into running turns or into the queue).
@@ -1002,6 +1018,8 @@ export class Orchestrator {
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
+      // A command the user runs from one of its cards stops with it.
+      this.stopInteractive(convId);
       // A team checks' command running by itself is stopped: its reservation then ends at once.
       this.checking.get(convId)?.abort();
       // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
@@ -1102,7 +1120,7 @@ export class Orchestrator {
    * and the fixed commands it proposes become cards that wait for the user (returns whether there is
    * one); a run of a saved fixed command goes to the outbox, for the user to send.
    */
-  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig): boolean {
+  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig, o: { automation?: boolean } = {}): boolean {
     const blocks = takeHandoffBlocks(msg);
     if (!blocks.length) return false;
     const folder = this.handoffFolder(conv);
@@ -1125,6 +1143,24 @@ export class Orchestrator {
       const { kind: _kind, ...proposal } = b;
       msg.parts.push({ type: 'command', id: randomUUID(), folder, proposal, status: 'proposed' });
       proposed++;
+    }
+    // Commands for the user to run themselves: never started from an automation's run, nor on native Windows.
+    let interactive = 0;
+    const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
+    for (const b of blocks) {
+      if (b.kind !== 'interactive' || interactive >= INTERACTIVE_LIMITS.perReply) continue;
+      msg.parts.push({
+        type: 'interactive',
+        id: randomUUID(),
+        folder,
+        run: b.run,
+        ...(b.reason ? { reason: b.reason } : {}),
+        ...(b.workdir ? { workdir: true } : {}),
+        configFiles: workdirConfigFiles(folder),
+        ...(blocked ? { blocked } : {}),
+        status: 'proposed',
+      });
+      interactive++;
     }
     for (const b of blocks) {
       if (b.kind !== 'command-run') continue;
@@ -1156,11 +1192,11 @@ export class Orchestrator {
       if (!existing)
         msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
     }
-    return asks.length > 0 || proposed > 0;
+    return asks.length > 0 || proposed > 0 || interactive > 0;
   }
 
   /** A secrets or command card of a reply. */
-  private handoffCard<K extends 'secrets' | 'command'>(
+  private handoffCard<K extends 'secrets' | 'command' | 'interactive'>(
     convId: string,
     messageId: string,
     partId: string,
@@ -1379,6 +1415,154 @@ export class Orchestrator {
       }
       if (changed) this.saveCard(conv, msg);
     }
+  }
+
+  /**
+   * Start, on an interactive command's card (docs/architecture.md, "Interactive commands"): the user
+   * runs the command themselves, with their rights, outside the agents' sandboxes; its card follows it.
+   * Never for a card an automation's run proposed, nor on native Windows. In an empty folder of its own,
+   * or in the working directory (`workdir`), whose configuration files the card listed (`seen`): refused
+   * when others appeared since, the card then listing them. Again once a run of it ended.
+   */
+  async startInteractive(
+    convId: string,
+    messageId: string,
+    partId: string,
+    o: { workdir?: boolean; seen?: readonly string[] } = {},
+  ): Promise<InteractiveSession> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    if (part.status === 'dismissed') throw new HttpError(409, t().handoffs.cardDecided);
+    const key = interactiveKey(convId, part.id);
+    if (this.interactive.has(key)) throw new HttpError(409, t().handoffs.interactiveRunning);
+    if (part.blocked === 'automation') throw new HttpError(409, t().handoffs.interactiveAutomation);
+    if (part.blocked === 'windows' || this.interactiveDeps.platform === 'win32') throw new HttpError(409, t().handoffs.interactiveWindows);
+    if (this.interactive.size >= INTERACTIVE_LIMITS.running)
+      throw new HttpError(429, t().handoffs.interactiveTooMany(INTERACTIVE_LIMITS.running));
+    let workdir: string | undefined;
+    if (o.workdir) {
+      if (!existsSync(part.folder)) throw new HttpError(409, t().checksCommandNoFolder(part.folder));
+      const now = workdirConfigFiles(part.folder);
+      if (now.some((f) => !(o.seen ?? []).includes(f))) {
+        part.configFiles = now;
+        this.saveCard(conv, msg);
+        throw new HttpError(409, t().handoffs.interactiveConfigChanged);
+      }
+      workdir = part.folder;
+    }
+    const masks = Object.values(this.settings.handoffs.values(part.folder));
+    const run: InteractiveRun = new InteractiveRun(
+      {
+        run: part.run,
+        ...(workdir ? { workdir } : {}),
+        masks,
+        onChange: (urgent) => this.interactiveChanged(key, urgent),
+        onEnd: () => {
+          // Values saved for the folder meanwhile are masked in what is kept, too.
+          try {
+            run.addMasks(Object.values(this.settings.handoffs.values(part.folder)));
+          } catch {
+            /* the credential store cannot be read now: the values it had at the start stay masked */
+          }
+          this.interactiveChanged(key, true);
+          this.interactive.delete(key);
+        },
+      },
+      { windows: t().handoffs.interactiveWindows, notStarted: (why) => t().handoffs.interactiveNotStarted(why) },
+      this.interactiveDeps,
+    );
+    this.interactive.set(key, { convId, messageId, partId: part.id, run });
+    part.status = 'started';
+    part.session = run.view();
+    this.saveCard(conv, msg);
+    run.start();
+    return run.view();
+  }
+
+  /** An interactive command's card changed: its output (sent a moment later, with what follows), or its state at once. */
+  private interactiveChanged(key: string, urgent: boolean): void {
+    const entry = this.interactive.get(key);
+    if (!entry) return;
+    const pending = this.interactiveUpdates.get(key);
+    if (pending && !urgent) return;
+    clearTimeout(pending);
+    this.interactiveUpdates.delete(key);
+    const update = () => {
+      this.interactiveUpdates.delete(key);
+      const conv = this.store.get(entry.convId);
+      const msg = conv?.messages.find((m) => m.id === entry.messageId);
+      const part = msg?.parts.find(
+        (p): p is Extract<MessagePart, { type: 'interactive' }> => p.type === 'interactive' && p.id === entry.partId,
+      );
+      if (!conv || !msg || !part) return;
+      part.session = { ...entry.run.view(), ...(part.session?.sent ? { sent: true } : {}) };
+      try {
+        this.store.saveMessage(conv.id, msg, !entry.run.running);
+      } catch (err) {
+        // The database closing as the server stops: the next start says it stopped (`Store`).
+        console.warn('[orchestrator] could not save an interactive command card:', (err as Error).message);
+      }
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    };
+    if (urgent) update();
+    else this.interactiveUpdates.set(key, setTimeout(update, 200));
+  }
+
+  /** The running session of an interactive command's card in this conversation, or 409 when it does not run. */
+  private interactiveRun(convId: string, messageId: string, partId: string): InteractiveRun {
+    this.handoffCard(convId, messageId, partId, 'interactive');
+    const entry = this.interactive.get(interactiveKey(convId, partId));
+    if (!entry || !entry.run.running) throw new HttpError(409, t().handoffs.interactiveNotRunning);
+    return entry.run;
+  }
+
+  /** A line the user typed into a running interactive command: sent as it is; masked wherever it shows when `hidden`. */
+  interactiveInput(convId: string, messageId: string, partId: string, text: string, hidden: boolean): void {
+    if (Buffer.byteLength(text) > INTERACTIVE_LIMITS.input || /[\u0000\r\n]/.test(text)) throw new HttpError(400, t().invalidField('text'));
+    if (!this.interactiveRun(convId, messageId, partId).write(text, hidden)) throw new HttpError(409, t().handoffs.interactiveNotRunning);
+  }
+
+  /** The user's answer to a running interactive command's password helper (`line`), or their refusal (none). */
+  interactiveAnswer(convId: string, messageId: string, partId: string, askId: string, line: string | undefined): void {
+    if (line !== undefined && (Buffer.byteLength(line) > INTERACTIVE_LIMITS.input || /[\u0000\r\n]/.test(line))) {
+      throw new HttpError(400, t().invalidField('text'));
+    }
+    if (!this.interactiveRun(convId, messageId, partId).answer(askId, line)) throw new HttpError(409, t().handoffs.interactiveNoQuestion);
+  }
+
+  /** Cancel, on a running interactive command's card. */
+  cancelInteractive(convId: string, messageId: string, partId: string): void {
+    this.interactiveRun(convId, messageId, partId).stop('cancelled');
+  }
+
+  /** Stops the interactive commands running from a conversation's cards (it is being deleted), or all of them (the server stops). */
+  stopInteractive(convId?: string): void {
+    for (const entry of [...this.interactive.values()]) if (!convId || entry.convId === convId) entry.run.stop('stopped');
+  }
+
+  /**
+   * Send to the team, on an interactive command's card once its run ended: how it ended and its output,
+   * masked (the folder's values again, for those saved since), posted as the user's answer. Once a run.
+   */
+  async sendInteractive(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    const session = part.session;
+    if (!session || this.interactive.has(interactiveKey(convId, part.id)) || session.state === 'running')
+      throw new HttpError(409, t().handoffs.interactiveNotEnded);
+    if (session.sent) throw new HttpError(409, t().handoffs.cardDecided);
+    const values = Object.values(this.settings.handoffs.values(part.folder));
+    const output = maskValues(session.output, values);
+    part.session = { ...session, output, sent: true };
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.interactiveAnswer(maskValues(part.run, values), { ...session, output }));
+  }
+
+  /** Don't run, on a proposed interactive command's card: the team is told. */
+  async dismissInteractive(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    part.status = 'dismissed';
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.interactiveDismissed(part.run));
   }
 
   /** What Send does for an outbox item of a fixed command's run: that run, once, with the item's input on its standard input. */
@@ -2733,6 +2917,7 @@ export class Orchestrator {
     for (const set of this.revisions.values()) for (const r of set) r.abort.abort();
     this.grouper.stopAll();
     this.memory.stopAll();
+    this.stopInteractive();
   }
 
   emitConversation(conv: Conversation): void {
@@ -5670,7 +5855,7 @@ export class Orchestrator {
       // <progress> block end it.
       this.takeMemory(conv, msg, agent);
       // Secrets asked for and fixed commands proposed wait for the user, as a question does.
-      const handedOff = this.takeHandoffs(conv, msg, agent);
+      const handedOff = this.takeHandoffs(conv, msg, agent, { automation: Boolean(run.unattended) });
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
       const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
@@ -5689,7 +5874,8 @@ export class Orchestrator {
               p.type === 'outbox' ||
               p.type === 'memory' ||
               p.type === 'secrets' ||
-              p.type === 'command',
+              p.type === 'command' ||
+              p.type === 'interactive',
           ));
       msg.status = 'done';
       msg.meta = {

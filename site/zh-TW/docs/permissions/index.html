@@ -239,6 +239,7 @@
           <li><a href="#approvals">核准卡片</a></li>
           <li><a href="#sandboxes">沙箱做了什麼</a></li>
           <li><a href="#outbox">待送出匣</a></li>
+          <li><a href="#your-commands">你自己執行的指令</a></li>
           <li>
             <details>
               <summary>檢視與套用修改</summary>
@@ -378,6 +379,32 @@
           <p>
             在你決定之前，這個對話會標為<b>等你核准</b>，你也會收到通知，和核准一樣；agent 不會停下來等，所以你可以晚點再送出。<a href="../tools/">工具：瀏覽器、郵件與行事曆</a>
           </p>
+        </section>
+
+        <section id="your-commands" aria-labelledby="your-commands-title">
+          <h2 id="your-commands-title">你自己執行的指令</h2>
+          <p>
+            有些步驟只有你能在命令列上完成：會顯示連結或代碼的登入（<code>gcloud auth login --no-launch-browser</code>、<code>npm login</code>），或要你輸入密碼的提示（<code>sudo -A</code>）。agent
+            沒辦法替它們執行的指令輸入內容，所以 agent 會請你自己執行：它的回覆會出現一張<b>請你自己執行一個指令</b>卡片，列出指令和原因，團隊會等你。
+          </p>
+          <ul>
+            <li>
+              <b>啟動</b>會用你在這台電腦上的權限執行它，不在任何 agent 的沙箱裡，預設在它自己的空資料夾裡；你也可以選擇在工作目錄裡執行（這時卡片會列出程式可能讀取的設定檔，agent 改得到它們）。你按下之前什麼都不會執行，自動化執行時提議的卡片也不能啟動。
+            </li>
+            <li>
+              執行時，卡片會顯示它的輸出，並挑出要開的網頁和要輸入的代碼。輸入一行後按 Enter 送出；勾選<b>隱藏我輸入的內容</b>時，卡片上不會顯示，程式把它印出來時也會遮蔽。<code>sudo -A</code>、ssh 和 git
+              會透過 Harness Relay 的密碼小幫手在卡片上詢問。<b>取消執行</b>會停止它，執行超過 15 分鐘也會自動停止。
+            </li>
+            <li><b>把輸出送給團隊</b>會把它怎麼結束和遮蔽後的輸出當成你的回答貼出。在那之前 agent 完全看不到它。</li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                登入時存下的資料會放在程式自己存放的地方，通常是你的家目錄，權限低於完整存取的 agent 也讀得到。它沒有終端機，所以全螢幕的程式無法回應；原生 Windows 上也還不能執行。
+              </p>
+            </div>
+          </div>
         </section>
 
         <section id="changes" aria-labelledby="changes-title">
