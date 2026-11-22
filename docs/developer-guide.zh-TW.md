@@ -33,6 +33,7 @@ src/
   shared/tracking.ts       追蹤的目標：回覆的 <progress> 區塊、保留的紀錄、每次重試前的等待（伺服器與介面共用）
   shared/review.ts         首席 agent 審閱：下一次審閱從哪裡讀起、在回覆中找出審閱引用的文字（伺服器與介面共用）、每則回覆的標記
   shared/notify.ts         通知：對話裡哪些變化要告訴使用者（回覆完、需要你），以及通知文字的細節（伺服器與介面共用）
+  shared/diff.ts           伺服器截斷 diff 時加在最後的說明（伺服器寫入，diff 對話框辨認）
   shared/cliVersions.ts    Harness Relay 最近一次以哪個版本驗證過各個 agent CLI：唯一寫下的地方，供設定裡安裝開源 agent、使用指南與 scripts/cli-check.ts 使用
   server/
     index.ts               組裝元件、靜態檔案、啟動與關閉
@@ -134,6 +135,7 @@ src/
     alerts.ts              agent 回覆完或需要使用者時的通知與提示音（設定 → 通知與提示音）：瀏覽器的選擇、它能做什麼、頁面在各種情況下怎麼做、每則通知只由一個分頁處理、與選擇同步的推播訂閱、提示音
     inbox.ts               頁面上的通知收件匣：鈴鐺上的數字、畫面上的對話何時把它的通知標為已讀、每一則的文字與標記
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿與它編輯的團隊、訊息何時跟著新內容捲動，以及何時顯示回到最後的按鈕
+    diff.ts                diff 對話框的檔案：把 git 的 diff 拆成每個檔案一個區塊（路徑不論 git 怎麼寫、狀態與行數）、改變類型的檔案視為一個、伺服器在哪裡截斷、每一行的顏色
     review.ts              把首席 agent 審閱引用的文字標在回覆中（CSS Custom Highlight API），以及在回覆與審閱卡片之間跳轉
     sidebar.ts             側邊欄的純邏輯：各群組的對話、每串分支排成樹狀、還沒確認的移動、釘選的對話與還沒確認的釘選、收合群組或分支的狀態
     swipe.ts               手機與平板上抽屜側邊欄的滑動（向右打開、向左收起，快速輕滑也可以）：哪些觸控可以滑動、怎樣的移動才算滑動、可以左右捲動的區塊何時自己處理（由 useSidebarDrawer 交給它觸控）
@@ -912,6 +914,7 @@ npx vitest test/store.test.ts
 - `test/highlight-web.test.ts`：檔案瀏覽的語法上色（`src/web/highlight.ts`）：highlight.js 的 class、用別名指定語言、沒有的語言回傳 null、文字會跳脫，讓檔案無法在頁面裡放入標記，以及從樹狀結構只保留 span 與它的 class。
 - `test/chunks-web.test.ts`：載入不了的頁面部分（`src/web/chunks.ts`）：頁面為它重新載入一次，之後一分鐘內不再重載；分頁無法記下時、或時間不可靠時也不重載；頁面重新載入時那部分會等著，否則以保留原因的 `PartLoadError` 失敗。
 - `test/files-web.test.ts`：檔案瀏覽的路徑導覽列、篩選、程式語言與行數。也測試把資料夾下載成 ZIP 檔時的選擇：全部、只包沒被 git 忽略的檔案，或太大。
+- `test/diff-web.test.ts`：diff 對話框的區塊（`src/web/diff.ts`）：把 diff 拆成各個檔案，每個檔案的狀態（新增、修改、刪除、只改權限）、增刪行數（開頭像 `---` 或 `+++` 的 hunk 行也算進去，二進位檔沒有行數）與它自己的行；路徑含空格、被 git 加上引號（跳脫字元與 UTF-8 八進位）、前面有資料夾名稱、沒有 git 的前綴，或從 `---`/`+++` 行取得；emoji 保持完整；改變類型的檔案（git 寫成刪除再新增）算成一個檔案；diff 被截斷的說明（`src/shared/diff.ts`，伺服器寫的文字）另外保留，並標示被截斷的檔案，後面接著另一個資料夾的 diff 時也一樣；每一行的顏色。也在真的暫存 repository 上確認：伺服器的 diff（`diffText()`，也含資料夾名稱）裡找到的檔案，就是變更卡片列出的那些（`diffFiles()`），包括 git 會加引號的檔名、只改權限與改變類型的檔案，使用者自己設定了 git 前綴（`diff.noprefix`、`diff.srcPrefix`/`diff.dstPrefix`、`diff.mnemonicPrefix`）時也一樣。
 - `test/tools-web.test.ts`：團隊編輯器的工具選擇：項目、各 CLI 的記憶、依 CLI 的預設，以及只記錄例外；還有成員的「工具」依 CLI 怎麼說它自己的設定，工具庫是空的、沒有給它的 CLI 的項目（只有給其他 CLI 的記憶）時，以及項目上方的說明（有登入的 CLI 也會載入自己的設定，從不說「照常」；開源 agent 不會讀家目錄裡它自己的設定資料夾，文字也從不說它的 skill 不會載入；兩者都說設定頁列出的是 CLI 在預設工作目錄中會載入的）。 伺服器能提供時列出 Harness Relay 的工具組別，每個 CLI 都有（開源 agent 的在完全存取時才適用）。
 - `test/cwds-web.test.ts`：工作目錄輸入框的清單：剛打開或輸入框清空時列出全部、只留下包含輸入的每個詞的路徑（不分大小寫、保持原本順序）、名稱含空格的資料夾（不論輸入幾個空格）、把 `~` 當成家目錄，以及 Windows 路徑不論輸入哪種分隔符號都能比對、標示時依路徑原本的寫法。也測試清單如何回應：↑ ↓ 在清單中循環、重新取得清單時反白仍停在同一個資料夾、清單沒有顯示任何項目時 ↑ ↓ 會列出全部、Enter 只在有反白的資料夾時作用、Escape 只在清單顯示時作用（否則交給對話框），以及箭頭按鈕。它的標籤：每個資料夾只加一次（結尾多一個分隔符號不算另一個）、Enter 加入輸入的內容、在空白輸入框按 Backspace 移除最後一個、選擇資料夾視窗開在輸入的路徑或最後一個資料夾，以及從清單得到對話的 `cwd` 與 `extraCwds`。不超過八個。
 - `test/folder-picker.test.ts`：選擇資料夾的視窗：每個系統用哪一個（AppleScript、Windows PowerShell、圖形介面中的 zenity 或 kdialog，經由 ssh 時沒有），它的指令（AppleScript 的標題與資料夾在固定的腳本之後當作參數，PowerShell 是固定的腳本、標題與資料夾放在環境變數，zenity 開在資料夾裡面），它的回答（去掉 AppleScript 結尾的 `/`，根目錄除外；名稱結尾的空格；BOM；取消、逾時或被訊號停止時為 `null`；失敗時附上程式的訊息），開在哪個資料夾（最近一個存在的），以及執行時帶著請求的 signal 與時間上限。一次選多個資料夾（AppleScript 的 `with multiple selections allowed`、zenity 的 `--multiple`），每行一個，以及不用 `activate`。沒有 UTF-8 字元集時給 zenity 與 kdialog 一個（沒有的話 zenity 會拒絕中文標題），以及以完整路徑啟動 Windows PowerShell。
@@ -977,8 +980,8 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/chat.spec.ts` — 新對話：首席 agent 的團隊卡片、確認後的回答；不詢問直接使用團隊；所有 CLI 組成的團隊依序回答（有登入的七個，以及五個開源 agent；CLI 比首席 agent 為新問題組的團隊上限五位還多的那一半，會分成人數差不多的幾個團隊，各在自己的對話裡回答，所以有登入的七個分成四人與三人的團隊）；追問時另組團隊。
 - `e2e/specs/activity.spec.ts` — 各 CLI 的思考、工具呼叫（它自己列出目錄的工具，含輸出）與待辦清單（Cline 與 Pi 沒有）；Markdown 回答（標題、清單、表格、程式碼）。
 - `e2e/specs/approvals.spec.ts` — 各 CLI 執行指令前的詢問（Pi 與 Copilot 在編輯模式下，針對 `npm publish`）：允許（會執行）、附註後拒絕（附註顯示在卡片上；轉交給 Claude Code、Grok、OpenCode、Goose 與 Pi，Codex、Cursor、Muse Code、Cline 與 OpenHands 則丟掉它，Antigravity 與 Copilot 結束它們的回合）；「一律允許」讓下一次同樣的請求自動通過；請求等待時停止；各 CLI 在完整權限下不詢問就執行指令並寫到任何地方；自動拒絕的對話。
-- `e2e/specs/files.spec.ts` — 編輯模式：寫入檔案、`git init`、變更卡片與這一回合的差異；各 CLI 在唯讀對話中都不寫入任何檔案（Claude Code 與 Pi 沒有檔案工具，Cursor 被它自己的規則拒絕，其他的詢問後被拒絕），以及自動拒絕時 Grok 顯示的原因；各 CLI 的回合各自記下變更，分成兩個團隊；平行模式的 worktree 與套用其中一份結果；檔案瀏覽器與檔案預覽；把資料夾下載成 ZIP（它的檔案，沒有 `.git`），以及太大的資料夾改為提供不含 git 忽略的檔案。
-- `e2e/specs/folders.spec.ts` — 編輯模式下，自動拒絕時對話沒有的資料夾各 CLI 都碰不到（開源 agent 的寫入由 Harness Relay 自己的沙箱拒絕，Copilot 的由它自己的沙箱不詢問就拒絕），而使用者允許後 Claude Code、Codex、Cursor 與 Antigravity 能寫到那裡；多個工作目錄：在輸入框中加入與移除資料夾、各 CLI 在每個資料夾寫檔且變更卡片依資料夾列出（Windows 上的 Grok 只從簡報得知它們，Cursor 寫入第二個前會詢問）、檔案瀏覽器的資料夾、平行模式中每個資料夾的 worktree 一起套用，以及設定中的預設工作目錄。在 Linux 上測試選擇資料夾視窗（假的 zenity）：在視窗中選的資料夾加進輸入框、對話在這些資料夾中開始、視窗開在最後一個資料夾裡並允許多選，以及在沒有 UTF-8 locale 的伺服器上用中文時，視窗標題是中文並帶 `LC_CTYPE=C.UTF-8`，按取消則不加入任何資料夾。
+- `e2e/specs/files.spec.ts` — 編輯模式：寫入檔案、`git init`、變更卡片與這一回合的差異（檔案的區塊預設收合，可展開再收合）；各 CLI 在唯讀對話中都不寫入任何檔案（Claude Code 與 Pi 沒有檔案工具，Cursor 被它自己的規則拒絕，其他的詢問後被拒絕），以及自動拒絕時 Grok 顯示的原因；各 CLI 的回合各自記下變更，分成兩個團隊；平行模式的 worktree 與套用其中一份結果；檔案瀏覽器與檔案預覽；把資料夾下載成 ZIP（它的檔案，沒有 `.git`），以及太大的資料夾改為提供不含 git 忽略的檔案。
+- `e2e/specs/folders.spec.ts` — 編輯模式下，自動拒絕時對話沒有的資料夾各 CLI 都碰不到（開源 agent 的寫入由 Harness Relay 自己的沙箱拒絕，Copilot 的由它自己的沙箱不詢問就拒絕），而使用者允許後 Claude Code、Codex、Cursor 與 Antigravity 能寫到那裡；多個工作目錄：在輸入框中加入與移除資料夾、各 CLI 在每個資料夾寫檔且變更卡片依資料夾列出、diff 每個檔案一個收合的區塊（可一次全部展開與收合）（Windows 上的 Grok 只從簡報得知它們，Cursor 寫入第二個前會詢問）、檔案瀏覽器的資料夾、平行模式中每個資料夾的 worktree 一起套用，以及設定中的預設工作目錄。在 Linux 上測試選擇資料夾視窗（假的 zenity）：在視窗中選的資料夾加進輸入框、對話在這些資料夾中開始、視窗開在最後一個資料夾裡並允許多選，以及在沒有 UTF-8 locale 的伺服器上用中文時，視窗標題是中文並帶 `LC_CTYPE=C.UTF-8`，按取消則不加入任何資料夾。
 - `e2e/specs/turns.spec.ts` — 向使用者提問並取得回答、略過問題、接力交棒、只有被 @ 的成員回答、之後的回合 PASS、各 CLI 的回答被停止、它的錯誤（結束程式與協定之內的錯誤）與重試、下一回合接續自己的 session、CLI 遺失 session 的成員帶著到目前為止的對話重新開始、回答途中送出的訊息交給下一位成員。
 - `e2e/specs/scroll.spec.ts` — 捲動對話：往上捲之後，訊息框上方中間的箭頭（與它置中對齊、蓋在訊息上、沒有東西蓋住它）用點擊（訊息框保有焦點與文字，或維持沒有焦點）、Enter（焦點接著移到訊息框）把對話帶回最後，減少動態效果時立刻到達，回到最後就消失；慢慢串流的長回覆進行中，往上捲的讀者停在原處並看到箭頭，按下去就回到最後並跟著回覆的其餘部分；箭頭在等待區的訊息上方，@ 成員清單打開時隱藏。
 - `e2e/specs/history.spec.ts` — 編輯訊息後重新送出（取代它之後的內容）、對已完成的回答重試、從某則回答分支出新對話。

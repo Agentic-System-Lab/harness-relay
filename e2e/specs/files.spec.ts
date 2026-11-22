@@ -57,7 +57,20 @@ test.describe('files and changes', () => {
     await expect(changes.locator('.changes-files')).toContainText('notes/plan.md');
     await changes.getByRole('button', { name: "View this turn's diff" }).click();
     const diff = page.getByRole('dialog', { name: "@Claude's changes this turn" });
-    await expect(diff).toContainText('Written by Claude (Claude Code).');
+    // A section for each file, folded: its status, path and counts, its lines only once it is opened.
+    await expect(diff.locator('.diff-files-head')).toContainText('Changed 1 file');
+    const file = diff.getByRole('button', { name: /notes\/plan\.md/ });
+    await expect(file).toHaveAttribute('aria-expanded', 'false');
+    await expect(file).toContainText('A');
+    await expect(file).toContainText('+1');
+    await expect(diff).not.toContainText('Written by Claude (Claude Code).');
+    // One file: nothing to open all at once.
+    await expect(diff.getByRole('button', { name: 'Expand all' })).toHaveCount(0);
+    await file.click();
+    await expect(file).toHaveAttribute('aria-expanded', 'true');
+    await expect(diff.locator('.d-add')).toHaveText(['+Written by Claude (Claude Code).']);
+    await file.click();
+    await expect(diff.locator('.diff-view')).toHaveCount(0);
     await diff.getByRole('button', { name: 'Close' }).click();
     await expect(diff).toBeHidden();
   });
