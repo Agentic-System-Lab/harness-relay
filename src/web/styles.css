@@ -8707,8 +8707,9 @@ summary + .checks-editor-body {
   transform: translateX(calc(13px * -3 / 24)) rotate(90deg);
 }
 
-/* What a CLI loads by itself (Settings, in each CLI's card) */
-.native-setup > summary .badge {
+/* What a CLI loads by itself, and its subagents and workflows (Settings, in each CLI's card) */
+.native-setup > summary .badge,
+.cli-features > summary .badge {
   margin-left: 8px;
   vertical-align: 1px;
 }
