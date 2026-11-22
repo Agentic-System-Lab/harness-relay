@@ -86,7 +86,7 @@ import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
-import { dropPin, pinChanges, pinDiff, runFixedCommand, takePin } from './fixedCommands';
+import { defaultFixedCommandDeps, dropPin, pinChanges, pinDiff, runFixedCommand, takePin, type FixedCommandDeps } from './fixedCommands';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
@@ -849,6 +849,8 @@ export class Orchestrator {
   clock: () => number = Date.now;
   /** How team checks' commands are run (swapped in tests). */
   checkCommandDeps: CheckCommandDeps = defaultCheckCommandDeps;
+  /** How fixed commands run (swapped in tests). */
+  fixedCommandDeps: FixedCommandDeps = defaultFixedCommandDeps;
   /** Conversations whose team checks' commands run by themselves (Check again, Try it): Stop stops them. */
   private checking = new Map<string, AbortController>();
   /** That work, until it has finished its clean-up (`settled()` waits for it). */
@@ -1151,7 +1153,8 @@ export class Orchestrator {
         // What the card showed, pinned: a command saved again with another command line is not run for it.
         { commandId: cmd.id, run: cmd.run, input: b.input },
       );
-      if (!existing) msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
+      if (!existing)
+        msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
     }
     return asks.length > 0 || proposed > 0;
   }
@@ -1331,14 +1334,19 @@ export class Orchestrator {
         return run;
       }
       record({ at: Date.now(), source, status: 'running' });
-      const { run, written } = await runFixedCommand(cmd, source, {
-        values: store.values(cmd.folder),
-        ...(o.extra !== undefined ? { extra: o.extra } : {}),
-        ...(o.stdin !== undefined ? { stdin: o.stdin } : {}),
-        protectedPaths: protectedReads(),
-        privateRoots: privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
-        signal: abort.signal,
-      });
+      const { run, written } = await runFixedCommand(
+        cmd,
+        source,
+        {
+          values: store.values(cmd.folder),
+          ...(o.extra !== undefined ? { extra: o.extra } : {}),
+          ...(o.stdin !== undefined ? { stdin: o.stdin } : {}),
+          protectedPaths: protectedReads(),
+          privateRoots: privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
+          signal: abort.signal,
+        },
+        this.fixedCommandDeps,
+      );
       if (Object.keys(written).length) {
         try {
           store.setSecrets(cmd.folder, written);
