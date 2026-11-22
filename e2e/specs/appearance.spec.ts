@@ -86,7 +86,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 11');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 12');
     await expect(update.locator('.tour-art')).toHaveCount(0);
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
@@ -103,7 +103,7 @@ test.describe('the guided tour', () => {
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 11');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 12');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
