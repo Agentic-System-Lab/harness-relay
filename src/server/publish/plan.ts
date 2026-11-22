@@ -5,6 +5,7 @@ import { t } from '../i18n';
 import { COMPOSE_NAMES, type PreviewService } from '../previewCompose';
 import { previewPlan, shownCommand } from '../previewContainer';
 import { PREVIEW_NODE_MAJOR } from '../previewRuntime';
+import { checkInitScript } from './initdb';
 import type { NeonDatabase } from './neon';
 
 /** What a publish makes of a preview: Render's service, and the databases it needs. */
@@ -26,8 +27,6 @@ export interface PublishSpec {
 
 /** A Neon database for a compose file's PostgreSQL service: what the app's variables say of it now. */
 export interface DatabaseSpec extends PublishDatabasePlan {
-  /** The image its init scripts run with (`psql`), the compose file's own. */
-  image?: string;
   /** The compose file's values that stand for it, replaced by Neon's (`databaseEnv`). */
   composeUser?: string;
   composePassword?: string;
@@ -133,6 +132,8 @@ function composeSpec(files: ReadonlyMap<string, Buffer>, recipe: string): Publis
       const user = s.environment.POSTGRES_USER || 'postgres';
       const db = s.environment.POSTGRES_DB || user;
       const { scripts, skipped } = initScripts(s, files);
+      // Refused before anything is made: what psql would let run here.
+      for (const script of scripts) checkInitScript(script.name, script.sql);
       return {
         service: s.name,
         database: neonName(db) ?? 'neondb',
@@ -140,7 +141,6 @@ function composeSpec(files: ReadonlyMap<string, Buffer>, recipe: string): Publis
         ...(pgVersion(s.image!) ? { pgVersion: pgVersion(s.image!) } : {}),
         initScripts: scripts.map((x) => x.name),
         skippedScripts: skipped,
-        image: s.image,
         composeUser: user,
         composePassword: s.environment.POSTGRES_PASSWORD || undefined,
         composeDatabase: db,

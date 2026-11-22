@@ -26,14 +26,16 @@ export async function hostJson(
   host: string,
   url: URL,
   key: string,
-  init: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; timeoutMs?: number } = {},
+  init: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   let res: Response;
   try {
     res = await fetcher(url, {
       method: init.method ?? 'GET',
       redirect: 'error',
-      signal: AbortSignal.timeout(init.timeoutMs ?? 30_000),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(init.timeoutMs ?? 30_000)])
+        : AbortSignal.timeout(init.timeoutMs ?? 30_000),
       headers: {
         Authorization: 'Bearer ' + key,
         Accept: 'application/json',
@@ -41,7 +43,9 @@ export async function hostJson(
       },
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     });
-  } catch {
+  } catch (err) {
+    init.signal?.throwIfAborted();
+    void err;
     throw new HttpError(502, t().publish.unreachable(host));
   }
   let text: string;

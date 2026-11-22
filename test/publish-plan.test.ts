@@ -133,7 +133,7 @@ describe('what each kind of preview publishes as on Render', () => {
     ]);
     expect(spec.databases).toHaveLength(1);
     const [db] = spec.databases;
-    expect(db).toMatchObject({ service: 'db', database: 'todo', role: 'todo', pgVersion: 16, image: 'postgres:16' });
+    expect(db).toMatchObject({ service: 'db', database: 'todo', role: 'todo', pgVersion: 16 });
     expect(db!.initScripts).toEqual(['db/seed/02-data.sql', 'db/init.sql']);
     expect(db!.skippedScripts).toEqual(['db/seed/01-setup.sh']);
     expect(db!.scripts.map((s) => s.sql.toString())).toEqual(['INSERT INTO todos VALUES (1);', 'CREATE TABLE todos (id int);']);

@@ -165,6 +165,23 @@ export function PublishCard() {
     api.publishSettings().then(setView, (e: Error) => setNote({ text: e.message, error: true }));
   }, []);
 
+  // While an app publishes, its row follows it until it is live or failed.
+  const publishing = Boolean(view?.apps.some((a) => a.state === 'publishing'));
+  useEffect(() => {
+    if (!publishing) return;
+    let gone = false;
+    const timer = setTimeout(() => {
+      api.publishSettings().then(
+        (next) => !gone && setView(next),
+        () => {},
+      );
+    }, 5000);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [publishing, view]);
+
   const apply = async (call: () => Promise<PublishSettingsView>): Promise<boolean> => {
     setNote({ text: '' });
     try {

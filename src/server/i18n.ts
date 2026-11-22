@@ -68,7 +68,11 @@ const zhTW = {
     github: (detail: string) => `GitHub 沒有完成這個請求：${detail || '沒有說明'}`,
     repoExists: (name: string) => `你的 GitHub 帳號已經有名為「${name}」的儲存庫。請換一個名稱。`,
     push: (detail: string) => `無法把檔案推送到 GitHub：${detail || '沒有說明'}`,
-    initImage: 'compose 檔裡 PostgreSQL 的映像名稱無法使用。',
+    otherWorkspace: (name: string) =>
+      `「${name}」發布在另一個 Render 工作區，目前的金鑰碰不到它。請改用能存取那個工作區的金鑰，再更新或取消發布。`,
+    databasesChanged: '這個應用程式的資料庫和上次發布時不同（例如 compose 檔多了 PostgreSQL 服務）。請先取消發布，再重新發布。',
+    initMeta: (name: string, command: string) =>
+      `${name} 用了 psql 的 ${command} 指令：它可能在這台電腦上執行程式、讀寫檔案或連到別處，所以不會執行。只能用 SQL，以及 \\echo、\\set、\\unset。`,
     initFailed: (name: string, detail: string) => `在 Neon 上執行 ${name} 失敗：${detail || '沒有說明'}`,
     storage: '無法存取這台電腦的憑證儲存區，金鑰無法保存。',
     interrupted: 'Harness Relay 在發布途中停止了。請再發布一次。',
@@ -1245,7 +1249,12 @@ const en: ServerMessages = {
     github: (detail: string) => `GitHub did not complete the request: ${detail || 'no details'}`,
     repoExists: (name: string) => `Your GitHub account already has a repository named "${name}". Choose another name.`,
     push: (detail: string) => `The files could not be pushed to GitHub: ${detail || 'no details'}`,
-    initImage: "The compose file's PostgreSQL image name cannot be used.",
+    otherWorkspace: (name: string) =>
+      `"${name}" was published in another Render workspace, which the current key does not reach. Use a key for that workspace to update or unpublish it.`,
+    databasesChanged:
+      "This app's databases differ from its last publish (its compose file has another PostgreSQL service, say). Unpublish it, then publish it again.",
+    initMeta: (name: string, command: string) =>
+      `${name} uses psql's ${command} command, which could run a program, read or write a file on this computer or connect elsewhere, so it is not run. Only SQL, \\echo, \\set and \\unset are.`,
     initFailed: (name: string, detail: string) => `Running ${name} on Neon failed: ${detail || 'no details'}`,
     storage: 'The credential store on this computer is unavailable, so the key cannot be kept.',
     interrupted: 'Harness Relay stopped during the publish. Publish again.',

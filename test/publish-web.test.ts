@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { PublishPlan } from '../src/shared/types';
-import { canPublish, databaseLines, initialRows, publishRequest, rowsValid, stillPublishing } from '../src/web/publish';
+import {
+  canPublish,
+  configurable,
+  databaseLines,
+  databaseTicked,
+  initialRows,
+  publishRequest,
+  renamable,
+  rowsValid,
+  stillPublishing,
+} from '../src/web/publish';
 
 const plan = (over: Partial<PublishPlan> = {}): PublishPlan => ({
   kind: 'compose',
@@ -42,9 +52,32 @@ describe("the publish dialog's logic", () => {
     });
   });
 
-  it('sends an update without a name or variables (Render keeps its own), and the checkbox only where it applies', () => {
-    const existing = plan({ existing: { id: 'a' } as PublishPlan['existing'] });
-    expect(publishRequest(existing, 'other', initialRows(existing), true)).toEqual({ public: true });
+  it('sends an update with neither name nor variables (Render keeps its own); a failed first try its variables, and its name until its repository exists', () => {
+    const live = plan({
+      existing: { id: 'a', serviceId: 'srv-1', repoUrl: 'https://github.com/me/x', databases: [] } as unknown as PublishPlan['existing'],
+    });
+    expect(publishRequest(live, 'other', initialRows(live), true)).toEqual({ public: true });
+    const noService = plan({
+      databaseOptional: true,
+      env: [],
+      databases: [],
+      existing: {
+        id: 'a',
+        repoUrl: 'https://github.com/me/api',
+        databases: [{ service: 'DATABASE_URL' }],
+      } as unknown as PublishPlan['existing'],
+    });
+    expect(databaseTicked(noService)).toBe(true);
+    expect([renamable(noService), configurable(noService)]).toEqual([false, true]);
+    expect(publishRequest(noService, 'api', [{ key: 'API_KEY', value: 'y', source: 'user' }], true)).toEqual({
+      env: [{ key: 'API_KEY', value: 'y' }],
+      database: true,
+      public: true,
+    });
+    const noRepo = plan({ existing: { id: 'a', repoUrl: '', databases: [] } as unknown as PublishPlan['existing'] });
+    expect(renamable(noRepo)).toBe(true);
+    expect(publishRequest(noRepo, 'renamed', [], false)).toMatchObject({ name: 'renamed', env: [] });
+    expect(databaseTicked(plan())).toBe(false);
     expect(publishRequest(plan({ databaseOptional: true, env: [], databases: [] }), 'api', [], true)).toEqual({
       name: 'api',
       env: [],
@@ -63,6 +96,16 @@ describe("the publish dialog's logic", () => {
     expect(canPublish(plan(), 'todo-app', [...rows, { key: 'PORT', value: '', source: 'user' }], false, true)).toBe(false);
     expect(canPublish(plan({ databaseOptional: true, neonReady: false }), 'api', [], true, true)).toBe(false);
     expect(canPublish(plan({ databaseOptional: true, neonReady: false }), 'api', [], false, true)).toBe(true);
+    // A publish of this folder still under way: its steps are shown, not a second publish.
+    expect(
+      canPublish(
+        plan({ existing: { state: 'publishing', databases: [] } as unknown as PublishPlan['existing'] }),
+        'todo-app',
+        rows,
+        false,
+        true,
+      ),
+    ).toBe(false);
   });
 
   it('checks variable names as Render takes them', () => {

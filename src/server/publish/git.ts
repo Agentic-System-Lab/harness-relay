@@ -61,6 +61,17 @@ export async function createRepo(name: string, run: Run = runProcess): Promise<s
   throw new HttpError(502, t().publish.github(r.timedOut ? t().timedOut : tail(r.stderr, 300)));
 }
 
+/**
+ * Whether the account has a repository of that name (`gh api repos/<login>/<name>`): true when GitHub
+ * answers with it, false when it says there is none; undefined when it could not tell.
+ */
+export async function repoExists(login: string, name: string, run: Run = runProcess): Promise<boolean | undefined> {
+  if (!LOGIN.test(login) || !/^[a-z0-9-]{1,40}$/.test(name)) return undefined;
+  const r = await gh(run, ['api', '--hostname', 'github.com', `repos/${login}/${name}`, '--silent']);
+  if (r.code === 0) return true;
+  return /HTTP 404|Not Found/i.test(r.stderr) ? false : undefined;
+}
+
 /** The repository's address for git: GitHub's, or the end-to-end tests' folder of stand-in repositories. */
 export function repoRemote(repo: string, base: string | undefined = CONFIG.publishGitDir): string {
   if (!REPO.test(repo)) throw new Error(`not a repository: ${repo}`);
@@ -131,6 +142,7 @@ export async function pushSnapshot(
   run: Run = runProcess,
   root: string = publishTmpRoot(),
   base: string | undefined = CONFIG.publishGitDir,
+  signal?: AbortSignal,
 ): Promise<string> {
   const env = gitEnv();
   // The stand-in repositories of the end-to-end tests are folders on this computer.
@@ -145,11 +157,12 @@ export async function pushSnapshot(
   const git = async (args: string[], o: { stdin?: Buffer; timeoutMs?: number; allowFail?: boolean } = {}) => {
     let r: SpawnResult;
     try {
-      r = await run({ bin, args, env, stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000 });
+      r = await run({ bin, args, env, stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000, signal });
     } catch (err) {
       if (err instanceof CommandNotFoundError) throw new HttpError(400, t().gitMissing, GIT_MISSING);
       throw err;
     }
+    signal?.throwIfAborted();
     if (r.code !== 0 && !o.allowFail) throw new HttpError(502, t().publish.push(r.timedOut ? t().timedOut : tail(r.stderr, 300)));
     return r;
   };

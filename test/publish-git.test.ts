@@ -112,7 +112,9 @@ describe('the commit of the snapshot', () => {
         ['名字 with space.txt', Buffer.from('ok')],
       ]);
       const first = await pushSnapshot('me/todo-app', files, new Set(['bin/start']), runProcess, tmp, base);
-      const git = (...args: string[]) => execFileSync('git', ['--git-dir', bare, ...args], { encoding: 'utf8' }).trim();
+      // Quoted names as git quotes them by default, whatever the user's `core.quotePath`.
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'core.quotePath=true', '--git-dir', bare, ...args], { encoding: 'utf8' }).trim();
       expect(git('rev-parse', 'refs/heads/main')).toBe(first);
       expect(git('ls-tree', '-r', '--name-only', 'main').split('\n').sort()).toEqual(
         ['bin/start', 'index.html', 'src/main.js', '"\\345\\220\\215\\345\\255\\227 with space.txt"'].sort(),

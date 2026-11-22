@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import { runProcess, type SpawnOptions, type SpawnResult } from '../src/server/p
 import type { Docker } from '../src/server/previewDocker';
 import { AppPublisher, type PreviewForPublish } from '../src/server/publish';
 import { repoRemote } from '../src/server/publish/git';
+import { PSQL_IMAGE } from '../src/server/publish/initdb';
 import { NEON_SECRET, PublishStore, RENDER_SECRET } from '../src/server/publish/store';
 import type { SecretStore } from '../src/server/secrets';
 import { slow } from './timeouts';
@@ -31,13 +32,32 @@ function keyring(): SecretStore & { values: Map<string, string> } {
 const RENDER_KEY = 'rnd_abcdefghijklmnopqrstuvwxyz';
 const NEON_KEY = 'napi_abcdefghijklmnopqrstuvwxyz';
 
+const OTHER_RENDER_KEY = 'rnd_otherotherotherotherother';
+
+interface CloudOptions {
+  deploy?: string[];
+  owners?: number;
+  /** Neon's organizations (one by default). */
+  orgs?: number;
+  /** How many `POST /services` fail first: as Render does without access to the repository, or after making the service. */
+  createFails?: number;
+  createFailsAfterMaking?: boolean;
+  /** A new project's operation fails. */
+  operationFails?: boolean;
+  /** `POST …/deploys` answers 202 with no body, as Render does while another deploy of the service runs. */
+  queued?: boolean;
+  /** Each `DELETE` of a service waits for this. */
+  deleteGate?: Promise<void>;
+}
+
 /** Render and Neon as their APIs answer, in memory: services, deploys that go live after a poll, projects. */
-function cloud(o: { deploy?: string[]; owners?: number } = {}) {
+function cloud(o: CloudOptions = {}) {
   const services = new Map<string, { body: Record<string, unknown> }>();
   const deploys = new Map<string, { states: string[]; commit?: string }>();
   const projects = new Map<string, Record<string, unknown>>();
   const requests: { method: string; path: string; body?: Record<string, unknown>; auth: string }[] = [];
   let n = 0;
+  let creates = 0;
   const json = (status: number, data?: unknown) => new Response(data === undefined ? null : JSON.stringify(data), { status });
   const fetcher = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -47,13 +67,34 @@ function cloud(o: { deploy?: string[]; owners?: number } = {}) {
     requests.push({ method, path: url.pathname, body, auth });
     const p = url.pathname;
     if (url.host === 'render.test') {
+      if (auth === 'Bearer ' + OTHER_RENDER_KEY) {
+        if (method === 'GET' && p === '/v1/owners') return json(200, [{ owner: { id: 'tea-other', name: 'Another workspace' } }]);
+        return json(404, { message: 'not found' });
+      }
       if (auth !== 'Bearer ' + RENDER_KEY) return json(401, { message: 'unauthorized' });
       if (method === 'GET' && p === '/v1/owners')
         return json(
           200,
           Array.from({ length: o.owners ?? 1 }, (_, i) => ({ owner: { id: `tea-${i + 1}`, name: `Workspace ${i + 1}` } })),
         );
+      if (method === 'GET' && p === '/v1/services') {
+        const found = [...services].filter(
+          ([, s]) => s.body.name === url.searchParams.get('name') && s.body.ownerId === url.searchParams.get('ownerId'),
+        );
+        return json(
+          200,
+          found.map(([id, s]) => ({
+            service: { id, name: s.body.name, ownerId: s.body.ownerId, repo: s.body.repo, serviceDetails: {} },
+            cursor: id,
+          })),
+        );
+      }
       if (method === 'POST' && p === '/v1/services') {
+        if (++creates <= (o.createFails ?? 0)) {
+          if (!o.createFailsAfterMaking) return json(400, { message: 'could not find repository ' + String(body!.repo) });
+          services.set(`srv-${++n}`, { body: body! });
+          return json(500, { message: 'internal error' });
+        }
         const id = `srv-${++n}`;
         services.set(id, { body: body! });
         const deployId = `dep-${++n}`;
@@ -72,19 +113,28 @@ function cloud(o: { deploy?: string[]; owners?: number } = {}) {
       if (deploy && method === 'POST') {
         const id = `dep-${++n}`;
         deploys.set(id, { states: [...(o.deploy ?? ['update_in_progress', 'live'])], commit: String(body!.commitId) });
-        return json(201, { id, status: 'created' });
+        return o.queued ? json(202) : json(201, { id, status: 'created' });
       }
+      if (deploy && method === 'GET' && !deploy[2])
+        return json(
+          200,
+          [...deploys].reverse().map(([id, d]) => ({ deploy: { id, commit: { id: d.commit } }, cursor: id })),
+        );
       if (deploy && method === 'GET') {
         const d = deploys.get(deploy[2]!)!;
         return json(200, { id: deploy[2], status: d.states.length > 1 ? d.states.shift() : d.states[0] });
       }
       const service = /^\/v1\/services\/([^/]+)$/.exec(p);
-      if (service && method === 'DELETE') return services.delete(service[1]!) ? json(204) : json(404);
+      if (service && method === 'DELETE') {
+        await o.deleteGate;
+        return services.delete(service[1]!) ? json(204) : json(404);
+      }
       if (service && method === 'GET') return services.has(service[1]!) ? json(200, { id: service[1], serviceDetails: {} }) : json(404);
     }
     if (url.host === 'neon.test') {
       if (auth !== 'Bearer ' + NEON_KEY) return json(401, { message: 'unauthorized' });
-      if (method === 'GET' && p === '/api/v2/users/me/organizations') return json(200, { organizations: [{ id: 'org-1', name: 'Mine' }] });
+      if (method === 'GET' && p === '/api/v2/users/me/organizations')
+        return json(200, { organizations: Array.from({ length: o.orgs ?? 1 }, (_, i) => ({ id: `org-${i + 1}`, name: 'Mine' })) });
       if (method === 'POST' && p === '/api/v2/projects') {
         const project = body!.project as { name: string; branch?: { database_name?: string; role_name?: string } };
         const id = `proj-${++n}`;
@@ -100,7 +150,7 @@ function cloud(o: { deploy?: string[]; owners?: number } = {}) {
               connection_parameters: { database, role, password: `pw-${id}`, host },
             },
           ],
-          operations: [{ id: 'op-1', status: 'finished' }],
+          operations: [{ id: 'op-1', status: o.operationFails ? 'failed' : 'finished' }],
         });
       }
       const conn = /^\/api\/v2\/projects\/([^/]+)\/connection_uri$/.exec(p);
@@ -116,16 +166,28 @@ function cloud(o: { deploy?: string[]; owners?: number } = {}) {
   return { fetcher, services, deploys, projects, requests };
 }
 
-/** gh as the fake: signed in as `me`, making each repository as a bare one in `base`; git itself is real. */
-function runner(base: string, o: { signedOut?: boolean } = {}) {
+/**
+ * gh as the fake: signed in as `me`, making each repository as a bare one in `base` (GitHub's 422 for
+ * one there already, or in `taken`), and saying whether one is there; git itself is real.
+ */
+function runner(base: string, o: { signedOut?: boolean; taken?: string[] } = {}) {
   const gh: string[][] = [];
   const run = vi.fn(async (opts: SpawnOptions): Promise<SpawnResult> => {
     if (!/(^|[\\/])gh(\.exe)?$/.test(opts.bin)) return runProcess(opts);
     gh.push(opts.args);
     const ok = (stdout: string) => ({ code: 0, signal: null, stdout, stderr: '', timedOut: false, aborted: false }) as SpawnResult;
     if (o.signedOut) return { ...ok(''), code: 4, stderr: 'To get started with GitHub CLI, please run:  gh auth login' };
+    const there = (name: string) => o.taken?.includes(name) || existsSync(repoRemote(`me/${name}`, base));
+    const lookup = opts.args.find((a) => a.startsWith('repos/me/'));
+    if (lookup) return there(lookup.slice('repos/me/'.length)) ? ok('') : { ...ok(''), code: 1, stderr: 'gh: Not Found (HTTP 404)' };
     if (opts.args.includes('user/repos')) {
       const name = opts.args.find((a) => a.startsWith('name='))!.slice(5);
+      if (there(name))
+        return {
+          ...ok('{"message":"Repository creation failed.","errors":[{"message":"name already exists on this account"}]}'),
+          code: 1,
+          stderr: 'gh: Repository creation failed. (HTTP 422)',
+        };
       mkdirSync(join(base, 'me'), { recursive: true });
       execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', repoRemote(`me/${name}`, base)]);
       return ok(`me/${name}\n`);
@@ -135,12 +197,20 @@ function runner(base: string, o: { signedOut?: boolean } = {}) {
   return { run, gh };
 }
 
-function fakeDocker() {
+function fakeDocker(o: { fails?: number } = {}) {
   const runs: { args: string[]; stdin: string }[] = [];
   const docker = vi.fn(async () => {
     const d = (async (args: string[], options?: { stdin?: string | Buffer }) => {
       runs.push({ args, stdin: String(options?.stdin ?? '') });
-      return { code: 0, signal: null, stdout: '', stderr: '', timedOut: false, aborted: false } as SpawnResult;
+      const code = runs.length <= (o.fails ?? 0) ? 3 : 0;
+      return {
+        code,
+        signal: null,
+        stdout: '',
+        stderr: code ? 'ERROR:  relation "todos" already exists' : '',
+        timedOut: false,
+        aborted: false,
+      } as SpawnResult;
     }) as Docker;
     return d;
   });
@@ -148,7 +218,7 @@ function fakeDocker() {
 }
 
 let seq = 0;
-function setup(o: { deploy?: string[]; owners?: number; signedOut?: boolean } = {}) {
+function setup(o: CloudOptions & { signedOut?: boolean; taken?: string[]; dockerFails?: number } = {}) {
   const dir = join(work, `case-${++seq}`);
   const base = join(dir, 'github');
   mkdirSync(base, { recursive: true });
@@ -157,7 +227,7 @@ function setup(o: { deploy?: string[]; owners?: number; signedOut?: boolean } = 
   const store = new PublishStore(db, secrets);
   const c = cloud(o);
   const { run, gh } = runner(base, o);
-  const d = fakeDocker();
+  const d = fakeDocker({ fails: o.dockerFails });
   let now = 1_000;
   const publisher = new AppPublisher(store, {
     fetcher: c.fetcher,
@@ -192,7 +262,8 @@ const source = (over: Partial<PreviewForPublish> = {}): PreviewForPublish => ({
 });
 
 async function until(publisher: AppPublisher, id: string): Promise<PublishedApp> {
-  for (let i = 0; i < 200; i++) {
+  const deadline = Date.now() + slow(20_000);
+  while (Date.now() < deadline) {
     const app = publisher.app(id);
     if (app.state !== 'publishing') return app;
     await new Promise((r) => setTimeout(r, 10));
@@ -305,10 +376,11 @@ describe('publishing a preview', () => {
         pg_version: 16,
         branch: { database_name: 'todo', role_name: 'todo' },
       });
-      // The init script ran once, with psql from the compose file's image, the address on stdin only.
+      // The init script ran once, with the pinned psql (never the compose file's image), the address on stdin only.
       expect(s.docker.runs).toHaveLength(1);
       const [psql] = s.docker.runs;
-      expect(psql!.args).toContain('postgres:16');
+      expect(psql!.args).toContain(PSQL_IMAGE);
+      expect(psql!.args).not.toContain('postgres:16');
       expect(psql!.args.join(' ')).not.toContain('pw-');
       expect(psql!.stdin).toMatch(/^postgresql:\/\/todo:pw-proj-\d+@ep-proj-\d+\.neon\.test\/todo\?sslmode=require\nCREATE TABLE todos/);
       // Render: a free Docker web service from the repository, with Neon's URL in place of the compose file's.
@@ -486,4 +558,190 @@ describe('publishing a preview', () => {
     },
     slow(30_000),
   );
+});
+
+describe('trying again, and what the review found', () => {
+  const backend = () =>
+    source({
+      folder: '/x/api',
+      mode: 'server',
+      entry: 'package.json',
+      files: files({ 'package.json': '{"scripts":{"start":"node ."}}', 'package-lock.json': '{}', 'index.js': '' }),
+    });
+
+  it(
+    "keeps a failed first publish's variables and database for the next try, while its service does not exist",
+    async () => {
+      const s = setup({ createFails: 1 });
+      await connected(s);
+      const first = await withLang('en', async () =>
+        until(
+          s.publisher,
+          (await s.publisher.publish(backend(), { public: true, database: true, name: 'api', env: [{ key: 'API_KEY', value: 'x' }] })).id,
+        ),
+      );
+      expect(first).toMatchObject({ state: 'failed', error: expect.stringContaining("Let Render's GitHub app access it") });
+      expect(first.serviceId).toBeUndefined();
+      // The dialog sees a first publish to set up again: its variables and database, the repository kept.
+      const plan = await s.publisher.plan(backend());
+      expect(plan.existing).toMatchObject({ id: first.id, repoUrl: 'https://github.com/me/api', databases: [{ service: 'DATABASE_URL' }] });
+      expect(plan.existing!.serviceId).toBeUndefined();
+      const again = await until(
+        s.publisher,
+        (await s.publisher.publish(backend(), { public: true, env: [{ key: 'API_KEY', value: 'y' }] })).id,
+      );
+      expect(again.state).toBe('live');
+      // The database the first try made, not a second; the variables of this try.
+      expect(s.cloud.projects.size).toBe(1);
+      const body = [...s.cloud.services.values()][0]!.body;
+      expect(body.envVars).toEqual([
+        { key: 'NODE_VERSION', value: '22' },
+        { key: 'DATABASE_URL', value: expect.stringMatching(/^postgresql:\/\/neondb_owner:/) },
+        { key: 'API_KEY', value: 'y' },
+      ]);
+    },
+    slow(30_000),
+  );
+
+  it(
+    'suggests a name no repository has, and takes another name on a try whose repository was never made',
+    async () => {
+      const s = setup({ taken: ['todo-app', 'todo-app-2', 'mine'] });
+      await connected(s);
+      expect((await s.publisher.plan(source())).name).toBe('todo-app-3');
+      // Asked for one GitHub has: the repository step fails, and the next try renames it.
+      const failed = await withLang('en', async () =>
+        until(s.publisher, (await s.publisher.publish(source(), { public: true, name: 'mine' })).id),
+      );
+      expect(failed).toMatchObject({ state: 'failed', error: expect.stringContaining('already has a repository named "mine"') });
+      expect((await s.publisher.plan(source())).existing).toMatchObject({ name: 'mine', repoUrl: '' });
+      const renamed = await until(s.publisher, (await s.publisher.publish(source(), { public: true, name: 'ours' })).id);
+      expect(renamed).toMatchObject({ state: 'live', name: 'ours', repo: 'me/ours' });
+      // Once its repository exists, a name stays.
+      await s.publisher.publish(source(), { public: true, name: 'other' }).then((a) => until(s.publisher, a.id));
+      expect(s.publisher.view().apps[0]!.name).toBe('ours');
+    },
+    slow(30_000),
+  );
+
+  it('records a Neon project as soon as it is made, so that unpublishing deletes one whose start failed', async () => {
+    const s = setup({ operationFails: true });
+    await connected(s);
+    const failed = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+    expect(failed).toMatchObject({ state: 'failed', databases: [{ service: 'db' }] });
+    expect(s.cloud.projects.size).toBe(1);
+    await s.publisher.unpublish(failed.id, true);
+    expect(s.cloud.projects.size).toBe(0);
+  });
+
+  it(
+    'deletes a database whose init scripts failed part way, so that the next try starts on a new one',
+    async () => {
+      const s = setup({ dockerFails: 1 });
+      await connected(s);
+      const failed = await withLang('en', async () => until(s.publisher, (await s.publisher.publish(source(), { public: true })).id));
+      expect(failed).toMatchObject({
+        state: 'failed',
+        databases: [],
+        error: expect.stringContaining('Running db/init.sql on Neon failed'),
+      });
+      expect(s.cloud.projects.size).toBe(0);
+      const again = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(again).toMatchObject({ state: 'live', databases: [{ service: 'db' }] });
+      expect(s.cloud.projects.size).toBe(1);
+      expect(s.docker.runs).toHaveLength(2);
+    },
+    slow(30_000),
+  );
+
+  it('makes projects without an organization when the Neon key reaches none', async () => {
+    const s = setup({ orgs: 0 });
+    await connected(s);
+    expect(await s.publisher.plan(source())).toMatchObject({ missing: [], neonReady: true });
+    const app = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+    expect(app.state).toBe('live');
+    expect([...s.cloud.projects.values()][0]).not.toHaveProperty('org_id');
+  });
+
+  it(
+    'finds the deploy Render queued without an answer, and takes the service a try left behind instead of making another',
+    async () => {
+      const s = setup({ queued: true, createFails: 1, createFailsAfterMaking: true });
+      await connected(s);
+      const failed = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(failed.state).toBe('failed');
+      expect(s.cloud.services.size).toBe(1);
+      // Its service made on Render but never recorded: the next try takes it and deploys the new commit there.
+      const again = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(again).toMatchObject({ state: 'live', serviceId: [...s.cloud.services.keys()][0] });
+      expect(s.cloud.services.size).toBe(1);
+      const update = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(update.state).toBe('live');
+    },
+    slow(30_000),
+  );
+
+  it(
+    'refuses to update or unpublish an app with a key for another Render workspace, and an update whose databases changed',
+    async () => {
+      const s = setup();
+      await connected(s);
+      const app = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      const noDb = source({
+        files: new Map(
+          [...source().files].map(([k, v]) => [k, k === 'compose.yaml' ? Buffer.from('services:\n  app:\n    build: .\n') : v]),
+        ),
+      });
+      await withLang('en', () => expect(s.publisher.publish(noDb, { public: true })).resolves.toBeTruthy());
+      await until(s.publisher, app.id);
+      const twoDbs = source({
+        files: new Map(
+          [...source().files].map(([k, v]) => [
+            k,
+            k === 'compose.yaml' ? Buffer.from(String(v) + '  cache:\n    image: postgres:16\n') : v,
+          ]),
+        ),
+      });
+      await withLang('en', () =>
+        expect(s.publisher.publish(twoDbs, { public: true })).rejects.toMatchObject({ status: 409, message: /databases differ/ }),
+      );
+      await s.publisher.setRenderKey(OTHER_RENDER_KEY);
+      await withLang('en', async () => {
+        await expect(s.publisher.unpublish(app.id, false)).rejects.toMatchObject({ status: 409, message: /another Render workspace/ });
+        await expect(s.publisher.publish(source(), { public: true })).rejects.toMatchObject({ status: 409 });
+      });
+      expect(s.cloud.services.size).toBe(1);
+      expect(s.publisher.view().apps).toHaveLength(1);
+    },
+    slow(30_000),
+  );
+
+  it(
+    'starts no publish on an app being unpublished, nor puts it back, and counts both as busy',
+    async () => {
+      let open!: () => void;
+      const s = setup({ deleteGate: new Promise<void>((r) => (open = r)) });
+      await connected(s);
+      const app = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
+      expect(s.publisher.busy()).toBe(0);
+      const going = s.publisher.unpublish(app.id, false);
+      await vi.waitFor(() => expect(s.cloud.requests.some((r) => r.method === 'DELETE')).toBe(true));
+      expect(s.publisher.busy()).toBe(1);
+      await expect(s.publisher.publish(source(), { public: true })).rejects.toMatchObject({ status: 409 });
+      await expect(s.publisher.unpublish(app.id, false)).rejects.toMatchObject({ status: 409 });
+      open();
+      await going;
+      expect(s.publisher.view().apps).toEqual([]);
+      expect(s.publisher.busy()).toBe(0);
+    },
+    slow(30_000),
+  );
+
+  it('encodes a static page’s own path in its address', async () => {
+    const s = setup();
+    await connected(s);
+    const site = source({ folder: '/x/site', mode: 'static', entry: 'my page#1.html', files: files({ 'my page#1.html': '' }) });
+    const app = await until(s.publisher, (await s.publisher.publish(site, { public: true })).id);
+    expect(app.url).toBe('https://site.onrender.com/my%20page%231.html');
+  });
 });

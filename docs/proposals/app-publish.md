@@ -53,7 +53,7 @@ A compose file is published only when Render's free plan can run it as one servi
 Render's free PostgreSQL expires 30 days after it is made, and is deleted with its data 14 days later; Neon's free plan keeps a database (1 GB a project, 100 projects) without a limit in time and scales it to zero when it is idle. So a database is Neon's:
 
 - **A compose file's PostgreSQL service** becomes a Neon project of its own, with the service's `POSTGRES_DB` and `POSTGRES_USER` as its database and role (Neon's own names for `postgres`) and the image's major version (14 to 18) as its PostgreSQL. In the main service's environment, a `postgres://` URL whose host is that service becomes Neon's connection string, the service's name as a host becomes Neon's host, and its password Neon's. With none of them, the app gets `DATABASE_URL`.
-- **Its init scripts** (`.sql` files the compose file mounts into `/docker-entrypoint-initdb.d/`, in name order, as PostgreSQL's image runs them) run once on the new database, with `psql` from the same image in a container of its own (no capabilities, read-only, the connection on its stdin, never in a command line). Other kinds of script (`.sh`, `.sql.gz`) are named in the dialog and not run.
+- **Its init scripts** (`.sql` files the compose file mounts into `/docker-entrypoint-initdb.d/`, in name order, as PostgreSQL's image runs them) run once on the new database, with `psql` from PostgreSQL's official image pinned by digest (never the compose file's own image, which an agent may have named), in a container of its own (no capabilities, read-only, the connection on its stdin, never in a command line). That container has a network, to reach Neon, so a script with psql's own commands besides `\echo`, `\qecho`, `\set` and `\unset` (which could run a program or touch files here) is refused before anything is made. Other kinds of script (`.sh`, `.sql.gz`) are named in the dialog and not run. A database whose scripts failed part way is deleted, so that the next try starts on a new one.
 - **A backend or `Dockerfile` without compose** can have a Neon database too, with a checkbox: the app gets `DATABASE_URL`.
 
 ### Environment variables
@@ -70,7 +70,8 @@ They go to Render when the service is made, never into the repository: the compo
 - Only the user's click starts a publish, from the panel of the browser that started the preview, through `/api/` with its usual checks. No agent tool, prompt or reply can publish, unpublish or read the settings.
 - The dialog says that the app will be public, and that unlike the preview it has a network.
 - The repository is private. What goes in it is the snapshot alone, with the previews' exclusions.
-- Values that look like secrets in the user's added variables never reach the repository or Relay's database.
+- The app's variables never reach the repository or Relay's database.
+- The init scripts' container runs a pinned official image, with only plain SQL and harmless psql commands; it has a network, unlike the preview.
 - Stand-ins for the end-to-end tests (`RELAY_RENDER_API_URL`, `RELAY_NEON_API_URL`, `RELAY_PUBLISH_GIT_URL`) are read at startup only, and refused unless they point at this computer.
 
 ## Alternatives not taken

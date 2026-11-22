@@ -78,7 +78,7 @@ export class NeonApi {
   }
 
   /** Makes a project, and waits until what Neon does to start it has finished. */
-  async createProject(spec: NeonProjectSpec, signal?: AbortSignal): Promise<NeonDatabase> {
+  async createProject(spec: NeonProjectSpec, signal?: AbortSignal, onCreated?: (db: NeonDatabase) => void): Promise<NeonDatabase> {
     const data = await this.call('projects', {
       method: 'POST',
       body: {
@@ -105,11 +105,13 @@ export class NeonApi {
     if (!projectId || !uri || !host || !role || !password || !database || !/^postgres(?:ql)?:\/\//.test(uri))
       throw new HttpError(502, t().publish.badAnswer);
     segment(projectId);
+    const db = { projectId, uri, host, role, password, database };
+    onCreated?.(db);
     const operations = arr(data, 'operations')
       .map((op) => ({ id: str(op, 'id'), status: str(op, 'status') }))
       .filter((op): op is { id: string; status: string | undefined } => Boolean(op.id));
     await this.waitFor(projectId, operations, signal);
-    return { projectId, uri, host, role, password, database };
+    return db;
   }
 
   /** Waits for a new project's operations (its timeline, its compute's start), polling each until it ends. */

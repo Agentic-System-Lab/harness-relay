@@ -19,7 +19,8 @@
  * - `api --hostname github.com --method POST user/repos -f name=<name> -F private=true -f description=<text> --jq .full_name`,
  *   which publishing an app asks (`src/server/publish/git.ts`): a bare repository, `relay-test/<name>.git`, in
  *   the folder of stand-in repositories the server pushes to (`RELAY_PUBLISH_GIT_DIR`), its full name
- *   printed; GitHub's HTTP 422 when it has one of that name already;
+ *   printed; GitHub's HTTP 422 when it has one of that name already; and
+ *   `api --hostname github.com repos/relay-test/<name> --silent`: whether it has that one (HTTP 404 when not);
  * - The active account and account-specific logout on github.com, with state in this test’s own folder.
  * - `--version`.
  * Anything else fails ("not faked"): the files that go along with a page take `gh api` and a git push
@@ -87,6 +88,12 @@ async function main() {
     return;
   }
   if (args.slice(0, 6).join(' ') === 'api --hostname github.com --method POST user/repos') return createRepo();
+  const lookup = /^repos\/relay-test\/([a-z0-9-]{1,40})$/.exec(args[3] || '');
+  if (args.length === 5 && args.slice(0, 3).join(' ') === 'api --hostname github.com' && lookup && args[4] === '--silent') {
+    const dir = process.env.RELAY_PUBLISH_GIT_DIR;
+    if (dir && fs.existsSync(path.join(dir, 'relay-test', lookup[1] + '.git'))) return;
+    fail(`gh: Not Found (HTTP 404)`);
+  }
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);

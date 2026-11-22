@@ -27,23 +27,38 @@ export function rowsValid(rows: EnvRow[]): boolean {
   return rows.length <= MAX_ENV;
 }
 
-/** The publish request the dialog sends: the variables the user can set (never Neon's), the name of a new app. */
+/** A first publish that has not made its GitHub repository yet (never tried, or failed first): its name can change. */
+export function renamable(plan: PublishPlan): boolean {
+  return !plan.existing?.repoUrl;
+}
+
+/** No Render service yet (a first publish, or one that failed before its service): its variables and database are set now. */
+export function configurable(plan: PublishPlan): boolean {
+  return !plan.existing?.serviceId;
+}
+
+/** The checkbox's database starts ticked when a first try already made it. */
+export function databaseTicked(plan: PublishPlan): boolean {
+  return Boolean(plan.existing?.databases.some((d) => d.service === 'DATABASE_URL'));
+}
+
+/** The publish request the dialog sends: the name while it can change, the variables and database until the service exists. */
 export function publishRequest(plan: PublishPlan, name: string, rows: EnvRow[], database: boolean): PublishRequest {
   const env = rows.filter((r) => r.source !== 'database').map(({ key, value }) => ({ key, value }));
   return {
-    ...(plan.existing ? {} : { name }),
-    ...(plan.existing ? {} : { env }),
-    ...(plan.databaseOptional && !plan.existing ? { database } : {}),
+    ...(renamable(plan) ? { name } : {}),
+    ...(configurable(plan) ? { env } : {}),
+    ...(plan.databaseOptional && configurable(plan) ? { database } : {}),
     public: true,
   };
 }
 
 /** Whether the dialog can publish: Settings has what it needs, GitHub is signed in, the name and rows are valid, it was confirmed. */
 export function canPublish(plan: PublishPlan, name: string, rows: EnvRow[], database: boolean, confirmed: boolean): boolean {
-  if (plan.missing.length || plan.github.problem || !confirmed) return false;
-  if (database && plan.databaseOptional && !plan.existing && !plan.neonReady) return false;
-  if (!plan.existing && !APP_NAME.test(name)) return false;
-  return plan.existing ? true : rowsValid(rows);
+  if (plan.missing.length || plan.github.problem || !confirmed || plan.existing?.state === 'publishing') return false;
+  if (database && plan.databaseOptional && configurable(plan) && !plan.neonReady) return false;
+  if (renamable(plan) && !APP_NAME.test(name)) return false;
+  return configurable(plan) ? rowsValid(rows) : true;
 }
 
 /** Whether the panel goes on asking how the publish goes. */

@@ -451,5 +451,12 @@ process.on('SIGTERM', () => void shutdown());
 parent?.onShutdown(() => void shutdown());
 // Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
 parent?.onBusy(
-  () => orchestrator.busy() + clis.running() + sandboxSetup.running() + gitInstall.running() + appDependencies.running() + teams.running(),
+  () =>
+    orchestrator.busy() +
+    clis.running() +
+    sandboxSetup.running() +
+    gitInstall.running() +
+    appDependencies.running() +
+    teams.running() +
+    publisher.busy(),
 );

@@ -3,7 +3,18 @@ import { createPortal } from 'react-dom';
 import type { PublishedApp, PublishPlan } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { canPublish, databaseLines, initialRows, publishRequest, rowsValid, stillPublishing, type EnvRow } from '../publish';
+import {
+  canPublish,
+  configurable,
+  databaseLines,
+  databaseTicked,
+  initialRows,
+  publishRequest,
+  renamable,
+  rowsValid,
+  stillPublishing,
+  type EnvRow,
+} from '../publish';
 import { settingsHref } from '../route';
 import { GhHelp } from './GhHelp';
 import { useDialog } from './useDialog';
@@ -36,6 +47,9 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
         setPlan(next);
         setName(next.name);
         setRows(initialRows(next));
+        setDatabase(databaseTicked(next));
+        // A publish of this folder still under way (the dialog opened again): its steps, not the form.
+        if (next.existing?.state === 'publishing') setApp(next.existing);
       },
       (err: Error) => {
         if (!controller.signal.aborted) setError(err.message);
@@ -51,7 +65,8 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
     const timer = setTimeout(() => {
       api.publishedApp(app.id).then(
         (next) => !gone && setApp(next),
-        () => !gone && setApp({ ...app }),
+        // Gone (unpublished meanwhile) or unreachable: say so, and stop asking.
+        (err: Error) => !gone && setApp({ ...app, state: 'failed', error: err.message }),
       );
     }, 2000);
     return () => {
@@ -76,6 +91,8 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
   const setRow = (i: number, change: Partial<EnvRow>) => setRows((old) => old.map((r, n) => (n === i ? { ...r, ...change } : r)));
   const regions = t.publish.card.regions;
   const existing = plan?.existing;
+  // A failed first publish is set up again as a new one: until its repository exists, its name; until its service exists, its variables.
+  const updating = Boolean(existing?.serviceId);
   const started = Boolean(app);
   const ready = plan && canPublish(plan, name, rows, database, confirmed) && !sending && !started;
   const repo = existing?.repo ?? `${plan?.github.login ?? '…'}/${name}`;
@@ -115,7 +132,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
               </div>
             )}
             {plan.github.problem && <GhHelp problem={plan.github.problem} retry={p.publish} onSignedIn={() => setReload((n) => n + 1)} />}
-            {!existing && (
+            {renamable(plan) && (
               <label className="publish-name">
                 <span>{p.name}</span>
                 <input
@@ -132,10 +149,10 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
                 </span>
               </label>
             )}
-            <section className="publish-summary" aria-label={existing ? p.willUpdate : p.willCreate}>
-              <h3>{existing ? p.willUpdate : p.willCreate}</h3>
+            <section className="publish-summary" aria-label={updating ? p.willUpdate : p.willCreate}>
+              <h3>{updating ? p.willUpdate : p.willCreate}</h3>
               <ul>
-                <li>{existing ? p.repoPush(repo) : p.repoNew(plan.github.login ?? '…', name)}</li>
+                <li>{existing?.repoUrl ? p.repoPush(repo) : p.repoNew(plan.github.login ?? '…', name)}</li>
                 <li>
                   {plan.serviceType === 'static_site' ? p.staticSite : p.webService}
                   {plan.serviceType === 'web_service' && <span className="muted"> · {p.region(regions[plan.region])}</span>}
@@ -148,7 +165,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
                     </>
                   )}
                 </li>
-                {!existing &&
+                {configurable(plan) &&
                   databaseLines(plan).map((d) => (
                     <li key={d.service}>
                       {p.database(d.service, d.database, d.version)}
@@ -157,7 +174,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
                     </li>
                   ))}
               </ul>
-              {plan.databaseOptional && !existing && (
+              {plan.databaseOptional && configurable(plan) && (
                 <label className="check-row">
                   <input type="checkbox" checked={database} onChange={(e) => setDatabase(e.target.checked)} />
                   {p.addDatabase}
@@ -198,7 +215,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
                 </dl>
               )}
             </section>
-            {existing ? (
+            {updating ? (
               <p className="muted small">{p.envKept}</p>
             ) : (
               <fieldset className="publish-env">
@@ -252,7 +269,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
             <ul className="publish-notes muted small">
               {plan.serviceType === 'web_service' && <li>{p.freeNotes}</li>}
               {plan.serviceType === 'web_service' && <li>{p.networkNote}</li>}
-              {!existing && <li>{p.githubAccess}</li>}
+              {!updating && <li>{p.githubAccess}</li>}
             </ul>
             <label className="check-row publish-confirm">
               <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
@@ -311,7 +328,7 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
         <div className="form-actions">
           {!started && (
             <button type="button" className="primary small-button" disabled={!ready} onClick={() => void send()}>
-              {sending ? p.publishing : existing ? p.publishUpdate : p.publish}
+              {sending ? p.publishing : updating ? p.publishUpdate : p.publish}
             </button>
           )}
           {app?.state === 'failed' && (

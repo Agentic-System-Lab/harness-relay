@@ -80,7 +80,7 @@ export class RenderApi {
   }
 
   /** Makes the service from the repository's `main`, without deploying on its own pushes (Relay deploys each commit). */
-  async createService(spec: RenderServiceSpec): Promise<RenderService> {
+  async createService(spec: RenderServiceSpec, signal?: AbortSignal): Promise<RenderService> {
     const serviceDetails = spec.type === 'web_service' ? { ...spec.details, plan: 'free', region: spec.region } : spec.details;
     let data: unknown;
     try {
@@ -97,6 +97,7 @@ export class RenderApi {
           serviceDetails,
         },
         timeoutMs: 60_000,
+        signal,
       });
     } catch (err) {
       if (!(err instanceof HostError)) throw err;
@@ -118,6 +119,32 @@ export class RenderApi {
     };
   }
 
+  /**
+   * A service of that name in the workspace built from that repository: one a try that stopped while
+   * Render made it left behind. Undefined when there is none.
+   */
+  async findService(name: string, ownerId: string, repo: string): Promise<RenderService | undefined> {
+    let data: unknown;
+    try {
+      data = await this.call('services', undefined, { name, ownerId, limit: '20' });
+    } catch (err) {
+      throw err instanceof HostError ? new HttpError(502, t().publish.renderFailed(err.message || String(err.status))) : err;
+    }
+    const same = (a?: string) =>
+      a
+        ?.replace(/\.git$/, '')
+        .replace(/\/+$/, '')
+        .toLowerCase() === repo.toLowerCase();
+    for (const item of arr(data)) {
+      const service = obj(item, 'service');
+      const id = str(service, 'id');
+      if (!id || str(service, 'name') !== name || str(service, 'ownerId') !== ownerId || !same(str(service, 'repo'))) continue;
+      segment(id);
+      return { id, url: httpsUrl(str(obj(service, 'serviceDetails'), 'url')), dashboardUrl: httpsUrl(str(service, 'dashboardUrl')) };
+    }
+    return undefined;
+  }
+
   /** The service as it is: its address, or undefined when it is gone (deleted on Render). */
   async service(id: string): Promise<RenderService | undefined> {
     try {
@@ -136,13 +163,24 @@ export class RenderApi {
         method: 'POST',
         body: { commitId, clearCache: 'do_not_clear' },
       });
-      const id = str(data, 'id');
+      const id = str(data, 'id') ?? (await this.deployOf(serviceId, commitId));
       if (!id) throw new HttpError(502, t().publish.badAnswer);
+      segment(id);
       return id;
     } catch (err) {
       if (err instanceof HostError && (err.status === 404 || err.status === 410)) throw new HttpError(409, t().publish.serviceGone);
       throw err instanceof HostError ? new HttpError(502, t().publish.renderFailed(err.message || String(err.status))) : err;
     }
+  }
+
+  /** The newest deploy of a commit: Render queues one (202, no body) while another deploy of the service runs. */
+  private async deployOf(serviceId: string, commitId: string): Promise<string | undefined> {
+    const data = await this.call('services/' + segment(serviceId) + '/deploys', undefined, { limit: '20' });
+    for (const item of arr(data)) {
+      const deploy = obj(item, 'deploy');
+      if (str(obj(deploy, 'commit'), 'id') === commitId) return str(deploy, 'id');
+    }
+    return undefined;
   }
 
   /** A deploy's state (`created`, `queued`, `build_in_progress`, `update_in_progress`, `live`…). */

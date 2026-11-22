@@ -774,9 +774,11 @@ The dialog then follows each step (repository, push, database, init SQL, service
 
 ![The publish dialog once the app is live: every step done, with its address, its page on Render and its repository.](../site/assets/media/docs/app-publish-live-en.webp)
 
+If a first publish fails, for example because Render cannot read the new repository yet, fix the cause and choose **Publish…** again: it goes on with what was made. Until the repository exists you can change the name (a name your GitHub account already has is suggested with `-2`), and until the Render service exists, its variables and database. An init script may use plain SQL and psql's `\echo`, `\set` and `\unset`; one with other psql commands (such as `\!` or `\copy`) is refused before anything is made, since `psql` runs on this computer with a network to reach Neon. A database whose init scripts failed part way is deleted, so the next try starts clean.
+
 A compose file is published when Render's free plan can run it as one service: one app service built from the project's `Dockerfile` (no build arguments, target or mounted project files), with PostgreSQL services beside it. Anything else, such as Redis or a second app service, is refused with the reason before anything is made. On free plans a web service sleeps after 15 minutes without requests and takes about a minute to wake, and files it writes in its container are lost when it restarts; what is in the Neon database stays. Unlike the preview, the published app has a network.
 
-**Unpublish** in **Settings → Publish to the cloud** deletes the app's Render service and, when you tick it, its Neon databases (Neon keeps them 7 days, to restore). The GitHub repository stays: delete it on GitHub when you no longer need it. [How publishing works](architecture.md#publishing-an-app)
+**Unpublish** in **Settings → Publish to the cloud** deletes the app's Render service and, when you tick it, its Neon databases (Neon keeps them 7 days, to restore). It needs a Render key for the workspace the app was published in. The GitHub repository stays: delete it on GitHub when you no longer need it. [How publishing works](architecture.md#publishing-an-app)
 
 ### Copying, editing and retrying
 

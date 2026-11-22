@@ -15,7 +15,7 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { runProcess } from '../process';
 import { localDocker, type Docker } from '../previewDocker';
-import { createRepo, githubLogin, pushSnapshot, type Run } from './git';
+import { createRepo, githubLogin, pushSnapshot, repoExists, type Run } from './git';
 import { runInitScripts } from './initdb';
 import { NEON_REGION, NeonApi, type NeonDatabase } from './neon';
 import {
@@ -75,6 +75,11 @@ const MAX_JOBS = 2;
 
 const STEPS: PublishStep['id'][] = ['repo', 'push', 'database', 'init', 'service', 'build'];
 
+/** A published page's address: the service's, and a static page's own path (encoded) when it is not the index. */
+function pageUrl(service: string, path: string | undefined): string {
+  return service.replace(/\/$/, '') + '/' + (path ? encodeURIComponent(path) : '');
+}
+
 interface Job {
   steps: PublishStep[];
   controller: AbortController;
@@ -90,6 +95,8 @@ interface Job {
  */
 export class AppPublisher {
   private jobs = new Map<string, Job>();
+  /** Apps whose unpublishing is under way: no publish starts on them meanwhile. */
+  private unpublishing = new Set<string>();
   private closed = false;
 
   constructor(
@@ -215,7 +222,7 @@ export class AppPublisher {
     else if (!this.store.render.ownerId) out.push('render-owner');
     if (spec.databases.length) {
       if (!this.store.neonKey()) out.push('neon');
-      else if (!this.neonOrg()) out.push('neon-org');
+      else if (this.neonOrg() === null) out.push('neon-org');
     }
     return out;
   }
@@ -238,10 +245,11 @@ export class AppPublisher {
       if (code !== GH_MISSING && code !== GH_SIGNED_OUT) throw err;
       github = { problem: code };
     }
+    const name = existing?.name ?? (await this.freeName(suggestName(source.folder), github.login).catch(() => suggestName(source.folder)));
     return {
       kind: spec.kind,
       serviceType: spec.serviceType,
-      name: existing?.name ?? suggestName(source.folder),
+      name,
       folder: source.folder,
       ...(existing ? { existing: this.appView(existing) } : {}),
       // The variables as the app will get them, Neon's shown by name only (they are made when it publishes).
@@ -267,6 +275,25 @@ export class AppPublisher {
     };
   }
 
+  /**
+   * The name the dialog suggests: the folder's, or with `-2`… when an app here or a repository of the
+   * account already has it (a repository stays after its app is unpublished).
+   */
+  private async freeName(base: string, login: string | undefined): Promise<string> {
+    for (let n = 1; n <= 9; n++) {
+      const name = n === 1 ? base : `${base.slice(0, 37).replace(/-+$/, '')}-${n}`;
+      if (this.store.apps().some((a) => a.name === name)) continue;
+      if (login && (await repoExists(login, name, this.run()))) continue;
+      return name;
+    }
+    return base;
+  }
+
+  /** The app's Render workspace is one the key reaches: else its service cannot be deployed or deleted with it. */
+  private sameWorkspace(app: AppRecord) {
+    if (!this.store.render.owners.some((o) => o.id === app.ownerId)) throw new HttpError(409, t().publish.otherWorkspace(app.name));
+  }
+
   /** Starts publishing the preview: answers at once with the app, whose steps the panel then follows. */
   async publish(source: PreviewForPublish, request: Partial<PublishRequest>): Promise<PublishedApp> {
     if (this.closed) throw new HttpError(503, t().publish.interrupted);
@@ -274,13 +301,18 @@ export class AppPublisher {
     const spec = publishSpec(source);
     const env = userEnv(request.env);
     if (request.database !== undefined && typeof request.database !== 'boolean') throw new HttpError(400, t().invalidField('database'));
+    let app = this.existing(source.folder);
+    if (app && (this.running(app.id) || this.unpublishing.has(app.id))) throw new HttpError(409, t().publish.busy);
     const databases: DatabaseSpec[] = [...spec.databases];
-    if (request.database && spec.databaseOptional && !databases.length) databases.push(optionalDatabase());
+    // The checkbox's database, also one a first try made before it failed.
+    const optional = request.database || app?.databases.some((d) => d.service === optionalDatabase().service);
+    if (optional && spec.databaseOptional && !databases.length) databases.push(optionalDatabase());
+    if (app?.serviceId && databases.some((db) => !app!.databases.some((d) => d.service === db.service)))
+      throw new HttpError(409, t().publish.databasesChanged);
     const missing = this.missing({ ...spec, databases });
     if (missing.length)
       throw new HttpError(400, missing[0]!.startsWith('neon') ? t().publish.setupNeon : t().publish.setupRender, PUBLISH_SETUP);
-    let app = this.existing(source.folder);
-    if (app && this.running(app.id)) throw new HttpError(409, t().publish.busy);
+    if (app?.serviceId) this.sameWorkspace(app);
     if ([...this.jobs.values()].filter((j) => j.active).length >= MAX_JOBS) throw new HttpError(429, t().publish.tooMany);
     if (!app) {
       const name = request.name ?? suggestName(source.folder);
@@ -303,9 +335,18 @@ export class AppPublisher {
       // Render cannot turn a static site into a web service: the app is published anew.
       throw new HttpError(409, t().publish.kindChanged);
     } else {
+      // Until its repository is made, a first publish that failed (the name taken on GitHub, say) can take another name.
+      if (!app.repo && request.name !== undefined && request.name !== app.name) {
+        const name = request.name;
+        if (typeof name !== 'string' || !APP_NAME.test(name)) throw new HttpError(400, t().publish.name);
+        if (this.store.apps().some((a) => a.name === name)) throw new HttpError(409, t().publish.nameTaken(name));
+        app.name = name;
+      }
       app.state = 'publishing';
       delete app.error;
       delete app.interrupted;
+      // A service not made yet goes to the workspace chosen now.
+      if (!app.serviceId) app.ownerId = this.store.render.ownerId!;
     }
     app.conversationId = source.conversationId;
     this.store.put(app);
@@ -325,7 +366,7 @@ export class AppPublisher {
         record.state = 'failed';
         if (aborted) record.interrupted = true;
         else record.error = message;
-        this.store.put(record);
+        if (this.store.app(record.id)) this.store.put(record);
       })
       .finally(() => {
         job.active = false;
@@ -368,7 +409,7 @@ export class AppPublisher {
     } else end('repo', 'skipped');
 
     begin('push');
-    const commit = await pushSnapshot(app.repo, source.files, source.executables, run, this.deps.tmpRoot, this.deps.gitDir);
+    const commit = await pushSnapshot(app.repo, source.files, source.executables, run, this.deps.tmpRoot, this.deps.gitDir, signal);
     end('push');
 
     // The databases: made once, their connection read again for a publish that failed before its service.
@@ -395,16 +436,20 @@ export class AppPublisher {
             ...(db.role !== 'neondb_owner' ? { role: db.role } : {}),
           },
           signal,
+          // Recorded as soon as Neon made it, before its operations end: a try that stops while it
+          // waits leaves no project that unpublishing would not delete.
+          (project) => {
+            app.databases.push({
+              service: db.service,
+              projectId: project.projectId,
+              name,
+              database: project.database,
+              role: project.role,
+              initialized: false,
+            });
+            this.store.put(app);
+          },
         );
-        app.databases.push({
-          service: db.service,
-          projectId: created.projectId,
-          name,
-          database: created.database,
-          role: created.role,
-          initialized: false,
-        });
-        this.store.put(app);
         made.push({ spec: db, neon: created });
       }
       end('database');
@@ -413,8 +458,24 @@ export class AppPublisher {
     begin('init');
     const scripts = made.filter(({ spec: db }) => db.scripts.length && !app.databases.find((d) => d.service === db.service)?.initialized);
     for (const { spec: db, neon } of scripts) {
-      await runInitScripts(db.image ?? 'postgres:17', neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker);
-      app.databases.find((d) => d.service === db.service)!.initialized = true;
+      const record = app.databases.find((d) => d.service === db.service)!;
+      try {
+        await runInitScripts(neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker);
+      } catch (err) {
+        // Its scripts ran in part: the app never used it, so it goes, and the next try starts on a new one.
+        if (!signal.aborted) {
+          const gone = await this.neon()
+            .deleteProject(record.projectId)
+            .then(() => true)
+            .catch(() => false);
+          if (gone) {
+            app.databases = app.databases.filter((d) => d !== record);
+            this.store.put(app);
+          }
+        }
+        throw err;
+      }
+      record.initialized = true;
       this.store.put(app);
     }
     end('init', scripts.length ? 'done' : 'skipped');
@@ -422,18 +483,26 @@ export class AppPublisher {
     begin('service');
     let deployId: string | undefined;
     if (!app.serviceId) {
+      const repo = `https://github.com/${app.repo}`;
+      // One a try that stopped while Render made it left behind (its answer never came): taken, not made again.
+      const left = await render.findService(app.name, app.ownerId, repo);
       const vars = databaseEnv(spec.env, made, env);
-      const service = await render.createService({
-        type: spec.serviceType,
-        name: app.name,
-        ownerId: app.ownerId,
-        repo: `https://github.com/${app.repo}`,
-        details: spec.details,
-        region: this.store.render.region,
-        envVars: vars.map(({ key, value }) => ({ key, value })),
-      });
+      const service =
+        left ??
+        (await render.createService(
+          {
+            type: spec.serviceType,
+            name: app.name,
+            ownerId: app.ownerId,
+            repo,
+            details: spec.details,
+            region: this.store.render.region,
+            envVars: vars.map(({ key, value }) => ({ key, value })),
+          },
+          signal,
+        ));
       app.serviceId = service.id;
-      if (service.url) app.url = service.url.replace(/\/$/, '') + '/' + (app.path ?? '');
+      if (service.url) app.url = pageUrl(service.url, app.path);
       if (service.dashboardUrl) app.dashboardUrl = service.dashboardUrl;
       this.store.put(app);
       deployId = service.deployId;
@@ -454,7 +523,7 @@ export class AppPublisher {
     if (!app.url) {
       const service = await render.service(app.serviceId);
       const url = httpsUrl(service?.url);
-      if (url) app.url = url.replace(/\/$/, '') + '/' + (app.path ?? '');
+      if (url) app.url = pageUrl(url, app.path);
     }
     end('build');
     app.state = 'live';
@@ -470,14 +539,28 @@ export class AppPublisher {
   async unpublish(id: string, database: boolean) {
     const app = this.store.app(id);
     if (!app) throw new HttpError(404, t().publish.notFound);
-    if (this.running(id)) throw new HttpError(409, t().publish.busy);
-    if (app.serviceId) await this.render().deleteService(app.serviceId);
-    if (database && app.databases.length) {
-      const neon = this.neon();
-      for (const d of app.databases) await neon.deleteProject(d.projectId);
+    if (this.running(id) || this.unpublishing.has(id)) throw new HttpError(409, t().publish.busy);
+    this.unpublishing.add(id);
+    try {
+      if (app.serviceId) {
+        // A key for another workspace would find no service there, and the app would stay online.
+        this.sameWorkspace(app);
+        await this.render().deleteService(app.serviceId);
+      }
+      if (database && app.databases.length) {
+        const neon = this.neon();
+        for (const d of app.databases) await neon.deleteProject(d.projectId);
+      }
+      this.store.remove(id);
+      this.jobs.delete(id);
+    } finally {
+      this.unpublishing.delete(id);
     }
-    this.store.remove(id);
-    this.jobs.delete(id);
+  }
+
+  /** Publishes under way, and apps being unpublished: the desktop app waits for them before it updates. */
+  busy(): number {
+    return [...this.jobs.values()].filter((j) => j.active).length + this.unpublishing.size;
   }
 
   /** Stops the publishes under way (the server's shutdown): each ends as interrupted. */
