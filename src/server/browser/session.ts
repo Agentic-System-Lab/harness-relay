@@ -383,6 +383,12 @@ class BrowserSession {
   typed?: TypedPage;
   top?: OwnerPage;
   readonly openings = new Map<string, OwnerPage>();
+  /**
+   * The addresses of the openings the gate refused lately, whose error pages are still to commit: such a
+   * commit, late on a slow computer, is that refusal's, and takes neither what the user typed since nor
+   * the opening the gate let through since at the same address (`refusedCommit()`).
+   */
+  readonly refusedOpenings: { at: string; until: number }[] = [];
   /** Back or Forward going to a page of the user's (`entries`): the page it shows, should the browser restore it from memory. */
   restoring?: OwnerPage;
   /**
@@ -816,6 +822,25 @@ function ownerRefusal(
  */
 type TypedPage = OwnerPage & { url: string; request?: string; last?: string };
 
+/** How long a refused opening's error page may take to commit, and be told for that refusal's. */
+const REFUSED_COMMIT_MS = 10_000;
+
+/** Notes a main-frame opening the gate refused at `url` (`refusedOpenings`). */
+function noteRefused(s: BrowserSession, url: string): void {
+  const now = Date.now();
+  const kept = s.refusedOpenings.filter((r) => r.until > now).slice(-19);
+  s.refusedOpenings.splice(0, s.refusedOpenings.length, ...kept, { at: addressOf(url), until: now + REFUSED_COMMIT_MS });
+}
+
+/** Whether an error page committing at `at` is that of an opening the gate refused (taken off the list then). */
+function refusedCommit(s: BrowserSession, at: string): boolean {
+  const now = Date.now();
+  const i = s.refusedOpenings.findIndex((r) => r.at === at && r.until > now);
+  if (i === -1) return false;
+  s.refusedOpenings.splice(i, 1);
+  return true;
+}
+
 /** `page` as the user typed it at `url`. */
 const typedAt = (page: OwnerPage, url: string): TypedPage => ({
   key: page.key,
@@ -1221,11 +1246,14 @@ export class BrowserService {
         // page of one refused before) may commit once they typed another, which still opens.
         const failed = typeof frame.unreachableUrl === 'string' ? addressOf(frame.unreachableUrl) : undefined;
         const at = failed ?? addressOf(url);
-        if (s.typed?.last === at) s.typed = s.pass = undefined;
+        // The error page of an opening the gate refused (committing late, once the user typed that same
+        // address and the gate let it through): that refusal's, which ends nothing of the user's opening.
+        const refused = failed !== undefined && refusedCommit(s, failed);
+        if (!refused && s.typed?.last === at) s.typed = s.pass = undefined;
         const key = failed === undefined && /^https?:/i.test(url) ? approvalKeys('fetch', url)[0] : undefined;
         // The page let through at this address, else (an address put another way) the latest of its host's.
-        const opening = s.openings.get(at) ?? [...s.openings.values()].reverse().find((o) => o.key === key);
-        s.openings.delete(at);
+        const opening = refused ? undefined : (s.openings.get(at) ?? [...s.openings.values()].reverse().find((o) => o.key === key));
+        if (!refused) s.openings.delete(at);
         const restoring = s.restoring;
         s.restoring = undefined;
         s.top = !key
@@ -1355,6 +1383,7 @@ export class BrowserService {
       const why = ownerRefusal(s, url, rules, typed);
       if (main && why) {
         s.denied = { url, why };
+        noteRefused(s, url);
         s.onRefused?.(s.denied);
       }
       if (main && !why) noteOpening(s, url, rules, requestId, typed);

@@ -1197,6 +1197,44 @@ describe.skipIf(!chromium)('the browser itself', () => {
     );
 
     it(
+      'keeps the opening the user typed when the error page of the same address, refused before, commits late (Windows on CI)',
+      async () => {
+        // A page's way to /next is refused; its error page is told to have committed only after the user typed
+        // that same address and the gate let it through, before the proxy connects it.
+        const emit = CdpConnection.prototype.emit;
+        let holding = true;
+        CdpConnection.prototype.emit = function (this: InstanceType<typeof CdpConnection>, name: string | symbol, ...args: unknown[]) {
+          const p = args[0] as { frame?: { unreachableUrl?: string } } | undefined;
+          if (holding && name === 'Page.frameNavigated' && /\/next$/.test(p?.frame?.unreachableUrl ?? '')) {
+            holding = false;
+            return (setTimeout(() => emit.call(this, name, ...args), 700), true);
+          }
+          return emit.call(this, name, ...args);
+        } as typeof emit;
+        const own = alone as unknown as { route: (...a: unknown[]) => Promise<unknown> };
+        const route = own.route.bind(alone);
+        own.route = async (...a: unknown[]) => {
+          if (String(a[4] ?? '').endsWith('/next')) await new Promise((r) => setTimeout(r, 1500));
+          return route(...a);
+        };
+        try {
+          hits.length = 0;
+          const b = await open('conv-stale', `http://127.0.0.1:${port}/token`);
+          await b.input([{ type: 'navigate', url: `http://localhost:${port}/next` }]);
+          await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
+          await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
+          await vi.waitFor(() => expect(hits, b.state()).toContain('/next'), { timeout: 10_000 });
+          expect(holding).toBe(false);
+          await alone.closeForUser('conv-stale', b.id);
+        } finally {
+          CdpConnection.prototype.emit = emit;
+          own.route = route;
+        }
+      },
+      slow(60_000),
+    );
+
+    it(
       'takes what the user typed for that opening alone: once it showed nothing, the page still shown cannot send the tab there; its redirects open',
       async () => {
         hits.length = 0;
