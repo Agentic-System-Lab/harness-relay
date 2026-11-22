@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 619 tests in 50 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 625 tests in 51 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -58,6 +58,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [Secrets and fixed commands](#secrets-and-fixed-commands) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 2 | [User guide → Secrets and fixed commands](../docs/user-guide.md#secrets-and-fixed-commands), [Architecture → Secrets and fixed commands](../docs/architecture.md#secrets-and-fixed-commands) |
 | [Long-term memory](#long-term-memory) | [`memory.spec.ts`](specs/memory.spec.ts) | 4 | [User guide → Long-term memory](../docs/user-guide.md#long-term-memory), [Architecture → Long-term memory](../docs/architecture.md#long-term-memory) |
 | [Available apps in drafts](#available-apps-in-drafts) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
 | [App setup and confirmations](#app-setup-and-confirmations) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [User guide → Common apps](../docs/user-guide.md#common-apps) |
@@ -409,6 +410,15 @@ Against stand-ins for Render's and Neon's APIs on this computer (`support/cloud.
 | Below full access, Codex reaches Harness Relay's own tools over loopback HTTP, with no program started, and its mail waits in the outbox | Codex | In edit mode, with **Mail** given to Codex, the fake Codex gets the gateway in its thread config as an HTTP server on `127.0.0.1` with the turn's token in `http_headers`, asks about `relay:mail_send` as Codex does (answered for the user: no card), connects and calls it: the reply says the mail waits in the outbox, with its card. The token is in no argument Codex was started with. |
 | Below full access, Copilot reaches Harness Relay's own tools over loopback HTTP, the token in a header alone, and its mail waits in the outbox | Copilot | In edit mode, with **Mail** given to Copilot, the fake Copilot (which, as the real one, takes HTTP and SSE MCP servers only) gets the gateway in `session/new` as an HTTP server on `127.0.0.1` with the turn's token in its `Authorization` header, and calls `mail_send` there, with no card: the reply says the mail waits in the outbox, with its card. The token is in no argument Copilot was started with. |
 | Below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do | Claude Code | In edit mode, with a calendar on this computer (a stand-in that takes what is put to it) and **Calendar** given to Claude Code, the fake calls `calendar_create`: its own question about `mcp__relay__calendar_create` gets no card; the gateway's card ("wants to use a tool relay:calendar_create") says which event it adds, when, and to which calendar, and nothing is added before **Allow**; allowed, the stand-in gets the event and the reply says it was added. |
+
+## Secrets and fixed commands
+
+[`handoffs.spec.ts`](specs/handoffs.spec.ts): what only the user can give an agent, and a script Harness Relay runs with it. Claude Code's fake ends its reply with a `<secret>` block (`e2e:secret`), a `<command>` block proposing `e2e-check`, which prints its secrets file and the input it read (`e2e:command`), or a `<command-run>` block, one run of it with a line of input (`e2e:commandrun`).
+
+| Scenario | CLI | What is checked |
+| --- | --- | --- |
+| A secret asked for in a reply is given on its card, never shown again, and listed by name in Settings | Claude Code | The reply shows no `<secret` tag but a **Secrets @Claude asks for** card naming `E2E_TOKEN` and the agent's reason; its field is a password field until **Show**; **Save** marks it **Saved** and posts "I gave E2E_TOKEN…" as the user's answer; the value is nowhere on the page nor in the chat the server sends, `GET /api/handoffs` lists the name alone, and **Settings → Secrets and commands** lists it and **Remove** takes it away. |
+| A proposed fixed command is saved, tried with its secret masked, shared, and run once from the outbox | Claude Code | With the secret given, the **Fixed command "e2e-check"** card says **No network**; **Save**, then **Try it**: the run in Harness Relay's own sandbox ends **Done**, its output showing `E2E_TOKEN=••••` and not the value; **Send the result to the team** posts that output; a later reply's outbox card **Run the fixed command "e2e-check" once** shows its input, and **Send** runs it (*done (exit code 0)*). Skipped where Harness Relay's own sandbox does not run (Windows). |
 
 ## Long-term memory
 
@@ -828,6 +838,7 @@ The scenarios tried with each CLI (most of them as a test per CLI, the rest with
 | Common app access enabled and revoked in Settings, verified by two turns in the same chat | ✓ | — | — | — | — | — | — |
 | A signed-in Drive account can search files and stops providing access when Google is turned off. In full access, Google Docs and Obsidian wait for confirmation before writing. Direct Teams and Slack posts wait for Send. | ✓ | — | — | — | — | — | — |
 | A long-term memory note saved in its reply, shown in a card, and given to a later chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A secret given on its card, and a fixed command saved, tried in Harness Relay's own sandbox and run from the outbox | ✓ | — | — | — | — | — | — |
 | Steps for the user in its reply, a card ticked and answered, then it goes on first | ✓ | — | ✓ (goes on after it) | — | — | — | — |
 | An attached image | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A reply stopped; an error inside the protocol; a failed reply and Retry | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -894,6 +905,7 @@ The app preview panel is shared by all CLIs. The Files and draft scenarios use C
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).
 - Copilot runs below full access on macOS, Linux and Windows alike, as its own sandbox does: its fake keeps to the policy its run's settings give, so its tests need no sandbox on the computer that runs them.
 - The phone test of [Steps for the user](#steps-for-the-user) is skipped in Firefox, which has no phone emulation.
+- [Secrets and fixed commands](#secrets-and-fixed-commands): the fixed command's test is skipped where Harness Relay's own sandbox does not run (Windows; a Linux without bubblewrap fails it on CI, `E2E_REQUIRE_RELAY_SANDBOX=1`).
 - [On a phone](#on-a-phone) is skipped in Firefox, and its test with the browser's own touches runs in Chromium only (they are sent through its DevTools protocol).
 - The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), "Without gh" is skipped on Windows, and the viewer's download test is skipped in WebKit, which under Playwright downloads nothing a link opens (also on a page without a frame, sent as an attachment).
@@ -904,6 +916,7 @@ The local preview scenarios use loopback hostnames and a phone-sized browser vie
 ## What they do not cover
 
 - **Most of long-term memory.** End-to-end tests save, recall, set aside, restore, pin and tidy notes, and switch memory off. The following cases are covered offline (`test/memory.test.ts`, `test/orchestrator-memory.test.ts`): corrections and forgets, notes waiting for the user (review), the user's own notes kept from agents, a note of one folder, recall once per session, automatic tidying and the rules its changes follow.
+- **Most of secrets and fixed commands.** End-to-end tests give a secret, save, try and share a fixed command and send one run from the outbox, with Claude Code's fake only: the blocks are plain text the server reads, so every CLI's reply is read the same way. Offline: the blocks' shapes and what stays text, masking, the store (`test/handoffs.test.ts`), the run's sandbox, environment, secrets file and a renewed value, and the pin on a real repository (`test/fixed-commands.test.ts`), a changed pin, an automation's fixed command and its outcomes (`test/orchestrator-handoffs.test.ts`), and the routes (`test/handoffs-api.test.ts`). That no agent's own sandbox reads a run's secrets file is the adapters' (`agentProtectedReads()`), not tried end to end.
 - **Most of steps cards.** End-to-end tests give steps with Claude Code's fake only: the block is plain text the server reads, so every CLI's reply is read the same way. Offline: the block's shapes and what stays text (`test/steps.test.ts`), parallel and relay modes, a reply of steps alone, an ask marker beside them, ticks after a restart and the answer that cannot be posted (`test/orchestrator-steps.test.ts`), what the routes refuse (`test/steps-api.test.ts`), and the steps on a shared page, in the copy and the transcript (`test/steps-web.test.ts`) and in AgentsView (`test/agentsview.test.ts`).
 - **Physical phones and production preview domains.** Browser checks use a phone viewport and a synthetic HTTPS setup for remote mode. Check physical devices, DNS, certificates and proxy routing in the deployment. The standalone Docker check, `npx tsx scripts/preview-runtime-check.ts`, also runs on Linux CI.
 - **A container the team made starting by itself in full access.** The specs try a page that starts by itself and a Dockerfile that waits below full access; which modes start by themselves in full access is in `test/webPreview.test.ts`.

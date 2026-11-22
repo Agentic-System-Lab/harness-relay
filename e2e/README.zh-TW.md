@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 50 個 spec 檔、619 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 51 個 spec 檔、625 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -58,6 +58,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [密鑰與固定指令](#密鑰與固定指令) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 2 | [使用指南 → 密鑰與固定指令](../docs/user-guide.zh-TW.md#密鑰與固定指令)、[架構 → 密鑰與固定指令](../docs/architecture.zh-TW.md#密鑰與固定指令) |
 | [長期記憶](#長期記憶) | [`memory.spec.ts`](specs/memory.spec.ts) | 4 | [使用指南 → 長期記憶](../docs/user-guide.zh-TW.md#長期記憶)、[架構 → 長期記憶](../docs/architecture.zh-TW.md#長期記憶) |
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
@@ -411,6 +412,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
 | 完全存取以下，Copilot 透過本機 HTTP 使用 Harness Relay 自己的工具，權杖只在 header 裡，它的郵件在待送出匣等待 | Copilot | 在可編輯模式下，把**郵件**給 Copilot：假 Copilot（和真的一樣只接受 HTTP 與 SSE 的 MCP server）在 `session/new` 拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `Authorization` header；它在那裡呼叫 `mail_send`，沒有卡片：回覆說郵件在待送出匣等待，並附上它的卡片。啟動 Copilot 的參數中都沒有這個權杖。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動、時間與加進哪個行事曆，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
+
+## 密鑰與固定指令
+
+[`handoffs.spec.ts`](specs/handoffs.spec.ts)：只有使用者能交給 agent 的東西，以及 Harness Relay 帶著它執行的腳本。Claude Code 的 fake 在回覆最後加上 `<secret>` 區塊（`e2e:secret`）、提議 `e2e-check` 的 `<command>` 區塊，它會印出自己的密鑰檔和讀到的輸入（`e2e:command`），或是帶一行輸入、執行它一次的 `<command-run>` 區塊（`e2e:commandrun`）。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 回覆要的密鑰在卡片上提供，之後不再顯示，並在設定頁依名稱列出 | Claude Code | 回覆裡沒有 `<secret` 標籤，而是一張 **Secrets @Claude asks for** 卡片，列出 `E2E_TOKEN` 和 agent 的理由；按 **Show** 之前輸入框都是密碼欄位；**Save** 後標成 **Saved**，並把「I gave E2E_TOKEN…」當作使用者的回答送出；值不在頁面上，也不在伺服器送出的對話裡，`GET /api/handoffs` 只列出名稱，**設定 → 密鑰與固定指令**也列出它，按 **Remove** 就刪除。 |
+| 提議的固定指令儲存、試跑時密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Save** 再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值；**Send the result to the team** 把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
 
 ## 長期記憶
 
@@ -830,6 +840,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
 | 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 在卡片上提供密鑰，以及儲存固定指令、在 Harness Relay 自己的沙箱裡試跑並從待送出匣執行 | ✓ | — | — | — | — | — | — |
 | 回覆中給使用者的步驟：卡片被勾選並回覆，之後它先繼續 | ✓ | — | ✓（在它之後繼續） | — | — | — | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -896,6 +907,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
 - [要使用者做的步驟](#要使用者做的步驟)的手機測試在 Firefox 中跳過，因為 Firefox 沒有手機模擬。
+- [密鑰與固定指令](#密鑰與固定指令)：固定指令的測試在 Harness Relay 自己的沙箱不能執行的地方會略過（Windows；CI 上沒有 bubblewrap 的 Linux 會失敗，`E2E_REQUIRE_RELAY_SANDBOX=1`）。
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
@@ -907,6 +919,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
+- **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令，以及從待送出匣送出一次執行：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值，以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。
 - **步驟卡片的大部分。**端對端測試只用 Claude Code 的假 CLI 給步驟：區塊是伺服器讀取的純文字，所以每個 CLI 的回覆都以同樣的方式讀取。離線測試涵蓋：區塊的各種寫法與留作文字的情況（`test/steps.test.ts`）、平行與接力模式、只有步驟的回覆、旁邊的提問標記、重新啟動後的勾選與送不出去的回答（`test/orchestrator-steps.test.ts`）、路由拒絕的請求（`test/steps-api.test.ts`），以及分享頁面、複製與對話紀錄中的步驟（`test/steps-web.test.ts`）與 AgentsView 中的步驟（`test/agentsview.test.ts`）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。
