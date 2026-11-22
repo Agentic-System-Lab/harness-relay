@@ -1093,6 +1093,8 @@ export const zhTW = {
       hideDiff: '收起變更',
       noDiff: '沒有可顯示的差異（這些檔案可能被 git 忽略）。',
       approve: '確認變更並執行',
+      approveNeedsDiff: '先查看變更，才能確認',
+      replaces: '已經有同名的固定指令：儲存會取代它，用到它的自動任務和待送出匣也會改用這一個。',
       share: '把結果送給團隊',
       continue: '告訴團隊已儲存',
       windows: '原生 Windows 上還不能執行固定指令。',

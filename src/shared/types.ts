@@ -2425,6 +2425,8 @@ export type MessagePart =
       status: 'proposed' | 'saved' | 'dismissed';
       commandId?: string;
       run?: FixedCommandRun;
+      /** A saved command of the same name existed when it was proposed: saving replaces it. */
+      replaces?: boolean;
     }
   /**
    * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its

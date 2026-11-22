@@ -91,7 +91,19 @@ import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
-import { defaultFixedCommandDeps, dropPin, pinChanges, pinDiff, runFixedCommand, takePin, type FixedCommandDeps } from './fixedCommands';
+import {
+  defaultFixedCommandDeps,
+  dropPin,
+  manifestChanges,
+  manifestDigest,
+  pinChanges,
+  pinDiff,
+  pinManifest,
+  runFixedCommand,
+  takePin,
+  type FixedCommandDeps,
+} from './fixedCommands';
+import type { CommandPin } from './handoffs';
 import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, type InteractiveDeps } from './interactive';
 import type { Hub } from './hub';
 import {
@@ -899,6 +911,8 @@ export class Orchestrator {
   /** Fixed commands' runs under way, by command id (one at a time each), and the work of those Try it started. */
   private commandRuns = new Map<string, AbortController>();
   private commandWork = new Set<Promise<unknown>>();
+  /** What a schedule's fixed command found while the team could not take its message: sent at the time's retry. */
+  private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource }>();
   /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
   interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
   /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
@@ -1083,6 +1097,7 @@ export class Orchestrator {
       this.traces?.forget?.(convId);
       this.outbox?.forget(convId);
       this.skipNotes.delete(convId);
+      this.heldCommandEvents.delete(convId);
       this.onDelete?.(convId);
     } finally {
       this.deleting.delete(convId);
@@ -1174,7 +1189,15 @@ export class Orchestrator {
     for (const b of blocks) {
       if (b.kind !== 'command' || proposed >= HANDOFF_LIMITS.commandsPerReply) continue;
       const { kind: _kind, ...proposal } = b;
-      msg.parts.push({ type: 'command', id: randomUUID(), folder, proposal, status: 'proposed' });
+      // A saved command of the same name would be replaced (its schedules and outbox runs then run this one).
+      msg.parts.push({
+        type: 'command',
+        id: randomUUID(),
+        folder,
+        proposal,
+        status: 'proposed',
+        ...(store.commandByName(folder, proposal.name) ? { replaces: true } : {}),
+      });
       proposed++;
     }
     // Commands for the user to run themselves: never started from an automation's run, nor on native Windows.
@@ -1220,7 +1243,7 @@ export class Orchestrator {
           },
         },
         // What the card showed, pinned: a command saved again with another command line is not run for it.
-        { commandId: cmd.id, run: cmd.run, input: b.input },
+        { commandId: cmd.id, run: cmd.run, hosts: cmd.hosts, secrets: cmd.secrets, cwd: cmd.cwd ?? '', input: b.input },
       );
       if (!existing)
         msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
@@ -1379,14 +1402,15 @@ export class Orchestrator {
     const store = this.settings.handoffs;
     const id = store.commandId(part.folder, proposal.name);
     if (this.commandRuns.has(id)) throw new HttpError(409, t().handoffs.commandRunning);
-    if (store.command(id)) await dropPin(id, store.pin(id));
-    let pin;
+    const old = store.pin(id);
+    let pin: CommandPin;
     try {
       pin = await takePin(part.folder, id);
     } catch (err) {
       throw new HttpError(409, (err as Error).message);
     }
     const command = store.saveCommand(part.folder, id, proposal, pin);
+    await dropPin(id, old, pin);
     part.proposal = proposal;
     part.status = 'saved';
     part.commandId = id;
@@ -1429,31 +1453,45 @@ export class Orchestrator {
    * user saw what changed in its code and approves it, which pins it again first. `extra`: words added
    * to its command line for this run only.
    */
-  async tryCommand(convId: string, commandId: string, o: { extra?: string; approve?: boolean } = {}): Promise<void> {
+  async tryCommand(convId: string, commandId: string, o: { extra?: string; approve?: string } = {}): Promise<void> {
     const { conv, cmd } = this.ownCommand(convId, commandId);
     if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
     if (o.approve) {
-      await dropPin(cmd.id, this.settings.handoffs.pin(cmd.id));
+      // Pinned again only as the user saw it: the digest of the code whose diff they read.
+      const old = this.settings.handoffs.pin(cmd.id);
+      let pin: CommandPin;
       try {
-        this.settings.handoffs.repin(cmd.id, await takePin(cmd.folder, cmd.id));
+        pin = await takePin(cmd.folder, cmd.id);
       } catch (err) {
-        if (err instanceof HttpError) throw err;
         throw new HttpError(409, (err as Error).message);
       }
+      if (manifestDigest(pin.manifest) !== o.approve) {
+        await dropPin(cmd.id, pin, old);
+        throw new HttpError(409, t().handoffs.changedAgain);
+      }
+      this.settings.handoffs.repin(cmd.id, pin);
+      await dropPin(cmd.id, old, pin);
     }
-    const work = this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}) });
+    this.trackCommand(this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}) }));
+  }
+
+  /** A fixed command's run, waited for at shutdown before the database closes. */
+  private trackCommand<T>(work: Promise<T>): Promise<T> {
     this.commandWork.add(work);
     void work.finally(() => this.commandWork.delete(work));
+    return work;
   }
 
   /** What changed in a fixed command's code since it was pinned: the files, and git's diff of them (its secrets masked). */
-  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string }> {
+  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string; digest: string }> {
     const { cmd } = this.ownCommand(convId, commandId);
     const pin = this.settings.handoffs.pin(cmd.id);
-    if (!pin) return { changed: [], diff: '' };
-    const changed = await pinChanges(cmd.folder, pin);
+    if (!pin) return { changed: [], diff: '', digest: '' };
+    const now = await pinManifest(cmd.folder);
+    const changed = manifestChanges(pin.manifest, now);
     const diff = await pinDiff(cmd.folder, pin, changed).catch(() => '');
-    return { changed, diff: maskValues(diff, Object.values(this.settings.handoffs.values(cmd.folder))) };
+    // What Approve sends back: this code, the one this diff shows, and no later one.
+    return { changed, diff: maskValues(diff, Object.values(this.settings.handoffs.values(cmd.folder))), digest: manifestDigest(now) };
   }
 
   /**
@@ -1476,6 +1514,12 @@ export class Orchestrator {
     const abort = new AbortController();
     this.commandRuns.set(cmd.id, abort);
     try {
+      // Not while a run may be writing in its folder: what it would run could change under it.
+      if (conv && this.writingIn(conv.id, cmd.folder)) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
+        record(run);
+        return run;
+      }
       const pin = store.pin(cmd.id);
       const changed = pin ? await pinChanges(cmd.folder, pin) : [];
       if (!pin || changed.length) {
@@ -1507,7 +1551,8 @@ export class Orchestrator {
       record(run);
       return run;
     } catch (err) {
-      const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: (err as Error).message };
+      const reason = maskValues((err as Error).message, Object.values(store.values(cmd.folder)));
+      const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason };
       record(run);
       return run;
     } finally {
@@ -1686,8 +1731,13 @@ export class Orchestrator {
         const conv = this.store.get(convId);
         const cmd = typeof args.commandId === 'string' ? this.settings.handoffs.command(args.commandId) : undefined;
         if (!conv || !cmd || cmd.folder !== this.handoffFolder(conv)) throw new Error(t().handoffs.commandNotFound);
-        if (args.run !== cmd.run) throw new Error(t().handoffs.commandChangedSince(cmd.name));
-        const run = await this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' });
+        const same =
+          args.run === cmd.run &&
+          isDeepStrictEqual(args.hosts, cmd.hosts) &&
+          isDeepStrictEqual(args.secrets, cmd.secrets) &&
+          args.cwd === (cmd.cwd ?? '');
+        if (!same) throw new Error(t().handoffs.commandChangedSince(cmd.name));
+        const run = await this.trackCommand(this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' }));
         const text = t().handoffs.runLine(run);
         if (run.status === 'passed' || run.status === 'news') return text;
         throw new Error(text);
@@ -2220,13 +2270,51 @@ export class Orchestrator {
       ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
       : undefined;
     // A schedule with a fixed command runs it first: the team hears of it only when it found something
-    // new or failed, with its output as the message's event; when it found nothing, no model runs.
+    // new or failed, with its output as the message's event; when it found nothing, no model runs. It
+    // runs only once its message could go now, and what a run found while the team could not take it
+    // (busy) is kept for the time's retry, never run again for it.
     let found: { event: string; eventSource: EventSource } | undefined;
     if (s.command && opts.event === undefined) {
-      const ran = await this.runScheduledCommand(conv, s.command);
-      if ('result' in ran) return ran;
-      found = { event: ran.event, eventSource: 'command' };
+      found = this.heldCommandEvents.get(convId);
+      if (!found) {
+        const blocked = s.newChat ? undefined : this.scheduleBlocked(conv);
+        if (blocked) return blocked;
+        const ran = await this.runScheduledCommand(conv, s.command);
+        if ('result' in ran) return ran;
+        found = { event: ran.event, eventSource: 'command' };
+      }
+      this.heldCommandEvents.delete(convId);
     }
+    const sent = await this.deliverScheduled(conv, s, at, opts, tracking, found);
+    if (found && sent.result === 'busy') this.heldCommandEvents.set(convId, found);
+    return sent;
+  }
+
+  /**
+   * Why a schedule's message could not go to this conversation's team now (its own chat's: a new chat
+   * each time always can), or undefined when it could: the checks `deliverScheduled()` makes, asked
+   * before a fixed command runs for it.
+   */
+  private scheduleBlocked(conv: Conversation): ScheduledSend | undefined {
+    const replying = this.runs.has(conv.id) || this.starting.has(conv.id);
+    if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
+    if (Boolean(conv.queue?.some((m) => m.scheduled)) && replying) return { result: 'skipped', reason: t().scheduleStillQueued };
+    if (this.designing.has(conv.id) && !conv.settings.autoConfirm) return { result: 'busy', reason: t().scheduleDesigning };
+    if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
+    if (!replying && this.isBusy(conv.id)) return { result: 'busy', reason: t().scheduleConvBusy };
+    return undefined;
+  }
+
+  /** A schedule's message sent (or queued), with what its fixed command found when it has one. */
+  private async deliverScheduled(
+    conv: Conversation,
+    s: ConversationSchedule,
+    at: number,
+    opts: { event?: string; eventSource?: EventSource; attempt?: number; retries?: boolean },
+    tracking: TrackedRun | undefined,
+    found: { event: string; eventSource: EventSource } | undefined,
+  ): Promise<ScheduledSend> {
+    const convId = conv.id;
     const event = found
       ? found
       : opts.event !== undefined
@@ -3143,6 +3231,7 @@ export class Orchestrator {
     this.grouper.stopAll();
     this.memory.stopAll();
     this.stopInteractive();
+    for (const abort of this.commandRuns.values()) abort.abort();
   }
 
   emitConversation(conv: Conversation): void {

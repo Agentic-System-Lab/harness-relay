@@ -44,6 +44,7 @@ import type {
   MemoryNote,
   MemoryPartNote,
   SecretAsk,
+  FixedCommandRun,
   StepItem,
   StepsAnswer,
   InteractiveSession,
@@ -945,6 +946,15 @@ export class Store {
         if (data.session?.state !== 'running') continue;
         const { asking: _asking, ...session } = data.session;
         expire.run(JSON.stringify({ ...data, session: { ...session, state: 'stopped' } }), r.message_id, r.idx);
+      }
+      // A fixed command's run the server stopped during never finishes: its card can try it again.
+      const commands = db
+        .prepare(`SELECT message_id, idx, data FROM message_parts WHERE type = 'command' AND data LIKE '%"status":"running"%'`)
+        .all() as { message_id: string; idx: number; data: string | null }[];
+      for (const r of commands) {
+        const data = parseJson<{ run?: Partial<FixedCommandRun> } & Record<string, unknown>>(r.data, {});
+        if (data.run?.status !== 'running') continue;
+        expire.run(JSON.stringify({ ...data, run: { ...data.run, status: 'error', reason: t().stoppedNote } }), r.message_id, r.idx);
       }
     });
   }

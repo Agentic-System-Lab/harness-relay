@@ -585,12 +585,12 @@ export const api = {
       b,
     ),
   /** Try a saved fixed command (in the background: its card follows it). */
-  tryCommand: (id: string, commandId: string, b: { extra?: string; approve?: boolean }) =>
+  tryCommand: (id: string, commandId: string, b: { extra?: string; approve?: string }) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/try`, b),
   /** The fixed commands of a chat's working directory. */
   conversationCommands: (id: string) => request<FixedCommand[]>('GET', `/api/conversations/${encodeURIComponent(id)}/commands`),
   commandDiff: (id: string, commandId: string) =>
-    request<{ changed: string[]; diff: string }>(
+    request<{ changed: string[]; diff: string; digest: string }>(
       'GET',
       `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/diff`,
     ),

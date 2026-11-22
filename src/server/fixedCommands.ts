@@ -1,10 +1,11 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from 'node:fs';
+import { lstat, open, readdir, readlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join, relative, sep } from 'node:path';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, SECRET_NAME_RE, type FixedCommand, type FixedCommandRun } from '../shared/types';
-import { maskValues, secretValueProblem } from '../shared/handoffs';
+import { UNPINNED_TOP, maskEdges, maskValues, secretValueProblem } from '../shared/handoffs';
 import type { CompiledPattern } from '../shared/checks';
 import { AgentRunError } from './agents/types';
-import { diffManifests, takeManifest, TooManyFiles } from './checks';
 import { CONFIG_FILE, checkEnv, commandCwd, keptOutput, sandboxDenial } from './checkCommands';
 import type { CommandPin } from './handoffs';
 import { t } from './i18n';
@@ -17,7 +18,7 @@ import {
   type RelaySandboxRunDirs,
   type SandboxAvailability,
 } from './relaySandbox';
-import { diffText, keepCommits, dropKeptCommits, repoRoot, snapshot } from './workspace';
+import { diffText, dropKeptCommits, forgetCommits, keepCommits, repoRoot, snapshot } from './workspace';
 
 /*
  * Fixed commands (docs/architecture.md, "Secrets and fixed commands"): a command line the user saved
@@ -97,17 +98,82 @@ export const PIN_PATTERN: CompiledPattern = {
 /** The ref folder a command's pinned snapshot is kept under (`refs/harness-relay/commands/<id>/…`). */
 const pinKey = (id: string) => `commands/${id}`;
 
+/** What a pin holds of one path: a file's size and SHA-256, or a link's target (any link, whatever its name). */
+export type PinEntry = { kind: 'file'; size: number; hash: string } | { kind: 'link'; target: string };
+
+/** Most names a pin's walk visits, and most bytes it reads, before it gives up. */
+const PIN_WALK = { entries: 200_000, bytes: 1024 * 1024 * 1024 };
+
+/** A file's SHA-256, read without following a link. */
+async function hashFile(abs: string): Promise<string> {
+  const handle = await open(abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const hash = createHash('sha256');
+    for await (const chunk of handle.createReadStream({ autoClose: false })) hash.update(chunk as Buffer);
+    return hash.digest('hex');
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * What a fixed command's code is now, in its folder: each file `PIN_PATTERN` matches, at any depth,
+ * hashed in full (never trusting a size and a time, which a program can put back), and every link,
+ * whatever its name (a link to a folder can put a module in a script's way). It passes over `.git`
+ * and, at the top only, the folders of installed packages (`UNPINNED_TOP`), and follows no link.
+ */
+export async function pinManifest(folder: string): Promise<Record<string, PinEntry>> {
+  const out: Record<string, PinEntry> = {};
+  let seen = 0;
+  let bytes = 0;
+  const visit = async (rel: string, abs: string, top: boolean): Promise<void> => {
+    let names: string[];
+    try {
+      names = await readdir(abs);
+    } catch {
+      return;
+    }
+    for (const name of names.sort()) {
+      if (++seen > PIN_WALK.entries) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
+      if (name.toLowerCase() === '.git') continue;
+      const childRel = rel ? `${rel}/${name}` : name;
+      const childAbs = join(abs, name);
+      const st = await lstat(childAbs).catch(() => undefined);
+      if (!st) continue;
+      if (st.isSymbolicLink()) {
+        out[childRel] = { kind: 'link', target: await readlink(childAbs).catch(() => '') };
+      } else if (st.isDirectory()) {
+        if (!(top && UNPINNED_TOP.includes(name))) await visit(childRel, childAbs, false);
+      } else if (st.isFile() && PIN_PATTERN.regex.test(childRel)) {
+        bytes += st.size;
+        if (bytes > PIN_WALK.bytes) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
+        out[childRel] = { kind: 'file', size: st.size, hash: await hashFile(childAbs).catch(() => '') };
+      }
+      if (Object.keys(out).length > HANDOFF_LIMITS.pinnedFiles)
+        throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
+    }
+  };
+  await visit('', folder, true);
+  return out;
+}
+
+/** A pin's manifest in a few characters, which the user's Approve sends back: the code they saw the diff of. */
+export function manifestDigest(manifest: Record<string, PinEntry>): string {
+  const sorted = Object.keys(manifest)
+    .sort()
+    .map((k) => [k, manifest[k]]);
+  return createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 32);
+}
+
+/** What changed between two pins' manifests, by path, in path order. */
+export function manifestChanges(before: Record<string, PinEntry>, after: Record<string, PinEntry>): string[] {
+  const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  return paths.filter((p) => JSON.stringify(before[p]) !== JSON.stringify(after[p]));
+}
+
 /** A command's code now: the manifest of its folder, and a snapshot of its repository to show a diff from. */
 export async function takePin(folder: string, id: string): Promise<CommandPin> {
-  let manifest;
-  try {
-    manifest = await takeManifest(folder, [PIN_PATTERN], { maxEntries: 200_000 });
-  } catch (err) {
-    if (err instanceof TooManyFiles) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
-    throw err;
-  }
-  if (Object.keys(manifest).length > HANDOFF_LIMITS.pinnedFiles)
-    throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
+  const manifest = await pinManifest(folder);
   const root = (await repoRoot(folder).catch(() => null)) ?? undefined;
   if (!root) return { manifest };
   try {
@@ -119,16 +185,22 @@ export async function takePin(folder: string, id: string): Promise<CommandPin> {
   }
 }
 
-/** Drops a pin's kept snapshot (its command was removed, or pinned again). */
-export async function dropPin(id: string, pin: CommandPin | undefined): Promise<void> {
-  if (!pin?.root) return;
-  await dropKeptCommits(pin.root, pinKey(id)).catch(() => undefined);
+/**
+ * Lets go of a pin's kept snapshot: all of the command's (it was removed), or only `old`'s once a new
+ * pin `kept` took its place (taken first, so a pin that fails leaves the old one whole).
+ */
+export async function dropPin(id: string, old: CommandPin | undefined, kept?: CommandPin): Promise<void> {
+  if (!old?.root) return;
+  if (!kept) {
+    await dropKeptCommits(old.root, pinKey(id)).catch(() => undefined);
+    return;
+  }
+  if (old.commit && old.commit !== kept.commit) await forgetCommits(old.root, pinKey(id), [old.commit]).catch(() => undefined);
 }
 
 /** The pinned files that changed, were added or went since the pin, relative to the folder; empty when none did. */
 export async function pinChanges(folder: string, pin: CommandPin): Promise<string[]> {
-  const now = await takeManifest(folder, [PIN_PATTERN], { previous: pin.manifest, maxEntries: 200_000 });
-  return diffManifests(pin.manifest, now).map((c) => c.path);
+  return manifestChanges(pin.manifest, await pinManifest(folder));
 }
 
 /**
@@ -140,8 +212,12 @@ export async function pinDiff(folder: string, pin: CommandPin, changed: readonly
   const { commit } = await snapshot(pin.root);
   const rel = folder === pin.root ? undefined : folder;
   const full = await diffText(pin.root, pin.commit, commit, rel);
-  // Only the sections of the files that changed.
-  const sections = full.split(/(?=^diff --git )/m).filter((s) => changed.some((p) => s.includes(` b/${p}\n`) || s.includes(`/${p}\n`)));
+  // Only the sections of the files that changed, matched by their whole path (git's are from the repository's top).
+  const prefix = rel ? `${relative(pin.root, folder).split(sep).join('/')}/` : '';
+  const sections = full.split(/(?=^diff --git )/m).filter((part) => {
+    const head = part.slice(0, part.indexOf('\n'));
+    return changed.some((p) => head.endsWith(` b/${prefix}${p}`));
+  });
   const text = sections.join('');
   return text.length > max ? `${text.slice(0, max)}\n…` : text;
 }
@@ -203,6 +279,29 @@ export function readSecretsFile(text: string): Record<string, string> {
   return out;
 }
 
+/** Most of its secrets file a run's values are read back from. */
+const READ_BACK_BYTES = 64 * 1024;
+
+/**
+ * The values a run left in its secrets file, read without trusting it: the command could have put a
+ * link there (to a file it may not read), a named pipe (which would block the server) or something
+ * endless; so no link is followed, nothing blocks, only a regular file is read, and only its start.
+ */
+export function readBack(file: string): Record<string, string> {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+    if (!fstatSync(fd).isFile()) return {};
+    const buf = Buffer.alloc(READ_BACK_BYTES);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return readSecretsFile(buf.subarray(0, n).toString('utf8'));
+  } catch {
+    return {};
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
 /** Runs a fixed command once and says how it went (never throws for the command or the sandbox). */
 export async function runFixedCommand(
   cmd: FixedCommand,
@@ -262,12 +361,16 @@ export async function runFixedCommand(
         maxCapture: HANDOFF_LIMITS.output * 4,
         ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
       });
-      const failure = sandboxed.failure();
-      if (failure) return errorRun(failure);
     } finally {
       disposed = true;
-      // What it left in its secrets file, read before its folder goes.
-      left = existsSync(file) ? readSecretsFile(readFileSync(file, 'utf8')) : {};
+      // What it left in its secrets file, read before its folder goes; then the file goes, whatever
+      // keeps the folder (a process the sweeps could not end).
+      left = readBack(file);
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        /* its folder goes with the run */
+      }
       await sandboxed.dispose();
     }
     const written: Record<string, string> = {};
@@ -275,8 +378,11 @@ export async function runFixedCommand(
       const value = left[name]?.trim();
       if (value !== undefined && value !== own[name] && !secretValueProblem(value)) written[name] = value;
     }
+    const failure = sandboxed.failure();
+    if (failure) return { run: errorRun(failure).run, written };
     const masks = [...allValues, ...Object.values(written)];
-    const output = res.stdout ? maskValues(keptOutput(res.stdout, HANDOFF_LIMITS.output), masks) : '';
+    // Masked whole before it is cut, and at its ends after: a value cut in two shows neither part.
+    const output = res.stdout ? maskEdges(keptOutput(maskValues(res.stdout, masks), HANDOFF_LIMITS.output), masks) : '';
     const base: FixedCommandRun = {
       at,
       source,

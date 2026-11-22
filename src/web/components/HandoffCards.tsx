@@ -202,7 +202,7 @@ export function CommandCard({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => formOf(part.proposal));
   const [extra, setExtra] = useState('');
-  const [diff, setDiff] = useState<{ changed: string[]; diff: string } | null>(null);
+  const [diff, setDiff] = useState<{ changed: string[]; diff: string; digest: string } | null>(null);
   const actions = commandActions(part);
   const p = part.proposal;
   const run = part.run;
@@ -212,9 +212,10 @@ export function CommandCard({
       await api.commandCard(convId, messageId, part.id, 'save', editing ? edited : undefined);
       setEditing(false);
     });
-  const tryIt = (approve: boolean) =>
+  // Approve sends the digest of the code whose diff the user looked at: a later change is refused.
+  const tryIt = (approve?: string) =>
     call(async () => {
-      await api.tryCommand(convId, part.commandId!, { ...(extra.trim() ? { extra } : {}), ...(approve ? { approve: true } : {}) });
+      await api.tryCommand(convId, part.commandId!, { ...(extra.trim() ? { extra } : {}), ...(approve ? { approve } : {}) });
       setDiff(null);
     });
   const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!))));
@@ -277,6 +278,7 @@ export function CommandCard({
           )}
         </dl>
       )}
+      {actions.decide && part.replaces && <p className="warn-line small">{c.replaces}</p>}
       {actions.decide && <p className="muted small">{c.hint}</p>}
       {run && tone && (
         <div className={`handoff-run-result handoff-${tone.tone}`} role="status">
@@ -362,11 +364,17 @@ export function CommandCard({
           )}
           <div className="approval-actions">
             {actions.approve ? (
-              <button type="button" className="primary small-button" disabled={busy} onClick={() => void tryIt(true)}>
+              <button
+                type="button"
+                className="primary small-button"
+                disabled={busy || !diff?.digest}
+                title={diff ? undefined : c.approveNeedsDiff}
+                onClick={() => void tryIt(diff?.digest)}
+              >
                 {c.approve}
               </button>
             ) : (
-              <button type="button" className="primary small-button" disabled={busy || !actions.tryIt} onClick={() => void tryIt(false)}>
+              <button type="button" className="primary small-button" disabled={busy || !actions.tryIt} onClick={() => void tryIt()}>
                 {run?.status === 'running' ? c.running : c.tryIt}
               </button>
             )}

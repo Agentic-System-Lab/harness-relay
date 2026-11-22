@@ -116,6 +116,14 @@ export function commandFolder(value: string | undefined): string | undefined {
 }
 
 /**
+ * Whether a command line holds what would make it read other than it runs: control characters (but
+ * tab and line breaks), bidirectional overrides and isolates, zero-width characters, a byte order mark.
+ */
+export function hiddenCharacters(line: string): boolean {
+  return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/.test(line);
+}
+
+/**
  * A command proposal checked: its name, a command line on its own (not empty, within the limit), at
  * most `HANDOFF_LIMITS.hosts` valid hosts and `commandSecrets` valid secret names. Undefined when any
  * part is not valid. Also checks what the user edits on the card, on the server.
@@ -129,13 +137,14 @@ export function checkProposal(p: {
 }): CommandProposal | undefined {
   const name = commandName(p.name);
   const run = (p.run ?? '').trim();
-  if (!name || !run || run.length > HANDOFF_LIMITS.commandLine || run.includes('\u0000')) return undefined;
+  if (!name || !run || run.length > HANDOFF_LIMITS.commandLine || hiddenCharacters(run)) return undefined;
   const hosts = (p.hosts ?? []).map(hostName);
   const secrets = (p.secrets ?? []).map(secretName);
   if (hosts.some((h) => !h) || secrets.some((s) => !s)) return undefined;
   if (hosts.length > HANDOFF_LIMITS.hosts || secrets.length > HANDOFF_LIMITS.commandSecrets) return undefined;
   const cwd = commandFolder(p.cwd);
-  if (cwd === undefined) return undefined;
+  // Not inside a folder of installed packages, whose code the pin passes over.
+  if (cwd === undefined || UNPINNED_TOP.includes(cwd.split('/')[0]!)) return undefined;
   return {
     name,
     run,
@@ -329,12 +338,47 @@ export function withoutHandoffBlocks(text: string): string {
  * What a secret's value may be: not empty once trimmed, at most `HANDOFF_LIMITS.secretValue` bytes, no
  * line break inside (a dotenv file holds one line each) and no NUL. Undefined when it is fine, else why.
  */
-export function secretValueProblem(value: string): 'empty' | 'long' | 'lines' | undefined {
+export function secretValueProblem(value: string): 'empty' | 'short' | 'long' | 'lines' | undefined {
   const v = value.trim();
   if (!v) return 'empty';
+  // Shorter, it could not be masked in output without masking ordinary words (`maskValues`).
+  if ([...v].length < 4) return 'short';
   if (new TextEncoder().encode(v).length > HANDOFF_LIMITS.secretValue) return 'long';
   if (/[\r\n\u0000]/.test(v)) return 'lines';
   return undefined;
+}
+
+/**
+ * The folders of installed packages that a fixed command's pin passes over at the top of its folder, as
+ * snapshots do; a command may not run from inside one, where its code would not be pinned.
+ */
+export const UNPINNED_TOP = ['node_modules', '.venv', 'venv', '__pycache__', '.next', '.turbo', 'target'];
+
+/**
+ * `text` with the part of a value its start or end cut in two (output kept from its end, or cut at a
+ * limit) replaced by dots too: a value's last characters at the very start, its first at the very end,
+ * four at least.
+ */
+export function maskEdges(text: string, values: readonly string[]): string {
+  let out = text;
+  for (const v of values) {
+    if (v.length < 5) continue;
+    for (let k = v.length - 1; k >= 4; k--) {
+      const head = v.slice(v.length - k);
+      const at = out.startsWith('…\n') ? 2 : 0;
+      if (out.startsWith(head, at)) {
+        out = `${out.slice(0, at)}••••${out.slice(at + k)}`;
+        break;
+      }
+    }
+    for (let k = v.length - 1; k >= 4; k--) {
+      if (out.endsWith(v.slice(0, k))) {
+        out = `${out.slice(0, out.length - k)}••••`;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /**

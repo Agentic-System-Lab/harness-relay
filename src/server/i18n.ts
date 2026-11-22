@@ -136,8 +136,14 @@ const zhTW = {
   handoffs: {
     storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',
     badName: (name: string) => `「${name}」不是有效的密鑰名稱：只能用大寫英文字母、數字和底線，而且不能以數字開頭。`,
-    badValue: (name: string, problem: 'empty' | 'long' | 'lines') =>
-      problem === 'empty' ? `${name} 是空的。` : problem === 'long' ? `${name} 太長了（最多 16 KB）。` : `${name} 不能有換行。`,
+    badValue: (name: string, problem: 'empty' | 'short' | 'long' | 'lines') =>
+      problem === 'empty'
+        ? `${name} 是空的。`
+        : problem === 'short'
+          ? `${name} 太短了（至少 4 個字元）。`
+          : problem === 'long'
+            ? `${name} 太長了（最多 16 KB）。`
+            : `${name} 不能有換行。`,
     tooManySecrets: (n: number) => `一個工作目錄最多保存 ${n} 個密鑰。`,
     secretNotFound: (name: string) => `這個工作目錄沒有叫 ${name} 的密鑰。`,
     commandNotFound: '找不到這個固定指令，可能已經刪除了。',
@@ -166,6 +172,8 @@ const zhTW = {
     notAsked: (name: string) => `這張卡片沒有在等 ${name}。`,
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
     commandRunning: '這個固定指令正在執行，請等它結束。',
+    changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
+    folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
       run
@@ -1507,9 +1515,11 @@ const en: ServerMessages = {
     badValue: (name, problem) =>
       problem === 'empty'
         ? `${name} is empty.`
-        : problem === 'long'
-          ? `${name} is too long (16 KB at most).`
-          : `${name} cannot have line breaks.`,
+        : problem === 'short'
+          ? `${name} is too short (4 characters at least).`
+          : problem === 'long'
+            ? `${name} is too long (16 KB at most).`
+            : `${name} cannot have line breaks.`,
     tooManySecrets: (n) => `A working directory keeps ${n} secrets at most.`,
     secretNotFound: (name) => `This working directory has no secret named ${name}.`,
     commandNotFound: 'This fixed command was not found; it may have been removed.',
@@ -1539,6 +1549,8 @@ const en: ServerMessages = {
     notAsked: (name) => `This card is not waiting for ${name}.`,
     badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
     commandRunning: 'This fixed command is running; wait until it ends.',
+    changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
+    folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>
       run

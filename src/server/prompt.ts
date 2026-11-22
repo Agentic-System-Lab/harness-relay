@@ -247,7 +247,10 @@ type BriefingTools = Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> & {
  * How agents ask for what only the user can give (a secret) and have Harness Relay run a script with it
  * (a fixed command): the blocks of `src/shared/handoffs.ts`, and what this working directory has.
  */
-export function handoffSection(h: BriefingTools['handoffs'] = { secrets: [], commands: [] }): string {
+export function handoffSection(
+  h: BriefingTools['handoffs'] = { secrets: [], commands: [] },
+  platform: NodeJS.Platform = process.platform,
+): string {
   const have = [
     h.secrets.length ? `Secrets kept for this working directory (their values are never shown to you): ${h.secrets.join(', ')}.` : '',
     h.commands.length
@@ -260,7 +263,7 @@ export function handoffSection(h: BriefingTools['handoffs'] = { secrets: [], com
       : '',
   ].filter(Boolean);
   return `\n\n# Secrets and fixed commands
-When the work needs a secret (an API token, an app secret, a password) or a script that uses one, never ask for it in the chat, never ask the user to type it in a terminal or paste it into a file, and never write one yourself. Instead, put these blocks in your reply, each on lines of its own and never inside code; Harness Relay takes them out and shows the user a card:
+When the work needs a secret (an API token, an app secret, a password) or a script that uses one, never ask for it in the chat, never ask the user to type it in a terminal or paste it into a file, and never write one yourself. Instead, put these blocks in your reply, each on lines of its own and never inside code; Harness Relay takes them out and shows the user a card:${platform === 'win32' ? ' (Harness Relay runs on native Windows here, where fixed commands and interactive commands do not run yet: ask for secrets only for later, and give the user steps instead.)' : ''}
 - \`<secret name="NAME" label="What it is">why you need it</secret>\`: asks the user for a secret (NAME in capital letters, digits and _). The team waits for their answer, as for ${ASK_TOKEN}. The value is kept for this working directory and never shown to you or the chat; only a fixed command that names it gets it. When you know the page where the user gets it (a token generator, an app's keys page), add url="https://…" with it: the card offers to open that page in a browser for the user alone, which no agent drives or reads, where they select the value and save it straight to the card.
 - \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule. The user saves and tries it; you cannot run it yourself. Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration in the folder) changes, until the user approves the change. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you only when the user sends it.
 - \`<command-run name="post">what it reads on its standard input</command-run>\`: puts one run of a saved fixed command in the outbox (to post or send something); it runs only when the user clicks Send.

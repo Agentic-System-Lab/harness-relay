@@ -12,7 +12,7 @@ import { secretValueProblem } from '../shared/handoffs';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import type { SecretStore } from './secrets';
-import type { Manifest } from './checks';
+import type { PinEntry } from './fixedCommands';
 
 /*
  * Secrets and fixed commands (docs/architecture.md, "Secrets and fixed commands"), by working directory.
@@ -24,7 +24,7 @@ import type { Manifest } from './checks';
 /** A fixed command's code as it was when the user saved it (or approved its changes). */
 export interface CommandPin {
   /** Its folder's files that are code or configuration (`PIN_PATTERN`), hashed. */
-  manifest: Manifest;
+  manifest: Record<string, PinEntry>;
   /** The folder's repository, and a snapshot of it kept under `refs/harness-relay/commands/<id>`, for the diff. */
   root?: string;
   commit?: string;
@@ -41,8 +41,8 @@ interface Saved {
 }
 
 /** The credential store's entry of a folder's values: by a digest of its path, so the path is not in the store's names. */
-export function secretEntry(folder: string): string {
-  return `handoffs.${createHash('sha256').update(folder).digest('hex').slice(0, 32)}`;
+export function secretEntry(folder: string, name: string): string {
+  return `handoffs.${createHash('sha256').update(folder).digest('hex').slice(0, 32)}.${name}`;
 }
 
 export class HandoffStore {
@@ -113,20 +113,19 @@ export class HandoffStore {
 
   /** A folder's values, by name: for the server's own use only (a fixed command's run, masking). */
   values(folder: string): Record<string, string> {
-    if (!this.secrets || !this.folder(folder)) return {};
-    let raw: string | null;
-    try {
-      raw = this.secrets.get(secretEntry(folder));
-    } catch {
-      throw new HttpError(503, t().handoffs.storage);
+    const f = this.folder(folder);
+    if (!this.secrets || !f) return {};
+    const out: Record<string, string> = {};
+    for (const name of Object.keys(f.secrets)) {
+      let value: string | null;
+      try {
+        value = this.secrets.get(secretEntry(folder, name));
+      } catch {
+        throw new HttpError(503, t().handoffs.storage);
+      }
+      if (value) out[name] = value;
     }
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return Object.fromEntries(Object.entries(parsed).filter((e): e is [string, string] => typeof e[1] === 'string'));
-    } catch {
-      return {};
-    }
+    return out;
   }
 
   /** Sets (or replaces) some of a folder's secrets: each name and value checked first, none set when one is not valid. */
@@ -139,13 +138,13 @@ export class HandoffStore {
       const problem = typeof value === 'string' ? secretValueProblem(value) : 'empty';
       if (problem) throw new HttpError(400, t().handoffs.badValue(name, problem));
     }
-    const current = this.values(folder);
-    const next = { ...current, ...Object.fromEntries(entries.map(([n, v]) => [n, v.trim()])) };
-    if (Object.keys(next).length > HANDOFF_LIMITS.secretsPerFolder) {
+    const names = new Set([...Object.keys(this.folder(folder)?.secrets ?? {}), ...entries.map(([n]) => n)]);
+    if (names.size > HANDOFF_LIMITS.secretsPerFolder) {
       throw new HttpError(400, t().handoffs.tooManySecrets(HANDOFF_LIMITS.secretsPerFolder));
     }
+    // One entry a secret (a credential store keeps each small: Windows' at 2,560 bytes).
     try {
-      this.secrets.set(secretEntry(folder), JSON.stringify(next));
+      for (const [name, value] of entries) this.secrets.set(secretEntry(folder, name), value.trim());
     } catch {
       throw new HttpError(503, t().handoffs.storage);
     }
@@ -158,11 +157,8 @@ export class HandoffStore {
   deleteSecret(folder: string, name: string): void {
     const f = this.folder(folder);
     if (!f?.secrets[name]) throw new HttpError(404, t().handoffs.secretNotFound(name));
-    const rest = this.values(folder);
-    delete rest[name];
     try {
-      if (Object.keys(rest).length) this.secrets?.set(secretEntry(folder), JSON.stringify(rest));
-      else this.secrets?.delete(secretEntry(folder));
+      this.secrets?.delete(secretEntry(folder, name));
     } catch {
       throw new HttpError(503, t().handoffs.storage);
     }

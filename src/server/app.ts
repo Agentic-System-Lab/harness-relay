@@ -2661,9 +2661,13 @@ export function createApp({
     if (b.extra !== undefined && (typeof b.extra !== 'string' || b.extra.length > HANDOFF_LIMITS.commandLine)) {
       throw new HttpError(400, t().invalidField('extra'));
     }
+    // `approve`: the digest of the code whose diff the user saw (`GET …/diff`), which is pinned again first.
+    if (b.approve !== undefined && (typeof b.approve !== 'string' || !/^[0-9a-f]{32}$/.test(b.approve))) {
+      throw new HttpError(400, t().invalidField('approve'));
+    }
     await orchestrator.tryCommand(c.req.param('id'), c.req.param('commandId'), {
       ...(typeof b.extra === 'string' ? { extra: b.extra } : {}),
-      approve: b.approve === true,
+      ...(typeof b.approve === 'string' ? { approve: b.approve } : {}),
     });
     return c.json({ ok: true }, 202);
   });
