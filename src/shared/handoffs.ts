@@ -155,14 +155,22 @@ export function checkProposal(p: {
 }
 
 /**
+ * What a command line the user approves on a card may not hold, as it would not show what runs: control
+ * characters but tab and line feed (C0, DEL, C1), bidirectional overrides, embeddings, isolates and
+ * marks, zero-width characters, the word joiner, the byte order mark and Unicode's line separators.
+ */
+const HIDDEN_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060\u2066-\u2069\ufeff]/;
+
+/**
  * An interactive command's line as an agent wrote it, checked: trimmed (and out of one pair of
- * backticks around it all), not empty, within the limit, no NUL. Undefined when it is not one.
+ * backticks around it all), not empty, within the limit, nothing in it that does not show
+ * (`HIDDEN_CHARS`). Undefined when it is not one.
  */
 export function interactiveLine(value: string | undefined): string | undefined {
   let run = (value ?? '').trim();
   const quoted = /^`([^`]+)`$/.exec(run);
   if (quoted) run = quoted[1]!.trim();
-  if (!run || run.length > INTERACTIVE_LIMITS.commandLine || run.includes('\u0000')) return undefined;
+  if (!run || run.length > INTERACTIVE_LIMITS.commandLine || HIDDEN_CHARS.test(run)) return undefined;
   return run;
 }
 

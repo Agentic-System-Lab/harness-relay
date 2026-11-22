@@ -42,7 +42,7 @@ import type {
   SecretAsk,
 } from '../shared/types';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS } from '../shared/types';
-import { checkProposal, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
+import { checkProposal, interactiveLine, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
 import { USER_BROWSERS_MAX, UserBrowserError, type UserBrowsers } from './browser/handover';
 import { askingReplies, splitAsk } from '../shared/ask';
 import { splitSteps, stepsAnswerText, stepsOfMessage, type StepsPart } from '../shared/steps';
@@ -1591,6 +1591,8 @@ export class Orchestrator {
   ): Promise<InteractiveSession> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
     if (part.status === 'dismissed') throw new HttpError(409, t().handoffs.cardDecided);
+    // What the card shows is what runs: a line kept before its characters were checked is checked again.
+    if (interactiveLine(part.run) !== part.run) throw new HttpError(409, t().handoffs.interactiveHidden);
     const key = interactiveKey(convId, part.id);
     if (this.interactive.has(key)) throw new HttpError(409, t().handoffs.interactiveRunning);
     if (part.blocked === 'automation') throw new HttpError(409, t().handoffs.interactiveAutomation);

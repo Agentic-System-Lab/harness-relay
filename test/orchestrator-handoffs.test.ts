@@ -7,7 +7,7 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessagePart } from '../src/shared/types';
@@ -607,6 +607,56 @@ describe('a schedule that runs a fixed command first', () => {
 });
 
 describe.skipIf(process.platform === 'win32')('interactive command cards', () => {
+  /** A chat whose reply asks the user to run `run`, its card stored as the orchestrator records one. */
+  const cardFor = (run: string) => {
+    const conv = conversation({ mode: 'relay' });
+    const part: Extract<MessagePart, { type: 'interactive' }> = {
+      type: 'interactive',
+      id: `card-${Math.random().toString(36).slice(2)}`,
+      folder: orchestrator.handoffFolder(conv),
+      run,
+      configFiles: [],
+      status: 'proposed',
+    };
+    const msg = {
+      id: `m-${part.id}`,
+      author: { kind: 'agent' as const, agentId: conv.agents[0]!.id },
+      createdAt: 1,
+      parts: [part],
+      status: 'done' as const,
+      asked: true,
+    };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    return { conv, msg, part };
+  };
+  /** The interactive commands' own folders still there (each run's, removed once it ended). */
+  const runFolders = () => readdirSync(join(root, 'interactive-tmp')).filter((n) => n.startsWith('interactive-'));
+
+  it('runs at most four at once, and one ends with its conversation, freeing its place', async () => {
+    const cards = Array.from({ length: 5 }, () => cardFor('sleep 30'));
+    try {
+      for (const c of cards.slice(0, 4)) await orchestrator.startInteractive(c.conv.id, c.msg.id, c.part.id);
+      const fifth = cards[4]!;
+      await expect(orchestrator.startInteractive(fifth.conv.id, fifth.msg.id, fifth.part.id)).rejects.toMatchObject({ status: 429 });
+      await vi.waitFor(() => expect(runFolders()).toHaveLength(4));
+      // Deleting a conversation stops the command its card started: its folder goes, and its place is free.
+      await orchestrator.deleteConversation(cards[0]!.conv.id);
+      await vi.waitFor(() => expect(runFolders()).toHaveLength(3), { timeout: slow(5000) });
+      await orchestrator.startInteractive(fifth.conv.id, fifth.msg.id, fifth.part.id);
+      expect(partOf(fifth.conv.id, 'interactive').part.session?.state).toBe('running');
+    } finally {
+      orchestrator.stopInteractive();
+      await vi.waitFor(() => expect(runFolders()).toEqual([]), { timeout: slow(5000) });
+    }
+  });
+
+  it('does not start a command line kept with characters that do not show', async () => {
+    const { conv, msg, part } = cardFor('echo safe\u202e hs.lave');
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    expect(runFolders()).toEqual([]);
+  });
+
   const propose = async (
     block = '<interactive reason="To sign in to the registry.">printf \'Password: \'; IFS= read -r p; echo "got $p and $TOKEN_VALUE"</interactive>',
   ) => {

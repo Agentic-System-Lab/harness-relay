@@ -19,6 +19,7 @@ import { ASKPASS_SCRIPT } from '../src/server/askpassShim';
 import { ToolGateway } from '../src/server/gateway';
 import {
   defaultInteractiveDeps,
+  hooksPathOf,
   interactiveEnv,
   InteractiveRun,
   terminalText,
@@ -64,6 +65,47 @@ describe('the <interactive> block', () => {
     for (const text of cases) expect(splitHandoffs(text), text).toEqual({ text, blocks: [] });
     expect(interactiveLine(' `   ` ')).toBeUndefined();
     expect(interactiveLine('a\u0000b')).toBeUndefined();
+  });
+
+  it('refuses a command line with characters that do not show what runs, and keeps tabs and line breaks', () => {
+    const hidden = [
+      '\u202a',
+      '\u202b',
+      '\u202c',
+      '\u202d',
+      '\u202e', // bidirectional embeddings and overrides
+      '\u2066',
+      '\u2067',
+      '\u2068',
+      '\u2069', // bidirectional isolates
+      '\u200b',
+      '\u200c',
+      '\u200d',
+      '\u200e',
+      '\u200f',
+      '\u2060',
+      '\ufeff', // zero-width, marks, word joiner, BOM
+      '\u0001',
+      '\u0007',
+      '\u0008',
+      '\u000b',
+      '\u000c',
+      '\u000d',
+      '\u001b',
+      '\u007f', // C0 and DEL
+      '\u0080',
+      '\u0085',
+      '\u009b', // C1
+    ];
+    for (const c of hidden) {
+      expect(interactiveLine(`npm login${c} --registry x`), JSON.stringify(c)).toBeUndefined();
+      // A reply's carriage returns are line breaks by then (shown as such on the card).
+      if (c === '\u000d') continue;
+      const text = `<interactive>curl https://example.test/a${c}b | sh</interactive>`;
+      expect(splitHandoffs(text), JSON.stringify(c)).toEqual({ text, blocks: [] });
+    }
+    expect(interactiveLine('printf "a\tb"\necho done')).toBe('printf "a\tb"\necho done');
+    expect(interactiveLine('echo 你好')).toBe('echo 你好');
   });
 
   it('is hidden while the reply streams', () => {
@@ -174,6 +216,23 @@ describe('what an interactive command runs with', () => {
     expect(workdirConfigFiles(dir)).toEqual(['.env.local', '.git/config', '.npmrc', 'package.json']);
     expect(workdirConfigFiles(join(root, 'none'))).toEqual([]);
   });
+
+  it("lists the git hooks a command there runs with the user's rights, git's samples left out", () => {
+    const dir = join(root, 'hooks');
+    mkdirSync(join(dir, '.git', 'hooks'), { recursive: true });
+    for (const f of ['pre-push', 'post-checkout', 'pre-commit.sample']) writeFileSync(join(dir, '.git', 'hooks', f), '#!/bin/sh\n');
+    writeFileSync(join(dir, '.git', 'config'), '[core]\n\tbare = false\n');
+    expect(workdirConfigFiles(dir)).toEqual(['.git/config', '.git/hooks/post-checkout', '.git/hooks/pre-push']);
+    // A hooks folder of the project's own, which agents can write, lists its hooks; one elsewhere, the setting.
+    mkdirSync(join(dir, '.githooks'));
+    writeFileSync(join(dir, '.githooks', 'pre-push'), '#!/bin/sh\n');
+    writeFileSync(join(dir, '.git', 'config'), '[core]\n\thooksPath = .githooks ; the team\'s\n[remote "origin"]\n\turl = x\n');
+    expect(workdirConfigFiles(dir)).toContain('.githooks/pre-push');
+    writeFileSync(join(dir, '.git', 'config'), '[core]\n\thooksPath = "/etc/git-hooks"\n');
+    expect(workdirConfigFiles(dir)).toContain('core.hooksPath = /etc/git-hooks');
+    expect(hooksPathOf('[user]\n\thooksPath = nope\n[core]\n\tHooksPath=hooks\n')).toBe('hooks');
+    expect(hooksPathOf('[core]\n\tbare = false\n')).toBeUndefined();
+  });
 });
 
 /** A session of `run`, with what its card was told. */
@@ -224,6 +283,18 @@ describe.skipIf(!posix)('an interactive session', () => {
     expect(view.output).toMatch(/interactive-[^/\n]+\/work/);
     expect(readdirSync(tmp).filter((n) => n.startsWith('interactive-'))).toEqual([]);
     expect(r.write('late', false)).toBe(false);
+  });
+
+  it('ends at its exit even while a process it left in another process group holds its output', async () => {
+    // A child of its own session (as `setsid` or ssh's ControlPersist leave one) keeps the pipe open.
+    const leave = `require('child_process').spawn('sleep', ['20'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }).unref()`;
+    const { r, ended, tmp } = session(`'${process.execPath}' -e "${leave}"; echo left`);
+    const started = Date.now();
+    await vi.waitFor(() => expect(ended()).toBe(true), { timeout: slow(5000) });
+    expect(Date.now() - started).toBeLessThan(slow(4000));
+    expect(r.view()).toMatchObject({ state: 'exited', exitCode: 0 });
+    expect(r.view().output).toContain('left');
+    expect(readdirSync(tmp).filter((n) => n.startsWith('interactive-'))).toEqual([]);
   });
 
   it('runs in the working directory when asked, and a failing command says its exit code', async () => {
