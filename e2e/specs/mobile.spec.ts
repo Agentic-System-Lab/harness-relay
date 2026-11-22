@@ -743,13 +743,13 @@ test.describe('on a phone', () => {
     page,
     relay,
   }) => {
-    /** The boxes that scroll sideways, and how far: not the row of kinds, which does so where it must. */
+    /** The boxes that scroll sideways, and how far: not the rows of kinds and permission levels, which do so where they must. */
     const sideways = () =>
       page.evaluate(() =>
         [document.documentElement, ...document.querySelectorAll<HTMLElement>('*')]
           .filter(
             (el) =>
-              !el.matches('.schedule-kinds') &&
+              !el.matches('.schedule-kinds, .levels') &&
               el.scrollWidth > el.clientWidth + 1 &&
               (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)),
           )

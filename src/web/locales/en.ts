@@ -2795,9 +2795,9 @@ export const en: Messages = {
         points: [
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
-          'Approve for me: as Edit, and the lead agent approves what it judges safe beyond it, asking you only about the rest; pushing and publishing always ask',
+          'Approve for me: as Edit, and the lead agent approves what is safe beyond it, asking you about the rest',
           'Full access: run any command without asking',
-          "Below full access, each agent's commands but Cursor's and Antigravity's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex, Grok and Copilot use their own; the open-source agents use Harness Relay's (on native Windows only Codex and Copilot have one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically; with Approve for me the lead agent reviews it first), except those on your Cursor team's allowlist, and one you allow runs with your full rights. So does Antigravity: every command it wants to run asks you first, and it ends its turn when you refuse one",
+          "Below full access, each agent's commands but Cursor's and Antigravity's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex, Grok and Copilot use their own; the open-source agents use Harness Relay's (on native Windows only Codex and Copilot have one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights. So does Antigravity: every command it wants to run asks you first, and it ends its turn when you refuse one",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
           'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
           'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
@@ -2838,7 +2838,7 @@ export const en: Messages = {
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
-          'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat, or the lead agent approves it with Approve for me) and the agent works around it; or choose "Ask me"',
+          'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
           'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the automation switches off once it is reached, and a run that fails is tried again',
           'A webhook lets a program on your computer (a git hook, a CI runner) send the message now, with what it posted',

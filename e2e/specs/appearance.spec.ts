@@ -117,7 +117,7 @@ test.describe('the guided tour', () => {
     // Subagents' steps and steering were added to it.
     await expect(update).toHaveAccessibleName('While the team replies');
     await update.getByRole('button', { name: 'Next' }).click();
-    // "Approve for me" was added to it, and to the permissions and automations steps.
+    // "Approve for me" was added to it, and to the permissions step.
     await expect(update).toHaveAccessibleName('When the team needs you');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Notifications and sound');

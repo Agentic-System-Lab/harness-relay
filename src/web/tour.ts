@@ -20,7 +20,7 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 21 }, // team checks
   { revision: 7 }, // files
   { revision: 20 }, // share
-  { target: 'new-schedule', revision: 40 }, // automations (Approve for me)
+  { target: 'new-schedule', revision: 37 },
   { target: 'organize', revision: 17 },
   { target: 'settings', revision: 33 }, // common apps and the tool library
   { target: 'settings', revision: 4 }, // agent sessions

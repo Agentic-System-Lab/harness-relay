@@ -132,6 +132,40 @@ test.describe('approvals', () => {
     await expect(second.locator('.approval-done')).toHaveText(/Allowed$/);
   });
 
+  test('"Approve for me": while the lead agent reviews, nobody is waited for and the user may answer first; pushing is never reviewed', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit', approvals: 'auto' });
+    await send(page, 'Print a line e2e:approve e2e:slowapprove=60');
+    const card = page.getByRole('region', { name: '@Claude wants to run a command' });
+    await expect(card.locator('.approval-waiting')).toHaveText('Lead agent reviewing');
+    await expect(card.locator('.approval-review')).toHaveText(
+      'The lead agent is checking whether this is safe; you can answer now if you like.',
+    );
+    // It waits for nobody yet: no banner, and the chat does not need the user.
+    await expect(page.locator('.approval-banner')).toHaveCount(0);
+    await expect(page.locator('.conv-item.active .conv-status')).not.toHaveText('Needs you');
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply).toContainText('The command ran: e2e-approval.');
+    // The user's answer, not the lead agent's.
+    await expect(reply.locator('.approval-done')).toHaveText(/Allowed$/);
+
+    // Publishing is never reviewed: it waits for the user at once, saying why.
+    await send(page, 'Publish it e2e:approve=publish');
+    const publish = page.getByRole('region', { name: '@Claude wants to run a command' });
+    await expect(publish.locator('.approval-detail')).toContainText('npm publish e2e-approval');
+    await expect(publish.locator('.approval-review')).toHaveText(
+      'Pushing and publishing are always yours to decide: the lead agent never approves them for you',
+    );
+    await expect(publish.locator('.approval-waiting')).toHaveText('Waiting for you');
+    await expect(page.locator('.approval-banner')).toBeVisible();
+    await publish.getByRole('button', { name: 'Decline' }).click();
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    await expect((await finishedReply(page, 'Claude')).locator('.approval-done')).toContainText('Declined');
+  });
+
   test('a chat that refuses automatically declines without asking', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { approvals: 'deny' });
     await send(page, 'Print a line e2e:approve');
