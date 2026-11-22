@@ -606,7 +606,7 @@ test('the browser to start is set in Settings: a path with no file there is refu
 }) => {
   await page.goto(`${relay.base}/#/settings/tools`);
   const library = page.locator('#settings-tools');
-  await expect(library.getByRole('heading', { level: 4 })).toHaveCount(6);
+  await expect(library.getByRole('heading', { level: 4 })).toHaveCount(5);
   await expect(library.locator('.library-category > summary').first()).toHaveAccessibleDescription(en.tools.categories.mcp);
   await expect(library.locator('.library-category[open]')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Common apps' }).click();
