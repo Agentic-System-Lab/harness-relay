@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { withLang } from '../src/server/i18n';
+import { pgUri } from './pgUri';
 import type { SpawnResult } from '../src/server/process';
 import type { Docker } from '../src/server/previewDocker';
 import {
@@ -59,8 +60,8 @@ describe("a compose file's init scripts on Neon", () => {
     // psql reads a -c string beginning with a backslash as one of its own commands: a comment comes first.
     expect(PSQL_SCRIPT).toMatch(/ -c "-- [^\n"]*\n\$SQL"$/);
     expect(PSQL_SCRIPT).not.toContain(' -f ');
-    expect(() => splitPassword('postgresql://todo:bad%zz@ep-1.neon.test/todo')).toThrow(expect.objectContaining({ status: 502 }));
-    expect(splitPassword('postgresql://todo:p%40ss@ep-1.neon.test/todo?sslmode=require')).toEqual({
+    expect(() => splitPassword(pgUri('bad%zz', 'ep-1.neon.test', '/todo'))).toThrow(expect.objectContaining({ status: 502 }));
+    expect(splitPassword(pgUri('p%40ss', 'ep-1.neon.test'))).toEqual({
       uri: 'postgresql://todo@ep-1.neon.test/todo?sslmode=require',
       password: 'p@ss',
     });
@@ -111,7 +112,7 @@ describe("a compose file's init scripts on Neon", () => {
           return ++n === 2 ? ok({ code: 1, stderr: 'ERROR:  syntax error at or near "CRAETE"' }) : ok();
         }) as Docker,
     );
-    const uri = 'postgresql://todo:pw@ep-1.neon.test/todo?sslmode=require';
+    const uri = pgUri('pw', 'ep-1.neon.test');
     const scripts = [
       { name: 'db/00.sql', sql: Buffer.from('SELECT 0;') },
       { name: 'db/01.sql', sql: Buffer.from('CREATE TABLE a ();') },

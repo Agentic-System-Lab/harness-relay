@@ -3,6 +3,7 @@ import { PUBLISH_REPO_ACCESS } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 import { NeonApi } from '../src/server/publish/neon';
 import { httpsUrl, RenderApi } from '../src/server/publish/render';
+import { pgUri } from './pgUri';
 
 type Call = { url: string; method: string; headers: Record<string, string>; body?: unknown; redirect?: string };
 
@@ -217,7 +218,7 @@ describe("Neon's API", () => {
           project: { id: 'proj-1' },
           connection_uris: [
             {
-              connection_uri: 'postgresql://todo:pw@ep-1.us-west-2.aws.neon.tech/todo?sslmode=require',
+              connection_uri: pgUri('pw', 'ep-1.us-west-2.aws.neon.tech'),
               connection_parameters: { database: 'todo', password: 'pw', role: 'todo', host: 'ep-1.us-west-2.aws.neon.tech' },
             },
           ],
@@ -243,7 +244,7 @@ describe("Neon's API", () => {
     });
     expect(db).toEqual({
       projectId: 'proj-1',
-      uri: 'postgresql://todo:pw@ep-1.us-west-2.aws.neon.tech/todo?sslmode=require',
+      uri: pgUri('pw', 'ep-1.us-west-2.aws.neon.tech'),
       host: 'ep-1.us-west-2.aws.neon.tech',
       role: 'todo',
       password: 'pw',
@@ -282,7 +283,7 @@ describe("Neon's API", () => {
 
   it("reads a project's connection again, and deletes one (already gone is not an error)", async () => {
     const { fetcher, calls } = fakeFetch({
-      'GET /api/v2/projects/proj-1/connection_uri': () => [200, { uri: 'postgresql://todo:p%40ss@ep-1.neon.tech/todo?sslmode=require' }],
+      'GET /api/v2/projects/proj-1/connection_uri': () => [200, { uri: pgUri('p%40ss', 'ep-1.neon.tech') }],
       'DELETE /api/v2/projects/proj-1': () => [200, { project: { id: 'proj-1' } }],
       'DELETE /api/v2/projects/proj-2': () => [404, { message: 'not found' }],
     });

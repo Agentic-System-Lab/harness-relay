@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { withLang } from '../src/server/i18n';
+import { pgUri } from './pgUri';
 import type { NeonDatabase } from '../src/server/publish/neon';
 import {
   databaseEnv,
@@ -22,7 +23,7 @@ const refusal = (source: PublishSource) => {
 };
 const neon = (over: Partial<NeonDatabase> = {}): NeonDatabase => ({
   projectId: 'p-1',
-  uri: 'postgresql://todo:secret@ep-1.neon.tech/todo?sslmode=require',
+  uri: pgUri('secret', 'ep-1.neon.tech'),
   host: 'ep-1.neon.tech',
   role: 'todo',
   password: 'secret',
