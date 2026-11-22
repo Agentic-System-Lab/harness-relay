@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { INTERACTIVE_LIMITS, type InteractiveSession } from '../shared/types';
 import { maskValues } from '../shared/handoffs';
 import { ASKPASS_ENV, ASKPASS_SCRIPT, ASKPASS_SHIM_SOURCE } from './askpassShim';
@@ -42,6 +42,12 @@ const SCRIPT = 'exec 2>&1; eval "$RELAY_CHECK_COMMAND"';
 const RAW_MAX = 128 * 1024;
 
 /**
+ * How long its output may go on once it exited: what it left running in another process group (a
+ * `setsid` child, ssh's ControlPersist master) may hold its pipes open, which would keep it from ending.
+ */
+const EXIT_GRACE_MS = 500;
+
+/**
  * Names at the top of a working directory that a program run there may read its settings (or code:
  * npm's scripts) from, which agents can write: package managers', dotenv files, version managers',
  * git's and the cloud CLIs' folders.
@@ -49,7 +55,46 @@ const RAW_MAX = 128 * 1024;
 const CONFIG_NAMES =
   /^(?:\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmfile\.cjs|\.?bunfig\.toml|package\.json|\.env(?:\..+)?|\.envrc|\.netrc|\.pypirc|pip\.conf|pyproject\.toml|setup\.cfg|\.python-version|\.node-version|\.nvmrc|\.ruby-version|\.tool-versions|\.?mise\.toml|\.gitconfig|Gemfile|\.bundle|\.cargo|\.config|\.ssh|\.docker|\.aws|\.kube|\.firebaserc|firebase\.json|\.gcloudignore|\.terraformrc)$/i;
 
-/** The configuration files in a working directory a program run there may load (`CONFIG_NAMES`, and the repository's `.git/config`), sorted. */
+/** The most files the card lists (and Start compares with what it listed). */
+const CONFIG_FILES_MAX = 100;
+
+/** The hooks in a folder git runs them from: its files but git's own `*.sample` ones. */
+function hooksIn(dir: string): string[] {
+  try {
+    return readdirSync(dir).filter((n) => !n.endsWith('.sample') && !lstatSync(join(dir, n)).isDirectory());
+  } catch {
+    return [];
+  }
+}
+
+/** `core.hooksPath` as a repository's `.git/config` sets it, if it does (its `[core]` section only). */
+export function hooksPathOf(config: string): string | undefined {
+  let core = false;
+  let found: string | undefined;
+  for (const raw of config.split(/\r?\n/)) {
+    const line = raw.trim();
+    const section = /^\[\s*([^\]\s"]+)(?:\s+"[^"]*")?\s*\]/.exec(line);
+    if (section) {
+      core = section[1]!.toLowerCase() === 'core';
+      continue;
+    }
+    const m = core ? /^hookspath\s*=\s*(.*)$/i.exec(line) : null;
+    if (m)
+      found =
+        m[1]!
+          .replace(/\s+[#;].*$/, '')
+          .replace(/^"(.*)"$/, '$1')
+          .trim() || undefined;
+  }
+  return found;
+}
+
+/**
+ * The configuration files in a working directory a program run there may load, sorted: `CONFIG_NAMES`,
+ * the repository's `.git/config`, and the hooks git runs with the user's rights (`git push`'s `pre-push`):
+ * those in `.git/hooks` but git's samples, and the folder `core.hooksPath` names instead (its hooks, when
+ * it is in the working directory; else the setting itself).
+ */
 export function workdirConfigFiles(dir: string): string[] {
   let names: string[];
   try {
@@ -58,8 +103,27 @@ export function workdirConfigFiles(dir: string): string[] {
     return [];
   }
   const found = names.filter((n) => CONFIG_NAMES.test(n));
-  if (existsSync(join(dir, '.git', 'config'))) found.push('.git/config');
-  return found.sort().slice(0, 40);
+  const config = join(dir, '.git', 'config');
+  if (existsSync(config)) {
+    found.push('.git/config');
+    for (const hook of hooksIn(join(dir, '.git', 'hooks'))) found.push(`.git/hooks/${hook}`);
+    let hooksPath: string | undefined;
+    try {
+      hooksPath = hooksPathOf(readFileSync(config, 'utf8'));
+    } catch {
+      hooksPath = undefined;
+    }
+    if (hooksPath) {
+      const at = isAbsolute(hooksPath) ? hooksPath : join(dir, hooksPath);
+      const rel = relative(dir, at);
+      if (rel && !rel.startsWith('..') && !isAbsolute(rel) && !hooksPath.startsWith('~')) {
+        const shown = rel.split(sep).join('/');
+        const hooks = hooksIn(at);
+        found.push(...(hooks.length ? hooks.map((h) => `${shown}/${h}`) : [`core.hooksPath = ${hooksPath}`]));
+      } else found.push(`core.hooksPath = ${hooksPath}`);
+    }
+  }
+  return [...new Set(found)].sort().slice(0, CONFIG_FILES_MAX);
 }
 
 /** Where its password helper is, for its environment. */
@@ -223,8 +287,14 @@ export class InteractiveRun {
           this.endAsking();
           this.o.onChange(true);
         }
-        // What it started and left running goes too, so its output ends and the card can close.
+        // What it started and left running goes too, so its output ends and the card can close; and
+        // its pipes close a moment later, whatever still holds them (one that left its process group).
         this.kill();
+        setTimeout(() => {
+          if (this.finished) return;
+          for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+          this.finish();
+        }, EXIT_GRACE_MS).unref?.();
       });
       child.on('close', () => this.finish());
       this.timer = setTimeout(() => this.stop('timedOut'), this.deps.timeoutMs);

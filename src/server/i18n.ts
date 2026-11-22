@@ -187,6 +187,7 @@ const zhTW = {
     interactiveTooMany: (n: number) => `同時最多只能執行 ${n} 個這樣的指令，請等其他的結束。`,
     interactiveConfigChanged: '工作目錄裡出現了卡片沒列出的設定檔。請先看過卡片上更新的清單，再啟動一次。',
     interactiveNotStarted: (why: string) => `無法啟動：${why}`,
+    interactiveHidden: '這個指令含有看不見的字元或控制字元，卡片顯示的不一定是實際會執行的內容，所以不會執行。',
     interactiveNotRunning: '這個指令已經沒有在執行了。',
     interactiveNoQuestion: '它現在沒有在問這個問題。',
     interactiveNotEnded: '指令結束後才能送給團隊。',
@@ -1564,6 +1565,7 @@ const en: ServerMessages = {
     interactiveConfigChanged:
       'Configuration files the card did not list appeared in the working directory. Look at the updated list on the card, then start it again.',
     interactiveNotStarted: (why) => `It could not start: ${why}`,
+    interactiveHidden: 'This command holds invisible or control characters, so the card may not show what would run: it is not run.',
     interactiveNotRunning: 'This command is not running any more.',
     interactiveNoQuestion: 'It is not asking this question now.',
     interactiveNotEnded: 'Send it to the team once it has ended.',
