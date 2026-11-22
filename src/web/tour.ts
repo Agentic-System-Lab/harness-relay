@@ -1,6 +1,6 @@
 // This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
 const DONE_KEY = 'relay:onboarded';
-export const TOUR_VERSION = 43;
+export const TOUR_VERSION = 44;
 
 /** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
 export const TOUR_STEPS: { target?: string; revision: number }[] = [
@@ -13,12 +13,12 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 1 }, // modes
   { revision: 9 }, // writing a message
   { revision: 39 }, // while the team replies (subagents, steering)
-  { revision: 42 }, // when the team needs you (Approve for me)
+  { revision: 44 }, // when the team needs you (steps, secrets and fixed commands, signing in, the browser handed over)
   { target: 'settings', revision: 23 }, // notifications and sound
   { target: 'inbox', revision: 18 },
   { revision: 42 }, // permissions (Approve for me)
   { revision: 21 }, // team checks
-  { revision: 41 }, // files (app previews: Dockerfiles, opening by themselves, the header's button; publishing)
+  { revision: 44 }, // files (editing and uploading; app previews: Dockerfiles, opening by themselves, the header's button; publishing)
   { revision: 20 }, // share
   { target: 'new-schedule', revision: 37 },
   { target: 'organize', revision: 17 },

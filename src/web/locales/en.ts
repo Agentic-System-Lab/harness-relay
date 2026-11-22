@@ -3246,6 +3246,7 @@ export const en: Messages = {
           "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead. With the Approve for me permission, the lead agent approves what it judges safe first, and asks you only about the rest",
           'When a good answer depends on something only you know, an agent asks you first and the team waits for your answer; or skip the question and let the team go on',
           'A mail or an invitation an agent wants to send waits in the outbox: a card in its reply, sent only when you click Send (or Discard it)',
+          "What only you can do comes as a card: steps to tick off (Done, or I'm stuck); a secret, kept out of the chat and away from the agents, for a script Harness Relay runs itself in its own sandbox (a fixed command, on a schedule too); a command to sign in, which you start and type into; the chat's browser, to sign in to a site yourself, in a window or here",
           'The sidebar marks the conversations waiting for you: "Needs you" and "Answer needed"',
         ],
       },
@@ -3295,11 +3296,12 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'Browse the working directory',
+        title: 'Browse and change files',
         body: "Files in a chat's header (under ⋯ on a phone) opens its working directory, so you can see what the agents made without leaving the chat:",
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
+          'Edit a text file, make a new one or upload files into the folder you are in, from a phone too; a save waits while the team is writing there',
           'When the team makes an app, its preview opens by itself, and Preview at the top right shows or hides it. Preview app beside an HTML, package.json, Dockerfile or compose file link, or Preview this folder in Files, opens one too. With a Dockerfile any language runs, as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it, and you can add preview errors to your message. Once it works, Publish… puts it online in your own free Render and Neon accounts (Settings → Publish to the cloud).',
           'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
         ],

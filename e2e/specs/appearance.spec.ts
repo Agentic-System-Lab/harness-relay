@@ -126,7 +126,7 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Team checks');
     await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Browse the working directory');
+    await expect(update).toHaveAccessibleName('Browse and change files');
     await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
@@ -157,7 +157,7 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('File permission and changes');
     await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Browse the working directory');
+    await expect(update).toHaveAccessibleName('Browse and change files');
     await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
