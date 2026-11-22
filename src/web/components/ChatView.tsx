@@ -24,7 +24,7 @@ import {
   draftStatus,
   followsAfterScroll,
   isTeamResult,
-  savesLeadReviewAlone,
+  savesSwitchesAlone,
   scrollSpot,
   showsToEnd,
   teamToEdit,
@@ -887,6 +887,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
           reviewing={reviewing}
+          steering={Boolean(conv.settings.steer)}
           skipQuestion={questions.length > 0}
           placeholder={
             designing
@@ -898,7 +899,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                   : reviewing
                     ? t.chat.placeholderReviewing
                     : running
-                      ? t.chat.placeholderBusy
+                      ? conv.settings.steer
+                        ? t.chat.placeholderSteer
+                        : t.chat.placeholderBusy
                       : waitingForTeam
                         ? t.chat.placeholderAuto
                         : autoTeam
@@ -1106,8 +1109,9 @@ function TeamDrawer({
   // The team can change while the drawer is open (e.g. the lead agent designs it): follow it until
   // the user edits; after that, saving would overwrite it, so ask to reload first.
   const status = draftStatus(base, team, current);
-  // While the team replies, the lead review box alone is saved on its own (the rest waits for it).
-  const reviewOnly = savesLeadReviewAlone(base, team, running, proposed);
+  // While the team replies, the lead review and steering boxes alone are saved on their own (the rest waits for it).
+  const switches = savesSwitchesAlone(base, team, running, proposed);
+  const reviewOnly = switches.length > 0;
   const reload = useCallback(() => {
     setBase(current);
     setTeam(current);
@@ -1122,7 +1126,8 @@ function TeamDrawer({
     setSaving(true);
     try {
       if (reviewOnly) {
-        await api.setLeadReview(conv.id, Boolean(team.settings.leadReview));
+        if (switches.includes('leadReview')) await api.setLeadReview(conv.id, Boolean(team.settings.leadReview));
+        if (switches.includes('steer')) await api.setSteer(conv.id, Boolean(team.settings.steer));
         onClose();
         return;
       }

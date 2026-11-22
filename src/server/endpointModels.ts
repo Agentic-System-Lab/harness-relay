@@ -1,4 +1,5 @@
-import { ENDPOINT_METADATA_UNAVAILABLE } from '../shared/types';
+import { ENDPOINT_METADATA_UNAVAILABLE, type TokenLimits } from '../shared/types';
+import { validContext } from '../shared/modelLimits';
 import { answerText } from './connectors/caldav';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -65,14 +66,40 @@ async function modelJson(response: Response, budget: { remaining: number }, id?:
   }
 }
 
-async function catalogIds(response: Response, budget: { remaining: number }): Promise<Set<string>> {
+/**
+ * The context window a server reports for one model in its `/models` answer (an entry of its catalog,
+ * or its own record), in the shapes its documentation and source give:
+ * - vLLM (and SGLang, which answers as it does): `max_model_len`, the longest a request may be, its
+ *   answer's tokens included (`ModelCard`, vllm/entrypoints/serve/engine/protocol.py);
+ * - llama.cpp's server: `meta.n_ctx`, the context of one of its slots, which is what one request gets
+ *   (`n_ctx_slot()`, tools/server/server-context.cpp); Goose reads the same field.
+ * Not `meta.n_ctx_train` (what the model was trained for, more than a server may serve), nor llama.cpp's
+ * router's `context_length` (the same figure). Other servers (Ollama, LM Studio) report none here.
+ */
+export function reportedLimits(entry: unknown): TokenLimits {
+  const e = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+  const meta = (e.meta && typeof e.meta === 'object' ? e.meta : {}) as Record<string, unknown>;
+  const context = [e.max_model_len, meta.n_ctx].find(validContext);
+  return context ? { context } : {};
+}
+
+/**
+ * The catalog's model ids, each with what it reports of its limits (`reportedLimits()`). A LoRA adapter
+ * vLLM serves has no `max_model_len` of its own: its base model's (`parent`) applies.
+ */
+async function catalogModels(response: Response, budget: { remaining: number }): Promise<Map<string, TokenLimits>> {
   const catalog = await modelJson(response, budget);
   if (!Array.isArray(catalog?.data)) throw new HttpError(502, t().endpointCatalogInvalid(MAX_MIB));
-  const models = new Set<string>();
+  const models = new Map<string, TokenLimits>();
   for (const entry of catalog.data) {
-    if (validEndpointModelId(entry?.id)) models.add(entry.id);
+    if (validEndpointModelId(entry?.id) && !models.has(entry.id)) models.set(entry.id, reportedLimits(entry));
   }
   if (catalog.data.length && !models.size) throw new HttpError(502, t().endpointCatalogInvalid(MAX_MIB));
+  for (const entry of catalog.data) {
+    const own = validEndpointModelId(entry?.id) ? models.get(entry.id) : undefined;
+    const parent = typeof entry?.parent === 'string' ? models.get(entry.parent) : undefined;
+    if (own && !own.context && parent?.context) own.context = parent.context;
+  }
   return models;
 }
 
@@ -84,25 +111,35 @@ export async function listEndpointModels(baseUrl: string, key?: string | null): 
     await res.body?.cancel().catch(() => undefined);
     throw upstreamError(res.status);
   }
-  return [...(await catalogIds(res, { remaining: MAX_BYTES }))];
+  return [...(await catalogModels(res, { remaining: MAX_BYTES })).keys()];
 }
 
 const missingRoute = (status: number) => [404, 405, 501].includes(status);
 
-/** Verify before saving. Only omissions and an unsupported list justify asking about individual models. */
+/**
+ * Verify before saving. Only omissions and an unsupported list justify asking about individual models.
+ * Resolves to what the server reported of the models' limits, from the same answers (`reportedLimits()`):
+ * only the models it reported any for.
+ */
 export async function verifyEndpointModels(
   baseUrl: string,
   key: string | null | undefined,
   models: string[],
   allowMissingMetadata = false,
-): Promise<void> {
+): Promise<Record<string, TokenLimits>> {
   const get = await modelRequests(baseUrl, key);
   const catalog = await get();
   const budget = { remaining: MAX_BYTES * 2 };
+  // As entries, so that a model named `__proto__` is a key like any other.
+  const reported: [string, TokenLimits][] = [];
+  const report = (id: string, limits: TokenLimits | undefined) => {
+    if (limits?.context) reported.push([id, { ...limits }]);
+  };
   let missing = models;
   if (catalog.ok) {
-    const ids = await catalogIds(catalog, budget);
-    missing = models.filter((id) => !ids.has(id));
+    const listed = await catalogModels(catalog, budget);
+    missing = models.filter((id) => !listed.has(id));
+    for (const id of models) report(id, listed.get(id));
   } else {
     await catalog.body?.cancel().catch(() => undefined);
     if (!missingRoute(catalog.status)) throw upstreamError(catalog.status);
@@ -136,7 +173,10 @@ export async function verifyEndpointModels(
     }
     individualSupported = true;
     // Only the model's own ID confirms it. A generic success page or an alias for a different model fails.
-    if ((await modelJson(res, budget, id))?.id !== id) throw new HttpError(400, t().endpointVerifyMismatch(id));
+    const record = await modelJson(res, budget, id);
+    if (record?.id !== id) throw new HttpError(400, t().endpointVerifyMismatch(id));
+    report(id, reportedLimits(record));
   }
   if (firstUnavailable && !allowMissingMetadata) throw new HttpError(409, t().endpointNoMetadata, ENDPOINT_METADATA_UNAVAILABLE);
+  return Object.fromEntries(reported);
 }

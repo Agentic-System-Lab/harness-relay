@@ -147,6 +147,8 @@ export interface ProviderRequest {
   headers: Record<string, string>;
   body?: string;
   timeoutMs: number;
+  /** Ends the request before its time limit (`pinnedSend()` only): its connection is closed. */
+  signal?: AbortSignal;
 }
 
 /** A request to a provider's endpoint the usual way: this process's fetch, following no redirect. */

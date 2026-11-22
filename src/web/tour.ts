@@ -1,18 +1,18 @@
 // This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
 const DONE_KEY = 'relay:onboarded';
-export const TOUR_VERSION = 37;
+export const TOUR_VERSION = 39;
 
 /** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
 export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 17 }, // welcome
   { target: 'settings', revision: 20 }, // check agents
   { target: 'pair-phone', revision: 23 }, // connect a phone
-  { target: 'settings', revision: 36 }, // model connections
+  { target: 'settings', revision: 39 }, // model connections (context windows)
   { target: 'new-chat', revision: 37 }, // new chat
-  { revision: 20 }, // auto team
+  { revision: 39 }, // auto team (a member's own limit)
   { revision: 1 }, // modes
   { revision: 9 }, // writing a message
-  { revision: 1 }, // while the team replies
+  { revision: 39 }, // while the team replies (subagents, steering)
   { revision: 18 }, // when the team needs you
   { target: 'settings', revision: 23 }, // notifications and sound
   { target: 'inbox', revision: 18 },
@@ -24,7 +24,7 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { target: 'organize', revision: 17 },
   { target: 'settings', revision: 33 }, // common apps and the tool library
   { target: 'settings', revision: 4 }, // agent sessions
-  { target: 'settings', revision: 20 }, // settings
+  { target: 'settings', revision: 39 }, // settings (Labs; subagents and workflows)
 ];
 
 export function tourIndices(since: number): number[] {

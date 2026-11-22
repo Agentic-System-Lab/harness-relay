@@ -29,8 +29,10 @@ afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 import {
   COPILOT_AGENT_MODE,
   COPILOT_NOTES,
+  COPILOT_RUNTIME_EVENTS,
   COPILOT_SECRET_VARS,
   askCopilotModels,
+  createCopilotUsage,
   copilotApprovalRequest,
   copilotArgs,
   copilotCommandOutput,
@@ -59,6 +61,7 @@ import {
   copilotSignedInAs,
   copilotSignedOut,
   createCopilotUpdateHandler,
+  COPILOT_EVENTS,
   parseCopilotModels,
   prepareCopilotProbeHome,
   prepareCopilotRun,
@@ -494,6 +497,126 @@ describe('Copilot session updates', () => {
   });
 });
 
+// The runtime events of Copilot 1.0.112 (its `schemas/session-events.schema.json` and `copilot help
+// acp`, not recorded from a run): `{ sessionId, type, data, agentId? }`, sent for the types a client
+// names in `initialize`.
+describe("Copilot's subagents and notes about its own run (its runtime events)", () => {
+  const event = (type: string, data: Record<string, unknown>, agentId?: string) => ({
+    sessionId: 's',
+    type,
+    data,
+    ...(agentId ? { agentId } : {}),
+  });
+  const task = (status: string) => ({
+    sessionUpdate: status === 'pending' ? 'tool_call' : 'tool_call_update',
+    toolCallId: 'task-1',
+    kind: 'other',
+    title: 'Explore the repo',
+    status,
+    rawInput: { description: 'Explore the repo', prompt: 'Look around', agent_type: 'explore' },
+  });
+
+  it("folds a subagent's calls under the call that started it, named and with its model, wherever Copilot reports them", () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    h.handle(task('pending'));
+    h.runtime(
+      event('subagent.started', {
+        toolCallId: 'task-1',
+        agentName: 'explore',
+        agentDisplayName: 'Explore',
+        agentDescription: '…',
+        model: 'gpt-5.5-mini',
+        executionMode: 'sync',
+      }),
+    );
+    // A call of the subagent's that Copilot reports in its runtime events only.
+    h.runtime(
+      event(
+        'tool.execution_start',
+        { toolCallId: 'r1', toolName: 'view', arguments: { path: '/work/a.ts' }, parentToolCallId: 'task-1' },
+        'agent-1',
+      ),
+    );
+    h.runtime(
+      event(
+        'tool.execution_complete',
+        { toolCallId: 'r1', success: true, result: { content: 'export {}' }, parentToolCallId: 'task-1' },
+        'agent-1',
+      ),
+    );
+    // One it reports as a call of its own too: put under its subagent, and ended once.
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 's1',
+      kind: 'execute',
+      title: 'ls',
+      status: 'pending',
+      rawInput: { command: 'ls' },
+    });
+    h.runtime(event('tool.execution_start', { toolCallId: 's1', toolName: 'bash', parentToolCallId: 'task-1' }, 'agent-1'));
+    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 's1', status: 'completed', rawOutput: { content: 'a.ts' } });
+    h.runtime(event('tool.execution_complete', { toolCallId: 's1', success: true, parentToolCallId: 'task-1' }, 'agent-1'));
+    // A call the agent itself made is not a subagent's.
+    h.runtime(event('tool.execution_start', { toolCallId: 'own', toolName: 'view' }));
+    h.handle({ ...task('completed'), content: [{ type: 'content', content: { type: 'text', text: 'It is a small app.' } }] });
+    h.runtime(event('subagent.completed', { toolCallId: 'task-1', agentName: 'explore', agentDisplayName: 'Explore', totalToolCalls: 2 }));
+    expect(events.filter((e) => e.type !== 'text' && e.type !== 'text_end')).toEqual([
+      { type: 'tool_start', id: 'task-1', name: 'Explore the repo', detail: 'Explore the repo', kind: 'other' },
+      { type: 'tool_start', id: 'task-1', name: 'task', agent: 'Explore', model: 'gpt-5.5-mini' },
+      { type: 'tool_start', id: 'r1', name: 'view', detail: '/work/a.ts', parentId: 'task-1' },
+      { type: 'tool_end', id: 'r1', ok: true, output: 'export {}' },
+      { type: 'tool_start', id: 's1', name: 'Shell', detail: 'ls', kind: 'execute' },
+      { type: 'tool_start', id: 's1', name: 'bash', parentId: 'task-1' },
+      { type: 'tool_end', id: 's1', ok: true, output: 'a.ts' },
+      { type: 'tool_end', id: 'task-1', ok: true, output: 'It is a small app.' },
+    ]);
+  });
+
+  it('keeps a background subagent at work until it ends, and cuts off one still at work with the turn', () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.handle(task('pending'));
+      h.runtime(
+        event('subagent.started', { toolCallId: 'task-1', agentName: 'task', agentDisplayName: 'Task', executionMode: 'background' }),
+      );
+      h.handle(task('completed'));
+      h.runtime(event('subagent.failed', { toolCallId: 'task-1', agentName: 'task', agentDisplayName: 'Task', error: 'rate limited' }));
+      h.handle({ ...task('pending'), toolCallId: 'task-2' });
+      h.runtime(
+        event('subagent.started', { toolCallId: 'task-2', agentName: 'task', agentDisplayName: 'Task', executionMode: 'background' }),
+      );
+      h.handle({ ...task('completed'), toolCallId: 'task-2' });
+      h.cutOff();
+    });
+    expect(events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'task-1', ok: false, error: 'rate limited' },
+      { type: 'tool_end', id: 'task-2', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it("notes a compaction, a retry and its own model switch, not a subagent's nor the model the turn set", () => {
+    const events: AgentEvent[] = [];
+    const h = createCopilotUpdateHandler((e) => events.push(e));
+    withLang('en', () => {
+      h.runtime(event('session.compaction_complete', { success: true, preCompactionTokens: 120000, postCompactionTokens: 9000 }));
+      h.runtime(event('session.compaction_complete', { success: false, error: 'summary too long' }));
+      h.runtime(event('session.compaction_complete', { success: true }, 'agent-1'));
+      h.runtime(event('assistant.turn_retry', { turnId: 't-1', reason: 'server overloaded' }));
+      h.runtime(event('session.model_change', { newModel: 'gpt-5.5-mini', previousModel: 'gpt-5.5', cause: 'rate_limit_auto_switch' }));
+      h.runtime(event('session.model_change', { newModel: 'gpt-5.5', previousModel: 'auto', source: 'sdk' }));
+    });
+    expect(events).toEqual([
+      { type: 'notice', text: "Copilot compacted the conversation's context to make room." },
+      { type: 'notice', text: "Copilot could not compact the conversation's context: summary too long" },
+      { type: 'notice', text: "Copilot's request to its model failed; retrying: server overloaded" },
+      { type: 'notice', text: 'Copilot switched models from gpt-5.5 to gpt-5.5-mini.' },
+    ]);
+    expect(COPILOT_EVENTS).toContain('subagent.started');
+  });
+});
+
 describe("Copilot's home and settings for one run", () => {
   const own = {
     model: 'claude-sonnet-5.5',
@@ -744,9 +867,38 @@ describe("Copilot's home and settings for one run", () => {
     }
   });
 
+  it('caps its session with the AI credits given', () => {
+    expect(copilotArgs({ permission: 'edit', maxAiCredits: 120 }).slice(-2)).toEqual(['--max-ai-credits', '120']);
+  });
+
+  it("counts its model calls' usage once each, the cache with the input, and the credits only where reported", () => {
+    const u = createCopilotUsage();
+    expect(u.tokens).toEqual({});
+    expect(u.aiCredits).toBeUndefined();
+    u.add({ type: 'assistant.turn_start', data: {} });
+    u.add({ type: 'assistant.usage' });
+    u.add({ type: 'assistant.usage', id: 'a', data: { model: 'm', inputTokens: 10, cacheReadTokens: 90, outputTokens: 4 } });
+    expect(u.tokens).toEqual({ inputTokens: 100, outputTokens: 4 });
+    expect(u.aiCredits).toBeUndefined();
+    u.add({ type: 'assistant.usage', id: 'a', data: { model: 'm', inputTokens: 10, outputTokens: 4 } });
+    // No event id: its accounting identity is the call's.
+    u.add({
+      type: 'assistant.usage',
+      data: { model: 'm', inputTokens: 5, outputTokens: 1, accounting: { usageId: 'b' }, copilotUsage: { totalNanoAiu: 2e8 } },
+    });
+    u.add({
+      type: 'assistant.usage',
+      data: { model: 'm', inputTokens: 5, outputTokens: 1, accounting: { usageId: 'b' }, copilotUsage: { totalNanoAiu: 2e8 } },
+    });
+    expect(u.tokens).toEqual({ inputTokens: 105, outputTokens: 5 });
+    expect(u.aiCredits).toBeCloseTo(0.2);
+  });
+
   it('starts it over ACP: in its sandbox below full access, allowing all with full access, with what the run leaves out', () => {
+    // Its question form is never offered: the agent asks in its reply.
     const secrets = `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`;
-    expect(copilotArgs({ permission: 'edit' })).toEqual(['--acp', '--sandbox', secrets]);
+    const noAsk = '--no-ask-user';
+    expect(copilotArgs({ permission: 'edit' })).toEqual(['--acp', '--sandbox', secrets, noAsk]);
     expect(copilotArgs({ permission: 'full', addDirs: ['/a', '/b'], model: 'gpt-6-luna', effort: 'high' })).toEqual([
       '--acp',
       '--allow-all',
@@ -755,6 +907,7 @@ describe("Copilot's home and settings for one run", () => {
       '--add-dir',
       '/b',
       secrets,
+      noAsk,
       '--model',
       'gpt-6-luna',
       '--reasoning-effort',
@@ -764,6 +917,7 @@ describe("Copilot's home and settings for one run", () => {
       '--acp',
       '--sandbox',
       secrets,
+      noAsk,
       '--excluded-tools',
       'skill',
       '--disable-builtin-mcps',
@@ -772,6 +926,7 @@ describe("Copilot's home and settings for one run", () => {
       '--acp',
       '--sandbox',
       secrets,
+      noAsk,
       '--disable-mcp-server',
       'github',
       '--disable-mcp-server',
@@ -1485,7 +1640,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const result = await withLang('en', () => copilotRunner.run(r.o));
     expect(result).toEqual({ sessionId: 'da742fbc-21c4-4b31-8caa-aa52f7163c96', inputTokens: 30, outputTokens: 15 });
     const start = r.log()[0]!;
-    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     // Its own home: not the account's, without the variable that would allow everything, gone with the run.
     expect(start.env.COPILOT_HOME).not.toBe(r.home);
     expect(start.env.COPILOT_ALLOW_ALL).toBeUndefined();
@@ -1550,10 +1705,72 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   it('runs everything with full access: no sandbox, allow-all, nothing asked', async () => {
     const r = run('full', { permission: 'full' }, () => ({ allow: false }));
     await copilotRunner.run(r.o);
-    expect(r.log()[0]!.argv).toEqual(['--acp', '--allow-all', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(r.log()[0]!.argv).toEqual(['--acp', '--allow-all', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     expect(JSON.parse(r.log()[0]!.files['settings.json']).sandbox).toEqual({ enabled: false });
     expect(r.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1); // no policy to check
     expect(r.approvals).toEqual([]);
+  });
+
+  it("subscribes to its model calls' usage, and takes its AI credits from them, its tokens when the answer has none", async () => {
+    const calls = [
+      {
+        id: 'u-1',
+        data: {
+          model: 'gpt-6',
+          inputTokens: 100,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 50,
+          outputTokens: 40,
+          copilotUsage: { totalNanoAiu: 1.5e9 },
+        },
+      },
+      // The same call again: counted once.
+      {
+        id: 'u-1',
+        data: {
+          model: 'gpt-6',
+          inputTokens: 100,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 50,
+          outputTokens: 40,
+          copilotUsage: { totalNanoAiu: 1.5e9 },
+        },
+      },
+      // A subagent's call.
+      {
+        id: 'u-2',
+        data: { model: 'gpt-6-mini', inputTokens: 10, outputTokens: 5, initiator: 'sub-agent', copilotUsage: { totalNanoAiu: 0.25e9 } },
+      },
+    ];
+    const r = run(undefined, { permission: 'full' }, undefined, { FAKE_COPILOT_USAGE_EVENTS: JSON.stringify(calls) });
+    const result = await copilotRunner.run(r.o);
+    expect(r.log().find((l) => l.method === 'initialize')?.params.clientCapabilities._meta).toEqual({
+      'github.com/copilot': { events: [...COPILOT_RUNTIME_EVENTS] },
+    });
+    // The answer's tokens, as before; the credits, which only the events have.
+    expect(result).toMatchObject({ inputTokens: 3, outputTokens: 1, aiCredits: 1.75 });
+    const none = run(undefined, { permission: 'full' }, undefined, {
+      FAKE_COPILOT_USAGE_EVENTS: JSON.stringify(calls),
+      FAKE_COPILOT_NO_USAGE: '1',
+    });
+    expect(await copilotRunner.run(none.o)).toMatchObject({ inputTokens: 1060, outputTokens: 45, aiCredits: 1.75 });
+  });
+
+  it("gives Copilot the member's AI credit limit, but not on the user's own endpoint", async () => {
+    const r = run(undefined, { permission: 'full', limits: { aiCredits: 50 } });
+    await copilotRunner.run(r.o);
+    expect(r.log()[0]!.argv.slice(-2)).toEqual(['--max-ai-credits', '50']);
+    const other = run(undefined, { permission: 'full', limits: { usd: 5 } });
+    await copilotRunner.run(other.o);
+    expect(other.log()[0]!.argv).not.toContain('--max-ai-credits');
+    // The user's own endpoint uses no AI credits.
+    const backends = {
+      apis: {},
+      endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://127.0.0.1:11434/v1', models: ['gemma4'] }],
+    };
+    const own = run(undefined, { permission: 'full', limits: { aiCredits: 50 }, model: 'homelab/gemma4', backends });
+    await copilotRunner.run(own.o);
+    expect(own.log()[0]!.argv).not.toContain('--max-ai-credits');
   });
 
   it("resumes a session with session/load, and what it replays is not this turn's", async () => {
@@ -1630,7 +1847,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   it('gives the model and the effort as flags, and starts again without an effort its model refuses', async () => {
     const r = run(undefined, { model: 'claude-haiku-4.5', effort: 'high' }, undefined, { FAKE_COPILOT_NO_EFFORT: '1' });
     await copilotRunner.run(r.o);
-    const argvs = starts(r).map((s) => s.argv.slice(3));
+    const argvs = starts(r).map((s) => s.argv.slice(4));
     expect(argvs).toEqual([
       ['--model', 'claude-haiku-4.5', '--reasoning-effort', 'high'],
       ['--model', 'claude-haiku-4.5'],
@@ -1646,7 +1863,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const r = run(undefined, { model: 'homelab/gemma4', effort: 'xhigh', backends });
     await copilotRunner.run(r.o);
     const start = r.log()[0]!;
-    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(start.argv).toEqual(['--acp', '--sandbox', `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`, '--no-ask-user']);
     expect(start.env).toMatchObject({
       COPILOT_PROVIDER_BASE_URL: 'http://127.0.0.1:11434/v1',
       COPILOT_PROVIDER_TYPE: 'openai',
@@ -1656,7 +1873,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     });
     const high = run(undefined, { model: 'homelab/gemma4', effort: 'high', backends });
     await copilotRunner.run(high.o);
-    expect(high.log()[0]!.argv.slice(3)).toEqual(['--reasoning-effort', 'high']);
+    expect(high.log()[0]!.argv.slice(4)).toEqual(['--reasoning-effort', 'high']);
     // An endpoint deleted in Settings: the model would go to Copilot's own service.
     const gone = run(undefined, { model: 'old/gemma4', backends: { ...backends, deletedEndpoints: ['old'] } });
     await expect(copilotRunner.run(gone.o)).rejects.toThrow(AgentRunError);
@@ -1774,7 +1991,14 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
       images: [{ path: img, mimeType: 'image/png' }],
     });
     await copilotRunner.run(r.o);
-    expect(r.log()[0]!.argv).toEqual(['--acp', '--sandbox', '--add-dir', other, `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`]);
+    expect(r.log()[0]!.argv).toEqual([
+      '--acp',
+      '--sandbox',
+      '--add-dir',
+      other,
+      `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`,
+      '--no-ask-user',
+    ]);
     expect(JSON.parse(r.log()[0]!.files['settings.json']).sandbox.userPolicy.filesystem.readwritePaths).toEqual([other]);
     expect(r.log().find((l) => l.method === 'session/new')?.params.mcpServers).toEqual([
       { name: 'notes', command: 'notes-mcp', args: ['--x'], env: [{ name: 'TOKEN', value: 't' }] },

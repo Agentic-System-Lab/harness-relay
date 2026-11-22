@@ -15,8 +15,9 @@ import type {
   TeamRevision,
   MessageChanges,
 } from '../shared/types';
-import { TEAM_WORKTREE } from '../shared/types';
+import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
 import { ApiError } from './api';
+import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
 import type { Team } from './components/TeamEditor';
 
@@ -153,24 +154,49 @@ export function sameTeam(a: Team, b: Team): boolean {
   return canonical(a) === canonical(b);
 }
 
-/**
- * The team drawer saves only lead review (its box), through its own request: while the team replies
- * (when nothing else may be saved, and the switch is read once the team has answered), and only when
- * the box is all the draft changes. Not while a design waits for confirmation (`proposed`): saving
- * there confirms the design, which the drawer's usual save does.
- */
-export function savesLeadReviewAlone(base: Team, draft: Team, running: boolean, proposed: boolean): boolean {
-  return running && !proposed && onlyLeadReview(base, draft);
+/** The members whose CLI cannot take a message into a running turn (steering, `STEER_PROVIDERS`). */
+export function cannotSteer(agents: readonly AgentConfig[]): AgentConfig[] {
+  return agents.filter((a) => !STEER_PROVIDERS.includes(a.provider));
 }
 
-/** The draft changes only lead review (the team drawer's box). */
-export function onlyLeadReview(base: Team, draft: Team): boolean {
-  if (Boolean(base.settings.leadReview) === Boolean(draft.settings.leadReview)) return false;
+/**
+ * The names of the members a user message went into the running turn of (`ChatMessage.steered`), as the
+ * team has them now ("@Alice, @Bob"); a member who left since is left out.
+ */
+export function steeredNames(msg: Pick<ChatMessage, 'steered'>, agents: readonly AgentConfig[]): string {
+  return (msg.steered ?? [])
+    .flatMap((id) => agents.find((a) => a.id === id) ?? [])
+    .map((a) => `@${a.name}`)
+    .join(', ');
+}
+
+/**
+ * The switches the team drawer saves through requests of their own, at any time: lead review (read once
+ * the team has answered) and steering (read as each message is sent).
+ */
+export const RUN_SWITCHES = ['leadReview', 'steer'] as const;
+export type RunSwitch = (typeof RUN_SWITCHES)[number];
+
+/**
+ * The team drawer saves only its switches (`RUN_SWITCHES`), each through its own request: while the team
+ * replies (when nothing else may be saved), and only when they are all the draft changes. Not while a
+ * design waits for confirmation (`proposed`): saving there confirms the design, which the drawer's usual
+ * save does. The switches to save, or none.
+ */
+export function savesSwitchesAlone(base: Team, draft: Team, running: boolean, proposed: boolean): RunSwitch[] {
+  return running && !proposed ? onlySwitches(base, draft) : [];
+}
+
+/** The switches the draft changes (`RUN_SWITCHES`), when they are all it changes; else none. */
+export function onlySwitches(base: Team, draft: Team): RunSwitch[] {
+  const changed = RUN_SWITCHES.filter((k) => Boolean(base.settings[k]) !== Boolean(draft.settings[k]));
+  if (!changed.length) return [];
   const without = (t: Team): Team => {
-    const { leadReview: _review, ...settings } = t.settings;
+    const settings = { ...t.settings };
+    for (const k of RUN_SWITCHES) delete settings[k];
     return { ...t, settings };
   };
-  return sameTeam(without(base), without(draft));
+  return sameTeam(without(base), without(draft)) ? changed : [];
 }
 
 /**
@@ -293,7 +319,12 @@ export function revisedTeam(draft: Team, revision: Pick<TeamRevision, 'agents' |
   const was = new Map(draft.agents.map((a) => [a.id, a]));
   const agents = revision.agents.map((a) => {
     const b = was.get(a.id);
-    return b && JSON.stringify(working(a)) === JSON.stringify(working(b)) && canonical(a.tools ?? {}) === canonical(b.tools ?? {}) ? b : a;
+    return b &&
+      JSON.stringify(working(a)) === JSON.stringify(working(b)) &&
+      canonical(a.tools ?? {}) === canonical(b.tools ?? {}) &&
+      canonical(limitsKey(a)) === canonical(limitsKey(b))
+      ? b
+      : a;
   });
   return { agents, settings: { ...draft.settings, ...revision.settings } };
 }
@@ -337,8 +368,13 @@ export function enterSends(key: { key: string; shiftKey: boolean; metaKey: boole
 export type ToolPart = Extract<MessagePart, { type: 'tool' }>;
 export type ApprovalPart = Extract<MessagePart, { type: 'approval' }>;
 
-/** One step of an agent's work between its words: a tool call, or a stretch of its reasoning. */
-export type ActivityItem = { kind: 'tool'; part: ToolPart; key: number } | { kind: 'thinking'; text: string; key: number };
+/**
+ * One step of an agent's work between its words: a tool call, or a stretch of its reasoning. A call
+ * that started a subagent holds the subagent's own calls (`steps`: those whose `parentId` is its id),
+ * which are never steps of the block themselves.
+ */
+export type ActivityItem = ToolItem | { kind: 'thinking'; text: string; key: number };
+export type ToolItem = { kind: 'tool'; part: ToolPart; key: number; steps?: ActivityItem[] };
 
 /**
  * How an agent's message is drawn, in order. Tool calls and thinking that follow each other, with no reply
@@ -378,6 +414,8 @@ export function segments(parts: MessagePart[]): Segment[] {
     if (prev?.kind === 'activity') prev.items.push(item);
     else out.push({ kind: 'activity', items: [item], key: item.key, last: false });
   };
+  /** Every call so far, by id: a subagent's call goes into the one that started it, wherever that is. */
+  const calls = new Map<string, ToolItem>();
   parts.forEach((p, i) => {
     switch (p.type) {
       case 'text':
@@ -386,9 +424,15 @@ export function segments(parts: MessagePart[]): Segment[] {
       case 'thinking':
         if (p.text.trim()) step({ kind: 'thinking', text: p.text, key: i });
         break;
-      case 'tool':
-        step({ kind: 'tool', part: p, key: i });
+      case 'tool': {
+        const item: ToolItem = { kind: 'tool', part: p, key: i };
+        // A call whose parent is not (or not yet) in the message stands on its own.
+        const parent = p.parentId ? calls.get(p.parentId) : undefined;
+        if (parent) (parent.steps ??= []).push(item);
+        else step(item);
+        if (!calls.has(p.id)) calls.set(p.id, item);
         break;
+      }
       case 'plan':
         if (p.entries.length) out.push({ kind: 'todo', entries: p.entries, key: i });
         break;
@@ -423,7 +467,10 @@ export function shownSegments(segs: Segment[], passed: boolean, live: boolean): 
   };
 }
 
-/** How many tool calls, stretches of thinking and failed calls an activity block holds. */
+/**
+ * How many tool calls, stretches of thinking and failed calls an activity block (or a subagent) holds:
+ * its own steps, a subagent counting as one, its own calls counted in its row.
+ */
 export function activityCounts(items: ActivityItem[]): { actions: number; thoughts: number; failed: number } {
   let actions = 0;
   let failed = 0;
@@ -433,6 +480,39 @@ export function activityCounts(items: ActivityItem[]): { actions: number; though
     if (item.part.status === 'error') failed++;
   }
   return { actions, thoughts: items.length - actions, failed };
+}
+
+/** Whether a step is a call that started a subagent: the CLI named the subagent, or it made calls of its own. */
+export function isSubagent(item: ActivityItem): boolean {
+  return item.kind === 'tool' && (Boolean(item.part.agent) || Boolean(item.steps?.length));
+}
+
+/** What a subagent's row calls it: its name (`Explore`) when the CLI gave one, else the call's. */
+export function subagentName(part: ToolPart): string {
+  return part.agent ?? part.name;
+}
+
+/** Whether a call is still at work: running itself, or a subagent with a call of its own still running. */
+function atWork(item: ActivityItem): item is ToolItem {
+  return item.kind === 'tool' && (item.part.status === 'running' || Boolean(item.steps?.some(atWork)));
+}
+
+/**
+ * The step a live activity block is on, for its folded row: the first call still at work and, inside a
+ * subagent, the latest of its own calls still at work, one subagent within another (`agents`: their
+ * names, outermost first). `part` is that call; for a subagent between calls (thinking), the subagent's
+ * own call, with `agents` naming the subagents around it only.
+ */
+export function runningStep(items: ActivityItem[]): { agents: string[]; part: ToolPart } | undefined {
+  let item = items.find(atWork);
+  if (!item) return undefined;
+  const agents: string[] = [];
+  for (;;) {
+    const inner: ToolItem | undefined = item.steps?.filter(atWork).pop();
+    if (!inner) return { agents, part: item.part };
+    agents.push(subagentName(item.part));
+    item = inner;
+  }
 }
 
 /**

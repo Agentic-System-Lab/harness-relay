@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   constants,
@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativePart, type Permission } from '../../shared/types';
+import { endpointEffort, PROVIDER_LABEL, type NativeOnPart, type NativePart, type Permission } from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
@@ -29,6 +29,7 @@ import { JsonRpcConnection, RpcError, acpContentText as contentText, acpMcpServe
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
+  clip,
   summarizeInput,
   tailText,
   webSearchDetail,
@@ -39,6 +40,7 @@ import {
   type RunEndpoint,
   type RunOptions,
   type RunResult,
+  type SteerTurn,
 } from './types';
 import { t } from '../i18n';
 
@@ -898,7 +900,42 @@ export function grokBackendDetail(raw: unknown): string | undefined {
   return webSearchDetail(r.action) ?? (input && typeof input === 'object' ? summarizeInput(input) : undefined);
 }
 
-/** Turns ACP `session/update` payloads into AgentEvents. */
+/** The kinds of Grok's notes about its own run that the chat shows. */
+const GROK_NOTES = new Set([
+  'auto_compact_completed',
+  'auto_compact_failed',
+  'model_auto_switched',
+  'auto_recovery_started',
+  'auto_recovery_exhausted',
+]);
+
+/** The names Grok gives the tool that starts a subagent: `task` inside, `spawn_subagent` to the model (1.0.92's bundled docs). */
+const GROK_SPAWN_TOOLS = new Set(['task', 'spawn_subagent']);
+
+/** The id of the subagent a spawn call started, from what it answered (`subagent_id: …`, 1.0.92). */
+function grokSubagentId(u: Record<string, any>): string | undefined {
+  const raw = u.rawOutput;
+  const id = raw && typeof raw === 'object' && typeof raw.subagent_id === 'string' ? raw.subagent_id : undefined;
+  return id ?? /\bsubagent_id:\s*(\S+)/.exec(contentText(u.content) || (typeof raw === 'string' ? raw : ''))?.[1];
+}
+
+/**
+ * How long Grok may stay silent, its background work done, before a turn stops waiting for the turn it
+ * said it would wake for (`will_wake`) to report its end: a fallback for a signal that does not come.
+ */
+export const GROK_WAKE_QUIET_MS = 3 * 60_000;
+
+/**
+ * Turns ACP `session/update` payloads into AgentEvents: the turn's own session's, and its subagents'
+ * sessions' (`child()`), whose calls go under the call that started the subagent. What Grok reports
+ * about its subagents, background tasks and its own run comes as kinds of its own in
+ * `_x.ai/session_notification` (as Grok 1.0.92's binary has them; not recorded from a run):
+ * `subagent_spawned` (`subagent_id`, `child_session_id`, `subagent_type`, `model`…),
+ * `subagent_finished` (`subagent_id`, `status`, `output`, `error`, `will_wake`), `task_backgrounded`
+ * (`task_id`, `tool_call_id`) and `task_completed` (`task_snapshot.task_id`, `will_wake`),
+ * `turn_completed`, and the notes `auto_compact_completed`, `auto_compact_failed`,
+ * `model_auto_switched`, `auto_recovery_started` and `auto_recovery_exhausted`.
+ */
 export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
   const open = new Set<string>();
   /** To-do updates arrive as `plan` updates too, so their tool calls are not shown as rows. */
@@ -909,6 +946,24 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
   const refused = new Map<string, string>();
   let inText = false;
   let lastFailure: { tool: string; reason?: string } | undefined;
+  /** The calls that start a subagent: whether it runs in the background, and the subagent once known. */
+  const spawns = new Map<string, { background: boolean; subagent?: string }>();
+  /** Each subagent's call, and its session's. */
+  const subagentCalls = new Map<string, string>();
+  const childSessions = new Map<string, string>();
+  /** Spawn calls that answered while their subagent works on in the background: their rows end with it. */
+  const held = new Set<string>();
+  /** The background work at hand (subagents' ids, `task:<id>` for tasks): the turn waits for it. */
+  const running = new Set<string>();
+  // Whether a turn Grok said it would wake for is still to end: a wake asked for (`wakeAt`) after the
+  // last turn opened (`openedAt`) is still to come. Steps are counted in `seq`.
+  let seq = 0;
+  let wakeAt = -1;
+  let openedAt = -1;
+  let turnOpen = false;
+  let lastHeard = Date.now();
+  let onChange: (() => void) | undefined;
+  const changed = () => onChange?.();
 
   const closeText = () => {
     if (inText) {
@@ -917,9 +972,27 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
     }
   };
 
+  const heard = () => {
+    lastHeard = Date.now();
+    if (!turnOpen) {
+      turnOpen = true;
+      openedAt = seq++;
+    }
+  };
+
   const finishTool = (id: string, u: Record<string, any>) => {
-    open.delete(id);
     const ok = u.status === 'completed';
+    const spawn = spawns.get(id);
+    if (spawn) {
+      const subagent = grokSubagentId(u);
+      if (subagent) link(subagent, id);
+      // Started in the background, it answered at once: its row ends with the subagent.
+      if (ok && spawn.background && !refused.has(id)) {
+        held.add(id);
+        return;
+      }
+    }
+    open.delete(id);
     const text = contentText(u.content);
     let error: string | undefined;
     if (!ok) {
@@ -931,12 +1004,149 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
     emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}), ...(detail ? { detail } : {}) });
   };
 
+  /** A subagent and the call that started it, from whichever names them first. */
+  const link = (subagent: string, call: string) => {
+    if (subagentCalls.get(subagent) === call) return;
+    subagentCalls.set(subagent, call);
+    const spawn = spawns.get(call);
+    if (spawn) spawn.subagent = subagent;
+  };
+
+  const toolCall = (u: Record<string, any>, parentId?: string) => {
+    const id = String(u.toolCallId ?? '');
+    if (!id || hidden.has(id)) return;
+    if (u._meta?.['x.ai/tool']?.name === 'todo_write' || u.title === 'todo_write') {
+      hidden.add(id);
+      return;
+    }
+    if (!open.has(id)) {
+      open.add(id);
+      let name = String(u.title || u._meta?.['x.ai/tool']?.name || u.kind || 'tool');
+      if (u._meta?.backend || u.rawInput?.backend) {
+        // Titled "Web search:" / "X search:", a label for a query that only comes with the result.
+        backend.add(id);
+        name = name.replace(/:\s*$/, '') || 'tool';
+      }
+      const tool = String(u._meta?.['x.ai/tool']?.name || name);
+      names.set(id, tool);
+      const input = (u.rawInput && typeof u.rawInput === 'object' ? u.rawInput : {}) as Record<string, any>;
+      let sub: { agent: string; model?: string } | undefined;
+      if (GROK_SPAWN_TOOLS.has(tool)) {
+        // In the background unless asked not to; `general-purpose` when no type is given (its docs).
+        spawns.set(id, { background: input.run_in_background !== false });
+        const model = typeof input.model === 'string' && input.model ? input.model : undefined;
+        sub = { agent: typeof input.subagent_type === 'string' && input.subagent_type ? input.subagent_type : 'general-purpose', model };
+      }
+      emit({
+        type: 'tool_start',
+        id,
+        name,
+        detail: summarizeInput(u.rawInput),
+        ...(parentId ? { parentId } : {}),
+        ...(sub ? { agent: sub.agent, ...(sub.model ? { model: sub.model } : {}) } : {}),
+      });
+    }
+    if (DONE.has(u.status)) finishTool(id, u);
+  };
+
+  const toolUpdate = (u: Record<string, any>) => {
+    const id = String(u.toolCallId ?? '');
+    if (open.has(id) && !held.has(id) && DONE.has(u.status)) finishTool(id, u);
+  };
+
+  /** What Grok says about its subagents and background tasks, on the session that started them. */
+  const lifecycle = (u: Record<string, any>): boolean => {
+    const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    switch (u.sessionUpdate) {
+      case 'subagent_spawned': {
+        const subagent = text(u.subagent_id);
+        if (!subagent) return true;
+        running.add(subagent);
+        // Its call: the one it answered with its id, else the latest spawn call still waiting for one.
+        const call = subagentCalls.get(subagent) ?? [...spawns].reverse().find(([id, s]) => !s.subagent && open.has(id))?.[0];
+        if (call) link(subagent, call);
+        const session = text(u.child_session_id);
+        if (session && call) childSessions.set(session, call);
+        const model = text(u.model);
+        const agent = text(u.subagent_type);
+        if (call && (model || agent))
+          emit({ type: 'tool_start', id: call, name: names.get(call) ?? 'task', ...(agent ? { agent } : {}), ...(model ? { model } : {}) });
+        changed();
+        return true;
+      }
+      case 'subagent_finished': {
+        const subagent = text(u.subagent_id);
+        if (!subagent) return true;
+        running.delete(subagent);
+        if (u.will_wake === true) wakeAt = seq++;
+        const call = subagentCalls.get(subagent);
+        if (call && held.delete(call)) {
+          open.delete(call);
+          const ok = u.status === 'completed';
+          const output = text(u.output)?.trim();
+          const error = ok ? undefined : (text(u.error) ?? text(u.status));
+          emit({
+            type: 'tool_end',
+            id: call,
+            ok,
+            ...(ok && output ? { output: tailText(output) } : {}),
+            ...(error ? { error: clip(error, 240) } : {}),
+          });
+        }
+        changed();
+        return true;
+      }
+      // A command it moved to the background does not hold the turn: a server or a watcher would hold it
+      // until the turn's time limit (before, it ended with Grok). Only its end, when Grok wakes for it while
+      // the turn still waits for a subagent, is followed.
+      case 'task_backgrounded':
+        changed();
+        return true;
+      case 'task_completed': {
+        if (u.will_wake === true && running.size > 0) wakeAt = seq++;
+        changed();
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** Grok's notes about its own run: compaction, a recovered request, a model it switched to. */
+  const note = (u: Record<string, any>): boolean => {
+    if (!GROK_NOTES.has(u.sessionUpdate)) return false;
+    closeText();
+    const text = (v: unknown) => (typeof v === 'string' && v ? clip(v, 240) : undefined);
+    const n = (v: unknown) => (typeof v === 'number' && v > 0 ? v : undefined);
+    switch (u.sessionUpdate) {
+      case 'auto_compact_completed':
+        emit({ type: 'notice', text: t().cliCompacted('Grok') });
+        return true;
+      case 'auto_compact_failed':
+        emit({ type: 'notice', text: t().cliCompactFailed('Grok', text(u.error) ?? text(u.reason)) });
+        return true;
+      case 'model_auto_switched':
+        if (text(u.new_model_id))
+          emit({ type: 'notice', text: t().cliModelSwitched('Grok', String(u.previous_model_id ?? ''), String(u.new_model_id)) });
+        return true;
+      case 'auto_recovery_started':
+        emit({ type: 'notice', text: t().cliRetrying('Grok', n(u.attempt), n(u.max_retries), text(u.error)) });
+        return true;
+      case 'auto_recovery_exhausted':
+        emit({ type: 'notice', text: t().cliRetryFailed('Grok', text(u.error)) });
+        return true;
+    }
+    return false;
+  };
+
   function handle(u: Record<string, any> | undefined): void {
     if (!u) return;
+    lastHeard = Date.now();
+    if (lifecycle(u) || note(u)) return;
     switch (u.sessionUpdate) {
       case 'agent_message_chunk': {
         const text = u.content?.text;
         if (typeof text === 'string' && text) {
+          heard();
           inText = true;
           emit({ type: 'text', text });
         }
@@ -945,6 +1155,7 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
       case 'agent_thought_chunk': {
         const text = u.content?.text;
         if (typeof text === 'string' && text) {
+          heard();
           closeText();
           emit({ type: 'thinking', text });
         }
@@ -961,46 +1172,96 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
         });
         break;
       }
-      case 'tool_call': {
+      case 'tool_call':
+        heard();
         closeText();
-        const id = String(u.toolCallId ?? '');
-        if (!id || hidden.has(id)) break;
-        if (u._meta?.['x.ai/tool']?.name === 'todo_write' || u.title === 'todo_write') {
-          hidden.add(id);
-          break;
-        }
-        if (!open.has(id)) {
-          open.add(id);
-          let name = String(u.title || u._meta?.['x.ai/tool']?.name || u.kind || 'tool');
-          if (u._meta?.backend || u.rawInput?.backend) {
-            // Titled "Web search:" / "X search:", a label for a query that only comes with the result.
-            backend.add(id);
-            name = name.replace(/:\s*$/, '') || 'tool';
-          }
-          names.set(id, String(u._meta?.['x.ai/tool']?.name || name));
-          emit({ type: 'tool_start', id, name, detail: summarizeInput(u.rawInput) });
-        }
-        if (DONE.has(u.status)) finishTool(id, u);
+        toolCall(u);
         break;
-      }
-      case 'tool_call_update': {
-        const id = String(u.toolCallId ?? '');
-        if (open.has(id) && DONE.has(u.status)) finishTool(id, u);
+      case 'tool_call_update':
+        toolUpdate(u);
         break;
-      }
-      case 'response_completed': // one per model response
+      case 'response_started': // one per model response
+        heard();
+        break;
+      case 'response_completed':
         closeText();
+        break;
+      case 'turn_completed':
+        closeText();
+        if (turnOpen && openedAt > wakeAt) wakeAt = -1;
+        turnOpen = false;
+        changed();
         break;
     }
   }
 
+  /**
+   * An update on another session: a subagent's (its calls under the call that started it, its own
+   * subagents and tasks counted; its words stay out of the chat). False for a session of no subagent
+   * of this turn's.
+   */
+  function child(sessionId: string, u: Record<string, any> | undefined): boolean {
+    const call = childSessions.get(sessionId);
+    if (!call || !u) return false;
+    lastHeard = Date.now();
+    if (lifecycle(u)) return true;
+    if (u.sessionUpdate === 'tool_call') toolCall(u, call);
+    else if (u.sessionUpdate === 'tool_call_update') toolUpdate(u);
+    return true;
+  }
+
+  /** Whether the turn has background work at hand: running, or a turn Grok said it would wake for. */
+  const busy = () => running.size > 0 || wakeAt >= 0 || turnOpen;
+
   return {
     handle,
+    child,
     /** Remember why we refused a call, to show that instead of grok's generic "not executed". */
     refused(toolCallId: string, label: string) {
       refused.set(toolCallId, label);
     },
     finish: closeText,
+    /** The prompt answered: its own turn is over (what comes now is a turn Grok wakes for by itself). */
+    answered() {
+      closeText();
+      turnOpen = false;
+    },
+    busy,
+    /**
+     * Resolves once the background work the turn started is done, and the turns Grok woke for with it
+     * have ended (`turn_completed`); or, its work done, once Grok has said nothing for `quietMs` with no
+     * call of its own still open (a turn that never reports its end).
+     */
+    idle(quietMs = GROK_WAKE_QUIET_MS): Promise<void> {
+      return new Promise((resolve) => {
+        let timer: NodeJS.Timeout | undefined;
+        const check = () => {
+          if (timer) clearTimeout(timer);
+          if (!busy()) {
+            onChange = undefined;
+            return resolve();
+          }
+          if (running.size > 0) return;
+          const wait = quietMs - (Date.now() - lastHeard);
+          if (wait <= 0 && ![...open].some((id) => !held.has(id))) {
+            onChange = undefined;
+            return resolve();
+          }
+          timer = setTimeout(check, Math.max(wait, 1000));
+          timer.unref?.();
+        };
+        onChange = check;
+        check();
+      });
+    },
+    /** The turn is over: background work still at work was cut off with it. */
+    cutOff() {
+      for (const id of [...held]) {
+        held.delete(id);
+        open.delete(id);
+        emit({ type: 'tool_end', id, ok: false, error: t().backgroundCutOff });
+      }
+    },
     /** The most recent tool call that did not complete, with grok's stated reason. */
     get lastFailure() {
       return lastFailure;
@@ -1028,10 +1289,20 @@ const TICKS_PER_USD = 1e10;
  * Variables that make Grok leave out, for one run, the skills, MCP servers and hooks it loads from
  * Claude Code's and Cursor's settings (Claude Code plugins' skills too, but not their hooks), and
  * its memory. Its own skills, MCP servers and hooks have no such switch (they are turned off in
- * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins.
+ * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins. Its subagents
+ * as a whole have one (`GROK_SUBAGENTS`), and its question form is always off.
  */
-export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
+export function grokNativeEnv(off: readonly NativePart[] = [], on: readonly NativeOnPart[] = []): Record<string, string> {
   return {
+    // Its question form (`ask_user_question`), which Harness Relay answers with -32601: the agent asks in
+    // its reply instead (`[ASK_USER]`). Grok 1.0.92 reads it.
+    GROK_ASK_USER_QUESTION: '0',
+    // Its own `/goal`, which goes on by itself where Harness Relay tracks a goal of its own (Grok 1.0.92's docs).
+    GROK_GOAL: '0',
+    // Its background workflows and deep research, unless the account turns them on (`NATIVE_ON_SUPPORT`).
+    ...(on.includes('workflows') ? {} : { GROK_WORKFLOWS: '0' }),
+    // All its subagents (`spawn_subagent`), the built-in ones too.
+    ...(off.includes('subagents') ? { GROK_SUBAGENTS: '0' } : {}),
     ...(off.includes('skills') ? { GROK_CLAUDE_SKILLS_ENABLED: 'false', GROK_CURSOR_SKILLS_ENABLED: 'false' } : {}),
     ...(off.includes('mcp') ? { GROK_CLAUDE_MCPS_ENABLED: 'false', GROK_CURSOR_MCPS_ENABLED: 'false' } : {}),
     ...(off.includes('memory') ? { GROK_MEMORY: '0' } : {}),
@@ -1039,13 +1310,21 @@ export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, s
   };
 }
 
+/**
+ * Bounds on Grok's subagents, where a run has them: at most four at once (Grok's own default is 32),
+ * and none of their own (a depth of 1, only the agent itself starts them; Grok clamps it to at least 1).
+ * Its turn waits for them (`idle()`), so each one it starts keeps the turn going.
+ */
+export const GROK_SUBAGENT_CAPS = { GROK_MAX_CONCURRENT_SUBAGENTS: '4', GROK_SUBAGENTS_MAX_DEPTH: '1' } as const;
+
 /** The environment of one run: the user's, what leaves out Grok's own setup, and the sandbox for the permission. */
 export function grokEnv(
-  o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission' | 'addDirs'>,
+  o: Pick<RunOptions, 'env' | 'nativeOff' | 'nativeOn' | 'permission' | 'addDirs'>,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
   const sandbox = grokSandboxProfile(o.permission, platform, grokReadWrite(o.addDirs));
-  return { ...o.env, ...grokNativeEnv(o.nativeOff), ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
+  const caps = o.nativeOff?.includes('subagents') ? {} : GROK_SUBAGENT_CAPS;
+  return { ...o.env, ...grokNativeEnv(o.nativeOff, o.nativeOn), ...caps, ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
 /**
@@ -1173,20 +1452,89 @@ export const grokRunner: AgentRunner = {
   },
 };
 
+/** Resolves when `signal` aborts. */
+function aborted(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => (signal.aborted ? resolve() : signal.addEventListener('abort', () => resolve(), { once: true })));
+}
+
+/**
+ * Steering a Grok turn (`RunOptions.onSteer`): `x.ai/interject`, an ACP extension method (`_x.ai/interject`
+ * on the wire, as `_x.ai/session_notification` is), with `{ sessionId, interjectionId, content }`, the
+ * content as ACP content blocks. Grok injects interjections into the running turn as user messages at
+ * its next safe point ("Injected mid-turn interjections as standalone synthetic user messages"; ones
+ * that come as the turn is ending are drained before it completes) and tells the client about each one
+ * by its id: `x.ai/session/interjection` once it took it, `x.ai/session/unsent_message` when it did not.
+ * Read in grok 1.0.92's binary (its `InterjectRequest` with `interjectionId`, its extension methods'
+ * list, those notifications, the TUI's own `x.ai/interject`), not run. So a message counts as taken
+ * once Grok answered the request or said it took it, and as refused when it answered with an error or
+ * said it was not sent, or the prompt ended first.
+ */
+export class GrokInterjections {
+  private waiting = new Map<string, (taken: boolean) => void>();
+  private closed = false;
+
+  constructor(
+    private conn: { request(method: string, params?: unknown): Promise<unknown> },
+    private sessionId: string,
+  ) {}
+
+  readonly steer: SteerTurn = (text) => {
+    if (this.closed) return Promise.resolve(false);
+    const interjectionId = randomUUID();
+    return new Promise<boolean>((resolve) => {
+      this.waiting.set(interjectionId, resolve);
+      this.conn.request('_x.ai/interject', { sessionId: this.sessionId, interjectionId, content: [{ type: 'text', text }] }).then(
+        () => this.answer(interjectionId, true),
+        () => this.answer(interjectionId, false),
+      );
+    });
+  };
+
+  /** A notification of Grok's: true when it was about an interjection (taken, or not sent). */
+  handle(method: string, params: any): boolean {
+    const name = method.replace(/^_/, '');
+    if (name !== 'x.ai/session/interjection' && name !== 'x.ai/session/unsent_message') return false;
+    const id = typeof params?.interjectionId === 'string' ? params.interjectionId : '';
+    if (id) this.answer(id, name === 'x.ai/session/interjection');
+    return true;
+  }
+
+  /** The prompt has ended: what is still waiting was not taken into it. */
+  close(): void {
+    this.closed = true;
+    for (const id of [...this.waiting.keys()]) this.answer(id, false);
+  }
+
+  private answer(id: string, taken: boolean): void {
+    const resolve = this.waiting.get(id);
+    if (!resolve) return;
+    this.waiting.delete(id);
+    resolve(taken);
+  }
+}
+
 /** One Grok turn over ACP, in its sandbox for the permission (`sandbox`, set in `env`). */
 async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefined, env: NodeJS.ProcessEnv): Promise<RunResult> {
   let child: ChildProcess | undefined;
   let sessionId: string | undefined;
   let userAborted = false;
+  let timedOut = false;
   // Ends the grok process: once the turn is over, or when a cancel is not honoured in time.
   const stop = new AbortController();
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createGrokUpdateHandler(o.onEvent);
+  /** Messages sent into the running turn (steering), once the prompt is out. */
+  let interjections: GrokInterjections | undefined;
   conn.onNotification = (method, params) => {
-    if (method !== 'session/update' && method !== '_x.ai/session_notification') return;
-    if (!sessionId || params?.sessionId !== sessionId) return; // sub-agents and pre-session noise
+    if (interjections?.handle(method, params)) return;
+    // Background tasks have methods of their own besides the session notification (Grok 1.0.92).
+    const own = /^_?x\.ai\/task_(backgrounded|completed)$/.test(method);
+    if (method !== 'session/update' && method !== '_x.ai/session_notification' && !own) return;
+    if (!sessionId) return; // pre-session noise
+    // Another session: a subagent's (the handler knows those of this turn), or not this turn's.
+    if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
     updates.handle(params.update);
   };
   conn.onRequest = async (method, params) => {
@@ -1221,6 +1569,7 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     onLine: conn.handleLine,
   }).then(
     (res) => {
+      timedOut = res.timedOut;
       const why = res.timedOut ? t().timedOut : tail(res.stderr) || t().exitedWithoutTurn('grok', res.code);
       conn.close(new AgentRunError(sandbox && /sandbox/i.test(res.stderr) ? t().grokSandbox(why) : why));
       return res;
@@ -1264,9 +1613,33 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
       });
     }
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
+    const prompting = conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
+    // From now on a message the user sends may go into the turn (steering), until the prompt answers.
+    interjections = new GrokInterjections(conn, sessionId);
+    o.onSteer?.(interjections.steer);
+    const result = await prompting;
+    o.onSteer?.(undefined);
+    interjections.close();
+    updates.answered();
+    // Background work it started (subagents, commands) wakes Grok for a turn of its own once it ends:
+    // the turn goes on until that is done, what comes meanwhile in the same reply, within the turn's
+    // time (or until Grok exits, or the user stops it).
+    if (updates.busy() && !userAborted && result?.stopReason !== 'cancelled') {
+      await Promise.race([
+        updates.idle(),
+        exited.then(
+          () => undefined,
+          () => undefined,
+        ),
+        aborted(o.signal),
+      ]);
+    }
     updates.finish();
+    updates.cutOff();
     if (userAborted) throw new AgentRunError(t().stopped, true);
+    // Out of time while it waited for background work once the prompt had answered: the answer stands,
+    // and what was still at work shows as cut off (`cutOff()` above).
+    if (timedOut && (!result || result.stopReason === 'cancelled')) throw new AgentRunError(t().timedOut);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));
 
     const u = result?._meta?.usage ?? {};
@@ -1281,6 +1654,8 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     if (err instanceof AgentRunError) throw err;
     throw new AgentRunError(err instanceof Error ? err.message : String(err));
   } finally {
+    o.onSteer?.(undefined);
+    interjections?.close();
     o.signal.removeEventListener('abort', onAbort);
     child?.stdin?.end(); // grok exits when its stdin closes
     stopSoon(3000);

@@ -45,6 +45,19 @@ import { writeFileSync } from 'node:fs';
  * that one tool call as Claude Code does with the hooks `initialize` registered (claude 2.1.327): a
  * `hook_callback` for its `PreToolUse` entry whose matcher names the tool (or has none), waiting for the
  * answer; unless that refused it, one for its `PostToolUse` entry; each answer logged (`hook`).
+ * FAKE_CLAUDE_STRUCTURED (JSON) is a run's `structured_output` when it was given `--json-schema` (logged,
+ * parsed, as `jsonSchema`), as Claude Code 2.1.330's result has it, with no text of its own;
+ * FAKE_CLAUDE_RESULT (JSON) goes over a run's result (another `subtype`, say). FAKE_CLAUDE_WAIT makes a
+ * user message's run wait, once it has said a word, until an `interrupt` control request (logged), which
+ * it answers and then ends the turn with a result carrying its usage, as Claude Code does; with
+ * `deaf` it answers the interrupt but goes on waiting.
+ * FAKE_CLAUDE_STEER makes a user message's run wait (up to 3 s) for a message sent into it (a user message
+ * with a `uuid`, logged as `steered`), as Claude Code 2.1.330 takes one: `fold` folds it into the turn
+ * (`command_lifecycle` queued, started, a reply that says what it heard, the result, completed); `late`
+ * ends the turn first (a result with `queued_turn_count` 0, as when the message came just as the model
+ * answered) and then runs it as a turn of its own (queued, started, its reply, a second result);
+ * `refuse` refuses it (`refused`), and `silent` says nothing about it. In these modes it exits as soon as
+ * its input ends, so a message whose turn the input's end cut off is never answered.
  */
 export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -96,6 +109,8 @@ record({
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 let hooks = null;
 const waiting = new Map();
+/** A run that waits for an interrupt (FAKE_CLAUDE_WAIT) is under way. */
+let waitingTurn = false;
 const callback = (event, input) => {
   const entry = ((hooks || {})[event] || []).find((e) => !e.matcher || e.matcher.split('|').includes(input.tool_name));
   if (!entry) return Promise.resolve(undefined);
@@ -113,8 +128,39 @@ async function hookRun(call) {
   }
   out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });
 }
-require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+const steerMode = process.env.FAKE_CLAUDE_STEER;
+let steerWait = null;
+const lifecycle = (uuid, state) => out({ type: 'command_lifecycle', command_uuid: uuid, state, uuid: 'l-' + state, session_id: 'fake-session' });
+const said = (text) => out({ type: 'assistant', session_id: 'fake-session', message: { id: 'm-' + text.length, content: [{ type: 'text', text }] } });
+const steerResult = (more) => out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.1, usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: more });
+function steerRun() {
+  out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools: [], mcp_servers: [] });
+  said('working');
+  steerWait = setTimeout(() => { steerWait = null; steerResult(0); }, 3000);
+}
+function steerIn(m) {
+  record({ steered: m });
+  const text = typeof m.message.content === 'string' ? m.message.content : '';
+  if (steerMode === 'silent') return;
+  if (steerWait) { clearTimeout(steerWait); steerWait = null; }
+  if (steerMode === 'refuse') { lifecycle(m.uuid, 'refused'); return steerResult(0); }
+  if (steerMode === 'late') {
+    steerResult(0);
+    lifecycle(m.uuid, 'queued');
+    return void setTimeout(() => { lifecycle(m.uuid, 'started'); said('heard: ' + text); steerResult(0); lifecycle(m.uuid, 'completed'); }, 100);
+  }
+  lifecycle(m.uuid, 'queued');
+  lifecycle(m.uuid, 'started');
+  said('heard: ' + text);
+  steerResult(0);
+  lifecycle(m.uuid, 'completed');
+}
+const input = require('node:readline').createInterface({ input: process.stdin });
+if (steerMode) input.on('close', () => process.exit(0));
+input.on('line', (line) => {
   const m = JSON.parse(line);
+  if (steerMode && m.type === 'user' && m.uuid) return steerIn(m);
+  if (m.type === 'control_request' && m.request.subtype === 'cancel_async_message') return record({ cancelled: m.request.message_uuid });
   if (m.type === 'control_response' && waiting.has(m.response.request_id)) {
     const done = waiting.get(m.response.request_id);
     waiting.delete(m.response.request_id);
@@ -126,7 +172,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     switch (m.request.subtype) {
       case 'initialize':
         hooks = m.request.hooks || null;
-        record({ hooks });
+        record({ hooks, progressSummaries: m.request.agentProgressSummaries ?? null });
         return ok({
           claude_code_version: '9.9.9',
           commands: commands.filter((c) => !pluginOff(c)).map((name) => ({ name, description: name + ' it', argumentHint: '' })).concat(noCommands ? [] : [{ name: 'compact', description: 'Compact', builtin: true }, { name: 'usage', description: 'Usage', builtin: true }]),
@@ -147,6 +193,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         return ok({ hooks: [{ event: 'SessionStart', matcher: '', source: 'userSettings', type: 'command', commandText: 'notify --token secret', ...(settings.disableAllHooks ? { disabled: true } : {}) }] });
       case 'get_settings':
         return ok({ effective: { ...settings, permissions: { deny: flagDeny.concat(deny) } } });
+      case 'interrupt':
+        record({ interrupt: true });
+        ok(undefined);
+        if (waitingTurn && process.env.FAKE_CLAUDE_WAIT !== 'deaf') {
+          waitingTurn = false;
+          out({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: [], session_id: 'fake-session', total_cost_usd: 0.05, usage: { input_tokens: 40, output_tokens: 6 }, model_usage_since_last_result: { 'claude-main': { inputTokens: 30, cacheReadInputTokens: 10, cacheCreationInputTokens: 0, outputTokens: 6, costUSD: 0.05 } } });
+        }
+        return;
       default:
         return no('Unsupported control request subtype: ' + m.request.subtype);
     }
@@ -160,8 +214,16 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       .filter((name) => !rules.some((r) => r === name || (r.startsWith('mcp__') && name.startsWith(r + '__'))));
     if (process.env.FAKE_CLAUDE_RUN_USAGE) return usageRun(JSON.parse(process.env.FAKE_CLAUDE_RUN_USAGE), tools);
     if (process.env.FAKE_CLAUDE_HOOK_CALL) return void hookRun(JSON.parse(process.env.FAKE_CLAUDE_HOOK_CALL));
+    if (steerMode) return steerRun();
     out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
-    out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.25, usage: { input_tokens: 1, output_tokens: 1 } });
+    if (process.env.FAKE_CLAUDE_WAIT) {
+      waitingTurn = true;
+      return out({ type: 'stream_event', session_id: 'fake-session', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Working' } } });
+    }
+    const schema = flag('--json-schema');
+    if (schema) record({ jsonSchema: JSON.parse(schema) });
+    const shaped = schema && process.env.FAKE_CLAUDE_STRUCTURED ? { result: '', structured_output: JSON.parse(process.env.FAKE_CLAUDE_STRUCTURED) } : {};
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.25, usage: { input_tokens: 1, output_tokens: 1 }, ...shaped, ...JSON.parse(process.env.FAKE_CLAUDE_RESULT || '{}') });
   }
 });
 function usageRun(u, tools) {

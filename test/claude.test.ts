@@ -34,6 +34,9 @@ import {
   claudeExcludePattern,
   claudeItemsBesideLibrary,
   claudeMcpName,
+  CLAUDE_BG_WAIT_MARGIN_MS,
+  claudeFeatureEnv,
+  claudeTimedOut,
   claudeNativeEnv,
   claudeNativeSettings,
   claudeReadRule,
@@ -54,9 +57,10 @@ import {
   claudeHookCall,
   claudeHookOutput,
   claudeHooksConfig,
+  setClaudeStopGrace,
 } from '../src/server/agents/claude';
 import type { TurnHooks } from '../src/server/hooks';
-import { AgentRunError, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, clip, clipPath, summarizeInput, type AgentEvent } from '../src/server/agents/types';
 import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 
@@ -121,19 +125,282 @@ describe('claude arguments', () => {
     expect(args).not.toContain('--session-id');
   });
 
-  it('removes the file-editing tools in read-only mode, so settings cannot allow them', () => {
+  it('removes the file-editing tools in read-only mode, so settings cannot allow them, and its question form at every level', () => {
     const readOnly = claudeArgs({ ...base, permission: 'read-only' });
     const i = readOnly.indexOf('--disallowedTools');
-    expect(readOnly.slice(i + 1, i + 5)).toEqual(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
-    expect(readOnly[i + 5]).toMatch(/^--/); // the variadic list ends before the next flag
+    expect(readOnly.slice(i + 1, i + 6)).toEqual(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'AskUserQuestion']);
+    expect(readOnly[i + 6]).toMatch(/^--/); // the variadic list ends before the next flag
     expect(after(readOnly, '--permission-mode')).toBe('manual');
-    expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--disallowedTools');
+    // `AskUserQuestion` would reach the user as an approval that sends no answer back: the agent asks in its reply.
+    for (const permission of ['edit', 'full'] as const) {
+      const args = claudeArgs({ ...base, permission });
+      expect(args.slice(args.indexOf('--disallowedTools') + 1, args.indexOf('--disallowedTools') + 3)).toEqual([
+        'AskUserQuestion',
+        expect.stringMatching(/^--/),
+      ]);
+    }
+  });
+
+  it('leaves out all its subagents with a rule for the Agent tool, keeps workflows off unless turned on, and waits for background work as long as a turn', () => {
+    expect(claudeNativeSettings(['subagents'])).toEqual({ permissions: { deny: ['Agent'] } });
+    // With all of them out, the rules for single ones are not needed.
+    expect(claudeNativeSettings(['subagents', 'agents'], [], { agents: ['reviewer'] })).toEqual({ permissions: { deny: ['Agent'] } });
+    expect(claudeNativeSettings([], [], { agents: ['reviewer'] })).toEqual({ permissions: { deny: ['Agent(reviewer)'] } });
+    // Ultracode only with workflows, as its own setting (`--effort ultracode` would force xhigh).
+    expect(claudeNativeSettings([], [], {}, ['workflows', 'ultracode'])).toEqual({ ultracode: true });
+    expect(claudeNativeSettings([], [], {}, ['ultracode'])).toBeUndefined();
+    expect(claudeNativeSettings([], [], {}, ['workflows'])).toBeUndefined();
+    const args = claudeArgs({ ...base, permission: 'edit', nativeOn: ['workflows', 'ultracode'] });
+    expect(JSON.parse(after(args, '--settings')!)).toMatchObject({ ultracode: true });
+    // Without workflows its background wait stays at its own 10 minutes (background commands count too).
+    expect(claudeFeatureEnv()).toEqual({ CLAUDE_CODE_DISABLE_WORKFLOWS: '1' });
+    // With them, up to the turn's limit less a margin, so it answers before Harness Relay's timer ends the turn.
+    expect(claudeFeatureEnv(['workflows'], 60 * 60_000)).toEqual({
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(60 * 60_000 - CLAUDE_BG_WAIT_MARGIN_MS),
+    });
+    expect(claudeFeatureEnv(['workflows'], 30_000)).toEqual({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '60000' });
+    expect(claudeFeatureEnv(['workflows'])).toEqual({
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(TURN_TIMEOUT_MS - CLAUDE_BG_WAIT_MARGIN_MS),
+    });
+    // Out of time once the turn had answered: the answer stands; before an answer, or after an error, it failed.
+    expect(claudeTimedOut({ timedOut: true }, { type: 'result', is_error: false })).toBe(false);
+    expect(claudeTimedOut({ timedOut: true }, null)).toBe(true);
+    expect(claudeTimedOut({ timedOut: true }, { type: 'result', is_error: true })).toBe(true);
+    expect(claudeTimedOut({ timedOut: false }, null)).toBe(false);
   });
 
   it('leaves out flags the installed version rejected', () => {
     const args = claudeArgs({ ...base, permission: 'full', skip: new Set(['freshPrompt']) });
     expect(args).not.toContain('--system-prompt-snapshot');
     expect(args).toContain('--thinking-display');
+  });
+});
+
+// Messages as Claude Code 2.1.330's own schemas of its stream-json output have them (read in its
+// binary, not recorded from a run): a subagent's calls carry `parent_tool_use_id`, the id of the
+// `Agent` call that started it; its tasks' `system` messages carry that call's id as `tool_use_id`.
+describe('claude parser: subagents, background tasks and notes about its own run', () => {
+  const parse = () => {
+    const events: AgentEvent[] = [];
+    const parser = createClaudeParser((e) => e.type !== 'session' && events.push(e));
+    return { events, parser, line: (o: unknown) => parser.handle(JSON.stringify(o)) };
+  };
+  const use = (id: string, name: string, input: Record<string, unknown>, parent: string | null = null) => ({
+    type: 'assistant',
+    parent_tool_use_id: parent,
+    session_id: 's',
+    message: { id: `msg-${id}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+  });
+  const result = (id: string, content: unknown, parent: string | null = null, extra: Record<string, unknown> = {}) => ({
+    type: 'user',
+    parent_tool_use_id: parent,
+    session_id: 's',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+    ...extra,
+  });
+
+  it("folds a subagent's calls under its Agent call, one within another, and ends it with what it reported", () => {
+    const { events, line } = parse();
+    line(
+      use('agent-1', 'Agent', {
+        description: 'Find the date parser',
+        prompt: 'Look for…',
+        subagent_type: 'Explore',
+        model: 'haiku',
+        run_in_background: false,
+      }),
+    );
+    line(use('read-1', 'Read', { file_path: '/repo/src/date.ts' }, 'agent-1'));
+    // Its own words, a partial message and its to-do list are not the agent's.
+    line({
+      type: 'assistant',
+      parent_tool_use_id: 'agent-1',
+      message: {
+        id: 'm-sub',
+        content: [
+          { type: 'text', text: 'Found it.' },
+          { type: 'thinking', thinking: 'Hmm.' },
+        ],
+      },
+    });
+    line({
+      type: 'stream_event',
+      parent_tool_use_id: 'agent-1',
+      event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'x' } },
+    });
+    line(use('todo-1', 'TodoWrite', { todos: [{ content: 'Read', status: 'pending' }] }, 'agent-1'));
+    line(result('read-1', [{ type: 'text', text: 'export function parseDate() {}' }], 'agent-1'));
+    // A subagent of its own (no subagent_type: general-purpose).
+    line(use('agent-2', 'Task', { description: 'Check the tests', prompt: '…' }, 'agent-1'));
+    line(use('grep-2', 'Grep', { pattern: 'parseDate' }, 'agent-2'));
+    line({
+      type: 'system',
+      subtype: 'compact_boundary',
+      parent_tool_use_id: 'agent-2',
+      compact_metadata: { trigger: 'auto', pre_tokens: 1 },
+    });
+    line(
+      result('agent-1', [
+        { type: 'text', text: 'The parser is in src/date.ts.' },
+        {
+          type: 'text',
+          text: "agentId: a1b2c3d4e (use SendMessage with to: 'a1b2c3d4e', summary: '…' to continue this agent)\n<usage>subagent_tokens: 10\ntool_uses: 2\nduration_ms: 50</usage>",
+        },
+      ]),
+    );
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'agent-1', name: 'Agent', detail: 'Find the date parser', agent: 'Explore', model: 'haiku' },
+      { type: 'tool_start', id: 'read-1', name: 'Read', detail: '/repo/src/date.ts', parentId: 'agent-1' },
+      { type: 'tool_start', id: 'todo-1', name: 'TodoWrite', parentId: 'agent-1' },
+      { type: 'tool_end', id: 'read-1', ok: true, output: 'export function parseDate() {}' },
+      { type: 'tool_start', id: 'agent-2', name: 'Task', detail: 'Check the tests', parentId: 'agent-1', agent: 'general-purpose' },
+      { type: 'tool_start', id: 'grep-2', name: 'Grep', detail: 'parseDate', parentId: 'agent-2' },
+      { type: 'tool_end', id: 'agent-1', ok: true, output: 'The parser is in src/date.ts.' },
+    ]);
+  });
+
+  it('keeps a background subagent at work until its task says it ended, with its summaries as its detail', () => {
+    const { events, parser, line } = parse();
+    line(use('agent-bg', 'Agent', { description: 'Survey the repo', prompt: '…', subagent_type: 'Explore' }));
+    line({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      description: 'Survey the repo',
+      subagent_type: 'Explore',
+      is_backgrounded: true,
+      task_type: 'local_agent',
+    });
+    line(
+      result(
+        'agent-bg',
+        [{ type: 'text', text: 'Async agent launched successfully. agentId: a1 … The agent is working in the background.' }],
+        null,
+        {
+          tool_use_result: { status: 'async_launched', agentId: 'a1' },
+        },
+      ),
+    );
+    line(use('ls-bg', 'Bash', { command: 'ls src' }, 'agent-bg'));
+    line({
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      description: 'Analyzing auth module',
+      summary: 'Analyzing auth module',
+      usage: { total_tokens: 9, tool_uses: 1, duration_ms: 5 },
+    });
+    line({ type: 'result', subtype: 'success', is_error: false, result: 'I started a survey.' });
+    line({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'a1',
+      tool_use_id: 'agent-bg',
+      status: 'completed',
+      summary: 'Ten modules, one of them auth.',
+      output_file: '/tmp/a1.output',
+    });
+    // A background command still at work when Claude Code exits: cut off with the run.
+    line(use('bash-bg', 'Bash', { command: 'npm run watch', run_in_background: true }));
+    line(result('bash-bg', 'Command running in background with ID: b1'));
+    withLang('en', () => parser.finish());
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'agent-bg', name: 'Agent', detail: 'Survey the repo', agent: 'Explore' },
+      { type: 'tool_start', id: 'ls-bg', name: 'Bash', detail: 'ls src', parentId: 'agent-bg' },
+      { type: 'tool_start', id: 'agent-bg', name: 'Agent', detail: 'Analyzing auth module' },
+      { type: 'tool_end', id: 'agent-bg', ok: true, output: 'Ten modules, one of them auth.' },
+      { type: 'tool_start', id: 'bash-bg', name: 'Bash', detail: 'npm run watch' },
+      { type: 'tool_end', id: 'bash-bg', ok: false, error: 'The turn ended before this work finished.' },
+    ]);
+  });
+
+  it("shows a workflow's agents under its call, and a background task that failed or stopped as failed", () => {
+    const { events, line: say } = parse();
+    const line = (o: unknown) => withLang('en', () => say(o));
+    line(use('wf-1', 'Workflow', { name: 'review', args: {} }));
+    line(result('wf-1', 'Workflow launched in background. Task ID: w1\nRun ID: wf_abc123'));
+    const progress = (rows: unknown[]) =>
+      line({
+        type: 'system',
+        subtype: 'task_progress',
+        task_id: 'w1',
+        tool_use_id: 'wf-1',
+        description: 'Review: lint',
+        workflow_progress: rows,
+      });
+    progress([
+      { type: 'workflow_phase', index: 0, title: 'Review' },
+      { type: 'workflow_agent', index: 0, label: 'lint', state: 'start', phaseTitle: 'Review', agentType: 'reviewer', model: 'sonnet' },
+    ]);
+    progress([
+      { type: 'workflow_agent', index: 0, label: 'lint', state: 'done', resultPreview: 'No problems.' },
+      { type: 'workflow_agent', index: 1, label: 'tests', state: 'error', error: 'timed out' },
+    ]);
+    progress([{ type: 'workflow_agent', index: 2, label: 'docs', state: 'start' }]);
+    line({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'w1',
+      tool_use_id: 'wf-1',
+      status: 'failed',
+      summary: 'One agent failed.',
+    });
+    // A task of a call that is not a background one (a foreground subagent's): its result says how it went.
+    line({ type: 'system', subtype: 'task_notification', task_id: 'x', tool_use_id: 'other', status: 'completed', summary: 'x' });
+    expect(events).toEqual([
+      { type: 'tool_start', id: 'wf-1', name: 'Workflow', detail: undefined },
+      {
+        type: 'tool_start',
+        id: 'wf-1:agent-0',
+        name: 'Agent',
+        agent: 'reviewer',
+        detail: 'Review: lint',
+        model: 'sonnet',
+        parentId: 'wf-1',
+      },
+      { type: 'tool_end', id: 'wf-1:agent-0', ok: true, output: 'No problems.' },
+      { type: 'tool_start', id: 'wf-1:agent-1', name: 'Agent', agent: 'tests', detail: 'tests', parentId: 'wf-1' },
+      { type: 'tool_end', id: 'wf-1:agent-1', ok: false, error: 'timed out' },
+      { type: 'tool_start', id: 'wf-1:agent-2', name: 'Agent', agent: 'docs', detail: 'docs', parentId: 'wf-1' },
+      // Still at work as the workflow failed: ended with it.
+      { type: 'tool_end', id: 'wf-1:agent-2', ok: false },
+      { type: 'tool_end', id: 'wf-1', ok: false, error: 'One agent failed.' },
+    ]);
+  });
+
+  it('notes a compaction, a retried request and a fallback model as notes of its own, not its words', () => {
+    const { events, line } = parse();
+    withLang('en', () => {
+      line({ type: 'system', subtype: 'status', status: 'compacting' });
+      line({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 180000 } });
+      line({ type: 'system', subtype: 'status', status: null, compact_result: 'failed', compact_error: 'Not enough messages to compact' });
+      line({
+        type: 'system',
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 10,
+        retry_delay_ms: 2000,
+        error_status: 529,
+        error: 'overloaded',
+      });
+      line({
+        type: 'system',
+        subtype: 'model_fallback',
+        trigger: 'overloaded',
+        original_model: 'claude-fable-5',
+        fallback_model: 'claude-opus-5-5',
+        content: 'Switched to …',
+      });
+      line({ type: 'system', subtype: 'init', tools: [] });
+    });
+    expect(events).toEqual([
+      { type: 'notice', text: "Claude Code compacted the conversation's context to make room." },
+      { type: 'notice', text: "Claude Code could not compact the conversation's context: Not enough messages to compact" },
+      { type: 'notice', text: "Claude Code's request to its model failed; retrying (attempt 2 of 10): overloaded" },
+      { type: 'notice', text: 'Claude Code switched models from claude-fable-5 to claude-opus-5-5.' },
+    ]);
   });
 });
 
@@ -872,6 +1139,14 @@ describe("Claude Code's sandbox below full access", () => {
       CLAUDE_CODE_SUBAGENT_MODEL: 'qwen3',
     });
     expect(claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, apiKey: 'k' } }).ANTHROPIC_AUTH_TOKEN).toBe('k');
+    // Its context window and the tokens of an answer, when Settings knows them.
+    expect(claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, limits: { qwen3: { context: 32768 } } } })).toMatchObject({
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: '32768',
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '8192',
+    });
+    const outputOnly = claudeEndpointEnv({ ...run, endpoint: { ...run.endpoint, limits: { qwen3: { output: 2048 } } } });
+    expect(outputOnly.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('2048');
+    expect(outputOnly).not.toHaveProperty('CLAUDE_CODE_MAX_CONTEXT_TOKENS');
     expect(claudeEndpointUrl('http://10.0.0.5:11434/v1')).toBe('http://10.0.0.5:11434');
     expect(claudeEndpointUrl('http://10.0.0.5:11434')).toBe('http://10.0.0.5:11434');
     expect(claudeEndpointUrl('https://gw.example/anthropic/')).toBe('https://gw.example/anthropic');
@@ -1524,6 +1799,8 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
     it('registers no hooks without them, and answers a callback it does not know with nothing', async () => {
       const lines = await run(undefined, { tool_name: 'Bash', tool_input: { command: 'ls' } });
       expect(lines.find((l) => 'hooks' in l)?.hooks).toBeNull();
+      // Its `initialize` asks for a line now and then on what each subagent is doing.
+      expect(lines.find((l) => 'hooks' in l)?.progressSummaries).toBe(true);
       expect(lines.find((l) => l.hook === 'before')?.answer).toBeNull();
       // A callback id that is not Harness Relay's: answered with nothing, and no hook is asked.
       const other = fake({ before: ['command'] }, 'not allowed');
@@ -1534,6 +1811,145 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       );
       expect(unknown.find((l) => l.hook === 'before')?.answer).toEqual({});
       expect(other.seen).toEqual([]);
+    });
+  });
+});
+
+describe("the answer's shape, a budget and a stop", () => {
+  const base = { systemPrompt: 'briefing', ask: false, newSessionId: 'new-id', permission: 'read-only' as const };
+  const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  it('asks for a JSON shape and a budget only when given them', () => {
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const args = claudeArgs({ ...base, jsonSchema: schema, maxBudgetUsd: 2.5 });
+    expect(JSON.parse(after(args, '--json-schema')!)).toEqual(schema);
+    expect(after(args, '--max-budget-usd')).toBe('2.5');
+    const plain = claudeArgs(base);
+    expect(plain).not.toContain('--json-schema');
+    expect(plain).not.toContain('--max-budget-usd');
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-shape-')));
+    afterAll(() => {
+      setClaudeStopGrace();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
+    const endpoint = {
+      backends: { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] }] },
+      model: 'homelab/gemma4:e4b',
+    };
+    let n = 0;
+    const run = (env: Record<string, string>, more: Partial<Parameters<typeof claudeRunner.run>[0]> = {}) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      writeFileSync(log, '');
+      const result = withLang('en', () =>
+        claudeRunner.run({
+          bin,
+          env: { ...process.env, FAKE_CLAUDE_LOG: log, ...env },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+          ...more,
+        }),
+      );
+      const lines = () =>
+        readFileSync(log, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => JSON.parse(l) as Record<string, any>);
+      return { result, lines };
+    };
+
+    it('gives back the structured answer in the shape asked for, and none without one or on an endpoint', async () => {
+      const shaped = run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }, { outputSchema: schema });
+      await expect(shaped.result).resolves.toMatchObject({ structured: { group: 2 } });
+      expect(shaped.lines().find((l) => l.jsonSchema)?.jsonSchema).toEqual(schema);
+      // Not asked for: none, even when the CLI would have one.
+      const unasked = await run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }).result;
+      expect(unasked.structured).toBeUndefined();
+      // On the user's own endpoint the shape is not asked for: the caller reads the text.
+      const own = run({ FAKE_CLAUDE_STRUCTURED: '{"group":2}' }, { outputSchema: schema, ...endpoint });
+      expect((await own.result).structured).toBeUndefined();
+      expect(own.lines()[0]!.args).not.toContain('--json-schema');
+    });
+
+    it('answers in text when Claude Code could not answer in the shape, instead of failing', async () => {
+      const r = run(
+        {
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["no valid output"]}',
+        },
+        { outputSchema: schema },
+      );
+      const result = await r.result;
+      expect(result.structured).toBeUndefined();
+      expect(result.sessionId).toBe('fake-session');
+      // Without a shape asked for, the same result is a failure.
+      await expect(
+        run({
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["no valid output"]}',
+        }).result,
+      ).rejects.toThrow('no valid output');
+    });
+
+    it("gives Claude Code the member's budget, says so when it is reached, and keeps what the turn cost", async () => {
+      const r = run({}, { limits: { usd: 2 } });
+      await r.result;
+      expect(
+        r.lines()[0]!.args.slice(r.lines()[0]!.args.indexOf('--max-budget-usd'), r.lines()[0]!.args.indexOf('--max-budget-usd') + 2),
+      ).toEqual(['--max-budget-usd', '2']);
+      const reached = run(
+        {
+          FAKE_CLAUDE_RESULT:
+            '{"subtype":"error_max_budget_usd","is_error":true,"result":null,"errors":["Reached maximum budget ($2)"],"total_cost_usd":2.1}',
+        },
+        { limits: { usd: 2 } },
+      );
+      const err = (await reached.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toBeInstanceOf(AgentRunError);
+      expect(err.message).toContain('US$2');
+      expect(err.usage).toMatchObject({ inputTokens: 1, outputTokens: 1 });
+      // Another CLI's limit, or one on the user's own endpoint (priced as Claude Code's own), sets none.
+      const other = run({}, { limits: { steps: 5 } });
+      await other.result;
+      expect(other.lines()[0]!.args).not.toContain('--max-budget-usd');
+      const own = run({}, { limits: { usd: 2 }, ...endpoint });
+      await own.result;
+      expect(own.lines()[0]!.args).not.toContain('--max-budget-usd');
+    });
+
+    it('asks Claude Code to interrupt a stopped turn, keeping the usage its result gives', async () => {
+      const stop = new AbortController();
+      const events: AgentEvent[] = [];
+      const r = run({ FAKE_CLAUDE_WAIT: '1' }, { signal: stop.signal, onEvent: (e) => events.push(e) });
+      await vi.waitFor(() => expect(events).toContainEqual({ type: 'text', text: 'Working' }));
+      stop.abort();
+      const err = (await r.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toMatchObject({ message: 'Stopped', aborted: true });
+      expect(err.usage).toEqual({ costUsd: 0.05, inputTokens: 40, outputTokens: 6 });
+      expect(r.lines().some((l) => l.interrupt)).toBe(true);
+    });
+
+    it('stops the process after a while when the interrupted turn does not end', async () => {
+      setClaudeStopGrace(200);
+      const stop = new AbortController();
+      const events: AgentEvent[] = [];
+      const r = run({ FAKE_CLAUDE_WAIT: 'deaf' }, { signal: stop.signal, onEvent: (e) => events.push(e) });
+      await vi.waitFor(() => expect(events).toContainEqual({ type: 'text', text: 'Working' }));
+      stop.abort();
+      const err = (await r.result.catch((e: unknown) => e)) as AgentRunError;
+      expect(err).toMatchObject({ message: 'Stopped', aborted: true });
+      expect(err.usage).toBeUndefined();
+      expect(r.lines().some((l) => l.interrupt)).toBe(true);
+      setClaudeStopGrace();
     });
   });
 });

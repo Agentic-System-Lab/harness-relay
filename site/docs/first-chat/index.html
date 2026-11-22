@@ -370,11 +370,32 @@
             its name, such as <b>5 actions · 4 thoughts</b>; open it to see every step, and what failed or was refused.
             Each reply shows how long it took, and its cost and tokens when the agent reports them.
           </p>
+          <p>
+            When an agent hands part of its work to a subagent of its own, the subagent's steps fold under the step that
+            started it, with its name, model and number of actions; open it to see each step and what it reported. A note
+            in the reply says when the agent's CLI compacted its context, retried a request or switched models.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/conversations-subagent-en.webp"
+              width="800"
+              height="386"
+              alt="A Claude Code reply with one action opened: its subagent Explore, on haiku, with three actions of its own, among them a subagent of its own, and what each reported."
+              loading="lazy"
+            />
+            <figcaption>A subagent counts as one action of its agent; its own steps are listed inside it.</figcaption>
+          </figure>
           <ul>
             <li>
               <b>Add to the discussion</b>: the message box stays open. <kbd>Enter</kbd> puts your message in a tray
               above the box, and it reaches the next agent before its turn. Until then you can <b>Edit</b> it or
               <b>Withdraw</b> it; once delivered, it is marked <b>Added mid-reply</b>.
+            </li>
+            <li>
+              <b>Send into the running turn</b>: with <b>Send messages into running turns while the team works</b> on in
+              Team settings, your message goes straight into the turn of the member speaking now, where its agent can take
+              one (Claude Code, Codex, Grok, Antigravity, Goose and Pi), and is marked <b>Sent into …'s turn</b>. Otherwise
+              it waits in the tray as above.
             </li>
             <li>
               <b>Stop and ask this instead</b>: <kbd>⌘</kbd>+<kbd>Enter</kbd> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> on
@@ -389,6 +410,16 @@
               handy when a relay reached its limit of hand-offs.
             </li>
           </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/teams-steer-chat-en.webp"
+              width="848"
+              height="355"
+              alt="A message sent while Claude Code worked, marked Sent into @Claude's turn, and Claude's reply, which heard it in the same turn."
+              loading="lazy"
+            />
+            <figcaption>The member answers it in the turn it is in, instead of its next one.</figcaption>
+          </figure>
           <p>
             An agent with nothing to add says so with <code>[PASS]</code>, shown dimmed as <i>Nothing to add (PASS)</i>.
             When an agent wants to do something its permission does not cover, its reply shows an approval card and it

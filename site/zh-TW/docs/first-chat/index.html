@@ -346,9 +346,25 @@
           <p>
             回覆會一邊產生一邊顯示，對話標題下方的成員標籤會標出誰正在發言。agent 的步驟（讀檔、執行指令）和步驟之間的思考，會收在它名字下方的一列裡，例如 <b>5 個動作 · 4 段思考</b>；展開就能看到每一步，以及哪些失敗或被拒絕。每則回覆都會顯示花了多久，agent 有回報時也會顯示費用與 token 數。
           </p>
+          <p>
+            agent 把一部分工作交給它自己的 subagent 時，subagent 的步驟會收在啟動它的那一步底下，標出它的名稱、模型與動作數；展開就能看到每一步和它回報的結果。agent 的 CLI 壓縮了上下文、重試請求或換了模型時，回覆裡會有一則說明。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/conversations-subagent-zh-TW.webp"
+              width="800"
+              height="386"
+              alt="一則 Claude Code 的回覆，展開它的一個動作：用 haiku 的 subagent Explore 有三個自己的動作，其中一個是它自己的 subagent，以及各自回報的結果。"
+              loading="lazy"
+            />
+            <figcaption>一個 subagent 算作它的 agent 的一個動作，它自己的步驟列在裡面。</figcaption>
+          </figure>
           <ul>
             <li>
               <b>插話</b>：輸入框一直可以用。按 <kbd>Enter</kbd>，訊息會先放在輸入框上方的等待區，在下一位 agent 發言前送到。送到之前可以<b>編輯</b>或<b>撤回</b>；送到後會標上<b>插話</b>。
+            </li>
+            <li>
+              <b>直接送進進行中的回合</b>：在團隊設定打開<b>團隊工作時，把訊息直接送進進行中的回合</b>後，你的訊息會直接送進正在發言那位成員的回合（它的 agent 能接收時：Claude Code、Codex、Grok、Antigravity、Goose 與 Pi），並標上<b>已送進…的回合</b>；否則照上面的方式在等待區等待。
             </li>
             <li>
               <b>停止並改問這個</b>：按 <kbd>⌘</kbd>+<kbd>Enter</kbd>（Windows 與 Linux 為 <kbd>Ctrl</kbd>+<kbd>Enter</kbd>）會停止團隊，並立刻送出你的訊息。
@@ -360,6 +376,16 @@
               <b>繼續</b>讓團隊不必等新訊息就接著做：再跑一組輪次，或再接力一次。接力達到交棒上限時特別好用。
             </li>
           </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/teams-steer-chat-zh-TW.webp"
+              width="848"
+              height="355"
+              alt="Claude Code 工作時送出的訊息，標上「已送進 @Claude 的回合」，以及在同一回合裡聽到它的 Claude 回覆。"
+              loading="lazy"
+            />
+            <figcaption>成員在它進行中的這一回合就回應，不必等到下一回合。</figcaption>
+          </figure>
           <p>
             沒有補充的 agent 會回 <code>[PASS]</code>，以淡色的<i>沒有補充（PASS）</i>顯示。agent 想做權限沒涵蓋的事時，它的回覆會出現核准卡片並等你決定：見<a href="../permissions/#approvals">核准</a>。
           </p>

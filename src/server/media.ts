@@ -104,7 +104,7 @@ function resolveIn(ref: string, roots: string[], accept: (real: string) => boole
       if (!inside(target, realRoot) && !inside(target, resolve(root))) continue;
       const real = realpathSync(target);
       if (!inside(real, realRoot) || inGit(real, realRoot) || !accept(real)) continue;
-      const st = statSync(real);
+      const st = statSync(real, { bigint: true });
       // Never one the server withholds (its database, the secrets' key file): a reply may name it.
       if (st.isFile() && !withheldFileKeys().has(fileKey(st))) return real;
     } catch {

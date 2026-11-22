@@ -24,6 +24,7 @@ import {
   FOLLOW_AGAIN,
   followsAfterScroll,
   isPathDetail,
+  isSubagent,
   reviseRequest,
   revisedTeam,
   revisionOutcome,
@@ -37,8 +38,10 @@ import {
   thoughtTail,
   thoughtTitle,
   restoredText,
-  onlyLeadReview,
-  savesLeadReviewAlone,
+  runningStep,
+  subagentName,
+  onlySwitches,
+  savesSwitchesAlone,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -563,6 +566,72 @@ describe("an agent's work between its words", () => {
     expect(segments([tool('a'), text('Done.')])[0]).toMatchObject({ kind: 'activity', last: false });
   });
 
+  it("folds a subagent's calls under the call that started it, one subagent within another, wherever they come", () => {
+    const call = (id: string, more: Partial<Extract<MessagePart, { type: 'tool' }>> = {}): MessagePart => ({
+      type: 'tool',
+      id,
+      name: 'Read',
+      status: 'done',
+      ...more,
+    });
+    const segs = segments([
+      text('Let me look around.'),
+      call('agent', { name: 'Agent', agent: 'Explore', model: 'haiku', status: 'running' }),
+      call('c1', { parentId: 'agent' }),
+      // The agent's own words between the subagent's calls do not take them out of it.
+      text('While it looks, a note.'),
+      call('c2', { parentId: 'agent', status: 'error' }),
+      call('inner', { name: 'Agent', parentId: 'agent', agent: 'general-purpose', status: 'running' }),
+      call('c3', { parentId: 'inner', status: 'running' }),
+      // A call whose parent is not in the message stands on its own.
+      call('lost', { parentId: 'elsewhere' }),
+    ]);
+    expect(segs.map((s) => s.kind)).toEqual(['text', 'activity', 'text', 'activity']);
+    const [, first, , second] = segs;
+    if (first.kind !== 'activity' || second.kind !== 'activity') throw new Error('expected activity');
+    // The block holds the subagent alone, as one action; its calls are its own, and never the block's.
+    expect(first.items.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['agent']);
+    expect(activityCounts(first.items)).toEqual({ actions: 1, thoughts: 0, failed: 0 });
+    const agent = first.items[0];
+    if (agent.kind !== 'tool') throw new Error('expected a call');
+    expect(isSubagent(agent)).toBe(true);
+    expect(agent.steps?.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['c1', 'c2', 'inner']);
+    expect(activityCounts(agent.steps ?? [])).toEqual({ actions: 3, thoughts: 0, failed: 1 });
+    const inner = agent.steps?.[2];
+    expect(inner?.kind === 'tool' && inner.steps?.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['c3']);
+    expect(second.items.map((i) => (i.kind === 'tool' ? i.part.id : i.kind))).toEqual(['lost']);
+
+    // Folded while it runs, the row shows the step the innermost subagent is on.
+    const at = runningStep(first.items);
+    expect(at?.agents).toEqual(['Explore', 'general-purpose']);
+    expect(at?.part.id).toBe('c3');
+    expect(subagentName(agent.part)).toBe('Explore');
+  });
+
+  it('shows a subagent between its calls by its own name, and an ordinary call as before', () => {
+    const agent: MessagePart = { type: 'tool', id: 'a', name: 'Agent', agent: 'Explore', status: 'running' };
+    const done: MessagePart = { type: 'tool', id: 'c1', name: 'Read', status: 'done', parentId: 'a' };
+    const between = segments([agent, done])[0];
+    if (between.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(between.items)).toEqual({ agents: [], part: agent });
+    // A subagent the CLI did not name yet, with no calls of its own, is an ordinary call.
+    const plain = segments([{ type: 'tool', id: 'x', name: 'Agent', status: 'running' }])[0];
+    if (plain.kind !== 'activity') throw new Error('expected activity');
+    expect(isSubagent(plain.items[0])).toBe(false);
+    expect(subagentName({ type: 'tool', id: 'x', name: 'Agent', status: 'running' })).toBe('Agent');
+    // Nothing at work: no step to show.
+    const over = segments([tool('a'), tool('b', 'error')])[0];
+    if (over.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(over.items)).toBeUndefined();
+    // A subagent its CLI already ended while a call of its own still runs (a background one) is still at work.
+    const background = segments([
+      { ...agent, status: 'done' },
+      { ...done, status: 'running' },
+    ])[0];
+    if (background.kind !== 'activity') throw new Error('expected activity');
+    expect(runningStep(background.items)?.part.id).toBe('c1');
+  });
+
   it('names a stretch of thinking by its first line and follows its latest line', () => {
     const t = '\n**Examining the hash check**\n\nThe hash is compared after\n## the secrets load\n';
     expect(thoughtTitle(t)).toBe('Examining the hash check');
@@ -638,28 +707,34 @@ describe('text that comes into the message box', () => {
   });
 });
 
-describe("the team drawer's lead review box", () => {
+describe("the team drawer's switches (lead review, steering)", () => {
   const team = (settings: Partial<ConversationSettings> = {}): Team => ({
     agents: [{ id: 'a1', name: 'Alice', provider: 'claude' } as AgentConfig],
     settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/w', ...settings },
   });
 
-  it('is saved on its own (also while the team replies) when it is all that changed', () => {
-    expect(onlyLeadReview(team(), team({ leadReview: true }))).toBe(true);
-    expect(onlyLeadReview(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toBe(true);
+  it('are saved on their own (also while the team replies) when they are all that changed', () => {
+    expect(onlySwitches(team(), team({ leadReview: true }))).toEqual(['leadReview']);
+    expect(onlySwitches(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toEqual([
+      'leadReview',
+    ]);
+    expect(onlySwitches(team(), team({ steer: true }))).toEqual(['steer']);
+    expect(onlySwitches(team({ steer: true }), team())).toEqual(['steer']);
+    expect(onlySwitches(team(), team({ leadReview: true, steer: true }))).toEqual(['leadReview', 'steer']);
     // Nothing changed, or something else changed too.
-    expect(onlyLeadReview(team(), team())).toBe(false);
-    expect(onlyLeadReview(team(), team({ leadReview: true, rounds: 2 }))).toBe(false);
-    expect(onlyLeadReview(team(), { ...team({ leadReview: true }), agents: [] })).toBe(false);
+    expect(onlySwitches(team(), team())).toEqual([]);
+    expect(onlySwitches(team(), team({ leadReview: true, rounds: 2 }))).toEqual([]);
+    expect(onlySwitches(team(), team({ steer: true, mode: 'parallel' }))).toEqual([]);
+    expect(onlySwitches(team(), { ...team({ leadReview: true }), agents: [] })).toEqual([]);
   });
 
-  it('saves the box alone only while the team replies and no design waits for confirmation', () => {
-    const on = team({ leadReview: true });
-    expect(savesLeadReviewAlone(team(), on, true, false)).toBe(true);
+  it('saves them alone only while the team replies and no design waits for confirmation', () => {
+    const on = team({ leadReview: true, steer: true });
+    expect(savesSwitchesAlone(team(), on, true, false)).toEqual(['leadReview', 'steer']);
     // Idle: the usual save, which also checks the rest.
-    expect(savesLeadReviewAlone(team(), on, false, false)).toBe(false);
+    expect(savesSwitchesAlone(team(), on, false, false)).toEqual([]);
     // A design waits: saving confirms it, so the usual save.
-    expect(savesLeadReviewAlone(team(), on, true, true)).toBe(false);
-    expect(savesLeadReviewAlone(team(), on, false, true)).toBe(false);
+    expect(savesSwitchesAlone(team(), on, true, true)).toEqual([]);
+    expect(savesSwitchesAlone(team(), on, false, true)).toEqual([]);
   });
 });

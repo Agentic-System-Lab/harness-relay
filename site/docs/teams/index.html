@@ -389,9 +389,25 @@
               Pick one of the agent's models, or <b>Custom…</b> to type one. <i>Default</i> uses the default from
               Settings, or the agent's own.
             </dd>
+            <dt>Limit</dt>
+            <dd>
+              For Claude Code (a cost per turn, in US dollars), Copilot (AI credits for its whole session), Goose (model
+              calls per turn) and OpenCode (steps per turn): the most this member may use, which its agent keeps to by
+              itself. Empty is no limit.
+            </dd>
             <dt>Tools</dt>
             <dd>What this member gets from your tool library. <a href="../tools/">Tools</a></dd>
           </dl>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/teams-limit-en.webp"
+              width="349"
+              height="190"
+              alt="A Claude Code member's Cost limit per turn being changed to 2 US dollars, with what the limit means."
+              loading="lazy"
+            />
+            <figcaption>The limit field names the unit its agent counts in.</figcaption>
+          </figure>
           <p>
             The arrows move a member up or down: the order is the speaking order, and in relay mode the first member
             leads. Add members with the buttons named after each coding agent; a team has up to eight members.
@@ -518,7 +534,13 @@
           <p>
             Click <b>Team settings</b> in the chat's header to change roles, models, effort, the mode, the permission or
             the working directory. Changes apply from the next turn. While the team is replying, they cannot be saved (except the lead review
-            box).
+            and steering boxes).
+          </p>
+          <p>
+            <b>Send messages into running turns while the team works</b>, off by default, sends a message you write while
+            the team works straight into the running turn of the member speaking, where its agent can take one (Claude Code,
+            Codex, Grok, Antigravity, Goose and Pi); otherwise it waits for the next turn as usual.
+            <a href="../first-chat/#while-they-work">While the team works</a>
           </p>
           <p>
             Or let the lead agent do it: say what you want under <b>Ask the lead agent</b> at the top of

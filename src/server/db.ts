@@ -521,6 +521,22 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX schedule_files_by_conversation ON schedule_attachments(conversation_id);
   `,
+  // 39: the agent CLIs' own features (docs/proposals/agent-cli-features.md). What each CLI account's runs
+  // turn on that they otherwise leave off (provider_settings.native_on, provider_accounts.native_on:
+  // comma-separated NativeOnPart, so '' keeps every existing account's workflows off); each endpoint
+  // model's context window and output limit (model_backends.model_limits, JSON: model id → ModelLimits);
+  // whether a conversation sends the user's messages into the speaking member's running turn
+  // (conversations.steer); which members' turns a user message went into (messages.steered, JSON: agent
+  // ids); and a member's own limits (conversation_agents.limits, preset_agents.limits, JSON: AgentLimits).
+  `
+  ALTER TABLE provider_settings ADD COLUMN native_on TEXT NOT NULL DEFAULT '';
+  ALTER TABLE provider_accounts ADD COLUMN native_on TEXT NOT NULL DEFAULT '';
+  ALTER TABLE model_backends ADD COLUMN model_limits TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE conversations ADD COLUMN steer INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN steered TEXT;
+  ALTER TABLE conversation_agents ADD COLUMN limits TEXT;
+  ALTER TABLE preset_agents ADD COLUMN limits TEXT;
+  `,
 ];
 
 /**
@@ -813,7 +829,7 @@ export function withheldFileKeys(): Set<string> {
   const keys = new Set<string>();
   for (const file of lockedFiles) {
     try {
-      keys.add(fileKey(statSync(file)));
+      keys.add(fileKey(statSync(file, { bigint: true })));
     } catch {
       /* not there (yet): a journal file */
     }
@@ -821,8 +837,12 @@ export function withheldFileKeys(): Set<string> {
   return keys;
 }
 
-/** A file's identity on this computer, whatever path names it. */
-export function fileKey(st: { dev: number; ino: number }): string {
+/**
+ * A file's identity on this computer, whatever path names it. From a `bigint` stat only: Windows'
+ * file ids are 64 bits, which a plain number rounds above 2^53, so that two files made one after the
+ * other (a folder and the key file in it) could get the same one.
+ */
+export function fileKey(st: { dev: bigint; ino: bigint }): string {
   return `${st.dev}:${st.ino}`;
 }
 

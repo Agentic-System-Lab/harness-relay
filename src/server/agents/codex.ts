@@ -13,6 +13,7 @@ import {
   GATEWAY_SERVER_NAME,
 } from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
+import { outputReserve, runLimits } from '../contextWindow';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
@@ -141,6 +142,20 @@ export function codexGuardRefuses(
 }
 
 /**
+ * Config every thread gets, whatever the account's own config says (Codex 0.167.0's keys, from its
+ * config schema and the `[features]`/`[tools]` tables in its binary):
+ * - `features.goals`: its goals (on by default) continue a thread by themselves, where Harness Relay
+ *   tracks a goal of its own and ends the app-server at `turn/completed`.
+ * - `tools.experimental_request_user_input.enabled`: its question form, which Harness Relay answers with
+ *   no answers (`item/tool/requestUserInput`); only plan mode, which Harness Relay never uses, offers it
+ *   by default, so this is a guard. The briefing has the agent ask in its reply (`[ASK_USER]`).
+ */
+export const CODEX_FIXED_CONFIG: Readonly<Record<string, unknown>> = {
+  'features.goals': false,
+  'tools.experimental_request_user_input.enabled': false,
+};
+
+/**
  * Config overrides for a thread. Edit mode keeps the sandbox off the network even when the user's
  * ~/.codex/config.toml turns `sandbox_workspace_write.network_access` on: pushing and publishing
  * (anything that leaves the machine) must go through an approval. Its legacy sandbox may also write
@@ -158,6 +173,7 @@ export function codexConfig(
   return {
     ...(effort ? { model_reasoning_effort: effort } : {}),
     ...(permission === 'edit' ? { sandbox_workspace_write: write } : {}),
+    ...CODEX_FIXED_CONFIG,
     ...codexNativeConfig(native.off, native.items),
     ...codexMcpConfig(mcpServers, permission === 'full', mcpOff.turnOff, mcpOff.toolsOff),
   };
@@ -182,6 +198,10 @@ export function codexNativeConfig(off: readonly NativePart[], items: NativeItems
   return {
     ...(off.includes('skills') ? { 'skills.include_instructions': false } : {}),
     ...(skills.length ? { 'skills.config': skills.map((path) => ({ path, enabled: false })) } : {}),
+    // All its subagents, the built-in ones too: `agents.enabled` would not do alone, since
+    // `features.multi_agent_v2` wins when it is on, and otherwise the bundled catalog's
+    // `multi_agent_version` of the model decides before the `multi_agent` flag (Codex 0.167.0's source).
+    ...(off.includes('subagents') ? { 'agents.enabled': false, 'features.multi_agent': false, 'features.multi_agent_v2': false } : {}),
     ...(off.includes('mcp') ? { 'features.apps': false } : {}),
     ...(off.includes('instructions') ? { project_doc_max_bytes: 0 } : {}),
     ...(off.includes('memory') ? { 'features.memories': false } : {}),
@@ -418,6 +438,21 @@ export function codexEndpointProviderConfig(run: EndpointModel): Record<string, 
 }
 
 /**
+ * A model of the user's own endpoint whose context window Settings knows: Codex's `model_context_window`
+ * (it knows none for a model not of its own catalog), and `model_auto_compact_token_limit`, the tokens
+ * past which it compacts, at the window less what an answer may need (`outputReserve()`), as OpenCode
+ * does. Both keys of Codex's config (its config reference; ConfigToml in codex 0.167.0). Empty otherwise.
+ */
+export function codexEndpointContextConfig(run: EndpointModel): Record<string, unknown> {
+  const l = runLimits(run.endpoint, run.model);
+  if (!l?.context) return {};
+  return {
+    model_context_window: l.context,
+    model_auto_compact_token_limit: l.context - outputReserve({ ...l, context: l.context }, 32_000),
+  };
+}
+
+/**
  * The effort a Codex run on the user's own endpoint sends: one its endpoint models offer
  * (`endpointEffort`). With none given, the one the user's Codex config sets is asked (`config/read`):
  * Codex cannot be told to send none, and one such as `xhigh`, meant for OpenAI's models, would make
@@ -474,11 +509,14 @@ export function codexThreadRequest(
   const provider = endpoint ? codexEndpointProvider(endpoint.endpoint.id) : undefined;
   // The app-server is started with it too (`codexEndpointProviderConfig`): Codex refuses a thread whose
   // `modelProvider` is not the app-server's own (codex 0.167).
-  if (endpoint) Object.assign(config, codexEndpointProviderConfig(endpoint));
+  if (endpoint) Object.assign(config, codexEndpointProviderConfig(endpoint), codexEndpointContextConfig(endpoint));
   const model = endpoint ? endpoint.model : o.model;
   const params = {
     cwd: o.cwd,
     approvalPolicy: ask ? 'on-request' : 'never',
+    // The user answers what is asked, never Codex's `auto_review` subagent, whatever the account's
+    // `approvals_reviewer` says.
+    approvalsReviewer: 'user',
     ...(profile ? { permissions: profileId } : { sandbox: SANDBOX[o.permission] }),
     developerInstructions: o.systemPrompt,
     ...(model ? { model } : {}),
@@ -579,7 +617,40 @@ function itemOutcome(item: Record<string, any>): { ok: boolean; output?: string;
   }
 }
 
-/** Turns app-server notifications for one thread into AgentEvents. */
+/**
+ * The name of a collab tool's row (the tool as the model calls it), for the calls that do not start a
+ * subagent: waiting for one, sending it input, closing it (the `CollabAgentTool` values of Codex
+ * 0.167.0's app-server schema).
+ */
+const COLLAB_TOOL_NAMES: Record<string, string> = {
+  spawnAgent: 'spawn_agent',
+  sendInput: 'send_input',
+  resumeAgent: 'resume_agent',
+  wait: 'wait',
+  closeAgent: 'close_agent',
+  sendMessage: 'send_message',
+  followupTask: 'followup_task',
+  interruptAgent: 'interrupt_agent',
+  listAgents: 'list_agents',
+};
+
+/** A subagent's name from its thread's source (`thread/started`): its role, else the nickname Codex gave it. */
+function codexAgentName(thread: Record<string, any>): string | undefined {
+  const spawn = thread.source?.subAgent?.thread_spawn;
+  const name = spawn?.agent_role || spawn?.agent_nickname || thread.name;
+  return typeof name === 'string' && name ? name : undefined;
+}
+
+/**
+ * Turns app-server notifications into AgentEvents: the turn's own thread's, and its subagents' threads'
+ * (each thread whose `parentThreadId` is the turn's thread or another of them), whose tool items go
+ * under the `spawnAgent` call that started them (`parentId`) and whose own words stay out of the chat.
+ * Shapes as Codex 0.167.0's app-server schema has them (`codex app-server generate-json-schema`):
+ * `thread/started` with the thread's `parentThreadId` and `source.subAgent.thread_spawn`, the
+ * `collabAgentToolCall` item (`tool`, `senderThreadId`, `receiverThreadIds`, `prompt`, `model`,
+ * `agentsStates`) and the `subAgentActivity` item (`agentThreadId`, `agentPath`, `kind`, `model`). Call
+ * `main()` with the turn's thread once it is known; until then every notification counts as its.
+ */
 export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   /** Tool items already shown, with the detail they were shown with. */
   const started = new Map<string, string | undefined>();
@@ -589,9 +660,23 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   const filePaths = new Map<string, string>();
   const changed = new Map<string, Record<string, any>[]>();
   let usage = { input: 0, output: 0, seen: false };
-  let threadTotal: number | undefined; // the thread's total tokens at the last update
+  /** Each thread's total tokens at its last update (the turn's own, and its subagents'). */
+  const threadTotals = new Map<string, number>();
+  let mainThread: string | undefined;
+  /** The subagents' threads: for each, the call its work goes under, once known. */
+  const threads = new Map<string, string | undefined>();
+  /** The `spawnAgent` calls still open (their subagent at work), with the thread each one started. */
+  const spawns = new Map<string, { sender: string; thread?: string }>();
+  /** What each subagent last said (its own words stay out of the chat): what it reported, once it ends. */
+  const lastWords = new Map<string, string>();
+  /** The subagents' names, by thread, for the rows of the calls that wait for them or write to them. */
+  const names = new Map<string, string>();
+  /** The text of the turn's last agent message, which a turn given an `outputSchema` answers in. */
+  let lastMessage: string | undefined;
 
-  const startTool = (item: Record<string, any>) => {
+  const isMain = (thread: unknown) => !thread || !mainThread || thread === mainThread;
+
+  const startTool = (item: Record<string, any>, parentId?: string) => {
     const d = describeCodexItem(item);
     if (!d || !item.id || started.has(item.id)) return;
     started.set(item.id, d.detail);
@@ -600,10 +685,147 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
       filePaths.set(item.id, changes.map((c) => c.path).join(', '));
       changed.set(item.id, changes);
     }
-    emit({ type: 'tool_start', id: item.id, ...d });
+    emit({ type: 'tool_start', id: item.id, ...d, ...(parentId ? { parentId } : {}) });
+  };
+
+  /** Links a subagent's thread to the call that started it, naming the call's subagent when it can. */
+  const link = (thread: string, callId: string) => {
+    threads.set(thread, callId);
+    const spawn = spawns.get(callId);
+    if (spawn) spawn.thread = thread;
+    const agent = names.get(thread);
+    if (agent) emit({ type: 'tool_start', id: callId, name: COLLAB_TOOL_NAMES.spawnAgent, agent });
+  };
+
+  /** The end of a `spawnAgent` call: once its subagent ended (or never started). */
+  const endSpawn = (callId: string, ok: boolean, error?: string) => {
+    const spawn = spawns.get(callId);
+    if (!spawn) return;
+    spawns.delete(callId);
+    const said = spawn.thread ? lastWords.get(spawn.thread) : undefined;
+    emit({ type: 'tool_end', id: callId, ok, ...(said ? { output: tailText(said) } : {}), ...(error ? { error } : {}) });
+  };
+
+  /** A collab call (`collabAgentToolCall`): a `spawnAgent` is the subagent's row, the others rows of their own. */
+  const collab = (method: string, item: Record<string, any>, parentId?: string) => {
+    const receivers: string[] = Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds.map(String) : [];
+    if (item.tool === 'spawnAgent') {
+      if (!started.has(item.id)) {
+        started.set(item.id, undefined);
+        spawns.set(item.id, { sender: String(item.senderThreadId ?? mainThread ?? '') });
+        const prompt = typeof item.prompt === 'string' ? clip(item.prompt.trim()) : '';
+        emit({
+          type: 'tool_start',
+          id: item.id,
+          name: COLLAB_TOOL_NAMES.spawnAgent,
+          ...(prompt ? { detail: prompt } : {}),
+          ...(item.model ? { model: String(item.model) } : {}),
+          ...(parentId ? { parentId } : {}),
+        });
+      }
+      for (const r of receivers) if (threads.get(r) !== item.id) link(r, item.id);
+      if (method !== 'item/completed') return;
+      // Spawned, its subagent works on: the row ends with it (its thread's turn), or now when it failed.
+      if (item.status === 'failed' || item.status === 'interrupted' || !receivers.length) {
+        const state = receivers.length ? item.agentsStates?.[receivers[0]] : undefined;
+        endSpawn(item.id, item.status === 'completed', state?.message ? clip(String(state.message), 240) : undefined);
+      }
+      return;
+    }
+    const name = COLLAB_TOOL_NAMES[item.tool] ?? String(item.tool ?? 'agent');
+    if (!started.has(item.id)) {
+      started.set(item.id, undefined);
+      const detail = receivers.map((r) => names.get(r) ?? r).join(', ');
+      emit({ type: 'tool_start', id: item.id, name, ...(detail ? { detail: clip(detail) } : {}), ...(parentId ? { parentId } : {}) });
+    }
+    if (method !== 'item/completed') return;
+    const states = item.agentsStates && typeof item.agentsStates === 'object' ? Object.entries(item.agentsStates) : [];
+    const said = states
+      .map(([r, s]: [string, any]) => (s?.message ? `${names.get(r) ?? r}: ${String(s.message)}` : ''))
+      .filter(Boolean)
+      .join('\n\n');
+    emit({ type: 'tool_end', id: item.id, ok: item.status === 'completed', ...(said ? { output: tailText(said) } : {}) });
+  };
+
+  /** A subagent thread's notification: its tool items under its call, its last words kept for its result. */
+  const subagent = (method: string, p: Record<string, any>) => {
+    const thread = String(p.threadId);
+    const parentId = threads.get(thread);
+    switch (method) {
+      case 'item/started':
+      case 'item/completed': {
+        const item = p.item ?? {};
+        if (item.type === 'collabAgentToolCall') return collab(method, item, parentId);
+        if (item.type === 'agentMessage' && method === 'item/completed' && item.text) lastWords.set(thread, String(item.text));
+        if (!parentId) return;
+        if (method === 'item/started') return startTool(item, parentId);
+        const d = describeCodexItem(item);
+        if (!d) return;
+        startTool(item, parentId);
+        const detail = d.detail && d.detail !== started.get(item.id) ? d.detail : undefined;
+        const { ok, output, error } = itemOutcome(item);
+        emit({
+          type: 'tool_end',
+          id: item.id,
+          ok,
+          ...(output ? { output } : {}),
+          ...(error ? { error } : {}),
+          ...(detail ? { detail } : {}),
+        });
+        return;
+      }
+      case 'turn/completed': {
+        const turn = p.turn ?? {};
+        if (!parentId) return;
+        const failed = turn.status === 'failed' || turn.status === 'interrupted';
+        endSpawn(parentId, !failed, failed && turn.error?.message ? clip(String(turn.error.message), 240) : undefined);
+        return;
+      }
+      case 'thread/tokenUsage/updated':
+        return count(thread, p);
+    }
+  };
+
+  /** One model call's tokens, once per change of its thread's total (Codex sends the same count again at times). */
+  const count = (thread: string, p: Record<string, any>) => {
+    // One update per model call; `last` is that call's usage. Its input counts the cached tokens
+    // (`cachedInputTokens` is part of it) and its output the reasoning (`reasoningOutputTokens` is
+    // part of it: `totalTokens` is input plus output). Codex sends the same count again at times
+    // (with its rate limits): an update whose thread total did not change is no new call.
+    const last = p.tokenUsage?.last;
+    const total = p.tokenUsage?.total?.totalTokens;
+    if (typeof total === 'number' && total === threadTotals.get(thread)) return;
+    if (typeof total === 'number') threadTotals.set(thread, total);
+    if (last) {
+      usage = {
+        input: usage.input + (last.inputTokens ?? 0),
+        output: usage.output + (last.outputTokens ?? 0),
+        seen: true,
+      };
+    }
+  };
+
+  /** A thread that started: a subagent's, when the thread it came from is the turn's or another subagent's. */
+  const threadStarted = (thread: Record<string, any>) => {
+    const id = typeof thread.id === 'string' ? thread.id : '';
+    const parent = typeof thread.parentThreadId === 'string' ? thread.parentThreadId : '';
+    if (!id || !parent || id === mainThread || threads.has(id)) return;
+    if (parent !== mainThread && !threads.has(parent)) return;
+    const name = codexAgentName(thread);
+    if (name) names.set(id, name);
+    // The call that started it: the oldest open `spawnAgent` of the thread it came from not yet given one
+    // (the call's own item names it too once it completes, which corrects this).
+    const call = [...spawns].find(([, s]) => s.sender === parent && !s.thread)?.[0];
+    threads.set(id, call);
+    if (call) link(id, call);
   };
 
   function handle(method: string, p: Record<string, any>): void {
+    if (method === 'thread/started') return threadStarted(p.thread ?? {});
+    if (!isMain(p.threadId)) {
+      if (threads.has(String(p.threadId))) subagent(method, p);
+      return;
+    }
     switch (method) {
       case 'item/agentMessage/delta':
         if (p.delta) {
@@ -621,11 +843,17 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
         if (streamedThinking.has(p.itemId)) emit({ type: 'thinking', text: '\n\n' });
         break;
       case 'item/started':
-        startTool(p.item ?? {});
+        if (p.item?.type === 'collabAgentToolCall') collab(method, p.item);
+        else if (p.item?.type === 'subAgentActivity') activity(p.item);
+        else startTool(p.item ?? {});
         break;
       case 'item/completed': {
         const item = p.item ?? {};
+        if (item.type === 'collabAgentToolCall') return collab(method, item);
+        if (item.type === 'subAgentActivity') return activity(item);
+        if (item.type === 'contextCompaction') return emit({ type: 'notice', text: t().cliCompacted('Codex') });
         if (item.type === 'agentMessage') {
+          if (typeof item.text === 'string') lastMessage = item.text;
           if (!streamedText.has(item.id) && item.text) emit({ type: 'text', text: String(item.text) });
           emit({ type: 'text_end' });
           break;
@@ -656,29 +884,57 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
         emit({ type: 'plan', entries: plan.map((s) => ({ text: String(s.step ?? ''), status: PLAN_STATUS[s.status] ?? 'pending' })) });
         break;
       }
-      case 'thread/tokenUsage/updated': {
-        // One update per model call; `last` is that call's usage. Its input counts the cached tokens
-        // (`cachedInputTokens` is part of it) and its output the reasoning (`reasoningOutputTokens` is
-        // part of it: `totalTokens` is input plus output). Codex sends the same count again at times
-        // (with its rate limits): an update whose thread total did not change is no new call.
-        const last = p.tokenUsage?.last;
-        const total = p.tokenUsage?.total?.totalTokens;
-        if (typeof total === 'number' && total === threadTotal) break;
-        if (typeof total === 'number') threadTotal = total;
-        if (last) {
-          usage = {
-            input: usage.input + (last.inputTokens ?? 0),
-            output: usage.output + (last.outputTokens ?? 0),
-            seen: true,
-          };
-        }
+      case 'thread/tokenUsage/updated':
+        count(String(p.threadId ?? mainThread ?? ''), p);
         break;
-      }
+      case 'model/rerouted':
+        // `fromModel`, `toModel` and `reason` (`highRiskCyberActivity`), as Codex 0.167.0's schema has them.
+        if (p.toModel) emit({ type: 'notice', text: t().cliModelSwitched('Codex', String(p.fromModel ?? ''), String(p.toModel)) });
+        break;
     }
+  }
+
+  /**
+   * A `subAgentActivity` item: a subagent started, was written to, interrupted or completed. It names
+   * the subagent's model, and its name as the last part of its path. A subagent no `spawnAgent` call
+   * started gets this item's row as its own.
+   */
+  function activity(item: Record<string, any>) {
+    const thread = typeof item.agentThreadId === 'string' ? item.agentThreadId : '';
+    if (!thread || !item.id) return;
+    const agent = typeof item.agentPath === 'string' ? item.agentPath.split('/').filter(Boolean).pop() : undefined;
+    if (agent && !names.has(thread)) names.set(thread, agent);
+    const call = threads.get(thread);
+    if (call && call !== item.id) {
+      if (item.model) emit({ type: 'tool_start', id: call, name: COLLAB_TOOL_NAMES.spawnAgent, model: String(item.model) });
+      return;
+    }
+    if (!call && item.kind === 'started') {
+      started.set(item.id, undefined);
+      spawns.set(item.id, { sender: mainThread ?? '', thread });
+      threads.set(thread, item.id);
+      emit({
+        type: 'tool_start',
+        id: item.id,
+        name: 'subagent',
+        ...(agent ? { agent } : {}),
+        ...(item.model ? { model: String(item.model) } : {}),
+      });
+      return;
+    }
+    if (call === item.id && (item.kind === 'completed' || item.kind === 'interrupted')) endSpawn(item.id, item.kind === 'completed');
   }
 
   return {
     handle,
+    /** The turn's own thread: other threads' notifications are its subagents', or not this turn's. */
+    main(threadId: string) {
+      mainThread = threadId;
+    },
+    /** The turn is over: a subagent still at work is cut off with it. */
+    finish() {
+      for (const id of [...spawns.keys()]) endSpawn(id, false, t().backgroundCutOff);
+    },
     filePaths(itemId: string): string | undefined {
       return filePaths.get(itemId);
     },
@@ -687,6 +943,15 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
     },
     get usage() {
       return usage.seen ? { inputTokens: usage.input, outputTokens: usage.output } : {};
+    },
+    /** The last agent message's text, as JSON (a turn given an `outputSchema` answers in it); undefined when it is not JSON. */
+    get structured(): unknown {
+      if (lastMessage === undefined) return undefined;
+      try {
+        return JSON.parse(lastMessage) as unknown;
+      } catch {
+        return undefined;
+      }
     },
   };
 }
@@ -804,10 +1069,16 @@ const codexTurnRunner: AgentRunner = {
     const turnDone = new Promise<Record<string, any>>((r) => (resolveTurn = r));
 
     conn.onNotification = (method, params) => {
-      if (method === 'error' && params?.error?.message) failure = String(params.error.message);
-      if (!threadId || params?.threadId !== threadId) return; // other threads (sub-agents) and startup noise
-      if (method === 'turn/completed') resolveTurn(params.turn ?? {});
-      else updates.handle(method, params);
+      // The turn's own error, not a subagent thread's (one names its thread: only this turn's, or none).
+      if (method === 'error' && params?.error?.message && (!params.threadId || !threadId || params.threadId === threadId))
+        failure = String(params.error.message);
+      if (!threadId) return; // startup noise
+      // Other threads: the handler keeps those of this turn's subagents (their items go under their call).
+      if (method === 'thread/started' || params?.threadId !== threadId) return updates.handle(method, params ?? {});
+      if (method === 'turn/completed') {
+        o.onSteer?.(undefined);
+        resolveTurn(params.turn ?? {});
+      } else updates.handle(method, params);
     };
     conn.onRequest = async (method, params) => {
       if (method === 'item/tool/requestUserInput') return { answers: {} };
@@ -885,6 +1156,7 @@ const codexTurnRunner: AgentRunner = {
       codexCheckProfile(params, thread);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
+      updates.main(threadId);
       o.onEvent({ type: 'session', sessionId: threadId });
       if (userAborted) throw new AgentRunError(t().stopped, true);
       const list = bound && (await codexListTeamHooks(conn, { threadId }));
@@ -893,15 +1165,22 @@ const codexTurnRunner: AgentRunner = {
       // Stopped during the check: there is no turn to interrupt yet, so do not start one.
       if (userAborted) throw new AgentRunError(t().stopped, true);
 
+      // The lead agent's turns ask its maker's models for their answer's shape (this turn only); not on
+      // the user's own endpoint, which may not take it.
+      const outputSchema = endpoint ? undefined : o.outputSchema;
       const started = await conn.request('turn/start', {
         threadId,
         input: [
           { type: 'text', text: o.prompt, text_elements: [] },
           ...(o.images ?? []).map((img) => ({ type: 'localImage', path: img.path })),
         ],
+        ...(outputSchema ? { outputSchema } : {}),
       });
       turnId = started?.turn?.id;
+      // Steering: a message the user sends now goes into this turn (`codexSteer`), until it completes.
+      if (turnId) o.onSteer?.((text) => codexSteer(conn, threadId!, turnId!, text));
       const turn = await turnDone;
+      updates.finish();
 
       if (userAborted) throw new AgentRunError(t().stopped, true);
       if (turn.status === 'failed' || turn.status === 'interrupted') {
@@ -909,12 +1188,14 @@ const codexTurnRunner: AgentRunner = {
         const message = [err.message, err.additionalDetails].filter(Boolean).join('\n') || failure;
         throw new AgentRunError(message || t().exitedWithoutTurn('codex', null));
       }
-      return { sessionId: threadId, ...updates.usage };
+      const structured = outputSchema ? updates.structured : undefined;
+      return { sessionId: threadId, ...updates.usage, ...(structured !== undefined ? { structured } : {}) };
     } catch (err) {
       if (userAborted) throw new AgentRunError(t().stopped, true);
       if (err instanceof AgentRunError) throw err;
       throw new AgentRunError(err instanceof Error ? err.message : String(err));
     } finally {
+      o.onSteer?.(undefined);
       o.signal.removeEventListener('abort', onAbort);
       child?.stdin?.end();
       stopSoon(3000);
@@ -922,6 +1203,26 @@ const codexTurnRunner: AgentRunner = {
     }
   },
 };
+
+/**
+ * Sends a message into the running turn: `turn/steer { threadId, input, expectedTurnId }`, which Codex
+ * refuses when that turn is no longer the active one (it completed in between), and answers with the
+ * turn's id once it took the input into it (`TurnSteerParams` / `TurnSteerResponse` in codex 0.167.0's
+ * `codex app-server generate-json-schema`; not experimental). True only when it answered so.
+ */
+export async function codexSteer(
+  conn: { request(method: string, params?: unknown): Promise<any> },
+  threadId: string,
+  turnId: string,
+  text: string,
+): Promise<boolean> {
+  try {
+    const r = await conn.request('turn/steer', { threadId, expectedTurnId: turnId, input: [{ type: 'text', text, text_elements: [] }] });
+    return typeof r?.turnId === 'string' && r.turnId !== '';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Whether this Codex cannot load a permission profile of Harness Relay's: seen with Codex 0.167 on

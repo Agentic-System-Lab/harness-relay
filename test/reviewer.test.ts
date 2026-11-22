@@ -225,6 +225,21 @@ describe("turning the lead's answer into a review", () => {
     expect(() => parseReviewReply('All good.', replies)).toThrow();
     expect(() => parseReviewReply('{"foo": 1}', replies)).toThrow();
   });
+
+  it('reads the structured answer its CLI gave, its nulls as fields left out, and the text without one', () => {
+    const shaped = {
+      summary: 'ok',
+      highlights: [{ kind: 'risk', reply: null, quote: null, note: 'Check the migration.' }],
+      nextSteps: [{ text: 'Deploy', by: 'user', message: null }],
+    };
+    expect(parseReviewReply('', replies, shaped)).toEqual({
+      summary: 'ok',
+      highlights: [{ kind: 'risk', note: 'Check the migration.' }],
+      nextSteps: [{ text: 'Deploy', by: 'user' }],
+    });
+    expect(parseReviewReply('{"summary": "from the text"}', replies, 'not an object')).toMatchObject({ summary: 'from the text' });
+    expect(() => parseReviewReply('All good.', replies, undefined)).toThrow();
+  });
 });
 
 describe('the marks in the chat', () => {
