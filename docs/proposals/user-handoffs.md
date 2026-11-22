@@ -2,7 +2,7 @@
 
 # Steps only the user can take: secrets, fixed commands and interactive steps
 
-**Status.** Built: S (secret cards), A (fixed commands: Try it, the outbox, schedules), B1 (interactive commands), B2's hand-over of the chat's browser (a window on the same computer, a screencast from elsewhere; started by a browser tool, `browser_hand_over`, rather than a reply block), editing and uploading in the Files panel (2) and a card of steps (10); the [architecture](../architecture.md#secrets-and-fixed-commands), [user guide](../user-guide.md#secrets-and-fixed-commands) and [developer guide](../developer-guide.md) describe them. Still open: B2's browser for the user alone and **Save selection as a secret**, a program that keeps running (7), inbound webhooks (8), and the open questions below. The names below are the design's; the built ones are in those docs.
+**Status.** Built: S (secret cards), A (fixed commands: Try it, the outbox, schedules), B1 (interactive commands), B2's hand-over of the chat's browser (a window on the same computer, a screencast from elsewhere; started by a browser tool, `browser_hand_over`, rather than a reply block) and its browser for the user alone with **Save selection as a secret** (opened from a secrets card, at the address its `<secret url="…">` names), editing and uploading in the Files panel (2) and a card of steps (10); the [architecture](../architecture.md#secrets-and-fixed-commands), [user guide](../user-guide.md#secrets-and-fixed-commands) and [developer guide](../developer-guide.md) describe them. Still open: a program that keeps running (7), inbound webhooks (8), and the open questions below. The names below are the design's; the built ones are in those docs.
 
 ## Where it comes from
 
