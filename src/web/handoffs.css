@@ -51,21 +51,21 @@
   display: grid;
   gap: 6px;
   padding: 8px 10px;
-  border-left: 3px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   background: var(--surface-2);
 }
 .handoff-run-result p {
   margin: 0;
 }
 .handoff-run-result.handoff-ok {
-  border-left-color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
 }
 .handoff-run-result.handoff-warn {
-  border-left-color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
 }
 .handoff-run-result.handoff-bad {
-  border-left-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
 }
 .handoff-changed {
   margin: 0;
