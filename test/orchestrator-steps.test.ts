@@ -201,6 +201,46 @@ describe('steps cards', () => {
       expect(conv.pause).toBeUndefined();
     });
 
+    it('refuses another card while the answered agent’s turn runs (never queued nor steered), and takes it for its own agent after', async () => {
+      const conv = conversation({ mode: 'parallel', permission: 'read-only', steer: true });
+      firstTurns(['Alice', 'Bob']);
+      await orchestrator.send(conv.id, 'set it up');
+      await finish(conv.id);
+      const alice = replyOf(conv, 'Alice');
+      const bob = replyOf(conv, 'Bob');
+      // Alice's answered turn waits; she asks again with steps once it ends.
+      let release!: () => void;
+      fake.gate = new Promise((r) => (release = r));
+      fake.steer = new Set(['Alice']);
+      fake.reply = (name) => (name === 'Alice' ? 'One more:\n<steps>\n1. Copy the ID\n</steps>' : undefined);
+      await orchestrator.answerSteps(conv.id, alice.id, { done: [0] });
+      await vi.waitFor(() => expect(calls.at(-1)?.name).toBe('Alice'));
+
+      // Bob's card still waits, but not now: refused, nothing queued, nothing sent into Alice's turn.
+      await expect(withLang('en', () => orchestrator.answerSteps(conv.id, bob.id, { done: [0, 1] }))).rejects.toMatchObject({
+        status: 409,
+        message: 'The team is replying: answer these steps once its turn is over',
+      });
+      expect(() => orchestrator.tickStep(conv.id, bob.id, 0, true)).toThrow(expect.objectContaining({ status: 409 }));
+      // Nor through send itself, whatever calls it.
+      await expect(orchestrator.send(conv.id, 'answer for Bob', undefined, false, undefined, 'b')).rejects.toMatchObject({ status: 409 });
+      expect(conv.queue ?? []).toEqual([]);
+      expect(calls.at(-1)!.steered).toBeUndefined();
+      expect(stepsOf(bob)).not.toHaveProperty('answer');
+
+      release();
+      await finish(conv.id);
+      expect(conv.pause).toMatchObject({ askers: ['b', 'a'] });
+      fake.reply = undefined;
+      await orchestrator.answerSteps(conv.id, bob.id, { done: [0, 1] });
+      await finish(conv.id);
+      // Bob alone went on with his answer; Alice still waits for hers.
+      expect(said(conv)).toEqual(['user', '@Alice', '@Bob', 'user', '@Alice', 'user', '@Bob']);
+      expect(told('Bob')).toEqual([false, true]);
+      expect(told('Alice')).toEqual([false, true]);
+      expect(conv.pause).toMatchObject({ askers: ['a'] });
+    });
+
     it('an answer in the message box still answers every agent that waits, and the card is no longer waited for', async () => {
       const conv = conversation({ mode: 'parallel', permission: 'read-only' });
       firstTurns(['Alice'], ['Bob']);

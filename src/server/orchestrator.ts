@@ -1897,9 +1897,10 @@ export class Orchestrator {
     const part = msg && stepsOfMessage(msg);
     if (!msg || !part) throw new HttpError(404, t().steps.notFound);
     if (part.answer) throw new HttpError(409, t().steps.answered);
-    if (this.isRunning(convId) || !askingReplies(conv.messages, conv.pause).includes(msg)) {
-      throw new HttpError(409, t().steps.notWaiting);
-    }
+    if (!askingReplies(conv.messages, conv.pause).includes(msg)) throw new HttpError(409, t().steps.notWaiting);
+    // Still waited for, while another agent's answered turn runs: its answer would wait in the queue
+    // and go to every agent that waits then, so it is taken only once the team is done.
+    if (this.isRunning(convId) || this.reviewing.has(convId)) throw new HttpError(409, t().steps.busy);
     return { conv, msg, part };
   }
 
@@ -2143,6 +2144,9 @@ export class Orchestrator {
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
     if (!found) throw new HttpError(404, t().conversationNotFound);
+    // An answer to one agent alone (a steps card) is never queued nor steered into running turns: a
+    // message taken from the queue answers every agent that waits then.
+    if (answers && (this.queues(found) || this.reviewing.has(convId))) throw new HttpError(409, t().steps.busy);
     // While the lead agent reviews, a message stops the review and goes now, and so does what waits when
     // the tray's "Skip the review and send now" sends it.
     const stopsReview = this.reviewing.has(convId) && (content || (interrupt && Boolean(found.queue?.length)));

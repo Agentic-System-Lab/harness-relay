@@ -44,6 +44,7 @@ export const SHARE_DROP = [
   '.steps-wait',
   '.steps-actions',
   '.steps-closed',
+  '.steps-later',
   '.typing',
   '.live-tag',
   '.plan-confirm',
