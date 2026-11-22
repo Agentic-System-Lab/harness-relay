@@ -103,8 +103,18 @@ test.describe('several working directories', () => {
       await expect(changes.locator('.changes-repo-name')).toHaveText([`📁 ${relay.workDir}`, `📁 ${second}`]);
       await changes.getByRole('button', { name: "View this turn's diff" }).click();
       const diff = page.getByRole('dialog', { name: `@${cli.name}'s changes this turn` });
-      await expect(diff).toContainText('one.txt');
-      await expect(diff).toContainText('two.txt');
+      // A section for each file, after its folder's name, each folded until opened; or all at once.
+      const files = diff.locator('.diff-file-head');
+      await expect(files).toHaveCount(2);
+      await expect(files.nth(0)).toContainText('/one.txt');
+      await expect(files.nth(1)).toContainText('second/two.txt');
+      for (const f of await files.all()) await expect(f).toHaveAttribute('aria-expanded', 'false');
+      await expect(diff.locator('.diff-view')).toHaveCount(0);
+      await diff.getByRole('button', { name: 'Expand all' }).click();
+      const line = `+${writtenBy(cli).trimEnd()}`;
+      await expect(diff.locator('.diff-view .d-add')).toHaveText([line, line]);
+      await diff.getByRole('button', { name: 'Collapse all' }).click();
+      await expect(diff.locator('.diff-view')).toHaveCount(0);
     });
   });
 
