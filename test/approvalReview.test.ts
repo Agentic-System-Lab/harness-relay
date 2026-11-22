@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   APPROVAL_REVIEW_LIMITS,
-  alwaysAsks,
   buildApprovalPrompt,
+  neverReviewed,
+  NoDecision,
   nothingToReview,
   parseApprovalReply,
   reviewKey,
@@ -90,6 +91,33 @@ describe('the approval review prompt', () => {
     expect(request).toContain("outside the CLI's sandbox");
   });
 
+  it("tells of a sandbox's connection that only its host is known, without calling Harness Relay's words the agent's", () => {
+    const prompt = buildApprovalPrompt(
+      input({
+        request: {
+          kind: 'fetch',
+          detail: 'registry.npmjs.org',
+          reason: 'A command in the sandbox wants to connect to this host.',
+          connection: true,
+        },
+      }),
+    );
+    const request = /<request>\n([\s\S]*?)\n<\/request>/.exec(prompt)![1]!;
+    expect(request).toBe(
+      "kind: connection (a command running in the CLI's sandbox wants to open a network connection)\nhost: registry.npmjs.org",
+    );
+    expect(prompt).toContain('Only the host is known');
+    expect(prompt).toContain('a code host such as github.com');
+    expect(buildApprovalPrompt(input())).not.toContain('Only the host is known');
+  });
+
+  it("warns that a tool call's details may be a summary of its arguments", () => {
+    expect(buildApprovalPrompt(input({ request: { kind: 'other', tool: 'mcp__x__create_issue', detail: 'title: Fix' } }))).toContain(
+      "The details may be a shortened summary of the call's arguments",
+    );
+    expect(buildApprovalPrompt(input())).not.toContain('shortened summary');
+  });
+
   it('shortens a long command', () => {
     const prompt = buildApprovalPrompt(input({ request: { kind: 'command', command: `echo ${'a'.repeat(9000)}`, detail: 'echo …' } }));
     const line = /command: (.*)/.exec(prompt)![1]!;
@@ -115,31 +143,35 @@ describe('the approval review answer', () => {
     );
   });
 
-  it('fails when there is no decision', () => {
-    expect(() => parseApprovalReply('{"reason": "fine"}')).toThrow(/no decision/);
-    expect(() => parseApprovalReply('Looks fine.')).toThrow();
+  it('fails when there is no decision, also with no JSON at all', () => {
+    expect(() => parseApprovalReply('{"reason": "fine"}')).toThrow(NoDecision);
+    expect(() => parseApprovalReply('Looks fine.')).toThrow(NoDecision);
   });
 });
 
 describe('what is never reviewed', () => {
-  it('leaves pushing and publishing to the user, however it is written', () => {
+  it('leaves pushing and publishing, and more access for the turn, to the user, however it is written', () => {
     for (const line of ['git push origin main', 'npm test && git push', 'npm publish', 'gh pr create --fill', 'bash -c "git push"'])
-      expect(alwaysAsks({ kind: 'command', detail: line }), line).toBe(true);
+      expect(neverReviewed({ kind: 'command', detail: line }), line).toBe('publish');
     // The command as it will run decides, not the tidied-up text shown.
-    expect(alwaysAsks({ kind: 'command', detail: 'push changes', command: 'git push' })).toBe(true);
+    expect(neverReviewed({ kind: 'command', detail: 'push changes', command: 'git push' })).toBe('publish');
     for (const line of ['npm test', 'git commit -m "push"', 'git status'])
-      expect(alwaysAsks({ kind: 'command', detail: line }), line).toBe(false);
-    expect(alwaysAsks({ kind: 'fetch', detail: 'https://example.com/git push' })).toBe(false);
+      expect(neverReviewed({ kind: 'command', detail: line }), line).toBeUndefined();
+    expect(neverReviewed({ kind: 'fetch', detail: 'https://example.com/git push' })).toBeUndefined();
+    expect(neverReviewed({ kind: 'other', tool: 'permissions', detail: '{"network":{"enabled":true}}', grant: true })).toBe('grant');
   });
 
-  it('asks without a review when the request names nothing', () => {
+  it('asks without a review when the request does not say what it would do, or nothing tells it from another', () => {
     expect(nothingToReview({ kind: 'other' })).toBe(true);
     expect(nothingToReview({ kind: 'command', detail: '  ' })).toBe(true);
-    expect(nothingToReview({ kind: 'other', tool: 'mcp__x__y' })).toBe(false);
+    // A tool's name alone says nothing of what the call would do.
+    expect(nothingToReview({ kind: 'other', tool: 'mcp__x__create_issue' })).toBe(true);
+    expect(nothingToReview({ kind: 'other', tool: 'run', detail: 'echo hi', noRule: true })).toBe(true);
+    expect(nothingToReview({ kind: 'other', tool: 'mcp__x__create_issue', detail: 'title: Fix' })).toBe(false);
     expect(nothingToReview({ kind: 'command', detail: 'ls' })).toBe(false);
   });
 
-  it('tells requests apart by what they would do exactly', () => {
+  it('tells requests apart by what they would do exactly, and never keeps a tool call', () => {
     expect(reviewKey({ kind: 'command', detail: 'npm test', reason: 'a' })).toBe(
       reviewKey({ kind: 'command', detail: 'npm test', reason: 'b' }),
     );
@@ -148,6 +180,9 @@ describe('what is never reviewed', () => {
     );
     expect(reviewKey({ kind: 'command', detail: 'npm test' })).not.toBe(reviewKey({ kind: 'edit', detail: 'npm test' }));
     expect(reviewKey({ kind: 'command', detail: 'shown', command: 'rm -rf x' })).not.toBe(reviewKey({ kind: 'command', detail: 'shown' }));
+    // Its details may be a summary of its arguments: two calls alike there may do different things.
+    expect(reviewKey({ kind: 'other', tool: 'mcp__x__create_issue', detail: 'title: Fix' })).toBeUndefined();
+    expect(reviewKey({ kind: 'fetch', detail: 'registry.npmjs.org', connection: true })).toBeDefined();
   });
 });
 

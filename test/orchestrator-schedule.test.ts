@@ -230,7 +230,25 @@ describe('schedules', () => {
     await scheduler().tick();
     await finish(conv.id);
     expect(calls.filter((c) => c.name === 'approver')).toHaveLength(before);
-    expect(approvalParts(conv)[2]).toMatchObject({ status: 'denied', review: { status: 'flagged' } });
+    expect(approvalParts(conv)[2]).toMatchObject({
+      status: 'denied',
+      review: { status: 'skipped' },
+      note: 'Refused automatically: nobody may be watching an automation run',
+    });
+
+    // A review that could not be done is refused too, and the card says so, not that it was judged unsafe.
+    fake.inTurn = undefined;
+    fake.approverFail = 'not signed in';
+    schedule(conv, { text: 'please install', nextRunAt: T0 + 3.5 * HOUR });
+    now = T0 + 3.5 * HOUR;
+    await scheduler().tick();
+    await finish(conv.id);
+    expect(approvalParts(conv)[3]).toMatchObject({
+      status: 'denied',
+      review: { status: 'failed' },
+      note: 'Refused automatically: the lead agent could not review it, and nobody may be watching an automation run (The lead agent could not review it: not signed in)',
+    });
+    fake.approverFail = undefined;
 
     // A schedule that asks: what the lead agent flags waits for the user.
     fake.inTurn = undefined;
@@ -238,7 +256,7 @@ describe('schedules', () => {
     now = T0 + 4 * HOUR;
     await scheduler().tick();
     await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
-    orchestrator.answerApproval(conv.id, approvalParts(conv)[3]!.id, { allow: true });
+    orchestrator.answerApproval(conv.id, approvalParts(conv)[4]!.id, { allow: true });
     await finish(conv.id);
     expect(textOf(agentMessages(conv).at(-1)!)).toBe('Alice installed');
   });

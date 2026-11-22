@@ -86,7 +86,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 10');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 12');
     await expect(update.locator('.tour-art')).toHaveCount(0);
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
@@ -99,11 +99,13 @@ test.describe('the guided tour', () => {
     // Subagents' steps and steering were added to it.
     await expect(update).toHaveAccessibleName('While the team replies');
     await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('When the team needs you');
+    await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Notifications and sound');
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 10');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 12');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -115,7 +117,12 @@ test.describe('the guided tour', () => {
     // Subagents' steps and steering were added to it.
     await expect(update).toHaveAccessibleName('While the team replies');
     await update.getByRole('button', { name: 'Next' }).click();
+    // "Approve for me" was added to it, and to the permissions and automations steps.
+    await expect(update).toHaveAccessibleName('When the team needs you');
+    await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Notifications and sound');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('File permission and changes');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Team checks');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -139,6 +146,10 @@ test.describe('the guided tour', () => {
     await expect(update).toHaveAccessibleName('A team for every question');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('While the team replies');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('When the team needs you');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('File permission and changes');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
     await update.getByRole('button', { name: 'Next' }).click();

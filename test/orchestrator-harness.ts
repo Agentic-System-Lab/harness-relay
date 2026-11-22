@@ -82,6 +82,8 @@ export interface Call {
   mcpServers?: string[];
   /** What was sent into its running turn (steering), and the turn took. */
   steered?: string[];
+  /** Its run was stopped (its signal aborted) before it ended. */
+  aborted?: boolean;
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -227,7 +229,7 @@ beforeAll(() => {
         return { sessionId: 'sorter-session', ...('sorter' in fake.structured ? { structured: fake.structured.sorter } : {}) };
       }
       if (o.systemPrompt === APPROVAL_REVIEWER_BRIEFING) {
-        calls.push({
+        const call: Call = {
           name: 'approver',
           prompt: o.prompt,
           cwd: o.cwd,
@@ -236,7 +238,9 @@ beforeAll(() => {
           model: o.model,
           effort: o.effort,
           ...(o.requestApproval ? { asksApproval: true } : {}),
-        });
+        };
+        calls.push(call);
+        o.signal?.addEventListener('abort', () => (call.aborted = true), { once: true });
         if (fake.approverGate && !o.signal?.aborted) {
           await Promise.race([fake.approverGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }

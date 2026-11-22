@@ -13,14 +13,14 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { revision: 1 }, // modes
   { revision: 9 }, // writing a message
   { revision: 39 }, // while the team replies (subagents, steering)
-  { revision: 18 }, // when the team needs you
+  { revision: 40 }, // when the team needs you (Approve for me)
   { target: 'settings', revision: 23 }, // notifications and sound
   { target: 'inbox', revision: 18 },
-  { revision: 14 }, // permissions
+  { revision: 40 }, // permissions (Approve for me)
   { revision: 21 }, // team checks
   { revision: 7 }, // files
   { revision: 20 }, // share
-  { target: 'new-schedule', revision: 37 },
+  { target: 'new-schedule', revision: 40 }, // automations (Approve for me)
   { target: 'organize', revision: 17 },
   { target: 'settings', revision: 33 }, // common apps and the tool library
   { target: 'settings', revision: 4 }, // agent sessions

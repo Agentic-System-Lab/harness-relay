@@ -126,8 +126,9 @@ import {
   APPROVAL_REVIEWER_BRIEFING,
   APPROVAL_REVIEW_LIMITS,
   APPROVAL_SCHEMA,
-  alwaysAsks,
+  NoDecision,
   buildApprovalPrompt,
+  neverReviewed,
   nothingToReview,
   parseApprovalReply,
   reviewKey,
@@ -1048,42 +1049,84 @@ export class Orchestrator {
 
   /**
    * "Approve for me": how the lead agent's review of one request starts (`approvalReview.ts`). Undefined
-   * when there is nothing to review (the user is asked as without it); flagged at once for pushing and
-   * publishing, which always wait for the user; approved at once for a request the review already
-   * approved in this run; else under way, with its verdict to come (approved, flagged, or failed: the
-   * user is asked) and a way to stop it once the user answered first.
+   * when there is nothing to review (the user is asked as without it); `skipped` at once for what is never
+   * reviewed (pushing and publishing, more access for the turn), which always waits for the user; approved
+   * at once for a request the review already approved in this run; else under way, with its verdict to
+   * come (approved, flagged, or failed: the user is asked) and a way to stop it once the user answered
+   * first. `dirs`: the turn's own working directories (its worktrees, in parallel mode).
    */
   private startReview(
     conv: Conversation,
     run: Run,
     agent: AgentConfig,
     req: ApprovalRequest,
+    dirs: string[],
   ): { first: ApprovalReview; verdict: Promise<ApprovalReview>; stop: () => void } | undefined {
     if (nothingToReview(req)) return undefined;
     const settled = (first: ApprovalReview) => ({ first, verdict: Promise.resolve(first), stop: () => {} });
-    if (alwaysAsks(req)) return settled({ status: 'flagged', reason: t().approvalReviewPublish });
+    const never = neverReviewed(req);
+    if (never) return settled({ status: 'skipped', reason: never === 'grant' ? t().approvalReviewGrant : t().approvalReviewPublish });
     const key = reviewKey(req);
-    const known = run.reviewed?.get(key);
+    const known = key === undefined ? undefined : run.reviewed?.get(key);
     if (known !== undefined) return settled({ status: 'approved', ...(known ? { reason: known } : {}) });
     const stop = new AbortController();
-    const verdict = this.reviewApproval(conv, agent, req, AbortSignal.any([run.abort.signal, stop.signal])).then((v): ApprovalReview => {
+    const signal = AbortSignal.any([run.abort.signal, stop.signal]);
+    const verdict = this.reviewApproval(conv, agent, req, dirs, signal).then((v): ApprovalReview => {
       if ('failed' in v) return { status: 'failed', reason: v.failed };
-      if (v.approve) (run.reviewed ??= new Map()).set(key, v.reason);
+      if (v.approve && key !== undefined) (run.reviewed ??= new Map()).set(key, v.reason);
       return { status: v.approve ? 'approved' : 'flagged', ...(v.reason ? { reason: v.reason } : {}) };
     });
     return { first: { status: 'reviewing' }, verdict, stop: () => stop.abort() };
   }
 
+  /** Reviews running now ("Approve for me"), and those waiting for one to end (`APPROVAL_REVIEW_LIMITS.atOnce`). */
+  private reviewsRunning = 0;
+  private reviewsWaiting: (() => void)[] = [];
+
+  /** Waits for a review's turn to run; resolves with a way to let the next one go, or rejects once stopped. */
+  private reviewSlot(signal: AbortSignal): Promise<() => void> {
+    const release = () => {
+      this.reviewsRunning--;
+      this.reviewsWaiting.shift()?.();
+    };
+    if (this.reviewsRunning < APPROVAL_REVIEW_LIMITS.atOnce) {
+      this.reviewsRunning++;
+      return Promise.resolve(release);
+    }
+    return new Promise((resolve, reject) => {
+      const go = () => {
+        signal.removeEventListener('abort', gone);
+        this.reviewsRunning++;
+        resolve(release);
+      };
+      const gone = () => {
+        this.reviewsWaiting = this.reviewsWaiting.filter((w) => w !== go);
+        reject(new Error('stopped'));
+      };
+      if (signal.aborted) return gone();
+      signal.addEventListener('abort', gone, { once: true });
+      this.reviewsWaiting.push(go);
+    });
+  }
+
   /**
-   * The lead agent's review of one request: read-only, without tools, in a session of its own, within
-   * `APPROVAL_REVIEW_LIMITS.timeoutMs`. A review that could not be done says why (`failed`).
+   * The lead agent's review of one request: read-only, told to use no tools, in a session of its own,
+   * within `APPROVAL_REVIEW_LIMITS.timeoutMs` once it starts (a few at once: `reviewSlot()`). A review that
+   * could not be done says why (`failed`). Its session is linked in AgentsView, as lead review's is.
    */
   private async reviewApproval(
     conv: Conversation,
     agent: AgentConfig,
     req: ApprovalRequest,
+    dirs: string[],
     signal: AbortSignal,
   ): Promise<ApprovalVerdict | { failed: string }> {
+    let release: () => void;
+    try {
+      release = await this.reviewSlot(signal);
+    } catch {
+      return { failed: t().approvalReviewFailed('stopped') };
+    }
     const lead = this.settings.lead;
     const timeout = AbortSignal.timeout(APPROVAL_REVIEW_LIMITS.timeoutMs);
     const both = AbortSignal.any([signal, timeout]);
@@ -1100,11 +1143,11 @@ export class Orchestrator {
           messages: conv.messages,
           agent: { name: agent.name, provider: agent.provider },
           permission: conv.settings.permission,
-          cwds: [conv.settings.cwd, ...(conv.settings.extraCwds ?? [])],
+          cwds: dirs,
         }),
         systemPrompt: APPROVAL_REVIEWER_BRIEFING,
         outputSchema: APPROVAL_SCHEMA,
-        cwd: conv.settings.cwd,
+        cwd: dirs[0] ?? conv.settings.cwd,
         permission: 'read-only',
         model: await this.modelFor(lead.provider, lead.model, lead.account),
         effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
@@ -1115,11 +1158,16 @@ export class Orchestrator {
         },
       });
       if (both.aborted) throw new Error('stopped');
+      // The lead agent's session belongs to this conversation too.
+      if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
       return parseApprovalReply(reply, result.structured);
     } catch (err) {
       if (!signal.aborted) console.warn('[orchestrator] approval review failed:', (err as Error).message);
       if (timeout.aborted && !signal.aborted) return { failed: t().approvalReviewTimeout };
+      if (err instanceof NoDecision) return { failed: t().approvalReviewNoDecision };
       return { failed: t().approvalReviewFailed((err as Error).message.trim().slice(0, 300)) };
+    } finally {
+      release();
     }
   }
 
@@ -1278,9 +1326,11 @@ export class Orchestrator {
     this.store.saveMessage(conv.id, msg, true, request);
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.nameAfter(conv, msg);
-    // One of the user's own messages reached the run: they are here (as `deliverBefore` says).
+    // One of the user's own messages reached the run: they are here (as `deliverBefore` says), and what
+    // the lead agent approved before it is reviewed again in its light.
     run.refuseApprovals = false;
     run.unattended = undefined;
+    run.reviewed = undefined;
     return true;
   }
 
@@ -4406,6 +4456,8 @@ export class Orchestrator {
     if (this.deliverQueued(conv, { recipients, scheduledOnly: run.scheduledQueueOnly }).some((m) => !m.scheduled)) {
       run.refuseApprovals = false;
       run.unattended = undefined;
+      // What the lead agent approved before it is reviewed again in its light ("Approve for me").
+      run.reviewed = undefined;
     }
   }
 
@@ -4743,7 +4795,7 @@ export class Orchestrator {
               this.store.saveMessage(conv.id, msg, true);
               return busy ? { allow: false, note: busy } : { allow: true };
             }
-            const review = conv.settings.approvals === 'auto' ? this.startReview(conv, run, agent, req) : undefined;
+            const review = conv.settings.approvals === 'auto' ? this.startReview(conv, run, agent, req, [cwd, ...addDirs]) : undefined;
             if (review) part.review = review.first;
             const reviewing = part.review?.status === 'reviewing';
             if (run.refuseApprovals && !reviewing && part.review?.status !== 'approved') {
@@ -4762,7 +4814,11 @@ export class Orchestrator {
               const pending = {
                 convId: conv.id,
                 reviewing,
+                /** Answered: a verdict that lands in the same moment changes nothing. */
+                done: false,
                 resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => {
+                  if (pending.done) return;
+                  pending.done = true;
                   run.abort.signal.removeEventListener('abort', onAbort);
                   resolve(a);
                 },
@@ -4775,7 +4831,7 @@ export class Orchestrator {
               else if (reviewing)
                 void review!.verdict.then((v) => {
                   // Answered meanwhile (by the user, or the run ended): the review is moot.
-                  if (this.approvals.get(part.id) !== pending) return;
+                  if (pending.done || this.approvals.get(part.id) !== pending) return;
                   part.review = v;
                   if (v.status === 'approved') return pending.resolve({ allow: true });
                   // Nobody may be watching: what the lead agent did not approve is refused.
@@ -4799,7 +4855,10 @@ export class Orchestrator {
             part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
             // Refused unattended after the review: the card says why, and the agent hears what it would without one.
             if (answer.unattended) {
-              part.note = t().approvalReviewRefused(part.review?.reason ?? '');
+              part.note =
+                part.review?.status === 'failed'
+                  ? t().approvalReviewFailedRefused(part.review.reason ?? '')
+                  : t().approvalReviewRefused(part.review?.reason ?? '');
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
               this.emitStatus(conv.id);

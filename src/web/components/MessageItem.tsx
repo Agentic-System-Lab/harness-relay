@@ -446,13 +446,17 @@ function ApprovalCard({
       {part.reason && part.reason !== part.detail && <p className="approval-reason">{part.reason}</p>}
       {part.outsideSandbox && <p className="approval-reason approval-sandbox">{t.approval.outsideSandbox}</p>}
       {part.readOnlySandbox && <p className="approval-reason approval-sandbox">{t.approval.readOnlySandbox}</p>}
-      {part.review && (
+      {/* "Approve for me": what the lead agent says of it, or Harness Relay's reason it was never reviewed.
+          One it approved goes through at once, so nothing is said of it here. */}
+      {part.review && part.review.status !== 'approved' && (
         <p className={`approval-reason approval-review ${part.review.status}`} role={reviewing ? 'status' : undefined}>
           {reviewing
             ? t.approval.reviewingHint
             : part.review.status === 'flagged'
               ? t.approval.reviewFlagged(part.review.reason ?? '')
-              : t.approval.reviewFailed(part.review.reason ?? '')}
+              : part.review.status === 'skipped'
+                ? part.review.reason
+                : t.approval.reviewFailed(part.review.reason ?? '')}
         </p>
       )}
       <input

@@ -448,8 +448,7 @@ export function TeamEditor({
           <div className="field">
             <span>{t.team.permission}</span>
             <div ref={levelsRow} className="segmented wide levels">
-              {/* A template keeps no approvals, so it has no "Approve for me". */}
-              {PERMISSION_LEVELS.filter((p) => !template || p !== 'auto').map((p) => (
+              {PERMISSION_LEVELS.map((p) => (
                 <button
                   key={p}
                   className={`${level === p ? 'on' : ''} ${p === 'full' ? 'danger' : ''}`}

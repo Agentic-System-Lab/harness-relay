@@ -617,6 +617,9 @@ const zhTW = {
   scheduleQueueFull: '等待送出的訊息已經滿了',
   scheduleRefused: '自動任務執行時可能沒人看著，已自動拒絕',
   approvalReviewPublish: '推送與發佈一律由你決定，首席 agent 不會替你核准',
+  approvalReviewGrant: '在這一輪剩下的時間取得更多權限，一律由你決定，首席 agent 不會替你核准',
+  approvalReviewNoDecision: '首席 agent 的回答裡沒有可以讀懂的決定',
+  approvalReviewFailedRefused: (why: string) => `首席 agent 無法審查，而自動任務執行時可能沒人看著，已自動拒絕${why ? `（${why}）` : ''}`,
   approvalReviewTimeout: '首席 agent 太久沒有完成審查',
   approvalReviewFailed: (why: string) => `首席 agent 無法審查：${why}`,
   approvalReviewRefused: (why: string) => `首席 agent 認為可能不安全，而自動任務執行時可能沒人看著，已自動拒絕${why ? `：${why}` : ''}`,
@@ -1694,6 +1697,10 @@ const en: ServerMessages = {
   scheduleQueueFull: 'the queue of waiting messages is full',
   scheduleRefused: 'Refused automatically: nobody may be watching an automation run',
   approvalReviewPublish: 'Pushing and publishing are always yours to decide: the lead agent never approves them for you',
+  approvalReviewGrant: 'More access for the rest of the turn is always yours to decide: the lead agent never approves it for you',
+  approvalReviewNoDecision: "The lead agent's answer held no decision Harness Relay could read",
+  approvalReviewFailedRefused: (why) =>
+    `Refused automatically: the lead agent could not review it, and nobody may be watching an automation run${why ? ` (${why})` : ''}`,
   approvalReviewTimeout: 'The lead agent took too long to review it',
   approvalReviewFailed: (why) => `The lead agent could not review it: ${why}`,
   approvalReviewRefused: (why) =>

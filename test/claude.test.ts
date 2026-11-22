@@ -1202,6 +1202,7 @@ describe("Claude Code's sandbox below full access", () => {
       kind: 'fetch',
       detail: 'registry.npmjs.org',
       reason: 'A command in the sandbox wants to connect to this host.',
+      connection: true,
     });
     const blocked = claudeApprovalRequest('Bash', { command: 'touch ~/x', description: 'Touch' }, undefined, true);
     expect(blocked).toEqual({ kind: 'command', detail: 'touch ~/x', reason: 'Touch', outsideSandbox: true });

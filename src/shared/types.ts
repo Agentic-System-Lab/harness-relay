@@ -1735,11 +1735,12 @@ export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired';
  * "Approve for me" (`approvals: 'auto'`): the lead agent's review of a request, before the user is
  * asked. `reviewing`: under way, and the user may answer meanwhile; `approved`: judged safe, and
  * allowed; `flagged`: judged potentially unsafe, so the user is asked (or, in a run nobody may be
- * watching, it is refused); `failed`: the lead agent could not review it, so the user is asked.
+ * watching, it is refused); `failed`: the lead agent could not review it, so the user is asked;
+ * `skipped`: never reviewed (pushing and publishing, more access for the turn), so the user is asked.
  */
 export interface ApprovalReview {
-  status: 'reviewing' | 'approved' | 'flagged' | 'failed';
-  /** The lead agent's reason, in the user's language; or Harness Relay's, when it never asks the lead (pushing). */
+  status: 'reviewing' | 'approved' | 'flagged' | 'failed' | 'skipped';
+  /** The lead agent's reason, in the user's language; or Harness Relay's, when it failed or was skipped. */
   reason?: string;
 }
 
