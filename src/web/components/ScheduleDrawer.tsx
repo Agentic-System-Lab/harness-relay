@@ -30,18 +30,23 @@ export function ScheduleDrawer({
   running,
   onClose,
   onEditTeam,
+  proposal,
 }: {
   conv: Conversation;
   /** The team (or the lead agent designing it) is at work. */
   running: boolean;
   onClose: () => void;
   onEditTeam: () => void;
+  /** A schedule a reply proposed, opened to be changed before saving it: the form starts with it. */
+  proposal?: { messageId: string; draft: ScheduleDraft };
 }) {
   const { t, lang } = useI18n();
   const saved = conv.schedule;
-  const [draft, setDraft] = useState<ScheduleDraft>(() => draftFrom(saved, Date.now()));
-  /** The user changed the form: it no longer follows the saved schedule (which the server may update). */
-  const [touched, setTouched] = useState(false);
+  const [draft, setDraft] = useState<ScheduleDraft>(() => proposal?.draft ?? draftFrom(saved, Date.now()));
+  /** The user changed the form (or it holds a proposed schedule): it no longer follows the saved schedule (which the server may update). */
+  const [touched, setTouched] = useState(Boolean(proposal));
+  /** The lead agent drafts the form: it cannot be saved meanwhile. */
+  const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -104,6 +109,8 @@ export function ScheduleDrawer({
         ...toUpdate(draft),
         ...(attachments.length ? { attachments } : {}),
         ...(draft.removeAttachments.length ? { removeAttachments: draft.removeAttachments } : {}),
+        // The reply whose proposed schedule this is: its card then says it was created.
+        ...(proposal ? { fromProposal: proposal.messageId } : {}),
       });
       if (dialog.current) onClose();
     } catch (e) {
@@ -270,7 +277,16 @@ export function ScheduleDrawer({
         )}
 
         <div className="schedule-form">
-          <ScheduleForm disabled={saving} draft={draft} onEdit={edit} saved={saved} settings={conv.settings} team={teamNames} />
+          <ScheduleForm
+            disabled={saving}
+            draft={draft}
+            onEdit={edit}
+            saved={saved}
+            settings={conv.settings}
+            team={teamNames}
+            convId={conv.id}
+            onDrafting={setDrafting}
+          />
 
           <div className="field">
             <span>{t.schedule.team}</span>
@@ -312,7 +328,11 @@ export function ScheduleDrawer({
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>
-          <button className="primary" disabled={saving || problems.length > 0 || !changed || (draft.enabled && !teamReady)} onClick={save}>
+          <button
+            className="primary"
+            disabled={saving || drafting || problems.length > 0 || !changed || (draft.enabled && !teamReady)}
+            onClick={save}
+          >
             {saving ? t.schedule.saving : t.common.save}
           </button>
         </footer>

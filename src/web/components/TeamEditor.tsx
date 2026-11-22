@@ -210,6 +210,7 @@ export function TeamEditor({
       env={checksEnv}
       permission={template ? undefined : settings.permission}
       convId={template ? undefined : convId}
+      cwds={template ? undefined : cwdsOf(settings)}
       onChange={(checks) => {
         const { checks: _old, ...rest } = settings;
         onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });

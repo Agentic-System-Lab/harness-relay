@@ -13,6 +13,8 @@ import {
   ruleCount,
   sameChecks,
   startingChecks,
+  checksChanges,
+  flagsOf,
 } from '../src/web/checks';
 import type { AgentConfig, ChatMessage, ChecksResult } from '../src/shared/types';
 
@@ -271,5 +273,44 @@ describe("Settings' default team checks", () => {
     expect(sameChecks(saved, { protectedPaths: ['.env', 'secrets/'], commands: saved.commands })).toBe(false);
     expect(sameChecks(undefined, {})).toBe(true);
     expect(sameChecks(undefined, { commitPattern: '^feat' })).toBe(false);
+  });
+});
+
+describe("the lead agent's team checks in the editor", () => {
+  it('lists what its draft changed, a line each, telling commands and hooks apart by id, then by line', async () => {
+    const { en } = await import('../src/web/locales/en');
+    const before = {
+      protectedPaths: ['.env', 'dist/'],
+      commitPattern: '^feat',
+      commands: [
+        { id: 'a', run: 'npm test' },
+        { id: 'b', run: 'npm run lint' },
+      ],
+      hooks: [{ id: 'h', when: 'before' as const, tools: 'command' as const, run: './allow.sh' }],
+      previewApp: true as const,
+    };
+    const after = {
+      protectedPaths: ['.env', '*.pem'],
+      commands: [
+        { id: 'a', run: 'npm test', timeoutMin: 20 },
+        { id: 'new', run: 'npm run typecheck' },
+      ],
+      hooks: [{ id: 'other', when: 'before' as const, tools: 'command' as const, run: './allow.sh' }],
+      autoFix: true as const,
+    };
+    expect(checksChanges(before, after, en)).toEqual([
+      'protected *.pem',
+      'no longer protects dist/',
+      'removed the commit format',
+      'changed the command npm test',
+      'added the command npm run typecheck',
+      'removed the command npm run lint',
+      'turned off the app preview check',
+      'turned on fixing by itself',
+    ]);
+    expect(checksChanges(before, structuredClone(before), en)).toEqual([]);
+    expect(checksChanges(undefined, { commitPattern: '^fix' }, en)).toEqual(['set the commit format to ^fix']);
+    expect(flagsOf(after)).toEqual({ autoFix: true });
+    expect(flagsOf(undefined)).toEqual({});
   });
 });

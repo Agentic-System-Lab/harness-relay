@@ -3,7 +3,10 @@ import type { ProviderModels, ProviderStatus, TeamPreset } from '../../shared/ty
 import { api } from '../api';
 import { useT } from '../i18n';
 import { useLimits } from '../limits';
-import { blankAgents, fitTemplateAgents, templateKey } from '../templates';
+import { revisionOutcome, sameTeam } from '../chat';
+import { teamChangeText } from '../copy';
+import { blankAgents, fitTemplateAgents, templateKey, templateTextChanges } from '../templates';
+import { LeadAsk } from './LeadAsk';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { useDialog } from './useDialog';
 
@@ -78,7 +81,11 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
     setOpened(keyOf(next.team.agents, next.team.settings));
   }, [providers]); // once, when the statuses first come
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState('');
+  /** The template now, for the lead agent's answer: the user may change it while it works. */
+  const latest = useRef({ name, description, team });
+  latest.current = { name, description, team };
   const problems = [
     ...(name.trim() ? [] : [t.template.needName]),
     ...teamProblems(team, t, { members: true, template: true, maxAgents: maxTeamAgents }),
@@ -132,23 +139,77 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
         <div className="template-editor-body">
           {builtin && <p className="muted small">{t.template.builtinNote}</p>}
           {moved.length > 0 && <p className="muted small template-moved">{t.template.moved(moved.join(t.common.listSeparator))}</p>}
-          <div className="template-fields">
-            <label className="field">
-              <span>{t.template.name}</span>
-              <input value={name} maxLength={100} placeholder={t.template.namePlaceholder} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <label className="field">
-              <span>{t.template.description}</span>
-              <textarea
-                value={description}
-                rows={2}
-                maxLength={2000}
-                placeholder={t.template.descriptionPlaceholder}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </label>
-          </div>
-          <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} members template />
+          <LeadAsk
+            title={t.templateDraft.title}
+            hint={t.templateDraft.hint}
+            placeholder={t.templateDraft.placeholder}
+            submit={t.templateDraft.submit}
+            working={t.templateDraft.working}
+            review={t.templateDraft.review}
+            unchanged={t.templateDraft.unchanged}
+            changedMeanwhile={t.templateDraft.changedMeanwhile}
+            onBusy={setDrafting}
+            ask={async (request, signal) => {
+              const sent = latest.current;
+              const { mode, rounds, maxHops } = sent.team.settings;
+              const r = await api.draftTemplate(
+                { request, name: sent.name, description: sent.description, agents: sent.team.agents, settings: { mode, rounds, maxHops } },
+                signal,
+              );
+              const now = latest.current;
+              if (now.name !== sent.name || now.description !== sent.description) return 'stale';
+              const outcome = revisionOutcome({ sent: sent.team, now: now.team, blocked: false, revision: r });
+              if (outcome.kind === 'stale') return 'stale';
+              const afterTeam = outcome.kind === 'changed' ? outcome.team : sent.team;
+              // A new template's members are only a starting point (one on each CLI, no role): dropping them is not news.
+              const fresh = sent.team.agents.every((a) => !a.role.trim());
+              const changes = [
+                ...(outcome.kind === 'changed'
+                  ? outcome.changes.filter((c) => !(fresh && c.kind === 'removed')).map((c) => teamChangeText(c, t))
+                  : []),
+                ...templateTextChanges(sent, r, t),
+              ];
+              if (!changes.length) return { reason: r.reason, changes: [], meta: r.meta };
+              setTeam(afterTeam);
+              setName(r.name);
+              setDescription(r.description);
+              return {
+                reason: r.reason,
+                changes,
+                meta: r.meta,
+                undo: () => {
+                  setTeam(sent.team);
+                  setName(sent.name);
+                  setDescription(sent.description);
+                },
+                // Only while the template is still as the lead agent left it: later edits are not thrown away.
+                undoable: () =>
+                  sameTeam(latest.current.team, afterTeam) &&
+                  latest.current.name === r.name &&
+                  latest.current.description === r.description,
+              };
+            }}
+          />
+          {/* While the lead agent writes the template, it holds still. */}
+          <fieldset className="team-fieldset template-fieldset" disabled={drafting}>
+            <div className="template-fields">
+              <label className="field">
+                <span>{t.template.name}</span>
+                <input value={name} maxLength={100} placeholder={t.template.namePlaceholder} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>{t.template.description}</span>
+                <textarea
+                  value={description}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder={t.template.descriptionPlaceholder}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </label>
+            </div>
+            <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} members template />
+          </fieldset>
         </div>
         <footer className="template-editor-foot">
           {error || problems[0] ? (
@@ -159,7 +220,7 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
           <button type="button" className="ghost" onClick={close}>
             {t.common.cancel}
           </button>
-          <button type="button" className="primary" disabled={saving || unchanged || problems.length > 0} onClick={save}>
+          <button type="button" className="primary" disabled={saving || drafting || unchanged || problems.length > 0} onClick={save}>
             {saving ? t.template.saving : builtin ? t.template.saveCopy : t.template.save}
           </button>
         </footer>

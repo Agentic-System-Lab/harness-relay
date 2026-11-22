@@ -2099,6 +2099,121 @@ export interface TeamRevision {
   meta?: MessageMeta;
 }
 
+/*
+ * The lead agent's drafts for the editors that are not a conversation's team (`src/server/leadDrafts.ts`):
+ * the user says what they want in the editor, the lead agent answers with the whole thing as it would
+ * be, and the editor shows it until the user saves it (or undoes it). Nothing is saved by asking. Each
+ * request is at most `REVISE_REQUEST_MAX` characters, as the team drawer's is.
+ */
+
+/** What the template editor sends to have the lead agent draft its template (`POST /api/presets/draft`). */
+export interface TemplateDraftRequest {
+  request: string;
+  name: string;
+  description: string;
+  agents: AgentConfig[];
+  settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'>;
+}
+
+/** The template as the lead agent drafted it: its team, and its name and description. */
+export interface TemplateRevision extends TeamRevision {
+  name: string;
+  description: string;
+}
+
+/**
+ * What the team checks editor sends to have the lead agent draft its rules (`POST /api/checks/draft`):
+ * the list as the editor holds it, and where the team works, when the editor knows: a conversation's
+ * (`convId`, with the team drawer's working directories when they are not saved yet) or a new chat's
+ * (`cwd`, `extraCwds`). None for a template or Settings' default, which no project has yet.
+ */
+export interface ChecksDraftRequest {
+  request: string;
+  /** Whose list it is: a conversation's or a new chat's (`team`), a template's, or Settings' default. */
+  variant: 'team' | 'template' | 'defaults';
+  checks?: CheckList;
+  convId?: string;
+  cwd?: string;
+  extraCwds?: string[];
+}
+
+/** The team checks as the lead agent drafted them. */
+export interface ChecksRevision {
+  checks: CheckList;
+  reason: string;
+  /** The folder the lead agent read the project in; absent when it had none to read. */
+  readIn?: string;
+  meta?: MessageMeta;
+}
+
+/**
+ * What the schedule form sends to have the lead agent draft the schedule (`POST /api/schedules/draft`):
+ * the form as it stands (anything in it may be missing or unfinished), and the browser's time zone, which
+ * the form's times are in. `convId`: the conversation whose schedule it is (the schedule drawer's).
+ */
+export interface ScheduleDraftRequest {
+  request: string;
+  schedule?: Partial<ScheduleUpdate>;
+  timeZone: string;
+  convId?: string;
+}
+
+/** The schedule as the lead agent drafted it, checked as a saved one is (`validateSchedule()`). */
+export interface ScheduleRevision {
+  schedule: ScheduleUpdate;
+  reason: string;
+  meta?: MessageMeta;
+}
+
+/**
+ * A schedule an agent proposed in a reply (its `<schedule>` block, `src/shared/scheduleProposal.ts`):
+ * nothing is scheduled until the user creates it from the reply's card, as it is or once changed in the
+ * schedule's form. Its times are wall-clock ones, in the user's time zone when it is created (a `once`
+ * time as `YYYY-MM-DDTHH:MM`); a mail or calendar trigger's account may be missing (`''`), for the user
+ * to pick in the form.
+ */
+export interface ScheduleProposal {
+  text: string;
+  repeat: ScheduleProposalRepeat;
+  goal?: string;
+  newChat?: boolean;
+  missed?: ConversationSchedule['missed'];
+}
+
+export type ScheduleProposalRepeat = Exclude<ScheduleRepeat, { kind: 'once' }> | { kind: 'once'; at: string };
+
+/** What the user did with a proposed schedule: created it (from the card or the form), or dismissed it. */
+export type ScheduleProposalStatus = 'created' | 'dismissed';
+
+/**
+ * What the sidebar's groups dialog sends to have the lead agent suggest how to organize the
+ * conversations (`POST /api/groups/suggest`): what the user wants, if they say (by topic, by client…).
+ */
+export interface GroupSuggestionRequest {
+  request?: string;
+}
+
+/**
+ * The lead agent's suggestions for the sidebar's groups, each for the user to take or leave: groups to
+ * make (by a key the moves name them by), groups to rename, and conversations to move (the top of each
+ * family of branches, which moves with its branches). `to`: a group's id, a new group's key, or null for
+ * the default group ("Other").
+ */
+export interface GroupSuggestion {
+  create: { key: string; name: string }[];
+  rename: { id: string; from: string; name: string }[];
+  move: { convId: string; title: string; from: string | null; to: string | null }[];
+  reason: string;
+  meta?: MessageMeta;
+}
+
+/** The suggestions the user took (`POST /api/groups/reorganize`), applied together. */
+export interface GroupReorganize {
+  create: { key: string; name: string }[];
+  rename: { id: string; name: string }[];
+  move: { convId: string; to: string | null }[];
+}
+
 export interface TeamPreset {
   id: string;
   name: string;
@@ -2205,6 +2320,8 @@ export type MessagePart =
   | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
   /** What the reply saved to long-term memory (its `<remember>` and `<forget>` blocks, taken out of its text). */
   | { type: 'memory'; notes: MemoryPartNote[] }
+  /** A schedule the agent proposed (its `<schedule>` block, taken out of its text), for the user to create or dismiss. */
+  | { type: 'schedule'; proposal: ScheduleProposal; status?: ScheduleProposalStatus }
   /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.
@@ -3310,6 +3427,8 @@ export interface SettingsView {
   agentsViewLink: string;
   /** Why the last update of AgentsView failed; absent after a success. */
   agentsViewError?: string;
+  /** The lead agent names each new conversation after its first message, in a few words (on unless turned off). */
+  chatTitles: boolean;
   /**
    * The team checks a new chat or automation starts with (Settings → Tool library), there to change or
    * remove; absent: none. Chats and automations made before keep their own.
@@ -3325,6 +3444,8 @@ export interface SettingsUpdate {
   /** Create `defaultCwd` and `defaultExtraCwds` when they do not exist. */
   createCwd?: boolean;
   lead?: LeadAgentSettings;
+  /** Whether the lead agent names new conversations (`SettingsView.chatTitles`). */
+  chatTitles?: boolean;
   /** Empty = the CLIs use their usual homes again. */
   agentHome?: string;
   /** Empty = off. */

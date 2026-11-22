@@ -74,6 +74,8 @@ export function NewSchedule({
   const team = current.team ?? defaults;
   const appChoices = useDraftApps(appStatus, current.apps ?? [], (apps) => onDraft({ ...current, apps }), team?.settings.permission);
   const [loadError, setLoadError] = useState('');
+  /** The lead agent drafts the form: the automation cannot be created meanwhile. */
+  const [drafting, setDrafting] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -152,12 +154,13 @@ export function NewSchedule({
       automation
       onSubmit={create}
       submitLabel={busy ? t.newSchedule.creating : t.newSchedule.create}
-      disabled={problems.length > 0 || appChoices.checkingSelection}
+      disabled={problems.length > 0 || appChoices.checkingSelection || drafting}
     >
       <ScheduleForm
         draft={draft}
         disabled={busy}
         onEdit={edit}
+        onDrafting={setDrafting}
         settings={team.settings}
         creation={{
           apps: appChoices.selection,

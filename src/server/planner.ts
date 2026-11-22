@@ -912,7 +912,10 @@ export function parsePlanReply(text: string): Record<string, any> {
  */
 
 /** A string, number… that may be null. */
-const orNull = (type: 'string' | 'integer', description?: string) => ({ type: [type, 'null'], ...(description ? { description } : {}) });
+export const orNull = (type: 'string' | 'integer', description?: string) => ({
+  type: [type, 'null'],
+  ...(description ? { description } : {}),
+});
 /** An object of these properties, all of them required, no others. */
 export const strictObject = (properties: Record<string, unknown>, description?: string): OutputSchema => ({
   type: 'object',
@@ -1616,4 +1619,113 @@ export function decideRevision(
     return { ...fitAgents([a], { ...ctx, available: [], accounts: undefined }, lead)[0]!, id: a.id };
   });
   return { agents, settings, reason };
+}
+
+/*
+ * A template in the template library, drafted by the lead agent at the user's request (the template
+ * editor's "Ask the lead agent", `LeadDrafts.template()`): the user says what the team is for, or how
+ * to change it, and the lead returns the whole template, its name and description with it. The editor
+ * shows it until the user saves it. The members are matched as a team drawer's are (`decideRevision`).
+ */
+
+export const TEMPLATE_BRIEFING =
+  'You are the lead agent of Harness Relay, a task assistant in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
+  "work together on the user's questions in a group chat. Right now your only job is to write a team template the way the user asks: a team you, as the lead agent, may later pick for the user's questions. " +
+  'Do not do any of the work the team would do. Reply with the JSON object you are asked for and nothing else.';
+
+/** A template being edited: its team, name and description. */
+export interface TemplateDraft extends TeamDraft {
+  name: string;
+  description: string;
+}
+
+/** The longest template name and description (as the template editor and `POST /api/presets` take them). */
+export const TEMPLATE_TEXT_MAX = { name: 100, description: 2000 };
+
+/**
+ * `fresh`: the template is not saved yet and its members are the editor's starting point, one on each
+ * coding agent that can run here with no role (`blankAgents()` in the client), which the lead may drop.
+ */
+export function buildTemplatePrompt(request: string, draft: TemplateDraft, ctx: PlannerContext, fresh: boolean): string {
+  const guides = roleGuidesForLead(familiesForLead(ctx), 'edit');
+  const now = {
+    name: draft.name,
+    description: draft.description,
+    ...teamForLead(draft.settings, draft.agents, ctx.library),
+  };
+  return `The user is writing a team template in Harness Relay's template library: a team with a name and a description. When a question comes that it is good for, you (the lead agent) may pick it as it is or adapt it; the description is what you read then to tell what it is for. A template has no working directory or file permission of its own: each conversation that uses it has them. Write the template the way the user asks. The user reviews it before saving it.
+
+The template now (members in speaking order)${
+    fresh
+      ? ': a new one, whose members are only a starting point, one on each coding agent that can run here, with no roles yet. Keep, change or drop them as the team you design needs'
+      : ''
+  }:
+<template>
+${JSON.stringify(now, null, 2)}
+</template>
+
+What the user asks for:
+<request>
+${request}
+</request>
+
+Coding agents you can use (only these), with what their members can use:
+${agentsForLead(ctx, Boolean(guides))}
+${libraryForPrompt(ctx)}
+Conversation modes:
+${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
+
+The other templates (built-in and saved by the user), in full, in case the user refers to one:
+<templates>
+${JSON.stringify(
+  usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
+  null,
+  2,
+)}
+</templates>
+
+How to write the template:
+- When the template has no roles yet, design the whole team for what the user says it is for: the members it needs (only as many as the work needs), their roles, and how they take turns. When it has a team already, change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed).
+- List every member, in speaking order. Give "role" for a member who has none yet, a new member, or a role you rewrite: leave it out for every other member, whose role then stays exactly as it is. Every member must end up with a role.
+- To rename a member who has a role, or move it to another coding agent, give its current name as "was", so it stays the same member with its settings. "was" is only for that: never for a new member, even one based on another.
+${ROLE_RULE('each role', guides)}
+- Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${memberCount(teamLimit(ctx))}.
+- "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, give them (from the lists above) only when its work needs other than its coding agent's default.
+${STAFFING}
+- "name": a short name for the team (at most ${TEMPLATE_TEXT_MAX.name} characters). "description": one or two sentences on the questions this team is good for, so that you can tell later when to pick it. Keep the ones the template has unless the user asks otherwise or they no longer fit; write them when it has none.
+- When the request cannot be done this way (for example, it asks to set a working directory or a file permission, which a template does not have), return the template as it is and say why in the reason.
+${guides}
+Write the name, the description, the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools.
+
+Reply with only this JSON object, in a \`\`\`json code block, with the whole template (every member, in speaking order):
+{"name": "<the template's name>", "description": "<what it is for>", "mode": "roundtable" | "parallel" | "relay", "rounds": <1-5>, "maxHops": <1-30>, "agents": [{"name": "<Name>", "provider": ${PROVIDER_CHOICES}, "role": "<instructions: for a member with no role yet, a new member, or a role you rewrite>", "model": "<optional>", "effort": "<optional>", "was": "<its current name: only for a member you renamed or moved to another coding agent>"}], "reason": "<what you wrote or changed and why: one or two sentences for the user>"}`;
+}
+
+/** The drafted template (`buildTemplatePrompt()`, `decideTemplate()`): the changed team's fields, and the name and description. */
+export const TEMPLATE_SCHEMA: OutputSchema = strictObject({
+  name: { type: 'string' },
+  description: { type: 'string' },
+  ...(REVISION_SCHEMA.properties as Record<string, unknown>),
+});
+
+/**
+ * Turn the lead's template into one the editor can show: its team as `decideRevision` makes it, and its
+ * name and description, each the one the template had when the lead gave none.
+ */
+export function decideTemplate(
+  raw: Record<string, any>,
+  draft: TemplateDraft,
+  ctx: PlannerContext,
+  lead: LeadAgentSettings,
+): TemplateDraft & { reason: string } {
+  const text = (v: unknown, max: number, fallback: string) => {
+    const s = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+    return s || fallback;
+  };
+  const team = decideRevision(raw, draft, ctx, lead);
+  const description =
+    typeof raw.description === 'string' && raw.description.trim()
+      ? raw.description.trim().slice(0, TEMPLATE_TEXT_MAX.description)
+      : draft.description;
+  return { ...team, name: text(raw.name, TEMPLATE_TEXT_MAX.name, draft.name), description };
 }

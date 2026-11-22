@@ -5,6 +5,7 @@ import {
   type ConversationSummary,
   type NewScheduleHook,
   type EventSource,
+  type ScheduleProposal,
   type ScheduleRepeat,
   type ScheduleTrigger,
   type ScheduleUpdate,
@@ -21,6 +22,7 @@ import {
   validRepo,
   watchOf,
 } from '../shared/schedule';
+import { proposalUpdate } from '../shared/scheduleProposal';
 import type { PendingFile } from './components/MessageFiles';
 import type { Messages } from './i18n';
 
@@ -543,4 +545,59 @@ export function shownEvent(event: string, source?: EventSource): string {
   } catch {
     return event;
   }
+}
+
+/** The form's schedule as the lead agent's answers are compared with it: what it saves, its files aside. */
+export function draftKey(d: ScheduleDraft): string {
+  return JSON.stringify({ ...d, files: d.files.map((f) => f.id) });
+}
+
+/**
+ * The form once the lead agent's schedule is in it: everything it says, the form's files kept (the lead
+ * neither reads nor changes them). A trigger whose account the user is to pick keeps its source's fields.
+ */
+export function draftedForm(d: ScheduleDraft, update: ScheduleUpdate, now: number): ScheduleDraft {
+  const next = draftFrom({ ...update, lang: 'en', updatedAt: now }, now, update.timeZone);
+  // Every kind's fields are kept (switching kinds and back loses nothing): only the kind drafted changes.
+  return {
+    ...d,
+    text: next.text,
+    kind: next.kind,
+    ...(next.kind === 'once' ? { at: next.at } : {}),
+    ...(next.kind === 'daily' || next.kind === 'weekly' ? { time: next.time } : {}),
+    ...(next.kind === 'weekly' ? { days: next.days } : {}),
+    ...(next.kind === 'interval' ? { hours: next.hours } : {}),
+    ...(next.kind === 'event' ? { triggers: next.triggers } : {}),
+    timeZone: next.timeZone,
+    enabled: next.enabled,
+    approvals: next.approvals,
+    missed: next.missed,
+    newChat: next.newChat,
+    goal: next.goal,
+  };
+}
+
+/** What the lead agent changed in the form, a line each, as listed under its note. */
+export function scheduleChanges(before: ScheduleDraft, after: ScheduleDraft, t: Messages, lang: string): string[] {
+  const c = t.scheduleDraft.change;
+  const out: string[] = [];
+  if (after.text.trim() !== before.text.trim()) out.push(c.text);
+  if (JSON.stringify(repeatOf(after)) !== JSON.stringify(repeatOf(before)) || after.kind !== before.kind) {
+    out.push(c.when(describeRepeat(repeatOf(after), t, lang)));
+  }
+  if (after.goal.trim() !== before.goal.trim()) out.push(after.goal.trim() ? c.goal : c.goalRemoved);
+  if (after.newChat !== before.newChat) out.push(after.newChat ? c.newChatOn : c.newChatOff);
+  if (after.missed !== before.missed) out.push(after.missed === 'run' ? c.missedRun : c.missedSkip);
+  if (after.approvals !== before.approvals) out.push(after.approvals === 'ask' ? c.approvalsAsk : c.approvalsDeny);
+  if (
+    after.kind === 'event' &&
+    after.triggers.some((tr) => (tr.source === 'mail' && !tr.account) || (tr.source === 'calendar' && !tr.calendar))
+  )
+    out.push(c.pickAccount);
+  return out;
+}
+
+/** The schedule form for a schedule an agent proposed (`ScheduleProposal`), in this browser's time zone, to change before saving. */
+export function proposalDraft(p: ScheduleProposal, now: number, timeZone = browserTimeZone()): ScheduleDraft {
+  return draftedForm(draftFrom(undefined, now, timeZone), proposalUpdate(p, timeZone), now);
 }

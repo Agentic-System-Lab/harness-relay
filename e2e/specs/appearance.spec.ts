@@ -86,7 +86,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     const update = page.getByRole('dialog');
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 14');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 15');
     await expect(update.locator('.tour-art')).toHaveCount(0);
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
@@ -105,7 +105,7 @@ test.describe('the guided tour', () => {
     // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
     await page.reload();
     await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 14');
+    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 15');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -130,6 +130,9 @@ test.describe('the guided tour', () => {
     await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
+    await update.getByRole('button', { name: 'Next' }).click();
+    // The lead agent suggesting groups and naming new chats were added to it.
+    await expect(update).toHaveAccessibleName('Groups, pins and search');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Connect apps to your chats');
     await update.getByRole('button', { name: 'Next' }).click();
@@ -157,10 +160,15 @@ test.describe('the guided tour', () => {
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('File permission and changes');
     await update.getByRole('button', { name: 'Next' }).click();
+    // The lead agent writing the rules was added to it.
+    await expect(update).toHaveAccessibleName('Team checks');
+    await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Browse the working directory');
     await expect(update).toContainText('Preview app');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Automations');
+    await update.getByRole('button', { name: 'Next' }).click();
+    await expect(update).toHaveAccessibleName('Groups, pins and search');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Long-term memory');
     await update.getByRole('button', { name: 'Next' }).click();

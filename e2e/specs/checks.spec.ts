@@ -71,10 +71,10 @@ test.describe('team checks', () => {
     const summary = editor.locator('summary');
     await expect(summary).toHaveText('Advanced settings');
     await summary.click();
-    // Each rule's label stays above its input in the expanded section.
+    // Each rule's label stays above its input in the expanded section (the lead agent's box above the rules aside).
     const labelGap = await editor.evaluate(
       (el) =>
-        el.querySelector('textarea')!.getBoundingClientRect().top -
+        el.querySelector('.checks-field textarea')!.getBoundingClientRect().top -
         el.querySelector('.checks-field > label')!.getBoundingClientRect().bottom,
     );
     expect(labelGap).toBeGreaterThanOrEqual(0);

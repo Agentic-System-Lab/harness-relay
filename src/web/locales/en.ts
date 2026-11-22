@@ -487,6 +487,119 @@ export const en: Messages = {
     },
   },
 
+  templateDraft: {
+    title: 'Have the lead agent write it',
+    hint: 'Say what questions this team is for, or how to change it, and the lead agent writes its members, roles, name and description; it is kept once you review it and press Save template.',
+    placeholder: 'For example: a team of three to review pull requests: one finds bugs, one checks security, one sums up',
+    submit: 'Write it',
+    working: 'The lead agent is writing the template…',
+    review: 'The template below is written. Review it, then press Save template to keep it.',
+    unchanged: 'The lead agent left the template as it was.',
+    changedMeanwhile: 'The template changed while the lead agent was working, so its answer was not applied. Try again.',
+    renamed: (name) => `named it "${name}"`,
+    described: 'rewrote the description',
+  },
+
+  checksDraft: {
+    title: 'Have the lead agent write the rules',
+    hintProject:
+      'Say what the team must not break, and the lead agent reads the project first, read-only (package.json, CI configuration…), then writes the rules; they apply once you review them (try the commands first) and save.',
+    hintNoFolder:
+      'Say what the team must not break, and the lead agent writes the rules. The working directory does not exist yet, so it reads no project.',
+    hintTemplate:
+      'Say what kind of project uses this template and what the team must not break, and the lead agent writes rules for that kind of project.',
+    hintDefaults:
+      'Say what new chats should check by default, and the lead agent writes rules for most of your projects; they apply once you review and save them.',
+    placeholder: 'For example: run the tests and the linter after every change, and never touch .env or the lockfile',
+    submit: 'Write the rules',
+    working: 'The lead agent is writing the team checks…',
+    review: 'The rules below are written. Review them (try the commands first), then save.',
+    unchanged: 'The lead agent left the rules as they were.',
+    changedMeanwhile: 'The rules changed while the lead agent was working, so its answer was not applied. Try again.',
+    change: {
+      pathAdded: (path) => `protected ${path}`,
+      pathRemoved: (path) => `no longer protects ${path}`,
+      patternSet: (pattern) => `set the commit format to ${pattern}`,
+      patternRemoved: 'removed the commit format',
+      commandAdded: (run) => `added the command ${run}`,
+      commandRemoved: (run) => `removed the command ${run}`,
+      commandChanged: (run) => `changed the command ${run}`,
+      hookAdded: (run) => `added the hook ${run}`,
+      hookRemoved: (run) => `removed the hook ${run}`,
+      hookChanged: (run) => `changed the hook ${run}`,
+      previewOn: 'turned on the app preview check',
+      previewOff: 'turned off the app preview check',
+      autoFixOn: 'turned on fixing by itself',
+      autoFixOff: 'turned off fixing by itself',
+    },
+  },
+
+  scheduleDraft: {
+    title: 'Have the lead agent fill it in',
+    hint: 'Say in a sentence what should happen and when, and the lead agent fills in the message, the times and the options; nothing runs until you review and save it.',
+    placeholder: "For example: every weekday at 9 a.m., sum up yesterday's merged pull requests",
+    submit: 'Fill it in',
+    working: 'The lead agent is writing the automation…',
+    review: 'The automation below is filled in. Review it, then save.',
+    unchanged: 'The lead agent left the automation as it was.',
+    changedMeanwhile: 'The form changed while the lead agent was working, so its answer was not applied. Try again.',
+    change: {
+      text: 'wrote the message',
+      when: (when) => `times: ${when}`,
+      goal: 'set a goal',
+      goalRemoved: 'removed the goal',
+      newChatOn: 'a new chat each time',
+      newChatOff: 'sent in this chat',
+      missedRun: 'runs a missed time when it can',
+      missedSkip: 'skips a missed time',
+      approvalsAsk: 'asks you in the chat for approvals',
+      approvalsDeny: 'refuses approvals by itself',
+      pickAccount: 'pick the account a trigger uses',
+    },
+  },
+
+  proposal: {
+    title: 'Proposed automation',
+    message: 'Message',
+    when: 'When',
+    goal: 'Goal',
+    newChat: 'A new chat each time',
+    create: 'Create automation',
+    creating: 'Creating…',
+    edit: 'Change it in the form',
+    dismiss: 'Dismiss',
+    created: 'Automation created',
+    dismissed: 'Dismissed',
+    replaces: "It replaces this chat's current automation.",
+    gapPast: 'This time has passed: change it in the form.',
+    gapAccount: 'A trigger has no account yet: pick one in the form.',
+    note: 'Nothing is scheduled until you create it.',
+  },
+
+  groupsDraft: {
+    open: 'Ask the lead agent to organize groups',
+    title: 'Organize groups',
+    hint: 'The lead agent reads your conversation titles and suggests groups to make or rename, and conversations to move. Tick the suggestions you want and apply them; nothing else changes.',
+    placeholder: 'How should they be grouped? For example: by client (optional)',
+    ask: 'Get suggestions',
+    again: 'Suggest again',
+    working: 'The lead agent is organizing…',
+    stop: 'Stop',
+    create: 'New groups',
+    rename: 'Rename',
+    move: 'Move conversations',
+    renameLine: (from, name) => `"${from}" to "${name}"`,
+    moveTo: (to) => `→ ${to}`,
+    newGroup: (name) => `${name} (new)`,
+    none: 'The lead agent found nothing to change in your groups.',
+    needsGroup: (name) => `Needs the new group "${name}"`,
+    apply: (n) => (n === 1 ? 'Apply 1 suggestion' : `Apply ${n} suggestions`),
+    applying: 'Applying…',
+    applied: (n) => (n === 1 ? 'Applied 1 suggestion' : `Applied ${n} suggestions`),
+    all: 'Select all',
+    noneSelected: 'Select none',
+  },
+
   newSchedule: {
     title: 'New automation',
     intro: (lead, automatic) =>
@@ -2588,6 +2701,10 @@ export const en: Messages = {
     leadHint:
       'For each new question, this agent reads the question and the conversation so far, then keeps the current team, picks a template, adapts one, or designs a new team.',
     leadSaved: 'Lead agent saved',
+    chatTitles: 'Name new chats',
+    chatTitlesHint:
+      'The lead agent gives each new chat a short title from its first message, in the background; a title you changed yourself stays. With groups, this is the same request as sorting.',
+    chatTitlesSaved: (on) => (on ? 'The lead agent names new chats' : 'New chats are named after the first line of their first message'),
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     leadNoBackend: (p) => `${p} needs a model. Set one up under Settings → Model connections or pick another agent.`,
     leadNotInstalled: (p) => `${p} was not found on this computer: install it (or set its executable on its card), or pick another agent.`,
@@ -2993,7 +3110,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps (four squares) to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates.',
+        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps (four squares) to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates, where the lead agent can write one for you.',
       },
       {
         title: 'A team for every question',
@@ -3081,7 +3198,7 @@ export const en: Messages = {
       },
       {
         title: 'Team checks',
-        body: 'Set one list of rules for the whole team in Team settings or a template. Team checks run in chats with Edit or Full access.',
+        body: 'Set one list of rules for the whole team in Team settings or a template, or have the lead agent write it after reading the project. Team checks run in chats with Edit or Full access.',
         points: [
           'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
           "Commit format: a regular expression every commit's subject must match",
@@ -3111,7 +3228,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'Choose New automation (the lightning bolt beside New chat). Type or dictate a message and choose what starts it. Select Common apps (four squares) to choose available services for each run. Relay checks them again before creating the automation. The lead agent designs the team. Each run sends the message and its files. In an existing chat, choose Automation in its header (under ⋯ on a phone).',
+        body: 'Choose New automation (the lightning bolt beside New chat). Type a message and choose what starts it, or have the lead agent fill it in from a sentence; Common apps (four squares) picks services for each run. The lead agent designs the team. In a chat, choose Automation in its header (under ⋯ on a phone), or ask for it there: an agent proposes one you create in a click.',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
@@ -3128,7 +3245,8 @@ export const en: Messages = {
         points: [
           'The folder button beside Search (New group) makes a group; drag conversations onto it (or use the folder button on a conversation)',
           'The pin in a conversation\'s top-left corner keeps it under "Pinned", above the groups (on a computer, point at the conversation to see the pin)',
-          "Once you have groups, the lead agent reads a new conversation's first message and puts it in the group it fits",
+          "Once you have groups, the lead agent puts each new conversation in the group it fits, and the lead agent's button beside New group suggests how to organize them all",
+          'The lead agent also gives each new chat a short title from its first message (switch it off in Settings → Lead agent)',
           '"Search" looks through titles and everything you and the agents wrote',
         ],
       },

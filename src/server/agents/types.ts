@@ -232,6 +232,8 @@ export const stateKeys = {
   review: (conversationId: string): string => `review.${conversationId}`,
   /** The lead agent tidying the long-term memory, which no conversation owns. */
   memory: (): string => 'memory',
+  /** The lead agent drafting for an editor (`LeadDrafts`): a template, team checks, a schedule, the sidebar's groups. */
+  draft: (key: string): string => `draft.${key}`,
 };
 
 /** The model backends one open-agent run may use, with their secrets (never sent to the client). */
