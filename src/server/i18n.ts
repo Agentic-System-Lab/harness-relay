@@ -75,6 +75,9 @@ const zhTW = {
       `${name} 用了 psql 自己的指令（${command}）。Relay 只把初始化腳本當成一般的 SQL 送到 Neon 執行，所以請改成只有 SQL 的腳本。`,
     initSize: (name: string, kb: number) => `${name} 超過 ${kb} KB，太長了，無法當成初始化腳本執行。`,
     initBinary: (name: string) => `${name} 含有 NUL 位元組，不是可以執行的 SQL 文字。`,
+    initTransaction: (name: string, statement: string) =>
+      `${name} 有 ${statement}。Relay 把每個初始化腳本當成一個 transaction 執行，自己結束 transaction 或無法在 transaction 裡執行的陳述式都不支援。`,
+    initChanged: (name: string) => `${name} 在它已經於資料庫上執行之後改變了。要重新執行，請取消發布並勾選刪除資料庫，再重新發布。`,
     initFailed: (name: string, detail: string) => `在 Neon 上執行 ${name} 失敗：${detail || '沒有說明'}`,
     storage: '無法存取這台電腦的憑證儲存區，金鑰無法保存。',
     interrupted: 'Harness Relay 在發布途中停止了。請再發布一次。',
@@ -1259,6 +1262,10 @@ const en: ServerMessages = {
       `${name} uses psql's own commands (${command}). Relay sends an init script to Neon as plain SQL, so keep it to SQL alone.`,
     initSize: (name: string, kb: number) => `${name} is over ${kb} KB, too long to run as an init script.`,
     initBinary: (name: string) => `${name} holds a NUL byte: it is not SQL text that can run.`,
+    initTransaction: (name: string, statement: string) =>
+      `${name} has ${statement}. Relay runs each init script as one transaction, so a statement that ends it, or cannot run inside one, is not supported.`,
+    initChanged: (name: string) =>
+      `${name} changed after it ran on the database. To run it again, unpublish the app with its database ticked, then publish it again.`,
     initFailed: (name: string, detail: string) => `Running ${name} on Neon failed: ${detail || 'no details'}`,
     storage: 'The credential store on this computer is unavailable, so the key cannot be kept.',
     interrupted: 'Harness Relay stopped during the publish. Publish again.',

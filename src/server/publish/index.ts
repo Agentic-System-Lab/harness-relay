@@ -16,7 +16,7 @@ import { t } from '../i18n';
 import { runProcess } from '../process';
 import { localDocker, type Docker } from '../previewDocker';
 import { createRepo, githubLogin, pushSnapshot, repoExists, type Run } from './git';
-import { checkInitScript, runInitScripts } from './initdb';
+import { checkInitScript, runInitScripts, scriptKey } from './initdb';
 import { NEON_REGION, NeonApi, type NeonDatabase } from './neon';
 import {
   APP_NAME,
@@ -299,8 +299,13 @@ export class AppPublisher {
   private checkScripts(databases: DatabaseSpec[], app?: AppRecord) {
     for (const db of databases) {
       if (app?.serviceId && app.databases.some((d) => d.service === db.service)) continue;
-      const done = app?.databases.find((d) => d.service === db.service)?.scriptsDone ?? 0;
-      for (const script of db.scripts.slice(done)) checkInitScript(script.name, script.sql);
+      const done = app?.databases.find((d) => d.service === db.service)?.scriptsDone ?? [];
+      const names = new Set(done.map((key) => key.slice(0, key.lastIndexOf(':'))));
+      for (const script of db.scripts) {
+        if (done.includes(scriptKey(script))) continue;
+        if (names.has(script.name)) throw new HttpError(400, t().publish.initChanged(script.name));
+        checkInitScript(script.name, script.sql);
+      }
     }
   }
 
@@ -461,7 +466,7 @@ export class AppPublisher {
               name,
               database: project.database,
               role: project.role,
-              scriptsDone: 0,
+              scriptsDone: [],
             });
             this.store.put(app);
           },
@@ -472,14 +477,15 @@ export class AppPublisher {
     } else end('database', 'skipped');
 
     begin('init');
-    // Each script runs as one transaction and is counted once it committed: a later try goes on after it.
-    const scripts = made.filter(
-      ({ spec: db }) => db.scripts.length > (app.databases.find((d) => d.service === db.service)?.scriptsDone ?? 0),
-    );
+    // Each script runs as one transaction and is recorded once it committed: a later try runs only the others.
+    const scripts = made.filter(({ spec: db }) => {
+      const done = app.databases.find((d) => d.service === db.service)?.scriptsDone ?? [];
+      return db.scripts.some((script) => !done.includes(scriptKey(script)));
+    });
     for (const { spec: db, neon } of scripts) {
       const record = app.databases.find((d) => d.service === db.service)!;
-      await runInitScripts(neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker, record.scriptsDone, (n) => {
-        record.scriptsDone = n;
+      await runInitScripts(neon.uri, db.scripts, this.deps.owner, signal, this.deps.docker ?? localDocker, record.scriptsDone, (key) => {
+        record.scriptsDone = [...record.scriptsDone, key];
         this.store.put(app);
       });
     }
@@ -498,18 +504,27 @@ export class AppPublisher {
       }
       const service =
         left ??
-        (await render.createService(
-          {
-            type: spec.serviceType,
-            name: app.name,
-            ownerId: app.ownerId,
-            repo,
-            details: spec.details,
-            region: this.store.render.region,
-            envVars: vars.map(({ key, value }) => ({ key, value })),
-          },
-          signal,
-        ));
+        (await render
+          .createService(
+            {
+              type: spec.serviceType,
+              name: app.name,
+              ownerId: app.ownerId,
+              repo,
+              details: spec.details,
+              region: this.store.render.region,
+              envVars: vars.map(({ key, value }) => ({ key, value })),
+            },
+            signal,
+          )
+          .catch((err: unknown) => {
+            // Render said no (no access to the repository, payment, a name taken): it made nothing.
+            if (err instanceof HttpError && (err.status === 400 || err.status === 409)) {
+              app.serviceTried = false;
+              this.store.put(app);
+            }
+            throw err;
+          }));
       app.serviceId = service.id;
       if (service.url) app.url = pageUrl(service.url, app.path);
       if (service.dashboardUrl) app.dashboardUrl = service.dashboardUrl;

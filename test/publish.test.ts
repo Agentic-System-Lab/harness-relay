@@ -382,7 +382,7 @@ describe('publishing a preview', () => {
       expect(psql!.args).toContain(PSQL_IMAGE);
       expect(psql!.args).not.toContain('postgres:16');
       expect(psql!.args.join(' ')).not.toContain('pw-');
-      expect(psql!.stdin).toMatch(/^postgresql:\/\/todo:pw-proj-\d+@ep-proj-\d+\.neon\.test\/todo\?sslmode=require\nCREATE TABLE todos/);
+      expect(psql!.stdin).toMatch(/^postgresql:\/\/todo@ep-proj-\d+\.neon\.test\/todo\?sslmode=require\npw-proj-\d+\nCREATE TABLE todos/);
       // Render: a free Docker web service from the repository, with Neon's URL in place of the compose file's.
       const [service] = [...s.cloud.services.values()];
       expect(service!.body).toMatchObject({
@@ -582,6 +582,8 @@ describe('trying again, and what the review found', () => {
       );
       expect(first).toMatchObject({ state: 'failed', error: expect.stringContaining("Let Render's GitHub app access it") });
       expect(first.serviceId).toBeUndefined();
+      // Render said no: it made nothing, so the record is not held to that workspace.
+      expect(s.store.apps()[0]!.serviceTried).toBe(false);
       // The dialog sees a first publish to set up again: its variables and database, the repository kept.
       const plan = await s.publisher.plan(backend());
       expect(plan.existing).toMatchObject({ id: first.id, repoUrl: 'https://github.com/me/api', databases: [{ service: 'DATABASE_URL' }] });
@@ -645,12 +647,12 @@ describe('trying again, and what the review found', () => {
         databases: [{ service: 'db' }],
         error: expect.stringContaining('Running db/init.sql on Neon failed'),
       });
-      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toBe(0);
+      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toEqual([]);
       const again = await until(s.publisher, (await s.publisher.publish(source(), { public: true })).id);
       expect(again).toMatchObject({ state: 'live', databases: [{ service: 'db' }] });
       expect(s.cloud.projects.size).toBe(1);
       expect(s.docker.runs).toHaveLength(2);
-      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toBe(1);
+      expect(s.store.apps()[0]!.databases[0]!.scriptsDone).toHaveLength(1);
       // An update runs none, and checks none: the scripts ran once, for good.
       const changed = source({ files: new Map([...source().files, ['db/init.sql', Buffer.from('\\c other\nSELECT 1;')]]) });
       expect((await s.publisher.plan(changed)).existing?.id).toBe(again.id);

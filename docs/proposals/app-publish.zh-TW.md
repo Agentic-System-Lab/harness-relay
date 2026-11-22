@@ -53,7 +53,7 @@ Render 從 Git 儲存庫建置服務，或執行 registry 裡的映像。Relay �
 Render 免費的 PostgreSQL 建立 30 天後過期，再 14 天後連同資料一起刪除；Neon 的免費方案保留資料庫沒有時間限制（每個專案 1 GB、100 個專案），閒置時縮到零。所以資料庫用 Neon：
 
 - **compose 檔的 PostgreSQL 服務** 變成一個自己的 Neon 專案，用服務的 `POSTGRES_DB` 與 `POSTGRES_USER` 當資料庫與角色（`postgres` 則用 Neon 自己的名稱），用映像的主版本（14 到 18）當 PostgreSQL 版本。在主服務的環境變數裡，主機是那個服務的 `postgres://` URL 換成 Neon 的連線字串，當作主機的服務名稱換成 Neon 的主機，它的密碼換成 Neon 的。都沒有時，應用程式會拿到 `DATABASE_URL`。
-- **它的初始化腳本**（compose 檔掛載到 `/docker-entrypoint-initdb.d/` 的 `.sql` 檔，依檔名順序，和 PostgreSQL 映像執行它們的方式相同）在新資料庫上執行一次，用以 digest 固定的 PostgreSQL 官方映像裡的 `psql`（從不用 compose 檔自己的映像，那可能是 agent 指定的），在它自己的容器裡（沒有 capability、唯讀、連線資訊走 stdin，從不出現在命令列）。那個容器有網路（要連到 Neon），所以每個腳本都在一行註解之後以單一字串交給 `psql -c`，psql 會送到伺服器而不解讀其中任何 psql 自己的指令（`\!`、`\copy`…）；有以反斜線開頭的行的腳本會在建立任何東西之前拒絕。每個腳本是一個 transaction，下一次會從已 commit 的腳本之後繼續。其他類型的腳本（`.sh`、`.sql.gz`）會在對話框列出，但不執行。
+- **它的初始化腳本**（compose 檔掛載到 `/docker-entrypoint-initdb.d/` 的 `.sql` 檔，依檔名順序，和 PostgreSQL 映像執行它們的方式相同）在新資料庫上執行一次，用以 digest 固定的 PostgreSQL 官方映像裡的 `psql`（從不用 compose 檔自己的映像，那可能是 agent 指定的），在它自己的容器裡（沒有 capability、唯讀、連線資訊走 stdin，從不出現在命令列）。那個容器有網路（要連到 Neon），所以每個腳本都在一行註解之後以單一字串交給 `psql -c`，psql 會送到伺服器而不解讀其中任何 psql 自己的指令（`\!`、`\copy`…）；有以反斜線開頭的行，或有結束 transaction、無法在 transaction 裡執行的陳述式的腳本，會在建立任何東西之前拒絕。每個腳本是一個 transaction，密碼放在 psql 的環境裡，下一次只執行還沒 commit 的腳本。其他類型的腳本（`.sh`、`.sql.gz`）會在對話框列出，但不執行。
 - **沒有 compose 的後端或 `Dockerfile`** 也可以勾選加上 Neon 資料庫：應用程式拿到 `DATABASE_URL`。
 
 ### 環境變數
