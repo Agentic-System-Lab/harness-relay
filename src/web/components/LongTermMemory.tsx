@@ -90,7 +90,7 @@ export function LongTermMemorySection() {
           </span>
           <button
             type="button"
-            className="small-button"
+            className="ghost small-button"
             disabled={view.tidying || !counts.active}
             onClick={() => void run(() => api.tidyMemory())}
           >
@@ -270,7 +270,7 @@ function NoteRow({
             <>
               <button
                 type="button"
-                className="small-button"
+                className="primary small-button"
                 disabled={busy}
                 onClick={() => void run(() => api.editMemoryNote(n.id, { state: 'active' }))}
               >

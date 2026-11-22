@@ -365,7 +365,7 @@ function MemoryCard({ part }: { part: MemoryPart }) {
                 <span className="memory-actions">
                   <button
                     type="button"
-                    className="small-button"
+                    className="primary small-button"
                     disabled={busy === id}
                     onClick={() => void act(id, () => api.editMemoryNote(id, { state: 'active' }))}
                   >
