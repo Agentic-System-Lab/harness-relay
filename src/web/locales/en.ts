@@ -2369,9 +2369,12 @@ export const en: Messages = {
       noStorage: 'This computer has no credential store Harness Relay can use, so the keys cannot be kept.',
       render: 'Render',
       renderHint:
-        "Create an API key in Render under Account Settings → API Keys. Let Render's GitHub app access all your repositories too, so that it can read the ones Relay makes.",
+        "Create an API key in Render under Account settings → API Keys, with Services: Read & write, their environment variables: Write, and Deploys: Run. Let Render's GitHub app access all your repositories too, so that it can read the ones Relay makes.",
+      renderGuide: 'Step-by-step guide, with screenshots',
       neon: 'Neon',
-      neonHint: 'Create an API key in Neon under Account settings → API keys. Only apps that need a database use it.',
+      neonHint:
+        'Create a personal API key in Neon: your account menu → Settings → Personal API keys. Only apps that need a database use it.',
+      neonGuide: 'Step-by-step guide, with screenshots',
       apiKey: 'API key',
       save: 'Save',
       checking: 'Checking…',

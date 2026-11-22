@@ -798,8 +798,10 @@ Relay uses a pinned Node image and needs access to the public npm registry for l
 
 Once a preview works, **Publish…** in the preview panel puts it online, in your own accounts: [Render](https://render.com) runs it on its free plan, and [Neon](https://neon.com) keeps its PostgreSQL database. Set them up once in **Settings → Publish to the cloud**:
 
-- **Render**: an API key (Render's **Account Settings → API Keys**), and the workspace and region apps go to. Render builds each app from a private repository in your GitHub account, so let [Render's GitHub app](https://github.com/apps/render/installations/new) access all your repositories (or add each new one).
-- **Neon**: an API key (Neon's **Account settings → API keys**), for apps that need a database. Their databases go to Neon's region nearest Render's.
+- **Render**: an API key (Render's **Account settings → API Keys**: **Create API key**, your workspace, then the permissions **Services**: *Read & write*, its environment variables: *Write*, and **Deploys**: *Run*), and the region apps go to. A key belongs to one workspace, the one apps go to. Render builds each app from a private repository in your GitHub account, so let [Render's GitHub app](https://github.com/apps/render/installations/new) access all your repositories (or add each new one).
+- **Neon**: a personal API key (Neon's account menu → **Settings → Personal API keys**; an organization's key cannot list your organizations), and the organization databases go to, for apps that need one. Their databases go to Neon's region nearest Render's.
+
+The website has each setup step by step, with screenshots: [Render](https://agentic-system-lab.github.io/harness-relay/docs/conversations/#render-setup) and [Neon](https://agentic-system-lab.github.io/harness-relay/docs/conversations/#neon-setup); **Step-by-step guide, with screenshots** in each box of the card opens it.
 - **GitHub**: the GitHub CLI (`gh`) signed in on the computer running Relay, as for [sharing a conversation](#sharing-a-conversation). The dialog signs it in when it is not.
 
 The keys stay in the credential store, as every key does, and never go to an agent.

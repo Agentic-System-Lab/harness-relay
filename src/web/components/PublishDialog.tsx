@@ -17,6 +17,7 @@ import {
 } from '../publish';
 import { settingsHref } from '../route';
 import { GhHelp } from './GhHelp';
+import { LogoSpinner } from './Logo';
 import { useDialog } from './useDialog';
 
 /**
@@ -289,6 +290,8 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
             <ol>
               {(app.steps ?? []).map((s) => (
                 <li key={s.id} className={`publish-step ${s.id} ${s.state}`}>
+                  {/* A step under way turns the app's mark, as everything in progress does; the others keep their dot. */}
+                  {s.state === 'running' && <LogoSpinner size={14} />}
                   <span className="publish-step-name">{p.steps[s.id]}</span>
                   <span className="muted small">
                     {p.stepStates[s.state]}

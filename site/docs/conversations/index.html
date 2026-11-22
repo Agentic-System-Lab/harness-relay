@@ -267,6 +267,8 @@
                 <li><a href="#files" aria-label="Browse the files overview">Overview</a></li>
                 <li><a href="#app-preview">Try an app the team made</a></li>
                 <li><a href="#app-publish">Publish an app</a></li>
+                <li><a href="#render-setup">Set up Render, step by step</a></li>
+                <li><a href="#neon-setup">Set up Neon, step by step</a></li>
               </ol>
             </details>
           </li>
@@ -486,7 +488,7 @@
           </figure>
           <p>Choose <b>Add errors to message</b> and describe what you clicked before sending. Use <b>Reload page</b> to refresh the app within its current run. After an edit, <b>Rebuild preview</b> loads a fresh copy. Reloading the Relay chat closes the preview. <b>Stop preview</b> closes the run and discards temporary backend data. Phones also need a <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md#app-previews">dedicated HTTPS preview domain</a>.</p>
           <h3 id="app-publish">Publish an app</h3>
-          <p>Once a preview works, <b>Publish…</b> in the preview panel puts it online in your own free accounts: <a href="https://render.com">Render</a> runs the site or backend, and <a href="https://neon.com">Neon</a> keeps its PostgreSQL database. Set them up once in <b>Settings → Publish to the cloud</b> with their API keys, and have the GitHub CLI (<code>gh</code>) signed in, as for sharing. Render builds each app from a private repository in your GitHub account, so let <a href="https://github.com/apps/render/installations/new">Render's GitHub app</a> access your repositories.</p>
+          <p>Once a preview works, <b>Publish…</b> in the preview panel puts it online in your own free accounts: <a href="https://render.com">Render</a> runs the site or backend, and <a href="https://neon.com">Neon</a> keeps its PostgreSQL database. Set them up once in <b>Settings → Publish to the cloud</b> with their API keys (step by step: <a href="#render-setup">Render</a>, <a href="#neon-setup">Neon</a>), and have the GitHub CLI (<code>gh</code>) signed in, as for sharing. Render builds each app from a private repository in your GitHub account, so let <a href="https://github.com/apps/render/installations/new">Render's GitHub app</a> access your repositories.</p>
           <figure class="doc-figure">
             <a href="../../assets/media/docs/app-publish-settings-en.webp">
               <img src="../../assets/media/docs/app-publish-settings-en.webp" width="952" height="846" alt="Settings → Publish to the cloud, with the Render and Neon keys saved and a published app listed." loading="lazy" />
@@ -507,6 +509,126 @@
               <p>The keys stay in the credential store and never go to an agent. Only your click publishes: no agent can publish, unpublish or read these settings.</p>
             </div>
           </div>
+          <h3 id="render-setup">Set up Render, step by step</h3>
+          <p>Once, before your first publish. A free <a href="https://render.com">Render</a> account is enough; signing up with GitHub is simplest, since Render builds each app from your GitHub. These pictures were taken setting up a real account for Harness Relay, and the key they made published a static page and a Node app with PostgreSQL.</p>
+          <ol class="doc-steps">
+            <li>
+              <p>In Render's dashboard, open the account menu at the top right and choose <b>Account settings</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-1-menu.webp">
+                  <img src="../../assets/media/docs/publish-render-1-menu.webp" width="560" height="322" alt="Render's account menu open at the top right, with Account settings outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>In <b>API Keys</b> (also in the list on the right), choose <b>Create API key</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-2-api-keys.webp">
+                  <img src="../../assets/media/docs/publish-render-2-api-keys.webp" width="958" height="446" alt="Render's Account settings at API Keys, with the Create API key button outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Give the key a name you will recognise, such as <code>Harness Relay</code>, and choose <b>Continue</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-3-name.webp">
+                  <img src="../../assets/media/docs/publish-render-3-name.webp" width="592" height="280" alt="Create an API key with the name Harness Relay typed in, and Continue outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Choose the workspace your apps go to. A key reaches that workspace only.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-4-workspace.webp">
+                  <img src="../../assets/media/docs/publish-render-4-workspace.webp" width="608" height="616" alt="Create an API key asking to select a workspace, with the workspace outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Give the key only what publishing needs. Turn on <b>Services</b>: <b>Read &amp; write</b> for the services, and <b>Write</b> for their environment variables (Harness Relay sets an app's variables when it creates its service).</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-5-services.webp">
+                  <img src="../../assets/media/docs/publish-render-5-services.webp" width="592" height="600" alt="The permissions step with Services on: services set to Read and write, environment variables set to Write." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Turn on <b>Deploys</b> and set <b>Run deployments</b> to <b>Run</b>. Leave everything else off, and choose <b>Generate API key</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-6-deploys.webp">
+                  <img src="../../assets/media/docs/publish-render-6-deploys.webp" width="592" height="600" alt="The permissions step with Deploys on, Run deployments set to Run, and Generate API key outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Copy the key now: Render shows it only once. Then choose <b>Done</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-7-key.webp">
+                  <img src="../../assets/media/docs/publish-render-7-key.webp" width="592" height="275" alt="API key created, the key itself blurred, with Done outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Let Render read the private repositories Harness Relay makes. On GitHub, open <a href="https://github.com/settings/installations">Settings → Applications</a>, choose <b>Configure</b> beside Render (or <a href="https://github.com/apps/render/installations/new">install Render's GitHub app</a> if it is not there), set <b>Repository access</b> to <b>All repositories</b> and choose <b>Save</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-8-github.webp">
+                  <img src="../../assets/media/docs/publish-render-8-github.webp" width="964" height="300" alt="GitHub's settings for Render's GitHub app, with Repository access set to All repositories, outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>In Harness Relay, open <b>Settings → Publish to the cloud</b>, paste the key in the <b>Render</b> box and choose <b>Save</b>. Relay checks the key and shows its workspace; choose the region your apps run in.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-render-relay-en.webp">
+                  <img src="../../assets/media/docs/publish-render-relay-en.webp" width="934" height="265" alt="Settings, Publish to the cloud, the Render box with the key saved, the workspace shown and the region to choose." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+          </ol>
+          <h3 id="neon-setup">Set up Neon, step by step</h3>
+          <p>Only for apps with a PostgreSQL database. A free <a href="https://neon.com">Neon</a> account is enough. Harness Relay needs a <b>personal</b> API key: an organization's key cannot list the organizations you belong to.</p>
+          <ol class="doc-steps">
+            <li>
+              <p>In <a href="https://console.neon.tech">Neon's console</a>, open the account menu at the top right and choose <b>Settings</b> under <b>Account</b> (not the organization's <b>Manage</b>).</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-neon-1-menu.webp">
+                  <img src="../../assets/media/docs/publish-neon-1-menu.webp" width="520" height="442" alt="Neon's account menu open, with Settings under Account outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>In <b>Personal API keys</b>, choose <b>Create new API key</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-neon-2-api-keys.webp">
+                  <img src="../../assets/media/docs/publish-neon-2-api-keys.webp" width="822" height="136" alt="Neon's account settings at Personal API keys, with Create new API key outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Name the key, such as <code>Harness Relay</code>, and choose <b>Create</b>.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-neon-3-name.webp">
+                  <img src="../../assets/media/docs/publish-neon-3-name.webp" width="424" height="244" alt="Create new API key with the name Harness Relay, and Create outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>Copy the token now: Neon shows it only once.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-neon-4-key.webp">
+                  <img src="../../assets/media/docs/publish-neon-4-key.webp" width="524" height="343" alt="API key successfully created, the token blurred, with Copy and close outlined." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+            <li>
+              <p>In Harness Relay, paste it in the <b>Neon</b> box of <b>Settings → Publish to the cloud</b> and choose <b>Save</b>. If the key reaches several organizations (one that Vercel manages, say), choose the one your databases go to.</p>
+              <figure class="doc-figure">
+                <a href="../../assets/media/docs/publish-neon-relay-en.webp">
+                  <img src="../../assets/media/docs/publish-neon-relay-en.webp" width="934" height="265" alt="Settings, Publish to the cloud, the Neon box with the key saved and the organization to choose." loading="lazy" />
+                </a>
+              </figure>
+            </li>
+          </ol>
         </section>
 
         <section id="share" aria-labelledby="share-title">

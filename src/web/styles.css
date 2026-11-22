@@ -10695,7 +10695,12 @@ a.share-action {
 }
 
 .publish-step.running::before {
-  background: var(--info);
+  display: none;
+}
+
+.publish-step > .logo-spinner {
+  flex: none;
+  margin: 0.15em -3px 0;
 }
 
 .publish-step.done::before {

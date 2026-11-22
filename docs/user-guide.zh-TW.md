@@ -801,8 +801,10 @@ Relay 使用固定版本的 Node 映像，取得鎖定的相依套件時需要�
 
 預覽沒問題之後，按預覽面板的 **發布…**，就能把它放上網路，用的是你自己的帳號：[Render](https://render.com) 用免費方案執行它，[Neon](https://neon.com) 存放它的 PostgreSQL 資料庫。先在 **設定 → 發布到雲端** 設定一次：
 
-- **Render**：API 金鑰（在 Render 的 **Account Settings → API Keys** 建立），以及應用程式要放的工作區和區域。Render 從你 GitHub 帳號裡的私人儲存庫建置每個應用程式，所以請讓 [Render 的 GitHub App](https://github.com/apps/render/installations/new) 能存取你的所有儲存庫（或每次加入新的那個）。
-- **Neon**：API 金鑰（在 Neon 的 **Account settings → API keys** 建立），只有需要資料庫的應用程式會用到。資料庫會建立在離 Render 區域最近的 Neon 區域。
+- **Render**：API 金鑰（在 Render 的 **Account settings → API Keys**：**Create API key**、選工作區，權限選 **Services** 的 *Read & write*、它的環境變數 *Write*，以及 **Deploys** 的 *Run*），以及應用程式要放的區域。一把金鑰只屬於一個工作區，也就是應用程式要放的那個。Render 從你 GitHub 帳號裡的私人儲存庫建置每個應用程式，所以請讓 [Render 的 GitHub App](https://github.com/apps/render/installations/new) 能存取你的所有儲存庫（或每次加入新的那個）。
+- **Neon**：個人 API 金鑰（在 Neon 的帳號選單 → **Settings → Personal API keys** 建立；組織的金鑰無法列出你的組織），以及資料庫要放的組織，只有需要資料庫的應用程式會用到。資料庫會建立在離 Render 區域最近的 Neon 區域。
+
+網站上有兩者的圖文步驟說明：[Render](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/#render-setup) 與 [Neon](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/#neon-setup)；卡片裡每一區的 **圖文步驟說明** 也會打開它。
 - **GitHub**：執行 Relay 的電腦上登入的 GitHub CLI（`gh`），和[分享對話](#分享對話)相同。尚未登入時，對話框會帶你登入。
 
 金鑰和其他金鑰一樣保存在憑證儲存區，不會交給 agent。

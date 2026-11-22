@@ -2364,9 +2364,11 @@ export const zhTW = {
       noStorage: '這台電腦沒有可用的憑證儲存區，無法保存金鑰。',
       render: 'Render',
       renderHint:
-        '在 Render 的 Account Settings → API Keys 建立 API 金鑰。也請讓 Render 的 GitHub App 能存取你的所有儲存庫，它才讀得到 Relay 建立的儲存庫。',
+        '在 Render 的 Account settings → API Keys 建立 API 金鑰，權限選 Services「Read & write」、它的環境變數「Write」、Deploys「Run」。也請讓 Render 的 GitHub App 能存取你的所有儲存庫，它才讀得到 Relay 建立的儲存庫。',
+      renderGuide: '圖文步驟說明',
       neon: 'Neon',
-      neonHint: '在 Neon 的 Account settings → API keys 建立 API 金鑰。只有需要資料庫的應用程式會用到。',
+      neonHint: '在 Neon 建立個人 API 金鑰：帳號選單 → Settings → Personal API keys。只有需要資料庫的應用程式會用到。',
+      neonGuide: '圖文步驟說明',
       apiKey: 'API 金鑰',
       save: '儲存',
       checking: '檢查中…',

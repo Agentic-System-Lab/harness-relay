@@ -3,6 +3,7 @@ import { RENDER_REGIONS, type PublishedApp, type PublishSettingsView, type Rende
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor, sectionId } from '../route';
+import { siteDocUrl } from '../siteDocs';
 import { SectionTitle } from './SectionTitle';
 
 type Note = { text: string; error?: boolean };
@@ -160,7 +161,7 @@ function AppRow({ app, onGone, onNote }: { app: PublishedApp; onGone: (id: strin
  * previews, each with its address and **Unpublish**.
  */
 export function PublishCard() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const c = t.publish.card;
   const [view, setView] = useState<PublishSettingsView | null>(null);
   const [note, setNote] = useState<Note>({ text: '' });
@@ -208,7 +209,12 @@ export function PublishCard() {
           {!view.storage && <p className="warn-line">{c.noStorage}</p>}
           <fieldset className="publish-provider">
             <legend>{c.render}</legend>
-            <p className="muted small">{c.renderHint}</p>
+            <p className="muted small">
+              {c.renderHint}{' '}
+              <a href={siteDocUrl(lang, 'renderSetup')} target="_blank" rel="noreferrer">
+                {c.renderGuide}
+              </a>
+            </p>
             <KeyField
               label={c.render}
               masked={view.render.keyMasked}
@@ -246,7 +252,12 @@ export function PublishCard() {
           </fieldset>
           <fieldset className="publish-provider">
             <legend>{c.neon}</legend>
-            <p className="muted small">{c.neonHint}</p>
+            <p className="muted small">
+              {c.neonHint}{' '}
+              <a href={siteDocUrl(lang, 'neonSetup')} target="_blank" rel="noreferrer">
+                {c.neonGuide}
+              </a>
+            </p>
             <KeyField
               label={c.neon}
               masked={view.neon.keyMasked}

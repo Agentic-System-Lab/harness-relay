@@ -45,7 +45,7 @@ const zhTW = {
   publish: {
     unreachable: (host: string) => `無法連到 ${host}，或它的回應無法讀取。請稍後再試。`,
     badAnswer: '雲端服務的回應不是預期的格式。',
-    renderKey: 'Render API 金鑰無效或已失效。請在 Render 的 Account Settings → API Keys 建立一把，再貼上。',
+    renderKey: 'Render API 金鑰無效或已失效。請在 Render 的 Account settings → API Keys 建立一把，再貼上。',
     renderPayment: 'Render 要求這個工作區先加上付款資訊，才能建立服務。',
     renderNoOwner: '這把 Render 金鑰沒有可用的工作區。',
     rateLimited: (host: string) => `${host} 暫時限制了請求次數。請稍等一下再試。`,
@@ -54,7 +54,7 @@ const zhTW = {
       `Render 讀不到這個 GitHub 儲存庫。請讓 Render 的 GitHub App 能存取它（所有儲存庫，或加入這一個）：${link}，然後再發布一次。`,
     renderName: (name: string) => `Render 上已經有叫做「${name}」的服務。請換一個名稱。`,
     serviceGone: '這個應用程式在 Render 上的服務已被刪除。請先取消發布，再重新發布。',
-    neonKey: 'Neon API 金鑰無效或已失效。請在 Neon 的 Account settings → API keys 建立一把，再貼上。',
+    neonKey: 'Neon API 金鑰無效或已失效。請在 Neon 建立一把個人 API 金鑰（帳號選單 → Settings → Personal API keys），再貼上。',
     neonFailed: (detail: string) => `Neon 無法建立或讀取資料庫：${detail}`,
     workspace: '這個 npm workspace 成員的資料夾名稱無法用在 Render 的指令裡。',
     onlyDatabase: '這個 compose 檔只執行資料庫，沒有可以發布的應用程式服務。',
@@ -1266,7 +1266,7 @@ const en: ServerMessages = {
   publish: {
     unreachable: (host: string) => `${host} could not be reached, or its answer could not be read. Try again in a moment.`,
     badAnswer: 'The cloud service answered in a form Harness Relay does not expect.',
-    renderKey: 'The Render API key is not valid. Create one in Render under Account Settings → API Keys and paste it here.',
+    renderKey: 'The Render API key is not valid. Create one in Render under Account settings → API Keys and paste it here.',
     renderPayment: 'Render asks for payment information in this workspace before it creates a service.',
     renderNoOwner: 'This Render key reaches no workspace.',
     rateLimited: (host: string) => `${host} is limiting requests for now. Wait a moment and try again.`,
@@ -1275,7 +1275,8 @@ const en: ServerMessages = {
       `Render cannot read the GitHub repository. Let Render's GitHub app access it (all repositories, or this one added): ${link}, then publish again.`,
     renderName: (name: string) => `Render already has a service named "${name}". Choose another name.`,
     serviceGone: "This app's service was deleted on Render. Unpublish it, then publish it again.",
-    neonKey: 'The Neon API key is not valid. Create one in Neon under Account settings → API keys and paste it here.',
+    neonKey:
+      'The Neon API key is not valid. Create a personal one in Neon (your account menu → Settings → Personal API keys) and paste it here.',
     neonFailed: (detail: string) => `Neon could not make or read the database: ${detail}`,
     workspace: "This npm workspace member's folder name cannot be used in Render's commands.",
     onlyDatabase: 'This compose file runs only a database: there is no app service to publish.',

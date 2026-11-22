@@ -77,7 +77,10 @@ test('Settings keeps the keys, a static preview publishes in one click, and Sett
   await expect(publish).toBeDisabled();
   await dialog.getByLabel('I understand that anyone with its address can open this app.').check();
   await publish.click();
+  // A step under way turns the app's mark (Render's build, which the stand-in reports building at first).
+  await expect(dialog.locator('.publish-step.running .logo-spinner')).toBeVisible();
   await expect(dialog.getByRole('status')).toContainText('Live: https://site.onrender.com/', { timeout: 30_000 });
+  await expect(dialog.locator('.publish-step .logo-spinner')).toHaveCount(0);
   await expect(dialog.getByRole('link', { name: 'https://site.onrender.com/' })).toHaveAttribute('target', '_blank');
   await expect(dialog.getByRole('link', { name: 'See it on GitHub' })).toHaveAttribute('href', 'https://github.com/relay-test/site');
 
