@@ -2076,6 +2076,16 @@ export const en: Messages = {
   },
   appPreview: {
     returnToPreview: 'Return to preview',
+    headButton: 'Preview',
+    headTitle: 'Show or hide the app preview',
+    headNothing: 'Nothing to preview yet: this works once the team makes a page or an app',
+    readyTitle: 'The app is ready to preview',
+    resize: 'Resize the preview',
+    resizeTitle: 'Drag to resize; double-click for the default width',
+    showDetails: 'Show the source and controls',
+    hideDetails: 'Hide the source and controls',
+    waitsForYou:
+      'Relay opened this for you. Its build runs the project’s Dockerfile, which can reach the network, so it starts when you choose Start preview.',
     title: 'App preview',
     open: 'Preview app',
     openFolder: 'Preview this folder',
@@ -2691,7 +2701,7 @@ export const en: Messages = {
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
-          'Choose Preview app beside an HTML, package.json, Dockerfile or compose file link to open it, or Preview this folder in Files. With a Dockerfile any language runs, shown as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it. You can add preview errors to your message.',
+          'When the team makes an app, its preview opens by itself, and Preview at the top right shows or hides it. Preview app beside an HTML, package.json, Dockerfile or compose file link, or Preview this folder in Files, opens one too. With a Dockerfile any language runs, as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it, and you can add preview errors to your message.',
           'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
         ],
       },

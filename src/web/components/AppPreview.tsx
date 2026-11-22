@@ -4,8 +4,10 @@ import { api, ApiError } from '../api';
 import {
   NO_TERMINAL,
   nextTerminalState,
+  PREVIEW_MIN_WIDTH,
   previewErrorDraft,
   previewFrameError,
+  previewWidth,
   recordPreviewError,
   safePreviewSession,
   terminalTail,
@@ -16,6 +18,7 @@ import { useT } from '../i18n';
 import { Deferred, lazyPart } from './Deferred';
 import { useDialog } from './useDialog';
 import { PreviewDockerDialog } from './PreviewDockerDialog';
+import { ChevronIcon } from './icons';
 
 // xterm.js comes only with a container preview's terminal.
 const PreviewTerminal = lazyPart(() => import('./PreviewTerminal').then((m) => m.PreviewTerminal));
@@ -23,11 +26,20 @@ const PreviewTerminal = lazyPart(() => import('./PreviewTerminal').then((m) => m
 export function AppPreview({
   convId,
   target,
+  collapsed = false,
+  width,
+  onResize,
   onClose,
   onFeedback,
 }: {
   convId: string;
   target: PreviewSelection;
+  /** Hidden from the chat's header: it keeps running, and the header's button shows it again. */
+  collapsed?: boolean;
+  /** The width dragged on this browser, if any (wide screens). */
+  width?: number;
+  /** The divider was dragged: a width, or undefined to go back to the default one. */
+  onResize?: (width: number | undefined) => void;
   onClose: () => void;
   onFeedback: (text: string) => void;
 }) {
@@ -38,14 +50,15 @@ export function AppPreview({
   const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 1100px)').matches);
   // Keep the frame and its backend state while the phone's user edits an error report.
   const [inChat, setInChat] = useState(false);
-  const hidden = narrow && inChat;
+  const hidden = collapsed || (narrow && inChat);
   useDialog(panel, onClose, narrow && !hidden);
   useEffect(() => setInChat(false), [target]);
   useEffect(() => {
     const media = matchMedia('(max-width: 1100px)');
     const changed = () => setNarrow(media.matches);
     media.addEventListener('change', changed);
-    if (!media.matches) panel.current?.focus();
+    // Opened by Relay itself while the user may be typing: the focus stays where it is.
+    if (!media.matches && !target.auto) panel.current?.focus();
     return () => media.removeEventListener('change', changed);
   }, []);
 
@@ -55,13 +68,17 @@ export function AppPreview({
   const [docker, setDocker] = useState<PreviewDockerView>();
   const [setupOpen, setSetupOpen] = useState(false);
   const [session, setSession] = useState<AppPreviewSession>();
-  const [phase, setPhase] = useState<'idle' | 'starting' | 'stopping' | 'stopped'>('starting');
+  const [phase, setPhase] = useState<'idle' | 'starting' | 'stopping' | 'stopped'>(target.autoStart === false ? 'idle' : 'starting');
   const [loaded, setLoaded] = useState(false);
   const [failure, setFailure] = useState('');
   const [noRecipe, setNoRecipe] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   const pending = useRef<AbortController | null>(null);
+  /** Looking the target up for a preview that waits for Start preview. */
+  const looking = useRef<AbortController | null>(null);
   const active = useRef<AppPreviewSession | undefined>(undefined);
+  // What it runs from and its buttons fold away while it runs: the page gets the room.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // A container preview: its terminal, its page once it serves one, and the command it runs.
   const [term, setTerm] = useState<TerminalState>(NO_TERMINAL);
   const [view, setView] = useState<'page' | 'terminal'>('terminal');
@@ -80,8 +97,9 @@ export function AppPreview({
     return () => window.removeEventListener('message', listen);
   }, [session]);
 
-  const change = async (start: boolean) => {
+  const change = async (start: boolean, quiet = false) => {
     if (start && pending.current) return;
+    looking.current?.abort();
     pending.current?.abort();
     const operation = new AbortController();
     pending.current = operation;
@@ -103,7 +121,8 @@ export function AppPreview({
           if (operation.signal.aborted) return;
           if (status.state !== 'ready') {
             setDocker(status);
-            setSetupOpen(true);
+            // Opened by Relay itself: the dialog waits for the user's Set up Docker.
+            setSetupOpen(!quiet);
             setPhase('idle');
             return;
           }
@@ -148,10 +167,34 @@ export function AppPreview({
     }
   };
 
+  /** Where a preview that waits for Start preview would run from, and how. */
+  const look = async () => {
+    looking.current?.abort();
+    const operation = new AbortController();
+    looking.current = operation;
+    setPhase('idle');
+    try {
+      const resolved = await api.appPreviewTarget(convId, { ...target.request, expectedFolder: pinnedFolder.current }, operation.signal);
+      if (operation.signal.aborted) return;
+      pinnedFolder.current = resolved.folder;
+      setFolder(resolved.folder);
+      setMode(resolved.mode);
+    } catch (error) {
+      if (!operation.signal.aborted) {
+        setFailure((error as Error).message.slice(0, 4000));
+        setNoRecipe(error instanceof ApiError && error.code === PREVIEW_NO_RECIPE);
+      }
+    } finally {
+      if (looking.current === operation) looking.current = null;
+    }
+  };
+
   // Reopening the same reply is a fresh preview. StrictMode cancels the first target lookup
   // before it can create a session. An aborted start that still returns is deleted by its own ID.
   const startSelected = useRef(change);
   startSelected.current = change;
+  const lookSelected = useRef(look);
+  lookSelected.current = look;
   useEffect(() => {
     pinnedFolder.current = target.folder;
     setFolder(target.folder);
@@ -159,8 +202,12 @@ export function AppPreview({
     setDocker(undefined);
     setSetupOpen(false);
     setSession(undefined);
-    void startSelected.current(true);
+    setDetailsOpen(false);
+    if (target.autoStart === false) void lookSelected.current();
+    else void startSelected.current(true, target.auto);
     const release = () => {
+      looking.current?.abort();
+      looking.current = null;
       pending.current?.abort();
       pending.current = null;
       const owned = active.current;
@@ -229,12 +276,71 @@ export function AppPreview({
             : p.failed
     : undefined;
   const canRun = container && !term.closed && (term.phase === 'running' || term.phase === 'exited') && !running;
+  const collapsible = Boolean(session) || busy;
+  const showDetails = detailsOpen || !collapsible;
+  const waiting = target.autoStart === false && !session && !busy && phase === 'idle' && !failure && !docker;
+  const shownFolder = folder ?? target.request.folder;
+  const folderName = shownFolder?.split(/[\\/]/).filter(Boolean).pop() || shownFolder || '.';
+  const detailsId = 'app-preview-details';
+  // Arrow keys move the divider as a drag does: left widens the panel.
+  const resizeBy = (delta: number) => {
+    const box = panel.current;
+    const container = box?.offsetParent;
+    if (!box || !container || !onResize) return;
+    onResize(previewWidth(box.getBoundingClientRect().width + delta, container.getBoundingClientRect().width));
+  };
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = panel.current?.offsetParent;
+    if (event.button !== 0 || !container || !onResize) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    // The page and the terminal would take the pointer over them: see .resizing-preview.
+    document.body.classList.add('resizing-preview');
+    const move = (e: PointerEvent) => {
+      const box = container.getBoundingClientRect();
+      onResize(previewWidth(box.right - e.clientX, box.width));
+    };
+    const end = () => {
+      document.body.classList.remove('resizing-preview');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      handle.removeEventListener('lostpointercapture', end);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    handle.addEventListener('lostpointercapture', end);
+  };
   return (
     <>
-      {hidden && (
+      {hidden && !collapsed && (
         <button type="button" className="ghost app-preview-return" onClick={() => setInChat(false)}>
           {p.returnToPreview}
         </button>
+      )}
+      {!narrow && !hidden && onResize && (
+        <div
+          className="app-preview-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={p.resize}
+          aria-valuemin={PREVIEW_MIN_WIDTH}
+          aria-valuenow={width}
+          title={p.resizeTitle}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onDoubleClick={() => onResize(undefined)}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 128 : 32;
+            if (e.key === 'ArrowLeft') resizeBy(step);
+            else if (e.key === 'ArrowRight') resizeBy(-step);
+            else if (e.key === 'Home' || e.key === 'Enter') onResize(undefined);
+            else return;
+            e.preventDefault();
+          }}
+        />
       )}
       <aside
         hidden={hidden}
@@ -251,96 +357,118 @@ export function AppPreview({
             ×
           </button>
         </header>
-        <div className="app-preview-settings">
-          <div className="app-preview-source">
-            <span className="muted small">
-              {p.folder} · {target.label}
-            </span>
-            <code dir="auto">{folder ?? (failure ? target.request.folder || '.' : t.common.loading)}</code>
-          </div>
-          {mode === 'server' && <p className="muted small">{p.serverHint}</p>}
-          {mode === 'container' && <p className="muted small">{p.containerHint}</p>}
-          <div className="app-preview-actions">
-            {(!busy || session) && (
-              <button type="button" className="primary small-button" disabled={busy || !!docker} onClick={() => void change(true)}>
-                {session ? p.rebuild : failure ? p.retry : p.start}
-              </button>
-            )}
-            {docker && !setupOpen && (
-              <button type="button" className="ghost small-button" onClick={() => setSetupOpen(true)}>
-                {p.dockerTitle}
-              </button>
-            )}
-            {session && (!container || term.page) && (
+        {(collapsible || container) && (
+          <div className="app-preview-bar">
+            {collapsible && (
               <button
                 type="button"
-                className="ghost small-button"
-                disabled={busy || !loaded}
-                onClick={() => frame.current?.contentWindow?.postMessage('relay-preview-reload', session.origin)}
+                className={`app-preview-summary ${showDetails ? 'open' : ''}`}
+                aria-expanded={showDetails}
+                aria-controls={detailsId}
+                title={showDetails ? p.hideDetails : p.showDetails}
+                onClick={() => setDetailsOpen((open) => !open)}
               >
-                {p.reload}
+                <ChevronIcon size={14} />
+                <span className="app-preview-summary-text" dir="auto">
+                  {folderName} · {target.label}
+                </span>
               </button>
             )}
-            {canRun && (
-              <button type="button" className="ghost small-button" onClick={() => void runAgain()}>
-                {p.runAgain}
-              </button>
-            )}
-            {(session || busy) && (
-              <button type="button" className="ghost small-button" disabled={phase === 'stopping'} onClick={() => void change(false)}>
-                {p.stop}
-              </button>
+            {container && (
+              <div className="segmented app-preview-views" role="radiogroup" aria-label={p.views}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={view === 'page'}
+                  className={view === 'page' ? 'on' : ''}
+                  disabled={!framed}
+                  onClick={() => setView('page')}
+                >
+                  {p.page}
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={view === 'terminal'}
+                  className={view === 'terminal' ? 'on' : ''}
+                  onClick={() => setView('terminal')}
+                >
+                  {p.terminal}
+                </button>
+              </div>
             )}
           </div>
-          {canRun && (
-            <form
-              className="app-preview-command"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (commandLine.trim()) void runAgain(commandLine.trim());
-              }}
-            >
-              <label className="muted small" htmlFor="app-preview-command">
-                {p.command}
-              </label>
-              <input
-                id="app-preview-command"
-                value={commandLine}
-                onChange={(e) => setCommandLine(e.target.value)}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-              />
-              <button type="submit" className="ghost small-button" disabled={!commandLine.trim()}>
-                {p.runCommand}
-              </button>
-              <button type="button" className="ghost small-button" onClick={() => void runAgain('/bin/sh')}>
-                {p.shell}
-              </button>
-            </form>
-          )}
-        </div>
-        {container && (
-          <div className="segmented app-preview-views" role="radiogroup" aria-label={p.views}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={view === 'page'}
-              className={view === 'page' ? 'on' : ''}
-              disabled={!framed}
-              onClick={() => setView('page')}
-            >
-              {p.page}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={view === 'terminal'}
-              className={view === 'terminal' ? 'on' : ''}
-              onClick={() => setView('terminal')}
-            >
-              {p.terminal}
-            </button>
+        )}
+        {showDetails && (
+          <div className="app-preview-settings" id={detailsId}>
+            <div className="app-preview-source">
+              <span className="muted small">
+                {p.folder} · {target.label}
+              </span>
+              <code dir="auto">{folder ?? (failure ? target.request.folder || '.' : t.common.loading)}</code>
+            </div>
+            {mode === 'server' && <p className="muted small">{p.serverHint}</p>}
+            {mode === 'container' && <p className="muted small">{p.containerHint}</p>}
+            {waiting && <p className="muted small app-preview-waiting">{p.waitsForYou}</p>}
+            <div className="app-preview-actions">
+              {(!busy || session) && (
+                <button type="button" className="primary small-button" disabled={busy || !!docker} onClick={() => void change(true)}>
+                  {session ? p.rebuild : failure ? p.retry : p.start}
+                </button>
+              )}
+              {docker && !setupOpen && (
+                <button type="button" className="ghost small-button" onClick={() => setSetupOpen(true)}>
+                  {p.dockerTitle}
+                </button>
+              )}
+              {session && (!container || term.page) && (
+                <button
+                  type="button"
+                  className="ghost small-button"
+                  disabled={busy || !loaded}
+                  onClick={() => frame.current?.contentWindow?.postMessage('relay-preview-reload', session.origin)}
+                >
+                  {p.reload}
+                </button>
+              )}
+              {canRun && (
+                <button type="button" className="ghost small-button" onClick={() => void runAgain()}>
+                  {p.runAgain}
+                </button>
+              )}
+              {(session || busy) && (
+                <button type="button" className="ghost small-button" disabled={phase === 'stopping'} onClick={() => void change(false)}>
+                  {p.stop}
+                </button>
+              )}
+            </div>
+            {canRun && (
+              <form
+                className="app-preview-command"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (commandLine.trim()) void runAgain(commandLine.trim());
+                }}
+              >
+                <label className="muted small" htmlFor="app-preview-command">
+                  {p.command}
+                </label>
+                <input
+                  id="app-preview-command"
+                  value={commandLine}
+                  onChange={(e) => setCommandLine(e.target.value)}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                />
+                <button type="submit" className="ghost small-button" disabled={!commandLine.trim()}>
+                  {p.runCommand}
+                </button>
+                <button type="button" className="ghost small-button" onClick={() => void runAgain('/bin/sh')}>
+                  {p.shell}
+                </button>
+              </form>
+            )}
           </div>
         )}
         {(busy || (session && !container && !loaded) || phase === 'stopped' || (container && status && !busy)) && (

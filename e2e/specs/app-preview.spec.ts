@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, send } from '../support/app';
+import { composer, finishedReply, openTeamChat, previewControls, send } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
 
 test('Files previews a static site, rebuilds edits, stops it and copies errors to an editable draft', async ({ page, relay }) => {
@@ -24,6 +24,7 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   await files.getByRole('button', { name: 'Preview this folder' }).click();
 
   const panel = page.getByLabel('App preview', { exact: true });
+  await previewControls(panel);
   await expect(panel).toContainText(site);
   await expect(panel.getByRole('combobox')).toHaveCount(0);
   const frame = panel.frameLocator('iframe');
@@ -68,10 +69,13 @@ test('a reply opens the author’s own file in parallel and the preview fits a p
       mode: 'parallel',
     },
   );
+  // On a phone the panel would cover the chat: the page the team made does not open by itself.
+  await page.setViewportSize({ width: 390, height: 844 });
   await send(page, 'Make a page.\n[page](site/index.html) e2e:write=site/index.html');
   const claude = await finishedReply(page, 'Claude');
   const codex = await finishedReply(page, 'Codex');
-  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.preview-ready')).toBeVisible();
+  await expect(page.getByLabel('App preview', { exact: true })).toHaveCount(0);
   for (const [author, reply] of [
     ['Claude', claude],
     ['Codex', codex],
@@ -84,6 +88,130 @@ test('a reply opens the author’s own file in parallel and the preview fits a p
     expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(390);
     await panel.getByRole('button', { name: 'Close' }).click();
   }
+});
+
+test.describe('the app the team made', () => {
+  test('a page the team writes opens by itself, folds its controls, and the card and the header bring it back', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    const toggle = page.locator('.chat-head').getByRole('button', { name: 'Preview', exact: true });
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).toHaveAttribute('title', 'Nothing to preview yet: this works once the team makes a page or an app');
+    await send(page, 'Make a page e2e:write=site/index.html');
+    await finishedReply(page, 'Claude');
+    // Opened and started by itself: a page runs offline. The message box keeps the focus.
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
+    await expect(composer(page)).toBeFocused();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // While it runs, what it runs from and its buttons are folded into one row.
+    const summary = panel.locator('.app-preview-summary');
+    await expect(summary).toHaveText('site · @Claude');
+    await expect(summary).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel.getByRole('button', { name: 'Stop preview' })).toHaveCount(0);
+    await summary.click();
+    await expect(panel.getByRole('button', { name: 'Stop preview' })).toBeVisible();
+    await expect(panel).toContainText(join(relay.workDir, 'site'));
+    await summary.click();
+    await expect(panel.getByRole('button', { name: 'Stop preview' })).toHaveCount(0);
+    // Once the team has answered, a card offers it.
+    const card = page.getByRole('region', { name: 'The app is ready to preview' });
+    await expect(card).toContainText('site/index.html · @Claude');
+    // The header's button hides it without stopping it: shown again, it is the same run.
+    const src = await panel.locator('iframe').getAttribute('src');
+    await toggle.click();
+    await expect(panel).toBeHidden();
+    await expect(page.locator('.chat')).not.toHaveClass(/previewing/);
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await toggle.click();
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('iframe')).toHaveAttribute('src', src!);
+    // Closed, it stops; the card starts it again.
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await expect(panel).toHaveCount(0);
+    await card.getByRole('button', { name: 'Preview app' }).click();
+    await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
+    // What the conversation held when it was opened does not open by itself; the header's button opens it.
+    await page.reload();
+    await expect(composer(page)).toBeVisible();
+    await expect(card).toBeVisible();
+    await expect(panel).toHaveCount(0);
+    await toggle.click();
+    await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
+    // The next question puts the card away until the team has answered it.
+    await send(page, 'Thanks');
+    await finishedReply(page, 'Claude');
+    await expect(page.locator('.msg-user')).toHaveCount(2);
+    await expect(card).toHaveCount(0);
+  });
+
+  test('a Dockerfile the team writes opens by itself but waits for Start preview below full access', async ({ page, relay }) => {
+    const docker: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/apps/docker/install') || (r.method() === 'POST' && r.url().endsWith('/preview'))) docker.push(r.url());
+    });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await send(page, 'Package it e2e:write=api/Dockerfile');
+    await finishedReply(page, 'Claude');
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel).toContainText('Its build runs the project’s Dockerfile, which can reach the network');
+    await expect(panel).toContainText(join(relay.workDir, 'api'));
+    await expect(panel.getByRole('button', { name: 'Start preview' })).toBeEnabled();
+    await expect(panel.locator('.app-preview-summary')).toHaveCount(0);
+    // Nothing was built, nor Docker even asked about.
+    expect(docker).toEqual([]);
+  });
+
+  test('the divider between the chat and the preview drags, moves with the arrow keys and is remembered', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'site'));
+    writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>Wide</h1>');
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    const panel = page.getByLabel('App preview', { exact: true });
+    const open = async () => {
+      await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+      const files = page.getByRole('dialog', { name: 'Files' });
+      await files.getByRole('button', { name: 'site', exact: true }).click();
+      await files.getByRole('button', { name: 'Preview this folder' }).click();
+      await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('Wide');
+    };
+    await open();
+    const width = async () => (await panel.boundingBox())!.width;
+    const main = (await page.locator('.main').boundingBox())!;
+    const initial = await width();
+    expect(Math.abs(initial - Math.min(main.width * 0.43, 760))).toBeLessThan(2);
+    const divider = page.getByRole('separator', { name: 'Resize the preview' });
+    const drag = async (dx: number) => {
+      const box = (await divider.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + 400);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + dx / 2, box.y + 400, { steps: 4 });
+      await page.mouse.move(box.x + box.width / 2 + dx, box.y + 400, { steps: 4 });
+      await page.mouse.up();
+    };
+    // To the right, over the page in its frame, which must not take the pointer: narrower.
+    await drag(120);
+    const narrower = await width();
+    expect(Math.abs(narrower - (initial - 120))).toBeLessThan(3);
+    // The chat gives way to the panel exactly.
+    const chat = (await page.locator('.chat').boundingBox())!;
+    expect(Math.abs(chat.x + chat.width - (main.x + main.width - narrower))).toBeLessThan(2);
+    // The arrow keys: left widens.
+    await divider.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(width).toBeCloseTo(narrower + 32, 0);
+    // Never so wide that the chat keeps less than 360 pixels.
+    await drag(-2000);
+    await expect.poll(width).toBeCloseTo(main.width - 360, 0);
+    await drag(400);
+    const kept = await width();
+    // Remembered on this browser.
+    await page.reload();
+    await open();
+    expect(Math.abs((await width()) - kept)).toBeLessThan(2);
+    // A double-click puts the default width back.
+    await divider.dblclick();
+    await expect.poll(width).toBeCloseTo(initial, 0);
+  });
 });
 
 function writeLockfile(folder: string) {
@@ -140,6 +268,7 @@ test('a package link reports a missing lockfile before checking Docker and relea
   });
   await reply.getByRole('button', { name: 'Preview app' }).click();
   await starting;
+  await previewControls(panel);
   await expect(panel.getByRole('button', { name: 'Stop preview' })).toBeVisible();
   const cleanup = page.waitForRequest((request) => request.url().endsWith('/preview/late-result') && request.method() === 'DELETE');
   await panel.getByRole('button', { name: 'Close' }).click();
@@ -224,6 +353,7 @@ test.describe('Docker setup for previews', () => {
     docker.job = 'success';
     await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('App is running');
     await expect(setup).toHaveCount(0);
+    await previewControls(panel);
     await panel.getByRole('button', { name: 'Stop preview' }).click();
     await expect(panel.locator('iframe')).toHaveCount(0);
     expect(docker.starts).toEqual(['build']);
@@ -318,6 +448,7 @@ test.describe('container previews', () => {
     await panel.getByRole('radio', { name: 'Terminal' }).click();
     await expect(panel.locator('.xterm-rows')).toContainText('#1 building');
     await expect(panel.locator('.xterm-rows')).toContainText('serving on 8000');
+    await previewControls(panel);
     await expect(panel.getByRole('textbox', { name: 'Command' })).toHaveValue('python app.py');
     await panel.locator('.xterm-screen').click();
     await page.keyboard.type('hi');
@@ -350,6 +481,7 @@ test.describe('container previews', () => {
     await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.locator('.app-preview-status')).toHaveText('The preview failed. The terminal says why.');
+    await previewControls(panel);
     await expect(panel.getByRole('button', { name: 'Run again' })).toHaveCount(0);
     await panel.getByRole('button', { name: 'Add errors to message' }).click();
     await expect(composer(page)).toHaveValue(
@@ -366,6 +498,7 @@ test.describe('container previews', () => {
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.locator('.xterm-rows')).toContainText('Your name?');
     // The stream ended and its reconnection found nothing: no Run again, nothing reconnecting.
+    await previewControls(panel);
     await expect(panel.getByRole('button', { name: 'Run again' })).toHaveCount(0);
     await expect(panel.getByText('Reconnecting')).toHaveCount(0);
   });

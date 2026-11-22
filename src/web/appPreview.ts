@@ -1,4 +1,12 @@
-import { PREVIEW_RECIPES, type AppPreviewRequest, type AppPreviewSession, type PreviewTerminalEvent } from '../shared/types';
+import { localFilePath } from '../shared/media';
+import {
+  PREVIEW_RECIPES,
+  type AppPreviewRequest,
+  type AppPreviewSession,
+  type ChatMessage,
+  type Permission,
+  type PreviewTerminalEvent,
+} from '../shared/types';
 
 /** The path was decoded by localFilePath (reply), or comes straight from a Files listing. */
 export function filePreviewTarget(path: string): AppPreviewRequest | undefined {
@@ -104,6 +112,130 @@ export interface PreviewSelection {
   label: string;
   folder?: string;
   agentName?: string;
+  /** Relay opened it by itself, when the team made an app: Docker's setup waits for a click. */
+  auto?: boolean;
+  /** False: the panel shows the target and waits for Start preview (see `startsByItself`). */
+  autoStart?: boolean;
+}
+
+// --- The app the team made: what the panel opens by itself, the card and the header's button ---
+
+/** The local files a reply's text links to, as the chat makes links of them: outside code. */
+export function linkedFiles(text: string): string[] {
+  const prose: string[] = [];
+  let fence: string | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
+    prose.push(line.replace(/(`+)[^`]*?\1/g, ''));
+  }
+  const body = prose.join('\n');
+  const urls = [
+    ...[...body.matchAll(/\]\(\s*<([^>\n]+)>/g)].map((m) => m[1]!),
+    ...[...body.matchAll(/\]\(\s*([^\s)<][^\s)]*)/g)].map((m) => m[1]!),
+    ...[...body.matchAll(/^ {0,3}\[[^\]\n]+\]:\s*<?([^\s>]+)>?/gm)].map((m) => m[1]!),
+    ...[...body.matchAll(/<(file:[^>\s]+)>/gi)].map((m) => m[1]!),
+  ];
+  return urls.flatMap((url) => localFilePath(url) ?? []);
+}
+
+/** How well a file says how its folder runs: a compose file or Dockerfile, then npm, then an index page. */
+function entryRank(entry: string): number {
+  if ((PREVIEW_RECIPES as readonly string[]).includes(entry)) return 0;
+  if (entry === 'package.json') return 1;
+  return /^index\.html?$/i.test(entry) ? 2 : 3;
+}
+
+/** Of these files, the one a preview starts from: the shallowest folder, then its best entry. Never one in node_modules. */
+export function bestPreviewPath(paths: readonly string[]): string | undefined {
+  const candidates = paths
+    .map((path) => path.replace(/\\/g, '/').replace(/^(\.\/)+/, ''))
+    .filter((path) => filePreviewTarget(path) && !path.split('/').includes('node_modules'));
+  const depth = (path: string) => path.split('/').length;
+  const entry = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+  return candidates.sort((a, b) => depth(a) - depth(b) || entryRank(entry(a)) - entryRank(entry(b)))[0];
+}
+
+/** A file a turn changed, as a reply would link it: relative to the working directory it is in. */
+export function changedFilePath(root: string, file: string, cwds: readonly string[]): string | undefined {
+  const clean = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const absolute = `${clean(root)}/${clean(file)}`;
+  for (const cwd of cwds.map(clean)) if (cwd && absolute.startsWith(cwd + '/')) return absolute.slice(cwd.length + 1);
+  return undefined;
+}
+
+export interface PreviewSuggestion {
+  /** The reply it comes from: its author's files (its own worktree in parallel mode). */
+  messageId: string;
+  agentName: string;
+  /** As a reply links it (see `filePreviewTarget`). */
+  path: string;
+  /** Where the reply is in the conversation. */
+  index: number;
+}
+
+/**
+ * The app the team made last: the newest finished reply that links a page, a package.json, a
+ * Dockerfile or a compose file, or whose turn added or changed one (a link first, as its author
+ * pointed at it).
+ */
+export function previewSuggestion(messages: readonly ChatMessage[], cwds: readonly string[]): PreviewSuggestion | undefined {
+  const dirs = cwds.join('\0');
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const msg = messages[index]!;
+    if (msg.author.kind !== 'agent' || msg.status !== 'done') continue;
+    let read = replyPaths.get(msg);
+    if (read?.dirs !== dirs) {
+      read = { dirs, path: replyPreviewPath(msg, cwds) };
+      replyPaths.set(msg, read);
+    }
+    if (read.path) return { messageId: msg.id, agentName: msg.agentName ?? '', path: read.path, index };
+  }
+  return undefined;
+}
+
+/** Each finished reply read once: the conversation is a new object with every word streamed. */
+const replyPaths = new WeakMap<ChatMessage, { dirs: string; path?: string }>();
+
+function replyPreviewPath(msg: ChatMessage, cwds: readonly string[]): string | undefined {
+  const text = msg.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const changed = (msg.changes ?? []).flatMap((c) =>
+    c.files.filter((f) => f.status !== 'D').flatMap((f) => changedFilePath(c.root, f.path, cwds) ?? []),
+  );
+  return bestPreviewPath(linkedFiles(text)) ?? bestPreviewPath(changed);
+}
+
+/**
+ * Whether a preview Relay opened by itself also starts by itself. A static page and an npm project
+ * run offline; a Dockerfile's or compose file's build can reach the network, so below full access it
+ * waits for the user's click, as it did before Relay opened anything by itself.
+ */
+export function startsByItself(mode: AppPreviewRequest['mode'], permission: Permission): boolean {
+  return mode !== 'container' || permission === 'full';
+}
+
+/** The panel's width when dragged: at least 320 pixels, and the chat keeps at least 360. */
+export const PREVIEW_MIN_WIDTH = 320;
+export const CHAT_MIN_WIDTH = 360;
+
+export function previewWidth(width: number, total: number): number {
+  const max = Math.max(PREVIEW_MIN_WIDTH, total - CHAT_MIN_WIDTH);
+  return Math.round(Math.min(max, Math.max(PREVIEW_MIN_WIDTH, width)));
+}
+
+/** This browser's dragged width, kept in localStorage. */
+export const PREVIEW_WIDTH_KEY = 'relay:preview-width';
+
+export function storedPreviewWidth(value: string | null): number | undefined {
+  const width = Number(value);
+  return value && Number.isFinite(width) && width >= PREVIEW_MIN_WIDTH && width <= 10000 ? Math.round(width) : undefined;
 }
 
 export function safePreviewSession(session: AppPreviewSession, parent: string): boolean {

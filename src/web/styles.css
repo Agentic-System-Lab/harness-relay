@@ -2804,6 +2804,34 @@ details.sub .model-picker {
   display: none;
 }
 
+/* A chat the preview panel (or the window) leaves narrow: the header's actions become icons, their
+   names kept for screen readers and in their tooltips, so that they all stay on the row. Phones have
+   them in the ⋯ menu instead (see the 560px rules). */
+.chat-head {
+  container: chat-head / inline-size;
+}
+
+@media (min-width: 561px) {
+  @container chat-head (width < 900px) {
+    .chat-head-actions .head-button {
+      padding-inline: 9px;
+    }
+
+    .chat-head-actions .head-button svg {
+      display: block;
+    }
+
+    .chat-head-actions .head-button .button-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+}
+
 /* ⋯ opens those actions as a menu on phones (see the 560px rules). */
 .more-button {
   display: none;
@@ -9996,8 +10024,97 @@ a.share-action {
   align-self: flex-start;
 }
 
+/* The preview panel's width: the default one, or the one its divider was dragged to on this
+   browser (--preview-width, see ChatView), always leaving the chat 360 pixels. Percentages are of
+   .main's width, for the chat's margin and the panel (positioned in .main) alike. */
+.chat {
+  --preview-w: min(var(--preview-width, min(43%, 760px)), calc(100% - 360px));
+}
+
 .chat.previewing {
-  margin-inline-end: min(43%, 760px);
+  margin-inline-end: var(--preview-w);
+}
+
+/* The divider between the chat and the panel: drag it, or focus it and use the arrow keys. */
+.app-preview-resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--preview-w) - 4px);
+  z-index: 3;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.app-preview-resize::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.app-preview-resize:hover::after,
+.app-preview-resize:focus-visible::after,
+.resizing-preview .app-preview-resize::after {
+  background: var(--info);
+}
+
+.app-preview-resize:focus-visible {
+  outline: none;
+}
+
+/* While it is dragged, the page and the terminal must not take the pointer. */
+.resizing-preview {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizing-preview iframe,
+.resizing-preview .xterm {
+  pointer-events: none;
+}
+
+/* The header's Preview button, pressed while the panel shows. */
+.head-button.preview-head-button.on {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+}
+
+/* After the team's last reply: the app it made, ready to preview. */
+.preview-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--info) 55%, transparent);
+}
+
+.preview-ready-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--info);
+}
+
+.preview-ready-text {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preview-ready-text code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.preview-ready > button {
+  flex: none;
 }
 
 .app-preview {
@@ -10006,7 +10123,7 @@ a.share-action {
   inset-inline-end: 0;
   display: flex;
   flex-direction: column;
-  width: min(43%, 760px);
+  width: var(--preview-w);
   min-width: 0;
   overflow: auto;
   background: var(--bg);
@@ -10119,6 +10236,60 @@ a.share-action {
 .app-preview-views {
   align-self: flex-start;
   margin: 0 18px 10px;
+}
+
+/* What it runs from, folded while it runs (the details open below), and the page/terminal switch. */
+.app-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-preview-bar .app-preview-views {
+  margin: 0 0 0 auto;
+}
+
+.app-preview-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-inline-start: -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-preview-summary:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.app-preview-summary svg {
+  flex: none;
+  transition: transform 0.15s;
+}
+
+.app-preview-summary.open svg {
+  transform: rotate(90deg);
+}
+
+.app-preview-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-preview-bar + .app-preview-settings {
+  border-bottom: 1px solid var(--border);
 }
 
 .app-preview-recipe {

@@ -14,7 +14,14 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, ApiError, orCreateCwd, type AttachmentUpload } from '../api';
-import { filePreviewTarget, type PreviewSelection } from '../appPreview';
+import {
+  filePreviewTarget,
+  PREVIEW_WIDTH_KEY,
+  previewSuggestion,
+  startsByItself,
+  storedPreviewWidth,
+  type PreviewSelection,
+} from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
 import {
@@ -36,7 +43,7 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
-import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
+import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -122,13 +129,35 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // Open at once for a webhook New automation made with it: the drawer shows its token, once.
   const [scheduleOpen, setScheduleOpen] = useState(() => handedHook(id) !== undefined);
   const [appPreview, setAppPreview] = useState<PreviewSelection | null>(null);
+  // Hidden by the header's Preview button: it keeps running until it is closed.
+  const [previewHidden, setPreviewHidden] = useState(false);
   const openFilePreview = useCallback((target: PreviewSelection) => {
     setFilesOpen(false);
+    setPreviewHidden(false);
     setAppPreview(target);
   }, []);
   const openReplyPreview = useCallback((messageId: string, agentName: string, path: string) => {
     const request = filePreviewTarget(path);
-    if (request) setAppPreview({ request: { ...request, messageId }, label: '@' + agentName, agentName });
+    if (!request) return;
+    setPreviewHidden(false);
+    setAppPreview({ request: { ...request, messageId }, label: '@' + agentName, agentName });
+  }, []);
+  // The width the divider was dragged to, on this browser.
+  const [previewWidth, setPreviewWidth] = useState<number | undefined>(() => {
+    try {
+      return storedPreviewWidth(localStorage.getItem(PREVIEW_WIDTH_KEY));
+    } catch {
+      return undefined;
+    }
+  });
+  const resizePreview = useCallback((width: number | undefined) => {
+    setPreviewWidth(width);
+    try {
+      if (width === undefined) localStorage.removeItem(PREVIEW_WIDTH_KEY);
+      else localStorage.setItem(PREVIEW_WIDTH_KEY, String(width));
+    } catch {
+      /* no storage: for this page only */
+    }
   }, []);
   const [filesOpen, setFilesOpen] = useState(false);
   /** The share dialog is open: for the whole conversation, or up to and including one reply (`upTo`). */
@@ -560,6 +589,51 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     await api.fixChecks(c.id, messageId, agentId);
   }, []);
 
+  // The app the team made last: the card, the header's button, and the panel opening by itself.
+  const suggestion = useMemo(
+    () => (state.conv ? previewSuggestion(state.conv.messages, cwdsOf(state.conv.settings)) : undefined),
+    [state.conv],
+  );
+  const previewOpen = useRef(false);
+  previewOpen.current = appPreview !== null;
+  /** The suggestion last seen: undefined until the conversation has loaded. */
+  const seenSuggestion = useRef<string | null | undefined>(undefined);
+  /** The folders opened by themselves already: each app opens once by itself. */
+  const autoOpened = useRef(new Set<string>());
+  useEffect(() => {
+    const c = state.conv;
+    if (!c) return;
+    const key = suggestion ? `${suggestion.messageId}\0${suggestion.path}` : null;
+    // What the conversation held when it was opened never opens by itself: only what the team makes now.
+    if (seenSuggestion.current === undefined || seenSuggestion.current === key) {
+      seenSuggestion.current = key;
+      return;
+    }
+    seenSuggestion.current = key;
+    const request = suggestion && filePreviewTarget(suggestion.path);
+    // Not over another preview, and not on a phone or tablet, where the panel would cover the chat.
+    if (!suggestion || !request || previewOpen.current || autoOpened.current.has(request.folder)) return;
+    if (matchMedia('(max-width: 1100px)').matches) return;
+    autoOpened.current.add(request.folder);
+    const selection = { ...request, messageId: suggestion.messageId };
+    api.appPreviewTarget(c.id, selection).then(
+      (resolved) => {
+        if (previewOpen.current) return;
+        setPreviewHidden(false);
+        setAppPreview({
+          request: selection,
+          label: '@' + suggestion.agentName,
+          agentName: suggestion.agentName,
+          auto: true,
+          autoStart: startsByItself(resolved.mode, c.settings.permission),
+        });
+      },
+      () => {
+        /* Nothing to run there (yet): the card and the header's button still offer it. */
+      },
+    );
+  }, [state.conv, suggestion]);
+
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
@@ -590,6 +664,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
   const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
+  // The team has answered, and made or pointed at an app since the user last wrote.
+  const readyCard = !running && suggestion !== undefined && suggestion.index > lastUser;
+  const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
 
@@ -638,7 +715,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   };
 
   return (
-    <div className={appPreview ? 'chat previewing' : 'chat'} ref={chatRef}>
+    <div
+      className={appPreview && !previewHidden ? 'chat previewing' : 'chat'}
+      ref={chatRef}
+      style={previewWidth === undefined ? undefined : { ['--preview-width' as string]: `${previewWidth}px` }}
+    >
       {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
           only the title and actions, plus a warning beside the title for full access; on phones the
           actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
@@ -699,9 +780,22 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               <ClockIcon size={16} />
               <span className="button-label">{t.schedule.button}</span>
             </button>
-            <button className="ghost small-button head-button" onClick={openFromHead(setTeamOpen)}>
+            <button className="ghost small-button head-button" onClick={openFromHead(setTeamOpen)} title={t.chat.teamSettings}>
               <UsersIcon size={16} />
               <span className="button-label">{t.chat.teamSettings}</span>
+            </button>
+            <button
+              className={`ghost small-button head-button preview-head-button ${previewShown ? 'on' : ''}`}
+              aria-pressed={previewShown}
+              disabled={!appPreview && !suggestion}
+              title={appPreview || suggestion ? t.appPreview.headTitle : t.appPreview.headNothing}
+              onClick={openFromHead(() => {
+                if (appPreview) setPreviewHidden((hidden) => !hidden);
+                else if (suggestion) openReplyPreview(suggestion.messageId, suggestion.agentName, suggestion.path);
+              })}
+            >
+              <PreviewIcon size={16} />
+              <span className="button-label">{t.appPreview.headButton}</span>
             </button>
           </div>
         </div>
@@ -832,6 +926,26 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               item
             );
           })}
+          {readyCard && suggestion && (
+            <section className="preview-ready" aria-label={t.appPreview.readyTitle}>
+              <span className="preview-ready-icon" aria-hidden="true">
+                <PreviewIcon size={22} />
+              </span>
+              <div className="preview-ready-text">
+                <strong>{t.appPreview.readyTitle}</strong>
+                <span className="muted small">
+                  <code dir="auto">{suggestion.path}</code> · @{suggestion.agentName}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => openReplyPreview(suggestion.messageId, suggestion.agentName, suggestion.path)}
+              >
+                {t.appPreview.open}
+              </button>
+            </section>
+          )}
         </div>
       </div>
 
@@ -967,7 +1081,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             key={JSON.stringify(appPreview.request)}
             convId={conv.id}
             target={appPreview}
-            onClose={() => setAppPreview(null)}
+            collapsed={previewHidden}
+            width={previewWidth}
+            onResize={resizePreview}
+            onClose={() => {
+              setAppPreview(null);
+              setPreviewHidden(false);
+            }}
             onFeedback={onUseStep}
           />
         </Deferred>

@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { mentionsInMarkdown, unknownMentions } from '../src/shared/mentions';
+import type { ChatMessage, MessageChanges } from '../src/shared/types';
 import {
+  CHAT_MIN_WIDTH,
   NO_TERMINAL,
+  PREVIEW_MIN_WIDTH,
+  bestPreviewPath,
+  changedFilePath,
   filePreviewTarget,
+  linkedFiles,
   nextTerminalState,
+  previewSuggestion,
+  previewWidth,
+  startsByItself,
+  storedPreviewWidth,
   previewErrorDraft,
   previewFrameError,
   recordPreviewError,
@@ -125,5 +135,109 @@ describe('a container preview terminal', () => {
     const raw = '\x1b]0;title\x07\x1b[1mBuilding\x1b[0m\r\n50%\r100%\r\n\x1b[31mError: boom\x1b[0m\r\n\x1b[?2004hprompt> ';
     expect(terminalText(raw)).toBe('Building\n100%\nError: boom\nprompt> ');
     expect(terminalTail('a\nb\nc\n\n', 2)).toBe('b\nc');
+  });
+});
+
+describe('the app the team made', () => {
+  const reply = (id: string, text: string, o: Partial<ChatMessage> = {}): ChatMessage => ({
+    id,
+    author: { kind: 'agent', agentId: 'a1' },
+    agentName: 'Builder',
+    createdAt: 0,
+    parts: [{ type: 'text', text }],
+    status: 'done',
+    ...o,
+  });
+  const user = (id: string): ChatMessage => ({
+    id,
+    author: { kind: 'user' },
+    createdAt: 0,
+    parts: [{ type: 'text', text: 'Go' }],
+    status: 'done',
+  });
+  const changes = (root: string, ...paths: string[]): MessageChanges[] => [
+    { root, base: 'a', head: 'b', isolated: false, files: paths.map((path) => ({ path, status: 'A' as const, added: 1, deleted: 0 })) },
+  ];
+
+  it('reads the local files a reply links to, as the chat makes links: outside code', () => {
+    const text = [
+      'See [the page](site/index.html) and [the image](<shots/a b.png>).',
+      'Not `[code](app/package.json)`, nor a site: [docs](https://example.com/index.html).',
+      '```',
+      '[in a block](block/Dockerfile)',
+      '```',
+      '[ref]: todo-app/Dockerfile',
+      'And <file:///Users/me/app/compose.yaml>.',
+    ].join('\n');
+    expect(linkedFiles(text)).toEqual(['shots/a b.png', 'site/index.html', 'todo-app/Dockerfile', '/Users/me/app/compose.yaml']);
+  });
+
+  it('picks the file a preview starts from: the shallowest folder, then a recipe, npm, an index page', () => {
+    expect(bestPreviewPath(['todo-app/public/index.html', 'todo-app/package.json', 'todo-app/Dockerfile', 'README.md'])).toBe(
+      'todo-app/Dockerfile',
+    );
+    expect(bestPreviewPath(['web/about.html', 'web/index.html'])).toBe('web/index.html');
+    expect(bestPreviewPath(['./site/index.html'])).toBe('site/index.html');
+    expect(bestPreviewPath(['app/node_modules/x/index.html', 'notes.md'])).toBeUndefined();
+    expect(bestPreviewPath([])).toBeUndefined();
+  });
+
+  it('names a changed file as a reply would: relative to the working directory it is in', () => {
+    expect(changedFilePath('/w', 'todo-app/Dockerfile', ['/w'])).toBe('todo-app/Dockerfile');
+    // A working directory inside a larger repository, and Windows paths.
+    expect(changedFilePath('/repo', 'apps/web/index.html', ['/repo/apps'])).toBe('web/index.html');
+    expect(changedFilePath('C:\\repo', 'site\\index.html', ['C:\\repo\\'])).toBe('site/index.html');
+    expect(changedFilePath('/repo', 'other/index.html', ['/repo/apps'])).toBeUndefined();
+  });
+
+  it('suggests the newest finished reply that links or made an app, a link first', () => {
+    const messages = [
+      user('u1'),
+      reply('r1', 'Planned it.'),
+      reply('r2', 'Built it.', { changes: changes('/w', 'todo-app/src/server.js', 'todo-app/Dockerfile', 'todo-app/package.json') }),
+      reply('r3', 'Reviewed [the server](todo-app/src/server.js).'),
+    ];
+    expect(previewSuggestion(messages, ['/w'])).toEqual({ messageId: 'r2', agentName: 'Builder', path: 'todo-app/Dockerfile', index: 2 });
+    const linked = [...messages, reply('r4', 'Try [it](todo-app/public/index.html).', { changes: changes('/w', 'todo-app/Dockerfile') })];
+    expect(previewSuggestion(linked, ['/w'])).toMatchObject({ messageId: 'r4', path: 'todo-app/public/index.html', index: 4 });
+    // Not a reply still being written, nor one that failed, nor a deleted file.
+    const unfinished = [
+      ...messages,
+      reply('r5', '[page](next/index.html)', { status: 'streaming' }),
+      reply('r6', '[page](broken/index.html)', { status: 'error' }),
+      reply('r7', 'Removed it.', {
+        changes: [{ ...changes('/w', 'old/index.html')[0]!, files: [{ path: 'old/index.html', status: 'D', added: 0, deleted: 1 }] }],
+      }),
+    ];
+    expect(previewSuggestion(unfinished, ['/w'])?.messageId).toBe('r2');
+    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')], ['/w'])).toBeUndefined();
+  });
+
+  it('reads a reply again once its changes arrive, and when the working directories change', () => {
+    const first = reply('r1', 'Done.');
+    expect(previewSuggestion([first], ['/w'])).toBeUndefined();
+    // The server sends the reply again with its changes: a new object.
+    const withChanges = { ...first, changes: changes('/w', 'site/index.html') };
+    expect(previewSuggestion([withChanges], ['/w'])?.path).toBe('site/index.html');
+    expect(previewSuggestion([withChanges], ['/w/site'])?.path).toBe('index.html');
+  });
+
+  it('starts by itself only what runs offline, or anything in full access', () => {
+    expect(startsByItself('static', 'read-only')).toBe(true);
+    expect(startsByItself('build', 'edit')).toBe(true);
+    expect(startsByItself('server', 'edit')).toBe(true);
+    expect(startsByItself('container', 'edit')).toBe(false);
+    expect(startsByItself('container', 'read-only')).toBe(false);
+    expect(startsByItself('container', 'full')).toBe(true);
+  });
+
+  it('keeps a dragged width between its minimum and what leaves the chat its own', () => {
+    expect(previewWidth(500.4, 1400)).toBe(500);
+    expect(previewWidth(100, 1400)).toBe(PREVIEW_MIN_WIDTH);
+    expect(previewWidth(1300, 1400)).toBe(1400 - CHAT_MIN_WIDTH);
+    // Too narrow for both: the panel keeps its minimum.
+    expect(previewWidth(400, 500)).toBe(PREVIEW_MIN_WIDTH);
+    expect(storedPreviewWidth('640')).toBe(640);
+    for (const bad of [null, '', 'wide', '10', 'Infinity', '-700']) expect(storedPreviewWidth(bad)).toBeUndefined();
   });
 });

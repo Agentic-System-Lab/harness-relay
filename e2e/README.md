@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 589 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 592 tests in 46 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -50,7 +50,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Scrolling the chat](#scrolling-the-chat) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [User guide → Chat](../docs/user-guide.md#4-chat) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 13 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
+| [App previews](#app-previews) | [`app-preview.spec.ts`](specs/app-preview.spec.ts), [`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 16 | [User guide → Previewing an app](../docs/user-guide.md#previewing-an-app) |
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
@@ -287,7 +287,10 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | Scenario | CLI | What it checks |
 | --- | --- | --- |
 | Static site from Files | Claude Code | The folder opens directly, loads a JavaScript module and skips Docker setup. Rebuild shows the edited page. Error feedback preserves the existing draft and the running preview can be reopened on a phone. Stop removes the frame. |
-| Identical filenames in parallel replies | Claude Code, Codex | Both reply links still download. Each preview opens the author’s own file and fits the phone viewport. |
+| Identical filenames in parallel replies | Claude Code, Codex | On a phone, the page the team wrote does not open by itself and a card offers it. Both reply links still download. Each preview opens the author’s own file and fits the phone viewport. |
+| The app the team made opens by itself | Claude Code | Before any app, the header's **Preview** is disabled and says why. The fake writes `site/index.html` in edit mode: once its turn ends the panel opens and starts it while the message box keeps the focus, and **Preview** is pressed. The source and buttons are folded into one row naming the folder and the agent, which opens and closes. A card after the reply offers the app. **Preview** hides the panel and shows the same run again; closed, the card starts it again. After a reload nothing opens by itself and **Preview** opens it; the next question puts the card away. |
+| A Dockerfile the team made waits below full access | Claude Code | The fake writes `api/Dockerfile` in edit mode: the panel opens with its folder and **Start preview**, saying the build can reach the network, and neither asks about Docker nor starts a preview. |
+| The divider between the chat and the panel | Claude Code | Dragged over the page's frame, it narrows the panel by as much and the chat follows; ArrowLeft widens it; it stops where the chat keeps 360 pixels; the width survives a reload, and a double-click puts the default back. |
 | npm project from a reply | Claude Code | The backend starts automatically. Relay reports a missing lockfile before checking Docker and can put the error in a draft addressed to the member. Closing a pending preview cleans up a late response. |
 | Missing Docker for a build | Claude Code | Canceling the setup dialog leaves the preview stopped. Install Docker starts one installation when selected. Once a simulated engine is ready, the build starts exactly once. |
 | Installed engine unavailable | Claude Code | A stopped engine can be checked again. Once it is ready, a project with both npm scripts opens its backend exactly once. |
@@ -833,6 +836,7 @@ The local preview scenarios use loopback hostnames and a phone-sized browser vie
 ## What they do not cover
 
 - **Physical phones and production preview domains.** Browser checks use a phone viewport and a synthetic HTTPS setup for remote mode. Check physical devices, DNS, certificates and proxy routing in the deployment. The standalone Docker check, `npx tsx scripts/preview-runtime-check.ts`, also runs on Linux CI.
+- **A container the team made starting by itself in full access.** The specs try a page that starts by itself and a Dockerfile that waits below full access; which modes start by themselves in full access is in `test/webPreview.test.ts`.
 - **Container previews on Windows and macOS CI.** Their live Docker tests run on Linux CI and by hand (OrbStack on macOS); the Engine API over Windows' named pipe has not been tried. Elsewhere the panel's terminal is tested with a simulated stream.
 
 - **Most of team checks.** End-to-end tests exercise the editor, protected paths, commands and hooks with Claude Code's fake where a CLI is needed. The following cases are covered offline: the commit format, a member's worktree in parallel mode, a run that stopped to ask, the lead review reading the result, an automation's run nobody watched, a template's list copied into a chat, commands held back by changed settings, Check again running them in the background and the commands run in a check tree when a parallel result is applied (its dependencies linked in) (`test/orchestrator-checks.test.ts`, `test/checks.test.ts`, `test/checkCommands.test.ts`), as is each CLI writing a protected file (the checks read the disk, whatever wrote it). The two openings a command can have (every local port on macOS, every Unix socket on Linux) are tried only by hand, as `scripts/sandbox-check.ts` does not run a check's command.
