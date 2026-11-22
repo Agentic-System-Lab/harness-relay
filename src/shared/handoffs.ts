@@ -116,11 +116,16 @@ export function commandFolder(value: string | undefined): string | undefined {
 }
 
 /**
- * Whether a command line holds what would make it read other than it runs: control characters (but
- * tab and line breaks), bidirectional overrides and isolates, zero-width characters, a byte order mark.
+ * What a command line the user approves on a card (a fixed command's, an interactive command's) may
+ * not hold, as it would not show what runs: control characters but tab and line feed (C0, DEL, C1),
+ * bidirectional overrides, embeddings, isolates and marks, zero-width characters, the word joiner and
+ * invisible operators, the byte order mark and Unicode's line separators.
  */
+const HIDDEN_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
+
+/** Whether a command line holds something `HIDDEN_CHARS` refuses. */
 export function hiddenCharacters(line: string): boolean {
-  return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/.test(line);
+  return HIDDEN_CHARS.test(line);
 }
 
 /**
@@ -136,7 +141,8 @@ export function checkProposal(p: {
   cwd?: string;
 }): CommandProposal | undefined {
   const name = commandName(p.name);
-  const run = (p.run ?? '').trim();
+  // A reply written with CRLF line ends: its line feeds (a carriage return alone is refused).
+  const run = (p.run ?? '').replace(/\r\n/g, '\n').trim();
   if (!name || !run || run.length > HANDOFF_LIMITS.commandLine || hiddenCharacters(run)) return undefined;
   const hosts = (p.hosts ?? []).map(hostName);
   const secrets = (p.secrets ?? []).map(secretName);
@@ -155,13 +161,6 @@ export function checkProposal(p: {
 }
 
 /**
- * What a command line the user approves on a card may not hold, as it would not show what runs: control
- * characters but tab and line feed (C0, DEL, C1), bidirectional overrides, embeddings, isolates and
- * marks, zero-width characters, the word joiner, the byte order mark and Unicode's line separators.
- */
-const HIDDEN_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060\u2066-\u2069\ufeff]/;
-
-/**
  * An interactive command's line as an agent wrote it, checked: trimmed (and out of one pair of
  * backticks around it all), not empty, within the limit, nothing in it that does not show
  * (`HIDDEN_CHARS`). Undefined when it is not one.
@@ -170,7 +169,7 @@ export function interactiveLine(value: string | undefined): string | undefined {
   let run = (value ?? '').trim();
   const quoted = /^`([^`]+)`$/.exec(run);
   if (quoted) run = quoted[1]!.trim();
-  if (!run || run.length > INTERACTIVE_LIMITS.commandLine || HIDDEN_CHARS.test(run)) return undefined;
+  if (!run || run.length > INTERACTIVE_LIMITS.commandLine || hiddenCharacters(run)) return undefined;
   return run;
 }
 
