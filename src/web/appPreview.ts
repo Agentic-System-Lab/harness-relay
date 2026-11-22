@@ -1,6 +1,7 @@
 import { localFilePath } from '../shared/media';
 import {
   PREVIEW_RECIPES,
+  inDependencies,
   isAppEntry,
   type AppPreviewRequest,
   type AppPreviewSession,
@@ -156,11 +157,11 @@ function entryRank(entry: string): number {
   return /^index\.html?$/i.test(entry) ? 2 : 3;
 }
 
-/** Of these files, the one a preview starts from: the shallowest folder, then its best entry. Never one in node_modules. */
+/** Of these files, the one a preview starts from: the shallowest folder, then its best entry. Never one in a dependency folder (node_modules, .venv…). */
 export function bestPreviewPath(paths: readonly string[]): string | undefined {
   const candidates = paths
     .map((path) => path.replace(/\\/g, '/').replace(/^(\.\/)+/, ''))
-    .filter((path) => filePreviewTarget(path) && !path.split('/').includes('node_modules'));
+    .filter((path) => filePreviewTarget(path) && !inDependencies(path.split('/')));
   const depth = (path: string) => path.split('/').length;
   const entry = (path: string) => path.slice(path.lastIndexOf('/') + 1);
   return candidates.sort((a, b) => depth(a) - depth(b) || entryRank(entry(a)) - entryRank(entry(b)))[0];
@@ -182,7 +183,7 @@ export interface PreviewSuggestion {
 function appFile(path: string): boolean {
   const name = path.slice(path.lastIndexOf('/') + 1);
   // What runs an app or a page, or an app's entry in another language (app.py, main.go…).
-  return (isAppEntry(name) || Boolean(filePreviewTarget(name))) && !path.split('/').includes('node_modules');
+  return (isAppEntry(name) || Boolean(filePreviewTarget(name))) && !inDependencies(path.split('/'));
 }
 
 /**

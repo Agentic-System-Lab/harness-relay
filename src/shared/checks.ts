@@ -317,10 +317,11 @@ export function hasApplyChecks(list: CheckList | undefined): list is CheckList {
   return Boolean(list && (protectedPatterns(list).length || list.commitPattern || list.commands?.length));
 }
 
-/** Whether a list has anything at all: a rule to check, or a hook. */
+/** Whether a list has anything at all: a rule to check, a hook, or fixing by itself (for the rules a template adds). */
 export function hasRules(list: CheckList | undefined): list is CheckList {
   return Boolean(
-    list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length || list.hooks?.length || list.previewApp),
+    list &&
+    (list.protectedPaths?.length || list.commitPattern || list.commands?.length || list.hooks?.length || list.previewApp || list.autoFix),
   );
 }
 

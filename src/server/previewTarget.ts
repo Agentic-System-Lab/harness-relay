@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
-import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES, isAppEntry } from '../shared/types';
+import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES, inDependencies, isAppEntry } from '../shared/types';
 import { HttpError } from './errors';
 import { fileRoots, readPreview, resolveInRoot } from './files';
 import { mediaRoots, replyWorktrees } from './media';
@@ -345,6 +345,18 @@ function runningFolder(root: string, dir: string): string | undefined {
   }
 }
 
+/** Whether a folder's package.json says it runs: a start, build or dev script, or npm's default server.js. */
+function runsSomething(folder: string): boolean {
+  if (CONTAINER_ENTRIES.some((n) => regularFile(join(folder, n)))) return true;
+  try {
+    const scripts = (JSON.parse(readFileSync(join(folder, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> }).scripts;
+    const has = (name: string) => typeof scripts?.[name] === 'string' && Boolean((scripts[name] as string).trim());
+    return has('start') || has('build') || has('dev') || regularFile(join(folder, 'server.js'));
+  } catch {
+    return true;
+  }
+}
+
 function attempt(fn: () => boolean): boolean {
   try {
     return fn();
@@ -378,13 +390,13 @@ export function appProblems(
   if (!msg) return { apps: [], problems: [] };
   const roots = replyRoots(conv, msg, lookup);
   // Each app's folder, its working directory, and the index pages in folders below it, which open as they are.
-  const folders = new Map<string, { root: string; pages: string[] }>();
+  const folders = new Map<string, { root: string; pages: string[]; names: Set<string> }>();
   for (const file of changedFiles(conv, msg, lookup, o.added)) {
-    if (!isAppEntry(basename(file)) || file.split(sep).includes('node_modules')) continue;
     const root = roots.find((r) => inside(r, file));
-    if (!root) continue;
+    if (!isAppEntry(basename(file)) || !root || inDependencies(relative(root, file).split(sep))) continue;
     const folder = runningFolder(root, dirname(file)) ?? dirname(file);
-    const app = folders.get(folder) ?? { root, pages: [] };
+    const app = folders.get(folder) ?? { root, pages: [], names: new Set<string>() };
+    app.names.add(basename(file));
     if (folder !== dirname(file) && /^index\.html?$/i.test(basename(file))) app.pages.push(file);
     folders.set(folder, app);
   }
@@ -393,12 +405,17 @@ export function appProblems(
     return true;
   };
   const problems: AppProblem[] = [];
-  for (const [folder, { root, pages }] of folders) {
+  for (const [folder, { root, pages, names }] of folders) {
     try {
       opens(folder);
     } catch (error) {
       // Its project does not run, but the page a turn wrote opens as it is (as the panel opens it).
       if (pages.some((p) => attempt(() => opens(dirname(p), basename(p))))) continue;
+      // Only a package.json, of a library or a workspace: nothing in it runs, so it is no app.
+      if ([...names].every((n) => n === 'package.json') && !runsSomething(folder)) {
+        folders.delete(folder);
+        continue;
+      }
       const reason =
         error instanceof HttpError && error.code === PREVIEW_NO_RECIPE ? t().previewNoWay : (error as Error).message || t().previewTarget;
       problems.push({ folder, shown: relative(root, folder).split(sep).filter(Boolean).join('/') || '.', reason });
@@ -431,9 +448,8 @@ export function changedPreviewTarget(conv: Conversation, input: { messageId?: un
   for (const file of changedFiles(conv, msg, lookup)) {
     const name = basename(file);
     const page = /\.html?$/i.test(name);
-    if ((!page && !isAppEntry(name)) || file.split(sep).includes('node_modules')) continue;
     const root = roots.find((r) => inside(r, file));
-    if (!root) continue;
+    if ((!page && !isAppEntry(name)) || !root || inDependencies(relative(root, file).split(sep))) continue;
     const folder = dirname(file);
     if (runs.includes(name)) {
       add(root, folder);

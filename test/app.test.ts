@@ -732,6 +732,13 @@ describe('app preview control and content', () => {
       files: [{ path: 'lib/package.json', status: 'M', added: 1, deleted: 1 }],
     });
     expect((await find({ messageId: 'edited' })).status).toBe(404);
+    // A library's package.json, with nothing in it that runs, is no app; nor is what a dependency folder holds.
+    mkdirSync(join(project, 'pkg'));
+    writeFileSync(join(project, 'pkg', 'package.json'), JSON.stringify({ name: 'pkg', version: '1.0.0' }));
+    mkdirSync(join(project, '.venv', 'tool'), { recursive: true });
+    writeFileSync(join(project, '.venv', 'tool', 'main.py'), 'print(1)');
+    changed('library', project, ['pkg/package.json', '.venv/tool/main.py']);
+    expect((await find({ messageId: 'library' })).status).toBe(404);
     // An app's entry in another language: the nearest folder above it that runs, or, new and with
     // nothing to run it, why not.
     mkdirSync(join(project, 'api', 'src'));
@@ -2129,8 +2136,8 @@ describe('default team checks', () => {
     expect(await (await patch({ previewApp: true, autoFix: true })).json()).toEqual({ previewApp: true, autoFix: true });
     expect((await patch({ previewApp: 'yes' })).status).toBe(400);
     expect(await (await patch({ previewApp: false })).json()).toEqual({ autoFix: true });
-    // Fixing by itself alone checks nothing: no default.
-    expect(await view()).toBeUndefined();
+    // Fixing by itself alone is kept, for the rules a template brings.
+    expect(await view()).toEqual({ autoFix: true });
   });
 
   it('keeps the mark of a copied default in a new chat, and never in a template', async () => {

@@ -974,6 +974,13 @@ export function isAppEntry(name: string): boolean {
   return APP_ENTRIES.has(name) || /^index\.html?$/i.test(name);
 }
 
+/** Folders that hold a project's installed dependencies, never an app of its own: a path through one is not one. */
+const DEPENDENCY_DIRS: ReadonlySet<string> = new Set(['node_modules', '.venv', 'venv', 'site-packages', 'vendor', '__pycache__']);
+
+export function inDependencies(segments: readonly string[]): boolean {
+  return segments.some((s) => DEPENDENCY_DIRS.has(s));
+}
+
 /** What a container preview's terminal stream sends (`GET …/preview/:id/terminal`, as SSE). */
 export type PreviewTerminalEvent =
   /** Terminal bytes, base64. `replay`: everything so far, sent first to each new stream. */
@@ -1701,6 +1708,11 @@ export interface ChecksResult {
   skippedAt?: number;
   /** The user asked a member to fix it (the member's name then). */
   fixBy?: string;
+  /**
+   * The app preview rule (`CheckList.previewApp`): the replies whose apps it checked, oldest first. This
+   * run's, after those of a result whose preview failed and still held the queue.
+   */
+  appReplies?: string[];
   /** How many automatic fixes (`CheckList.autoFix`) came before it in a row: at `CHECK_LIMITS.autoFixes`, it waits for the user. */
   autoFixes?: number;
   /** Its fix (`fixBy`) was sent by Relay itself, not asked by the user. */

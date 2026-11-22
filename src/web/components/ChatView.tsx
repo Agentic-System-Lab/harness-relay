@@ -732,7 +732,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
   // The team has answered, and made or pointed at an app since the user last wrote.
   const readyCard = !running && ready !== undefined && ready.index > lastUser;
-  const notReadyCard = !running && !readyCard && notReady !== undefined && notReady.index > lastUser;
+  // The team checks' card says it already, with its own Fix, when they check the app preview.
+  const notReadyCard = !running && !readyCard && notReady !== undefined && notReady.index > lastUser && !conv.settings.checks?.previewApp;
   const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);

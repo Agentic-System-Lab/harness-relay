@@ -465,6 +465,7 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
     if (m.checks) {
       m.checks.historical = true;
       if (m.checks.replyIds) m.checks.replyIds = m.checks.replyIds.flatMap((id) => ids.get(id) ?? []);
+      if (m.checks.appReplies) m.checks.appReplies = m.checks.appReplies.flatMap((id) => ids.get(id) ?? []);
     }
     if (!m.review) continue;
     if (m.review.replyIds) m.review.replyIds = m.review.replyIds.flatMap((id) => ids.get(id) ?? []);
@@ -2609,6 +2610,16 @@ export class Orchestrator {
       const reason = of.agentId === TEAM_WORKTREE ? t().checksCommitsTeam : t().checksCommitsParallel;
       outcomes.push({ rule: 'commits', status: 'na', reason });
     }
+    // The apps in this result, as the run's own result checked them (in the worktree, not applied yet):
+    // this card becomes the latest, so it says so too.
+    if (list.previewApp) {
+      const ran = conv.messages.findLast((m) => m.checks && m.checks.when !== 'apply' && !m.checks.historical)?.checks;
+      const mine = (ran?.appReplies ?? ran?.replyIds ?? []).filter((id) => {
+        const reply = conv.messages.find((m) => m.id === id);
+        return of.agentId === TEAM_WORKTREE || (reply?.author.kind === 'agent' && reply.author.agentId === of.agentId);
+      });
+      outcomes.push(this.previewOutcome(conv, mine));
+    }
     const commands = list.commands ?? [];
     const windows = this.checkCommandDeps.platform === 'win32';
     const msg = this.postChecks(
@@ -3514,9 +3525,10 @@ export class Orchestrator {
       outcomes = this.unchecked(conv, (err as Error).message, !run.checks);
     }
     // The app the team built opens in a preview: from the files its turns changed, whatever else could be checked.
+    let appReplies: string[] | undefined;
     if (conv.settings.checks?.previewApp) {
-      const checked = [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)];
-      outcomes = [...outcomes.filter((o) => o.rule !== 'preview'), this.previewOutcome(conv, checked)];
+      appReplies = this.appReplies(conv, [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)]);
+      outcomes = [...outcomes.filter((o) => o.rule !== 'preview'), this.previewOutcome(conv, appReplies)];
     }
     if (!run.pausedChecks && !touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
     // Commands the latest result was kept from running for stay kept from it until the user confirms
@@ -3561,6 +3573,7 @@ export class Orchestrator {
           replyIds: [...(run.pausedChecks?.checks?.replyIds ?? []), ...replies.map((m) => m.id)],
           checkedAt: started,
           durationMs: Date.now() - started,
+          ...(appReplies ? { appReplies } : {}),
           ...(run.autoFix ? { autoFixes: run.autoFix } : {}),
         },
       ),
@@ -3589,7 +3602,8 @@ export class Orchestrator {
     const before = run.autoFix ?? 0;
     if (
       conv.settings.checks?.autoFix &&
-      result.outcomes.some(needsFix) &&
+      result.outcomes.some((o) => o.status === 'failed' && needsFix(o)) &&
+      !this.userWaits(conv) &&
       !conv.pause &&
       !run.unattended &&
       !run.abort.signal.aborted &&
@@ -3598,6 +3612,21 @@ export class Orchestrator {
       const fixer = this.fixer(conv, result, replies);
       if (fixer) run.autoFixNext = { messageId: msg.id, agentId: fixer.id, attempt: before + 1 };
     }
+  }
+
+  /** One of the user's own messages waits in the queue: they are here, and decide what comes next. */
+  private userWaits(conv: Conversation): boolean {
+    return (conv.queue ?? []).some((m) => !m.scheduled);
+  }
+
+  /**
+   * The replies whose apps the `preview` rule checks: these, after those of a result whose preview
+   * failed and still holds the queue, so that a turn touching none of that app's files does not pass it.
+   */
+  private appReplies(conv: Conversation, replyIds: readonly string[]): string[] {
+    const held = checksHold(conv.messages)?.checks;
+    const carried = held?.outcomes.some((o) => o.rule === 'preview' && blocking(o)) ? (held.appReplies ?? held.replyIds ?? []) : [];
+    return [...new Set([...carried, ...replyIds])];
   }
 
   /**
@@ -3669,8 +3698,9 @@ export class Orchestrator {
       !checksFailed(msg.checks) ||
       msg.checks.skippedAt ||
       latestChecks(conv.messages) !== msg ||
-      pendingPlan(conv.messages) ||
-      this.deleting.has(conv.id)
+      conv.pause ||
+      this.userWaits(conv) ||
+      !this.mayStart(conv)
     )
       return this.startQueued(conv);
     void this.start(conv, t().checksAutoFixMessage(agent.name, next.attempt, CHECK_LIMITS.autoFixes), {
@@ -3684,8 +3714,8 @@ export class Orchestrator {
         this.store.saveMessage(conv.id, msg, true);
       },
     }).catch((err: unknown) => {
-      console.error('[orchestrator] could not start an automatic fix:', err);
-      this.systemNote(conv, t().runFailed((err as Error).message));
+      if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
+      this.emitStatus(conv.id);
     });
     return true;
   }
@@ -3815,7 +3845,8 @@ export class Orchestrator {
         }
       }
       const replyIds = old.checks!.replyIds;
-      if (builtIn?.previewApp) outcomes = [...outcomes.filter((x) => x.rule !== 'preview'), this.previewOutcome(conv, replyIds ?? [])];
+      const appReplies = builtIn?.previewApp ? (old.checks!.appReplies ?? replyIds ?? []) : undefined;
+      if (appReplies) outcomes = [...outcomes.filter((x) => x.rule !== 'preview'), this.previewOutcome(conv, appReplies)];
       // Still kept from running by the run's changes, until the user confirms.
       // Not only the card's own: a gate an earlier result carries on holds them back as well.
       const gated = o.confirm ? [] : this.heldGate(conv);
@@ -3824,6 +3855,7 @@ export class Orchestrator {
         checksResult([...outcomes, ...commands.map((c) => this.commandPending(c, runs ? 'running' : 'na', skipped))], {
           when: 'recheck',
           ...(replyIds ? { replyIds } : {}),
+          ...(appReplies?.length ? { appReplies } : {}),
           checkedAt: started,
           durationMs: Date.now() - started,
         }),
@@ -3937,7 +3969,8 @@ export class Orchestrator {
       keepTeam: true,
       fixChecks: msg.id,
       beforePost: () => {
-        msg.checks = { ...msg.checks!, fixBy: agent.name };
+        const { fixAuto: _auto, ...was } = msg.checks!;
+        msg.checks = { ...was, fixBy: agent.name };
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       },

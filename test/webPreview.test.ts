@@ -221,7 +221,15 @@ describe('the app the team made', () => {
       reply('r8', 'Installed.', { changes: changes('app/node_modules/x/package.json') }),
     ];
     expect(previewSuggestion(unfinished)?.messageId).toBe('r2');
-    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')])).toBeUndefined(); // An app's entry in another language: asked about too (the server finds what runs it, or says why nothing does).
+    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')])).toBeUndefined();
+    // An app's entry in another language: asked about too (the server finds what runs it, or says why nothing does),
+    // also once r2 made the app: r3's server.js stands for it now.
+    const edited = [...messages.slice(0, 3), reply('r3', 'Changed the server.', { changes: changes('todo-app/src/server.js') })];
+    expect(previewSuggestion(edited)).toEqual({ messageId: 'r3', agentName: 'Builder', index: 3, changed: true });
+    // Never in a dependency folder.
+    for (const file of ['app/.venv/lib/python3.12/site-packages/x/main.py', 'app/vendor/x/main.go']) {
+      expect(previewSuggestion([user('u1'), reply('r1', 'Installed.', { changes: changes(file) })])).toBeUndefined();
+    }
     for (const file of ['snake/app.py', 'svc/main.go', 'site/server.js', 'shop/config.ru']) {
       expect(previewSuggestion([user('u1'), reply('r1', 'Built it.', { changes: changes(file) })])).toMatchObject({ messageId: 'r1' });
     }
