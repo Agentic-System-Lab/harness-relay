@@ -829,7 +829,7 @@ export function withheldFileKeys(): Set<string> {
   const keys = new Set<string>();
   for (const file of lockedFiles) {
     try {
-      keys.add(fileKey(statSync(file)));
+      keys.add(fileKey(statSync(file, { bigint: true })));
     } catch {
       /* not there (yet): a journal file */
     }
@@ -837,8 +837,12 @@ export function withheldFileKeys(): Set<string> {
   return keys;
 }
 
-/** A file's identity on this computer, whatever path names it. */
-export function fileKey(st: { dev: number; ino: number }): string {
+/**
+ * A file's identity on this computer, whatever path names it. From a `bigint` stat only: Windows'
+ * file ids are 64 bits, which a plain number rounds above 2^53, so that two files made one after the
+ * other (a folder and the key file in it) could get the same one.
+ */
+export function fileKey(st: { dev: bigint; ino: bigint }): string {
   return `${st.dev}:${st.ino}`;
 }
 
