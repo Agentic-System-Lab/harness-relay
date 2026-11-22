@@ -2379,11 +2379,11 @@ export const en: Messages = {
       render: 'Render',
       renderHint:
         "Create an API key in Render under Account settings → API Keys, with Services: Read & write, their environment variables: Write, and Deploys: Run. Let Render's GitHub app access all your repositories too, so that it can read the ones Relay makes.",
-      renderGuide: 'Step-by-step guide, with screenshots',
+      renderGuide: 'Set up Render step by step, with screenshots',
       neon: 'Neon',
       neonHint:
         'Create a personal API key in Neon: your account menu → Settings → Personal API keys. Only apps that need a database use it.',
-      neonGuide: 'Step-by-step guide, with screenshots',
+      neonGuide: 'Set up Neon step by step, with screenshots',
       apiKey: 'API key',
       save: 'Save',
       checking: 'Checking…',

@@ -58,6 +58,9 @@ export class RenderApi {
       return await hostJson(this.fetcher, 'Render', this.url(path, query), this.key, init);
     } catch (err) {
       if (!(err instanceof HostError)) throw err;
+      // A scoped key without a permission the call needs: Render names it (`deploys.run`, `services.read_write`).
+      if (err.status === 403 && err.code === 'insufficient_token_scope')
+        throw new HttpError(400, t().publish.renderScope(/scopes?:\s*([\w.,\s]+?)\.?$/i.exec(err.message)?.[1]?.trim() ?? ''));
       if (err.status === 401 || err.status === 403) throw new HttpError(400, t().publish.renderKey);
       if (err.status === 402) throw new HttpError(400, t().publish.renderPayment);
       if (err.status === 429) throw new HttpError(429, t().publish.rateLimited('Render'));

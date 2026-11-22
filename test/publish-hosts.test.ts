@@ -48,6 +48,40 @@ describe("Render's API", () => {
     expect(calls[0]!.headers.Authorization).toBe('Bearer rnd_key');
   });
 
+  it('says which permissions a scoped key lacks, as Render names them, apart from a key that is not valid', async () => {
+    const scoped = new RenderApi(
+      'k',
+      fakeFetch({
+        'POST /v1/services': () => [
+          403,
+          {
+            message: 'Your API key lacks required permissions. This endpoint requires at least the following scopes: services.read_write.',
+            code: 'insufficient_token_scope',
+          },
+        ],
+      }).fetcher,
+      RENDER,
+    );
+    const spec = {
+      type: 'web_service' as const,
+      name: 'a',
+      ownerId: 'tea-1',
+      repo: 'r',
+      details: {},
+      region: 'oregon' as const,
+      envVars: [],
+    };
+    await withLang('en', () =>
+      expect(scoped.createService(spec)).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/lacks a permission publishing needs \(services\.read_write\)\..*Deploys: Run/),
+      }),
+    );
+    // A 403 without Render's code is a key that is not valid, as before.
+    const plain = new RenderApi('k', fakeFetch({ 'GET /v1/owners': () => [403, { message: 'forbidden' }] }).fetcher, RENDER);
+    await withLang('en', () => expect(plain.owners()).rejects.toMatchObject({ status: 400, message: /Render API key is not valid/ }));
+  });
+
   it('says when the key is refused, or Render wants payment information', async () => {
     const refused = new RenderApi('k', fakeFetch({ 'GET /v1/owners': () => [401, { message: 'unauthorized' }] }).fetcher, RENDER);
     await withLang('en', () => expect(refused.owners()).rejects.toMatchObject({ status: 400, message: /Render API key is not valid/ }));

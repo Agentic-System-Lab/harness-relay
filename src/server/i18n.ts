@@ -47,6 +47,8 @@ const zhTW = {
     badAnswer: '雲端服務的回應不是預期的格式。',
     renderKey: 'Render API 金鑰無效或已失效。請在 Render 的 Account settings → API Keys 建立一把，再貼上。',
     renderPayment: 'Render 要求這個工作區先加上付款資訊，才能建立服務。',
+    renderScope: (scope: string) =>
+      `Render API 金鑰缺少發布需要的權限${scope ? `（${scope}）` : ''}。請在 Render 的 Account settings → API Keys 建立一把，權限選 Services「Read & write」、它的環境變數「Write」、Deploys「Run」，再貼到這裡取代它。`,
     renderNoOwner: '這把 Render 金鑰沒有可用的工作區。',
     rateLimited: (host: string) => `${host} 暫時限制了請求次數。請稍等一下再試。`,
     renderFailed: (detail: string) => `Render 拒絕了這個請求：${detail}`,
@@ -1270,6 +1272,8 @@ const en: ServerMessages = {
     badAnswer: 'The cloud service answered in a form Harness Relay does not expect.',
     renderKey: 'The Render API key is not valid. Create one in Render under Account settings → API Keys and paste it here.',
     renderPayment: 'Render asks for payment information in this workspace before it creates a service.',
+    renderScope: (scope) =>
+      `The Render API key lacks a permission publishing needs${scope ? ` (${scope})` : ''}. Create a key in Render under Account settings → API Keys with Services: Read & write, its environment variables: Write, and Deploys: Run, and save it here in its place.`,
     renderNoOwner: 'This Render key reaches no workspace.',
     rateLimited: (host: string) => `${host} is limiting requests for now. Wait a moment and try again.`,
     renderFailed: (detail: string) => `Render refused the request: ${detail}`,

@@ -66,6 +66,16 @@ test('Settings keeps the keys, a static preview publishes in one click, and Sett
   await expect(neon).toContainText('Organization: Relay Test org');
   await expect(card).not.toContainText(RENDER_KEY);
   await expect(card).toContainText('No app has been published yet.');
+  // Each box links its setup guide on the website, in the page's language, in a new tab.
+  const docs = 'https://agentic-system-lab.github.io/harness-relay/docs/conversations/';
+  for (const [box, name, anchor] of [
+    [render, 'Set up Render step by step, with screenshots', 'render-setup'],
+    [neon, 'Set up Neon step by step, with screenshots', 'neon-setup'],
+  ] as const) {
+    const link = box.getByRole('link', { name });
+    await expect(link).toHaveAttribute('href', `${docs}#${anchor}`);
+    await expect(link).toHaveAttribute('target', '_blank');
+  }
 
   const { panel } = await previewSite(page, relay, 'Hello from Relay');
   await panel.getByRole('button', { name: 'Publish…' }).click();
@@ -77,8 +87,8 @@ test('Settings keeps the keys, a static preview publishes in one click, and Sett
   await expect(publish).toBeDisabled();
   await dialog.getByLabel('I understand that anyone with its address can open this app.').check();
   await publish.click();
-  // A step under way turns the app's mark (Render's build, which the stand-in reports building at first).
-  await expect(dialog.locator('.publish-step.running .logo-spinner')).toBeVisible();
+  // A step under way turns the app's mark: Render's build, which the stand-in reports building until the server's next poll, 5 s later.
+  await expect(dialog.locator('.publish-step.build.running .logo-spinner')).toBeVisible();
   await expect(dialog.getByRole('status')).toContainText('Live: https://site.onrender.com/', { timeout: 30_000 });
   await expect(dialog.locator('.publish-step .logo-spinner')).toHaveCount(0);
   await expect(dialog.getByRole('link', { name: 'https://site.onrender.com/' })).toHaveAttribute('target', '_blank');

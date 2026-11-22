@@ -7,6 +7,8 @@ export class HostError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The host's own code for the refusal, when it gives one (Render's `insufficient_token_scope`). */
+    public code?: string,
   ) {
     super(message);
   }
@@ -63,7 +65,12 @@ export async function hostJson(
   if (!res.ok) {
     const said =
       data && typeof data === 'object' ? ((data as Record<string, unknown>).message ?? (data as Record<string, unknown>).error) : undefined;
-    throw new HostError(res.status, typeof said === 'string' ? said.slice(0, 300) : '');
+    const code = data && typeof data === 'object' ? (data as Record<string, unknown>).code : undefined;
+    throw new HostError(
+      res.status,
+      typeof said === 'string' ? said.slice(0, 300) : '',
+      typeof code === 'string' ? code.slice(0, 80) : undefined,
+    );
   }
   return data;
 }

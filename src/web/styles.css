@@ -10700,7 +10700,8 @@ a.share-action {
 
 .publish-step > .logo-spinner {
   flex: none;
-  margin: 0.15em -3px 0;
+  /* Centred where the dot is (its 8px at 0.45em from the top): the spinner is 14px. */
+  margin: calc(0.45em - 3px) -3px 0;
 }
 
 .publish-step.done::before {

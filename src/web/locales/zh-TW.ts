@@ -2373,10 +2373,10 @@ export const zhTW = {
       render: 'Render',
       renderHint:
         '在 Render 的 Account settings → API Keys 建立 API 金鑰，權限選 Services「Read & write」、它的環境變數「Write」、Deploys「Run」。也請讓 Render 的 GitHub App 能存取你的所有儲存庫，它才讀得到 Relay 建立的儲存庫。',
-      renderGuide: '圖文步驟說明',
+      renderGuide: '一步步設定 Render（附截圖）',
       neon: 'Neon',
       neonHint: '在 Neon 建立個人 API 金鑰：帳號選單 → Settings → Personal API keys。只有需要資料庫的應用程式會用到。',
-      neonGuide: '圖文步驟說明',
+      neonGuide: '一步步設定 Neon（附截圖）',
       apiKey: 'API 金鑰',
       save: '儲存',
       checking: '檢查中…',
