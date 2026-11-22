@@ -379,7 +379,7 @@ class BrowserSession {
    * once the tab shows a page); the page its tab shows; and the one the gate let its tab open last, which
    * the tab is about to show (`top` once it does). Each as the user opened it: where it led then.
    */
-  typed?: OwnerPage;
+  typed?: TypedPage;
   top?: OwnerPage;
   opening?: OwnerPage;
   /** Back or Forward going to a page of the user's (`entries`): the page it shows, should the browser restore it from memory. */
@@ -392,10 +392,10 @@ class BrowserSession {
   /** The address of the page its tab shows (`top`), without its fragment. */
   shown?: string;
   /**
-   * The connection the gate let its tab open a page through, as the user typed it (`typed`), once: at the
-   * proxy every other connection is checked as a page's own request is (a WebSocket the page still shown
-   * opens meanwhile, which the gate never sees). An http address's own request (`url`), or an https one's
-   * tunnel (`tunnel`, its origin), for a moment (`until`).
+   * The connection the gate let its tab open a page through, as the user typed it (`typed`): at the proxy
+   * every other connection is checked as a page's own request is (a WebSocket the page still shown opens
+   * meanwhile, which the gate never sees). An http address's own request (`url`), until the page shows, or
+   * an https one's tunnel once (`tunnel`, its origin); for a moment at most (`until`).
    */
   pass?: { url?: string; tunnel?: string; until: number };
   /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
@@ -783,14 +783,14 @@ const WINDOW_QUICK_EXIT_MS = 5000;
 /**
  * Why a request of a browser for the user alone does not go (`ownerVerdict()`), or undefined when it does:
  * never what no browser of Harness Relay's opens, and to this computer or the local network only to the
- * host of its tab's page, or (`main`: opening a page in its tab) the one the user typed, each while its
- * name leads where it led when the user opened it.
+ * host of its tab's page, or (`typed`: the opening of a page in its tab that the user typed, `typedFor()`)
+ * the one they typed, each while its name leads where it led when the user opened it.
  */
 function ownerRefusal(
   s: BrowserSession,
   url: string,
   rules: Parameters<typeof navigationVerdict>[1],
-  main: boolean,
+  typed?: OwnerPage,
 ): Refusal['why'] | undefined {
   if (/^(data|blob):/i.test(url) || url === 'about:blank' || url === 'about:srcdoc') return undefined;
   const verdict = navigationVerdict(url, { ...rules, allowed: new Set(), nearby: new Set() });
@@ -804,8 +804,48 @@ function ownerRefusal(
   }
   const nearby = leadsNearby(host, rules.addresses ?? [], rules.own ?? []);
   const key = approvalKeys('fetch', url)[0];
-  const why = ownerVerdict({ nearby, key, addresses: rules.addresses ?? [], top: s.top, ...(main ? { typed: s.typed } : {}) });
+  const why = ownerVerdict({ nearby, key, addresses: rules.addresses ?? [], top: s.top, ...(typed ? { typed } : {}) });
   return why === 'allow' ? undefined : why;
+}
+
+/**
+ * What the user typed, as a browser for the user alone opens it (`typed`): the page (`OwnerPage`), the
+ * address they typed (`url`), and the gate's id for the last request it let through for it (`request`),
+ * whose redirects are its own, and that request's address (`last`).
+ */
+type TypedPage = OwnerPage & { url: string; request?: string; last?: string };
+
+/** `page` as the user typed it at `url`. */
+const typedAt = (page: OwnerPage, url: string): TypedPage => ({
+  key: page.key,
+  nearby: page.nearby,
+  addresses: page.addresses,
+  url: noFragment(new URL(url).href),
+});
+
+/** Whether `url` is the address `typed` names: the same, or its https form (Chromium upgrading it). */
+function sameAddress(url: string, typed: string): boolean {
+  try {
+    const a = new URL(url);
+    const b = new URL(typed);
+    const scheme = a.protocol === b.protocol || (a.protocol === 'https:' && b.protocol === 'http:');
+    return scheme && a.hostname === b.hostname && a.port === b.port && a.pathname === b.pathname && a.search === b.search;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the main frame's request the gate paused (`p`) is the opening the user typed: a redirect of the
+ * last request it let through for it, or a GET of the very address they typed. Not another page's request
+ * to that host, a link or a script's (`location = …`) while the page they typed loads, or once it never
+ * showed (a 204, a download).
+ */
+function typedFor(typed: TypedPage | undefined, url: string, p: Record<string, unknown>): TypedPage | undefined {
+  if (!typed) return undefined;
+  if (typeof p.redirectedRequestId === 'string') return p.redirectedRequestId === typed.request ? typed : undefined;
+  const method = (p.request as { method?: unknown } | undefined)?.method;
+  return (method === undefined || method === 'GET') && sameAddress(url, typed.url) ? typed : undefined;
 }
 
 /** How long the connection of a page a browser for the user alone opens as typed may take to reach the proxy (`pass`). */
@@ -820,7 +860,13 @@ const noFragment = (url: string) => url.replace(/#.*$/s, '');
  * as the one the user typed; and then, when only what they typed lets it go, its connection at the proxy
  * once (`pass`).
  */
-function noteOpening(s: BrowserSession, url: string, rules: Parameters<typeof navigationVerdict>[1]): void {
+function noteOpening(
+  s: BrowserSession,
+  url: string,
+  rules: Parameters<typeof navigationVerdict>[1],
+  request: string,
+  typed?: TypedPage,
+): void {
   let u: URL;
   try {
     u = new URL(url);
@@ -832,7 +878,10 @@ function noteOpening(s: BrowserSession, url: string, rules: Parameters<typeof na
   const addresses = [...(rules.addresses ?? [])];
   if (!leadsNearby(u.hostname, addresses, rules.own ?? [])) return void (s.opening = { key, nearby: false, addresses });
   if (s.top && ownerVerdict({ nearby: true, key, addresses, top: s.top }) === 'allow') return void (s.opening = s.top);
-  s.opening = s.typed;
+  if (!typed) return;
+  s.opening = { key: typed.key, nearby: typed.nearby, addresses: typed.addresses };
+  typed.request = request;
+  typed.last = noFragment(u.href);
   const until = Date.now() + PASS_MS;
   s.pass = u.protocol === 'https:' ? { tunnel: u.origin, until } : { url: noFragment(u.href), until };
 }
@@ -841,8 +890,8 @@ function noteOpening(s: BrowserSession, url: string, rules: Parameters<typeof na
  * Whether the proxy connects a browser for the user alone's connection (`tunnel`: a CONNECT, which https,
  * wss and ws use; `request`: an http request's address): as a request of its tab's page (`ownerRefusal()`,
  * not as a page being opened: a WebSocket, which the gate never sees, opened by the page still shown while
- * another loads), or as the connection of the page the gate let its tab open as the user typed it, once
- * (`pass`).
+ * another loads), or as the connection of the page the gate let its tab open as the user typed it
+ * (`pass`: its http request's own address, or its https tunnel once).
  */
 function ownerRoutes(
   s: BrowserSession,
@@ -851,11 +900,13 @@ function ownerRoutes(
   tunnel: boolean,
   request?: string,
 ): boolean {
-  if (!ownerRefusal(s, url, rules, false)) return true;
+  if (!ownerRefusal(s, url, rules)) return true;
   const pass = s.pass;
   if (!pass || pass.until < Date.now()) return false;
-  const matches = request !== undefined ? pass.url === noFragment(request) : tunnel && pass.tunnel === new URL(url).origin;
-  if (!matches || ownerRefusal(s, url, rules, true)) return false;
+  // An http request at the very address the gate let through (the gate sees each one, and a socket never
+  // comes this way), until the page shows; a tunnel, which the gate does not see, once.
+  if (request !== undefined) return pass.url === noFragment(request) && !ownerRefusal(s, url, rules, s.typed);
+  if (!tunnel || pass.tunnel !== new URL(url).origin || ownerRefusal(s, url, rules, s.typed)) return false;
   s.pass = undefined;
   return true;
 }
@@ -866,7 +917,7 @@ function ownerRoutes(
  */
 function ownerSocket(s: BrowserSession, url: string, rules: Parameters<typeof navigationVerdict>[1], origin?: string): boolean {
   const from = origin && /^https?:\/\//i.test(origin) ? approvalKeys('fetch', origin)[0] : undefined;
-  return Boolean(from) && from === s.top?.key && !ownerRefusal(s, url, rules, false);
+  return Boolean(from) && from === s.top?.key && !ownerRefusal(s, url, rules);
 }
 
 /**
@@ -936,7 +987,7 @@ async function history(s: BrowserSession, to: 'back' | 'forward' | 'reload'): Pr
   // not (nor does Reload, on its error page: it is the tab's own page's request, and that page has no host).
   if (s.owner === 'user') {
     const page = s.entries.get(entry.id);
-    s.typed = page?.nearby ? page : undefined;
+    s.typed = page?.nearby ? typedAt(page, entry.url) : undefined;
     s.restoring = page;
   }
   await s.send('Page.navigateToHistoryEntry', { entryId: entry.id }).catch(() => undefined);
@@ -1123,7 +1174,10 @@ export class BrowserService {
         if (sid && s.refused.has(sid))
           return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
         if (!sid || !s.gated.has(sid)) return;
-        void this.gate(s, p, sid).catch(() => undefined);
+        // A request the gate could not decide is refused, never left waiting (its page would never load).
+        void this.gate(s, p, sid).catch(() =>
+          cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined),
+        );
       });
       // The proxy asks each browser to prove itself: only this one's own password, never a site's.
       cdp.on('Fetch.authRequired', (p: Record<string, unknown>, sid?: string) => {
@@ -1140,10 +1194,14 @@ export class BrowserService {
       // the internet; and the opening the user typed done with. Not the tab's first, blank page, which may
       // come after the opening was asked for.
       cdp.on('Page.frameNavigated', (p: Record<string, unknown>, sid?: string) => {
-        const frame = p.frame as { parentId?: string; url?: string } | undefined;
+        const frame = p.frame as { parentId?: string; url?: string; unreachableUrl?: string } | undefined;
         if (sid !== sessionId || !frame || frame.parentId) return;
         const url = frame.url ?? '';
         if (url === 'about:blank') return void ((s.top = undefined), (s.shown = undefined));
+        // The error page of a page refused before the user typed an address (on a slow computer its commit
+        // may come once they did): what they typed still opens, as it was going to.
+        const failed = typeof frame.unreachableUrl === 'string' ? noFragment(frame.unreachableUrl) : undefined;
+        if (failed !== undefined && s.typed && failed !== s.typed.last) return void ((s.top = undefined), (s.shown = undefined));
         const key = /^https?:/i.test(url) ? approvalKeys('fetch', url)[0] : undefined;
         const { opening, restoring } = s;
         s.typed = s.opening = s.restoring = s.pass = undefined;
@@ -1270,12 +1328,13 @@ export class BrowserService {
     // A browser for the user alone: nobody asked, and a request here only to the host of its own page (`ownerVerdict()`).
     if (s.owner === 'user') {
       const main = isMainDocument(s, p, sid);
-      const why = ownerRefusal(s, url, rules, main);
+      const typed = main ? typedFor(s.typed, url, p) : undefined;
+      const why = ownerRefusal(s, url, rules, typed);
       if (main && why) {
         s.denied = { url, why };
         s.onRefused?.(s.denied);
       }
-      if (main && !why) noteOpening(s, url, rules);
+      if (main && !why) noteOpening(s, url, rules, requestId, typed);
       return void (await go(!why));
     }
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
@@ -1860,7 +1919,12 @@ export class BrowserService {
                 // In a browser for the user alone, an address they typed may be on this computer or the local
                 // network, while it leads where it did when they typed it; one a page offered (a window it
                 // opened: "Open it here") may not, nor what they typed before.
-                if (s.owner === 'user') s.typed = e.typed ? await this.ownerPage(e.url) : undefined;
+                if (s.owner === 'user') {
+                  const page = e.typed ? await this.ownerPage(e.url) : undefined;
+                  s.typed = undefined;
+                  if (page) await this.leaveFor(s, page, e.url);
+                  s.typed = page && typedAt(page, e.url);
+                }
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
@@ -2032,7 +2096,7 @@ export class BrowserService {
       ticket.status = 'active';
       profile = join(this.userProfiles(), ticket.id);
       s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user' }, () => false);
-      if (typed) s.typed = typed;
+      if (typed && o.url) s.typed = typedAt(typed, o.url);
     } catch (err) {
       this.opening--;
       if (ticket) {
@@ -2082,6 +2146,22 @@ export class BrowserService {
     return page;
   }
 
+  /**
+   * Before a browser for the user alone opens an https page here as typed, whose connection the proxy lets
+   * through once by its origin alone (`pass`): the tab shows the blank page first, so that no page still
+   * shown can take that connection with a wss:// socket of its own (TLS, which the proxy does not read).
+   * An http one's connection is told by its own address, and a ws:// socket by its handshake's origin.
+   */
+  private async leaveFor(s: BrowserSession, page: OwnerPage, url: string): Promise<void> {
+    if (!page.nearby || !/^https:/i.test(url) || (await pageUrl(s)) === 'about:blank') return;
+    const blank = s.cdp.waitFor('Page.frameNavigated', 5000, s.sessionId, (p) => {
+      const frame = p.frame as { parentId?: string; url?: string } | undefined;
+      return !frame?.parentId && frame?.url === 'about:blank';
+    });
+    await s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
+    await blank;
+  }
+
   /** `url`'s page as the user opens it now (`OwnerPage`): where it leads, by the addresses its name has. */
   private async ownerPage(url: string): Promise<OwnerPage | undefined> {
     const key = approvalKeys('fetch', url)[0];
@@ -2112,7 +2192,9 @@ export class BrowserService {
     if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
     const typed = await this.userAddress(url, o.nearbyConfirmed);
     // Another site: what the user typed before opens nothing more.
-    u.s.typed = typed;
+    u.s.typed = undefined;
+    if (typed) await this.leaveFor(u.s, typed, url);
+    u.s.typed = typed && typedAt(typed, url);
     void u.s.send('Page.navigate', { url }, CONFIG.turnTimeoutMs).catch(() => undefined);
   }
 

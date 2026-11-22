@@ -325,6 +325,8 @@ describe.skipIf(!chromium)('the browser itself', () => {
   const upgraded: Duplex[] = [];
   // What `/hang` took and never answered, and whether the browser gave it up.
   const hung: ServerResponse[] = [];
+  /** What `/signal` took, answered when a test says so. */
+  const signals: ServerResponse[] = [];
   /** Told of each request the test server gets, as it comes. */
   let onRequest: ((url: string) => void) | undefined;
   let hangClosed = false;
@@ -459,6 +461,14 @@ describe.skipIf(!chromium)('the browser itself', () => {
         return res.end(
           `<title>Sockets</title><script>setInterval(() => { try { new WebSocket('ws://localhost:${port}/ws-pwn').onerror = () => {} } catch {} }, 25)</script>`,
         );
+      if (url.pathname === '/nocontent') return void res.writeHead(204).end();
+      if (url.pathname === '/to-next') return void res.writeHead(302, { location: '/next' }).end();
+      if (url.pathname === '/signal') return void signals.push(res);
+      if (url.pathname === '/waiting')
+        // A page that sends its tab to another host here once the test lets its own request answer.
+        return res.end(
+          `<title>Waiting</title><script>fetch('/signal').then(() => (location = 'http://localhost:${port}/reboot?pwn=2'), () => {})</script>`,
+        );
       if (url.pathname === '/rebind')
         // A page asking its own host for something, again and again.
         return res.end(
@@ -512,6 +522,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
     browser?.closeAll();
     for (const sock of upgraded) sock.destroy();
     for (const res of hung) res.destroy();
+    for (const res of signals) res.destroy();
     await new Promise((r) => server?.close(r));
     await new Promise((r) => relay?.close(r));
   });
@@ -965,18 +976,22 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect(browser.userBrowserOpen('conv-alone', id)).toBe(true);
       expect(browser.userBrowserOpen('another', id)).toBe(false);
       const notices: string[] = [];
+      const locations: string[] = [];
+      /** What the tab did, for a wait that fails. */
+      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12) });
       let frames = 0;
       await vi.waitFor(() => {
         const watching = browser.handovers.watch('conv-alone', id, (e) => {
           if (e.type === 'frame') frames++;
           if (e.type === 'notice') notices.push(`${e.kind} ${e.url}`);
+          if (e.type === 'location') locations.push(e.url);
         });
         expect(typeof watching).toBe('function');
       });
-      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: slow(20_000) });
+      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: 20_000 });
       const asked = asked0();
       // Nothing selected yet, nothing focused: nothing to save.
-      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe(''), { timeout: slow(10_000) });
+      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe(''), { timeout: 10_000 });
       // Three clicks on the token's text select it; read in a world of our own.
       await browser.handovers.input('conv-alone', id, [
         { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 1 },
@@ -998,21 +1013,21 @@ describe.skipIf(!chromium)('the browser itself', () => {
         { type: 'mouse', action: 'down', x: 0.5, y: 0.4, clicks: 1 },
         { type: 'mouse', action: 'up', x: 0.5, y: 0.4, clicks: 1 },
       ]);
-      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/next`), { timeout: slow(10_000) });
+      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
       expect(asked0()).toBe(asked);
       // Offered by the page (its window's address, "Open it here"): not opened either.
       notices.length = 0;
       await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]);
-      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/next`), { timeout: slow(10_000) });
+      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
       // Typed in its address bar: opened.
       hits.length = 0;
       await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
-      await vi.waitFor(() => expect(hits).toContain('/next'), { timeout: slow(10_000) });
+      await vi.waitFor(() => expect(hits, state()).toContain('/next'), { timeout: 10_000 });
       expect(asked0()).toBe(asked);
       // Opened before, that host is still not for another page to reach: neither a request nor a page it opens.
       notices.length = 0;
       await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/csrf`, typed: true }]);
-      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/csrf-nav`), { timeout: slow(10_000) });
+      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/csrf-nav`), { timeout: 10_000 });
       expect(hits).toContain('/csrf');
       expect(hits).not.toContain('/csrf-fetch');
       expect(hits).not.toContain('/csrf-nav');
@@ -1055,8 +1070,10 @@ describe.skipIf(!chromium)('the browser itself', () => {
         });
         expect(typeof watching).toBe('function');
       });
-      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: slow(20_000) });
-      return { id, notices, locations, input: (events: HandoverInput[]) => alone.handovers.input(conv, id, events) };
+      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: 20_000 });
+      /** What the tab did, for a wait that fails. */
+      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12) });
+      return { id, notices, locations, state, input: (events: HandoverInput[]) => alone.handovers.input(conv, id, events) };
     }
 
     it(
@@ -1066,7 +1083,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
         const page = `http://rebind.test:${port}/rebind`;
         const b = await open('conv-rebind', page);
         // Opened as the user confirmed it, its own requests reach its host.
-        await vi.waitFor(() => expect(hits.some((h) => h.startsWith('/rebind-fetch'))).toBe(true), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(hits.some((h) => h.startsWith('/rebind-fetch'))).toBe(true), { timeout: 10_000 });
         // Its name now leads to another address here (DNS rebinding, as a public page's name may come to lead to the router).
         answer = ['127.0.0.2'];
         await new Promise((r) => setTimeout(r, 500));
@@ -1075,7 +1092,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
         expect(hits.filter((h) => h.startsWith('/rebind-fetch'))).toEqual([]);
         // Nor does a page of its host open, but as typed again, where it leads now.
         await b.input([{ type: 'navigate', url: `http://rebind.test:${port}/next` }]);
-        await vi.waitFor(() => expect(b.notices).toContain(`refused http://rebind.test:${port}/next`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://rebind.test:${port}/next`), { timeout: 10_000 });
         expect(hits).not.toContain('/next');
         await alone.closeForUser('conv-rebind', b.id);
       },
@@ -1088,27 +1105,78 @@ describe.skipIf(!chromium)('the browser itself', () => {
         hits.length = 0;
         const b = await open('conv-history', `http://127.0.0.1:${port}/evil-once`);
         // The page sends the tab to a device here it may not reach: refused, and kept in the history.
-        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+          timeout: 10_000,
+        });
         // The user types another address, then goes Back to the refused one, and reloads it.
         await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/next`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/next`), { timeout: 10_000 });
         b.notices.length = 0;
         await b.input([{ type: 'history', to: 'back' }]);
-        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+          timeout: 10_000,
+        });
         b.notices.length = 0;
         await b.input([{ type: 'history', to: 'reload' }]);
-        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+          timeout: 10_000,
+        });
         expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
         // A page the user opened opens again with Back, here as it did; then Forward goes to the refused one, refused.
         b.notices.length = 0;
         await b.input([{ type: 'history', to: 'back' }]);
-        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/evil-once`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/evil-once`), { timeout: 10_000 });
         await new Promise((r) => setTimeout(r, 500));
         expect(b.notices).toEqual([]);
         await b.input([{ type: 'history', to: 'forward' }]);
-        await vi.waitFor(() => expect(b.notices).toContain(`refused http://localhost:${port}/reboot?pwn=1`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+          timeout: 10_000,
+        });
         expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
         await alone.closeForUser('conv-history', b.id);
+      },
+      slow(60_000),
+    );
+
+    it(
+      'takes what the user typed for that opening alone: once it showed nothing, the page still shown cannot send the tab there; its redirects open',
+      async () => {
+        hits.length = 0;
+        const b = await open('conv-typed', `http://127.0.0.1:${port}/waiting`);
+        await vi.waitFor(() => expect(hits, b.state()).toContain('/signal'), { timeout: 10_000 });
+        // Typed: an address on another host here that shows no page (a 204): the page still shown stays.
+        hits.length = 0;
+        await b.input([{ type: 'navigate', url: `http://localhost:${port}/nocontent`, typed: true }]);
+        await vi.waitFor(() => expect(hits, b.state()).toContain('/nocontent'), { timeout: 10_000 });
+        // That page then sends the tab to the host the user typed, at an address of its own: refused.
+        for (const res of signals.splice(0)) res.end('go');
+        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=2`), {
+          timeout: 10_000,
+        });
+        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
+        // Typed: an address on that host that redirects within it opens.
+        await b.input([{ type: 'navigate', url: `http://localhost:${port}/to-next`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/next`), { timeout: 10_000 });
+        expect(hits).toEqual(expect.arrayContaining(['/to-next', '/next']));
+        await alone.closeForUser('conv-typed', b.id);
+      },
+      slow(60_000),
+    );
+
+    it(
+      'shows the blank page before it opens an https page here as typed, so that no page still shown can take its connection',
+      async () => {
+        const b = await open('conv-https', `http://127.0.0.1:${port}/next`);
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/next`), { timeout: 10_000 });
+        // The test's server speaks no TLS: the page itself does not open, but the blank page came first.
+        await b.input([{ type: 'navigate', url: `https://localhost:${port}/secure`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`https://localhost:${port}/secure`), { timeout: 10_000 });
+        expect(b.locations.slice(-2), b.state()).toEqual(['about:blank', `https://localhost:${port}/secure`]);
+        // An http one, whose connection is told by its own address, opens from the page shown.
+        await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/next`), { timeout: 10_000 });
+        expect(b.locations.slice(-2), b.state()).toEqual([`https://localhost:${port}/secure`, `http://localhost:${port}/next`]);
+        await alone.closeForUser('conv-https', b.id);
       },
       slow(60_000),
     );
@@ -1119,14 +1187,14 @@ describe.skipIf(!chromium)('the browser itself', () => {
         hits.length = 0;
         const b = await open('conv-sockets', `http://127.0.0.1:${port}/sockets`);
         // A page's own sockets go to its host.
-        await vi.waitFor(() => expect(hits).toContain(`upgrade /ws 127.0.0.1:${port}`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(hits).toContain(`upgrade /ws 127.0.0.1:${port}`), { timeout: 10_000 });
         await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/ws-attacker`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://127.0.0.1:${port}/ws-attacker`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/ws-attacker`), { timeout: 10_000 });
         await new Promise((r) => setTimeout(r, 1000));
         hits.length = 0;
         // The user types an address on that other host, whose page takes a while to come.
         await b.input([{ type: 'navigate', url: `http://localhost:${port}/slow`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1)).toBe(`http://localhost:${port}/slow`), { timeout: slow(10_000) });
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/slow`), { timeout: 10_000 });
         expect(hits).toContain('/slow');
         expect(hits.filter((h) => h.startsWith('upgrade /ws-pwn'))).toEqual([]);
         await alone.closeForUser('conv-sockets', b.id);
