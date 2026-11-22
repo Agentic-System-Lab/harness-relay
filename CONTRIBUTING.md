@@ -41,7 +41,7 @@ You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, 
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
 cd harness-relay
 npm install
-npm run dev        # API on :8789 (restarts on changes) + UI on http://localhost:5173
+npm run dev        # API on :8789 (restarts on changes) + UI on http://localhost:5173, or the next free ports
 ```
 
 Working on the desktop app (`desktop/`)? Run `npm install --prefix desktop` once, then `npm run desktop` to build it and run it; the [developer guide](docs/developer-guide.md#the-desktop-app) explains how it works.
