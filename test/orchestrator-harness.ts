@@ -143,6 +143,8 @@ export interface Fake {
   reply: ((name: string, prompt: string) => string | undefined) | undefined;
   /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
   inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
+  /** What a member's run says it spent, in its result (none by default). */
+  runUsage: import('../src/server/agents/types').RunUsage | undefined;
   /** The structured answer each of the lead agent's runs gives (`RunResult.structured`), besides its text. */
   structured: Partial<Record<'lead' | 'reviewer' | 'reviser' | 'sorter', unknown>>;
   /** The answer's shape each of the lead agent's runs was last asked for (`RunOptions.outputSchema`). */
@@ -178,6 +180,7 @@ const fresh = (): Fake => ({
   keptAsk: undefined,
   reply: undefined,
   inTurn: undefined,
+  runUsage: undefined,
   structured: {},
   schemas: {},
   steer: new Set(),
@@ -384,7 +387,7 @@ beforeAll(() => {
         : '';
       o.onEvent({ type: 'text', text: (fake.reply?.(name, o.prompt) ?? `${name} done`) + heard });
       o.onEvent({ type: 'text_end' });
-      return { sessionId: `session-${name}` };
+      return { sessionId: `session-${name}`, ...fake.runUsage };
     },
   };
 });

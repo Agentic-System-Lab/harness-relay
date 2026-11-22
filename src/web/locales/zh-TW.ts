@@ -1317,6 +1317,7 @@ export const zhTW = {
     problems: {
       model: '請寫成「來源/模型」，例如 anthropic/claude-haiku-5-5。',
       connection: '「模型連線」裡沒有這個來源：請先在「設定 → 模型連線」加上它。',
+      cliModel: '這是你自己的端點或 API 金鑰的模型，透過 CLI 問會把問題送到那個 CLI 自己的服務：請改用模型連線，或填 CLI 自己的模型。',
     },
     saved: '已儲存。從助理的下一個回合開始生效。',
   },

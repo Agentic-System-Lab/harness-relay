@@ -681,7 +681,8 @@
               Relay asks the model itself, with no tools, and its key never enters the sandbox. A small model may miss details.
               Instead of a model connection, <b>Ask through</b> can name one of your Claude Code, Copilot or Muse Code accounts:
               the questions then go on that account's plan, each one starting that CLI with all its tools taken away, a few
-              seconds each.
+              seconds each, and the cost the CLI reports (Claude Code's) is added to the reply's. A model of your own endpoints is
+              asked through its model connection instead.
             </li>
           </ul>
           <p>Neither works on Windows, nor where Harness Relay's own sandbox cannot start: on Linux it needs bubblewrap, which <b>Settings → Sandboxes</b> installs. The card says so.</p>

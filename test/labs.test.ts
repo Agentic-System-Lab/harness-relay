@@ -12,6 +12,7 @@ import {
   labConnections,
   labDraft,
   labEnvName,
+  labMissingAccount,
   labModelSuggestions,
   labSourceKey,
   labSourceOf,
@@ -134,6 +135,8 @@ describe('Settings → Labs, over the HTTP API', () => {
     expect(await refused({ mode: 'rlm', rlmModel: 'cli:muse:nope/muse-spark-1.3' })).toContain('nope');
     // A CLI whose runs keep a tool reads as no sub-model at all.
     expect(await refused({ mode: 'rlm', rlmModel: 'cli:codex/gpt-6.2-sol' })).toContain('cli:codex');
+    // A model of the user's own endpoints (or API keys) through a CLI would go to the CLI's maker.
+    expect(await refused({ mode: 'rlm', rlmModel: 'cli:claude/homelab/qwen' })).toMatch(/model connection|模型連線/);
     expect(settings.labs()).toMatchObject({ rlmModel: 'cli:copilot' });
   });
 
@@ -208,6 +211,16 @@ describe('Settings → Labs, on the page', () => {
     expect(labChoice('cli:copilot:work/gpt-6')).toEqual({ source: { kind: 'cli', provider: 'copilot', account: 'work' }, model: 'gpt-6' });
     expect(labChoice('homelab/qwen')).toEqual({ source: { kind: 'connection' }, model: 'homelab/qwen' });
     expect(labChoice(undefined)).toEqual({ source: { kind: 'connection' }, model: '' });
+    // Never one of the user's endpoints' models, which the CLI would send to its own service.
+    expect(labDraft('rlm', 'homelab/qwen', ['homelab'], claude)).toEqual({ problem: 'cliModel' });
+  });
+
+  it('keeps a saved account the list no longer has as an option of its own', () => {
+    const accounts = [{ provider: 'claude' as const, account: '', label: '', usable: true }];
+    expect(labMissingAccount({ kind: 'cli', provider: 'claude', account: '' }, accounts)).toBe(false);
+    expect(labMissingAccount({ kind: 'cli', provider: 'claude', account: 'gone' }, accounts)).toBe(true);
+    expect(labMissingAccount({ kind: 'cli', provider: 'muse', account: '' }, accounts)).toBe(true);
+    expect(labMissingAccount({ kind: 'connection' }, accounts)).toBe(false);
   });
 
   it("lists the installed CLIs' accounts, and their own models only", () => {

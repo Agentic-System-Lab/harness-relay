@@ -42,6 +42,7 @@ import {
   copilotDevWrites,
   copilotTempDirs,
   copilotToolless,
+  copilotToollessReply,
   copilotStartsSomething,
   copilotEffortRefusal,
   copilotEnv,
@@ -2216,6 +2217,7 @@ describe("RLM's sub-model through Copilot (a toolless run)", () => {
       mcpServers: [{ name: 'relay', transport: 'http', command: '', args: [], url: 'http://127.0.0.1:1/mcp', env: {}, headers: {} }],
       addDirs: ['/docs'],
       sessionId: 'old',
+      requestApproval: async () => ({ allow: true }),
     });
     expect(o).toMatchObject({
       mcpServers: [],
@@ -2223,26 +2225,41 @@ describe("RLM's sub-model through Copilot (a toolless run)", () => {
       sessionId: undefined,
       nativeOff: ['skills', 'mcp', 'memory', 'hooks', 'plugins'],
     });
+    expect(o.requestApproval).toBeUndefined();
   });
 
-  it("drops Copilot's own lines about the allowlist before the reply, and nothing of the reply", () => {
-    const events: AgentEvent[] = [];
-    const h = createCopilotUpdateHandler((e) => events.push(e), { toolless: true });
-    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Info: Disabled tools: bash, create, edit' } });
-    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: COPILOT_NO_TOOL_NOTICE } });
-    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'SQLite, ' } });
-    h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'SSE' } });
-    expect(
-      events
-        .filter((e) => e.type === 'text')
-        .map((e) => (e as { text: string }).text)
-        .join(''),
-    ).toBe('SQLite, SSE');
-    // In one chunk with the reply's first words.
-    const one: AgentEvent[] = [];
-    const h2 = createCopilotUpdateHandler((e) => one.push(e), { toolless: true });
-    h2.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${COPILOT_NO_TOOL_NOTICE}SQLite` } });
-    expect(one).toEqual([{ type: 'text', text: 'SQLite' }]);
+  it("gives the reply whole once the turn ends, without Copilot's lines about the allowlist however they were cut", () => {
+    const tools = 'Info: Disabled tools: bash, create, edit, write_agent';
+    expect(copilotToollessReply(`${tools}${COPILOT_NO_TOOL_NOTICE}SQLite, SSE`)).toBe('SQLite, SSE');
+    expect(copilotToollessReply(`  ${COPILOT_NO_TOOL_NOTICE}\nSQLite`)).toBe('SQLite');
+    expect(copilotToollessReply(`${tools}\nSQLite`)).toBe('SQLite');
+    // The model's own words that begin as Copilot's lines do, or name the notice later on, stay.
+    expect(copilotToollessReply('Info: 3 lines failed')).toBe('Info: 3 lines failed');
+    expect(copilotToollessReply(`The log says ${COPILOT_NO_TOOL_NOTICE}`)).toBe(`The log says ${COPILOT_NO_TOOL_NOTICE}`);
+
+    const chunks = (list: string[], usage = true) => {
+      const events: AgentEvent[] = [];
+      const h = createCopilotUpdateHandler((e) => events.push(e), { toolless: true });
+      for (const text of list) h.handle({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+      expect(events.filter((e) => e.type === 'text')).toEqual([]); // nothing before the end
+      const failed = h.finish(usage);
+      return {
+        failed,
+        text: events
+          .filter((e) => e.type === 'text')
+          .map((e) => (e as { text: string }).text)
+          .join(''),
+      };
+    };
+    // The notice cut in two, and in one chunk with the tools' line.
+    expect(chunks([tools, COPILOT_NO_TOOL_NOTICE.slice(0, 17), COPILOT_NO_TOOL_NOTICE.slice(17), 'SQLite, ', 'SSE']).text).toBe(
+      'SQLite, SSE',
+    );
+    expect(chunks([`${tools}${COPILOT_NO_TOOL_NOTICE}`, 'SQLite']).text).toBe('SQLite');
+    // An answer of one chunk that begins "Info:" is the model's, not held back as one of Copilot's lines.
+    expect(chunks([tools, COPILOT_NO_TOOL_NOTICE, 'Info: 3 lines failed']).text).toBe('Info: 3 lines failed');
+    // A model call that failed: Copilot's error line, and no usage.
+    expect(chunks([tools, COPILOT_NO_TOOL_NOTICE, 'Error: Could not connect'], false).failed).toBe('Error: Could not connect');
     // Another run shows such a line as text when the reply goes on after it.
     const member: AgentEvent[] = [];
     const h3 = createCopilotUpdateHandler((e) => member.push(e));
@@ -2251,22 +2268,83 @@ describe("RLM's sub-model through Copilot (a toolless run)", () => {
     expect(member.some((e) => e.type === 'text' && e.text.includes('Info:'))).toBe(true);
   });
 
-  it("gives a home with the system prompt alone, and no link to the account's sessions", () => {
+  it("gives a home with the system prompt alone: no link to the account's sessions, nor anything it loads by itself", () => {
     const account = mkdtempSync(join(tmpdir(), 'relay-copilot-acct-'));
     try {
       writeFileSync(join(account, 'copilot-instructions.md'), 'My own rules.');
+      for (const d of ['instructions', 'agents', 'extensions', 'skills']) mkdirSync(join(account, d));
+      writeFileSync(join(account, 'lsp-config.json'), '{}');
+      writeFileSync(join(account, 'mcp-config.json'), '{"mcpServers":{}}');
       const run = prepareCopilotRun(
         account,
         { permission: 'read-only', cwd: account, nativeOff: ['skills', 'mcp', 'memory', 'hooks', 'plugins'], toolless: true },
         'Answer.',
       );
-      const names = readdirSync(run.dir);
-      expect(names).not.toContain('session-state');
-      expect(names).not.toContain('session-store.db');
+      expect(readdirSync(run.dir).sort()).toEqual(['config.json', 'copilot-instructions.md', 'settings.json']);
       expect(readFileSync(join(run.dir, 'copilot-instructions.md'), 'utf8')).toBe('Answer.\n');
       run.done();
     } finally {
       rmSync(account, { recursive: true, force: true });
     }
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run (stand-in copilot)', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-copilot-toolless-')));
+    afterAll(() => rmSync(root, { recursive: true, force: true }));
+    const bin = writeFakeCopilot(join(root, 'copilot'));
+
+    it('starts copilot with no tool, MCP server or account files, refuses what it asks, and gives the reply without its lines', async () => {
+      const cwd = join(root, 'ask');
+      const home = join(root, 'home');
+      mkdirSync(join(cwd, '.git'), { recursive: true });
+      mkdirSync(home, { recursive: true });
+      writeFileSync(join(home, 'config.json'), JSON.stringify({ loggedInUsers: [{ host: 'https://github.com', login: 'octocat' }] }));
+      writeFileSync(join(home, 'copilot-instructions.md'), 'My own rules.');
+      mkdirSync(join(home, 'extensions'));
+      const logFile = join(root, 'log.jsonl');
+      const events: AgentEvent[] = [];
+      await withLang('en', () =>
+        copilotRunner.run({
+          bin,
+          env: {
+            PATH: process.env.PATH,
+            COPILOT_HOME: home,
+            FAKE_COPILOT_LOG: logFile,
+            FAKE_COPILOT_NOTICES: JSON.stringify([
+              'Info: Disabled tools: bash, view',
+              COPILOT_NO_TOOL_NOTICE.slice(0, 20),
+              COPILOT_NO_TOOL_NOTICE.slice(20),
+            ]),
+            FAKE_COPILOT_REPLY: JSON.stringify(['Info: 3 lines ', 'failed']),
+          },
+          prompt: 'Which lines failed?',
+          systemPrompt: 'Answer from the log.',
+          cwd,
+          permission: 'read-only',
+          signal: new AbortController().signal,
+          onEvent: (e) => events.push(e),
+          toolless: true,
+          mcpServers: [{ name: 'relay', transport: 'http', command: '', args: [], url: 'http://127.0.0.1:1/mcp', env: {}, headers: {} }],
+        }),
+      );
+      const log = readFileSync(logFile, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, any>);
+      const start = log.find((l) => l.start && l.argv.includes('--acp'))!;
+      expect(start.argv).toContain(`--available-tools=${COPILOT_NO_TOOL}`);
+      expect(start.argv).toContain('--sandbox');
+      expect(start.argv.join(' ')).not.toContain('Answer from the log');
+      expect(Object.keys(start.files).sort()).toEqual(['config.json', 'copilot-instructions.md', 'settings.json']);
+      expect(start.files['copilot-instructions.md']).toBe('Answer from the log.\n');
+      expect(log.find((l) => l.method === 'session/new')?.params.mcpServers).toEqual([]);
+      expect(
+        events
+          .filter((e) => e.type === 'text')
+          .map((e) => (e as { text: string }).text)
+          .join(''),
+      ).toBe('Info: 3 lines failed');
+    });
   });
 });

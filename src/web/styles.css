@@ -10153,7 +10153,8 @@ a.share-action {
   gap: 6px;
   margin-bottom: 12px;
 }
-.labs-model input {
+.labs-model input,
+.labs-model select {
   max-width: 420px;
   width: 100%;
 }

@@ -42,12 +42,12 @@ import {
   voiceDirProblem,
 } from './protect';
 import { CONFIG, CONFIG_PROBLEMS } from './config';
-import { OPEN_PROVIDERS, parseCliSubModel, type Lang } from '../shared/types';
+import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { runners } from './agents/index';
 import { RUN_TMP_DIR, clearOpenRunLeftovers, privateRoots } from './agents/open';
 import { runCodeTool, sandboxedRunner } from './runCode';
 import { llmComplete, llmTarget } from './llmQuery';
-import { askThroughCli } from './cliSubModel';
+import { subModelAsker } from './cliSubModel';
 import { endpointModelLimits } from './contextWindow';
 import { clearCheckTrees } from './checkCommands';
 import {
@@ -195,11 +195,9 @@ if (process.platform !== 'win32') {
       mode: () => settings.labs(),
       // RLM mode's sub-model, on a model connection of Settings or through one of the CLIs' accounts
       // (`cliSubModel.ts`), looked up at each question.
-      ask: async (model, req, signal) => {
-        const cli = parseCliSubModel(model);
-        if (cli) return askThroughCli(settings, runners, cli, req, signal);
-        return llmComplete(llmTarget(settings.backends.forRun(), model), req, signal);
-      },
+      ask: subModelAsker({ settings, runners }, (model, req, signal) =>
+        llmComplete(llmTarget(settings.backends.forRun(), model), req, signal),
+      ),
       // Its context window and output limit, when it is a model of the user's own endpoints that has them.
       limits: (model) => endpointModelLimits(settings.backends.forRun(), model),
       available: () => sandboxAvailable(),

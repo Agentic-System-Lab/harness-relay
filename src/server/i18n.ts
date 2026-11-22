@@ -521,6 +521,8 @@ const zhTW = {
     `「${id}」不是「來源/模型」的格式，例如 anthropic/claude-haiku-5-5、你的端點 id 加上模型名稱，或透過 CLI 的 cli:claude/haiku。`,
   labsNoConnection: (backend: string) => `「模型連線」裡沒有設定 ${backend}：請先在「設定 → 模型連線」加上它的金鑰或端點。`,
   labsNoCliAccount: (cli: string, account: string) => `${cli} 沒有「${account}」這個帳號：請到「設定 → ${cli}」加上它，或選另一個帳號。`,
+  labsCliConnectionModel: (cli: string, model: string) =>
+    `「${model}」是你自己的端點或 API 金鑰的模型，透過 ${cli} 問會把問題送到 ${cli} 自己的服務：請改成透過模型連線問它，或填 ${cli} 自己的模型。`,
   labsWindows: '原生 Windows 上還不能用：Harness Relay 在這裡沒有可以執行程式的沙箱。',
   labsNoNode: '這台電腦上找不到可以執行程式的 Node.js。',
   checksCommandNoFolder: (cwd: string) =>
@@ -1593,6 +1595,8 @@ const en: ServerMessages = {
   labsNoConnection: (backend) =>
     `${backend} is not set up in Model connections: add its key or endpoint under Settings → Model connections first.`,
   labsNoCliAccount: (cli, account) => `${cli} has no account "${account}": add it under Settings → ${cli}, or pick another account.`,
+  labsCliConnectionModel: (cli, model) =>
+    `"${model}" is a model of your own endpoints or API keys, which ${cli} would send to its own service: ask it through a model connection instead, or name one of ${cli}'s own models.`,
   labsWindows: 'Not on native Windows yet: Harness Relay has no sandbox there to run the code in.',
   labsNoNode: 'There is no Node.js on this computer to run the code with.',
   checksCommandNoFolder: (cwd) =>
