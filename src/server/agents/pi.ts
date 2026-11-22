@@ -490,10 +490,12 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   ];
   if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir)))
     throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
-  // The team's after hooks: the gate shows each call's result too.
-  if (o.hooks?.kinds('after').size) ctx.env.HARNESS_RELAY_PI_AFTER = '1';
-  // Full access without hooks: the gate is loaded for its plan tool only.
-  if (!piGated(o)) ctx.env.HARNESS_RELAY_PI_UNGATED = '1';
+  // Both set in every run, never left to what the server's own environment holds (a Pi run of a
+  // Harness Relay started from a full-access member's command would pass on its ungated `1`): the
+  // team's after hooks, for which the gate shows each call's result too; and full access without hooks,
+  // where the gate is loaded for its plan tool only.
+  ctx.env.HARNESS_RELAY_PI_AFTER = o.hooks?.kinds('after').size ? '1' : '0';
+  ctx.env.HARNESS_RELAY_PI_UNGATED = piGated(o) ? '0' : '1';
 
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
@@ -898,7 +900,6 @@ export function piToolDetail(name: string, args: unknown): string | undefined {
   return summarizeInput(args) ?? (Object.keys(a).length ? clip(JSON.stringify(a)) : undefined);
 }
 
-/** Turns Pi's session events into AgentEvents (pure: records in, events out). */
 /** The plan an `update_plan` call's arguments give (`PI_PLAN_TOOL`), or undefined when they hold none. */
 export function piPlanEntries(args: unknown): PlanEntry[] | undefined {
   const plan = (args as { plan?: unknown } | undefined)?.plan;
@@ -908,6 +909,7 @@ export function piPlanEntries(args: unknown): PlanEntry[] | undefined {
     .map((x) => ({ text: x.step, status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
 }
 
+/** Turns Pi's session events into AgentEvents (pure: records in, events out). */
 export function createPiEventHandler(emit: (e: AgentEvent) => void) {
   let inText = false;
   const open = new Set<string>();

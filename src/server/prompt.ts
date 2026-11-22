@@ -286,10 +286,6 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
 }
 
 /**
- * A branch's copied messages speak of files as they were then: the conversation it was branched from
- * may have gone on and changed them since ('' for a conversation that is not a branch).
- */
-/**
  * The CLIs whose own subagents can still be at work when the agent's reply ends, and then lose what they
  * do: Antigravity (no switch for them; Harness Relay ends `agy` 3 s after the prompt is answered, and
  * before 1.5.10 what wakes it is lost), Muse Code (it gives a subagent's result "when the session is idle"),
@@ -303,6 +299,10 @@ export function subagentRules(provider: Provider, nativeOff: readonly NativePart
   return '\n- If you hand work to subagents or background tasks of your own, wait for every one of them to finish and use its result before you end your reply: anything still running when your reply ends is lost, and your reply is all the team sees.';
 }
 
+/**
+ * A branch's copied messages speak of files as they were then: the conversation it was branched from
+ * may have gone on and changed them since ('' for a conversation that is not a branch).
+ */
 function branchRules(conv: Conversation): string {
   if (!conv.branch) return '';
   return '\n- This chat was branched from an earlier one: the messages up to the branch point were copied from it, and that chat may have gone on and changed files in the working directory since. Check the files themselves rather than relying on what earlier messages say about them.';

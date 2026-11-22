@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { endpointEffort, PROVIDER_LABEL, type NativePart, type Permission } from '../../shared/types';
+import { endpointEffort, PROVIDER_LABEL, type NativeOnPart, type NativePart, type Permission } from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
@@ -1096,16 +1096,14 @@ export function createGrokUpdateHandler(emit: (e: AgentEvent) => void) {
         changed();
         return true;
       }
-      case 'task_backgrounded': {
-        const task = text(u.task_id);
-        if (task) running.add(`task:${task}`);
+      // A command it moved to the background does not hold the turn: a server or a watcher would hold it
+      // until the turn's time limit (before, it ended with Grok). Only its end, when Grok wakes for it while
+      // the turn still waits for a subagent, is followed.
+      case 'task_backgrounded':
         changed();
         return true;
-      }
       case 'task_completed': {
-        const task = text(u.task_snapshot?.task_id);
-        if (task) running.delete(`task:${task}`);
-        if (u.will_wake === true) wakeAt = seq++;
+        if (u.will_wake === true && running.size > 0) wakeAt = seq++;
         changed();
         return true;
       }
@@ -1294,11 +1292,15 @@ const TICKS_PER_USD = 1e10;
  * ~/.grok/config.toml), and neither have instruction files, its own subagents or plugins. Its subagents
  * as a whole have one (`GROK_SUBAGENTS`), and its question form is always off.
  */
-export function grokNativeEnv(off: readonly NativePart[] = []): Record<string, string> {
+export function grokNativeEnv(off: readonly NativePart[] = [], on: readonly NativeOnPart[] = []): Record<string, string> {
   return {
     // Its question form (`ask_user_question`), which Harness Relay answers with -32601: the agent asks in
     // its reply instead (`[ASK_USER]`). Grok 1.0.92 reads it.
     GROK_ASK_USER_QUESTION: '0',
+    // Its own `/goal`, which goes on by itself where Harness Relay tracks a goal of its own (Grok 1.0.92's docs).
+    GROK_GOAL: '0',
+    // Its background workflows and deep research, unless the account turns them on (`NATIVE_ON_SUPPORT`).
+    ...(on.includes('workflows') ? {} : { GROK_WORKFLOWS: '0' }),
     // All its subagents (`spawn_subagent`), the built-in ones too.
     ...(off.includes('subagents') ? { GROK_SUBAGENTS: '0' } : {}),
     ...(off.includes('skills') ? { GROK_CLAUDE_SKILLS_ENABLED: 'false', GROK_CURSOR_SKILLS_ENABLED: 'false' } : {}),
@@ -1317,12 +1319,12 @@ export const GROK_SUBAGENT_CAPS = { GROK_MAX_CONCURRENT_SUBAGENTS: '4', GROK_SUB
 
 /** The environment of one run: the user's, what leaves out Grok's own setup, and the sandbox for the permission. */
 export function grokEnv(
-  o: Pick<RunOptions, 'env' | 'nativeOff' | 'permission' | 'addDirs'>,
+  o: Pick<RunOptions, 'env' | 'nativeOff' | 'nativeOn' | 'permission' | 'addDirs'>,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
   const sandbox = grokSandboxProfile(o.permission, platform, grokReadWrite(o.addDirs));
   const caps = o.nativeOff?.includes('subagents') ? {} : GROK_SUBAGENT_CAPS;
-  return { ...o.env, ...grokNativeEnv(o.nativeOff), ...caps, ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
+  return { ...o.env, ...grokNativeEnv(o.nativeOff, o.nativeOn), ...caps, ...(sandbox ? { GROK_SANDBOX: sandbox } : {}) };
 }
 
 /**
@@ -1635,7 +1637,9 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     updates.finish();
     updates.cutOff();
     if (userAborted) throw new AgentRunError(t().stopped, true);
-    if (timedOut) throw new AgentRunError(t().timedOut);
+    // Out of time while it waited for background work once the prompt had answered: the answer stands,
+    // and what was still at work shows as cut off (`cutOff()` above).
+    if (timedOut && (!result || result.stopReason === 'cancelled')) throw new AgentRunError(t().timedOut);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(describeGrokCancel(updates.lastFailure, o.permission));
 
     const u = result?._meta?.usage ?? {};

@@ -595,13 +595,24 @@ function AgentLimitField({ agent, onChange }: { agent: AgentConfig; onChange: (l
   const cli = agent.provider as keyof typeof t.team.limit.label;
   const bad = Boolean(limitProblem(agent));
   const shown = open || bad;
+  // Closed, the line shows what the member holds now (a team saved meanwhile, the lead agent's change),
+  // never what was typed when the editor opened; opening the field starts from it.
+  const held = limitText(agent);
   return (
     <div className="field agent-limit">
       <span id={label}>{t.team.limit.label[cli]}</span>
       <div className="agent-tools-summary">
-        {!shown && <span className={text ? 'small' : 'muted small'}>{text || t.team.limit.placeholder}</span>}
+        {!shown && <span className={held ? 'small' : 'muted small'}>{held || t.team.limit.placeholder}</span>}
         {!bad && (
-          <button type="button" className="link-button" aria-expanded={shown} onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            className="link-button"
+            aria-expanded={shown}
+            onClick={() => {
+              if (!open) setText(held);
+              setOpen(!open);
+            }}
+          >
             {shown ? t.team.limit.done : t.team.limit.change}
           </button>
         )}

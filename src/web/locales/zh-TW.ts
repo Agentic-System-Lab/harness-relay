@@ -1954,9 +1954,13 @@ export const zhTW = {
     subagentsOff: 'subagent 關閉',
     subagentsDefault: 'subagent 照 CLI 的預設',
     fullAccessOnly: '完全存取以外，Harness Relay 一律關閉它的 subagent：這個開關只在完全存取的對話裡有作用。',
-    workflows: '讓它執行 workflow（Workflow 工具：一次執行多個 subagent 的腳本）',
-    workflowsNote:
-      '預設關閉。開啟後，完全存取以外的對話會在它執行 workflow 前以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行；一個 workflow 可能同時跑十幾個 subagent，用掉很多 token。',
+    workflows: '讓它執行 workflow（一次執行多個 subagent 的腳本）',
+    // What turning them on means, for each CLI with a switch (`NATIVE_ON_SUPPORT`).
+    workflowsNote: {
+      claude:
+        '預設關閉。開啟後，完全存取以外的對話會在它執行 workflow（Workflow 工具）前以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行；一個 workflow 可能同時跑十幾個 subagent，用掉很多 token。',
+      grok: '預設關閉，完全存取以外一律關閉：它們在背景執行，回合結束時就遺失。開啟後，完全存取的對話裡它可以執行背景 workflow 與 deep research，可能用掉很多 token。',
+    } as Partial<Record<Provider, string>>,
     workflowsOn: 'workflow 開啟',
     workflowsOff: 'workflow 關閉',
     ultracode: 'Ultracode：每個實質的任務都先規劃一個 workflow',
@@ -2058,7 +2062,8 @@ export const zhTW = {
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
         plugins:
           'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
-        subagents: 'GROK_SUBAGENTS=0；完全存取以外一律關閉，因為它們在背景執行，回合在它們喚醒 Grok 之前就結束了',
+        subagents:
+          'GROK_SUBAGENTS=0；完全存取以外一律關閉：它們在背景執行，完成後會喚醒 Grok，而那一輪是否會送到 Harness Relay 還需要實際確認',
       },
       cursor: {
         skills:

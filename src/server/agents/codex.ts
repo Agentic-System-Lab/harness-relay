@@ -1069,7 +1069,9 @@ const codexTurnRunner: AgentRunner = {
     const turnDone = new Promise<Record<string, any>>((r) => (resolveTurn = r));
 
     conn.onNotification = (method, params) => {
-      if (method === 'error' && params?.error?.message) failure = String(params.error.message);
+      // The turn's own error, not a subagent thread's (one names its thread: only this turn's, or none).
+      if (method === 'error' && params?.error?.message && (!params.threadId || !threadId || params.threadId === threadId))
+        failure = String(params.error.message);
       if (!threadId) return; // startup noise
       // Other threads: the handler keeps those of this turn's subagents (their items go under their call).
       if (method === 'thread/started' || params?.threadId !== threadId) return updates.handle(method, params ?? {});

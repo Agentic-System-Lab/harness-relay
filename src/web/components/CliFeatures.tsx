@@ -2,7 +2,15 @@ import { useState } from 'react';
 import { type Provider, type ProviderAccountUpdate, type ProviderAccountView, type SettingsView } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { cliFeaturesState, hasSubagentSwitch, hasWorkflowSwitch, subagentsFullAccessOnly, withNativeOn, withSubagents } from '../native';
+import {
+  cliFeaturesState,
+  hasSubagentSwitch,
+  hasUltracodeSwitch,
+  hasWorkflowSwitch,
+  subagentsFullAccessOnly,
+  withNativeOn,
+  withSubagents,
+} from '../native';
 
 /**
  * Whether one account's runs of a CLI may use its own subagents and workflows (docs/architecture.md,
@@ -75,7 +83,11 @@ export function CliFeatures({
               />
               <span>{c.workflows}</span>
             </label>
-            <p className="muted small">{c.workflowsNote}</p>
+            <p className="muted small">{c.workflowsNote[provider]}</p>
+          </>
+        )}
+        {hasUltracodeSwitch(provider) && (
+          <>
             <label className="check-row">
               <input
                 type="checkbox"

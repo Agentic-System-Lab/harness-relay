@@ -4,6 +4,7 @@ import {
   cliFeaturesState,
   hasSubagentSwitch,
   hasSubagents,
+  hasUltracodeSwitch,
   hasWorkflowSwitch,
   subagentsFullAccessOnly,
   withNativeOn,
@@ -186,6 +187,10 @@ describe('the subagents and workflows box', () => {
     expect(['claude', 'codex', 'grok', 'opencode', 'goose', 'cline', 'openhands'].every((p) => hasSubagentSwitch(p as never))).toBe(true);
     expect(['cursor', 'antigravity', 'copilot', 'muse', 'pi'].some((p) => hasSubagentSwitch(p as never))).toBe(false);
     expect(hasWorkflowSwitch('claude')).toBe(true);
+    // Grok's background workflows (GROK_WORKFLOWS), without ultracode, which is Claude Code's.
+    expect(hasWorkflowSwitch('grok')).toBe(true);
+    expect(hasUltracodeSwitch('grok')).toBe(false);
+    expect(hasUltracodeSwitch('claude')).toBe(true);
     expect(hasWorkflowSwitch('codex')).toBe(false);
     // Pi has no subagents: no box.
     expect(hasSubagents('pi')).toBe(false);
@@ -215,6 +220,7 @@ describe('the subagents and workflows box', () => {
       ultracode: true,
     });
     expect(cliFeaturesState('codex', ['subagents'], [])).toEqual({ subagents: false });
+    expect(cliFeaturesState('grok', [], ['workflows'])).toEqual({ subagents: true, workflows: true });
     expect(cliFeaturesState('cursor', [], [])).toEqual({});
   });
 });

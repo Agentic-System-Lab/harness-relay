@@ -427,6 +427,15 @@ describe('grok subagents, background work and notes about its own run', () => {
     await done;
     expect(h.busy()).toBe(false);
 
+    // A command moved to the background (a server, a watcher) does not hold the turn, nor does its end.
+    const shell = createGrokUpdateHandler(() => undefined);
+    shell.handle({ sessionUpdate: 'task_backgrounded', tool_call_id: 'sh-2', task_id: 't-2', command: 'npm run dev' });
+    shell.handle({ sessionUpdate: 'turn_completed', prompt_id: 'p-1', stop_reason: 'end_turn' });
+    shell.answered();
+    expect(shell.busy()).toBe(false);
+    shell.handle({ sessionUpdate: 'task_completed', task_snapshot: { task_id: 't-2', exit_code: 0 }, will_wake: true });
+    expect(shell.busy()).toBe(false);
+
     // Its work done and the turn it would wake for never reporting its end: it stops waiting once Grok is quiet.
     const quiet = createGrokUpdateHandler(() => undefined);
     quiet.handle(spawned('sa-9', 'child-sa-9'));
@@ -551,8 +560,8 @@ describe('JSON-RPC connection', () => {
   });
 });
 
-/** Grok's question form, off in every run. */
-const ASK = { GROK_ASK_USER_QUESTION: '0' };
+/** Grok's question form and its own /goal, off in every run, and its workflows unless the account turns them on. */
+const ASK = { GROK_ASK_USER_QUESTION: '0', GROK_GOAL: '0', GROK_WORKFLOWS: '0' };
 
 describe('leaving out what Grok loads by itself', () => {
   it('turns off what it loads from Claude Code and Cursor, and its memory, with variables', () => {
@@ -569,6 +578,8 @@ describe('leaving out what Grok loads by itself', () => {
     expect(grokNativeEnv()).toEqual(ASK);
     // All its subagents, the built-in ones too.
     expect(grokNativeEnv(['subagents'])).toEqual({ ...ASK, GROK_SUBAGENTS: '0' });
+    // Its workflows, when the account turns them on.
+    expect(grokNativeEnv([], ['workflows'])).toEqual({ GROK_ASK_USER_QUESTION: '0', GROK_GOAL: '0' });
     // The hooks it takes from Claude Code's and Cursor's settings files (not plugins', not its own).
     expect(grokNativeEnv(['hooks'])).toEqual({ ...ASK, GROK_CLAUDE_HOOKS_ENABLED: 'false', GROK_CURSOR_HOOKS_ENABLED: 'false' });
     // Its own subagents and plugins have no switch for one run.

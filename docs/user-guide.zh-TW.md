@@ -317,8 +317,8 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 大多數 CLI 都能把回合的一部分交給它自己的 subagent，在另一個 context、用它自己的模型完成，有的還能執行一整套由 subagent 組成的 workflow。每個帳號的框（開源 agent 是它的卡片）在它自己載入的內容旁，有 **Subagent 與 workflow**，決定 Harness Relay 以這個帳號啟動它時可以做什麼；只套用在這些執行，不會修改 CLI 自己的設定，一改就會儲存：
 
-- **讓它使用自己的 subagent（包括內建的）**：預設開啟。Claude Code、Codex、Grok、OpenCode、Goose、Cline 與 OpenHands 有這個開關。完全存取以外，Harness Relay 一律關閉 Codex（Codex 0.170.0 之前，它們會失去沙箱的受保護路徑）、Grok（它們在背景執行，回合在它們回報之前就結束）、OpenCode（subagent 的提問永遠到不了你面前）、OpenHands 與 Cline（它們不經詢問就行動）的 subagent：這些 CLI 的開關只在完全存取的對話裡有作用。Cursor、Antigravity、Copilot 與 Muse Code 沒有能單次關閉的開關，所以它們的 subagent 保持開啟，框裡會說明。Pi 沒有 subagent。在你自己的模型伺服器上，Goose 一次只跑一個 subagent。
-- **讓它執行 workflow**（Claude Code）：預設關閉。workflow 是一次執行多個 subagent 的腳本，可能用掉很多 token；完全存取以外，它會先以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行。**Ultracode** 讓 Claude Code 為每個實質的任務規劃一個 workflow，保留成員的推理強度；需要先開啟 workflow。
+- **讓它使用自己的 subagent（包括內建的）**：預設開啟。Claude Code、Codex、Grok、OpenCode、Goose、Cline 與 OpenHands 有這個開關。完全存取以外，Harness Relay 一律關閉 Codex（Codex 0.170.0 之前，它們會失去沙箱的受保護路徑）、Grok（它們在背景執行，完成後會喚醒它，這還需要實際確認）、OpenCode（subagent 的提問永遠到不了你面前）、OpenHands 與 Cline（它們不經詢問就行動）的 subagent：這些 CLI 的開關只在完全存取的對話裡有作用。Cursor、Antigravity、Copilot 與 Muse Code 沒有能單次關閉的開關，所以它們的 subagent 保持開啟，框裡會說明。Pi 沒有 subagent。在你自己的模型伺服器上，Goose 一次只跑一個 subagent。
+- **讓它執行 workflow**（Claude Code 與 Grok）：預設關閉。workflow 是一次執行多個 subagent 的腳本，可能用掉很多 token。Claude Code 的在完全存取以外會先以一般的核准卡詢問你（卡片不會說它要執行什麼），完全存取時直接執行；打開 workflow 時，一回合可能為它的背景工作等到回合的時間上限。Grok 的背景 workflow 與 deep research 不論開關怎麼設，完全存取以外都和它的 subagent 一樣關閉。**Ultracode** 讓 Claude Code 為每個實質的任務規劃一個 workflow，保留成員的推理強度；需要先開啟 workflow。
 
 agent 從不使用它的 CLI 自己的提問表單（Claude Code、Codex、Grok、Copilot 與 OpenCode 的都已關閉）：它們會在回覆裡問你，團隊會等你回答。Antigravity、Grok 與 Muse Code 會被要求在結束回覆前等它們的 subagent 完成，因為那時還在跑的部分會遺失。
 

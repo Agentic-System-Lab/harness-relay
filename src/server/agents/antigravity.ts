@@ -871,7 +871,6 @@ export const antigravityRunner: AgentRunner = {
   },
 };
 
-/** One Antigravity turn over ACP, with its own settings folder `runDir` (in the account's CLI folder). */
 /** How long a prompt sent into a running turn may take to be refused before it counts as taken. */
 export const ANTIGRAVITY_STEER_GRACE_MS = 1500;
 
@@ -978,6 +977,7 @@ export class AntigravityPrompts {
   }
 }
 
+/** One Antigravity turn over ACP, with its own settings folder `runDir` (in the account's CLI folder). */
 async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult> {
   let child: ChildProcess | undefined;
   let sessionId: string | undefined;

@@ -644,7 +644,8 @@ export function nativeOffFor(provider: Provider, parts: readonly string[]): Nati
 /**
  * The CLIs whose subagents Harness Relay turns off below full access whatever Settings says
  * (`subagents` left out): Codex's lose the sandbox's `read` entries before 0.170.0 and its approval
- * check sees no path for them; Grok's run in the background, and its turn ends before they wake it;
+ * check sees no path for them; Grok's run in the background and wake it once done, and whether that turn
+ * reaches Harness Relay over ACP (which its turn now waits for) still needs a live run;
  * OpenCode's would wait on a question no one is asked; OpenHands' act without asking, and so do
  * Cline's: its `spawn_agent` gives the subagent no tool policy and no approval callback, so its
  * policy check asks about nothing (`@cline/core` and `@cline/agents` in Cline 3.0.75). Settings' switch
@@ -671,7 +672,8 @@ export type NativeOnPart = (typeof NATIVE_ON_PARTS)[number];
 export const NATIVE_ON_SUPPORT: Record<Provider, readonly NativeOnPart[]> = {
   claude: ['workflows', 'ultracode'],
   codex: [],
-  grok: [],
+  // Grok: its background workflows and deep research (`GROK_WORKFLOWS`, Grok 1.0.92's docs).
+  grok: ['workflows'],
   cursor: [],
   antigravity: [],
   copilot: [],
@@ -682,6 +684,16 @@ export const NATIVE_ON_SUPPORT: Record<Provider, readonly NativeOnPart[]> = {
   openhands: [],
   pi: [],
 };
+
+/**
+ * What a run of `provider` turns on at `permission`: the account's, but below full access none of the
+ * workflows of a CLI whose subagents are full access only (`SUBAGENTS_FULL_ACCESS_ONLY`: Grok's run in
+ * the background as its subagents do, and are lost with the turn the same way).
+ */
+export function runNativeOn(provider: Provider, permission: Permission, on: readonly NativeOnPart[]): NativeOnPart[] {
+  const off = permission !== 'full' && SUBAGENTS_FULL_ACCESS_ONLY.includes(provider);
+  return nativeOnFor(provider, off ? [] : on);
+}
 
 /** The parts in `parts` that `provider` can turn on, once each, in NATIVE_ON_PARTS order; `ultracode` only with `workflows`. */
 export function nativeOnFor(provider: Provider, parts: readonly string[]): NativeOnPart[] {

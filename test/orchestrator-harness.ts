@@ -154,6 +154,8 @@ export interface Fake {
    */
   steer: Set<string>;
   refuseSteer: Set<string>;
+  /** Steering: while set, a message sent into a turn waits for it before the fake CLI says whether it took it. */
+  steerWait?: Promise<void>;
 }
 
 const fresh = (): Fake => ({
@@ -180,6 +182,7 @@ const fresh = (): Fake => ({
   schemas: {},
   steer: new Set(),
   refuseSteer: new Set(),
+  steerWait: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -319,6 +322,7 @@ beforeAll(() => {
       const call = calls.findLast((c) => c.name === name)!;
       if (fake.steer.has(name)) {
         o.onSteer?.(async (text) => {
+          if (fake.steerWait) await fake.steerWait;
           if (fake.refuseSteer.has(name)) return false;
           (call.steered ??= []).push(text);
           return true;

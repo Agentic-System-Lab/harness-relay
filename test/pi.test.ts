@@ -1530,20 +1530,26 @@ describe("Pi: the team's hooks", () => {
   it.skipIf(process.platform === 'win32')('has the gate show results only when the turn has after hooks', async () => {
     const plain = context({ permission: 'full', hooks: fake() });
     await preparePi(plain);
-    expect(plain.env.HARNESS_RELAY_PI_AFTER).toBeUndefined();
+    expect(plain.env.HARNESS_RELAY_PI_AFTER).toBe('0');
     expect(piArgs(plain)).toContain(PI_GATE_PATH);
     const after = context({ permission: 'full', hooks: fake(undefined, true) });
     await preparePi(after);
     expect(after.env.HARNESS_RELAY_PI_AFTER).toBe('1');
     // Gated with hooks; with full access and none, loaded for its plan tool only, asking nothing.
-    expect(plain.env.HARNESS_RELAY_PI_UNGATED).toBeUndefined();
+    expect(plain.env.HARNESS_RELAY_PI_UNGATED).toBe('0');
     const ungated = context({ permission: 'full' });
     await preparePi(ungated);
     expect(ungated.env.HARNESS_RELAY_PI_UNGATED).toBe('1');
     expect(piArgs(ungated)).toContain(PI_GATE_PATH);
     const below = context({ permission: 'read-only' });
     await preparePi(below);
-    expect(below.env.HARNESS_RELAY_PI_UNGATED).toBeUndefined();
+    expect(below.env.HARNESS_RELAY_PI_UNGATED).toBe('0');
+    // What the server's own environment holds never reaches the gate: a Harness Relay started from a
+    // full-access Pi member's command has HARNESS_RELAY_PI_UNGATED=1 (and _AFTER=1) in its environment.
+    const inherited = context({ permission: 'edit' });
+    Object.assign(inherited.env, { HARNESS_RELAY_PI_UNGATED: '1', HARNESS_RELAY_PI_AFTER: '1' });
+    await preparePi(inherited);
+    expect(inherited.env).toMatchObject({ HARNESS_RELAY_PI_UNGATED: '0', HARNESS_RELAY_PI_AFTER: '0' });
   });
 
   it('reads a call as the hooks see it: a command, a file its own tools change (a full path), or another tool', () => {

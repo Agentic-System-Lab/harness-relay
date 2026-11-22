@@ -1062,6 +1062,8 @@ export class Orchestrator {
     uploads: AttachmentUpload[] | undefined,
     request?: TaskRequest,
   ): Promise<{ queued: boolean } | undefined> {
+    // The run it was sent into: one the user stops while the message is being sent keeps it in the queue.
+    const into = this.runs.get(conv.id);
     const prior = this.steering.get(conv.id);
     let done!: () => void;
     const mine = new Promise<void>((resolve) => (done = resolve));
@@ -1071,7 +1073,10 @@ export class Orchestrator {
       await prior;
       // A message with files waits for a turn: a running turn takes text only.
       if (!uploads?.length && (await this.steerInto(conv, text, request))) return { queued: false };
-      if (!this.queues(conv)) return undefined;
+      // Stopped meanwhile (a steer can wait seconds for its CLI's answer): it waits in the queue, as a
+      // message sent with steering off would, rather than starting a run of its own.
+      const stopped = Boolean(into?.abort.signal.aborted) && !this.deleting.has(conv.id) && !this.closing;
+      if (!this.queues(conv) && !stopped) return undefined;
       this.enqueue(conv, text, uploads, { request });
       return { queued: true };
     } finally {
@@ -1085,7 +1090,8 @@ export class Orchestrator {
    * turn of the member speaking; in parallel mode every turn of the round, when all of them can take it.
    * None (it waits in the queue) when the conversation does not steer, the run is not the team's turns
    * (the lead agent designs or reviews, a fix or a failed check holds the queue), a message waits in the
-   * queue already (the chat keeps the order they were sent in), or the message is for other members.
+   * queue already (the chat keeps the order they were sent in), or the message is for other members (in
+   * parallel mode, any message that names members).
    */
   private steerTargets(conv: Conversation, run: Run, msg: ChatMessage): [string, TurnSteer][] {
     if (!conv.settings.steer || run.abort.signal.aborted || this.closing || this.deleting.has(conv.id)) return [];
@@ -1102,6 +1108,9 @@ export class Orchestrator {
       targets.push([id, steer]);
     }
     const recipients = ids.flatMap((id) => conv.agents.find((a) => a.id === id) ?? []);
+    // In parallel mode the round sees the same message: one that names some of its members only is for
+    // them, so it waits for the next round rather than going into every turn.
+    if (parallel && parseMentions(textOf(msg), conv.agents).length) return [];
     return isFor(msg, recipients, conv.agents) ? targets : [];
   }
 

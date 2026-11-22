@@ -227,7 +227,7 @@ export const en: Messages = {
       on: 'A message you send while members are working goes into the turn of the member speaking now; in parallel mode, into every turn of the round, when all of them are still running and can take it. The member sees it and answers it in that turn. When that cannot be done, it waits in the queue for the next turn as usual; a message with files always waits.',
       off: 'A message you send while the team works waits in the queue and is delivered before the next turn; the member speaking sees it on their next turn.',
     },
-    steerUnsupported: (names) => `${names}'s CLI cannot take a message into a running turn: messages for them wait in the queue as usual.`,
+    steerUnsupported: (names) => `Messages for ${names} wait in the queue as usual: their CLI cannot take a message into a running turn.`,
     relayOrder: 'The first member leads: they take messages that @mention no one.',
     order: 'The order is the speaking order.',
     agentName: 'Agent name',
@@ -1944,9 +1944,12 @@ export const en: Messages = {
     subagentsDefault: "subagents as the CLI's default",
     fullAccessOnly:
       'Below full access, Harness Relay always turns its subagents off: this switch matters only in conversations with full access.',
-    workflows: 'Let it run workflows (the Workflow tool: scripts that run many subagents at once)',
-    workflowsNote:
-      'Off by default. Once on, a conversation below full access asks you with an ordinary approval card before it runs one (the card does not say what it will run), and full access runs it unasked; one workflow can run a dozen subagents at once and use many tokens.',
+    workflows: 'Let it run workflows (scripts that run many subagents at once)',
+    workflowsNote: {
+      claude:
+        'Off by default. Once on, a conversation below full access asks you with an ordinary approval card before it runs one (its Workflow tool; the card does not say what it will run), and full access runs it unasked; one workflow can run a dozen subagents at once and use many tokens.',
+      grok: 'Off by default, and always off below full access: they run in the background and are lost when the turn ends. Once on, a conversation with full access can have it run background workflows and deep research, which can use many tokens.',
+    },
     workflowsOn: 'workflows on',
     workflowsOff: 'workflows off',
     ultracode: 'Ultracode: plan a workflow for every substantial task',
@@ -2055,7 +2058,7 @@ export const en: Messages = {
         plugins:
           "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
         subagents:
-          'GROK_SUBAGENTS=0; always off below full access, since they run in the background and the turn ends before they wake Grok',
+          'GROK_SUBAGENTS=0; always off below full access: they run in the background and wake Grok once done, and whether that turn reaches Harness Relay still needs a live check',
       },
       cursor: {
         skills:

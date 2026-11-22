@@ -209,6 +209,9 @@ export const hasSubagentSwitch = (provider: Provider): boolean => NATIVE_OFF_SUP
 /** Whether an account of the CLI can turn its workflows on for Harness Relay's runs (`NATIVE_ON_SUPPORT`). */
 export const hasWorkflowSwitch = (provider: Provider): boolean => NATIVE_ON_SUPPORT[provider].includes('workflows');
 
+/** Whether an account of the CLI can have it plan a workflow for every substantial task (Claude Code's ultracode). */
+export const hasUltracodeSwitch = (provider: Provider): boolean => NATIVE_ON_SUPPORT[provider].includes('ultracode');
+
 /** Harness Relay turns the CLI's subagents off below full access whatever the switch says (`SUBAGENTS_FULL_ACCESS_ONLY`). */
 export const subagentsFullAccessOnly = (provider: Provider): boolean => SUBAGENTS_FULL_ACCESS_ONLY.includes(provider);
 
@@ -233,6 +236,7 @@ export function cliFeaturesState(
 ): { subagents?: boolean; workflows?: boolean; ultracode?: boolean } {
   return {
     ...(hasSubagentSwitch(provider) ? { subagents: !off.includes('subagents') } : {}),
-    ...(hasWorkflowSwitch(provider) ? { workflows: on.includes('workflows'), ultracode: on.includes('ultracode') } : {}),
+    ...(hasWorkflowSwitch(provider) ? { workflows: on.includes('workflows') } : {}),
+    ...(hasUltracodeSwitch(provider) ? { ultracode: on.includes('ultracode') } : {}),
   };
 }

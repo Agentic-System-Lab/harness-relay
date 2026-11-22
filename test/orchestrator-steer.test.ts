@@ -188,6 +188,46 @@ describe('steering', () => {
     expect(calls.slice(2).map((c) => c.prompt.includes(userBlock('one more thing')))).toEqual([false, false]);
   });
 
+  it('in parallel mode waits in the queue when it names members of the round: the round sees the same message', async () => {
+    fake.steer = new Set(['Alice', 'Bob']);
+    const conv = steering({ mode: 'parallel' });
+    const alice = hold('Alice');
+    const bob = hold('Bob');
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(await orchestrator.send(conv.id, '@Alice one more thing')).toEqual({ queued: true });
+    alice();
+    bob();
+    await replied(conv, 3);
+    await finish(conv.id);
+    expect(calls[0]!.steered).toBeUndefined();
+    expect(calls[1]!.steered).toBeUndefined();
+    // Then it is Alice's, in a turn of its own, as without steering.
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob', '@Alice one more thing', '@Alice']);
+  });
+
+  it('waits in the queue, starting nothing, when the user stops the run while it is being sent into a turn', async () => {
+    fake.steer = new Set(['Alice']);
+    fake.refuseSteer = new Set(['Alice']);
+    let answer!: () => void;
+    fake.steerWait = new Promise((r) => (answer = r));
+    const conv = steering({ mode: 'roundtable', rounds: 1 });
+    hold('Alice');
+    await orchestrator.send(conv.id, 'question');
+    await speaking('Alice');
+    const sent = orchestrator.send(conv.id, 'one more thing');
+    await new Promise((r) => setTimeout(r, 20));
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    answer();
+    expect(await sent).toEqual({ queued: true });
+    await new Promise((r) => setTimeout(r, 50));
+    // No run of its own: it waits in the tray, as a message sent with steering off would after Stop.
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(['Alice']);
+    expect(conv.queue?.map(textOf)).toEqual(['one more thing']);
+  });
+
   it('in parallel mode waits in the queue when one member of the round cannot take it', async () => {
     fake.steer = new Set(['Alice']);
     const conv = steering({ mode: 'parallel' });

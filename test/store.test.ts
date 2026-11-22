@@ -1572,6 +1572,12 @@ describe('SettingsStore accounts', () => {
       expect(again.runNative('claude', work, 'read-only')).toEqual({ nativeOff: [], nativeItems: {}, nativeOn: [] });
       // Cline's subagents run every tool unasked: off below full access too.
       expect(again.runNative('cline', undefined, 'edit').nativeOff).toEqual(['subagents']);
+      // Grok's workflows run in the background as its subagents do: on only with full access.
+      again.updateAccount('grok', '', { nativeOn: ['workflows', 'ultracode'] });
+      expect(again.nativeOn('grok')).toEqual(['workflows']);
+      expect(again.runNative('grok', undefined, 'edit').nativeOn).toEqual([]);
+      expect(again.runNative('grok', undefined, 'full').nativeOn).toEqual(['workflows']);
+      again.updateAccount('grok', '', { nativeOn: [] });
       expect(again.runNative('cline', undefined, 'full').nativeOff).toEqual([]);
 
       const claude = again.view().providers.find((p) => p.provider === 'claude')!;

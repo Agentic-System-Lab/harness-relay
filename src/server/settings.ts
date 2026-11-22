@@ -15,6 +15,7 @@ import {
   nativeOffFor,
   nativeOnFor,
   runNativeOff,
+  runNativeOn,
   PROVIDERS,
   SANDBOX_TERMINAL_SUPPORT,
   VOICE_LANGUAGES,
@@ -855,7 +856,7 @@ export class SettingsStore {
     return {
       nativeOff: runNativeOff(p, permission, this.nativeOff(p, account)),
       nativeItems: this.nativeItems(p, account),
-      nativeOn: this.nativeOn(p, account),
+      nativeOn: runNativeOn(p, permission, this.nativeOn(p, account)),
     };
   }
 

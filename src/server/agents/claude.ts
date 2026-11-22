@@ -614,16 +614,30 @@ export function claudeNativeEnv(off: readonly NativePart[] = []): Record<string,
  *   the user as an approval that does not say what it will run, with full access it runs unasked, and
  *   its progress comes only as `task_*` messages. Claude Code 2.1.330 reads it at start ("Set in the
  *   environment before Claude Code starts, CLAUDE_CODE_DISABLE_WORKFLOWS disables Workflows").
- * - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: how long `-p` waits for its background subagents and
- *   workflows once the turn has answered, 10 minutes by default; the turn's own time limit instead, since
- *   Harness Relay reads until Claude Code exits and a turn may run that long.
+ * - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: how long `-p` waits once the turn has answered for its
+ *   background work, 10 minutes by default. That work is its background subagents and workflows, and its
+ *   background commands too (2.1.330 holds for them: `holdForBackgroundShells`), so a dev server started
+ *   in the background would hold the turn as long as the wait. Kept at its default, but with workflows
+ *   turned on, whose subagents may well run longer: then up to the turn's own time limit, less a margin
+ *   (`CLAUDE_BG_WAIT_MARGIN_MS`), so that Claude Code stops what is left and answers before Harness Relay's
+ *   own timer ends the turn.
  */
-export function claudeFeatureEnv(on: readonly NativeOnPart[] = [], waitMs: number = TURN_TIMEOUT_MS): Record<string, string> {
-  return {
-    ...(on.includes('workflows') ? {} : { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }),
-    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(waitMs),
-  };
+export function claudeFeatureEnv(on: readonly NativeOnPart[] = [], turnMs: number = TURN_TIMEOUT_MS): Record<string, string> {
+  if (!on.includes('workflows')) return { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' };
+  return { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(Math.max(60_000, turnMs - CLAUDE_BG_WAIT_MARGIN_MS)) };
 }
+
+/**
+ * Whether a run that ran out of time failed: not once the turn had answered (it was waiting for its
+ * background work, or its own wait was longer than the time left), whose answer stands, what was still
+ * at work showing as cut off (`parser.finish()`).
+ */
+export function claudeTimedOut(res: { timedOut?: boolean }, result: Record<string, any> | null): boolean {
+  return Boolean(res.timedOut) && !(result && !result.is_error);
+}
+
+/** How much sooner than the turn's time limit Claude Code stops waiting for its background work (workflows on). */
+export const CLAUDE_BG_WAIT_MARGIN_MS = 2 * 60_000;
 
 /**
  * Claude Code's name for an MCP server in its tool names and permission rules
@@ -1844,7 +1858,7 @@ async function runClaudeTurn(
   if (failure && !o.signal.aborted) throw failure;
   // Stopped: what its result said it used (an interrupted turn has one), else nothing.
   if (res.aborted || o.signal.aborted) throw new AgentRunError(t().stopped, true, resultUsage(parser.result, before));
-  if (res.timedOut) throw new AgentRunError(t().timedOut);
+  if (claudeTimedOut(res, parser.result)) throw new AgentRunError(t().timedOut);
 
   const r = parser.result;
   const rejected = r ? undefined : rejectedFlag(res.stderr);

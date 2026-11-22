@@ -1153,7 +1153,6 @@ interface CallState {
   locations?: { path?: string }[];
 }
 
-/** Turns Copilot's ACP `session/update` payloads into AgentEvents. */
 /**
  * The runtime events a turn subscribes to in `initialize` (Copilot sends only those a client names, as
  * `github.com/copilot/sessionEvent` notifications: `{ sessionId, type, data, agentId? }`, `agentId` on a
@@ -1175,6 +1174,7 @@ export const COPILOT_EVENTS = [
 /** Where a model change came from that is Copilot's own, not the client's: its automatic switch. */
 const COPILOT_OWN_MODEL_CHANGE = new Set(['automatic', 'auto_tier_recommendation']);
 
+/** Turns Copilot's ACP `session/update` payloads into AgentEvents. */
 export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
   const calls = new Map<string, CallState>();
   const open = new Set<string>();

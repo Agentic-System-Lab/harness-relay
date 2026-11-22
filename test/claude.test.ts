@@ -34,7 +34,9 @@ import {
   claudeExcludePattern,
   claudeItemsBesideLibrary,
   claudeMcpName,
+  CLAUDE_BG_WAIT_MARGIN_MS,
   claudeFeatureEnv,
+  claudeTimedOut,
   claudeNativeEnv,
   claudeNativeSettings,
   claudeReadRule,
@@ -150,11 +152,21 @@ describe('claude arguments', () => {
     expect(claudeNativeSettings([], [], {}, ['workflows'])).toBeUndefined();
     const args = claudeArgs({ ...base, permission: 'edit', nativeOn: ['workflows', 'ultracode'] });
     expect(JSON.parse(after(args, '--settings')!)).toMatchObject({ ultracode: true });
-    expect(claudeFeatureEnv()).toEqual({
-      CLAUDE_CODE_DISABLE_WORKFLOWS: '1',
-      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(TURN_TIMEOUT_MS),
+    // Without workflows its background wait stays at its own 10 minutes (background commands count too).
+    expect(claudeFeatureEnv()).toEqual({ CLAUDE_CODE_DISABLE_WORKFLOWS: '1' });
+    // With them, up to the turn's limit less a margin, so it answers before Harness Relay's timer ends the turn.
+    expect(claudeFeatureEnv(['workflows'], 60 * 60_000)).toEqual({
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(60 * 60_000 - CLAUDE_BG_WAIT_MARGIN_MS),
     });
-    expect(claudeFeatureEnv(['workflows'], 5000)).toEqual({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '5000' });
+    expect(claudeFeatureEnv(['workflows'], 30_000)).toEqual({ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '60000' });
+    expect(claudeFeatureEnv(['workflows'])).toEqual({
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(TURN_TIMEOUT_MS - CLAUDE_BG_WAIT_MARGIN_MS),
+    });
+    // Out of time once the turn had answered: the answer stands; before an answer, or after an error, it failed.
+    expect(claudeTimedOut({ timedOut: true }, { type: 'result', is_error: false })).toBe(false);
+    expect(claudeTimedOut({ timedOut: true }, null)).toBe(true);
+    expect(claudeTimedOut({ timedOut: true }, { type: 'result', is_error: true })).toBe(true);
+    expect(claudeTimedOut({ timedOut: false }, null)).toBe(false);
   });
 
   it('leaves out flags the installed version rejected', () => {
