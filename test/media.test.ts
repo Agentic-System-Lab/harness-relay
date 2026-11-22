@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
-import type { ChatMessage, Conversation } from '../src/shared/types';
+import { TEAM_WORKTREE, type ChatMessage, type Conversation } from '../src/shared/types';
 import { attachmentsDir } from '../src/server/attachments';
 import {
   byteRange,
@@ -260,6 +260,21 @@ describe('files a reply links to', () => {
     // Each worktree holds its own working directory only.
     expect(mediaRoots(conv, reply(true))).toEqual([wtA, wtB, a, b, attachmentsDir('c2')]);
     expect(mediaRoots(conv, reply(false))).toEqual([a, b, wtA, wtB, attachmentsDir('c2')]);
+  });
+
+  it("finds a reply made in the team's own worktree there, whichever member wrote it", () => {
+    const team = [{ root: '/repo', path: '/wt/@team/repo', branch: `relay/c0/${TEAM_WORKTREE}`, base: 'x', needsReset: false }];
+    const own = [{ root: '/repo', path: '/wt/a', branch: 'relay/c0/Alice', base: 'w', needsReset: false }];
+    const conv = { id: 'c0', worktrees: { a: own, [TEAM_WORKTREE]: team } } as unknown as Conversation;
+    const reply = (branch: string) =>
+      ({
+        id: 'm',
+        author: { kind: 'agent', agentId: 'a' },
+        parts: [],
+        changes: [{ root: '/repo', base: 'x', head: 'y', files: [], isolated: true, branch }],
+      }) as unknown as ChatMessage;
+    expect(replyWorktrees(conv, reply(`relay/c0/${TEAM_WORKTREE}`))).toEqual(team);
+    expect(replyWorktrees(conv, reply('relay/c0/Alice'))).toEqual(own);
   });
 
   it("finds a copied parallel reply's worktree in the conversation it was branched from, further up for a branch of a branch", () => {

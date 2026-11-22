@@ -477,6 +477,7 @@ const zhTW = {
   checksListChanged: '檢查清單在這一輪開始後改過，這一輪的受保護路徑無法用新清單比對；下一輪會照新清單檢查。',
   checksNoBaseline: '找不到這一輪開始時的狀態，無法重新比對。',
   checksCommitsParallel: '平行模式套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
+  checksCommitsTeam: '團隊在這個對話自己的 worktree 裡工作，套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
   checksNoCommits: '這一輪沒有新的 commit。',
   checksPatternSlow: 'commit 格式的正規表示式跑太久，已中止；請改寫得簡單一點。',
   checksTooManyCommits: (n: number) => `新的 commit 超過 ${n} 個，只檢查了最新的 ${n} 個。`,
@@ -1517,6 +1518,8 @@ const en: ServerMessages = {
     'The check list changed after this run started, so its protected paths cannot be compared with the new list; the next run is checked with it.',
   checksNoBaseline: 'Where this run started from is not known any more, so it cannot be compared again.',
   checksCommitsParallel: 'Parallel mode applies its results without their commits, so the commit format is not checked.',
+  checksCommitsTeam:
+    "The team works in this conversation's own worktree, whose result is applied without its commits, so the commit format is not checked.",
   checksNoCommits: 'No new commit in this run.',
   checksPatternSlow: 'The commit format’s regular expression took too long and was stopped; make it simpler.',
   checksTooManyCommits: (n) => `More than ${n} new commits: only the newest ${n} were checked.`,

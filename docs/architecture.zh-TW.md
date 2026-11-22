@@ -179,7 +179,7 @@ flowchart LR
 
 **重試 agent 的回覆**（`Orchestrator.retry()`）也是同樣的做法：刪除該則回覆與之後的所有內容，再由該 agent 重新回答；不是接力模式時，同一輪中回覆被一起刪除的 agent 也會接著回答，只跑一輪。
 
-**編輯使用者訊息**（`Orchestrator.resend()`）會刪除該則訊息與之後的所有訊息、重設每個 agent 的 session（CLI 的 session 無法倒轉，所以每個 agent 都以剩下的對話紀錄重新開始）、把平行模式的 worktree 標記為需要重設，再把修改後的文字當成新的一次執行送出。截斷要等工作區準備好並取得目錄鎖之後才會進行，所以啟動失敗時對話紀錄不受影響。被刪除的回合改過的檔案不會還原。
+**編輯使用者訊息**（`Orchestrator.resend()`）會刪除該則訊息與之後的所有訊息、重設每個 agent 的 session（CLI 的 session 無法倒轉，所以每個 agent 都以剩下的對話紀錄重新開始）、把平行模式的 worktree 標記為需要重設（團隊自己的 worktree 則要等到已經沒有在那裡改了檔案的回覆時：見[兩個對話同一個資料夾](#兩個對話同一個資料夾)），再把修改後的文字當成新的一次執行送出。截斷要等工作區準備好並取得目錄鎖之後才會進行，所以啟動失敗時對話紀錄不受影響。被刪除的回合改過的檔案不會還原。
 
 ## 自動組隊
 
@@ -624,8 +624,8 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 - **在第一回合之前建立**（`prepareTeamWorktrees()`，在 `execute()` 裡，HTTP 請求已經回覆之後）：從每個 repository 當下的快照建立，位置是 `data/worktrees/<對話>/@team-<root 的 8 個十六進位字元>/<repository 的資料夾名稱>`（所以團隊的資料夾名稱和使用者的資料夾一樣），分支是 `relay/<對話>/@team`。使用者訊息之後的一則系統說明會指出是哪個對話正在修改哪個資料夾，以及團隊的修改要套用後才會寫進資料夾（`teamWorktreeNote`）。
 - **所有成員共用**，和在工作目錄裡一樣輪流在裡面工作（圓桌或接力）；每一回合的修改會 commit 到這個分支，並記成隔離的結果（`MessageChanges.isolated` 與它的 `branch`），和平行模式一樣。簡報會說明團隊在哪裡工作、為什麼，以及 git 忽略的檔案（安裝的相依套件、建置產物）不在副本裡（`BriefingWorkspace` 的 `team`）。首席 agent 審閱時會被告知團隊的修改在哪裡，也可以讀取（`buildReviewPrompt()` 的 `team`）。
-- **團隊檢查**看的是團隊的 worktree，而不是另一個對話這段期間正在修改的工作目錄：每一回合後在那裡比對受保護路徑（誰改了什麼，和在工作目錄裡一樣），不檢查 commit，指令則和平行模式一樣在套用結果時執行（`checksCommandsTeam`；worktree 裡還有團隊的工作時，「再檢查一次」也一樣）。
-- **保留到結果套用為止**：團隊的 worktree 裡還有沒套用的工作時（`teamWorkPending()`：快照之上有 commit，或有還沒 commit 的修改），這個對話之後的執行也都在那裡進行，不管誰正在修改資料夾。在那裡做的最新一則回覆有「套用到工作目錄」（`POST /api/conversations/:id/agents/@team/apply`，`applyAgentWork()`，先跑團隊檢查），會像套用平行模式的結果一樣套用整份結果，另一個對話持有資料夾時會被拒絕（409）；它的 diff 是 `GET …/agents/@team/diff`。套用之後，或對話倒回到它之前（編輯、重新送出或重試，會把所有 worktree 標記為需要重設），下一次執行在沒有別人寫入時就回到工作目錄，並移除團隊的 worktree、它們的資料夾與分支（`dropTeamWorktrees()`）；團隊在那裡什麼都沒改的對話也一樣回去。否則 worktree 會從新的快照重新建立。
+- **團隊檢查**看的是團隊的 worktree，而不是另一個對話這段期間正在修改的工作目錄：每一回合後在那裡比對受保護路徑（誰改了什麼，和在工作目錄裡一樣），不檢查 commit（`checksCommitsTeam`），指令則和平行模式一樣在套用結果時執行（`checksCommandsTeam`；worktree 裡還有團隊的工作時，「再檢查一次」也一樣）；簡報裡的規則也這樣說明（`checkRuleLines()` 的 `team`）。套用前的檢查不指名成員：結果是整個團隊的。
+- **保留到結果套用為止**：團隊的 worktree 裡還有沒套用的工作時（`teamWorkPending()`：快照之上有 commit，或有還沒 commit 的修改），這個對話之後的執行也都在那裡進行，不管誰正在修改資料夾。在那裡做的最新一則回覆有「套用到工作目錄」（`POST /api/conversations/:id/agents/@team/apply`，`applyAgentWork()`，先跑團隊檢查），會像套用平行模式的結果一樣套用整份結果，另一個對話持有資料夾時會被拒絕（409）；它的 diff 是 `GET …/agents/@team/diff`。套用之後，或對話倒回到每一則在那裡改了檔案的回覆之前（編輯、重新送出或重試：還留著這樣一則回覆的倒回會讓 worktree 維持原樣，就像倒回時工作目錄的檔案也維持原樣；`truncateFrom()` 裡的 `madeIn()`），下一次執行在沒有別人寫入時就回到工作目錄，並移除團隊的 worktree、它們的資料夾與分支（`dropTeamWorktrees()`）；團隊在那裡什麼都沒改的對話也一樣回去。那時另一個對話持有資料夾的話，worktree 會從新的快照重新建立，裡面沒有團隊工作的也一樣，所以團隊絕不會在舊的副本上工作。在工作目錄裡沒通過的團隊檢查結果，會在副本裡從那一輪開始的地方檢查（`baselineIn()`：資料夾換成它們的副本，git 忽略的受保護檔案副本裡永遠不會有，所以略過）。
 - **可以瀏覽與連結**，和 agent 的 worktree 一樣：檔案瀏覽器把它列為「這個對話的 worktree」（`FileRoot.agentId` 為 `@team`），回覆中的圖片與檔案連結也會在裡面尋找（`replyWorktrees()`）。
 
 另一個對話正在修改資料夾時，排程訊息從不會因此被擋下：它的執行同樣在團隊自己的 worktree 裡進行，為它開的新對話也一樣。
@@ -915,6 +915,7 @@ Harness Relay 自己的工具透過它們自己的 socket 連到伺服器，從�
 - worktree 只包含快照中的檔案：被忽略的檔案（例如 `node_modules/` 或建置產物）不在裡面，所以平行模式中想跑測試的 agent 可能要先在自己的 worktree 安裝相依套件。
 - 圓桌 / 接力模式中，回合前後的快照會把該回合期間目錄裡的所有變更都算在該 agent 頭上，包括你同時在編輯器做的修改。
 - 目錄鎖存在伺服器程序中；其他工具（或第二個 Harness Relay 伺服器）仍然可以修改同樣的檔案。
+- 在自己 worktree 裡工作的團隊，在完全存取以外的權限，和平行模式一樣由它的 CLI 的沙箱擋在工作目錄之外；完全存取時只靠簡報，所以 session 還記得前幾回合資料夾路徑的 agent，仍可能照那些路徑寫進資料夾。
 - 因為另一個對話正在修改資料夾而在自己 worktree 裡工作的團隊，那裡只有 git 追蹤的檔案（`node_modules/` 這類被忽略的檔案不在，和平行模式一樣），它的結果也要套用後才會進到資料夾；套用時可能和另一個對話這段期間的修改衝突，這時什麼都不會套用。
 - 巢狀 repository 與 submodule：在 worktree 中是空資料夾，裡面的修改也不會被記錄（快照只記錄它們指向哪個 commit）。同一個對話中一個在另一個裡面的工作目錄，由 Harness Relay 建立時會共用一個 repository（它從最外層開始建立）；使用者自己在另一個 repository 裡面建立、還沒有 commit 的 repository，會讓 git 無法替外層拍快照（這時外層的修改不會記錄，其他的仍會記錄）。
 - Grok 或 Copilot 執行的專案程式碼仍能連網，而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱（見[權限對應](#權限對應)與[各平台的作業系統沙箱](sandboxing.zh-TW.md)）；判斷推送與發佈指令只能盡力而為：shell 或直譯器執行管線傳來的內容時會詢問，但腳本與程式自己做的事（`source`／`.`、腳本檔、`npm run`、`make`、git alias、`find -exec`、`ssh`）不會被解析（見[核准](#核准)）。

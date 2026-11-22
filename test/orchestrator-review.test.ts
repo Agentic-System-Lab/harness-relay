@@ -633,6 +633,10 @@ describe('after the review', () => {
     // Its review is told where the team's changes are.
     expect(reviewerCalls()).toHaveLength(2);
     expect(reviewerCalls()[1]!.prompt).toContain(`this conversation's own git worktree`);
+    // From where the stopped review started: both questions.
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    expect(recent).toContain('<message from="user">\nfirst\n</message>');
+    expect(recent).toContain('<message from="user">\nnext\n</message>');
     expect(reviewerCalls()[1]!.addDirs).toEqual([team[0]!.path]);
     releaseOther();
     await finish(other.id);

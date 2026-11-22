@@ -564,4 +564,12 @@ describe('team checks in the briefing', async () => {
     expect(checkRuleLines(list, 'roundtable', 'win32').some((l) => l.includes('npm test'))).toBe(false);
     expect(checkRuleLines(list, 'parallel', 'linux').find((l) => l.includes('npm test'))).toContain("when a member's result is applied");
   });
+
+  it("gives a team in the conversation's own worktree the rules as they are checked there: no commit format, the commands at the apply", () => {
+    const list = { commitPattern: '^feat', commands: [{ id: 'c', run: 'npm test' }] };
+    expect(checkRuleLines(list, 'roundtable', 'linux').some((l) => l.includes("Every commit's subject"))).toBe(true);
+    const team = checkRuleLines(list, 'team', 'linux');
+    expect(team.some((l) => l.includes("Every commit's subject"))).toBe(false);
+    expect(team.find((l) => l.includes('npm test'))).toContain("when the team's result is applied");
+  });
 });

@@ -15,6 +15,7 @@ import {
   agents,
   calls,
   conversation,
+  db,
   fake,
   finish,
   Hub,
@@ -24,6 +25,7 @@ import {
   setOrchestrator,
   settings,
   store,
+  Store,
   textOf,
   withLang,
 } from './orchestrator-harness';
@@ -228,18 +230,75 @@ describe('two conversations writing in the same folder', () => {
     expect(second.messages.filter((m) => m.author.kind === 'system')).toHaveLength(1);
     expect(existsSync(join(team.path, 'more.txt'))).toBe(true);
     expect(existsSync(join(project, 'more.txt'))).toBe(false);
-    // Read again after a restart.
-    expect(store.get(second.id)!.worktrees[TEAM_WORKTREE]).toEqual([team]);
+    // Read again after a restart, and gone on with there.
+    const restarted = new Store(db);
+    expect(restarted.get(second.id)!.worktrees[TEAM_WORKTREE]).toEqual([team]);
+    setOrchestrator(new Orchestrator(restarted, new Hub(), settings));
+    next = calls.length;
+    await orchestrator.send(second.id, 'after a restart');
+    await finish(second.id);
+    expect(calls.slice(next).map((c) => c.cwd)).toEqual([team.path]);
+    const reloaded = restarted.get(second.id)!;
 
     // Asked again from the first question: what the team did there is dropped, and it writes in the folder.
     fake.during = undefined;
     next = calls.length;
-    const question = second.messages.find((m) => m.author.kind === 'user')!;
+    const question = reloaded.messages.find((m) => m.author.kind === 'user')!;
     await orchestrator.resend(second.id, question.id, 'go again');
     await finish(second.id);
     expect(calls.slice(next).map((c) => c.cwd)).toEqual([project]);
-    expect(second.worktrees[TEAM_WORKTREE]).toBeUndefined();
+    expect(reloaded.worktrees[TEAM_WORKTREE]).toBeUndefined();
     expect(existsSync(team.path)).toBe(false);
+  });
+
+  it('keeps what the team did in its worktree when a later reply is retried: a rewind leaves its files, as in the folder', async () => {
+    const { conv: holder, release } = await writing();
+    const second = conversation({ mode: 'roundtable' });
+    second.agents = [agents[1]!];
+    fake.during = (_name, cwd) => writeFileSync(join(cwd, 'first.txt'), 'first\n');
+    await orchestrator.send(second.id, 'go');
+    await finish(second.id);
+    const [first] = agentMessages(second);
+    const team = second.worktrees[TEAM_WORKTREE]![0]!;
+    // The next reply fails; Retry runs it again in the same worktree, which still holds the first one's work.
+    fake.during = (_name, cwd) => writeFileSync(join(cwd, 'second.txt'), 'second\n');
+    fake.fail = () => new Error('rate limited');
+    await orchestrator.send(second.id, 'more');
+    await finish(second.id);
+    fake.fail = undefined;
+    const failed = agentMessages(second).at(-1)!;
+    expect(failed.status).toBe('error');
+    await orchestrator.retry(second.id, failed.id);
+    await finish(second.id);
+    expect(second.worktrees[TEAM_WORKTREE]).toEqual([{ ...team, path: team.path }]);
+    expect(team.needsReset).toBe(false);
+    expect(calls.at(-1)!.cwd).toBe(team.path);
+    expect(existsSync(join(team.path, 'first.txt'))).toBe(true);
+    // The first reply's result is still there to apply, with the retried one's.
+    expect(second.messages).toContain(first);
+    release();
+    await finish(holder.id);
+    const { files } = await orchestrator.applyAgentWork(second.id, TEAM_WORKTREE);
+    expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'first.txt', 'second.txt', 'shared.txt']);
+  });
+
+  it("makes a worktree that holds nothing of the team's again from the folder as it is now, while the folder is still taken", async () => {
+    const { release } = await writing();
+    const second = conversation({ mode: 'roundtable' });
+    second.agents = [agents[0]!]; // writes what the first one's Alice wrote already: nothing changes
+    await orchestrator.send(second.id, 'go');
+    await finish(second.id);
+    const before = second.worktrees[TEAM_WORKTREE]![0]!.base;
+    // The other conversation writes on meanwhile.
+    writeFileSync(join(project, 'later.txt'), 'later\n');
+    await orchestrator.send(second.id, 'again');
+    await finish(second.id);
+    const team = second.worktrees[TEAM_WORKTREE]![0]!;
+    expect(team.base).not.toBe(before);
+    expect(existsSync(join(team.path, 'later.txt'))).toBe(true);
+    // Said again why it works there.
+    expect(second.messages.filter((m) => m.author.kind === 'system')).toHaveLength(2);
+    release();
   });
 
   it('leaves the folder to a conversation whose team has nothing in its worktree, once it is free', async () => {

@@ -109,6 +109,7 @@ import { checkModel } from './modelCheck';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import {
   RunCheck,
+  baselineIn,
   checksResult,
   listPatterns,
   mergeDefaultChecks,
@@ -249,6 +250,19 @@ function realDepth(dir: string): number {
     /* not there: as written */
   }
   return real.split(/[\\/]+/).filter(Boolean).length;
+}
+
+/**
+ * Whether a reply was the first to change files in one of these worktrees as they are now: its
+ * changes start from the snapshot the worktree was made from (each later turn's start from the turn
+ * before). A rewind drops the replies after a point, so this one left means some reply made there is.
+ */
+function madeIn(m: ChatMessage, worktrees: AgentWorktree[]): boolean {
+  return Boolean(
+    m.changes?.some(
+      (c) => c.isolated && c.files.length && worktrees.some((w) => w.root === c.root && w.branch === c.branch && w.base === c.base),
+    ),
+  );
 }
 
 /** The repositories of a run's working directories, each once, in the order of the directories. */
@@ -1708,6 +1722,9 @@ export class Orchestrator {
     }
     // Parallel worktrees hold the dropped turns' work: start them again from the working directory.
     for (const [agentId, list] of Object.entries(conv.worktrees)) {
+      // The team's own stand in for the working directories, whose files a rewind leaves as they are:
+      // kept while a reply that changed them is left; rewound past every one, what they hold goes.
+      if (agentId === TEAM_WORKTREE && conv.messages.some((m) => madeIn(m, list))) continue;
       for (const w of list) {
         w.needsReset = true;
         this.store.saveWorktree(conv.id, agentId, w);
@@ -1794,7 +1811,16 @@ export class Orchestrator {
         const taken = own ? undefined : this.lockHolder(roots, conv);
         ws.isolated = own || Boolean(taken);
         ws.team = ws.isolated;
-        if (taken) teamNote = t().teamWorktreeNote(taken.title, taken.root);
+        if (taken) {
+          teamNote = t().teamWorktreeNote(taken.title, taken.root);
+          // Its worktrees hold nothing of the team's: made again from the folders as they are now, not
+          // kept from snapshots the other conversation has written past since.
+          for (const w of conv.worktrees[TEAM_WORKTREE] ?? []) {
+            if (w.needsReset) continue;
+            w.needsReset = true;
+            this.store.saveWorktree(conv.id, TEAM_WORKTREE, w);
+          }
+        }
         if (ws.isolated) return;
         lockRoots = roots;
         this.lockDirs(lockRoots, conv);
@@ -2089,11 +2115,11 @@ export class Orchestrator {
     if (run?.lockRoots || this.reserved.has(convId)) return true;
     if (writes && (run ? !run.ws.isolated : this.starting.has(convId))) return true;
     // Only the working directory a file source watches: another chat writing in one of the others is not in it.
-    return this.lockedFolder(conv, [conv.settings.cwd]) !== undefined;
+    return this.lockedFolder(conv, [conv.settings.cwd]);
   }
 
-  /** Why another conversation's lock covers one of these working directories of this one (around it or inside it), or undefined. */
-  private lockedFolder(conv: Conversation, folders: string[]): string | undefined {
+  /** Whether another conversation's lock covers one of these working directories of this one (around it or inside it). */
+  private lockedFolder(conv: Conversation, folders: string[]): boolean {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
     for (const dir of folders) {
       let cwd: string;
@@ -2103,12 +2129,10 @@ export class Orchestrator {
         continue;
       }
       for (const [held, holder] of this.dirLocks) {
-        if (holder !== conv.id && (within(cwd, held) || within(held, cwd))) {
-          return t().dirLocked(this.store.get(holder)?.title ?? holder, held);
-        }
+        if (holder !== conv.id && (within(cwd, held) || within(held, cwd))) return true;
       }
     }
-    return undefined;
+    return false;
   }
 
   private unlockDirs(roots: string[], convId: string): void {
@@ -2407,14 +2431,25 @@ export class Orchestrator {
             p.files.flatMap((file: FileChange) => {
               const rel = relativeInside(real(f.cwd), join(p.root, ...file.path.split('/')));
               return rel && isProtected(rel, patterns)
-                ? [{ path: rel, change: status[file.status], by: of.name, ...(many ? { folder: basename(f.cwd) } : {}) }]
+                ? [
+                    {
+                      path: rel,
+                      change: status[file.status],
+                      // The team's result is every member's: the card says whose it is.
+                      ...(of.agentId === TEAM_WORKTREE ? {} : { by: of.name }),
+                      ...(many ? { folder: basename(f.cwd) } : {}),
+                    },
+                  ]
                 : [];
             }),
           ),
       );
       outcomes.push({ rule: 'paths', status: findings.length ? 'failed' : 'passed', ...(findings.length ? { findings } : {}) });
     }
-    if (list.commitPattern) outcomes.push({ rule: 'commits', status: 'na', reason: t().checksCommitsParallel });
+    if (list.commitPattern) {
+      const reason = of.agentId === TEAM_WORKTREE ? t().checksCommitsTeam : t().checksCommitsParallel;
+      outcomes.push({ rule: 'commits', status: 'na', reason });
+    }
     const commands = list.commands ?? [];
     const windows = this.checkCommandDeps.platform === 'win32';
     const msg = this.postChecks(
@@ -2924,8 +2959,8 @@ export class Orchestrator {
   // Team checks ---------------------------------------------------------------
 
   /** Where team checks look: the working directories with their repositories, never in the CLIs' homes. */
-  private checkFolders(folders: { cwd: string; root: string }[], isolated: boolean): CheckFolders {
-    return { folders, exclude: this.snapshotExcludes(), commits: !isolated };
+  private checkFolders(folders: { cwd: string; root: string }[], isolated: boolean, team = false): CheckFolders {
+    return { folders, exclude: this.snapshotExcludes(), commits: !isolated, ...(team ? { team } : {}) };
   }
 
   /** The conversation's working directories now, each with the root of its repository (itself when it is in none). */
@@ -3249,13 +3284,20 @@ export class Orchestrator {
     const list = conv.settings.checks;
     if (!hasChecks(list) || !run.ws.folders?.length) return;
     const previous = run.pausedChecks ?? checksHold(conv.messages);
-    const carried = previous ? this.store.checksBaseline<StoredBaseline>(conv.id, previous.id) : undefined;
+    let carried = previous ? this.store.checksBaseline<StoredBaseline>(conv.id, previous.id) : undefined;
     // In the team's own worktrees when it works there: what it changes is there, and what another
     // conversation writes in the working directories meanwhile is not the team's.
     const folders = run.ws.team ? this.teamDirs(conv, run.ws.folders) : run.ws.folders;
+    // A result that did not pass in the working directories is checked in their copies, from where it began.
+    if (carried && run.ws.team && folders.length) {
+      carried = baselineIn(
+        carried,
+        run.ws.folders.map((f, i) => ({ from: f.cwd, to: folders[i]!.cwd })),
+      );
+    }
     try {
       if (!folders.length) throw new Error(t().noTeamWorktree);
-      run.checks = await RunCheck.start(list, this.checkFolders(folders, run.ws.isolated), this.clock(), carried);
+      run.checks = await RunCheck.start(list, this.checkFolders(folders, run.ws.isolated, run.ws.team), this.clock(), carried);
     } catch (err) {
       run.checksError = (err as Error).message;
     }
@@ -3461,7 +3503,12 @@ export class Orchestrator {
             const worktrees = parallel ? await this.worktreeChanges(conv, folders) : [];
             const own = team ? this.teamDirs(conv, folders) : [];
             const where = own.length ? own : folders;
-            outcomes = await recheckFrom(builtIn, this.checkFolders(where, parallel || own.length > 0), baseline, worktrees);
+            outcomes = await recheckFrom(
+              builtIn,
+              this.checkFolders(where, parallel || own.length > 0, own.length > 0),
+              baseline,
+              worktrees,
+            );
           } catch (err) {
             outcomes = unchecked((err as Error).message);
           }
