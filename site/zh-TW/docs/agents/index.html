@@ -449,7 +449,9 @@
             帳號登入後，它的框會顯示<b>方案用量</b>：agent 回報的方案還剩多少，每個額度一條長條，以及何時重置（例如 Claude Code 的 5 小時與每週額度，或 Copilot 這個月的 premium 請求）。Harness
             Relay 查詢時不會送出 prompt，所以查看不會用掉額度。按<b>重新查詢</b>會再問一次。用 API key 的帳號（Claude Code、Codex、Grok、Antigravity、Muse
             Code）沒有方案額度：供應商依用量向金鑰計費，餘額請到供應商的主控台查看。用 GitHub token 的 Copilot 會顯示那個 GitHub
-            帳號的方案。Cursor 的框只會寫出方案名稱；用 Cursor API key 的帳號則什麼都不顯示。
+            帳號的方案。Cursor 的框只會寫出方案名稱；用 Cursor API key 的帳號則什麼都不顯示。額度用完、但 agent
+            會繼續執行並另外計費時（點數、Claude Code 的用量點數、Copilot 的額外付費用量、Grok 的隨用隨付、開啟 Use AI Credits 後
+            Antigravity 的 AI 點數），會顯示<b>已達方案上限</b>與改用什麼；首席 agent 仍會用這個帳號，但因為每回合都要花錢，會優先選其他一樣合適的。
           </p>
         </section>
 

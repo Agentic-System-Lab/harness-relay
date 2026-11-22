@@ -2554,7 +2554,20 @@ export interface UsageLimit {
   /** A limit of a number of requests (Copilot's premium requests): how many are used, of how many. */
   used?: number;
   total?: number;
+  /**
+   * Once it is used up, the account's `payer` pays for what goes past it, so it does not stop the CLI:
+   * set only for the limits that payer covers as the CLI reports it (Codex's credits pay past the plan's
+   * own limit, not a model's), and only while the account has one (`AccountUsage.payer`).
+   */
+  paidPast?: true;
 }
+
+/**
+ * What a CLI keeps running on, billed by use, once its plan's included usage is used up: purchased
+ * credits (Codex's, Grok's prepaid credits), Claude Code's usage credits (extra usage), Copilot's
+ * additional paid usage, Grok's pay-as-you-go.
+ */
+export type UsagePayer = 'credits' | 'usageCredits' | 'additionalUsage' | 'payAsYouGo';
 
 /**
  * Why an account has no plan limits to show: it runs on an API key the provider bills by use (no
@@ -2579,10 +2592,17 @@ export interface AccountUsage {
   /** The plan, as the CLI names it ("max", "prolite", "SuperGrok"). */
   plan?: string;
   limits: UsageLimit[];
-  /** The CLI explicitly says ordinary usage on this plan is blocked. */
+  /** The CLI explicitly says ordinary usage on this plan is blocked (its included usage; `payer` may still pay past it). */
   planUsageBlocked?: boolean;
-  /** Credits beside the plan's limits (Codex's), when the account has some. */
+  /** Credits beside the plan's limits (Codex's, Antigravity's), when the account has some: for display. */
   credits?: { balance?: number; unlimited?: boolean };
+  /**
+   * What pays once the plan's included usage is used up, when the CLI keeps running then: past the limits
+   * marked `paidPast` and past `planUsageBlocked`. Set only while it can pay now (credits left or
+   * unlimited, extra usage turned on and below its spend limits, additional usage allowed); unset, a
+   * limit used up stops the CLI until it resets.
+   */
+  payer?: UsagePayer;
   /** No limits to show, and why. */
   none?: UsageNone;
   /** The CLI could not be asked, or refused: in its own words. */

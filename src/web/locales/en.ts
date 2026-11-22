@@ -347,6 +347,12 @@ export const en: Messages = {
     inHours: (n) => `${n} h`,
     credits: (n) => `Credits left: ${n}`,
     creditsUnlimited: 'Credits: unlimited',
+    paying: {
+      credits: 'Plan limit reached; using credits (billed)',
+      usageCredits: 'Plan limit reached; using usage credits (extra usage, billed)',
+      additionalUsage: 'Plan limit reached; using additional paid usage',
+      payAsYouGo: 'Plan limit reached; using pay-as-you-go (billed)',
+    },
     none: {
       apiKey:
         "This account runs on an API key: the provider bills it by use, so it has no plan limits, and a regular API key cannot read the balance left. See the provider's console.",

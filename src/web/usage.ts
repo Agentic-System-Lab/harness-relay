@@ -1,4 +1,4 @@
-import { PROVIDER_LABEL, type AccountUsage, type Lang, type UsageLimit } from '../shared/types';
+import { PROVIDER_LABEL, type AccountUsage, type Lang, type UsageLimit, type UsagePayer } from '../shared/types';
 import type { Messages } from './locales/zh-TW';
 
 /*
@@ -21,8 +21,17 @@ export function usageLeft(l: UsageLimit): number {
   return Math.max(0, Math.min(100, Math.round(100 - l.usedPercent)));
 }
 
-/** How close a limit is to running out: the bar's colour. */
-export function usageLevel(l: UsageLimit): 'ok' | 'warn' | 'out' {
+/**
+ * What a used-up limit runs on now, billed, when the account's payer pays past it (`payer`, the
+ * account's `AccountUsage.payer`); undefined while it is not used up, or when nothing pays.
+ */
+export function usagePaid(l: UsageLimit, payer: UsagePayer | undefined): UsagePayer | undefined {
+  return l.usedPercent >= 100 && l.paidPast ? payer : undefined;
+}
+
+/** How close a limit is to running out: the bar's colour; `paid` once it is used up and the account's payer pays past it. */
+export function usageLevel(l: UsageLimit, payer?: UsagePayer): 'ok' | 'warn' | 'out' | 'paid' {
+  if (usagePaid(l, payer)) return 'paid';
   if (l.usedPercent >= 100) return 'out';
   return l.usedPercent >= 80 ? 'warn' : 'ok';
 }
@@ -43,16 +52,22 @@ export function usageResets(at: number | undefined, t: Messages, lang: Lang, now
   return t.usage.resetsAt(date);
 }
 
-/** One limit's line beside its bar: what is left, what is used (or the requests used), and when it resets. */
-export function usageLine(l: UsageLimit, t: Messages, lang: Lang, now = Date.now()): string {
+/**
+ * One limit's line beside its bar: what is left, what is used (or the requests used), and when it
+ * resets; once it is used up and the account's `payer` pays past it, what it runs on instead of what is left.
+ */
+export function usageLine(l: UsageLimit, t: Messages, lang: Lang, now = Date.now(), payer?: UsagePayer): string {
   const used =
     l.used !== undefined && l.total !== undefined
       ? t.usage.requests(l.used.toLocaleString(locale(lang)), l.total.toLocaleString(locale(lang)))
       : t.usage.used(Math.round(l.usedPercent));
-  return [t.usage.left(usageLeft(l)), used, usageResets(l.resetsAt, t, lang, now)].filter(Boolean).join(' · ');
+  const paid = usagePaid(l, payer);
+  return [paid ? t.usage.paying[paid] : t.usage.left(usageLeft(l)), used, usageResets(l.resetsAt, t, lang, now)]
+    .filter(Boolean)
+    .join(' · ');
 }
 
-/** The credits line (Codex's), or empty when the account has none. */
+/** The credits line (Codex's, Antigravity's), or empty when the account has none. */
 export function usageCredits(u: Pick<AccountUsage, 'credits'>, t: Messages, lang: Lang): string {
   if (!u.credits) return '';
   if (u.credits.unlimited) return t.usage.creditsUnlimited;

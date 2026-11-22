@@ -58,6 +58,10 @@ import { isGuarded, type WriteGuard } from '../writeGuard';
  * - Its home has no variable: `--gemini-dir` moves the whole `.gemini` folder for `agy acp`.
  * - Model and thinking level are the session's config options `model` and `thought_level`; a resumed
  *   session starts again on the account's default model, so both are set on every turn they are given.
+ * - Once a quota is used up, it runs on the account's AI credits only when they are turned on: its own
+ *   CLI turns them on when its settings say so (`useG1Credits`) or the Antigravity app's do
+ *   (`antigravityAiCredits`), but its ACP server reads the run's settings alone (agy 1.5.14, seen in
+ *   its `applySettings`), so a run's settings carry that choice (`antigravityRunSettings`).
  */
 
 /** The `.gemini` folder of an account (`ANTIGRAVITY_HOME_ENV`), else the user's own. */
@@ -69,6 +73,35 @@ export function antigravityGeminiDir(env: NodeJS.ProcessEnv, home = homedir()): 
 /** The account's CLI folder, where its settings, conversations and logs are. */
 export function antigravityAppDir(env: NodeJS.ProcessEnv, home = homedir()): string {
   return join(antigravityGeminiDir(env, home), 'antigravity-cli');
+}
+
+/** The settings in `file` (a JSON object), or none when it is missing or not one. */
+function readSettings(file: string): Record<string, any> | undefined {
+  try {
+    const v: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the Antigravity app's settings, which agy shares (`config/config.json` beside the CLI
+ * folder, its `userSettings`), turn AI credits on. agy's own CLI then turns them on too, whatever its
+ * own settings say ("inherited useG1Credits=true" in its log).
+ */
+export function antigravitySharedAiCredits(appDir: string): boolean {
+  const c = readSettings(join(dirname(appDir), 'config', 'config.json'));
+  const s = (c?.userSettings ?? c?.user_settings) as Record<string, unknown> | undefined;
+  return s?.useAiCredits === true || s?.use_ai_credits === true;
+}
+
+/**
+ * Whether the account runs on its AI credits once a quota is used up, as agy's own CLI decides: its
+ * Use AI Credits setting (`useG1Credits`), or the Antigravity app's (`antigravitySharedAiCredits`).
+ */
+export function antigravityAiCredits(appDir: string): boolean {
+  return readSettings(join(appDir, 'settings.json'))?.useG1Credits === true || antigravitySharedAiCredits(appDir);
 }
 
 /**
@@ -159,9 +192,10 @@ export function antigravityArgs(env: NodeJS.ProcessEnv, permission: Permission, 
 
 /**
  * The keys of the account's own `settings.json` a run keeps: which model and service it uses. Nothing
- * else is kept, since other keys decide what runs without asking (`toolPermission`,
- * `allowNonWorkspaceAccess`, `permissions`, `trustedWorkspaces`, `agentMode`) or run commands of
- * their own (`statusLine`). With `--cli_dir_name`, agy reads the run's settings only, not the account's.
+ * else is kept as it is (what pays once a quota is used up aside: `antigravityRunSettings`), since
+ * other keys decide what runs without asking (`toolPermission`, `allowNonWorkspaceAccess`,
+ * `permissions`, `trustedWorkspaces`, `agentMode`) or run commands of their own (`statusLine`). With
+ * `--cli_dir_name`, agy reads the run's settings only, not the account's.
  */
 export const ANTIGRAVITY_KEPT_SETTINGS = ['model', 'modelProvider', 'gcp', 'customModelsConfig'] as const;
 
@@ -172,16 +206,27 @@ export const ANTIGRAVITY_KEPT_SETTINGS = ['model', 'modelProvider', 'gcp', 'cust
  * access passes `--dangerously-skip-permissions` instead), the default mode (also set on each
  * session), and `modelProvider: "gemini"` with a Gemini API key, or for an account that runs on its key
  * only (`keyOnly`): without it agy does not use the key, and would take the Google sign-in it keeps.
+ * The account's own choice of running on its AI credits once a quota is used up stays as agy's own CLI
+ * takes it, from its settings (`useG1Credits`) or the Antigravity app's (`sharedAiCredits`,
+ * `antigravitySharedAiCredits`): its ACP server reads the run's alone. A key never uses AI credits.
  */
-export function antigravityRunSettings(own: unknown, permission: Permission, apiKey: boolean, keyOnly = false): Record<string, unknown> {
+export function antigravityRunSettings(
+  own: unknown,
+  permission: Permission,
+  apiKey: boolean,
+  keyOnly = false,
+  sharedAiCredits = false,
+): Record<string, unknown> {
   const base = own && typeof own === 'object' && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
   const kept = Object.fromEntries(ANTIGRAVITY_KEPT_SETTINGS.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
+  const aiCredits = !apiKey && !keyOnly && (base.useG1Credits === true || sharedAiCredits);
   return {
     ...kept,
     toolPermission: permission === 'full' ? 'always-proceed' : 'request-review',
     agentMode: '',
     ...(permission === 'full' ? {} : { allowNonWorkspaceAccess: false }),
     ...(apiKey || keyOnly ? { modelProvider: 'gemini' } : {}),
+    ...(aiCredits ? { useG1Credits: true } : {}),
   };
 }
 
@@ -221,15 +266,12 @@ function sweep(appDir: string, now = Date.now()): void {
 
 /**
  * Makes a run's settings folder in the account's CLI folder (owner only), with its `settings.json`
- * (`antigravityRunSettings`); the account's own settings stay as they are.
+ * (`antigravityRunSettings`, from the account's own and the Antigravity app's); the account's own
+ * settings stay as they are.
  */
 export function prepareAntigravityRun(appDir: string, permission: Permission, apiKey: boolean, keyOnly = false): AntigravityRun {
-  let own: unknown;
-  try {
-    own = JSON.parse(readFileSync(join(appDir, 'settings.json'), 'utf8'));
-  } catch {
-    own = undefined; // none yet, or not JSON: agy's defaults
-  }
+  const own = readSettings(join(appDir, 'settings.json')); // none yet, or not JSON: agy's defaults
+  const shared = antigravitySharedAiCredits(appDir);
   mkdirSync(appDir, { recursive: true, mode: 0o700 });
   sweep(appDir);
   const name = `${ANTIGRAVITY_RUN_PREFIX}${randomBytes(6).toString('hex')}`;
@@ -242,9 +284,13 @@ export function prepareAntigravityRun(appDir: string, permission: Permission, ap
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly), null, 2)}\n`, {
-      mode: 0o600,
-    });
+    writeFileSync(
+      join(dir, 'settings.json'),
+      `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly, shared), null, 2)}\n`,
+      {
+        mode: 0o600,
+      },
+    );
   } catch (err) {
     done();
     throw err;
