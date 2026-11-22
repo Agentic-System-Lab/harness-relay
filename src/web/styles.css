@@ -10054,7 +10054,9 @@ a.share-action {
   background: var(--accent, var(--ok));
 }
 
-.usage-limit.warn .usage-bar > span {
+/* Near the end, or used up while the account runs on past it, billed (credits, usage credits…): a warning, not a stop. */
+.usage-limit.warn .usage-bar > span,
+.usage-limit.paid .usage-bar > span {
   background: var(--warn);
 }
 
