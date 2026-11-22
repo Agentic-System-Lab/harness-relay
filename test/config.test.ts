@@ -46,12 +46,15 @@ describe('server configuration from the environment', () => {
       expect(read.config.rlmModel).toBeUndefined();
       expect(read.config.runCode).toBe(false);
     }
-    // Not a model: `on` names none.
-    for (const raw of ['on', 'claude-haiku-5-5', '/model', 'openai/']) {
+    // Through a CLI that can run with no tool, as one of its accounts.
+    expect(readConfig({ RELAY_RLM: 'cli:claude/haiku' }).config).toMatchObject({ runCode: true, rlmModel: 'cli:claude/haiku' });
+    expect(readConfig({ RELAY_RLM: 'cli:copilot:work' }).problems).toEqual([]);
+    // Not a model: `on` names none; nor a CLI whose runs keep a tool.
+    for (const raw of ['on', 'claude-haiku-5-5', '/model', 'openai/', 'cli:codex/gpt-6.2-sol']) {
       const read = readConfig({ RELAY_RLM: raw });
       expect(read.config.rlmModel).toBeUndefined();
       expect(read.problems).toEqual([
-        `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5.`,
+        `RELAY_RLM=${raw} must be off, or the sub-model as <backend>/<model> (a model connection in Settings), such as anthropic/claude-haiku-5-5, or through claude, copilot, muse as cli:<provider>[:<account>][/<model>], such as cli:claude/haiku.`,
       ]);
     }
     // RLM mode is run_code's: turning run_code off with it is refused rather than one of them ignored.

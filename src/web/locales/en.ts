@@ -1273,16 +1273,25 @@ export const en: Messages = {
         what: 'Everything above, and the program can keep a long text (a long document, a whole mailbox, a log) for the rest of the turn, ask a model you choose about one part at a time, and put the answers together. The assistant does not have to read all of it itself.',
         good: ['Content too long for the assistant to read at once', 'Summarizing, sorting or finding key points part by part'],
         costs: [
-          "It costs more: each question is billed on that model's key, up to 100 questions per turn, and they are not in the reply's cost",
+          "It costs more: each question is billed on the model connection's key or the CLI account's plan you choose, up to 100 questions per turn; questions on a model connection are not in the reply's cost",
           'Slower: many questions, and a run takes at most 5 minutes by default',
           'A small model may miss details, and reading in parts can miss links between them',
-          "The text goes to that model's provider; Harness Relay asks it itself, with no tools, and its key never enters the sandbox",
+          "The text goes to that model's provider, with no tools for it, and the key never enters the sandbox",
           'macOS and Linux only',
         ],
+        source: 'Ask through',
+        sourceConnection: 'A model connection (API key or endpoint)',
+        sourceCli: (cli, account) => `${cli}${account ? ` (${account})` : ''}: on this account's plan`,
+        notSignedIn: '(not signed in)',
+        cliDefault: "Empty: this account's default model",
+        cliHint: (cli) =>
+          `Each question starts ${cli} with all its tools, MCP servers, skills and hooks taken away and no session kept, so it takes a few seconds more than a model connection, on this account's plan. A cheap, fast model is usually enough.`,
+        cliNotReady: (cli) => `This account is not signed in to ${cli}: sign in under Settings → ${cli} first.`,
         model: 'Model for reading in parts',
         modelHint:
           'Pick one from Model connections, as "backend/model", such as anthropic/claude-haiku-5-5, or your endpoint\'s id and a model name. A cheap, fast model is usually enough.',
-        noConnections: 'No model connections yet: add an API key or endpoint under Settings → Model connections first.',
+        noConnections:
+          'No model connections yet: add an API key or endpoint under Settings → Model connections first, or choose a CLI account above.',
       },
     },
     problems: {
