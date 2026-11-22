@@ -265,7 +265,7 @@ export function checkInputs(raw: unknown): HandoverInput[] | string {
         });
         break;
       case 'wheel': {
-        const delta = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 10_000;
+        const delta = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= HANDOVER_LIMITS.wheelMax;
         if (!fraction(e.x) || !fraction(e.y) || !delta(e.dx) || !delta(e.dy) || !mods) return 'a wheel event is not valid';
         out.push({
           type: 'wheel',
@@ -448,15 +448,20 @@ export function inputCalls(e: HandoverInput, frame: { width: number; height: num
 export const USER_BROWSERS_MAX = 3;
 
 /**
- * Whether a browser for the user alone opens a page on a host it has not opened yet. Nobody is asked: the
- * user navigates it themselves, and what it opens is never the agents' (its profile and the hosts it opened
- * go when it closes). A page on the internet opens; one on this computer or the local network only at an
- * address the user typed in its address bar (or the card's own address, which they chose to open), never
- * one a page leads to by itself (a link, a redirect, a script). Harness Relay's own ports, link-local and
- * metadata addresses never open, as in every browser of Harness Relay's (`navigationVerdict()`).
+ * Whether a request of a browser for the user alone goes (`key`: its host and port, as `approvalKeys()`
+ * keys a fetch). Nobody is asked: the user navigates it themselves, and what it opens is never the
+ * agents' (its profile goes when it closes). One to the internet goes. One to this computer or the local
+ * network goes only to the host of the page open in its tab (`top`: that page's own images, scripts,
+ * forms and links), or, to open a page there, to the address the user typed in its address bar (or the
+ * card's own, which they confirmed) for that one opening (`typed`, until the tab shows a page again):
+ * never to a host a page elsewhere leads to or reaches by itself (a link, a redirect, a script's request,
+ * a form a public page posts to a device on the network), however often the user opened it before.
+ * Harness Relay's own ports, link-local and metadata addresses never open, as in every browser of
+ * Harness Relay's (`navigationVerdict()`).
  */
-export function ownerAllows(nearby: boolean, typed: boolean): boolean {
-  return !nearby || typed;
+export function ownerAllows(o: { nearby: boolean; key?: string; top?: string; typed?: string }): boolean {
+  if (!o.nearby) return true;
+  return Boolean(o.key) && (o.key === o.top || o.key === o.typed);
 }
 
 /**

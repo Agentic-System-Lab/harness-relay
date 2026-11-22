@@ -370,8 +370,13 @@ class BrowserSession {
    * about its hosts (`ownerAllows()`).
    */
   owner?: 'user';
-  /** Of a browser for the user alone: the hosts the user typed in its address bar, which may be on this computer or the local network. */
-  readonly typed = new Set<string>();
+  /**
+   * Of a browser for the user alone (`ownerAllows()`): the host the user typed in its address bar (or the
+   * card's they confirmed), for opening that page alone (cleared once the tab shows a page), and the host of
+   * the page its tab shows.
+   */
+  typed?: string;
+  top?: string;
   /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
   resume?: string;
 
@@ -754,6 +759,32 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
 /** How soon a hand-over's window that is gone never reached the user (no display it could open on, say). */
 const WINDOW_QUICK_EXIT_MS = 5000;
 
+/**
+ * Why a request of a browser for the user alone does not go (`ownerAllows()`), or undefined when it does:
+ * never what no browser of Harness Relay's opens, and to this computer or the local network only to the
+ * host of its tab's page, or (`main`: opening a page, or the proxy's connection for one) the one the user typed.
+ */
+function ownerRefusal(
+  s: BrowserSession,
+  url: string,
+  rules: Parameters<typeof navigationVerdict>[1],
+  main: boolean,
+): Refusal['why'] | undefined {
+  if (/^(data|blob):/i.test(url) || url === 'about:blank' || url === 'about:srcdoc') return undefined;
+  const verdict = navigationVerdict(url, { ...rules, allowed: new Set(), nearby: new Set() });
+  if (verdict === 'block') return 'blocked';
+  if (verdict === 'mixed') return 'mixed';
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return 'blocked';
+  }
+  const nearby = leadsNearby(host, rules.addresses ?? [], rules.own ?? []);
+  const key = approvalKeys('fetch', url)[0];
+  return ownerAllows({ nearby, key, top: s.top, ...(main ? { typed: s.typed } : {}) }) ? undefined : 'unasked';
+}
+
 /** A tab's frames, as `Page.getFrameTree` gives them. */
 interface FrameTree {
   frame: { id: string };
@@ -792,9 +823,14 @@ async function setCookies(cdp: CdpConnection, cookies: readonly Record<string, u
 /** The screencast panel's Back, Forward and Reload, in the tab. */
 async function history(s: BrowserSession, to: 'back' | 'forward' | 'reload'): Promise<void> {
   if (to === 'reload') return void (await s.send('Page.reload').catch(() => undefined));
-  const h = await s.send<{ currentIndex: number; entries: { id: number }[] }>('Page.getNavigationHistory').catch(() => undefined);
+  const h = await s
+    .send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory')
+    .catch(() => undefined);
   const entry = h?.entries[h.currentIndex + (to === 'back' ? -1 : 1)];
-  if (entry) await s.send('Page.navigateToHistoryEntry', { entryId: entry.id }).catch(() => undefined);
+  if (!entry) return;
+  // Back and Forward are the user's: a page there opens as one they typed (a browser for the user alone's).
+  if (s.owner === 'user' && /^https?:/i.test(entry.url)) s.typed = approvalKeys('fetch', entry.url)[0];
+  await s.send('Page.navigateToHistoryEntry', { entryId: entry.id }).catch(() => undefined);
 }
 
 export class BrowserService {
@@ -987,6 +1023,14 @@ export class BrowserService {
         void cdp.send('Fetch.continueWithAuth', { requestId: p.requestId, authChallengeResponse }, sid).catch(() => undefined);
       });
       cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(s, p));
+      // The host of the page its tab shows (a browser for the user alone's requests here go only to it), and
+      // the opening the user typed done with.
+      cdp.on('Page.frameNavigated', (p: Record<string, unknown>, sid?: string) => {
+        const frame = p.frame as { parentId?: string; url?: string } | undefined;
+        if (sid !== sessionId || !frame || frame.parentId) return;
+        s.top = /^https?:/i.test(frame.url ?? '') ? approvalKeys('fetch', frame.url!)[0] : undefined;
+        s.typed = undefined;
+      });
       cdp.on('Target.detachedFromTarget', (p: Record<string, unknown>) => {
         s.gated.delete(String(p.sessionId));
         s.refused.delete(String(p.sessionId));
@@ -1052,7 +1096,9 @@ export class BrowserService {
     // A tunnel on port 80 is a ws:// socket's; any other, https's or wss's: keyed as the page's own address is.
     const url = `${secure && port !== 80 ? 'https' : 'http'}://${bracketed}:${port}/`;
     const rules = await this.rules(s, url);
-    if (requestVerdict(url, rules) !== 'allow') return { refused: `${url} is not reached from Harness Relay's browser` };
+    // A browser for the user alone: here only to its own page's host, or the one the user is opening (`ownerAllows()`).
+    const refused = s.owner === 'user' ? Boolean(ownerRefusal(s, url, rules, true)) : requestVerdict(url, rules) !== 'allow';
+    if (refused) return { refused: `${url} is not reached from Harness Relay's browser` };
     const addresses = isIP(name) ? [name] : isLoopbackHost(name) ? ['127.0.0.1', '::1'] : [...(rules.addresses ?? [])];
     return addresses.length ? { addresses } : { refused: `${name} has no address` };
   }
@@ -1075,6 +1121,16 @@ export class BrowserService {
         : s.cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sid)
       ).catch(() => undefined);
     const rules = await this.rules(s, url);
+    // A browser for the user alone: nobody asked, and a request here only to the host of its own page (`ownerAllows()`).
+    if (s.owner === 'user') {
+      const main = isMainDocument(s, p, sid);
+      const why = ownerRefusal(s, url, rules, main);
+      if (main && why) {
+        s.denied = { url, why };
+        s.onRefused?.(s.denied);
+      }
+      return void (await go(!why));
+    }
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
     const verdict = navigationVerdict(url, rules);
     let allow = verdict === 'allow';
@@ -1084,10 +1140,7 @@ export class BrowserService {
       const ctx = s.current;
       // The question says when the page is on this computer or the local network: allowing it lets its pages reach there.
       const nearby = leadsNearby(new URL(url).hostname, rules.addresses ?? [], rules.own ?? []);
-      if (s.owner === 'user') {
-        allow = ownerAllows(nearby, s.typed.has(approvalKeys('fetch', url)[0] ?? ''));
-        if (!allow) s.denied = { url, why: 'unasked' };
-      } else if (ctx?.permission === 'full') allow = true;
+      if (ctx?.permission === 'full') allow = true;
       else if (ctx?.ask) {
         const ask = () =>
           ctx.ask!({ kind: 'fetch', detail: url, reason: nearby ? t().gw.openNearbyReason : t().gw.openReason, noLock: true });
@@ -1185,7 +1238,12 @@ export class BrowserService {
       s.hold();
       try {
         // The page a hand-over's window was on, opened again as this call (its hosts, its questions), unless the call opens another.
-        if (resume && !o.navigates) await this.goTo(s, ctx, resume).catch(() => undefined);
+        if (resume && !o.navigates) {
+          await this.goTo(s, ctx, resume).catch(() => undefined);
+          // A page it was refused there is no note of this call's.
+          s.denied = undefined;
+          s.popups = [];
+        }
         return await fn(s);
       } finally {
         s.current = undefined;
@@ -1551,8 +1609,9 @@ export class BrowserService {
             // The browser could not be shown (its screencast would not start, say): the card says so.
             end = { action: 'failed', error: (err as Error).message };
           }
-          // The browser ended under the screencast: the page is gone with it.
-          if (end.action === 'failed') where = 'closed';
+          // The browser ended under the screencast: the page is gone with it (one whose screencast would not
+          // start is still open, as the user left it).
+          if (end.action === 'failed' && answer.mode === 'screencast' && s.stopped) where = 'closed';
           const note = end.action === 'done' || end.action === 'cancel' ? clipNote(end.note) : undefined;
           shown.update({
             status: end.action === 'done' || end.action === 'closed' ? 'done' : end.action === 'cancel' ? 'cancelled' : 'expired',
@@ -1624,10 +1683,13 @@ export class BrowserService {
     s.onRefused = (r) => ticket.emit({ type: 'notice', kind: 'refused', url: r.url });
     // One event after another, as the user did them.
     let inputs = Promise.resolve();
+    /** The hand-over is over: what still waits of the user's input reaches the page no more (the next call has it). */
+    let over = false;
     ticket.screen = {
       input: (events) =>
         (inputs = inputs.then(async () => {
           for (const e of events) {
+            if (over) return;
             if (e.type === 'viewport') {
               size = { width: e.width, height: e.height, scale: Math.min(e.scale ?? 1, 2) };
               await s
@@ -1648,7 +1710,7 @@ export class BrowserService {
                 // In a browser for the user alone, an address they typed may be on this computer or the local
                 // network; one a page offered (a window it opened: "Open it here") may not.
                 const key = approvalKeys('fetch', e.url)[0];
-                if (s.owner === 'user' && key && e.typed) s.typed.add(key);
+                if (s.owner === 'user' && key && e.typed) s.typed = key;
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
@@ -1665,6 +1727,7 @@ export class BrowserService {
       return await ticket.wait(ms, signal, gone);
     } finally {
       ticket.screen = undefined;
+      over = true;
       s.onPopup = undefined;
       s.onRefused = undefined;
       for (const [event, on] of handlers) s.cdp.off(event, on);
@@ -1816,7 +1879,7 @@ export class BrowserService {
       ticket.status = 'active';
       profile = join(this.userProfiles(), ticket.id);
       s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user' }, () => false);
-      if (typed) s.typed.add(typed);
+      if (typed) s.typed = typed;
     } catch (err) {
       this.opening--;
       if (ticket) {
@@ -1880,12 +1943,15 @@ export class BrowserService {
     const u = this.forUser.get(id);
     if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
     const typed = await this.userAddress(url, o.nearbyConfirmed);
-    if (typed) u.s.typed.add(typed);
+    // Another site: what the user typed before opens nothing more.
+    u.s.typed = typed;
     void u.s.send('Page.navigate', { url }, CONFIG.turnTimeoutMs).catch(() => undefined);
   }
 
+  /** Whether it is open, and not closing (just after Close, the card opens another). */
   userBrowserOpen(convId: string, id: string): boolean {
-    return this.forUser.get(id)?.convId === convId;
+    const u = this.forUser.get(id);
+    return u?.convId === convId && u.ticket.status === 'active';
   }
 
   /**
@@ -1918,6 +1984,7 @@ export class BrowserService {
   async closeForUser(convId: string, id: string): Promise<void> {
     const u = this.forUser.get(id);
     if (!u || u.convId !== convId) return;
+    if (u.ticket.status === 'active') u.ticket.status = 'ending';
     u.ticket.wake({ action: 'done' });
     await u.ended;
   }

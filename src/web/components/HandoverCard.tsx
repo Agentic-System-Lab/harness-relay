@@ -18,13 +18,13 @@ import {
 import { api } from '../api';
 import { sseMessages } from '../appPreview';
 import {
-  addressOf,
+  addressEntry,
   framePoint,
   isTap,
   keyInput,
-  mergeInputs,
   minutesLeft,
   modifiersOf,
+  nextBatch,
   preferredMode,
   screenEvent,
   viewportOf,
@@ -291,6 +291,8 @@ export function HandoverPanel({
   const [notice, setNotice] = useState<{ kind: 'popup' | 'refused'; url?: string } | undefined>();
   /** Why the server did not take what the user did last (an address it refuses, say). */
   const [inputError, setInputError] = useState('');
+  /** The latest address the page went to, as its stream said. */
+  const shown = useRef('');
   useDialog(dialog, onHide);
 
   // The input waiting to go: one request at a time, in order, the moves merged.
@@ -304,9 +306,8 @@ export function HandoverPanel({
       try {
         while (queue.current.length) {
           // At most a batch at a time: the rest waits its turn, in order.
-          const merged = mergeInputs(queue.current.splice(0));
-          queue.current.unshift(...merged.slice(HANDOVER_LIMITS.eventsMax));
-          const batch = merged.slice(0, HANDOVER_LIMITS.eventsMax);
+          const { batch, rest } = nextBatch(queue.current.splice(0));
+          queue.current.unshift(...rest);
           await api.handoverInput(convId, handoverId, batch).then(
             () => setInputError(''),
             (err: Error) => setInputError(err.message),
@@ -350,6 +351,7 @@ export function HandoverPanel({
                 frame.current = { width: e.width, height: e.height };
                 if (image.current) image.current.src = `data:image/jpeg;base64,${e.data}`;
               } else if (e.type === 'location') {
+                shown.current = e.url;
                 setNav({ back: e.back, forward: e.forward });
                 setAddress((a) => (document.activeElement?.classList.contains('handover-address') ? a : e.url));
               } else if (e.type === 'notice') setNotice({ kind: e.kind, ...(e.url ? { url: e.url } : {}) });
@@ -490,9 +492,11 @@ export function HandoverPanel({
 
   const go = (e: FormEvent) => {
     e.preventDefault();
-    const url = addressOf(address);
-    if (!url) return;
-    send({ type: 'navigate', url, typed: true });
+    const entry = addressEntry(address, shown.current);
+    if (!entry) return;
+    if ('refused' in entry) return setInputError(p.onlyWeb);
+    // Typed only when the user changed what the page put there (a page refused there shows its address).
+    send({ type: 'navigate', url: entry.url, ...(entry.typed ? { typed: true } : {}) });
     setEditing(false);
     typing.current?.focus({ preventScroll: true });
   };

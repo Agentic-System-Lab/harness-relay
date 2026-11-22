@@ -1115,6 +1115,10 @@ export class Orchestrator {
       this.outbox?.forget(convId);
       this.skipNotes.delete(convId);
       this.heldCommandEvents.delete(convId);
+      // Its secrets cards' browsers for the user alone close with it (`onDelete`); what was kept of them goes.
+      for (const map of [this.secretBrowsers, this.secretBrowserAsks])
+        for (const key of map.keys()) if (key.startsWith(`${convId}\n`)) map.delete(key);
+      for (const key of this.secretsAnswered) if (key.startsWith(`${convId}\n`)) this.secretsAnswered.delete(key);
       this.onDelete?.(convId);
     } finally {
       this.deleting.delete(convId);

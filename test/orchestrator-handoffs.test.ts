@@ -415,6 +415,11 @@ describe('secrets cards', () => {
         expect(settings.handoffs.values(orchestrator.handoffFolder(second.conv))).not.toHaveProperty('OTHER_KEY');
         await finish(second.conv.id);
         expect(userTexts(second.conv.id).filter((t) => t.includes('OTHER_KEY'))).toHaveLength(1);
+        // What was kept of a deleted chat's cards goes with it.
+        const kept = orchestrator as unknown as { secretsAnswered: Set<string>; secretBrowserAsks: Map<string, unknown> };
+        expect([...kept.secretsAnswered].some((k) => k.startsWith(`${second.conv.id}\n`))).toBe(true);
+        await orchestrator.deleteConversation(second.conv.id);
+        expect([...kept.secretsAnswered, ...kept.secretBrowserAsks.keys()].some((k) => k.startsWith(`${second.conv.id}\n`))).toBe(false);
       }));
   });
 });
