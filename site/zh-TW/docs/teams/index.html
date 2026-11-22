@@ -360,7 +360,7 @@
             </dd>
             <dt>上限</dt>
             <dd>
-              Claude Code（每一輪的費用，以美元計）、Copilot（整個 session 的 AI credits）、Goose（每一輪的模型呼叫次數）與 OpenCode（每一輪的步數）：這位成員最多可以用多少，由它的 agent 自己遵守。留空就是不設上限。
+              Claude Code（每一輪的費用，以美元計）、Copilot（整個 session 的 AI 點數）、Goose（每一輪的模型呼叫次數）與 OpenCode（每一輪的步數）：這位成員最多可以用多少，由它的 agent 自己遵守。留空就是不設上限。
             </dd>
             <dt>工具</dt>
             <dd>這位成員可以用工具庫裡的哪些項目。<a href="../tools/">工具</a></dd>
@@ -480,7 +480,11 @@
         <section id="change-the-team" aria-labelledby="change-the-team-title">
           <h2 id="change-the-team-title">在對話中修改團隊</h2>
           <p>
-            按對話上方的<b>團隊設定</b>，可以改角色、模型、推理強度、對話模式、權限或工作目錄。修改從下一回合開始生效。團隊回覆時不能儲存（首席 agent 審閱的勾選框除外）。
+            按對話上方的<b>團隊設定</b>，可以改角色、模型、推理強度、對話模式、權限或工作目錄。修改從下一回合開始生效。團隊回覆時不能儲存（首席 agent 審閱與直接送進回合的勾選框除外）。
+          </p>
+          <p>
+            <b>團隊工作時，把訊息直接送進進行中的回合</b>預設關閉。打開後，團隊工作時你寫的訊息會直接送進正在發言那位成員進行中的回合（它的 agent 能接收時：Claude Code、Codex、Grok、Antigravity、Goose 與 Pi）；否則照常等到下一回合。
+            <a href="../first-chat/#while-they-work">團隊工作時</a>
           </p>
           <p>
             也可以交給首席 agent：在<b>團隊設定</b>最上方的<b>請首席 agent 調整</b>寫下你想怎麼改，例如「加一位用 Codex 的測試人員」、「改成接力模式」或「讓

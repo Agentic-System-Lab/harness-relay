@@ -2692,6 +2692,7 @@ export const en: Messages = {
           'Choose Wait for my confirmation to review the proposed team, or Start answering right away to use it immediately. New chats remember your last choice. You can also change it in the team settings.',
           'What you write before confirming goes to the team with the question; a message that @mentions a member goes straight to them, with no new team',
           '"Have the lead agent review the team\'s replies" (on in every new chat; turn it off in a chat that does not need it, also on the team design card): once the team has answered, the lead agent marks what needs a close look in the replies and suggests the next steps',
+          "In Team settings a member can also have a limit of its own, where its agent has one: Claude Code's cost per turn, Copilot's AI credits, Goose's model calls or OpenCode's steps",
           'Change the lead agent in Settings; the file permission is always yours to choose, and the lead agent never changes it',
         ],
       },
@@ -2839,7 +2840,7 @@ export const en: Messages = {
       },
       {
         title: 'Adjust any time',
-        body: "In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, turn each CLI's own subagents and Claude Code's workflows on or off, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.",
+        body: "In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, turn each CLI's own subagents and Claude Code's and Grok's workflows on or off, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.",
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',

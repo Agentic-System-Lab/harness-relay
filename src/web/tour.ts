@@ -9,7 +9,7 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { target: 'pair-phone', revision: 23 }, // connect a phone
   { target: 'settings', revision: 39 }, // model connections (context windows)
   { target: 'new-chat', revision: 37 }, // new chat
-  { revision: 20 }, // auto team
+  { revision: 39 }, // auto team (a member's own limit)
   { revision: 1 }, // modes
   { revision: 9 }, // writing a message
   { revision: 39 }, // while the team replies (subagents, steering)

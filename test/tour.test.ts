@@ -41,6 +41,7 @@ describe('guided tour', () => {
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
         'While the team replies',
         'Notifications and sound',
         'Team checks',
@@ -52,6 +53,7 @@ describe('guided tour', () => {
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
         'While the team replies',
         'Notifications and sound',
         'Automations',
@@ -62,6 +64,7 @@ describe('guided tour', () => {
         'Connect your phone',
         'API keys and endpoints for open-source agents',
         'Start a new chat',
+        'A team for every question',
         'While the team replies',
         'Notifications and sound',
         'Automations',
@@ -72,6 +75,7 @@ describe('guided tour', () => {
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
           'Start a new chat',
+          'A team for every question',
           'While the team replies',
           'Automations',
           'Connect apps to your chats',
@@ -82,13 +86,24 @@ describe('guided tour', () => {
         expect(titles(version)).toEqual([
           'API keys and endpoints for open-source agents',
           'Start a new chat',
+          'A team for every question',
           'While the team replies',
           'Automations',
           'Adjust any time',
         ]);
       }
-      expect(titles(37)).toEqual(['API keys and endpoints for open-source agents', 'While the team replies', 'Adjust any time']);
-      expect(titles(38)).toEqual(['API keys and endpoints for open-source agents', 'While the team replies', 'Adjust any time']);
+      expect(titles(37)).toEqual([
+        'API keys and endpoints for open-source agents',
+        'A team for every question',
+        'While the team replies',
+        'Adjust any time',
+      ]);
+      expect(titles(38)).toEqual([
+        'API keys and endpoints for open-source agents',
+        'A team for every question',
+        'While the team replies',
+        'Adjust any time',
+      ]);
       expect(tourIndices(39)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
@@ -133,6 +148,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: 'f83b265905e2' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: 'f47082c32ad3' });
   });
 });
