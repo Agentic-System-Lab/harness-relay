@@ -21,6 +21,7 @@ import type { CompiledPattern } from '../shared/checks';
 import { AgentRunError } from './agents/types';
 import { CONFIG_FILE, checkEnv, commandCwd, keptOutput, namedFiles, sandboxDenial } from './checkCommands';
 import { dirInTemp } from './protect';
+import { fileKey, withheldFileKeys } from './db';
 import type { CommandPin } from './handoffs';
 import { t } from './i18n';
 import { runProcess, type SpawnResult } from './process';
@@ -120,7 +121,7 @@ const pinKey = (id: string) => `commands/${id}`;
 export type PinEntry = { kind: 'file'; size: number; hash: string } | { kind: 'link'; target: string; size?: number; hash?: string };
 
 /** Most names a pin's walk visits, and most bytes it reads, before it gives up. */
-const PIN_WALK = { entries: 200_000, bytes: 1024 * 1024 * 1024 };
+const PIN_WALK = { entries: 200_000, bytes: 1024 * 1024 * 1024, repositories: 50 };
 
 /** A file's SHA-256, read without following a link. */
 async function hashFile(abs: string): Promise<string> {
@@ -163,18 +164,58 @@ const inside = (p: string, dir: string) => {
  * protocol (`protocol.*.allow`, `url.*.insteadOf`) changes what a command running git runs.
  */
 const BENIGN_GIT_KEY =
-  /^(?:user\.[^.]+|core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|safecrlf|quotepath)|remote\..+\.(?:url|pushurl|fetch|push|prune|prunetags|tagopt|mirror|skipdefaultupdate|skipfetchall)|branch\..+\.(?:remote|merge|rebase|pushremote|description)|maintenance\..+|gc\.auto|pull\.(?:rebase|ff)|push\.(?:default|autosetupremote|followtags)|init\.defaultbranch|fetch\.(?:prune|prunetags)|color\..+|column\..+|advice\..+|rerere\.(?:enabled|autoupdate)|extensions\.(?:worktreeconfig|objectformat)|submodule\..+\.(?:url|active))$/;
+  /^(?:user\.[^.]+|core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|safecrlf|quotepath)|remote\..+\.(?:url|pushurl|fetch|push|prune|prunetags|tagopt|mirror|skipdefaultupdate|skipfetchall)|branch\..+\.(?:remote|merge|rebase|pushremote|description)|maintenance\..+|gc\.auto|pull\.(?:rebase|ff)|push\.(?:default|autosetupremote|followtags)|init\.defaultbranch|fetch\.(?:prune|prunetags)|color\..+|column\..+|advice\..+|rerere\.(?:enabled|autoupdate)|extensions\.(?:worktreeconfig|objectformat)|submodule\..+\.(?:url|active)|branch\..+\.vscode-merge-base|remote\..+\.gh-resolved|lfs\.repositoryformatversion|lfs\..+\.access)$/;
 
-/** The pinned git settings of a repository (its keys and values), and its hooks (not git's samples), as full paths. */
-async function gitPinned(folder: string): Promise<{ settings: [string, string][]; hooks: [string, string][] }> {
-  const state = await repoGitState(folder).catch(() => undefined);
-  if (!state) return { settings: [], hooks: [] };
-  const settings = [...state.settings]
-    .filter(([key]) => !BENIGN_GIT_KEY.test(key))
+/** A repository's address on the network (`https://…`, `ssh://…`, `git://…`, scp's `user@host:path`), never a path here, `file:` or a remote helper's `name::…`. */
+const NETWORK_REPO = /^(?:(?:https?|ssh|git):\/\/[^/\s]|(?!file:)[\w.-]+(?:@[\w.-]+)?:(?!\/\/))/i;
+
+/**
+ * Whether a git setting is one a pin leaves out (`BENIGN_GIT_KEY`): a remote's address only when it is
+ * on the network (one here would have `git push` run that repository's hooks), and a branch's remote
+ * only when it names one of the remotes (or `.`, the repository itself).
+ */
+function benignGit(key: string, values: readonly string[], settings: ReadonlyMap<string, string[]>): boolean {
+  if (!BENIGN_GIT_KEY.test(key)) return false;
+  if (/^(?:remote\..+\.(?:url|pushurl)|submodule\..+\.url)$/.test(key))
+    return values.every((v) => NETWORK_REPO.test(v) && !v.includes('::'));
+  if (/^branch\..+\.(?:remote|pushremote)$/.test(key))
+    return values.every((v) => v === '.' || settings.has(`remote.${v.toLowerCase()}.url`));
+  return true;
+}
+
+/**
+ * The pinned git settings of the repository a folder is in (its keys and values), its hooks (not git's
+ * samples) and the files its config includes, as full paths. Nothing outside a repository; any other
+ * failure to read them throws, so that a run is refused rather than taken as having none.
+ */
+async function gitPinned(folder: string): Promise<{ settings: [string, string][]; hooks: [string, string][]; includes: string[] }> {
+  let state: Awaited<ReturnType<typeof repoGitState>>;
+  try {
+    state = await repoGitState(folder);
+  } catch (err) {
+    throw new AgentRunError(t().handoffs.gitUnreadable((err as Error).message));
+  }
+  if (!state) return { settings: [], hooks: [], includes: [] };
+  const all = state.settings;
+  const settings = [...all]
+    .filter(([key, values]) => !benignGit(key, values, all))
     .map(([key, values]): [string, string] => [key, values.join('\n')])
     .sort((a, b) => a[0].localeCompare(b[0]));
   const names = (await readdir(state.hooksDir).catch(() => [] as string[])).filter((n) => !n.endsWith('.sample')).sort();
-  return { settings, hooks: names.map((n): [string, string] => [n, join(state.hooksDir, n)]) };
+  return {
+    settings,
+    hooks: names.map((n): [string, string] => [n, join(state.hooksDir, n)]),
+    includes: [...new Set(state.includes)].sort(),
+  };
+}
+
+/** Whether a path leads to one of the files this server keeps to itself (its database, its lock…), which it must never open: closing one drops the locks the server holds on it. */
+function withheld(abs: string, keys: ReadonlySet<string>): boolean {
+  try {
+    return keys.has(fileKey(statSync(abs, { bigint: true })));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -194,12 +235,16 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
   let seen = 0;
   let bytes = 0;
   let pinned = 0;
+  const kept = withheldFileKeys();
+  /** The repositories inside the folder (a `.git` below its top), whose git settings and hooks are pinned too. */
+  const nested: string[] = [];
   const add = (key: string, entry: PinEntry) => {
     if (!(key in out) && ++pinned > HANDOFF_LIMITS.pinnedFiles)
       throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
     out[key] = entry;
   };
   const hashed = async (abs: string, size: number): Promise<string> => {
+    if (withheld(abs, kept)) throw new AgentRunError(t().handoffs.protectedFile(abs));
     bytes += size;
     if (bytes > PIN_WALK.bytes) throw new AgentRunError(t().handoffs.pinTooLarge(Math.round(PIN_WALK.bytes / 1024 / 1024)));
     return hashFile(abs).catch(() => '');
@@ -237,7 +282,15 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
     const names = await readdir(abs).catch(() => [] as string[]);
     for (const name of names.sort()) {
       if (++seen > PIN_WALK.entries) throw new AgentRunError(t().handoffs.tooManyFiles(HANDOFF_LIMITS.pinnedFiles));
-      if (name.toLowerCase() === '.git') continue;
+      if (name.toLowerCase() === '.git') {
+        // A repository inside the folder: that it is there, and what git reads there (below).
+        if (rel) {
+          if (nested.length >= PIN_WALK.repositories) throw new AgentRunError(t().handoffs.tooManyRepositories(PIN_WALK.repositories));
+          nested.push(rel);
+          add(`${rel}/.git`, { kind: 'link', target: '(a repository)' });
+        }
+        continue;
+      }
       const childRel = rel ? `${rel}/${name}` : name;
       const childAbs = join(abs, name);
       const st = await lstat(childAbs).catch(() => undefined);
@@ -257,7 +310,13 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
   // The files its command line names: those the walk took as they are, the others through links (one in
   // a top folder of packages, or outside the folder).
   for (const abs of [...new Set(named)].sort()) {
-    const rel = inside(abs, folder) ? relative(folder, abs).split(sep).join('/') : undefined;
+    // Inside the folder however it is written (`/tmp/…` for `/private/tmp/…`).
+    const found = await realish(abs);
+    const rel = inside(abs, folder)
+      ? relative(folder, abs).split(sep).join('/')
+      : inside(found, real)
+        ? relative(real, found).split(sep).join('/')
+        : undefined;
     if (rel !== undefined && rel in out) continue;
     // Outside the folder in a temp folder, where agents write, it could change while it runs: refused, as
     // a link out of the folder is.
@@ -266,12 +325,19 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
     if (entry) add(`named:${rel ?? abs}`, entry);
   }
   // Git's settings as git itself reads them (includes and all), but the everyday ones, and its hooks.
-  const pinnedGit = await gitPinned(folder);
-  for (const [key, value] of pinnedGit.settings)
-    add(`git config ${key}`, { kind: 'file', size: value.length, hash: createHash('sha256').update(value).digest('hex') });
-  for (const [name, abs] of pinnedGit.hooks) {
-    const entry = await followed(abs);
-    if (entry) add(`git hook ${name}`, entry);
+  for (const [prefix, dir] of [['', folder] as const, ...nested.map((rel) => [`${rel}: `, join(folder, rel)] as const)]) {
+    const pinnedGit = await gitPinned(dir);
+    for (const [key, value] of pinnedGit.settings)
+      add(`${prefix}git config ${key}`, { kind: 'file', size: value.length, hash: createHash('sha256').update(value).digest('hex') });
+    for (const [name, abs] of pinnedGit.hooks) {
+      const entry = await followed(abs);
+      if (entry) add(`${prefix}git hook ${name}`, entry);
+    }
+    // What the config includes, whether or not its condition holds now.
+    for (const abs of pinnedGit.includes) {
+      const entry = await followed(abs);
+      if (entry) add(`${prefix}git include ${abs}`, entry);
+    }
   }
   return out;
 }
@@ -293,7 +359,10 @@ export function commandFiles(c: { run: string; cwd?: string }, folder: string): 
   const out: string[] = [];
   words.forEach((w, i) => {
     const abs = resolve(base, w);
-    const operand = i > 0 && INTERPRETER.test(basename(words[i - 1]!)) && !w.startsWith('-');
+    // The first word after an interpreter that is not one of its options (`sh -e ./bin/run`, `python3 -u bin/run`).
+    let j = i - 1;
+    while (j >= 0 && words[j]!.startsWith('-')) j--;
+    const operand = !w.startsWith('-') && j >= 0 && j < i && INTERPRETER.test(basename(words[j]!));
     if (!operand && !named.has(abs)) return;
     if (operand || PIN_PATTERN.regex.test(abs) || executable(abs)) out.push(abs);
   });
@@ -357,7 +426,7 @@ export async function pinChanges(folder: string, pin: CommandPin, named: readonl
 }
 
 /** A git setting whose value may be a credential: the diff says it is set, never what it is. */
-const HIDDEN_GIT_VALUE = /token|passw|secret|auth|header|credential|cookie|key/i;
+const HIDDEN_GIT_VALUE = /^(?:extraheader|password|passwd|token|accesstoken|cookie|cookiefile|secret)$/i;
 
 /** The path of a section of git's diff (`diff --git a/P b/P`, no renames: both the same). */
 function sectionPath(header: string): string | undefined {
@@ -368,10 +437,15 @@ function sectionPath(header: string): string | undefined {
   return header.slice(head.length, head.length + both / 2);
 }
 
-/** A file's text as it is now, for an entry git has no diff of; undefined when it is not there or not text. */
-async function textNow(abs: string, max: number): Promise<string | undefined> {
+/**
+ * A file's text as it is now, for an entry git has no diff of; undefined when it is not there, not text,
+ * one the server keeps to itself, or outside `within` (a hook or named file that leads elsewhere, whose
+ * place alone is said).
+ */
+async function textNow(abs: string, max: number, within: readonly string[]): Promise<string | undefined> {
   const to = await realpath(abs).catch(() => undefined);
-  if (!to) return undefined;
+  if (!to || withheld(to, withheldFileKeys())) return undefined;
+  if (!within.some((d) => inside(to, d))) return `(outside the working directory: ${to}; its content is not shown)`;
   const handle = await open(to, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).catch(() => undefined);
   if (!handle) return undefined;
   try {
@@ -429,14 +503,16 @@ export async function pinDiff(
       const key = entry.slice('git config '.length);
       const now = git?.settings.get(key);
       extra.push(
-        `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
+        `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key.split('.').pop()!) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
       );
       continue;
     }
     const abs = entry.startsWith('git hook ')
       ? git && join(git.hooksDir, entry.slice('git hook '.length))
       : resolve(folder, entry.replace(/^named:/, ''));
-    const text = abs ? await textNow(abs, 20_000) : undefined;
+    const text = abs
+      ? await textNow(abs, 20_000, [await realpath(folder).catch(() => folder), ...(pin.root ? [pin.root] : [])])
+      : undefined;
     if (text === undefined) missing.push(entry);
     else extra.push(`### ${entry} (as it is now)\n${text}${text.endsWith('\n') ? '' : '\n'}`);
   }

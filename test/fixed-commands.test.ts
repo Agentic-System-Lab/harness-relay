@@ -427,10 +427,75 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     gitIn(dir, 'config', 'core.hooksPath', 'hooks');
     const withInclude = await pinManifest(dir);
     expect(manifestChanges(set, withInclude)).toEqual(
-      expect.arrayContaining(['git config core.pager', 'git config core.hookspath', 'git config include.path', 'git hook pre-commit']),
+      expect.arrayContaining([
+        'git config core.pager',
+        'git config core.hookspath',
+        'git config include.path',
+        'git hook pre-commit',
+        `git include ${join(dir, 'extra.cfg')}`,
+      ]),
     );
     writeFileSync(join(dir, 'extra.cfg'), '[core]\n\tpager = ./evil.sh\n');
-    expect(manifestChanges(withInclude, await pinManifest(dir))).toEqual(['git config core.pager']);
+    expect(manifestChanges(withInclude, await pinManifest(dir))).toEqual([
+      'git config core.pager',
+      `git include ${join(dir, 'extra.cfg')}`,
+    ]);
+  });
+
+  it('pins a remote here (whose hooks git push runs) and a branch whose remote is a path, never a remote on the network', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    gitIn(dir, 'init', '-q');
+    gitIn(dir, 'remote', 'add', 'origin', 'git@github.com:owner/repo.git');
+    gitIn(dir, 'remote', 'add', 'web', 'https://example.com/r.git');
+    gitIn(dir, 'config', 'branch.main.remote', 'origin');
+    const before = await pinManifest(dir);
+    expect(Object.keys(before).filter((k) => k.startsWith('git '))).toEqual([]);
+    gitIn(dir, 'remote', 'add', 'local', './vendor/.git');
+    gitIn(dir, 'config', 'branch.dev.pushremote', '../elsewhere');
+    expect(manifestChanges(before, await pinManifest(dir))).toEqual(['git config branch.dev.pushremote', 'git config remote.local.url']);
+  });
+
+  it('refuses a pin whose git settings cannot be read, rather than taking them for none', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    gitIn(dir, 'init', '-q');
+    // A driver name git's -c cannot carry: Harness Relay's git refuses the repository.
+    writeFileSync(join(dir, '.git', 'config'), `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[filter "a=b"]\n\tclean = evil\n`);
+    await withLang('en', () => expect(pinManifest(dir)).rejects.toThrow(/git settings could not be read/));
+  });
+
+  it('pins the repositories inside the folder: that they are there, their settings and hooks', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'post.py'), 'print(1)\n');
+    mkdirSync(join(dir, 'site'));
+    const before = await pinManifest(dir);
+    gitIn(join(dir, 'site'), 'init', '-q');
+    expect(manifestChanges(before, await pinManifest(dir))).toEqual(['site/.git']);
+    const inited = await pinManifest(dir);
+    writeFileSync(join(dir, 'site', '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n', { mode: 0o755 });
+    expect(manifestChanges(inited, await pinManifest(dir))).toEqual(['site: git hook pre-commit']);
+  });
+
+  it('never opens a file Harness Relay keeps to itself, which a hook may lead to', async () => {
+    const dir = folder();
+    gitIn(dir, 'init', '-q');
+    const { openDatabase } = await import('../src/server/db');
+    const db = openDatabase(join(folder(), 'kept.db'));
+    try {
+      symlinkSync(db.location()!, join(dir, '.git', 'hooks', 'pre-push'));
+      await withLang('en', () => expect(pinManifest(dir)).rejects.toThrow(/keeps to itself/));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('pins the script after an interpreter and its options', () => {
+    const dir = folder();
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin', 'run'), 'echo 1\n');
+    for (const run of ['sh -e ./bin/run', 'bash -eu bin/run', 'python3 -u bin/run', 'node --enable-source-maps bin/run'])
+      expect(commandFiles({ run }, dir), run).toEqual([join(dir, 'bin', 'run')]);
   });
 
   it('shows what a git setting, a hook or a file outside the repository is now, but a value that may be a credential', async () => {
@@ -440,11 +505,14 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     const pin = await takePin(dir, 'g1');
     gitIn(dir, 'config', 'core.sshCommand', 'ssh -i /tmp/key');
     gitIn(dir, 'config', 'http.extraHeader', 'Authorization: Bearer tok-abcdef');
+    // A program, whatever its section is named, is shown: it is what the user approves.
+    gitIn(dir, 'config', 'filter.secret.clean', 'sh -c evil');
     writeFileSync(join(dir, '.git', 'hooks', 'pre-push'), '#!/bin/sh\necho pushed\n', { mode: 0o755 });
     const changed = await pinChanges(dir, pin);
     const { diff, missing } = await pinDiff(dir, pin, changed);
     expect(diff).toContain('core.sshcommand = ssh -i /tmp/key');
     expect(diff).toContain('http.extraheader = (set; its value is not shown)');
+    expect(diff).toContain('filter.secret.clean = sh -c evil');
     expect(diff).not.toContain('tok-abcdef');
     expect(diff).toContain('### git hook pre-push (as it is now)\n#!/bin/sh\necho pushed');
     expect(missing).toEqual([]);

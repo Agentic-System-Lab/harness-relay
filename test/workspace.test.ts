@@ -18,6 +18,7 @@ import {
   parseDiffFiles,
   removeWorktree,
   repoDriverGuards,
+  repoGitState,
   snapshot,
   unignoredFiles,
   worktreeCwd,
@@ -378,6 +379,24 @@ describe("a repository's own config that would run commands", () => {
     await unignoredFiles(repo);
     await createWorktree(repo, join(dir, 'wt'), 'relay/test', second.commit);
     expect(existsSync(ran)).toBe(false);
+  });
+
+  it('runs no driver a config pads past what its guards read at once, and reads its settings whole for a pin', async () => {
+    await ensureRepo(repo);
+    const ran = join(dir, 'ran.txt').replaceAll('\\', '/');
+    git(repo, 'config', 'filter.evil.clean', `sh -c 'echo clean >> "${ran}"; cat'`);
+    writeFileSync(join(repo, '.gitattributes'), '*.md filter=evil\n');
+    // More than the 64 KB a process's output is kept to by default, after the driver.
+    git(repo, 'config', 'diff.pad.note', 'x'.repeat(70 * 1024));
+    expect(await repoDriverGuards(repo, process.env)).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=']));
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    await snapshot(repo);
+    expect(existsSync(ran)).toBe(false);
+    git(repo, 'config', 'core.sshCommand', 'sh -c evil');
+    const state = await repoGitState(repo);
+    expect(state!.settings.get('core.sshcommand')).toEqual(['sh -c evil']);
+    // Outside a repository: none; not a failure.
+    expect(await repoGitState(dir)).toBeUndefined();
   });
 
   it('fetches no missing object, as the remote of a partial clone would be reached through a command the config names', async () => {
