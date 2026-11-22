@@ -376,12 +376,13 @@ class BrowserSession {
   /**
    * Of a browser for the user alone (`ownerVerdict()`): the page the user typed in its address bar (or the
    * card's they confirmed, or one of theirs Back or Forward goes to), for opening that page alone (cleared
-   * once the tab shows a page); the page its tab shows; and the one the gate let its tab open last, which
-   * the tab is about to show (`top` once it does). Each as the user opened it: where it led then.
+   * once the tab shows it); the page its tab shows; and the pages the gate let its tab open, by the address
+   * each was let through at (its last redirect's), which the tab is about to show (`top` once it does).
+   * Each as the user opened it: where it led then.
    */
   typed?: TypedPage;
   top?: OwnerPage;
-  opening?: OwnerPage;
+  readonly openings = new Map<string, OwnerPage>();
   /** Back or Forward going to a page of the user's (`entries`): the page it shows, should the browser restore it from memory. */
   restoring?: OwnerPage;
   /**
@@ -392,12 +393,12 @@ class BrowserSession {
   /** The address of the page its tab shows (`top`), without its fragment. */
   shown?: string;
   /**
-   * The connection the gate let its tab open a page through, as the user typed it (`typed`): at the proxy
-   * every other connection is checked as a page's own request is (a WebSocket the page still shown opens
-   * meanwhile, which the gate never sees). An http address's own request (`url`), until the page shows, or
-   * an https one's tunnel once (`tunnel`, its origin); for a moment at most (`until`).
+   * The tunnel of an https page the gate let its tab open as the user typed it (`typed`), by its origin,
+   * once and for a moment at most (`until`): at the proxy every other tunnel is checked as a page's own
+   * request is (a WebSocket the page still shown opens meanwhile, which the gate never sees). An http
+   * page's request is told by its own address (`openings`).
    */
-  pass?: { url?: string; tunnel?: string; until: number };
+  pass?: { tunnel: string; until: number };
   /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
   resume?: string;
 
@@ -854,11 +855,20 @@ const PASS_MS = 30_000;
 /** `url` without its fragment, as a request and the history give it. */
 const noFragment = (url: string) => url.replace(/#.*$/s, '');
 
+/** `url` as the gate and the commits compare addresses: parsed again, without its fragment. */
+function addressOf(url: string): string {
+  try {
+    return noFragment(new URL(url).href);
+  } catch {
+    return noFragment(url);
+  }
+}
+
 /**
- * A page the gate lets a browser for the user alone's tab open: kept as the user opened it (`opening`,
- * the tab's `top` once it shows it). Here, as the page shown's own (its host, as that page was opened) or
- * as the one the user typed; and then, when only what they typed lets it go, its connection at the proxy
- * once (`pass`).
+ * A page the gate lets a browser for the user alone's tab open: kept as the user opened it, by its address
+ * (`openings`, the tab's `top` once it shows it). Here, as the page shown's own (its host, as that page was
+ * opened) or as the one the user typed; and then, when only what they typed lets it go, its connection at
+ * the proxy (`pass`).
  */
 function noteOpening(
   s: BrowserSession,
@@ -876,22 +886,28 @@ function noteOpening(
   const key = approvalKeys('fetch', url)[0];
   if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !key) return;
   const addresses = [...(rules.addresses ?? [])];
-  if (!leadsNearby(u.hostname, addresses, rules.own ?? [])) return void (s.opening = { key, nearby: false, addresses });
-  if (s.top && ownerVerdict({ nearby: true, key, addresses, top: s.top }) === 'allow') return void (s.opening = s.top);
+  const at = addressOf(u.href);
+  const open = (page: OwnerPage) => {
+    s.openings.delete(at);
+    s.openings.set(at, page);
+    if (s.openings.size > 20) s.openings.delete(s.openings.keys().next().value!);
+  };
+  if (!leadsNearby(u.hostname, addresses, rules.own ?? [])) return open({ key, nearby: false, addresses });
+  if (s.top && ownerVerdict({ nearby: true, key, addresses, top: s.top }) === 'allow') return open(s.top);
   if (!typed) return;
-  s.opening = { key: typed.key, nearby: typed.nearby, addresses: typed.addresses };
+  open({ key: typed.key, nearby: typed.nearby, addresses: typed.addresses });
   typed.request = request;
-  typed.last = noFragment(u.href);
-  const until = Date.now() + PASS_MS;
-  s.pass = u.protocol === 'https:' ? { tunnel: u.origin, until } : { url: noFragment(u.href), until };
+  typed.last = at;
+  if (u.protocol === 'https:') s.pass = { tunnel: u.origin, until: Date.now() + PASS_MS };
 }
 
 /**
  * Whether the proxy connects a browser for the user alone's connection (`tunnel`: a CONNECT, which https,
  * wss and ws use; `request`: an http request's address): as a request of its tab's page (`ownerRefusal()`,
  * not as a page being opened: a WebSocket, which the gate never sees, opened by the page still shown while
- * another loads), or as the connection of the page the gate let its tab open as the user typed it
- * (`pass`: its http request's own address, or its https tunnel once).
+ * another loads), or as the connection of a page the gate let its tab open: an http one's request at its
+ * own address (`openings`, until the tab shows it; the gate decided it, whatever page the tab shows by the
+ * time it connects), an https one the user typed by its tunnel, once (`pass`).
  */
 function ownerRoutes(
   s: BrowserSession,
@@ -901,12 +917,14 @@ function ownerRoutes(
   request?: string,
 ): boolean {
   if (!ownerRefusal(s, url, rules)) return true;
+  if (request !== undefined) {
+    // The gate sees each http request, and a socket never comes this way; its name still where it led.
+    const page = s.openings.get(addressOf(request));
+    return Boolean(page) && !ownerRefusal(s, url, rules, page);
+  }
   const pass = s.pass;
-  if (!pass || pass.until < Date.now()) return false;
-  // An http request at the very address the gate let through (the gate sees each one, and a socket never
-  // comes this way), until the page shows; a tunnel, which the gate does not see, once.
-  if (request !== undefined) return pass.url === noFragment(request) && !ownerRefusal(s, url, rules, s.typed);
-  if (!tunnel || pass.tunnel !== new URL(url).origin || ownerRefusal(s, url, rules, s.typed)) return false;
+  if (!tunnel || !pass || pass.until < Date.now() || pass.tunnel !== new URL(url).origin || ownerRefusal(s, url, rules, s.typed))
+    return false;
   s.pass = undefined;
   return true;
 }
@@ -1198,13 +1216,18 @@ export class BrowserService {
         if (sid !== sessionId || !frame || frame.parentId) return;
         const url = frame.url ?? '';
         if (url === 'about:blank') return void ((s.top = undefined), (s.shown = undefined));
-        // The error page of a page refused before the user typed an address (on a slow computer its commit
-        // may come once they did): what they typed still opens, as it was going to.
-        const failed = typeof frame.unreachableUrl === 'string' ? noFragment(frame.unreachableUrl) : undefined;
-        if (failed !== undefined && s.typed && failed !== s.typed.last) return void ((s.top = undefined), (s.shown = undefined));
-        const key = /^https?:/i.test(url) ? approvalKeys('fetch', url)[0] : undefined;
-        const { opening, restoring } = s;
-        s.typed = s.opening = s.restoring = s.pass = undefined;
+        // What this commit is of: a page, or the error page of an address that did not open. Only the
+        // opening the user typed ends what they typed: on a slow computer the page before (or the error
+        // page of one refused before) may commit once they typed another, which still opens.
+        const failed = typeof frame.unreachableUrl === 'string' ? addressOf(frame.unreachableUrl) : undefined;
+        const at = failed ?? addressOf(url);
+        if (s.typed?.last === at) s.typed = s.pass = undefined;
+        const key = failed === undefined && /^https?:/i.test(url) ? approvalKeys('fetch', url)[0] : undefined;
+        // The page let through at this address, else (an address put another way) the latest of its host's.
+        const opening = s.openings.get(at) ?? [...s.openings.values()].reverse().find((o) => o.key === key);
+        s.openings.delete(at);
+        const restoring = s.restoring;
+        s.restoring = undefined;
         s.top = !key
           ? undefined
           : opening?.key === key

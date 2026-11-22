@@ -1108,32 +1108,90 @@ describe.skipIf(!chromium)('the browser itself', () => {
         await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
           timeout: 10_000,
         });
-        // The user types another address, then goes Back to the refused one, and reloads it.
+        // The user types another address, then goes Back to the refused one and reloads it: nothing reaches the
+        // device (Chromium asks for the address again, refused, or shows its error page again from memory).
         await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/next`, typed: true }]);
         await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/next`), { timeout: 10_000 });
+        const refused = `refused http://localhost:${port}/reboot?pwn=1`;
+        const settle = () => new Promise((r) => setTimeout(r, 1000));
         b.notices.length = 0;
         await b.input([{ type: 'history', to: 'back' }]);
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/reboot?pwn=1`), {
           timeout: 10_000,
         });
-        b.notices.length = 0;
         await b.input([{ type: 'history', to: 'reload' }]);
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
-          timeout: 10_000,
-        });
-        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
-        // A page the user opened opens again with Back, here as it did; then Forward goes to the refused one, refused.
+        await settle();
+        expect(
+          hits.filter((h) => h.startsWith('/reboot')),
+          b.state(),
+        ).toEqual([]);
+        expect(
+          b.notices.filter((n) => n !== refused),
+          b.state(),
+        ).toEqual([]);
+        // A page the user opened opens again with Back, here as it did; Forward to the refused one reaches nothing.
         b.notices.length = 0;
         await b.input([{ type: 'history', to: 'back' }]);
         await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/evil-once`), { timeout: 10_000 });
-        await new Promise((r) => setTimeout(r, 500));
-        expect(b.notices).toEqual([]);
+        await settle();
+        expect(b.notices, b.state()).toEqual([]);
         await b.input([{ type: 'history', to: 'forward' }]);
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
+        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/reboot?pwn=1`), {
           timeout: 10_000,
         });
-        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
+        await settle();
+        expect(
+          hits.filter((h) => h.startsWith('/reboot')),
+          b.state(),
+        ).toEqual([]);
+        expect(
+          b.notices.filter((n) => n !== refused),
+          b.state(),
+        ).toEqual([]);
         await alone.closeForUser('conv-history', b.id);
+      },
+      slow(60_000),
+    );
+
+    it(
+      'keeps what the user typed when the page before commits late (a slow computer), at the gate and at the proxy alike',
+      async () => {
+        // The page typed before (/next) is told to have committed only once the user typed the next address; that
+        // address's request reaches the gate after the late commit, or (the second time) the proxy after it.
+        const emit = CdpConnection.prototype.emit;
+        const later = (ms: number, f: () => unknown) => void setTimeout(f, ms);
+        let held = '/late-1';
+        CdpConnection.prototype.emit = function (this: InstanceType<typeof CdpConnection>, name: string | symbol, ...args: unknown[]) {
+          const p = args[0] as { frame?: { url?: string }; request?: { url?: string } } | undefined;
+          if (name === 'Page.frameNavigated' && /\/next$/.test(p?.frame?.url ?? ''))
+            return (later(400, () => emit.call(this, name, ...args)), true);
+          if (name === 'Fetch.requestPaused' && held === '/late-1' && (p?.request?.url ?? '').endsWith('/late-1'))
+            return (later(800, () => emit.call(this, name, ...args)), true);
+          return emit.call(this, name, ...args);
+        } as typeof emit;
+        const own = alone as unknown as { route: (...a: unknown[]) => Promise<unknown> };
+        const route = own.route.bind(alone);
+        own.route = async (...a: unknown[]) => {
+          if (held === '/late-2' && String(a[4] ?? '').endsWith('/late-2')) await new Promise((r) => setTimeout(r, 800));
+          return route(...a);
+        };
+        try {
+          hits.length = 0;
+          const b = await open('conv-late', `http://127.0.0.1:${port}/token`);
+          for (const path of ['/late-1', '/late-2']) {
+            held = path;
+            await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
+            await vi.waitFor(() => expect(hits, b.state()).toContain('/next'), { timeout: 10_000 });
+            await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}${path}`, typed: true }]);
+            await vi.waitFor(() => expect(hits, b.state()).toContain(path), { timeout: 10_000 });
+            expect(b.notices, b.state()).toEqual([]);
+            hits.length = 0;
+          }
+          await alone.closeForUser('conv-late', b.id);
+        } finally {
+          CdpConnection.prototype.emit = emit;
+          own.route = route;
+        }
       },
       slow(60_000),
     );
