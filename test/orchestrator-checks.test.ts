@@ -298,7 +298,8 @@ describe('team checks', () => {
     // The briefing gives the rules as they are checked there: no commit format, the commands at the apply.
     const briefing = calls.at(-1)!.systemPrompt!;
     expect(briefing).not.toContain("Every commit's subject must match");
-    expect(briefing).toContain("when the team's result is applied");
+    // Native Windows runs no commands, so its briefing names none.
+    expect(briefing.includes("when the team's result is applied")).toBe(process.platform !== 'win32');
     // Check again looks there too.
     await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
     expect(lastCard(conv).checks!.outcomes[0]).toEqual({
