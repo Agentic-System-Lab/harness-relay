@@ -3,13 +3,21 @@
 
 import { plainStep, type StepsPart } from '../shared/steps';
 
-/** Where a card stands: waiting for the user (they tick and answer), answered, or no longer waited for. */
-export type StepsCardState = 'waiting' | 'answered' | 'closed';
+/**
+ * Where a card stands: waiting for the user (they tick and answer), still waited for while the team
+ * replies to another agent's answer (`later`: it takes this one once that is over), answered, or no
+ * longer waited for.
+ */
+export type StepsCardState = 'waiting' | 'later' | 'answered' | 'closed';
 
-/** `waiting`: the team waits for this reply's answer now (the conversation paused, its run idle). */
-export function stepsCardState(part: StepsPart, waiting: boolean): StepsCardState {
+/**
+ * `waiting`: the team waits for this reply's answer now (the conversation paused, its run idle); `later`:
+ * it still waits for it, but replies meanwhile (an answer to another card).
+ */
+export function stepsCardState(part: StepsPart, waiting: boolean, later = false): StepsCardState {
   if (part.answer) return 'answered';
-  return waiting ? 'waiting' : 'closed';
+  if (waiting) return 'waiting';
+  return later ? 'later' : 'closed';
 }
 
 /** Ticks the user made that the server has not shown back yet: the step's index and its new state. */

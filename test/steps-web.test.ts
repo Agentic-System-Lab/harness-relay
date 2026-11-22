@@ -29,6 +29,9 @@ describe('a steps card', () => {
     expect(stepsCardState(part(), false)).toBe('closed');
     expect(stepsCardState(part({ answer: { at: 1 } }), false)).toBe('answered');
     expect(stepsCardState(part({ answer: { at: 1 } }), true)).toBe('answered');
+    // Still waited for while the team replies to another card's answer.
+    expect(stepsCardState(part(), false, true)).toBe('later');
+    expect(stepsCardState(part({ answer: { at: 1 } }), false, true)).toBe('answered');
   });
 
   it('shows a tick at once, until the server shows it back', () => {
@@ -101,7 +104,7 @@ describe('a reply with steps elsewhere in the page', () => {
   });
 
   it('keeps its steps on a shared page, without what it asks of the user in the chat', () => {
-    for (const cls of ['.steps-wait', '.steps-actions', '.steps-closed']) expect(SHARE_DROP).toContain(cls);
+    for (const cls of ['.steps-wait', '.steps-actions', '.steps-closed', '.steps-later']) expect(SHARE_DROP).toContain(cls);
     expect(SHARE_DROP).not.toContain('.steps-card');
     expect(SHARE_DROP).not.toContain('.steps-list');
   });

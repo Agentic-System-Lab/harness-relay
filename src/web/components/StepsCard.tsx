@@ -40,6 +40,7 @@ export function StepsCard({
   agentName,
   waiting,
   othersWaiting,
+  later,
   mentions,
   mediaBase,
   downloadBase,
@@ -53,6 +54,8 @@ export function StepsCard({
   waiting: boolean;
   /** Other agents that wait for the user too, as `@name`s: an answer here goes to this one alone. */
   othersWaiting?: string;
+  /** Still waited for, while the team replies to another card's answer: it can be answered once that is over. */
+  later?: boolean;
   mentions: string[];
   mediaBase?: string;
   downloadBase?: string;
@@ -61,7 +64,7 @@ export function StepsCard({
   const t = useT();
   const c = t.stepCard;
   const id = useId();
-  const state = stepsCardState(part, waiting);
+  const state = stepsCardState(part, waiting, later);
   const editable = state === 'waiting';
   const [pending, setPending] = useState<Map<number, boolean>>(() => new Map());
   // A tick the server shows back (here, or from another browser) is no longer on its way.
@@ -169,6 +172,7 @@ export function StepsCard({
         </p>
       )}
       {state === 'closed' && <p className="muted small steps-closed">{c.closed}</p>}
+      {state === 'later' && <p className="muted small steps-later">{c.later}</p>}
       {editable && (
         <div className="steps-actions">
           {stuckAt !== undefined && (

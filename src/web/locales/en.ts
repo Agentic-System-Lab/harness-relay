@@ -1724,6 +1724,7 @@ export const en: Messages = {
     answeredStuck: (n) => `Stuck at step ${n}`,
     note: 'Note',
     closed: 'The team is no longer waiting for these steps.',
+    later: 'The team is replying to another answer: you can answer these steps once its turn is over.',
     banner: (names) => `Steps waiting for you: ${names}`,
   },
 

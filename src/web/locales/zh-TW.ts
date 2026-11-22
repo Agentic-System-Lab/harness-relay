@@ -1742,6 +1742,7 @@ export const zhTW = {
     answeredStuck: (n: number) => `卡在第 ${n} 步`,
     note: '備註',
     closed: '團隊已經沒有在等這些步驟了。',
+    later: '團隊正在回覆另一個回答：等它這一輪結束，就能回覆這些步驟。',
     banner: (names: string) => `${names} 給了你要做的步驟`,
   },
 

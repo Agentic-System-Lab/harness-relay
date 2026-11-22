@@ -739,6 +739,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
   const questions = running ? [] : askingReplies(conv.messages, conv.pause);
+  // Still waited for while the team replies to another card's answer: answered once that is over.
+  const answerLaterIds = new Set(running ? askingReplies(conv.messages, conv.pause).map((m) => m.id) : []);
   // Each of them gave the user steps to take (a steps card), and asked nothing else.
   const stepsOnly = questions.length > 0 && questions.every((m) => stepsOfMessage(m));
   // The team has answered, and made or pointed at an app since the user last wrote.
@@ -984,6 +986,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onRetry={onRetry}
                 waitingAnswer={askIds.has(m.id)}
                 othersWaiting={askIds.has(m.id) ? othersWaiting(m.id) : undefined}
+                answerLater={answerLaterIds.has(m.id)}
                 onSkipQuestion={onSkipQuestion}
                 onShare={onShare}
                 onBranch={onBranch}
