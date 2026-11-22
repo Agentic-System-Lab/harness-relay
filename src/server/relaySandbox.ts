@@ -1267,7 +1267,7 @@ export class RelaySandboxRun {
       // Queued behind another ask: the run may have ended meanwhile. Then nobody is asked (a card put
       // up after the turn would never expire).
       if (this.disposed) return { allow: false, reason: DENY_REASONS.refused(where) };
-      return withLang(lang, () => requestApproval({ kind: 'fetch', detail: where, reason: t().relaySandboxHost })).then(
+      return withLang(lang, () => requestApproval({ kind: 'fetch', detail: where, reason: t().relaySandboxHost, connection: true })).then(
         (a): HostAnswer => (a.allow ? { allow: true } : { allow: false, reason: DENY_REASONS.declined(where, a.note) }),
         (): HostAnswer => ({ allow: false, reason: DENY_REASONS.refused(where) }),
       );

@@ -1288,12 +1288,17 @@ describe('the app in the preview, and fixing by itself', () => {
 
   it('sends a failed result back to the member whose turn broke it, by itself, until it passes', async () => {
     const conv = previewing(true);
-    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'main.py');
+    // Alice's first turn makes an app that cannot be previewed, the fix that follows by itself one that
+    // can: decided as each turn runs, since the fix may start before a test could change the fake.
+    let aliceTurns = 0;
+    fake.during = (name, cwd) => {
+      if (name !== 'Alice') return;
+      if (++aliceTurns === 1) writeApp(cwd, 'main.py');
+      else writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
+    };
     await withLang('en', () => orchestrator.send(conv.id, 'make a snake game'));
-    await vi.waitFor(() => expect(cards(conv)).toHaveLength(1));
-    const first = lastCard(conv);
-    fake.during = (name, cwd) => name === 'Alice' && writeApp(cwd, 'Dockerfile', 'FROM python:3.12-slim\n');
     await vi.waitFor(() => expect(cards(conv)).toHaveLength(2), { timeout: 20_000 });
+    const first = cards(conv)[0]!;
     await finish(conv.id);
 
     const sent = conv.messages.filter((m) => m.author.kind === 'user').at(-1)!;

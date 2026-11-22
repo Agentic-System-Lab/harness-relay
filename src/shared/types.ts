@@ -134,6 +134,42 @@ export function permissionAbove(a: Permission, b: Permission): boolean {
 }
 
 /**
+ * What happens when an agent wants to do something its permission does not cover: the user is asked
+ * in the chat (`ask`, the default), the lead agent reviews it first and only what it judges
+ * potentially unsafe is asked (`auto`, "Approve for me": with Edit only), or it is refused (`deny`).
+ */
+export type Approvals = 'ask' | 'auto' | 'deny';
+
+/**
+ * The file permission as the UI offers it: the three permissions, and "Approve for me" (`auto`)
+ * between Edit and Full access, which is Edit with the lead agent reviewing every request beyond it
+ * before the user is asked (`approvals: 'auto'`). The CLIs and their sandboxes run it as Edit.
+ */
+export type PermissionLevel = 'read-only' | 'edit' | 'auto' | 'full';
+
+export const PERMISSION_LEVELS: readonly PermissionLevel[] = ['read-only', 'edit', 'auto', 'full'];
+
+/** The level a conversation's (or template's) permission and approvals make. */
+export function permissionLevel(s: { permission: Permission; approvals?: Approvals }): PermissionLevel {
+  return s.permission === 'edit' && s.approvals === 'auto' ? 'auto' : s.permission;
+}
+
+/**
+ * The permission and approvals a level sets, from settings `s`: "Approve for me" is Edit reviewed by
+ * the lead agent; any other level keeps a choice to refuse, and asks the user again after it.
+ */
+export function levelSettings(level: PermissionLevel, s: { approvals?: Approvals }): { permission: Permission; approvals?: Approvals } {
+  if (level === 'auto') return { permission: 'edit', approvals: 'auto' };
+  return { permission: level, approvals: s.approvals === 'deny' ? 'deny' : undefined };
+}
+
+/** `approvals` as settings keep it, read or given: `auto` with Edit only, and asking as nothing. */
+export function approvalsOf(v: unknown, permission: Permission): { approvals?: 'auto' | 'deny' } {
+  if (v === 'deny') return { approvals: 'deny' };
+  return v === 'auto' && permission === 'edit' ? { approvals: 'auto' } : {};
+}
+
+/**
  * Most members a team may have, set by hand or by the lead agent, unless `RELAY_MAX_TEAM_AGENTS` says
  * otherwise (`src/server/config.ts`; the UI gets the server's from `GET /api/limits`).
  */
@@ -1448,10 +1484,12 @@ export interface ConversationSettings {
    */
   leadReview?: boolean;
   /**
-   * What happens when an agent wants to do something its permission does not cover:
-   * ask the user in the chat (default), or refuse automatically.
+   * What happens when an agent wants to do something its permission does not cover: ask the user in
+   * the chat (default), have the lead agent review it and ask the user only about what it judges
+   * potentially unsafe (`auto`, "Approve for me", kept with Edit only: `permissionLevel()`), or refuse
+   * automatically.
    */
-  approvals?: 'ask' | 'deny';
+  approvals?: Approvals;
   /**
    * Steering: a message the user sends while members are working goes into their running turns, as the
    * mode allows and as their CLIs can take one (`STEER_PROVIDERS`), instead of waiting in the queue for
@@ -1947,6 +1985,19 @@ export type ApprovalKind = 'command' | 'edit' | 'fetch' | 'other';
 
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired';
 
+/**
+ * "Approve for me" (`approvals: 'auto'`): the lead agent's review of a request, before the user is
+ * asked. `reviewing`: under way, and the user may answer meanwhile; `approved`: judged safe, and
+ * allowed; `flagged`: judged potentially unsafe, so the user is asked (or, in a run nobody may be
+ * watching, it is refused); `failed`: the lead agent could not review it, so the user is asked;
+ * `skipped`: never reviewed (pushing and publishing, more access for the turn), so the user is asked.
+ */
+export interface ApprovalReview {
+  status: 'reviewing' | 'approved' | 'flagged' | 'failed' | 'skipped';
+  /** The lead agent's reason, in the user's language; or Harness Relay's, when it failed or was skipped. */
+  reason?: string;
+}
+
 /** One step of an agent's plan / to-do list. */
 export interface PlanEntry {
   text: string;
@@ -2005,6 +2056,8 @@ export type MessagePart =
       always?: boolean;
       /** Answered automatically by an earlier "always allow". */
       auto?: boolean;
+      /** "Approve for me": the lead agent's review of it (`ApprovalReview`). */
+      review?: ApprovalReview;
       /** The user's message to the agent when declining. */
       note?: string;
     }

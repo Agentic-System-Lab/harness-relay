@@ -57,6 +57,10 @@ export const en: Messages = {
       label: 'Edit',
       hint: 'Can change files in the working directory and run project commands such as tests and builds; pushing and publishing need full access.',
     },
+    auto: {
+      label: 'Approve for me',
+      hint: 'Like Edit, but the lead agent reviews each action beyond it first: what it judges safe goes ahead, and only actions it finds potentially unsafe ask you. Pushing and publishing always ask.',
+    },
     full: { label: 'Full access', hint: 'Can change files and run any command without asking. Use only in directories you trust.' },
   },
   effortLabel: (e) => {
@@ -261,7 +265,7 @@ export const en: Messages = {
     parallelNote:
       'Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.',
     sharedNote:
-      'Members change files directly in the working directory and every turn records what changed; only one conversation at a time may change a directory.',
+      'Members change files directly in the working directory and every turn records what changed. While another chat is changing the folder, this one works in a git worktree of its own until you apply its result.',
     gitInitNote: ' If the working directory is not a git repository yet, git init runs automatically.',
     approvals: 'Actions beyond the permission',
     approvalsAsk: 'Ask me',
@@ -568,6 +572,7 @@ export const en: Messages = {
       ask: (minutes) => `Asked in the chat as usual; while you are away the agent waits (up to ${duration(minutes)} per turn).`,
     },
     approvalsTeamDeny: 'The team already refuses them automatically; so do the runs the automation starts.',
+    approvalsTeamAuto: 'In these runs too, the lead agent approves what it judges safe first; this decides the rest.',
     approvalsFull: 'The team has full access and is never asked, so this has no effect.',
     missed: 'Missed times',
     missedSkip: 'Skip',
@@ -1012,6 +1017,11 @@ export const en: Messages = {
     allowed: 'Allowed',
     allowedAlways: 'Allowed for the rest of this chat',
     allowedAuto: 'Allowed automatically (earlier answer in this chat)',
+    reviewing: 'Lead agent reviewing',
+    reviewingHint: 'The lead agent is checking whether this is safe; you can answer now if you like.',
+    reviewFlagged: (reason) => `The lead agent found it potentially unsafe${reason ? `: ${reason}` : '.'}`,
+    reviewFailed: (reason) => reason || 'The lead agent could not review it.',
+    reviewApproved: 'Approved for you by the lead agent',
     denied: 'Declined',
     expired: 'No answer (the turn ended)',
     pageTitle: (n) => `(${n}) Needs you · Harness Relay`,
@@ -2962,7 +2972,7 @@ export const en: Messages = {
         title: 'When the team needs you',
         body: "Agents don't overstep and don't guess:",
         points: [
-          "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead",
+          "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead. With the Approve for me permission, the lead agent approves what it judges safe first, and asks you only about the rest",
           'When a good answer depends on something only you know, an agent asks you first and the team waits for your answer; or skip the question and let the team go on',
           'A mail or an invitation an agent wants to send waits in the outbox: a card in its reply, sent only when you click Send (or Discard it)',
           'The sidebar marks the conversations waiting for you: "Needs you" and "Answer needed"',
@@ -2993,6 +3003,7 @@ export const en: Messages = {
         points: [
           'Read-only: read files, analyse, look things up on the web',
           'Edit: change files in the working directory, run tests and builds',
+          'Approve for me: as Edit, and the lead agent approves what is safe beyond it, asking you about the rest',
           'Full access: run any command without asking',
           "Below full access, each agent's commands but Cursor's and Antigravity's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex, Grok and Copilot use their own; the open-source agents use Harness Relay's (on native Windows only Codex and Copilot have one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights. So does Antigravity: every command it wants to run asks you first, and it ends its turn when you refuse one",
           "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",

@@ -392,12 +392,16 @@ function ApprovalCard({
       status === 'allowed'
         ? part.auto
           ? t.approval.allowedAuto
-          : part.always
-            ? t.approval.allowedAlways
-            : t.approval.allowed
+          : part.review?.status === 'approved'
+            ? t.approval.reviewApproved
+            : part.always
+              ? t.approval.allowedAlways
+              : t.approval.allowed
         : status === 'denied'
           ? t.approval.denied
           : t.approval.expired;
+    // The lead agent's reason it approved it ("Approve for me").
+    const why = status === 'allowed' && part.review?.status === 'approved' && part.review.reason ? part.review.reason : '';
     return (
       <div className={`approval-done ${status}`}>
         <span className="approval-mark" aria-hidden>
@@ -408,6 +412,7 @@ function ApprovalCard({
           <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
           <span className="approval-outcome">
             {outcome}
+            {why ? t.approval.withNote(why) : ''}
             {part.note ? t.approval.withNote(part.note) : ''}
           </span>
         </span>
@@ -415,6 +420,7 @@ function ApprovalCard({
     );
   }
 
+  const reviewing = part.review?.status === 'reviewing';
   const answer = async (a: ApprovalAnswer) => {
     if (!onAnswer) return;
     setSending(true);
@@ -432,12 +438,27 @@ function ApprovalCard({
           ⏸
         </span>
         <strong>{heading}</strong>
-        <span className="approval-waiting">{t.approval.waiting}</span>
+        <span className={`approval-waiting${reviewing ? ' approval-reviewing' : ''}`}>
+          {reviewing ? t.approval.reviewing : t.approval.waiting}
+        </span>
       </header>
       {part.detail && <pre className="approval-detail">{part.detail}</pre>}
       {part.reason && part.reason !== part.detail && <p className="approval-reason">{part.reason}</p>}
       {part.outsideSandbox && <p className="approval-reason approval-sandbox">{t.approval.outsideSandbox}</p>}
       {part.readOnlySandbox && <p className="approval-reason approval-sandbox">{t.approval.readOnlySandbox}</p>}
+      {/* "Approve for me": what the lead agent says of it, or Harness Relay's reason it was never reviewed.
+          One it approved goes through at once, so nothing is said of it here. */}
+      {part.review && part.review.status !== 'approved' && (
+        <p className={`approval-reason approval-review ${part.review.status}`} role={reviewing ? 'status' : undefined}>
+          {reviewing
+            ? t.approval.reviewingHint
+            : part.review.status === 'flagged'
+              ? t.approval.reviewFlagged(part.review.reason ?? '')
+              : part.review.status === 'skipped'
+                ? part.review.reason
+                : t.approval.reviewFailed(part.review.reason ?? '')}
+        </p>
+      )}
       <input
         className="approval-note"
         value={note}

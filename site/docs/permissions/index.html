@@ -19,7 +19,7 @@
     <meta property="og:title" content="Permissions and approvals · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit or full access, answer approval cards, send what waits in the outbox yourself, and review each reply's changes before you keep them."
+      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit, approve for me or full access, answer approval cards, send what waits in the outbox yourself, and review each reply's changes before you keep them."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -238,7 +238,7 @@
       <nav class="doc-toc" aria-label="On this page">
         <p class="doc-toc-title">On this page</p>
         <ol>
-          <li><a href="#levels">The three permission levels</a></li>
+          <li><a href="#levels">The permission levels</a></li>
           <li><a href="#beyond-the-permission">Actions beyond the permission</a></li>
           <li><a href="#approvals">Approval cards</a></li>
           <li><a href="#sandboxes">What the sandboxes do</a></li>
@@ -258,7 +258,7 @@
 
       <div class="doc-body">
         <section id="levels" aria-labelledby="levels-title">
-          <h2 id="levels-title">The three permission levels</h2>
+          <h2 id="levels-title">The permission levels</h2>
           <p>
             Each conversation has one <b>File permission</b>, shared by all its members. You choose it on the
             <b>New chat</b> page, and can change it later in <b>Team settings</b>.
@@ -280,6 +280,13 @@
                 <td>
                   Also change files in the working directory and run project commands such as tests and builds. Pushing
                   and publishing are not included.
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Approve for me</th>
+                <td>
+                  What Edit does. Anything beyond it is first reviewed by the lead agent: what it judges safe goes ahead,
+                  and only what it finds potentially unsafe asks you. Pushing and publishing always ask.
                 </td>
               </tr>
               <tr>
@@ -317,7 +324,10 @@
               <b>Refuse automatically</b>: the action is refused right away; the agent is told, and tries another way.
             </li>
           </ul>
-          <p>With full access there is nothing beyond the permission, so the setting is not shown.</p>
+          <p>
+            With full access there is nothing beyond the permission, so the setting is not shown. With
+            <b>Approve for me</b> it is not shown either: the lead agent answers first, and you answer the rest.
+          </p>
         </section>
 
         <section id="approvals" aria-labelledby="approvals-title">
@@ -354,6 +364,13 @@
             While a card waits, a bar above the message box points to it, the sidebar marks the conversation
             <b>Needs you</b>, and the browser tab's title counts the conversations that need you. Pressing <b>Stop</b>
             declines everything still waiting.
+          </p>
+          <p>
+            With <b>Approve for me</b>, the lead agent reviews each card first, reading your messages in the chat as what
+            you want; the card says <b>Lead agent reviewing</b>, and you can answer it yourself meanwhile. What it
+            approves goes ahead, the card saying <b>Approved for you by the lead agent</b> and why. What it finds
+            potentially unsafe, or could not review, waits for you with its reason. Pushing and publishing always wait
+            for you. Each review takes a few seconds of the lead agent's model.
           </p>
         </section>
 

@@ -230,6 +230,18 @@ describe('Store (SQLite)', () => {
     again.settings = { ...again.settings, leadReview: undefined };
     reopened.saveMeta(again);
     expect(new Store(reopen()).get(conv.id)!.settings.leadReview).toBeUndefined();
+
+    // "Approve for me" is kept with Edit only, also when a row says otherwise.
+    const saveSettings = (settings: Partial<Conversation['settings']>) => {
+      const s = new Store(reopen());
+      const c = s.get(conv.id)!;
+      c.settings = { ...c.settings, ...settings };
+      s.saveMeta(c);
+      return new Store(reopen()).get(conv.id)!.settings;
+    };
+    expect(saveSettings({ permission: 'edit', approvals: 'auto' })).toMatchObject({ permission: 'edit', approvals: 'auto' });
+    expect(saveSettings({ permission: 'read-only', approvals: 'auto' })).not.toHaveProperty('approvals');
+    expect(saveSettings({ permission: 'full', approvals: 'auto' })).not.toHaveProperty('approvals');
   });
 
   it('keeps whether the conversation steers, and whose running turns a message went into', () => {

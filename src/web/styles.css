@@ -1977,10 +1977,14 @@ p {
   color: var(--danger);
 }
 
-/* A choice of CLI (nine of them, `CliPicker`), or of a schedule's kind (five, `.schedule-kinds`): one
-   row, each name whole, that scrolls sideways where it does not fit; the chosen one is scrolled into view. */
+/* A choice of CLI (nine of them, `CliPicker`), of a schedule's kind (five, `.schedule-kinds`), of the
+   permission level (four in a chat, `.levels`) or of voice input's language (four, `.voice-languages`):
+   one row, each name whole, that scrolls sideways where it does not fit; the chosen one is scrolled
+   into view. */
 .segmented.cli-picker,
-.segmented.schedule-kinds {
+.segmented.schedule-kinds,
+.segmented.levels,
+.segmented.voice-languages {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
@@ -1989,7 +1993,9 @@ p {
 
 /* Spread over the row where they fit, never narrower than their names. */
 .segmented.cli-picker button,
-.segmented.schedule-kinds button {
+.segmented.schedule-kinds button,
+.segmented.levels button,
+.segmented.voice-languages button {
   flex: 1 0 auto;
   scroll-snap-align: start;
 }
@@ -5771,35 +5777,6 @@ details.sub summary {
   flex-wrap: wrap;
 }
 
-/* The four recognition languages need about 340px on one row in Chinese and
-   470px in English; narrower than that (a phone), show them two by two. The
-   labels may wrap there so a long English one never runs past the edge. */
-.voice-language {
-  container-type: inline-size;
-}
-
-@container (max-width: 380px) {
-  .voice-language .segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .voice-language .segmented button {
-    white-space: normal;
-  }
-}
-
-@container (max-width: 520px) {
-  :lang(en) .voice-language .segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  :lang(en) .voice-language .segmented button {
-    white-space: normal;
-  }
-}
-
 @media (max-width: 560px) {
   .voice-row {
     grid-template-columns: minmax(0, 1fr);
@@ -7390,6 +7367,15 @@ summary + .checks-editor-body {
   margin: 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+/* "Approve for me": the lead agent still reviews it (the user may answer meanwhile). */
+.approval-waiting.approval-reviewing {
+  color: var(--muted);
+}
+
+.approval-review.flagged {
+  color: var(--warn);
 }
 
 .approval-note {
