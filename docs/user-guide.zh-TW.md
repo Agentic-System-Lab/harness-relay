@@ -757,6 +757,30 @@ Relay 會先確認專案包含支援的 `package-lock.json`，再檢查是否需
 
 Relay 使用固定版本的 Node 映像，取得鎖定的相依套件時需要連到公開的 npm registry。建置和後端都在離線環境中執行。需要外部 API、私有套件庫、獨立資料庫伺服器或主機上的 `.env` 檔的專案，要先調整這些相依項目。用手機或遠端瀏覽器時，請先設定專用的預覽網域。[遠端使用應用程式預覽](remote-access.zh-TW.md#應用程式預覽)
 
+### 發布應用程式
+
+預覽沒問題之後，按預覽面板的 **發布…**，就能把它放上網路，用的是你自己的帳號：[Render](https://render.com) 用免費方案執行它，[Neon](https://neon.com) 存放它的 PostgreSQL 資料庫。先在 **設定 → 發布到雲端** 設定一次：
+
+- **Render**：API 金鑰（在 Render 的 **Account Settings → API Keys** 建立），以及應用程式要放的工作區和區域。Render 從你 GitHub 帳號裡的私人儲存庫建置每個應用程式，所以請讓 [Render 的 GitHub App](https://github.com/apps/render/installations/new) 能存取你的所有儲存庫（或每次加入新的那個）。
+- **Neon**：API 金鑰（在 Neon 的 **Account settings → API keys** 建立），只有需要資料庫的應用程式會用到。資料庫會建立在離 Render 區域最近的 Neon 區域。
+- **GitHub**：執行 Relay 的電腦上登入的 GitHub CLI（`gh`），和[分享對話](#分享對話)相同。尚未登入時，對話框會帶你登入。
+
+金鑰和其他金鑰一樣保存在憑證儲存區，不會交給 agent。
+
+![設定 → 發布到雲端：已儲存 Render 與 Neon 的金鑰，並列出一個已發布的應用程式。](../site/assets/media/docs/app-publish-settings-zh-TW.webp)
+
+預覽的頁面成功開啟後，才會出現 **發布…**。對話框會在動手之前說明要建立什麼：一個私人 GitHub 儲存庫、一個 Render 免費靜態網站（靜態頁面或 npm 建置）或 web service（後端、`Dockerfile` 或 compose 檔），以及 compose 檔裡每個 PostgreSQL 服務各一個 Neon 資料庫，並在上面執行一次 compose 檔的 `.sql` 初始化腳本。沒有資料庫的後端或 `Dockerfile` 可以勾選 **加上 Neon PostgreSQL 資料庫**，取得 `DATABASE_URL`。它會列出 Render 要執行的指令（和預覽執行的相同），以及應用程式的環境變數：compose 檔裡的變數，其中指向資料庫服務的換成 Neon 的位址（由 Neon 設定，不會顯示），再加上你新增的，例如 API 金鑰。這些變數只送到 Render，不會寫進儲存庫。勾選你了解任何拿到網址的人都能開啟它，再按 **發布**。
+
+![待辦應用程式加 PostgreSQL 的發布對話框：私人儲存庫、Render web service、執行初始化腳本的 Neon 資料庫，以及環境變數。](../site/assets/media/docs/app-publish-dialog-zh-TW.webp)
+
+接著對話框會顯示每個步驟（儲存庫、推送、資料庫、初始化 SQL、服務、Render 建置），直到應用程式上線，並附上它的網址、它在 Render 的頁面（有建置記錄）和它的儲存庫。上線的就是你試過的內容：和預覽複製的檔案相同，不含 `.git`、`.env` 檔、憑證或已安裝的相依套件。預覽開始後檔案若有改變，發布會被拒絕：請按 **重建預覽**、再試一次，然後發布。之前發布過的資料夾會顯示 **發布更新**：推送新的 commit，並在同一個服務上部署；環境變數維持 Render 上的設定，要修改請到 Render。
+
+![應用程式上線後的發布對話框：每個步驟都已完成，附上網址、它在 Render 的頁面與儲存庫。](../site/assets/media/docs/app-publish-live-zh-TW.webp)
+
+compose 檔要能用 Render 免費方案的一個服務執行才能發布：一個從專案 `Dockerfile` 建置的應用程式服務（不用 build 參數、target，也不掛載專案檔案），旁邊可以有 PostgreSQL 服務。其他情況（例如 Redis 或第二個應用程式服務）會在建立任何東西之前被拒絕，並說明原因。免費方案的 web service 閒置 15 分鐘會休眠，下次有人開啟時約需一分鐘喚醒；重新啟動後，它寫在容器裡的檔案會消失，存在 Neon 資料庫的資料不受影響。和預覽不同，上線的應用程式可以連上網路。
+
+在 **設定 → 發布到雲端** 按 **取消發布**，會刪除應用程式在 Render 的服務；勾選的話也會刪除它的 Neon 資料庫（Neon 會保留 7 天，期間可以還原）。GitHub 儲存庫會保留，不再需要時請到 GitHub 刪除。[發布的運作方式](architecture.zh-TW.md#發布應用程式)
+
 ### 複製、編輯與重試
 
 - 訊息下方的按鈕都是圖示（指著按鈕會顯示名稱）。agent 回覆下方的按鈕一直顯示；你自己的訊息要滑鼠移到訊息上才會出現（手機和平板上一直顯示）。agent 回覆下方，複製、重試、分享和分支在左邊，這則回覆的時間、費用與 token 數在最右邊；你自己的訊息下方，複製和編輯在泡泡底下。

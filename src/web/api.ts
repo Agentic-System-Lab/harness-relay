@@ -1,4 +1,12 @@
-import type { AppPreviewRequest, AppPreviewSession } from '../shared/types';
+import type {
+  AppPreviewRequest,
+  AppPreviewSession,
+  PublishedApp,
+  PublishPlan,
+  PublishRequest,
+  PublishSettingsView,
+  RenderRegion,
+} from '../shared/types';
 import type { DraftApp, DraftAppAvailability } from '../shared/apps';
 import { AUTH_KEY_HEADER, SIGNED_OUT } from '../shared/auth';
 import { CWD_MISSING, DEFAULT_ACCOUNT, GIT_MISSING } from '../shared/types';
@@ -618,6 +626,22 @@ export const api = {
       `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/run`,
       command === undefined ? {} : { command },
     ),
+  /** What publishing a running preview would do (Render, Neon), for the dialog. */
+  publishPlan: (id: string, session: string) =>
+    request<PublishPlan>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/publish/plan`, {}),
+  /** Starts publishing it: the app comes back at once, its steps followed with `publishedApp`. */
+  publishPreview: (id: string, session: string, body: PublishRequest) =>
+    request<PublishedApp>('POST', `/api/conversations/${encodeURIComponent(id)}/preview/${encodeURIComponent(session)}/publish`, body),
+  publishSettings: () => request<PublishSettingsView>('GET', '/api/publish'),
+  setRenderKey: (apiKey: string) => request<PublishSettingsView>('PUT', '/api/publish/render', { apiKey }),
+  updateRender: (body: { ownerId?: string; region?: RenderRegion }) => request<PublishSettingsView>('PATCH', '/api/publish/render', body),
+  removeRender: () => request<PublishSettingsView>('DELETE', '/api/publish/render'),
+  setNeonKey: (apiKey: string) => request<PublishSettingsView>('PUT', '/api/publish/neon', { apiKey }),
+  updateNeon: (body: { orgId?: string }) => request<PublishSettingsView>('PATCH', '/api/publish/neon', body),
+  removeNeon: () => request<PublishSettingsView>('DELETE', '/api/publish/neon'),
+  publishedApp: (appId: string) => request<PublishedApp>('GET', `/api/publish/apps/${encodeURIComponent(appId)}`),
+  unpublishApp: (appId: string, database: boolean) =>
+    request<{ ok: true }>('DELETE', `/api/publish/apps/${encodeURIComponent(appId)}${database ? '?database=1' : ''}`),
   stopAppPreview: (id: string, session: string) =>
     request<{ ok: true }>(
       'DELETE',

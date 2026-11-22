@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 46 個 spec 檔、589 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 47 個 spec 檔、591 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -51,6 +51,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 13 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -301,6 +302,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 透過 Docker 執行 Python 的 Dockerfile 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：面板先顯示終端機，再顯示網頁；網頁沒有網路，由映像檔 `EXPOSE` 的 port 提供；終端機有伺服器的輸出。 |
 | 透過 Docker 執行終端機程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`，從「檔案」開啟：出現提示，輸入得到回應，顯示結束代碼；修改後的指令會帶參數再執行，以錯誤結束時放進回報，**開啟 shell** 得到設有 `PORT` 的 shell。 |
 | 透過 Docker 執行有 Redis 的 compose 應用程式 | Claude Code | 啟用 `E2E_PREVIEW_DOCKER=1`：從專案建置的網頁服務在 Redis 健康後用服務名稱連到它，讀到掛載進來的專案檔案，套用變數的預設值，且連不到外部，也沒有通往這台電腦的閘道。停止後，帶它標籤的東西都不會留下：容器、網路、映像檔，以及 Redis 的匿名 volume。 |
+
+## 發布應用程式
+
+對這台電腦上 Render 與 Neon API 的替身（`support/cloud.ts`，伺服器透過 `RELAY_RENDER_API_URL` 與 `RELAY_NEON_API_URL` 連到它）和假的 `gh` 測試；假的 `gh` 會在伺服器的 git 推送的資料夾裡（`RELAY_PUBLISH_GIT_DIR`）把每個私人儲存庫建成 bare 儲存庫。用的是靜態網站，所以不需要 Docker。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 設定、一鍵發布、更新與取消發布 | Claude Code | 在 **設定 → 發布到雲端** 裡，錯的 Render 金鑰被拒絕，對的金鑰保存後只顯示遮蔽的結尾與它的工作區，選了區域，Neon 的金鑰保存後顯示組織，任何金鑰都不顯示。從「檔案」預覽靜態網站：**發布…** 顯示計畫（私人儲存庫 `relay-test/site`、免費靜態網站、名稱），確認公開後才能按 **發布**，接著顯示各個步驟直到上線，附上網址與儲存庫的連結。Render 從只含預覽頁面的儲存庫建立靜態網站，沒有建立 Neon 專案。**發布更新** 推送第二個 commit，並在同一個網站上部署。設定列出這個應用程式與它的網址，**取消發布** 會移除它的服務並保留儲存庫。 |
+| 缺少設定與改變的檔案 | Claude Code | 沒有設定時，對話框列出 Render 的金鑰並連到設定，即使確認了公開，**發布** 仍無法按。預覽的頁面改變後，對話框說明預覽之後檔案已改變、要重建預覽；Render 與 Neon 都沒有收到任何請求。 |
 
 ## 工作目錄與其他資料夾
 
@@ -834,6 +844,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
+- **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **Windows 與 macOS CI 上的容器預覽。** 它們的真實 Docker 測試在 Linux CI 與手動（macOS 上用 OrbStack）執行；經 Windows 具名管道的 Engine API 尚未試過。其他地方用模擬的串流測試面板的終端機。
 

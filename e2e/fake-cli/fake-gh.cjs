@@ -16,6 +16,10 @@
  *   test wrote them in `fake-github/repos/<owner>/<name>/pulls.json` and `runs.json` (none when not
  *   there), the newest first as gh lists them, at most `--limit`; a repository without a folder there
  *   fails as gh does for one it cannot find;
+ * - `api --hostname github.com --method POST user/repos -f name=<name> -F private=true -f description=<text> --jq .full_name`,
+ *   which publishing an app asks (`src/server/publish/git.ts`): a bare repository, `relay-test/<name>.git`, in
+ *   the folder of stand-in repositories the server pushes to (`RELAY_PUBLISH_GIT_DIR`), its full name
+ *   printed; GitHub's HTTP 422 when it has one of that name already;
  * - The active account and account-specific logout on github.com, with state in this test’s own folder.
  * - `--version`.
  * Anything else fails ("not faked"): the files that go along with a page take `gh api` and a git push
@@ -82,6 +86,7 @@ async function main() {
     fs.rmSync(path.join(github, 'signed-in'), { force: true });
     return;
   }
+  if (args.slice(0, 6).join(' ') === 'api --hostname github.com --method POST user/repos') return createRepo();
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);
@@ -92,6 +97,37 @@ async function main() {
     return;
   }
   fail(`fake gh: not faked: gh ${args.join(' ')}`);
+}
+
+/** A private repository for publishing an app: a bare one in RELAY_PUBLISH_GIT_DIR, as the server's git pushes to it. */
+function createRepo() {
+  const want = [
+    'api',
+    '--hostname',
+    'github.com',
+    '--method',
+    'POST',
+    'user/repos',
+    '-f',
+    args[7],
+    '-F',
+    'private=true',
+    '-f',
+    'description=Published from Harness Relay',
+    '--jq',
+    '.full_name',
+  ];
+  const name = /^name=([a-z0-9-]{1,40})$/.exec(args[7] || '')?.[1];
+  const dir = process.env.RELAY_PUBLISH_GIT_DIR;
+  if (!name || !dir || args.join(' ') !== want.join(' ')) fail(`fake gh: not faked: gh ${args.join(' ')}`);
+  const repo = path.join(dir, 'relay-test', name + '.git');
+  if (fs.existsSync(repo)) {
+    process.stdout.write('{"message":"Repository creation failed.","errors":[{"message":"name already exists on this account"}]}');
+    fail('gh: Repository creation failed. (HTTP 422)');
+  }
+  fs.mkdirSync(path.dirname(repo), { recursive: true });
+  require('node:child_process').execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', repo]);
+  process.stdout.write(`relay-test/${name}\n`);
 }
 
 /** `auth login --web --hostname github.com`, without a terminal: the code, the page, then the test's approval. */

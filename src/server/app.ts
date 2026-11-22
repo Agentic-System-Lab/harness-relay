@@ -12,7 +12,8 @@ import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserL
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews } from './appPreviews';
 import { detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
-import type { AppPreviewRequest, PreviewTerminalEvent } from '../shared/types';
+import { AppPublisher } from './publish';
+import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -160,6 +161,8 @@ export interface AppDeps {
    */
   auth: AuthStore | null;
   previews?: AppPreviews;
+  /** Publishing previews to the user's Render and Neon accounts (`publish/`); created when not given. */
+  publisher?: AppPublisher;
   store: Store;
   settings: SettingsStore;
   hub: Hub;
@@ -338,6 +341,7 @@ export function createApp({
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
   previews = new AppPreviews('test'),
+  publisher = new AppPublisher(settings.publish, { owner: 'test' }),
 }: AppDeps): Hono {
   const app = new Hono();
   const hostedApps = new HostedAppChecks(settings);
@@ -2213,6 +2217,54 @@ export function createApp({
     previewParent(c.req.header('host') ?? '', c.req.header('origin'));
     await previews.stop(getConv(c.req.param('id')).id, c.req.param('previewId'));
     return c.json({ ok: true });
+  });
+
+  // --- Publishing a previewed app (Render, Neon), only ever on the user's own request ----------------
+
+  const conversationGone = (id: string) => !store.get(id);
+  app.get('/api/publish', (c) => c.json(publisher.view(conversationGone)));
+  app.put('/api/publish/render', async (c) => {
+    await publisher.setRenderKey((await body<{ apiKey?: unknown }>(c))?.apiKey);
+    return c.json(publisher.view(conversationGone));
+  });
+  app.patch('/api/publish/render', async (c) => {
+    publisher.updateRender((await body<{ ownerId?: unknown; region?: unknown }>(c)) ?? {});
+    return c.json(publisher.view(conversationGone));
+  });
+  app.delete('/api/publish/render', (c) => {
+    publisher.removeRender();
+    return c.json(publisher.view(conversationGone));
+  });
+  app.put('/api/publish/neon', async (c) => {
+    await publisher.setNeonKey((await body<{ apiKey?: unknown }>(c))?.apiKey);
+    return c.json(publisher.view(conversationGone));
+  });
+  app.patch('/api/publish/neon', async (c) => {
+    publisher.updateNeon((await body<{ orgId?: unknown }>(c)) ?? {});
+    return c.json(publisher.view(conversationGone));
+  });
+  app.delete('/api/publish/neon', (c) => {
+    publisher.removeNeon();
+    return c.json(publisher.view(conversationGone));
+  });
+  app.get('/api/publish/apps/:appId', (c) => c.json(publisher.app(c.req.param('appId'), conversationGone)));
+  app.delete('/api/publish/apps/:appId', async (c) => {
+    await publisher.unpublish(c.req.param('appId'), c.req.query('database') === '1');
+    return c.json({ ok: true });
+  });
+  // A running preview the browser that started it tried: what publishing it would do, then publishing it.
+  app.post('/api/conversations/:id/preview/:previewId/publish/plan', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const source = await previews.publishSource(conv.id, c.req.param('previewId'), sessions.get(c.req.raw), c.req.raw.signal);
+    return c.json(await publisher.plan(source));
+  });
+  app.post('/api/conversations/:id/preview/:previewId/publish', async (c) => {
+    previewParent(c.req.header('host') ?? '', c.req.header('origin'));
+    const conv = getConv(c.req.param('id'));
+    const request = (await body<Partial<PublishRequest>>(c)) ?? {};
+    const source = await previews.publishSource(conv.id, c.req.param('previewId'), sessions.get(c.req.raw), c.req.raw.signal);
+    return c.json(await publisher.publish(source, request));
   });
 
   // --- Browsing the working directory (and agents' worktrees) -------------------

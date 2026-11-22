@@ -35,6 +35,8 @@ import { appTools } from './connectors/apps';
 import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
+import { AppPublisher } from './publish';
+import { clearPublishTmp } from './publish/git';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { agentFolderOptions, clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
@@ -273,8 +275,10 @@ const previews = new AppPreviews(
   Date.now,
   (options) => startContainerPreview({ ...options, beforeDocker: beforePreviewDocker(options.signal) }),
 );
+const publisher = new AppPublisher(settings.publish, { owner: previewOwner });
 const app = createApp({
   previews,
+  publisher,
   teams,
   auth,
   store,
@@ -315,6 +319,7 @@ if (!built) {
 
 // What shares left behind when the server stopped during them (none is being made yet).
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
+await clearPublishTmp().catch((err: unknown) => console.error('[server] could not clear the temporary publish folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
 // In a codespace, gh's sign-in folder: there before any turn, so that every sandbox keeps it out.
@@ -423,6 +428,7 @@ async function shutdown(code = 0): Promise<void> {
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
   const installsStopped = Promise.all([
     previews.close(),
+    publisher.close(),
     clis.shutdown(),
     sandboxSetup.shutdown(),
     gitInstall.shutdown(),

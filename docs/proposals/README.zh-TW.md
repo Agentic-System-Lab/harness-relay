@@ -12,6 +12,7 @@ Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒
 | [網站預覽與 Generative UI](preview-and-generative-ui.zh-TW.md) | [應用程式預覽](app-preview-runtime.zh-TW.md)已實作，互動式回覆仍在規劃 | 在聊天旁的面板試用 agent 做的網站，並把錯誤交回給 agent；回覆裡可以有選項、表單、圖表和小型互動頁面。 |
 | [agent CLI 自己的功能](agent-cli-features.zh-TW.md) | 尚未開始 | 十二個 CLI 本身做得到、Harness Relay 還沒用上的：受管理且看得到的 subagent 與 workflow、端點模型的 context window、計畫、提問、引導執行中的回合、結構化回答與預算。 |
 | [每種應用程式都用同一種方式預覽](unified-app-preview.zh-TW.md) | 第 1 到 3 步已完成（`Dockerfile` 應用程式、終端機、compose），含 agent 的說明；Relay 自己的 builder 與只允許 registry 的 proxy，以及自動產生的建置仍未完成 | 任何語言都用同一種方式預覽：專案宣告的 `Dockerfile` 或 compose 檔，應用程式提供 HTTP 時顯示網頁、沒有時顯示終端機，資料庫之類的服務放在無法對外連線的網路上。 |
+| [發布預覽過的應用程式](app-publish.zh-TW.md) | 第 1 與第 2 步已完成（Render 靜態網站與 web service、PostgreSQL 改用 Neon 並執行初始化腳本、更新、取消發布）；尚未用真的帳號試過；其他雲端業者未開始 | 使用者試過的預覽，用同一份快照、經由私人 GitHub 儲存庫，一鍵發布到使用者自己的 Render 與 Neon 帳號。 |
 
 ## 這個資料夾的用法
 

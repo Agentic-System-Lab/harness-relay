@@ -38,6 +38,7 @@ export const SETTINGS_SECTIONS = [
   'cwd',
   'sessions',
   'shares',
+  'publish',
   'browsers',
   'home-screen',
   'tour',

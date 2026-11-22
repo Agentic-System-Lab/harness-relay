@@ -10162,3 +10162,201 @@ a.share-action {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 }
+
+/* Publishing a previewed app (the preview panel's dialog, and Settings → Publish to the cloud) */
+.modal.publish-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.publish-dialog p,
+.publish-dialog h3 {
+  margin: 0;
+}
+
+.publish-dialog h3 {
+  font-size: 0.95rem;
+}
+
+.publish-setup {
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.publish-setup ul,
+.publish-summary ul,
+.publish-notes {
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+}
+
+.publish-summary li + li,
+.publish-notes li + li {
+  margin-top: 4px;
+}
+
+.publish-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.publish-name input {
+  font-family: var(--mono);
+}
+
+.publish-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.publish-commands {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.publish-commands dt {
+  color: var(--muted);
+}
+
+.publish-commands dd {
+  margin: 2px 0 0;
+}
+
+.publish-env {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.publish-env legend {
+  padding: 0 4px;
+}
+
+.publish-env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.publish-env-row input {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.publish-env-row input[readonly] {
+  background: var(--surface);
+}
+
+.publish-env-db {
+  font-style: italic;
+}
+
+.publish-env > .ghost {
+  align-self: flex-start;
+}
+
+.publish-confirm {
+  font-weight: 600;
+}
+
+.publish-progress ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publish-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.publish-step::before {
+  content: '';
+  flex: 0 0 8px;
+  height: 8px;
+  margin-top: 0.45em;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.publish-step.running::before {
+  background: var(--info);
+}
+
+.publish-step.done::before {
+  background: var(--ok);
+}
+
+.publish-step.failed::before {
+  background: var(--danger);
+}
+
+.publish-step-name {
+  flex: 1;
+}
+
+.publish-step.skipped {
+  opacity: 0.6;
+}
+
+.publish-live a,
+.publish-progress a {
+  overflow-wrap: anywhere;
+}
+
+.publish-provider {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+
+.publish-provider legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.publish-provider p {
+  margin: 4px 0;
+}
+
+.publish-apps-title {
+  margin: 8px 0 6px;
+}
+
+.publish-app code {
+  overflow-wrap: anywhere;
+}
+
+.publish-unpublish {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publish-unpublish p {
+  margin: 0;
+}

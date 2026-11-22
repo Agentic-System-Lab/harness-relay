@@ -12,6 +12,7 @@ Designs for features Harness Relay does not have yet. What is in this folder is 
 | [Website previews and generative UI](preview-and-generative-ui.md) | [App previews](app-preview-runtime.md) implemented, interactive replies proposed | Try a site an agent made in a panel beside the chat, and send its errors back; replies with choices, forms, charts and small interactive pages. |
 | [The agent CLIs' own features](agent-cli-features.md) | Not started | What the twelve CLIs can do by themselves that Harness Relay does not use yet: subagents and workflows governed and shown, context windows for endpoint models, plans, questions, steering a running turn, structured answers and budgets. |
 | [One preview for every app](unified-app-preview.md) | Steps 1 to 3 built (a `Dockerfile` app, the terminal, compose) with the agents' briefing; a builder of Relay's own with a registry-only proxy, and generated builds, still open | Any language previewed the same way: a `Dockerfile` or compose file the project declares, a page when the app serves HTTP and a terminal when it does not, services such as a database on a network with no way out. |
+| [Publishing a previewed app](app-publish.md) | Steps 1 and 2 built (Render static sites and web services, Neon for PostgreSQL with init scripts, updates, unpublishing); not yet tried with real accounts; other hosts open | A preview the user tried is published in one click to the user's own Render and Neon accounts, through a private GitHub repository, from the same snapshot. |
 
 ## How to use this folder
 

@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { HttpError } from './errors';
 import { t } from './i18n';
-import { previewFileResponse, previewSnapshot } from './previewFiles';
+import { join } from 'node:path';
+import { PUBLISH_CHANGED } from '../shared/types';
+import { previewDigest, previewFileResponse, previewSnapshot } from './previewFiles';
+import type { PreviewForPublish } from './publish';
 import { startContainerPreview, type PreviewTerminal } from './previewContainer';
 import { PreviewCleanupError, startPreviewRuntime } from './previewRuntime';
 import type { PreviewTarget } from './previewTarget';
@@ -26,6 +29,12 @@ interface Session {
   live?: () => boolean;
   /** The signed-in browser that started it: only that one reads and types into its terminal. */
   browser?: string;
+  /** What it was started from, and its snapshot's digest: publishing takes the same files again. */
+  target: PreviewTarget;
+  digest?: string;
+  /** Its page has answered (a container's, once its port opened; the others once they started). */
+  pageSeen: boolean;
+  unsubscribe?: () => void;
 }
 
 /** The member's folder inside its workspace root, both relative to the same working directory. */
@@ -127,6 +136,8 @@ export class AppPreviews {
       idle: this.now() + IDLE,
       pending: Promise.resolve(),
       requests: 0,
+      target,
+      pageSeen: false,
     };
     this.sessions.set(id, session);
     if (!this.timer) this.timer = setInterval(() => this.expire(), 60_000).unref();
@@ -137,6 +148,7 @@ export class AppPreviews {
       const lifetime = session.controller.signal;
       // A workspace member installs and runs from its workspace root's copy, lockfile included.
       const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, lifetime, target.isPrivate);
+      session.digest = previewDigest(files, files.executables);
       lifetime.throwIfAborted();
       if (target.mode === 'static') {
         if (!files.has(target.entry)) throw new HttpError(404, t().previewTarget);
@@ -149,6 +161,9 @@ export class AppPreviews {
           recipe: target.entry,
           signal: lifetime,
           owner: this.owner,
+        });
+        session.unsubscribe = session.service.terminal?.subscribe((event) => {
+          if (event.type === 'page') session.pageSeen = true;
         });
       } else {
         try {
@@ -166,6 +181,7 @@ export class AppPreviews {
         }
       }
       lifetime.throwIfAborted();
+      if (target.mode !== 'container') session.pageSeen = true;
     })();
     try {
       await session.pending;
@@ -192,6 +208,7 @@ export class AppPreviews {
       found.map(([key, s]) => {
         if (!s.closing) {
           s.controller.abort();
+          s.unsubscribe?.();
           s.closing = s.pending
             .catch(() => {})
             .then(() => (s.service ? s.service.stop() : s.retryCleanup?.()))
@@ -222,6 +239,31 @@ export class AppPreviews {
     if (s.browser !== browser) throw new HttpError(403, t().previewOrigin);
     s.idle = this.now() + IDLE;
     return s.service.terminal;
+  }
+
+  /**
+   * The files a running preview was tried with, for publishing it: for the browser that started it,
+   * once its page answered, taken again and refused when they changed since (`PUBLISH_CHANGED`).
+   */
+  async publishSource(conversation: string, id: string, browser: string | undefined, signal?: AbortSignal): Promise<PreviewForPublish> {
+    const s = this.sessions.get(id);
+    if (!s || s.conversation !== conversation || s.controller.signal.aborted || s.closing || !s.service)
+      throw new HttpError(404, t().previewTarget);
+    if (s.browser !== browser) throw new HttpError(403, t().previewOrigin);
+    if (!s.pageSeen) throw new HttpError(409, t().publish.notReady);
+    s.idle = this.now() + IDLE;
+    const { target } = s;
+    const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, signal, target.isPrivate);
+    if (previewDigest(files, files.executables) !== s.digest) throw new HttpError(409, t().publish.changed, PUBLISH_CHANGED);
+    return {
+      conversationId: conversation,
+      folder: join(target.root, target.folder),
+      mode: target.mode,
+      entry: target.entry,
+      ...(target.npmRoot !== undefined && { workspace: workspaceIn(target.npmRoot, target.folder) }),
+      files,
+      executables: files.executables,
+    };
   }
 
   private expire() {

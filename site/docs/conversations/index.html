@@ -6,7 +6,7 @@
     <title>Your conversations · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, try its apps, share it, and get notified."
+      content="Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse files, try and publish apps, share, and get notified."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Your conversations · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How to find, pin, group and search your Harness Relay conversations, branch one to try another way, browse and download the files the agents made, try the app the team built in a preview panel, share a conversation as a link, and be told when the team is done or needs you."
+      content="How to find, pin, group and search your Harness Relay conversations, branch one to try another way, browse and download the files the agents made, try the app the team built in a preview panel and publish it to your own cloud accounts, share a conversation as a link, and be told when the team is done or needs you."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/",
         "name": "Your conversations · Harness Relay docs",
-        "description": "Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, try its apps, share it, and get notified.",
+        "description": "Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse files, try and publish apps, share, and get notified.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -266,6 +266,7 @@
               <ol>
                 <li><a href="#files" aria-label="Browse the files overview">Overview</a></li>
                 <li><a href="#app-preview">Try an app the team made</a></li>
+                <li><a href="#app-publish">Publish an app</a></li>
               </ol>
             </details>
           </li>
@@ -483,6 +484,28 @@
             <figcaption>Choose Install Docker on the computer running Relay. The preview opens automatically when the engine is ready.</figcaption>
           </figure>
           <p>Choose <b>Add errors to message</b> and describe what you clicked before sending. Use <b>Reload page</b> to refresh the app within its current run. After an edit, <b>Rebuild preview</b> loads a fresh copy. Reloading the Relay chat closes the preview. <b>Stop preview</b> closes the run and discards temporary backend data. Phones also need a <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md#app-previews">dedicated HTTPS preview domain</a>.</p>
+          <h3 id="app-publish">Publish an app</h3>
+          <p>Once a preview works, <b>Publish…</b> in the preview panel puts it online in your own free accounts: <a href="https://render.com">Render</a> runs the site or backend, and <a href="https://neon.com">Neon</a> keeps its PostgreSQL database. Set them up once in <b>Settings → Publish to the cloud</b> with their API keys, and have the GitHub CLI (<code>gh</code>) signed in, as for sharing. Render builds each app from a private repository in your GitHub account, so let <a href="https://github.com/apps/render/installations/new">Render's GitHub app</a> access your repositories.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/app-publish-settings-en.webp">
+              <img src="../../assets/media/docs/app-publish-settings-en.webp" width="952" height="846" alt="Settings → Publish to the cloud, with the Render and Neon keys saved and a published app listed." loading="lazy" />
+            </a>
+            <figcaption>Set up Render and Neon once. Published apps are listed here, each with Unpublish.</figcaption>
+          </figure>
+          <p>Before anything happens, the dialog says what it will create: the private repository, a free static site or web service, and a Neon database for each PostgreSQL service in a compose file, with its <code>.sql</code> init scripts run once. It lists the app's environment variables, with Neon's address in place of the database service's, and you can add your own; they go to Render only. Confirm that anyone with its address can open it, choose <b>Publish</b>, and follow each step until the app is live.</p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/app-publish-dialog-en.webp">
+              <img src="../../assets/media/docs/app-publish-dialog-en.webp" width="620" height="896" alt="The publish dialog for a todo app with PostgreSQL: a private repository, a Render web service, a Neon database with its init script, and the environment variables." loading="lazy" />
+            </a>
+            <figcaption>A compose app with PostgreSQL: Render runs the app, Neon keeps the database.</figcaption>
+          </figure>
+          <p>What goes online is what you tried: if the files changed since the preview started, rebuild it and try it first. <b>Publish update</b> deploys a new commit on the same service. A free web service sleeps after 15 minutes without requests and takes about a minute to wake. <b>Unpublish</b> in Settings deletes the Render service, and its Neon databases when you tick it; the repository stays on GitHub.</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>The keys stay in the credential store and never go to an agent. Only your click publishes: no agent can publish, unpublish or read these settings.</p>
+            </div>
+          </div>
         </section>
 
         <section id="share" aria-labelledby="share-title">

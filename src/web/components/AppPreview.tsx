@@ -17,6 +17,9 @@ import { Deferred, lazyPart } from './Deferred';
 import { useDialog } from './useDialog';
 import { PreviewDockerDialog } from './PreviewDockerDialog';
 
+// The publish dialog comes only when the user opens it.
+const PublishDialog = lazyPart(() => import('./PublishDialog').then((m) => m.PublishDialog));
+
 // xterm.js comes only with a container preview's terminal.
 const PreviewTerminal = lazyPart(() => import('./PreviewTerminal').then((m) => m.PreviewTerminal));
 
@@ -69,6 +72,9 @@ export function AppPreview({
   const [commandLine, setCommandLine] = useState('');
   const [running, setRunning] = useState(false);
   const terminalOutput = useRef('');
+  const [publishing, setPublishing] = useState(false);
+  // A new preview, or none: the dialog was for the one before.
+  useEffect(() => setPublishing(false), [session]);
 
   useLayoutEffect(() => {
     if (!session) return;
@@ -229,6 +235,8 @@ export function AppPreview({
             : p.failed
     : undefined;
   const canRun = container && !term.closed && (term.phase === 'running' || term.phase === 'exited') && !running;
+  // Published only once its page answered: a container's port opened, the others' page loaded.
+  const canPublish = Boolean(session) && !busy && (container ? term.page && term.phase === 'running' : loaded);
   return (
     <>
       {hidden && (
@@ -284,6 +292,12 @@ export function AppPreview({
             {canRun && (
               <button type="button" className="ghost small-button" onClick={() => void runAgain()}>
                 {p.runAgain}
+              </button>
+            )}
+            {/* Before Stop, which stays the last control before the page that Tab reaches next. */}
+            {canPublish && (
+              <button type="button" className="ghost small-button" onClick={() => setPublishing(true)}>
+                {t.publish.button}
               </button>
             )}
             {(session || busy) && (
@@ -426,6 +440,11 @@ export function AppPreview({
           </div>
         )}
       </aside>
+      {publishing && session && (
+        <Deferred onClose={() => setPublishing(false)}>
+          <PublishDialog convId={convId} sessionId={session.id} onClose={() => setPublishing(false)} />
+        </Deferred>
+      )}
       {setupOpen && docker && (
         <PreviewDockerDialog
           initial={docker}
