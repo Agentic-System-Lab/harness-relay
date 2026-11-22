@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pendingPlan, type Conversation } from '../../shared/types';
+import { pendingPlan, permissionLevel, type Conversation } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
@@ -279,7 +279,9 @@ export function ScheduleDrawer({
               <span className="badge">
                 {t.modes[mode].label} · {mode === 'relay' ? t.chat.hops(maxHops) : t.chat.rounds(rounds)}
               </span>
-              <span className={`badge ${permission === 'full' ? 'danger' : ''}`}>{t.permissions[permission].label}</span>
+              <span className={`badge ${permission === 'full' ? 'danger' : ''}`}>
+                {t.permissions[permissionLevel(conv.settings)].label}
+              </span>
               <span className="muted small schedule-cwd" title={cwd}>
                 {cwd}
               </span>

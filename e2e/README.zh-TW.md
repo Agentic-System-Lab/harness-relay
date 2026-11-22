@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 49 個 spec 檔、612 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 49 個 spec 檔、615 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -49,7 +49,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
-| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
+| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 21 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 20 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
@@ -83,7 +83,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](../docs/user-guide.zh-TW.md#通知收件匣)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 16 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 17 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -273,7 +273,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 核准
 
-[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 與 Copilot 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，Copilot 不詢問就執行 `echo`（它把它當成唯讀指令），所以它們在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、Copilot、Muse Code、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。
+[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 與 Copilot 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，Copilot 不詢問就執行 `echo`（它把它當成唯讀指令），所以它們在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、Copilot、Muse Code、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。選 **替我核准** 時，假的首席 agent 會核准它審查的每個請求，除非使用者最新的訊息寫了 `e2e:flag`（`e2e:slowapprove=<秒數>` 讓它審查那麼久）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -283,6 +283,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 請求等待時停止團隊，指令不會執行 | Claude Code | 回答以「(stopped)」結束，請求被拒絕或沒有回答。 |
 | 完全存取時，指令直接執行，也能不詢問就寫到任何地方 | 各一 | 標題列警告**完全存取**（Full access）；指令執行，檔案寫到另一個資料夾，沒有卡片（在每個系統上都一樣：完全存取的 CLI 外面沒有沙箱）。 |
 | 自動拒絕的對話不詢問就拒絕 | Claude Code | 指令被拒絕，沒有卡片。 |
+| 在團隊設定選「替我核准」：首席 agent 放行一個指令，把它標記的那個留給使用者 | Claude Code | 在可編輯的對話中，於團隊設定選 **替我核准**：顯示它的說明，權限範圍以外的動作那個選項消失，標頭的標籤顯示 **替我核准**，對話存成可編輯加上 `approvals: "auto"`。假的首席 agent 核准第一個指令：它直接執行，沒有等待的卡片，那一行顯示 **首席 agent 已替你核准** 與理由。被要求標記第二個（`e2e:flag`）時，它把指令留給使用者：卡片附上首席 agent 的理由等待，側邊欄顯示 **等你核准**，按 **允許** 後執行。 |
+| 「替我核准」：首席 agent 審查時不等任何人，使用者可以先回答；推送一律不送審 | Claude Code | 假的首席 agent 慢慢審查時（`e2e:slowapprove`），卡片顯示 **首席 agent 審查中**，並說明可以現在就決定，沒有提示列，也沒有 **等你核准**；按 **允許** 後指令執行，那一行顯示 **已允許**（使用者的回答）。`npm publish`（`e2e:approve=publish`）立即等使用者決定，卡片說明推送與發佈一律由使用者決定，並出現提示列；按 **拒絕** 後被拒絕。 |
 
 ## 檔案與修改
 
@@ -716,7 +718,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合）與新的**長期記憶**步驟（指向**設定 → 實驗室 → 長期記憶**），最後是現在提到實驗室（包括長期記憶）與 subagent、workflow 開關的「設定」那一步。 |
+| 回訪的瀏覽器 | 跨過幾版後只看到有調整的步驟，每步只出現一次，包含從「檔案」預覽應用程式。中途重新整理會從這批更新的第一步開始，設定裡仍可重播完整導覽。修訂過的步驟會指引使用者到 **App 與工具**裡的**常用 App** 和**工具庫**分頁，包括**每個問題自動組隊**（成員自己的上限）、**團隊回覆時**（subagent 的步驟與直接送進回合）、**需要你的時候**與**檔案權限與修改**（替我核准），以及新的**長期記憶**步驟（指向**設定 → 實驗室 → 長期記憶**），最後是現在提到實驗室（包括長期記憶）與 subagent、workflow 開關的「設定」那一步。 |
 | 第一次造訪時顯示導覽，可以一步步走到最後，之後不再顯示 | 開在第 1 步，沒有上一步；下一步、上一步與方向鍵都能移動；最後一步沒有**跳過導覽**，按**開始使用**後關閉，重新載入也不會再出現。 |
 | 導覽可以略過，設定可以重新開始 | **跳過導覽**後重新載入也不會出現；**設定 → 使用導覽 → 重新觀看導覽**會從第 1 步開始，Escape 關閉後仍算完成。 |
 | 在手機上，導覽是貼齊螢幕底部的面板，長步驟的內容在按鈕之上捲動 | 在 390×560 下，最長的一步（檔案權限）貼齊螢幕底部，**下一步**在面板內；內容可以捲動（**下一步**有焦點時按 End 也行），按鈕上方出現分隔線，下一步則從頂端開始。 |
@@ -784,7 +786,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 選單按鈕會告訴你有未讀通知；從抽屜裡的鈴鐺打開一則通知會收起抽屜，正在看的對話也一樣 | Grok | 視窗當作被別的視窗擋住（正在看的對話不會自己標為已讀），Grok 回覆後選單按鈕變成**開啟側邊欄（1 則未讀通知）**（Open sidebar (1 unread notification)），上面有小紅點；抽屜裡的鈴鐺是**通知收件匣（1 則未讀）**（Notifications (1 unread)），有數字；在對話框裡點那則回覆的通知（就是正在看的對話），對話框和抽屜都會收起，選單按鈕的名稱和小紅點也恢復原樣。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 往上捲之後，回到最後的箭頭在訊息框上方中間，點一下就把對話帶到那裡 | Claude Code | 長回覆（`e2e:long`）往上捲 800px 後出現箭頭，與訊息框置中對齊（誤差一個像素內）、在它上方，顯示的圓形是 36px，手指可點的範圍是 48px（圓形四邊外 5px 仍是箭頭）。點一下對話回到最後、箭頭消失，手機的鍵盤維持原狀：沒有焦點的訊息框仍然沒有，有焦點的則保有焦點。 |
-| 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
+| 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。**團隊設定**裡的四種權限維持在同一列，在列內左右捲動。 |
+| 很窄的手機上，語音輸入的語言維持一列、可以左右捲動，兩種語言都是 | — | 在 320px 和 280px、英文與中文介面下，**設定 → 語音輸入**的四種語言都在同一行，每個名稱完整不換行；列本身可以左右捲動，頁面不會。 |
 | 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新自動任務頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 和 360px 下，都沒有東西會左右捲動。兩種語言在 250px 展開團隊範本也不會左右捲動。建立頁的時間選單在各種寬度下都會顯示選定的觸發方式。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。選**當某件事發生時**時，**再等一件事**把第二件要等的事放在自己的框裡、附上**移除**，在這些寬度下仍然不會左右捲動。對話的**自動任務**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動；儲存為這一列最後的**每隔幾小時**後，在 280px 再打開時，它在這一列的可見範圍內。 |
 | 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
 
@@ -893,6 +896,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **每個 CLI 在兩個對話同一個資料夾時的情形，以及之後的事。**端對端測試讓 Codex 在團隊自己的 worktree 裡執行；每個 CLI 都能在 worktree 裡寫入，由[平行模式](#檔案與修改)的測試涵蓋。那裡的團隊檢查、首席 agent 審閱、倒回時丟掉它、多個資料夾、巢狀的 repository，以及自動任務在那裡的執行，由離線測試涵蓋（`test/orchestrator-workspace.test.ts`、`orchestrator-folders`、`orchestrator-checks`、`orchestrator-review`、`orchestrator-schedule`）。
 - **實際安裝 Git。** 對話框測試模擬缺少 Git 與安裝程式的回應。`test/git-install.test.ts` 用替代程序確認各平台的安裝方式。
 - **其他 CLI 的「直接送進進行中的回合」。**只有 Claude Code 與 Codex 的假 CLI 會把訊息收進進行中的回合；Grok 的 `x.ai/interject`、Antigravity 再送的 `session/prompt`、Goose 的 `_goose/unstable/session/steer` 與 Pi 的 `steer` 只在離線測試裡（`test/steer.test.ts`，共用 ACP 回合的 hook 在 `test/acp-turn.test.ts`），協調器在各模式的規則（平行模式要嘛全部、要嘛都不送）則用它的假 runner 測（`test/orchestrator-steer.test.ts`）。還沒有任何真正的 CLI 在測試裡收過這樣的訊息，實機測試也還沒有。
+- **真正的首席 agent 判斷什麼是安全的（「替我核准」）。**假的首席 agent 依指令核准或標記；審查讀到什麼、何時不送審、時間限制、同時執行幾個，以及自動任務的執行，都在離線測試中涵蓋（`test/approvalReview.test.ts`、`test/orchestrator-approve.test.ts`、`orchestrator-schedule`）。真正的模型會怎麼決定，沒有測試。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現；那些錄音是 adapter 當初所依據的版本，所以 CLI 的新版本要用 `scripts/cli-check.ts` 對真正的 CLI 手動檢查（[開發者指南「檢查 CLI 的新版本」](../docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。

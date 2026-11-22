@@ -43,7 +43,9 @@ describe('guided tour', () => {
         'Start a new chat',
         'A team for every question',
         'While the team replies',
+        'When the team needs you',
         'Notifications and sound',
+        'File permission and changes',
         'Team checks',
         'Browse the working directory',
         'Automations',
@@ -57,7 +59,9 @@ describe('guided tour', () => {
         'Start a new chat',
         'A team for every question',
         'While the team replies',
+        'When the team needs you',
         'Notifications and sound',
+        'File permission and changes',
         'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
@@ -70,7 +74,9 @@ describe('guided tour', () => {
         'Start a new chat',
         'A team for every question',
         'While the team replies',
+        'When the team needs you',
         'Notifications and sound',
+        'File permission and changes',
         'Browse the working directory',
         'Automations',
         'Connect apps to your chats',
@@ -83,6 +89,8 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'When the team needs you',
+          'File permission and changes',
           'Browse the working directory',
           'Automations',
           'Connect apps to your chats',
@@ -96,6 +104,8 @@ describe('guided tour', () => {
           'Start a new chat',
           'A team for every question',
           'While the team replies',
+          'When the team needs you',
+          'File permission and changes',
           'Browse the working directory',
           'Automations',
           'Long-term memory',
@@ -107,16 +117,32 @@ describe('guided tour', () => {
           'API keys and endpoints for open-source agents',
           'A team for every question',
           'While the team replies',
+          'When the team needs you',
+          'File permission and changes',
           'Browse the working directory',
           'Long-term memory',
           'Adjust any time',
         ]);
-      expect(titles(39)).toEqual(['Browse the working directory', 'Long-term memory', 'Adjust any time']);
+      expect(titles(39)).toEqual([
+        'When the team needs you',
+        'File permission and changes',
+        'Browse the working directory',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
       // Publishing a preview came to the files step.
-      expect(titles(40)).toEqual(['Browse the working directory', 'Long-term memory', 'Adjust any time']);
+      expect(titles(40)).toEqual([
+        'When the team needs you',
+        'File permission and changes',
+        'Browse the working directory',
+        'Long-term memory',
+        'Adjust any time',
+      ]);
+      // "Approve for me" came to the steps on what needs the user and on the file permission.
+      expect(titles(41)).toEqual(['When the team needs you', 'File permission and changes', 'Long-term memory', 'Adjust any time']);
       // Long-term memory came, in Labs, which the Settings step names.
-      expect(titles(41)).toEqual(['Long-term memory', 'Adjust any time']);
-      expect(tourIndices(42)).toEqual([]);
+      expect(titles(42)).toEqual(['Long-term memory', 'Adjust any time']);
+      expect(tourIndices(43)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
       markDone();
@@ -152,6 +178,14 @@ describe('guided tour', () => {
     expect(scrollBy(' ', 300, 900)).toBeUndefined();
   });
 
+  it('shows the steps that changed since the version a browser last saw, at least one for each version', () => {
+    // A version no step was raised to would open a tour with nothing in it.
+    expect(Math.max(...TOUR_STEPS.map((s) => s.revision))).toBe(TOUR_VERSION);
+    expect(tourIndices(TOUR_VERSION - 1).length).toBeGreaterThan(0);
+    expect(tourIndices(TOUR_VERSION)).toEqual([]);
+    expect(TOUR_STEPS).toHaveLength(en.tour.steps.length);
+  });
+
   it('gets a new version when its steps change', () => {
     const fingerprint = createHash('sha256')
       .update(JSON.stringify([zhTW.tour.steps, en.tour.steps]))
@@ -160,6 +194,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: 'bea418a09341' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 43, fingerprint: '96a3ae553afa' });
   });
 });

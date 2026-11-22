@@ -1124,7 +1124,8 @@ export function claudeApprovalRequest(
 ): ApprovalRequest {
   const reason = (typeof input.description === 'string' && input.description) || description || undefined;
   // A command in the sandbox wants to reach a host: allowing it lets the sandbox connect there.
-  if (tool === 'SandboxNetworkAccess') return { kind: 'fetch', detail: String(input.host ?? ''), reason: t().sandboxHost };
+  if (tool === 'SandboxNetworkAccess')
+    return { kind: 'fetch', detail: String(input.host ?? ''), reason: t().sandboxHost, connection: true };
   // A command: its Bash tool, or on Windows its PowerShell tool (seen with Claude Code 2.1.322).
   if (tool === 'Bash' || tool === 'PowerShell') {
     return { kind: 'command', detail: String(input.command ?? ''), reason, ...(outsideSandbox ? { outsideSandbox: true } : {}) };

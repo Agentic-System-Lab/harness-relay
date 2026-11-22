@@ -21,6 +21,8 @@ const DIRECTIVES = {
   todo: 'show a to-do list',
   approve:
     'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
+  flag: 'as the lead agent reviewing a request ("Approve for me"), find it potentially unsafe instead of approving it',
+  slowapprove: 'as the lead agent reviewing a request ("Approve for me"), take `=<seconds>` (ten by default) to answer',
   fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
@@ -124,6 +126,21 @@ function planText(d) {
   });
 }
 
+/**
+ * The lead agent's answer to an approval request it reviews ("Approve for me"): approved, unless the
+ * user's latest message says `e2e:flag`; slow with `e2e:slowapprove` (ten seconds, `=<seconds>` for another time).
+ */
+function approvalReply(prompt) {
+  const said = [...prompt.matchAll(/<user_message>\n([\s\S]*?)\n<\/user_message>/g)].map((m) => m[1]);
+  const d = directivesIn(said[said.length - 1] || '');
+  const text = JSON.stringify(
+    d.flag
+      ? { decision: 'ask', reason: 'The fake lead agent was told to flag it.' }
+      : { decision: 'approve', reason: 'The fake lead agent finds it safe.' },
+  );
+  return { text, slow: slowMs(d.slowapprove) };
+}
+
 /** The lead agent's answer: the group a new conversation goes in (0: none). */
 function groupReply(prompt) {
   const message = tag(prompt, 'message').toLowerCase();
@@ -224,6 +241,8 @@ function plan(prompt, turn) {
   if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
   if (/Reply with only this JSON object:\n\{"changes"/.test(prompt)) return [{ type: 'text', text: tidyReply(prompt) }];
+  if (/Reply with only this JSON object: \{"decision": "approve" \| "ask"/.test(prompt))
+    return [{ type: 'text', ...approvalReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {
     const d = directivesIn(tag(prompt, 'request'));
     return [{ type: 'text', text: reviseReply(prompt), slow: slowMs(d.slowrevise) }];

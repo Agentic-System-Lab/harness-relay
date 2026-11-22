@@ -935,6 +935,22 @@ describe('DELETE /api/conversations/:id', () => {
 });
 
 describe('PATCH /api/conversations/:id', () => {
+  it('keeps "Approve for me" (approvals: auto) with Edit only, as it is created and changed', async () => {
+    const conv = await createConversation({ approvals: 'auto' });
+    expect(conv.settings).toMatchObject({ permission: 'edit', approvals: 'auto' });
+    expect((await createConversation({ permission: 'read-only', approvals: 'auto' })).settings).not.toHaveProperty('approvals');
+    const patch = async (settings: Record<string, unknown>) => {
+      const res = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { settings: { ...conv.settings, ...settings } }));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as Conversation).settings;
+    };
+    // Full access asks nothing: no approvals to review.
+    expect(await patch({ permission: 'full' })).not.toHaveProperty('approvals');
+    expect(await patch({ permission: 'edit', approvals: 'auto' })).toMatchObject({ approvals: 'auto' });
+    expect(await patch({ permission: 'edit', approvals: 'deny' })).toMatchObject({ approvals: 'deny' });
+    expect(await patch({ permission: 'edit', approvals: 'something else' })).not.toHaveProperty('approvals');
+  });
+
   it('refuses team and settings changes while the team replies, but allows renaming', async () => {
     const conv = await createConversation();
     await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'go' }));

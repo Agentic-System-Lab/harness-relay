@@ -166,10 +166,12 @@ export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kin
     if (m.author.kind !== 'agent') continue;
     const agent = agentName(conv, m);
     if (kind === 'approval') {
-      // An approval waiting (its command, file or address), or what it asked to send waiting in the outbox
-      // for the user's Send (a mail, an invitation: its card's title).
+      // An approval waiting (its command, file or address; not one the lead agent still reviews), or what
+      // it asked to send waiting in the outbox for the user's Send (a mail, an invitation: its card's title).
       const pending = m.parts.find(
-        (p) => (p.type === 'approval' && p.status === 'pending') || (p.type === 'outbox' && p.status === 'pending'),
+        (p) =>
+          (p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing') ||
+          (p.type === 'outbox' && p.status === 'pending'),
       );
       if (!pending) continue;
       const what = pending.type === 'approval' ? pending.detail || pending.tool : pending.type === 'outbox' ? pending.title : '';

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { VOICE_LANGUAGES, type VoiceStatus } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { useVoiceStatus } from '../useVoice';
 import { formatBytes } from '../util';
 import { setupBytes, voicePill, type VoicePill } from '../voice';
+import { revealChosen } from './CliPicker';
 import { JobProgress } from './VoiceInput';
 import { sectionId } from '../route';
 import { SectionTitle } from './SectionTitle';
@@ -19,6 +20,9 @@ export function VoiceCard() {
   const [busy, setBusy] = useState(false);
   const [bin, setBin] = useState('');
   useEffect(() => setBin(status?.bin ?? ''), [status?.bin]);
+  // The languages are one row that scrolls sideways where they do not fit: the chosen one is scrolled into view.
+  const languagesRow = useRef<HTMLDivElement>(null);
+  useEffect(() => revealChosen(languagesRow.current), [status?.language]);
 
   const act = async (fn: () => Promise<VoiceStatus>, ok?: string) => {
     setBusy(true);
@@ -151,7 +155,7 @@ export function VoiceCard() {
       <div className="voice-row">
         <span className="voice-label">{t.voice.language}</span>
         <div className="voice-value voice-language">
-          <div className="segmented" role="radiogroup" aria-label={t.voice.language}>
+          <div ref={languagesRow} className="segmented voice-languages" role="radiogroup" aria-label={t.voice.language}>
             {VOICE_LANGUAGES.map((l) => (
               <button
                 key={l}

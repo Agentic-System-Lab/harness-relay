@@ -81,6 +81,14 @@ export interface ApprovalRequest {
   noRule?: boolean;
   /** Allowing it writes nothing in the working directory (a call of Harness Relay's own tools): it takes no folder lock. */
   noLock?: boolean;
+  /**
+   * A network connection a command in the CLI's sandbox wants to open: only its host (`detail`) is known,
+   * not what the command sends or why (`reason` is Harness Relay's own words). "Approve for me" tells the
+   * lead agent so.
+   */
+  connection?: boolean;
+  /** More access for the rest of the turn (Codex's permissions request): "Approve for me" never grants it for the user. */
+  grant?: boolean;
 }
 
 export interface RunOptions {

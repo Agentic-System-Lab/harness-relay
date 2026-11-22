@@ -54,7 +54,7 @@
 - **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），你確認後才開始；團隊回答完，它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作，另一個對話正在修改同一個資料夾時開始的對話也在自己的 worktree 裡工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)、[兩個對話同一個資料夾](docs/user-guide.zh-TW.md#兩個對話同一個資料夾)）
-- **由你掌控**：每個對話有自己的權限（唯讀、可編輯、完全存取），超出範圍的動作在對話中請你核准；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
+- **由你掌控**：每個對話有自己的權限（唯讀、可編輯、替我核准、完全存取），超出範圍的動作在對話中請你核准（替我核准時，首席 agent 先放行它認為安全的，其餘才問你）；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
 - **團隊檢查**：在可編輯與完全存取的對話中，為整個團隊設定受保護路徑、commit 格式、`npm test` 這類指令，以及應用程式要能在預覽中開啟。Harness Relay 會自行檢查成果，可以把沒通過的自動交回團隊，也會在支援的工具呼叫前後執行 hook。（[團隊檢查](docs/user-guide.zh-TW.md#團隊檢查)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；任何一則回覆都能複製、編輯、重試或分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
 - **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；會送到別人那裡的東西在待送出匣等你送出。Microsoft 365、Outlook.com 與 Google 的行事曆與郵件在瀏覽器中登入（OAuth），權杖不會交給 agent。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
@@ -114,7 +114,7 @@ npm start
 
 agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只在你設定的範圍內做事：
 
-- **每個對話有自己的權限**：唯讀、可編輯或完全存取。完全存取讓 agent 不必詢問就能執行任何指令，只在你信任的目錄中使用；其他權限下，超出範圍的動作會在對話中詢問你。
+- **每個對話有自己的權限**：唯讀、可編輯、替我核准或完全存取。完全存取讓 agent 不必詢問就能執行任何指令，只在你信任的目錄中使用；其他權限下，超出範圍的動作會在對話中詢問你（替我核准時，先由首席 agent 審查：它認為安全的直接執行，推送與發佈一律不會）。
 - **完全存取以外的作業系統沙箱**：Claude Code、Codex、Grok、Copilot 與 Muse Code 用它們自己的，五個開源 agent 則在 [Harness Relay 自己的沙箱](docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)中執行。Cursor 與 Antigravity 沒有 Harness Relay 能用的沙箱，所以它們想執行的每個指令都會先問你（Cursor 在你的 Cursor 團隊自動執行允許清單上的除外）。各沙箱擋的東西不同，網路尤其如此（可編輯模式下，Grok 或 Copilot 執行的專案程式碼仍連得上網路），原生 Windows 上能用的沙箱也比較少，所以不信任的程式碼或指示請用唯讀。逐個平台的說明：[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md#各平台)；逐個 CLI 的說明：[架構 → 權限對應](docs/architecture.zh-TW.md#權限對應)。
 - **agent 碰不到的地方**：完全存取以外，碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；在含有 Harness Relay 本身、你的家目錄或某個 CLI 自己資料夾的目錄中，不能使用可編輯模式。（[agent 不能讀寫的地方](docs/sandboxing.zh-TW.md#agent-不能讀寫的地方)）
 - **只接受你的瀏覽器**：伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器。只透過 `tailscale serve` 分享到你的 tailnet。（[架構 → 安全性](docs/architecture.zh-TW.md#安全性)、[用手機連線 → 安全性](docs/remote-access.zh-TW.md#安全性)）

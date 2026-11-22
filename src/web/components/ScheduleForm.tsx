@@ -159,6 +159,8 @@ export function ScheduleForm({
           ))}
         </div>
         <span className="small muted">
+          {/* "Approve for me": what the lead agent approves goes ahead in these runs too; this decides the rest. */}
+          {permission !== 'full' && settings.approvals === 'auto' && `${t.schedule.approvalsTeamAuto} `}
           {permission === 'full'
             ? t.schedule.approvalsFull
             : settings.approvals === 'deny'

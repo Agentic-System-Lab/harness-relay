@@ -78,6 +78,7 @@ import {
   type VoiceModelId,
   type VoiceSettingsUpdate,
   type InboxReadRequest,
+  approvalsOf,
 } from '../shared/types';
 import { filePattern, mailFolder, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
@@ -681,16 +682,17 @@ export function validateSettings(
   const s = (input ?? {}) as Partial<ConversationSettings>;
   const given = typeof s.cwd === 'string' && s.cwd.trim() !== '';
   const dirs = validDirectories(given ? s.cwd : defaults.cwd, given ? s.extraCwds : defaults.extraCwds?.slice(), create);
+  const permission = PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : 'read-only';
   return {
     mode: MODES.includes(s.mode as Mode) ? (s.mode as Mode) : 'roundtable',
     rounds: clampInt(s.rounds, 1, 5, 1),
     maxHops: clampInt(s.maxHops, 1, 30, 8),
-    permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : 'read-only',
+    permission,
     ...dirs,
     ...(s.autoTeam === true ? { autoTeam: true } : {}),
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.leadReview === true ? { leadReview: true } : {}),
-    ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+    ...approvalsOf(s.approvals, permission),
     ...(s.steer === true ? { steer: true } : {}),
     ...(s.checks !== undefined && s.checks !== null ? { checks: validateChecks(s.checks) } : {}),
   };

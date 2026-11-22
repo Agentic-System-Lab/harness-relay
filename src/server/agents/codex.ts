@@ -969,7 +969,7 @@ export function codexApprovalRequest(
     case 'item/fileChange/requestApproval':
       return { kind: 'edit', detail: p.grantRoot ? String(p.grantRoot) : filePaths(String(p.itemId)), reason };
     case 'item/permissions/requestApproval':
-      return { kind: 'other', tool: 'permissions', detail: clip(JSON.stringify(p.permissions ?? {})), reason };
+      return { kind: 'other', tool: 'permissions', detail: clip(JSON.stringify(p.permissions ?? {})), reason, grant: true };
     case 'execCommandApproval':
       const command = Array.isArray(p.command) ? p.command.join(' ') : String(p.command ?? '');
       return { kind: 'command', detail: unwrapShell(command), command, reason };

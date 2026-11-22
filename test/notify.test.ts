@@ -210,6 +210,15 @@ describe('alertDetail', () => {
     };
     expect(alertDetail({ agents, messages: [approval] }, 'approval')).toEqual({ agent: 'Codex (old name)', text: 'npm install' });
     expect(alertDetail({ agents, messages: [approval] }, 'confirm')).toEqual({});
+    // "Approve for me": one the lead agent still reviews waits for nobody yet; the one it flagged does.
+    const reviewing: ChatMessage = {
+      ...approval,
+      parts: [
+        { type: 'approval', id: 'p2', kind: 'command', detail: 'git push', status: 'pending', review: { status: 'flagged' } },
+        { type: 'approval', id: 'p3', kind: 'command', detail: 'npm test', status: 'pending', review: { status: 'reviewing' } },
+      ],
+    };
+    expect(alertDetail({ agents, messages: [reviewing] }, 'approval')).toEqual({ agent: 'Codex (old name)', text: 'git push' });
     // What an agent asked to send waits in the outbox: the notification names it, by its card's title.
     const outbox: ChatMessage = {
       ...reply('a1', 'I wrote to Bob.'),

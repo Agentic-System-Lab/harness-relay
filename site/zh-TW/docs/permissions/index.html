@@ -19,7 +19,7 @@
     <meta property="og:title" content="權限與核准 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，並在保留之前檢視每則回覆的修改。"
+      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯、替我核准或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，並在保留之前檢視每則回覆的修改。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -234,7 +234,7 @@
       <nav class="doc-toc" aria-label="本頁內容">
         <p class="doc-toc-title">本頁內容</p>
         <ol>
-          <li><a href="#levels">三種權限</a></li>
+          <li><a href="#levels">權限層級</a></li>
           <li><a href="#beyond-the-permission">權限範圍以外的動作</a></li>
           <li><a href="#approvals">核准卡片</a></li>
           <li><a href="#sandboxes">沙箱做了什麼</a></li>
@@ -254,7 +254,7 @@
 
       <div class="doc-body">
         <section id="levels" aria-labelledby="levels-title">
-          <h2 id="levels-title">三種權限</h2>
+          <h2 id="levels-title">權限層級</h2>
           <p>
             每個對話有一個<b>檔案權限</b>，所有成員共用。在<b>新對話</b>頁選擇，之後也可以在<b>團隊設定</b>修改。
           </p>
@@ -273,6 +273,10 @@
               <tr>
                 <th scope="row"><span class="keep">可編輯</span></th>
                 <td>再加上修改工作目錄裡的檔案，以及執行測試、建置等專案指令。不包括推送與發佈。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">替我核准</span></th>
+                <td>「可編輯」能做的事。超出的動作會先交給首席 agent 審查：它認為安全的直接執行，只有可能不安全的才問你。推送與發佈一律問你。</td>
               </tr>
               <tr>
                 <th scope="row"><span class="keep">完全存取</span></th>
@@ -300,7 +304,7 @@
             <li><b>詢問我</b>（預設）：在對話中問你，agent 會等你回答。</li>
             <li><b>自動拒絕</b>：動作會直接被拒絕；agent 會被告知，並改用其他方式。</li>
           </ul>
-          <p>完全存取沒有權限範圍以外的事，所以不會顯示這個設定。</p>
+          <p>完全存取沒有權限範圍以外的事，所以不會顯示這個設定。選<b>替我核准</b>時也不會顯示：先由首席 agent 回答，其餘由你回答。</p>
         </section>
 
         <section id="approvals" aria-labelledby="approvals-title">
@@ -331,6 +335,9 @@
           </ul>
           <p>
             卡片等待時，輸入框上方會有一列提示指向它，側邊欄把對話標為<b>等你核准</b>，瀏覽器分頁標題也會顯示有幾個對話在等你。按<b>停止</b>會拒絕所有還在等待的請求。
+          </p>
+          <p>
+            選<b>替我核准</b>時，每張卡片會先交給首席 agent 審查，它把你在對話中寫的訊息當成你要的事；卡片顯示<b>首席 agent 審查中</b>，這時你也可以自己先回答。它核准的動作會直接執行，卡片顯示<b>首席 agent 已替你核准</b>與理由；它認為可能不安全或無法審查的，會附上原因等你決定。推送與發佈一律等你決定。每次審查會花幾秒鐘，用的是首席 agent 的模型。
           </p>
         </section>
 

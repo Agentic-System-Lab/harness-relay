@@ -46,6 +46,7 @@ export const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/serve
 export const { GROUPER_BRIEFING } = await import('../src/server/grouping');
 export const { REVIEWER_BRIEFING } = await import('../src/server/reviewer');
 export const { TIDY_BRIEFING } = await import('../src/server/memory');
+export const { APPROVAL_REVIEWER_BRIEFING } = await import('../src/server/approvalReview');
 export const { withLang } = await import('../src/server/i18n');
 export const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 export const { mediaRoots, resolveMedia } = await import('../src/server/media');
@@ -82,6 +83,8 @@ export interface Call {
   mcpServers?: string[];
   /** What was sent into its running turn (steering), and the turn took. */
   steered?: string[];
+  /** Its run was stopped (its signal aborted) before it ended. */
+  aborted?: boolean;
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -136,6 +139,12 @@ export interface Fake {
   tidyReply: string;
   /** When set, the fake lead agent waits for it before tidying (or until it is stopped). */
   tidyGate: Promise<void> | undefined;
+  /** What the fake lead agent replies when asked to review an approval request ("Approve for me"). */
+  approverReply: string;
+  /** When set, the fake lead agent waits for it before reviewing an approval request (or until it is stopped). */
+  approverGate: Promise<void> | undefined;
+  /** When set, the fake lead agent's CLI fails with this message when asked to review an approval request. */
+  approverFail: string | undefined;
   /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
   during: ((name: string, cwd: string) => void) | undefined;
   /** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
@@ -181,6 +190,9 @@ const fresh = (): Fake => ({
   reviewFail: undefined,
   tidyReply: '{"changes": []}',
   tidyGate: undefined,
+  approverReply: '{"decision": "approve", "reason": "Installing a dependency the task needs."}',
+  approverGate: undefined,
+  approverFail: undefined,
   during: undefined,
   asking: new Set(),
   fail: undefined,
@@ -225,6 +237,28 @@ beforeAll(() => {
         o.onEvent({ type: 'text', text: fake.sorterReply });
         o.onEvent({ type: 'text_end' });
         return { sessionId: 'sorter-session', ...('sorter' in fake.structured ? { structured: fake.structured.sorter } : {}) };
+      }
+      if (o.systemPrompt === APPROVAL_REVIEWER_BRIEFING) {
+        const call: Call = {
+          name: 'approver',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          stateKey: o.stateKey,
+          permission: o.permission,
+          model: o.model,
+          effort: o.effort,
+          ...(o.requestApproval ? { asksApproval: true } : {}),
+        };
+        calls.push(call);
+        o.signal?.addEventListener('abort', () => (call.aborted = true), { once: true });
+        if (fake.approverGate && !o.signal?.aborted) {
+          await Promise.race([fake.approverGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        if (fake.approverFail) throw new Error(fake.approverFail);
+        o.onEvent({ type: 'text', text: fake.approverReply });
+        o.onEvent({ type: 'text_end' });
+        return { sessionId: 'approver-session' };
       }
       if (o.systemPrompt === REVIEWER_BRIEFING) {
         calls.push({
