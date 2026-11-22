@@ -16,7 +16,7 @@ import type { SecretStore } from '../src/server/secrets';
 import { slow } from './timeouts';
 
 const work = realpathSync(mkdtempSync(join(tmpdir(), 'relay-publish-')));
-afterAll(() => rmSync(work, { recursive: true, force: true }));
+afterAll(() => rmSync(work, { recursive: true, force: true, maxRetries: 5 }));
 
 function keyring(): SecretStore & { values: Map<string, string> } {
   const values = new Map<string, string>();
@@ -224,7 +224,8 @@ function setup(o: CloudOptions & { signedOut?: boolean; taken?: string[]; docker
   const dir = join(work, `case-${++seq}`);
   const base = join(dir, 'github');
   mkdirSync(base, { recursive: true });
-  const db = openDatabase(join(dir, 'relay.db'));
+  // In memory: Windows cannot remove the test folder while a database file in it is still open.
+  const db = openDatabase(':memory:');
   const secrets = keyring();
   const store = new PublishStore(db, secrets);
   const c = cloud(o);
@@ -315,7 +316,7 @@ describe('Settings → Publish to the cloud', () => {
     expect(s.publisher.view().render.ownerId).toBeUndefined();
     s.publisher.updateRender({ ownerId: 'tea-2' });
     expect(s.publisher.view().render.ownerId).toBe('tea-2');
-    const none = new AppPublisher(new PublishStore(openDatabase(join(s.dir, 'none.db'))), { owner: 'x' });
+    const none = new AppPublisher(new PublishStore(openDatabase(':memory:')), { owner: 'x' });
     expect(none.view().storage).toBe(false);
     await expect(none.setRenderKey(RENDER_KEY)).rejects.toMatchObject({ status: 503 });
   });
