@@ -2691,7 +2691,7 @@ export const en: Messages = {
         points: [
           'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
           "In parallel mode, look at each member's worktree before you apply its result",
-          'Choose Preview app beside an HTML or package.json link to open it, or Preview this folder in Files. Relay offers to install Docker if the app needs it. You can add preview errors to your message.',
+          'Choose Preview app beside an HTML, package.json, Dockerfile or compose file link to open it, or Preview this folder in Files. With a Dockerfile any language runs, shown as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it. You can add preview errors to your message.',
           'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
         ],
       },

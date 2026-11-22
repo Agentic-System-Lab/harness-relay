@@ -6,7 +6,7 @@
     <title>Your conversations · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, share it, and get notified."
+      content="Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, try its apps, share it, and get notified."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Your conversations · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How to find, pin, group and search your Harness Relay conversations, branch one to try another way, browse and download the files the agents made, share a conversation as a link, and be told when the team is done or needs you."
+      content="How to find, pin, group and search your Harness Relay conversations, branch one to try another way, browse and download the files the agents made, try the app the team built in a preview panel, share a conversation as a link, and be told when the team is done or needs you."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/",
         "name": "Your conversations · Harness Relay docs",
-        "description": "Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, share it, and get notified.",
+        "description": "Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, try its apps, share it, and get notified.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -468,7 +468,7 @@
             </a>
             <figcaption>Try the page directly in the preview panel.</figcaption>
           </figure>
-          <p>Relay detects how to start the app. A static HTML page opens directly, including from a folder with <code>index.html</code>. For an npm project with a lockfile, Relay runs <code>npm start</code> if the project has a start script or a default <code>server.js</code>, or <code>npm run build</code> for a build-only frontend. A <code>Dockerfile</code> or <code>compose.yaml</code> runs in any language: the panel shows its build in a terminal, then the app’s page once it serves one; a program that runs in a terminal stays there, where you type into it, run it again with other arguments or open a shell. Only the build reaches the network. A folder with nothing to run offers <b>Ask the agent for a Dockerfile</b>. If Docker is missing from the computer running Relay, the panel offers <b>Install Docker</b> on supported systems. If Docker is installed and stopped, start the local Linux container engine. The preview continues when Docker is ready.</p>
+          <p>Relay detects how to start the app. A static HTML page opens directly, including from a folder with <code>index.html</code>. For an npm project with a lockfile, Relay runs <code>npm start</code> if the project has a start script or a default <code>server.js</code>, or <code>npm run build</code> for a build-only frontend. A <code>Dockerfile</code> or <code>compose.yaml</code> runs in any language: the panel shows its build in a terminal, then the app’s page once it serves one; a program that runs in a terminal stays there, where you type into it, run it again with other arguments or open a shell. Only the build reaches the network. A folder with nothing to run offers <b>Ask the agent for a Dockerfile</b>. These previews need Docker Compose v2, which Docker Desktop and OrbStack include. If Docker is missing from the computer running Relay, the panel offers <b>Install Docker</b> on supported systems. If Docker is installed and stopped, start the local Linux container engine. The preview continues when Docker is ready.</p>
           <figure class="doc-figure">
             <a href="../../assets/media/docs/app-preview-docker-setup-en.webp">
               <img src="../../assets/media/docs/app-preview-docker-setup-en.webp" width="460" height="191" alt="The Set up Docker dialog with Install Docker, Check again and Cancel." loading="lazy" />

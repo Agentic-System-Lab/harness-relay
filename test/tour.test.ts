@@ -129,6 +129,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: '07138fb79980' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 39, fingerprint: '79fd23daac1a' });
   });
 });
