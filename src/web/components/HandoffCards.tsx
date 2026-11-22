@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { hostOf } from '../handover';
 import { HandoverPanel } from './HandoverCard';
 import {
@@ -76,8 +76,18 @@ export function SecretsCard({
   useEffect(() => {
     if (!waiting.length) setBrowser(undefined);
   }, [waiting.length]);
-  const openBrowser = (name: string) =>
-    void call(async () => setBrowser((await api.openSecretsBrowser(convId, messageId, part.id, name)).handoverId));
+  /** An ask's address on this computer or the local network, shown whole, which the user confirms before it opens. */
+  const [nearby, setNearby] = useState<{ name: string; message: string } | undefined>();
+  const openBrowser = (name: string, confirm = false) =>
+    void call(async () => {
+      try {
+        setBrowser((await api.openSecretsBrowser(convId, messageId, part.id, name, confirm)).handoverId);
+        setNearby(undefined);
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 'nearby') return setNearby({ name, message: e.message });
+        throw e;
+      }
+    });
   const answer = async (decline: boolean) => {
     const done = await call(() => api.answerSecrets(convId, messageId, part.id, decline ? { decline: true } : { values: filled }));
     // The values leave the page once sent.
@@ -103,12 +113,34 @@ export function SecretsCard({
                 {a.label && <span> · {a.label}</span>}
               </label>
               {a.reason && <p className="small">{a.reason}</p>}
+              {/* The whole address the agent named, which the user can also open in their own browser. */}
+              {a.url && a.status === 'waiting' && (
+                <p className="small handoff-where">
+                  <span className="muted">{alone.where}</span>{' '}
+                  <a href={a.url} target="_blank" rel="noopener noreferrer">
+                    {a.url}
+                  </a>
+                </p>
+              )}
               {a.status === 'waiting' ? (
                 <>
                   {a.had && <p className="muted small">{c.had}</p>}
                   <button type="button" className="ghost small-button handoff-browser" disabled={busy} onClick={() => openBrowser(a.name)}>
                     {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
                   </button>
+                  {nearby?.name === a.name && (
+                    <div className="handoff-nearby" role="alert">
+                      <p className="warn-line small">{nearby.message}</p>
+                      <div className="approval-actions">
+                        <button type="button" className="primary small-button" disabled={busy} onClick={() => openBrowser(a.name, true)}>
+                          {alone.openAnyway}
+                        </button>
+                        <button type="button" className="ghost small-button" onClick={() => setNearby(undefined)}>
+                          {t.common.cancel}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="input-row">
                     <input
                       id={id}

@@ -154,7 +154,12 @@ test.describe('taking over the browser', () => {
       await send(page, `Set up posting e2e:secret e2e:secreturl=${url}`);
       const card = page.getByRole('region', { name: 'Secrets @Claude asks for' });
       await expect(card).toContainText('A browser for you alone');
+      // The whole address, which the user may open in their own browser instead.
+      await expect(card.getByRole('link', { name: url })).toHaveAttribute('href', url);
       await card.getByRole('button', { name: `Open ${new URL(url).host} in a browser for you alone` }).click();
+      // It is on this computer: said whole, and opened only once the user confirms it.
+      await expect(card.getByRole('alert')).toContainText(`${url} is on this computer or your local network`);
+      await card.getByRole('button', { name: 'Open it all the same' }).click();
 
       const panel = page.getByRole('dialog', { name: 'A browser for you alone' });
       await expect(panel).toBeVisible();
@@ -208,7 +213,7 @@ test.describe('taking over the browser', () => {
         const button = await onPage(page, 0.5, 0.75);
         await page.touchscreen.tap(button.x, button.y);
         await expect.poll(() => site.posted).toEqual(['手機']);
-        await panel.getByRole('button', { name: '完成，交回給助理' }).click();
+        await panel.getByRole('button', { name: '完成，交回給 agent' }).click();
         const reply = await finishedReply(page, 'Claude', 60_000);
         await expect(reply).toContainText('The user took over the browser and handed it back.');
         await expect(reply.locator('.handover-done')).toContainText('已交回（在聊天中）');

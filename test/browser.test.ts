@@ -443,6 +443,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<a href="http://localhost:${port}/next" style="position:fixed;left:0;top:30%;width:100%;height:20%;display:block;font-size:30px">Elsewhere</a>` +
             `<input readonly value="ro-field-5678" style="position:fixed;left:0;top:60%;width:100%;height:40%;font-size:30px">`,
         );
+      if (url.pathname === '/perms')
+        // What the page may have of the site permissions: each one's state, in its title.
+        return res.end(
+          `<title>Perms</title><script>Promise.all(['geolocation','notifications','camera','microphone','clipboard-read'].map((n) => navigator.permissions.query({ name: n }).then((r) => n + '=' + r.state, () => n + '=?'))).then((r) => (document.title = r.join(' ')))</script>`,
+        );
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
       if (url.pathname === '/search')
@@ -924,7 +929,16 @@ describe.skipIf(!chromium)('the browser itself', () => {
     'opens a browser for the user alone: its own throwaway profile, nobody asked about its hosts but one here it was not given, and the selection read in the server',
     async () => {
       const ended: string[] = [];
-      const id = await browser.openForUser('conv-alone', { url: `http://127.0.0.1:${port}/token`, onEnd: () => ended.push('ended') });
+      // The card's address leads to this computer: refused until the user confirmed it, having seen it whole.
+      await expect(browser.openForUser('conv-alone', { url: `http://127.0.0.1:${port}/token` })).rejects.toMatchObject({
+        why: 'nearby',
+        message: `http://127.0.0.1:${port}/token`,
+      });
+      const id = await browser.openForUser('conv-alone', {
+        url: `http://127.0.0.1:${port}/token`,
+        nearbyConfirmed: true,
+        onEnd: () => ended.push('ended'),
+      });
       const profile = join(root, 'data', 'browser', 'user', id);
       expect(existsSync(profile)).toBe(true);
       expect(browser.userBrowserOpen('conv-alone', id)).toBe(true);
@@ -965,9 +979,13 @@ describe.skipIf(!chromium)('the browser itself', () => {
       ]);
       await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/next`), { timeout: slow(10_000) });
       expect(asked0()).toBe(asked);
+      // Offered by the page (its window's address, "Open it here"): not opened either.
+      notices.length = 0;
+      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]);
+      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/next`), { timeout: slow(10_000) });
       // Typed in its address bar: opened.
       hits.length = 0;
-      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]);
+      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
       await vi.waitFor(() => expect(hits).toContain('/next'), { timeout: slow(10_000) });
       expect(asked0()).toBe(asked);
 
@@ -978,6 +996,177 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await expect(browser.selectionOf('conv-alone', id)).rejects.toThrow('it closed');
     },
     slow(60_000),
+  );
+
+  it(
+    'denies every site the location, notifications, the camera, the microphone and reading the clipboard',
+    async () => {
+      const own = ctx({ convId: 'conv-perms', permission: 'full' });
+      await browser.open(own, `http://127.0.0.1:${port}/perms`);
+      await vi.waitFor(async () =>
+        expect((await browser.snapshot(own)).title).toBe(
+          'geolocation=denied notifications=denied camera=denied microphone=denied clipboard-read=denied',
+        ),
+      );
+      await browser.close('conv-perms', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'keeps to its limit of browsers for the user alone when two open at once',
+    async () => {
+      const few = new BrowserService({
+        dataDir: join(root, 'data'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        userBrowsersMax: 1,
+      });
+      try {
+        const both = await Promise.allSettled([few.openForUser('conv-few-1'), few.openForUser('conv-few-2')]);
+        expect(both.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+        expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { why: 'busy' } });
+        const opened = both.find((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')!.value;
+        await few.closeForUser(few.userBrowserOpen('conv-few-1', opened) ? 'conv-few-1' : 'conv-few-2', opened);
+        // Its place is free again.
+        const again = await few.openForUser('conv-few-3');
+        await few.closeForUser('conv-few-3', again);
+      } finally {
+        few.closeAll();
+      }
+    },
+    slow(60_000),
+  );
+
+  it(
+    "ends a hand-over its caller stopped waiting for (the CLI's own time limit), or whose screencast will not start, and says so on its card",
+    async () => {
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      let gone = false;
+      const handing = browser.handOver(
+        ctx({ convId: 'conv-gone', permission: 'full', handoverCard: card as never }),
+        'Sign in',
+        undefined,
+        () => gone,
+      );
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+      gone = true;
+      expect(await handing).toEqual({ text: "The agent's CLI stopped waiting for this call, so the hand-over ended.", isError: true });
+      expect(cards[0]).toMatchObject({ status: 'expired', ended: 'gone' });
+
+      // A screencast that will not start: the card says the browser could not be shown, never "in your hands".
+      const broken = browser as unknown as { screencast: (...a: unknown[]) => Promise<unknown> };
+      const screencast = broken.screencast;
+      broken.screencast = async () => {
+        throw new Error('Page.startScreencast: not available');
+      };
+      try {
+        const failing = browser.handOver(ctx({ convId: 'conv-gone', permission: 'full', handoverCard: card as never }), 'Sign in');
+        await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(20_000) });
+        browser.handovers.answer('conv-gone', String(cards[1]!.id), { action: 'start', mode: 'screencast' });
+        expect(await failing).toMatchObject({
+          isError: true,
+          text: expect.stringMatching(/could not be shown to the user: Page.startScreencast/),
+        });
+        expect(cards[1]).toMatchObject({ status: 'expired', ended: 'failed' });
+      } finally {
+        broken.screencast = screencast;
+      }
+      await browser.close('conv-gone', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "keeps a hand-over's window to one tab and the web (headless here, with the window's rules), and opens its page again after it",
+    async () => {
+      const win = new BrowserService({
+        dataDir: join(root, 'data'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        windowAt: () => 'server',
+        windowHeadless: true,
+      });
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      const own = ctx({ convId: 'conv-window', permission: 'full', handoverCard: card as never });
+      type Session = {
+        windowed: boolean;
+        targetId: string;
+        cdp: { send: <T>(m: string, p?: Record<string, unknown>) => Promise<T> };
+        send: <T>(m: string, p?: Record<string, unknown>) => Promise<T>;
+      };
+      const windowSession = async () => {
+        let w: Session | undefined;
+        await vi.waitFor(
+          async () => {
+            w = (await (win as unknown as { sessions: Map<string, Promise<Session>> }).sessions.get('conv-window')) ?? undefined;
+            expect(w?.windowed).toBe(true);
+          },
+          { timeout: slow(20_000) },
+        );
+        return w!;
+      };
+      const here = async (w: Session) => {
+        const h = await w.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory');
+        return h.entries[h.currentIndex]!.url;
+      };
+      try {
+        const handing = win.handOver(own, 'Sign in', `http://127.0.0.1:${port}/handover`);
+        await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+        expect(cards[0]).toMatchObject({ modes: ['window', 'screencast'], windowAt: 'server' });
+        expect(win.handovers.answer('conv-window', String(cards[0]!.id), { action: 'start', mode: 'window' })).toBeUndefined();
+        const w = await windowSession();
+        await vi.waitFor(async () => expect(await here(w)).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(20_000) });
+        // A tab the user opens (Chromium's new tab page, another window): closed at once.
+        const tab = await w.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'chrome://newtab/' });
+        const page = async () =>
+          (await w.cdp.send<{ targetInfos: { targetId: string; type: string }[] }>('Target.getTargets')).targetInfos
+            .filter((t) => t.type === 'page')
+            .map((t) => t.targetId);
+        await vi.waitFor(async () => expect(await page()).toEqual([w.targetId]), { timeout: slow(10_000) });
+        expect(tab.targetId).not.toBe(w.targetId);
+        // Chromium's own page in its tab (its settings, its flags): back to the web page before it.
+        await w.send('Page.navigate', { url: 'chrome://settings/' }).catch(() => undefined);
+        await vi.waitFor(async () => expect(await here(w)).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(10_000) });
+        expect(win.handovers.answer('conv-window', String(cards[0]!.id), { action: 'done' })).toBeUndefined();
+        expect((await handing).text).toMatch(/The browser opened again without a window, at the page the user ended on/);
+        expect((await win.snapshot(own)).title).toBe('Hand over');
+
+        // A window gone at once (no display it could open on, say): not handed back.
+        const quick = win.handOver(own, 'Again');
+        await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[1]!.id), { action: 'start', mode: 'window' });
+        const w2 = await windowSession();
+        await w2.cdp.send('Target.closeTarget', { targetId: w2.targetId });
+        expect(await quick).toMatchObject({ isError: true, text: expect.stringMatching(/could not be shown/) });
+        expect(cards[1]).toMatchObject({ status: 'expired', ended: 'failed' });
+
+        // The turn ends while the user has the window: the next call opens again the page it was on.
+        const turn = new AbortController();
+        const cut = win.handOver({ ...own, signal: turn.signal }, 'Once more', `http://127.0.0.1:${port}/next`);
+        await vi.waitFor(() => expect(cards[2]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[2]!.id), { action: 'start', mode: 'window' });
+        const w3 = await windowSession();
+        await vi.waitFor(async () => expect(await here(w3)).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(20_000) });
+        turn.abort();
+        await expect(cut).rejects.toThrow('The turn ended');
+        const after = await win.snapshot(ctx({ convId: 'conv-window', permission: 'full' }));
+        expect(after.url).toBe(`http://127.0.0.1:${port}/next`);
+      } finally {
+        win.closeAll();
+      }
+    },
+    slow(120_000),
   );
 
   it(

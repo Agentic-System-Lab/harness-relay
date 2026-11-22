@@ -24,6 +24,7 @@ const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { removeTree } = await import('../src/server/fsRemove');
+const { UserBrowserError } = await import('../src/server/browser/handover');
 
 afterAll(() => removeTree(root, { restore: true }));
 
@@ -182,13 +183,26 @@ describe('secrets and fixed commands API', () => {
     const opened: string[] = [];
     orchestrator.userBrowsers = {
       openForUser: async (convId) => (opened.push(convId), 'ub-1'),
+      navigateForUser: async () => undefined,
       userBrowserOpen: (_c, id) => id === 'ub-1',
       selectionOf: async () => ' tok-selected-on-page ',
       closeForUser: async () => undefined,
     };
     const path = `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`;
     expect((await send('POST', `${path}/browser`, { name: 5 })).status).toBe(400);
-    const res = await send('POST', `${path}/browser`, { name: 'TOKEN' });
+    // An address on this computer or the local network: refused until confirmed, with a code the card tells apart.
+    const stub = orchestrator.userBrowsers!;
+    orchestrator.userBrowsers = {
+      ...stub,
+      openForUser: async (convId, o = {}) => {
+        if (!o.nearbyConfirmed) throw new UserBrowserError('nearby', 'http://127.0.0.1:3000/token');
+        return stub.openForUser(convId, o);
+      },
+    };
+    const refused = await send('POST', `${path}/browser`, { name: 'TOKEN' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: 'nearby', error: expect.stringContaining('http://127.0.0.1:3000/token') });
+    const res = await send('POST', `${path}/browser`, { name: 'TOKEN', confirm: true });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ handoverId: 'ub-1' });
     expect(opened).toEqual([conv.id]);

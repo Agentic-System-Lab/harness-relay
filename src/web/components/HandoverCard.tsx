@@ -17,7 +17,18 @@ import {
 } from '../../shared/types';
 import { api } from '../api';
 import { sseMessages } from '../appPreview';
-import { framePoint, isTap, keyInput, mergeInputs, minutesLeft, modifiersOf, preferredMode, screenEvent, viewportOf } from '../handover';
+import {
+  addressOf,
+  framePoint,
+  isTap,
+  keyInput,
+  mergeInputs,
+  minutesLeft,
+  modifiersOf,
+  preferredMode,
+  screenEvent,
+  viewportOf,
+} from '../handover';
 import { useT } from '../i18n';
 import { isAppWindow } from '../update';
 import { useDialog } from './useDialog';
@@ -104,7 +115,9 @@ export function HandoverCard({
               ? h.outcome.timeout
               : part.ended === 'failed'
                 ? h.outcome.failed
-                : h.outcome.turn;
+                : part.ended === 'gone'
+                  ? h.outcome.gone(agentName)
+                  : h.outcome.turn;
     const mark = status === 'done' ? '✓' : status === 'declined' || status === 'cancelled' ? '✗' : '–';
     return (
       <div className={`approval-done handover-done ${status === 'done' ? 'allowed' : status === 'expired' ? 'expired' : 'denied'}`}>
@@ -276,6 +289,8 @@ export function HandoverPanel({
   const [editing, setEditing] = useState(false);
   const [nav, setNav] = useState({ back: false, forward: false });
   const [notice, setNotice] = useState<{ kind: 'popup' | 'refused'; url?: string } | undefined>();
+  /** Why the server did not take what the user did last (an address it refuses, say). */
+  const [inputError, setInputError] = useState('');
   useDialog(dialog, onHide);
 
   // The input waiting to go: one request at a time, in order, the moves merged.
@@ -288,8 +303,14 @@ export function HandoverPanel({
     sending.current = (async () => {
       try {
         while (queue.current.length) {
-          const batch = mergeInputs(queue.current.splice(0)).slice(0, HANDOVER_LIMITS.eventsMax);
-          await api.handoverInput(convId, handoverId, batch).catch(() => undefined);
+          // At most a batch at a time: the rest waits its turn, in order.
+          const merged = mergeInputs(queue.current.splice(0));
+          queue.current.unshift(...merged.slice(HANDOVER_LIMITS.eventsMax));
+          const batch = merged.slice(0, HANDOVER_LIMITS.eventsMax);
+          await api.handoverInput(convId, handoverId, batch).then(
+            () => setInputError(''),
+            (err: Error) => setInputError(err.message),
+          );
         }
       } finally {
         sending.current = undefined;
@@ -386,10 +407,10 @@ export function HandoverPanel({
   }, []);
 
   /** Where a point of the screen lands on the page, as fractions of the frame. */
-  const point = (x: number, y: number) => {
+  const point = (x: number, y: number, clamp = false) => {
     const img = image.current;
     if (!img || !frame.current.width) return undefined;
-    return framePoint(x, y, img.getBoundingClientRect(), frame.current);
+    return framePoint(x, y, img.getBoundingClientRect(), frame.current, clamp);
   };
 
   // A mouse's presses, moves and lets go; a touch's tap (a click) and drag (a scroll).
@@ -433,7 +454,8 @@ export function HandoverPanel({
     send({ type: 'mouse', action: 'move', ...at, button: held, modifiers: modifiersOf(e) });
   };
   const onPointerUp = (e: ReactPointerEvent) => {
-    const at = point(e.clientX, e.clientY);
+    // Let go of past the frame's edge: let go of at the edge, or the page would keep the button down.
+    const at = point(e.clientX, e.clientY, true);
     if (e.pointerType === 'touch' && !selecting) {
       const tc = touch.current;
       touch.current = undefined;
@@ -468,10 +490,9 @@ export function HandoverPanel({
 
   const go = (e: FormEvent) => {
     e.preventDefault();
-    let url = address.trim();
+    const url = addressOf(address);
     if (!url) return;
-    if (!/^[a-z][a-z\d+.-]*:/i.test(url)) url = `https://${url}`;
-    send({ type: 'navigate', url });
+    send({ type: 'navigate', url, typed: true });
     setEditing(false);
     typing.current?.focus({ preventScroll: true });
   };
@@ -555,6 +576,11 @@ export function HandoverPanel({
             ))}
           </div>
         )}
+        {inputError && (
+          <p className="error-line small" role="alert">
+            {inputError}
+          </p>
+        )}
         {notice && (
           <p className="handover-notice small" role="status">
             {notice.kind === 'popup' ? p.popup(notice.url ?? '') : p.refused(notice.url ?? '')}
@@ -583,7 +609,14 @@ export function HandoverPanel({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => (touch.current = undefined)}
+          onPointerCancel={(e) => {
+            touch.current = undefined;
+            // A mouse whose press the system took away: let go of on the page too.
+            if (e.pointerType !== 'touch' || selecting) {
+              const at = point(e.clientX, e.clientY, true);
+              if (at) send({ type: 'mouse', action: 'up', ...at, button: BUTTON[e.button] ?? 'left', clicks: 1 });
+            }
+          }}
           onContextMenu={(e) => e.preventDefault()}
         >
           <img ref={image} alt={p.screen} draggable={false} />

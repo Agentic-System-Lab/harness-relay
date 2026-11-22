@@ -29,15 +29,26 @@ export interface Box {
  * its shape (`object-fit: contain`), so the bars beside or above it are no part of the page (undefined
  * there).
  */
-export function framePoint(x: number, y: number, box: Box, frame: { width: number; height: number }): { x: number; y: number } | undefined {
+export function framePoint(
+  x: number,
+  y: number,
+  box: Box,
+  frame: { width: number; height: number },
+  /** Outside the frame, its nearest edge instead of nothing (a button let go of past it must still be let go of). */
+  clamp = false,
+): { x: number; y: number } | undefined {
   if (box.width <= 0 || box.height <= 0 || frame.width <= 0 || frame.height <= 0) return undefined;
   const scale = Math.min(box.width / frame.width, box.height / frame.height);
   const w = frame.width * scale;
   const h = frame.height * scale;
   const left = box.left + (box.width - w) / 2;
   const top = box.top + (box.height - h) / 2;
-  const fx = (x - left) / w;
-  const fy = (y - top) / h;
+  let fx = (x - left) / w;
+  let fy = (y - top) / h;
+  if (clamp) {
+    fx = Math.min(1, Math.max(0, fx));
+    fy = Math.min(1, Math.max(0, fy));
+  }
   if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return undefined;
   return { x: Math.round(fx * 10_000) / 10_000, y: Math.round(fy * 10_000) / 10_000 };
 }
@@ -147,6 +158,27 @@ export function screenEvent(data: string): HandoverScreenEvent | undefined {
     /* not one */
   }
   return undefined;
+}
+
+/**
+ * What the panel's address bar opens: the address as typed when it begins with a scheme and `//`
+ * (`https://…`, and `file://`, which the server refuses with why); else with `http://` for this computer or
+ * a local name or address (`localhost:3000`, `192.168.1.5`, `printer.local`), `https://` for the rest.
+ */
+export function addressOf(text: string): string | undefined {
+  const t = text.trim();
+  if (!t) return undefined;
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(t)) return t;
+  const host = t.split(/[/?#]/)[0]!.replace(/:\d+$/, '').toLowerCase();
+  const local =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    /^\[?[0-9a-f:]*:[0-9a-f:]*\]?$/.test(host) ||
+    /^(127|10)\.\d+\.\d+\.\d+$/.test(host) ||
+    /^192\.168\.\d+\.\d+$/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host);
+  return `${local ? 'http' : 'https'}://${t}`;
 }
 
 /** A page's host, as a button names it (the address itself when it has none). */

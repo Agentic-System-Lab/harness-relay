@@ -7631,6 +7631,18 @@ summary + .checks-editor-body {
   color: var(--ok);
 }
 
+.handoff-where {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.handoff-nearby {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+}
+
 .handoff-browser {
   align-self: flex-start;
   margin: 4px 0;

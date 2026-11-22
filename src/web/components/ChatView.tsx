@@ -713,9 +713,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     m.status === 'streaming'
       ? m.parts.flatMap((p) =>
           p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing'
-            ? [{ anchor: `approval-${p.id}`, agent: m.agentName ?? 'agent' }]
+            ? [{ anchor: `approval-${p.id}`, agent: m.agentName ?? 'agent', handover: false }]
             : p.type === 'handover' && p.status === 'pending'
-              ? [{ anchor: `handover-${p.id}`, agent: m.agentName ?? 'agent' }]
+              ? [{ anchor: `handover-${p.id}`, agent: m.agentName ?? 'agent', handover: true }]
               : [],
         )
       : [],
@@ -760,7 +760,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const fallback = lastDesignOrQuestion?.plan;
   let fallbackStatus: string | undefined;
   if (fallback?.status === 'ready' && fallback.source === 'fallback' && !fallback.awaitingConfirmation && !fallback.declinedAt) {
-    if (pending.length) fallbackStatus = t.sidebar.waiting;
+    if (pending.length) fallbackStatus = pending.every((p) => p.handover) ? t.browserHandover.banner : t.sidebar.waiting;
     else if (questions.length) fallbackStatus = t.chat.asking(askers);
     else if (reviewing) fallbackStatus = t.review.reviewing(leadText);
     else if (running) fallbackStatus = t.plan.teamWorking;
@@ -1073,7 +1073,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               document.getElementById(pending[0]!.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
           >
-            ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}
+            ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} ·{' '}
+            {pending.every((p) => p.handover) ? t.browserHandover.banner : t.approval.waiting}
           </button>
         )}
         {questions.length > 0 && pending.length === 0 && (

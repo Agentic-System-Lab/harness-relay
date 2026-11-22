@@ -99,9 +99,10 @@ export interface GatewayTool {
   prepare?(args: Record<string, unknown>, ctx: GatewayContext): PreparedOutboxCall | Promise<PreparedOutboxCall>;
   /**
    * `read` and `act`: what the call does now. A `scoped` tool is given `scope`: the turn's other tools,
-   * which it may call as the turn would.
+   * which it may call as the turn would. `gone`: whether the CLI stopped waiting for the call (its
+   * connection closed, or it cancelled the call: its own time limit), for a call that waits for the user.
    */
-  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope): Promise<GatewayResult>;
+  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope, gone?: () => boolean): Promise<GatewayResult>;
   /**
    * It calls the turn's other tools (`run_code`, `runCode.ts`), through the `GatewayScope` its `run` is
    * given. Never one of the tools in a scope, so it cannot call itself or another such tool.
@@ -202,6 +203,11 @@ interface Grant {
   shimFile?: string;
   /** A connection showed its token already (`claimOnce`): no other may. */
   claimed?: boolean;
+  /**
+   * Over HTTP: the JSON-RPC ids of the calls the CLI gave up (MCP's `notifications/cancelled`), so that a
+   * call still waiting for the user (a hand-over of the browser) ends with it.
+   */
+  cancelled?: Set<string>;
 }
 
 /** What a CLI's hook program prints, and the code it exits with (`hookShim.ts`). */
@@ -654,6 +660,8 @@ export class ToolGateway {
     let hookAsked = false;
     let authed = false;
     let taken = false;
+    /** The calls the CLI gave up, as the program passes MCP's `notifications/cancelled` on (`cancel`). */
+    const cancelled = new Set<number>();
     const reply = (msg: unknown) => {
       if (!sock.destroyed) sock.write(JSON.stringify(msg) + '\n');
     };
@@ -719,6 +727,12 @@ export class ToolGateway {
           }
           continue;
         }
+        // The CLI gave up a call (its own time limit): a call still waiting for the user ends.
+        const cancel = msg as { method?: unknown; target?: unknown };
+        if (grant && cancel?.method === 'cancel' && typeof cancel.target === 'number') {
+          if (cancelled.size < 1000) cancelled.add(cancel.target);
+          continue;
+        }
         const req = msg as Request;
         if (typeof req?.id !== 'number') continue;
         if (askToken) {
@@ -771,7 +785,7 @@ export class ToolGateway {
           });
           return void sock.end();
         }
-        void this.handle(live, req, () => sock.destroyed).then(
+        void this.handle(live, req, () => sock.destroyed || cancelled.has(req.id)).then(
           (result) => reply({ id: req.id, result }),
           (err: Error) => reply({ id: req.id, error: err.message }),
         );
@@ -919,6 +933,12 @@ export class ToolGateway {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
       return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
     const { id, method, params } = raw as { id?: unknown; method?: unknown; params?: Record<string, unknown> };
+    // The client gave up a call (its own time limit): a call still waiting for the user ends with it.
+    if (method === 'notifications/cancelled' && params && (typeof params.requestId === 'string' || typeof params.requestId === 'number')) {
+      grant.cancelled ??= new Set();
+      if (grant.cancelled.size < 1000) grant.cancelled.add(JSON.stringify(params.requestId));
+      return undefined;
+    }
     // A notification, or the client's answer to something: nothing to say.
     if (id === undefined || id === null || typeof method !== 'string') return undefined;
     const ok = (result: unknown) => ({ jsonrpc: '2.0', id, result });
@@ -940,7 +960,9 @@ export class ToolGateway {
       if (method === 'tools/list') return ok(await this.handle(grant, { id: 0, method: 'list' }));
       if (method === 'tools/call') {
         const args = params?.arguments;
-        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }, gone));
+        const key = JSON.stringify(id);
+        const callGone = () => Boolean(gone?.()) || Boolean(grant.cancelled?.has(key));
+        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }, callGone));
       }
     } catch (err) {
       return ok({ content: [{ type: 'text', text: (err as Error).message }], isError: true });
@@ -1019,7 +1041,7 @@ export class ToolGateway {
     }
     if (ctx.signal.aborted) return { text: 'The turn ended.', isError: true };
     try {
-      return await tool.run!(args, ctx, o.scope);
+      return await tool.run!(args, ctx, o.scope, gone);
     } catch (err) {
       return { text: `${tool.name} failed: ${(err as Error).message}`, isError: true };
     }
