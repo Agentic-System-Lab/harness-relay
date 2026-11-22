@@ -1285,6 +1285,20 @@ export const en: Messages = {
       asking: 'The page asks to open a site it has not opened yet. Decide first:',
       clipboard: 'The clipboard does not cross over: you can paste text into the page, but not copy from it.',
     },
+    alone: {
+      open: 'Open a browser for you alone',
+      openAt: (host) => `Open ${host} in a browser for you alone`,
+      show: 'Show your browser',
+      hint: "A browser for you alone is Harness Relay's own browser, which no agent drives or reads, deleted with all it holds when you close it. Select the value on the page (or tap the field that holds it) and choose Save selection as…: the value goes straight to this card, never through the chat. On the computer Harness Relay runs on, you can also open the page in your own browser and paste the value here.",
+      title: 'A browser for you alone',
+      line: 'No agent drives or reads this browser, and it is deleted when you close it. Select the value on the page, then save it.',
+      close: 'Close the browser',
+      saveAs: (name) => `Save selection as ${name}`,
+      saved: (name) => `Saved as ${name}`,
+      select: 'Drag to select',
+      selectHint: 'On a touch screen, a drag selects text instead of scrolling',
+      fromPage: 'Saved from the page',
+    },
   },
 
   plan: {

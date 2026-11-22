@@ -2583,6 +2583,23 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // A secrets card's browser for the user alone (for a page that shows a secret): opened at the address the
+  // ask `name` named, or blank; the same one while it is open. Shown through the hand-over routes above.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/browser', async (c) => {
+    const b = await body<{ name?: unknown }>(c);
+    if (b.name !== undefined && typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    return c.json(await orchestrator.openSecretsBrowser(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.name));
+  });
+
+  // Save selection as a secret: what the user selected on that browser's page, read and kept by the
+  // server for the card's folder under `name`; nothing of the value is in the answer.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/selection', async (c) => {
+    const b = await body<{ handoverId?: unknown; name?: unknown }>(c);
+    if (typeof b.handoverId !== 'string' || typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    await orchestrator.saveSecretFromPage(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.handoverId, b.name);
+    return c.json({ ok: true });
+  });
+
   // A proposed fixed command's card: save it (with the user's edits) or not, or tell the team about it.
   app.post('/api/conversations/:id/messages/:messageId/commands/:partId', async (c) => {
     const b = await body<{ action?: unknown; edits?: unknown }>(c);

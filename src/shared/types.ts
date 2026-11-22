@@ -2519,6 +2519,13 @@ export interface SecretAsk {
   status: 'waiting' | 'saved' | 'declined';
   /** The folder had a value for this name already when it was asked: saving replaces it. */
   had?: boolean;
+  /**
+   * The page where the user gets it (a token generator), which the agent named (`url` on the block):
+   * the card offers to open it in a browser for the user alone (`src/server/browser/handover.ts`).
+   */
+  url?: string;
+  /** It was saved from that browser's page (Save selection), not typed on the card. */
+  from?: 'page';
 }
 
 /** What a `<command>` block proposes: a command line for the working directory, the hosts it reaches and the secrets it gets. */
@@ -2577,6 +2584,8 @@ export const HANDOFF_LIMITS = {
   label: 80,
   reason: 500,
   secretValue: 16 * 1024,
+  /** Characters of the address a `<secret>` block names, for a browser for the user alone. */
+  secretUrl: 2000,
   /** Fixed commands a working directory may keep, and a reply may propose. */
   commandsPerFolder: 20,
   commandsPerReply: 3,

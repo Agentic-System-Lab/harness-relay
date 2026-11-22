@@ -15,8 +15,19 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-handover-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const { Handovers, HANDOVER_UNASKED, cardUrl, checkInputs, handoverOutcome, handoverWindowAt, inputCalls, keyCodeOf } =
-  await import('../src/server/browser/handover');
+const {
+  Handovers,
+  HANDOVER_UNASKED,
+  SELECTION_SCRIPT,
+  USER_BROWSERS_MAX,
+  cardUrl,
+  checkInputs,
+  handoverOutcome,
+  handoverWindowAt,
+  inputCalls,
+  keyCodeOf,
+  ownerAllows,
+} = await import('../src/server/browser/handover');
 const { BrowserService, cookieParams, launchArgs, launchEnv, profilePrefs } = await import('../src/server/browser/session');
 const { browserTools } = await import('../src/server/browser/tools');
 const { ToolGateway } = await import('../src/server/gateway');
@@ -319,6 +330,21 @@ describe("a hand-over's ticket", () => {
     expect(seen.map((e) => (e.type === 'frame' ? `frame ${e.data}` : e.type))).toEqual(['location', 'frame new', 'notice', 'ended']);
     expect(inputs).toEqual([[{ type: 'text', text: 'a' }]]);
     expect(await all.input('c1', t.id, [{ type: 'text', text: 'a' }])).toBe('missing');
+  });
+});
+
+describe('a browser for the user alone', () => {
+  it("asks nobody about a host: one on the internet opens, one here only at an address the user typed (or the card's)", () => {
+    expect(ownerAllows(false, false)).toBe(true);
+    expect(ownerAllows(true, true)).toBe(true);
+    expect(ownerAllows(true, false)).toBe(false);
+  });
+
+  it('reads the selection in a field, else on the page, else a focused field but a password', () => {
+    // The script itself runs in a real Chromium (test/browser.test.ts); here, what it never reads.
+    expect(SELECTION_SCRIPT).toContain("field.type !== 'password'");
+    expect(SELECTION_SCRIPT).toContain('getSelection()');
+    expect(USER_BROWSERS_MAX).toBeGreaterThan(0);
   });
 });
 

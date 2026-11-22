@@ -4,7 +4,7 @@ import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, ty
  * Steps only the user can take (docs/architecture.md, "Secrets and fixed commands"): blocks an agent
  * puts in its reply, on lines of their own, that Harness Relay takes out of its text and shows as cards.
  *
- *   <secret name="THREADS_ACCESS_TOKEN" label="Threads access token">why it is needed</secret>
+ *   <secret name="THREADS_ACCESS_TOKEN" label="Threads access token" url="https://…">why it is needed</secret>
  *   <command name="post" hosts="graph.threads.net" secrets="THREADS_ACCESS_TOKEN">python3 post.py</command>
  *   <command-run name="post">what the command reads on its standard input, once</command-run>
  *   <interactive reason="why">gcloud auth login --no-launch-browser</interactive>
@@ -22,7 +22,7 @@ import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, ty
  */
 
 export type HandoffBlock =
-  | { kind: 'secret'; name: string; label?: string; reason?: string }
+  | { kind: 'secret'; name: string; label?: string; reason?: string; url?: string }
   | ({ kind: 'command' } & CommandProposal)
   | { kind: 'command-run'; name: string; input: string }
   | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
@@ -66,6 +66,22 @@ function list(value: string | undefined): string[] {
 export function secretName(value: string | undefined): string | undefined {
   const name = value?.trim().toUpperCase();
   return name && SECRET_NAME_RE.test(name) ? name : undefined;
+}
+
+/**
+ * The page a `<secret>` block names, where the user gets the value (a token generator): an http or https
+ * address without credentials in it, within `HANDOFF_LIMITS.secretUrl`; undefined when it is not one
+ * (the block stays a block, without it).
+ */
+export function secretUrl(value: string | undefined): string | undefined {
+  if (!value || value.length > HANDOFF_LIMITS.secretUrl) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A fixed command's name as given, in lower case; undefined when it is not one. */
@@ -174,7 +190,8 @@ function blockAt(text: string, pos: number): { block: HandoffBlock; end: number 
     if (!name) return undefined;
     const label = attr(attrs, 'label')?.slice(0, HANDOFF_LIMITS.label);
     const reason = body.trim().replace(/\s+/g, ' ').slice(0, HANDOFF_LIMITS.reason);
-    return { block: { kind: 'secret', name, ...(label ? { label } : {}), ...(reason ? { reason } : {}) }, end };
+    const url = secretUrl(attr(attrs, 'url'));
+    return { block: { kind: 'secret', name, ...(label ? { label } : {}), ...(reason ? { reason } : {}), ...(url ? { url } : {}) }, end };
   }
   if (tag === 'command') {
     const proposal = checkProposal({

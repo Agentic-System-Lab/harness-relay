@@ -7619,6 +7619,27 @@ summary + .checks-editor-body {
   flex: 1 1 200px;
 }
 
+/* A browser for the user alone: Save selection as one of the secrets card's asks. */
+.handover-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.handover-saved {
+  color: var(--ok);
+}
+
+.handoff-browser {
+  align-self: flex-start;
+  margin: 4px 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 @media (max-width: 640px) {
   .handover-scrim {
     padding: 0;

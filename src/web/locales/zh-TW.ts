@@ -1304,6 +1304,20 @@ export const zhTW = {
       asking: '網頁要開啟還沒開過的網站，請先決定：',
       clipboard: '剪貼簿不會跨過去：你可以把文字貼進網頁，但不能從網頁複製出來。',
     },
+    alone: {
+      open: '開一個只給你的瀏覽器',
+      openAt: (host: string) => `在只給你的瀏覽器開啟 ${host}`,
+      show: '顯示只給你的瀏覽器',
+      hint: '只給你的瀏覽器是 Harness Relay 自己的瀏覽器，沒有任何 agent 操作或讀取它，關閉時連同裡面的一切一起刪除。在網頁上選取那個值（或點一下放著它的欄位），按「把選取的文字存成…」：值會直接存進這張卡片，不會經過聊天。在執行 Harness Relay 的這台電腦上，你也可以用自己的瀏覽器開那個網頁，再把值貼到這裡。',
+      title: '只給你的瀏覽器',
+      line: '沒有任何 agent 操作或讀取這個瀏覽器，關閉時就刪除。選取網頁上的值，再把它存起來。',
+      close: '關閉瀏覽器',
+      saveAs: (name: string) => `把選取的文字存成 ${name}`,
+      saved: (name: string) => `已存成 ${name}`,
+      select: '拖曳選取',
+      selectHint: '在觸控螢幕上拖曳時改成選取文字，而不是捲動',
+      fromPage: '已從網頁儲存',
+    },
   },
 
   plan: {

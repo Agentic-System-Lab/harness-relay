@@ -329,6 +329,8 @@ describe.skipIf(!chromium)('the browser itself', () => {
   let hangClosed = false;
   let browser: InstanceType<typeof BrowserService>;
   const asked: ApprovalRequest[] = [];
+  /** How many questions were asked so far. */
+  const asked0 = () => asked.length;
   let allow = true;
   const ctx = (o: Partial<GatewayContext> = {}): GatewayContext => ({
     convId: 'conv-1',
@@ -433,6 +435,13 @@ describe.skipIf(!chromium)('the browser itself', () => {
         return res.end(
           `<title>Hand over</title><input id="f" style="position:fixed;left:0;top:0;width:100%;height:50%;font-size:40px">` +
             `<button style="position:fixed;left:0;top:50%;width:100%;height:50%" onclick="document.title = 'Clicked ' + document.getElementById('f').value">Go</button>`,
+        );
+      if (url.pathname === '/token')
+        // A token generator's page: a token in the text, one in a read-only field, and a link to another host here.
+        return res.end(
+          `<title>Your token</title><p style="position:fixed;left:0;top:0;width:100%;height:30%;margin:0;font-size:30px">tok-from-page-1234</p>` +
+            `<a href="http://localhost:${port}/next" style="position:fixed;left:0;top:30%;width:100%;height:20%;display:block;font-size:30px">Elsewhere</a>` +
+            `<input readonly value="ro-field-5678" style="position:fixed;left:0;top:60%;width:100%;height:40%;font-size:30px">`,
         );
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
@@ -907,6 +916,66 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await expect(ending).rejects.toThrow('The turn ended');
       expect(cards[2]).toMatchObject({ status: 'expired', ended: 'turn' });
       await browser.close('conv-handover', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'opens a browser for the user alone: its own throwaway profile, nobody asked about its hosts but one here it was not given, and the selection read in the server',
+    async () => {
+      const ended: string[] = [];
+      const id = await browser.openForUser('conv-alone', { url: `http://127.0.0.1:${port}/token`, onEnd: () => ended.push('ended') });
+      const profile = join(root, 'data', 'browser', 'user', id);
+      expect(existsSync(profile)).toBe(true);
+      expect(browser.userBrowserOpen('conv-alone', id)).toBe(true);
+      expect(browser.userBrowserOpen('another', id)).toBe(false);
+      const notices: string[] = [];
+      let frames = 0;
+      await vi.waitFor(() => {
+        const watching = browser.handovers.watch('conv-alone', id, (e) => {
+          if (e.type === 'frame') frames++;
+          if (e.type === 'notice') notices.push(`${e.kind} ${e.url}`);
+        });
+        expect(typeof watching).toBe('function');
+      });
+      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: slow(20_000) });
+      const asked = asked0();
+      // Nothing selected yet, nothing focused: nothing to save.
+      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe(''), { timeout: slow(10_000) });
+      // Three clicks on the token's text select it; read in a world of our own.
+      await browser.handovers.input('conv-alone', id, [
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 1 },
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 2 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 2 },
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 3 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 3 },
+      ]);
+      await vi.waitFor(async () => expect((await browser.selectionOf('conv-alone', id)).trim()).toBe('tok-from-page-1234'));
+      // A tap on the read-only field: its whole value; a selection in it, that part.
+      await browser.handovers.input('conv-alone', id, [
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.8, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.8, clicks: 1 },
+      ]);
+      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe('ro-field-5678'));
+      // A link to another host here, which the user did not type: not opened, and nobody asked.
+      await browser.handovers.input('conv-alone', id, [
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.4, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.4, clicks: 1 },
+      ]);
+      await vi.waitFor(() => expect(notices).toContain(`refused http://localhost:${port}/next`), { timeout: slow(10_000) });
+      expect(asked0()).toBe(asked);
+      // Typed in its address bar: opened.
+      hits.length = 0;
+      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]);
+      await vi.waitFor(() => expect(hits).toContain('/next'), { timeout: slow(10_000) });
+      expect(asked0()).toBe(asked);
+
+      await browser.closeForUser('conv-alone', id);
+      expect(ended).toEqual(['ended']);
+      expect(browser.userBrowserOpen('conv-alone', id)).toBe(false);
+      expect(existsSync(profile)).toBe(false);
+      await expect(browser.selectionOf('conv-alone', id)).rejects.toThrow('it closed');
     },
     slow(60_000),
   );

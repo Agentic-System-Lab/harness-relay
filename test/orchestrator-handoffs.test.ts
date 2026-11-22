@@ -16,6 +16,7 @@ import type { FixedCommandDeps } from '../src/server/fixedCommands';
 import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
+import { UserBrowserError, type UserBrowsers } from '../src/server/browser/handover';
 import { Outbox } from '../src/server/outbox';
 import { defaultInteractiveDeps } from '../src/server/interactive';
 import {
@@ -31,6 +32,7 @@ import {
   settings,
   store,
   textOf,
+  withLang,
 } from './orchestrator-harness';
 import { slow } from './timeouts';
 
@@ -163,6 +165,147 @@ describe('secrets cards', () => {
     await finish(conv.id);
     expect(partOf(conv.id, 'secrets').part.asks[0]!.status).toBe('declined');
     expect(settings.handoffs.secretNames(orchestrator.handoffFolder(conv))).toEqual([]);
+  });
+  describe('a browser for the user alone, and Save selection', () => {
+    /** A stand-in for the browsers for the user alone: what each page has selected, by id. */
+    const standIn = () => {
+      const selected = new Map<string, string>();
+      const opened: { convId: string; url?: string; id: string }[] = [];
+      const closed: string[] = [];
+      const ends = new Map<string, () => void>();
+      let n = 0;
+      const browsers: UserBrowsers = {
+        openForUser: async (convId, o = {}) => {
+          const id = `ub-${++n}`;
+          opened.push({ convId, id, ...(o.url ? { url: o.url } : {}) });
+          if (o.onEnd) ends.set(id, o.onEnd);
+          return id;
+        },
+        userBrowserOpen: (_convId, id) => opened.some((b) => b.id === id) && !closed.includes(id),
+        selectionOf: async (_convId, id) => {
+          if (closed.includes(id)) throw new UserBrowserError('gone', 'it closed');
+          return selected.get(id) ?? '';
+        },
+        closeForUser: async (_convId, id) => {
+          closed.push(id);
+          ends.get(id)?.();
+        },
+      };
+      orchestrator.userBrowsers = browsers;
+      return { selected, opened, closed, ends };
+    };
+
+    it("opens it at the address an ask named, keeps what the user selected under the ask's name, and answers once none waits", async () => {
+      const { selected, opened, closed } = standIn();
+      const conv = conversation({ mode: 'relay' });
+      fake.reply = (name) =>
+        name === 'Alice' && !calls.some((c) => c.name === 'Alice' && c.prompt.includes('gave'))
+          ? '<secret name="TOKEN" url="https://dev.example.com/tokens?app=1">From the token generator.</secret>\n<secret name="APP_ID"/>'
+          : 'Thanks.';
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      const { msg, part } = partOf(conv.id, 'secrets');
+      expect(part.asks[0]).toMatchObject({ name: 'TOKEN', url: 'https://dev.example.com/tokens?app=1' });
+      const { handoverId } = await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'TOKEN');
+      expect(opened).toEqual([{ convId: conv.id, id: handoverId, url: 'https://dev.example.com/tokens?app=1' }]);
+      // One per card: the same one again while it is open.
+      expect(await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'APP_ID')).toEqual({ handoverId });
+      await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'OTHER')).rejects.toMatchObject({ status: 409 });
+
+      // Nothing selected: refused, nothing kept.
+      await expect(orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'TOKEN')).rejects.toMatchObject({ status: 400 });
+      // A selection of more than one line: refused as a typed value would be.
+      selected.set(handoverId, 'tok-line-one\ntok-line-two');
+      await expect(orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'TOKEN')).rejects.toMatchObject({ status: 400 });
+      selected.set(handoverId, '  tok-from-the-page-42  ');
+      await expect(orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, 'ub-other', 'TOKEN')).rejects.toMatchObject({ status: 404 });
+      await orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'TOKEN');
+      const folder = orchestrator.handoffFolder(conv);
+      expect(settings.handoffs.values(folder)).toEqual({ TOKEN: 'tok-from-the-page-42' });
+      expect(partOf(conv.id, 'secrets').part.asks.map((a) => [a.status, a.from])).toEqual([
+        ['saved', 'page'],
+        ['waiting', undefined],
+      ]);
+      // An ask still waits: no answer yet, and the browser stays open.
+      expect(userTexts(conv.id)).toEqual(['go']);
+      expect(closed).toEqual([]);
+      await expect(orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'TOKEN')).rejects.toMatchObject({ status: 409 });
+
+      // The other one, from the page too: the browser closes, and the team gets the names, never a value.
+      selected.set(handoverId, 'app-77001');
+      await orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'APP_ID');
+      await finish(conv.id);
+      expect(closed).toEqual([handoverId]);
+      expect(settings.handoffs.values(folder)).toEqual({ TOKEN: 'tok-from-the-page-42', APP_ID: 'app-77001' });
+      const answer = userTexts(conv.id).at(-1)!;
+      expect(answer).toContain('TOKEN');
+      expect(answer).toContain('APP_ID');
+      for (const value of ['tok-from-the-page-42', 'app-77001']) {
+        expect(answer).not.toContain(value);
+        expect(JSON.stringify(store.get(conv.id))).not.toContain(value);
+        expect(calls.at(-1)!.prompt + calls.at(-1)!.systemPrompt).not.toContain(value);
+      }
+      await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it('closes the browser when the card is answered on the card, naming what was saved from the page too', () =>
+      withLang('en', async () => {
+        const { selected, closed } = standIn();
+        const conv = conversation({ mode: 'relay' });
+        fake.reply = (name) =>
+          name === 'Alice' && !calls.some((c) => c.name === 'Alice' && c.prompt.includes('gave'))
+            ? '<secret name="A_KEY"/>\n<secret name="B_KEY"/>'
+            : 'Thanks.';
+        await orchestrator.send(conv.id, 'go');
+        await finish(conv.id);
+        const { msg, part } = partOf(conv.id, 'secrets');
+        const { handoverId } = await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id);
+        selected.set(handoverId, 'value-from-page');
+        await orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, handoverId, 'A_KEY');
+        await orchestrator.answerSecrets(conv.id, msg.id, part.id, { decline: true });
+        await finish(conv.id);
+        expect(closed).toEqual([handoverId]);
+        expect(partOf(conv.id, 'secrets').part.asks.map((a) => a.status)).toEqual(['saved', 'declined']);
+        const answer = userTexts(conv.id).at(-1)!;
+        expect(answer).toMatch(/I gave A_KEY/);
+        expect(answer).toMatch(/I will not give B_KEY/);
+      }));
+
+    it('opens another once the browser closed by itself, and says when none can be opened', async () => {
+      const { opened, ends } = standIn();
+      const conv = conversation({ mode: 'relay' });
+      fake.reply = () => '<secret name="TOKEN"/>';
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      const { msg, part } = partOf(conv.id, 'secrets');
+      const first = (await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).handoverId;
+      // Closed by the user in its panel (or its time ran out): gone from the card, and its selection with it.
+      ends.get(first)!();
+      await expect(orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, first, 'TOKEN')).rejects.toMatchObject({ status: 404 });
+      const second = (await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).handoverId;
+      expect(second).not.toBe(first);
+      expect(opened).toHaveLength(2);
+      orchestrator.userBrowsers = {
+        ...orchestrator.userBrowsers!,
+        openForUser: async () => {
+          throw new UserBrowserError('busy', 'at most 3 at once');
+        },
+        userBrowserOpen: () => false,
+      };
+      await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+      // An address no browser of Harness Relay's opens (its own port): said in the user's words.
+      orchestrator.userBrowsers.openForUser = async () => {
+        throw new UserBrowserError('refused', 'http://127.0.0.1:8787/ cannot be opened');
+      };
+      await withLang('en', () =>
+        expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).rejects.toMatchObject({
+          status: 409,
+          message: expect.stringMatching(/never open this address/),
+        }),
+      );
+      orchestrator.userBrowsers = undefined;
+      await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    });
   });
 });
 

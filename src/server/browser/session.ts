@@ -14,7 +14,19 @@ import { relayBrowserDir } from '../protect';
 import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
 import { HANDOVER_LIMITS, type HandoverMode, type HandoverWindowAt } from '../../shared/types';
 import { CdpConnection } from './cdp';
-import { HANDOVER_UNASKED, Handovers, cardUrl, handoverOutcome, inputCalls, type HandoverTicket, type HandoverWake } from './handover';
+import {
+  HANDOVER_UNASKED,
+  Handovers,
+  SELECTION_SCRIPT,
+  USER_BROWSERS_MAX,
+  UserBrowserError,
+  cardUrl,
+  handoverOutcome,
+  inputCalls,
+  ownerAllows,
+  type HandoverTicket,
+  type HandoverWake,
+} from './handover';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
 /*
@@ -346,6 +358,13 @@ class BrowserSession {
   /** During a hand-over's screencast: told of a window the page opened (closed), and of a page refused. */
   onPopup?: (url: string) => void;
   onRefused?: (r: Refusal) => void;
+  /**
+   * A browser for the user alone (`openForUser()`): no agent drives or reads it, and nobody is asked
+   * about its hosts (`ownerAllows()`).
+   */
+  owner?: 'user';
+  /** Of a browser for the user alone: the hosts the user typed in its address bar, which may be on this computer or the local network. */
+  readonly typed = new Set<string>();
 
   constructor(
     readonly cdp: CdpConnection,
@@ -651,6 +670,12 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
   }
 }
 
+/** A tab's frames, as `Page.getFrameTree` gives them. */
+interface FrameTree {
+  frame: { id: string };
+  childFrames?: FrameTree[];
+}
+
 /** The address of the tab's page now ('' when it cannot be told). */
 async function pageUrl(s: BrowserSession): Promise<string> {
   const h = await s.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
@@ -708,6 +733,8 @@ export class BrowserService {
   private readonly carried = new Map<string, Carry>();
   /** The hand-overs going on, which the routes reach. */
   readonly handovers = new Handovers();
+  /** The browsers for the user alone, by their id (their hand-over's): in none of the conversations' sessions. */
+  private readonly forUser = new Map<string, { convId: string; s: BrowserSession; ticket: HandoverTicket; ended: Promise<void> }>();
   private readonly handoverMs: { start: number; use: number };
 
   constructor(private o: BrowserServiceOptions) {
@@ -716,6 +743,13 @@ export class BrowserService {
     this.handoverMs = o.handoverMs ?? { start: HANDOVER_LIMITS.startMinutes * 60_000, use: HANDOVER_LIMITS.useMinutes * 60_000 };
     // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
     mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
+    // The browsers for the user alone a stopped server left (none runs yet): their profiles go.
+    removeTree(this.userProfiles());
+  }
+
+  /** Where the browsers for the user alone keep their throwaway profiles: none of a conversation's. */
+  private userProfiles(): string {
+    return join(relayBrowserDir(this.o.dataDir), 'user');
   }
 
   /**
@@ -770,12 +804,17 @@ export class BrowserService {
    * is still the conversation's (a hand-over's window replaced it, say), so that it ending takes nothing
    * of the one after it.
    */
-  private async launch(convId: string, o: { window?: boolean }, mine: () => boolean): Promise<BrowserSession> {
+  private async launch(
+    convId: string,
+    o: { window?: boolean; profile?: string; owner?: 'user' },
+    mine: () => boolean,
+  ): Promise<BrowserSession> {
     const bin = this.o.executable();
     if (!bin) throw new Error(this.unavailable());
-    const carry = this.carried.get(convId);
-    this.carried.delete(convId);
-    const profile = this.profile(convId);
+    // A browser for the user alone carries nothing of the conversation's, and keeps its own profile.
+    const carry = o.owner ? undefined : this.carried.get(convId);
+    if (!o.owner) this.carried.delete(convId);
+    const profile = o.profile ?? this.profile(convId);
     mkdirSync(profile, { recursive: true, mode: 0o700 });
     writePrefs(profile);
     await this.proxy.start();
@@ -831,6 +870,7 @@ export class BrowserService {
       session.proxyPassword = password;
       session.convId = convId;
       session.windowed = Boolean(o.window);
+      if (o.owner) session.owner = o.owner;
       for (const [key, g] of carry?.granted ?? []) session.granted.set(key, g);
       const s = session;
       this.byPassword.set(password, s);
@@ -948,7 +988,10 @@ export class BrowserService {
       const ctx = s.current;
       // The question says when the page is on this computer or the local network: allowing it lets its pages reach there.
       const nearby = leadsNearby(new URL(url).hostname, rules.addresses ?? [], rules.own ?? []);
-      if (ctx?.permission === 'full') allow = true;
+      if (s.owner === 'user') {
+        allow = ownerAllows(nearby, s.typed.has(approvalKeys('fetch', url)[0] ?? ''));
+        if (!allow) s.denied = { url, why: 'unasked' };
+      } else if (ctx?.permission === 'full') allow = true;
       else if (ctx?.ask) {
         const ask = () =>
           ctx.ask!({ kind: 'fetch', detail: url, reason: nearby ? t().gw.openNearbyReason : t().gw.openReason, noLock: true });
@@ -1382,7 +1425,7 @@ export class BrowserService {
           shown.update({ status: 'active', mode: answer.mode, deadline: Date.now() + limits.use });
           let end: HandoverWake;
           let where: 'kept' | 'reopened' | 'closed' = 'kept';
-          if (answer.mode === 'screencast') end = await this.screencast(s, ticket, ctx, limits.use);
+          if (answer.mode === 'screencast') end = await this.screencast(s, ticket, ctx.signal, limits.use);
           else {
             const r = await this.inWindow(s, ticket, ctx, limits.use);
             end = r.end;
@@ -1425,7 +1468,7 @@ export class BrowserService {
    * back, cancel, the time runs out (`ms`) or the turn ends. Then the page is as the user left it, at the
    * size the agents' calls have.
    */
-  private async screencast(s: BrowserSession, ticket: HandoverTicket, ctx: GatewayContext, ms: number): Promise<HandoverWake> {
+  private async screencast(s: BrowserSession, ticket: HandoverTicket, signal: AbortSignal, ms: number): Promise<HandoverWake> {
     let frame = { width: 1280, height: 900 };
     let size: { width: number; height: number; scale: number } | undefined;
     const start = () =>
@@ -1476,6 +1519,9 @@ export class BrowserService {
               // a host the chat's browser has not opened asks (below full access), the gate's question.
               try {
                 await this.refuseBlocked(e.url);
+                // In a browser for the user alone, an address they typed may be on this computer or the local network.
+                const key = approvalKeys('fetch', e.url)[0];
+                if (s.owner === 'user' && key) s.typed.add(key);
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
@@ -1489,7 +1535,7 @@ export class BrowserService {
     try {
       await start();
       await this.location(s, ticket);
-      return await ticket.wait(ms, ctx.signal);
+      return await ticket.wait(ms, signal);
     } finally {
       ticket.screen = undefined;
       s.onPopup = undefined;
@@ -1605,6 +1651,100 @@ export class BrowserService {
     }
   }
 
+  /**
+   * Opens a browser for the user alone (B2, for a page that shows a secret): a Chromium of Harness Relay's
+   * own with a throwaway profile (`browser/user/<id>`, never a conversation's), shown as a screencast
+   * through the hand-over's panel and routes. No agent drives or reads it: no gateway call reaches it, as
+   * it is in none of the conversations' sessions, and what it opens is never granted to a chat's browser.
+   * Every connection goes through the proxy and its checks; nobody is asked about a host
+   * (`ownerAllows()`). At `url` when given (the card's address, which the user chose to open). It closes,
+   * and its profile goes, when the user closes it, after `HANDOVER_LIMITS.useMinutes`, when the
+   * conversation is deleted, or at shutdown (a stopped server's are removed at the next start); then
+   * `onEnd`. Returns its id.
+   */
+  async openForUser(convId: string, o: { url?: string; onEnd?: () => void } = {}): Promise<string> {
+    const missing = this.unavailable();
+    if (missing) throw new UserBrowserError('unavailable', missing);
+    if (this.forUser.size >= USER_BROWSERS_MAX) throw new UserBrowserError('busy', `at most ${USER_BROWSERS_MAX} at once`);
+    if (o.url)
+      await this.refuseBlocked(o.url).catch((err: Error) => {
+        throw new UserBrowserError('refused', err.message);
+      });
+    const ticket = this.handovers.create(convId, ['screencast']);
+    ticket.mode = 'screencast';
+    ticket.status = 'active';
+    const profile = join(this.userProfiles(), ticket.id);
+    let s: BrowserSession;
+    try {
+      s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user' }, () => false);
+    } catch (err) {
+      this.handovers.remove(ticket);
+      removeTree(profile);
+      throw err;
+    }
+    // No idle time: it closes when the user closes it, or at its time limit.
+    s.hold();
+    const key = o.url ? approvalKeys('fetch', o.url)[0] : undefined;
+    if (key) s.typed.add(key);
+    const ended = (async () => {
+      try {
+        if (o.url) void s.send('Page.navigate', { url: o.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+        // No turn to end it: the user, its time limit, the conversation's deletion (`endAll()`) or shutdown.
+        await this.screencast(s, ticket, new AbortController().signal, this.handoverMs.use);
+      } catch {
+        /* it ends all the same */
+      } finally {
+        this.forUser.delete(ticket.id);
+        this.handovers.remove(ticket);
+        s.release();
+        s.stop();
+        await Promise.race([s.exited, new Promise((r) => setTimeout(r, 10_000).unref())]);
+        removeTree(profile);
+        o.onEnd?.();
+      }
+    })();
+    this.forUser.set(ticket.id, { convId, s, ticket, ended });
+    return ticket.id;
+  }
+
+  userBrowserOpen(convId: string, id: string): boolean {
+    return this.forUser.get(id)?.convId === convId;
+  }
+
+  /**
+   * What the user selected on the page of their browser `id` (`SELECTION_SCRIPT`, in the main frame, then
+   * in the frames of the same process), read over the debugging pipe in a world of our own, which the
+   * page's script cannot see; '' for nothing. Kept in the server: the caller stores it and sends none of it on.
+   */
+  async selectionOf(convId: string, id: string): Promise<string> {
+    const u = this.forUser.get(id);
+    if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
+    const tree = await u.s.send<{ frameTree: FrameTree }>('Page.getFrameTree').catch(() => undefined);
+    const frames: string[] = [];
+    const walk = (t: FrameTree | undefined) => {
+      if (!t) return;
+      frames.push(t.frame.id);
+      for (const c of t.childFrames ?? []) walk(c);
+    };
+    walk(tree?.frameTree);
+    for (const frameId of frames.length ? frames : [u.s.mainFrame]) {
+      const world = await u.s
+        .send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId, worldName: 'harness-relay-selection' })
+        .catch(() => undefined);
+      if (!world) continue;
+      const text = await u.s.evaluateIn<unknown>(world.executionContextId, SELECTION_SCRIPT).catch(() => '');
+      if (typeof text === 'string' && text.trim()) return text;
+    }
+    return '';
+  }
+
+  async closeForUser(convId: string, id: string): Promise<void> {
+    const u = this.forUser.get(id);
+    if (!u || u.convId !== convId) return;
+    u.ticket.wake({ action: 'done' });
+    await u.ended;
+  }
+
   /** Closes the conversation's browser as Chromium closes itself (its cookies and preferences written), then waits for it to end. */
   private async shut(convId: string): Promise<void> {
     const s = await this.sessions.get(convId)?.catch(() => undefined);
@@ -1636,6 +1776,7 @@ export class BrowserService {
 
   closeAll(): void {
     for (const id of [...this.sessions.keys()]) void this.close(id);
+    for (const u of this.forUser.values()) u.ticket.wake({ action: 'turn' });
     this.proxy.stop();
   }
 }

@@ -11,11 +11,13 @@ import {
   hostName,
   maskValues,
   secretName,
+  secretUrl,
   secretValueProblem,
   splitHandoffs,
   withoutHandoffBlocks,
 } from '../src/shared/handoffs';
 import { commandActions, filledValues, formOf, proposalOf, runTone, wordsOf, type CommandPart } from '../src/web/handoffs';
+import { hostOf } from '../src/web/handover';
 import { openDatabase } from '../src/server/db';
 import { HandoffStore, secretEntry } from '../src/server/handoffs';
 import type { SecretStore } from '../src/server/secrets';
@@ -59,6 +61,29 @@ describe('hand-off blocks in a reply', () => {
       { kind: 'secret', name: 'B_KEY' },
       { kind: 'command', name: 'sync', run: './run.sh', hosts: [], secrets: [], cwd: 'bot' },
     ]);
+  });
+
+  it("takes the page a secret's block names, an http or https address only, and leaves the block without a bad one", () => {
+    const { blocks } = splitHandoffs(
+      [
+        '<secret name="A_KEY" url="https://developers.example.com/apps/1/tokens?tab=gen">From the token generator.</secret>',
+        '<secret name="B_KEY" url="javascript:alert(1)"/>',
+        '<secret name="C_KEY" url="https://user:pass@example.com/"/>',
+        '<secret name="D_KEY" url="file:///etc/passwd"/>',
+        `<secret name="E_KEY" url="https://example.com/${'x'.repeat(HANDOFF_LIMITS.secretUrl)}"/>`,
+      ].join('\n'),
+    );
+    expect(blocks).toEqual([
+      { kind: 'secret', name: 'A_KEY', reason: 'From the token generator.', url: 'https://developers.example.com/apps/1/tokens?tab=gen' },
+      { kind: 'secret', name: 'B_KEY' },
+      { kind: 'secret', name: 'C_KEY' },
+      { kind: 'secret', name: 'D_KEY' },
+      { kind: 'secret', name: 'E_KEY' },
+    ]);
+    expect(secretUrl('http://127.0.0.1:8080/token')).toBe('http://127.0.0.1:8080/token');
+    expect(secretUrl(undefined)).toBeUndefined();
+    expect(hostOf('https://developers.example.com:8443/apps')).toBe('developers.example.com:8443');
+    expect(hostOf('not a url')).toBe('not a url');
   });
 
   it('leaves examples in code, blocks inside a sentence, and invalid blocks as text', () => {

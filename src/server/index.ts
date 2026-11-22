@@ -216,6 +216,8 @@ if (process.platform !== 'win32') {
   ]);
 }
 orchestrator.onDelete = (id) => void browser.close(id, true);
+// The browsers for the user alone a secrets card opens (for a page that shows a secret).
+orchestrator.userBrowsers = browser;
 orchestrator.gateway = gateway;
 // The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.
 orchestrator.interactiveDeps = {

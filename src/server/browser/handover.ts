@@ -423,6 +423,78 @@ export function inputCalls(e: HandoverInput, frame: { width: number; height: num
   }
 }
 
+/*
+ * A browser for the user alone (B2 of docs/proposals/user-handoffs.md), for a page that shows a secret (a
+ * token generator): a Chromium of its own, with a throwaway profile, shown through the same screencast
+ * panel and routes as a hand-over, which no agent drives or reads; the user selects the value on the page
+ * and saves it to a secrets card (`selectionOf()`), the value never leaving the server but for the
+ * screencast's picture.
+ */
+
+/** The most browsers for the user alone at once, on this server: each is a Chromium of its own. */
+export const USER_BROWSERS_MAX = 3;
+
+/**
+ * Whether a browser for the user alone opens a page on a host it has not opened yet. Nobody is asked: the
+ * user navigates it themselves, and what it opens is never the agents' (its profile and the hosts it opened
+ * go when it closes). A page on the internet opens; one on this computer or the local network only at an
+ * address the user typed in its address bar (or the card's own address, which they chose to open), never
+ * one a page leads to by itself (a link, a redirect, a script). Harness Relay's own ports, link-local and
+ * metadata addresses never open, as in every browser of Harness Relay's (`navigationVerdict()`).
+ */
+export function ownerAllows(nearby: boolean, typed: boolean): boolean {
+  return !nearby || typed;
+}
+
+/**
+ * Why a browser for the user alone could not open, or is gone: no browser to start, too many open, an
+ * address no browser of Harness Relay's opens (its own ports, a metadata address), or it closed.
+ */
+export class UserBrowserError extends Error {
+  constructor(
+    readonly why: 'unavailable' | 'busy' | 'refused' | 'gone',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** What the orchestrator reaches of the browsers for the user alone (`BrowserService`). */
+export interface UserBrowsers {
+  /** Opens one for conversation `convId`, at `url` if given; `onEnd` once it closed. Returns its id. */
+  openForUser(convId: string, o?: { url?: string; onEnd?: () => void }): Promise<string>;
+  /** Whether it is open still. */
+  userBrowserOpen(convId: string, id: string): boolean;
+  /** The text the user selected on its page (in a field too), or a focused field's whole value; '' for none. */
+  selectionOf(convId: string, id: string): Promise<string>;
+  /** Closes it, and its profile goes. */
+  closeForUser(convId: string, id: string): Promise<void>;
+}
+
+/**
+ * Runs in a world of its own beside the page's (`Page.createIsolatedWorld`): the text the user selected,
+ * in a field (an input or a text area, also in a shadow root: its own selection) or on the page; with
+ * nothing selected, the whole value of the field that has the focus (a token shown in a read-only field,
+ * which a tap on a phone focuses), but never a password field's: only a selection made in one. Read in
+ * the server and kept there (`selectionOf()`), never sent to the page that shows the panel.
+ */
+export const SELECTION_SCRIPT = `(() => {
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  const field = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? el : null;
+  if (field) {
+    try {
+      const a = field.selectionStart;
+      const b = field.selectionEnd;
+      if (typeof a === 'number' && typeof b === 'number' && b > a) return String(field.value).slice(a, b);
+    } catch (e) {}
+  }
+  const selected = String(getSelection() || '');
+  if (selected.trim()) return selected;
+  if (field && field.type !== 'hidden' && field.type !== 'password' && String(field.value).trim()) return String(field.value);
+  return '';
+})()`;
+
 /** What the agent is told when nobody can be asked to take over the browser. */
 export const HANDOVER_UNASKED =
   'browser_hand_over cannot be used now: nobody can be asked (a run a schedule started, or a conversation that refuses requests). Tell the user in your reply what they need to do in the browser instead.';

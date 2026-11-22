@@ -2,8 +2,9 @@
  * Secrets and fixed commands' HTTP API (src/server/app.ts): a secrets card's answer, Settings' view
  * (names only, never a value), replacing and removing a secret of a folder it lists only, removing a
  * fixed command; an interactive command's card (Start refused for an automation's run and for another
- * chat's card, typing into a run that ended refused, its actions checked); and the middleware's checks
- * on these writes.
+ * chat's card, typing into a run that ended refused, its actions checked); a secrets card's browser
+ * for the user alone and its Save selection (with a stand-in for the browser); and the middleware's
+ * checks on these writes.
  */
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,6 +28,7 @@ const { removeTree } = await import('../src/server/fsRemove');
 afterAll(() => removeTree(root, { restore: true }));
 
 let app: ReturnType<typeof createApp>;
+let orchestrator: InstanceType<typeof Orchestrator>;
 let settings: InstanceType<typeof SettingsStore>;
 let store: InstanceType<typeof Store>;
 const keys = new Map<string, string>();
@@ -44,12 +46,13 @@ beforeEach(() => {
   settings = new SettingsStore(db, keyring);
   store = new Store(db);
   const hub = new Hub();
+  orchestrator = new Orchestrator(store, hub, settings);
   app = createApp({
     auth: null,
     store,
     settings,
     hub,
-    orchestrator: new Orchestrator(store, hub, settings),
+    orchestrator,
     providers: new ProviderService(settings),
     folderPicker: noPicker,
   });
@@ -152,6 +155,33 @@ describe('secrets and fixed commands API', () => {
     expect((await send('POST', `/api/conversations/${conv.id}/messages/m2/commands/x`, { action: 'run' })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { extra: 5 })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, {})).status).toBe(404);
+  });
+
+  it("opens a secrets card's browser for the user alone, and keeps what is selected there without sending any of it back", async () => {
+    const { conv, partId } = chatAsking();
+    const opened: string[] = [];
+    orchestrator.userBrowsers = {
+      openForUser: async (convId) => (opened.push(convId), 'ub-1'),
+      userBrowserOpen: (_c, id) => id === 'ub-1',
+      selectionOf: async () => ' tok-selected-on-page ',
+      closeForUser: async () => undefined,
+    };
+    const path = `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`;
+    expect((await send('POST', `${path}/browser`, { name: 5 })).status).toBe(400);
+    const res = await send('POST', `${path}/browser`, { name: 'TOKEN' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ handoverId: 'ub-1' });
+    expect(opened).toEqual([conv.id]);
+    expect((await send('POST', `${path}/selection`, { name: 'TOKEN' })).status).toBe(400);
+    expect((await send('POST', `${path}/selection`, { handoverId: 'ub-9', name: 'TOKEN' })).status).toBe(404);
+    const saved = await send('POST', `${path}/selection`, { handoverId: 'ub-1', name: 'TOKEN' });
+    expect(saved.status).toBe(200);
+    expect(await saved.text()).not.toContain('tok-selected-on-page');
+    expect(settings.handoffs.values(root)).toEqual({ TOKEN: 'tok-selected-on-page' });
+    const conversation = await (await app.request(`/api/conversations/${conv.id}`, { headers: HOST })).text();
+    expect(conversation).toContain('"from":"page"');
+    expect(conversation).not.toContain('tok-selected-on-page');
+    expect((await send('POST', `${path}/browser`, {})).status).toBe(409);
   });
 });
 
