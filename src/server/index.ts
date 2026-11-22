@@ -18,7 +18,7 @@ import { findTailscale, Tailscale } from './tailscale';
 import { desktopParent } from './parent';
 import { Updates } from './updates';
 import { relayVersion } from './about';
-import { apiPort, DEFAULT_HOST, isDevRun } from './ports';
+import { apiPort, DEFAULT_HOST, devWebPort, isDevRun } from './ports';
 import { killAll, runProcess } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
@@ -347,7 +347,7 @@ const app = createApp({
 
 const built = serveWebApp(app, webAppDir());
 if (!built) {
-  app.get('/', (c) => c.text('Web UI is not built. Run `npm run dev` (http://localhost:5173) or `npm run build` first.'));
+  app.get('/', (c) => c.text(`Web UI is not built. Run \`npm run dev\` (http://localhost:${devWebPort()}) or \`npm run build\` first.`));
 }
 
 // --- Start -------------------------------------------------------------------------

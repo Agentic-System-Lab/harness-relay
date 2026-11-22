@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { codeFromBytes, normalizeCode } from '../shared/auth';
 import type { AuthSessionView } from '../shared/types';
 import type { Database } from './db';
+import { DEV_WEB_PORT, devWebPort, isDevRun } from './ports';
 
 /*
  * Signed-in browsers. The API takes a request only from one: it shows a cookie (HttpOnly, so no page
@@ -15,8 +16,19 @@ import type { Database } from './db';
  * `npm run login`, or from a browser already signed in (Settings → Connect your phone), for a phone.
  */
 
-/** The cookie that names a signed-in browser's session: `<id>.<secret>`. */
-export const SESSION_COOKIE = 'relay_session';
+/**
+ * The name of the cookie that names a signed-in browser's session (`<id>.<secret>`): `relay_session`.
+ * A cookie goes to every port of its host, so an `npm run dev` whose Vite took another port than 5173
+ * (another checkout's has it) names its own after that port: signing a browser in to one on
+ * `localhost` never signs it out of the other.
+ */
+export function sessionCookieName(env: NodeJS.ProcessEnv = process.env): string {
+  const port = devWebPort(env);
+  return isDevRun(env) && port !== DEV_WEB_PORT ? `relay_session_${port}` : 'relay_session';
+}
+
+/** The session cookie's name for this server (`sessionCookieName()`). */
+export const SESSION_COOKIE = sessionCookieName();
 
 /** How long a sign-in code works: the one printed at start, and the others (for another device, `npm run login`). */
 export const CODE_TTL_MS = {
