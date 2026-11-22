@@ -273,11 +273,11 @@ Harness Relay 讓這些 agent 在它自己的家目錄中執行，絕不使用�
 
 ### 方案用量
 
-帳號登入或設了 API key 後，它的區塊會顯示**方案用量**：它的 CLI 回報的方案還剩多少，每個額度一條長條，以及剩下多少、用了多少、何時重置。Claude Code 顯示 5 小時與每週額度（以及某個模型自己的每週額度），Codex 顯示它的時段（例如 5 小時與一週）與點數，Grok 顯示這週用掉的點數比例，Muse Code 顯示它的訂閱額度，Copilot 顯示這個月的 premium 請求（以次數計，例如 300 次用了 126 次），Antigravity 顯示每組模型的額度，以及它的方案與點數。Harness Relay 在那個帳號的資料夾向 CLI 詢問，不送 prompt，所以不會用掉額度，每個帳號顯示自己的；帳號的區塊出現在畫面上時才問，登入或金鑰改變時再問（包括在終端機改的，在設定頁重新檢查 CLI 之後）。回答保留兩分鐘；按**重新查詢**立即再問。額度用完、但帳號會繼續執行並另外計費時（Codex 或 Grok 的點數、Claude Code 的用量點數、Copilot 的額外付費用量、Grok 的隨用隨付），會顯示 **已達方案上限，正在使用點數（另外計費）** 之類的說明，長條用警告色。
+帳號登入或設了 API key 後，它的區塊會顯示**方案用量**：它的 CLI 回報的方案還剩多少，每個額度一條長條，以及剩下多少、用了多少、何時重置。Claude Code 顯示 5 小時與每週額度（以及某個模型自己的每週額度），Codex 顯示它的時段（例如 5 小時與一週）與點數，Grok 顯示這週用掉的點數比例，Muse Code 顯示它的訂閱額度，Copilot 顯示這個月的 premium 請求（以次數計，例如 300 次用了 126 次），Antigravity 顯示每組模型的額度，以及它的方案與點數。Harness Relay 在那個帳號的資料夾向 CLI 詢問，不送 prompt，所以不會用掉額度，每個帳號顯示自己的；帳號的區塊出現在畫面上時才問，登入或金鑰改變時再問（包括在終端機改的，在設定頁重新檢查 CLI 之後）。回答保留兩分鐘；按**重新查詢**立即再問。額度用完、但帳號會繼續執行並另外計費時（Codex 或 Grok 的點數、Claude Code 的用量點數、Copilot 的額外付費用量、Grok 的隨用隨付，以及在 agy 的 `/config` 或 Antigravity 應用程式開啟 **Use AI Credits** 後 Antigravity 的 AI 點數，Harness Relay 執行它時也照這個設定），會顯示 **已達方案上限，正在使用點數（另外計費）** 之類的說明，長條用警告色。
 
 - **用 API key 的帳號**（Claude Code、Codex、Grok、Antigravity、Muse Code）沒有方案額度：供應商按用量向金鑰計費，一般的 API key 也查不到剩餘餘額，所以區塊會這樣說明。餘額請到供應商的主控台查看。
 - **Cursor** 只在它自己的終端畫面（`/usage`）顯示用量，所以預設帳號的區塊只列出方案；其他的在 Cursor 的 Dashboard。用 Cursor API key 的帳號與 Cursor 的其他帳號兩者都不顯示。
-- 用 GitHub token 的 **Copilot** 顯示那個 GitHub 帳號自己的方案：token 屬於它。用 `claude setup-token` 產生的 token 登入，或在 Bedrock、Vertex 上執行的 Claude Code 不回報方案額度，區塊會這樣說明。Antigravity 的數字是對照 agy 使用的格式檢查的，沒有用真正的 Google 帳號試過。
+- 用 GitHub token 的 **Copilot** 顯示那個 GitHub 帳號自己的方案：token 屬於它。用 `claude setup-token` 產生的 token 登入，或在 Bedrock、Vertex 上執行的 Claude Code 不回報方案額度，區塊會這樣說明。Antigravity 的數字只在額度都還沒用時，用真正的 Google 帳號看過。
 - 沒有訂閱額度（按用量計費）的 Muse Code 帳號會說明它沒有額度。
 
 ### 預設模型與推理強度

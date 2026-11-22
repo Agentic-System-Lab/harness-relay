@@ -1,7 +1,13 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountUsage, Provider, UsageKind, UsageLimit, UsageNone, UsagePayer, UsageProblem, UsageSpan } from '../shared/types';
-import { antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import {
+  antigravityAiCredits,
+  antigravityAppDir,
+  antigravityKeyOnly,
+  antigravityProbeEnv,
+  antigravityProbeSettings,
+} from './agents/antigravity';
 import { CLAUDE_PROBE_ARGS } from './agents/claude';
 import { copilotHome, copilotProbeEnv, prepareCopilotProbeHome } from './agents/copilot';
 import { grokNativeEnv } from './agents/grok';
@@ -624,10 +630,12 @@ function windowSpan(w: unknown): UsageSpan | undefined {
 
 /**
  * Antigravity's answers to `/usage` (`groups` of `buckets`, each with the fraction of it left, its
- * `window` and when it resets) and `/credits` (`remaining_credits`, `plan_name`) in print mode, as
- * agy 1.5.8 types them (read from its binary; not seen with a real Google account's numbers).
+ * `window` and when it resets) and `/credits` (`remaining_credits`, and `plan_name` when it has one) in
+ * print mode, as agy types them (read from 1.5.8's binary; seen from 1.5.14 with a Google AI Pro
+ * account's quota unused). The account's AI credits, when it turned them on (`aiCredits`:
+ * `antigravityAiCredits`, since neither answer says) and has some left, pay past every quota.
  */
-export function parseAntigravityUsage(usage: unknown, credits: unknown): UsageAnswer | undefined {
+export function parseAntigravityUsage(usage: unknown, credits: unknown, aiCredits = false): UsageAnswer | undefined {
   const u = usage as Record<string, any> | undefined;
   if (!u || typeof u !== 'object') return undefined;
   const groups = (Array.isArray(u.groups) ? u.groups : []).filter(
@@ -658,7 +666,7 @@ export function parseAntigravityUsage(usage: unknown, credits: unknown): UsageAn
   const withCredits = balance !== undefined && (balance > 0 || Boolean(plan));
   return {
     ...(plan ? { plan } : {}),
-    limits,
+    ...paidBy(limits, aiCredits && balance !== undefined && balance > 0 ? 'credits' : undefined),
     ...(withCredits ? { credits: { balance } } : {}),
     ...(limits.length || withCredits ? {} : { none: 'noData' as const }),
   };
@@ -732,7 +740,8 @@ async function askAntigravity(bin: string, env: NodeJS.ProcessEnv, signal?: Abor
   // One after the other: two agy processes in the same home at once could get in each other's way.
   // Its credits are a part of the answer only: without them the limits still show.
   const credits = await askAntigravityCommand(bin, env, '/credits', signal);
-  return parseAntigravityUsage(usage.data, credits.data) ?? trouble('noAnswer');
+  const aiCredits = !antigravityKeyOnly(env) && antigravityAiCredits(antigravityAppDir(env));
+  return parseAntigravityUsage(usage.data, credits.data, aiCredits) ?? trouble('noAnswer');
 }
 
 // ---------------------------------------------------------------------------

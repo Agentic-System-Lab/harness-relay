@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -13,7 +13,8 @@ import { slow } from './timeouts';
  * plan, copilot 1.0.110 on a GitHub token against a stand-in GitHub API; their e-mail addresses and
  * ids replaced), the answers no account here could give made from them with the fields their CLIs
  * read (Claude Code's usage credits turned on, Copilot's additional paid usage, Grok's prepaid
- * credits), Antigravity's as agy 1.5.8 types them (no real Google account's answer was seen), and the
+ * credits), Antigravity's as agy 1.5.8 types them and as agy 1.5.14 gave them for a Google AI Pro
+ * account with its quota unused (no answer with a quota used up or AI credits left was seen), and the
  * questions asked, through stand-ins for the CLIs.
  */
 
@@ -36,6 +37,7 @@ const {
   parseMuseUsage,
   spanOfMinutes,
 } = await import('../src/server/usage');
+const { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } = await import('../src/server/settings');
 
 describe("Claude Code's get_usage answer", () => {
   it("gives each limit of a Max plan, a model's own weekly limit named after the model", () => {
@@ -470,6 +472,43 @@ describe("Antigravity's /usage and /credits", () => {
     ]);
   });
 
+  it("reads agy 1.5.14's answers for a Google AI Pro account with its quota unused (recorded)", () => {
+    const week = Date.parse('2026-11-29T00:51:03Z');
+    const fiveHours = Date.parse('2026-11-22T05:51:03Z');
+    // AI credits turned on change nothing without a balance: there are none to pay with.
+    for (const on of [false, true]) {
+      expect(parseAntigravityUsage(json('antigravity-usage-pro.json'), json('antigravity-credits.json'), on)).toEqual({
+        limits: [
+          { span: 'week', scope: 'Gemini Models · Weekly Limit Remaining', usedPercent: 0, resetsAt: week },
+          { span: 'fiveHour', scope: 'Gemini Models · Five Hour Limit Remaining', usedPercent: 0, resetsAt: fiveHours },
+          { span: 'week', scope: 'Claude and GPT models · Weekly Limit Remaining', usedPercent: 0, resetsAt: week },
+          { span: 'fiveHour', scope: 'Claude and GPT models · Five Hour Limit Remaining', usedPercent: 0, resetsAt: fiveHours },
+          { span: 'week', scope: 'Gemini 4 Argon · Gemini 4 Argon Weekly Limit', usedPercent: 0, resetsAt: week },
+        ],
+      });
+    }
+  });
+
+  it('has AI credits the account turned on pay past every quota while it has some left, and nothing else', () => {
+    const usage = json('antigravity-usage-pro.json') as { groups: { buckets: { remaining_fraction: number }[] }[] };
+    usage.groups[0]!.buckets[0]!.remaining_fraction = 0; // the Gemini models' week used up
+    const credits = { remaining_credits: 250, upgrade_uri: 'https://antigravity.google/g1-upgrade' };
+    const on = parseAntigravityUsage(usage, credits, true);
+    expect(on?.payer).toBe('credits');
+    expect(on?.credits).toEqual({ balance: 250 });
+    expect(on?.limits.map((l) => [l.usedPercent, l.paidPast])).toEqual([
+      [100, true],
+      [0, true],
+      [0, true],
+      [0, true],
+      [0, true],
+    ]);
+    for (const off of [parseAntigravityUsage(usage, credits, false), parseAntigravityUsage(usage, { remaining_credits: 0 }, true)]) {
+      expect(off?.payer).toBeUndefined();
+      expect(off?.limits.some((l) => l.paidPast)).toBe(false);
+    }
+  });
+
   it('says there is nothing to show for no buckets and no credits (a Gemini API key), a zero of credits without a plan saying nothing', () => {
     expect(parseAntigravityUsage({ groups: [] }, { remaining_credits: 0 })).toEqual({ limits: [], none: 'noData' });
     expect(parseAntigravityUsage(undefined, undefined)).toBeUndefined();
@@ -636,6 +675,10 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
   const started = () => logged().filter((e) => e.args);
   const methods = () => logged().flatMap((e) => (e.method ? [e.method] : []));
   const fresh = () => writeFileSync(log, '');
+  // Antigravity's account, whose settings say whether its AI credits pay past a used-up quota (never the user's own).
+  const agyHome = join(root, 'agy-account');
+  const agyApp = join(agyHome, '.gemini', 'antigravity-cli');
+  const agy = (extra: NodeJS.ProcessEnv = {}) => env({ [ANTIGRAVITY_HOME_ENV]: agyHome, ...extra });
 
   it('asks Claude Code get_usage over stream-json, without settings files, hooks or MCP servers, in the same empty folder each time', async () => {
     fresh();
@@ -750,20 +793,40 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
       limits: [{ span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') }],
       credits: { balance: 1000 },
     };
-    expect(await askUsage('antigravity', bin('agy'), env())).toEqual(expected);
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(expected);
     expect(started().map((s) => s.args)).toEqual([
       ['-p', '/usage', '--output-format', 'json'],
       ['-p', '/credits', '--output-format', 'json'],
     ]);
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_NOISE: '1' }))).toEqual(expected);
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_NOISE: '1' }))).toEqual(expected);
+  });
+
+  it("has Antigravity's AI credits pay past its quota once the account's settings or the Antigravity app's turn them on", async () => {
+    const limit = { span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') };
+    const paying = { plan: 'Google AI Pro', limits: [{ ...limit, paidPast: true }], payer: 'credits', credits: { balance: 1000 } };
+    mkdirSync(join(agyHome, '.gemini', 'config'), { recursive: true });
+    mkdirSync(agyApp, { recursive: true });
+    writeFileSync(join(agyApp, 'settings.json'), JSON.stringify({ useG1Credits: true }));
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(paying);
+    writeFileSync(join(agyApp, 'settings.json'), JSON.stringify({ useG1Credits: false }));
+    writeFileSync(join(agyHome, '.gemini', 'config', 'config.json'), JSON.stringify({ userSettings: { useAiCredits: true } }));
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual(paying);
+    // An account that runs on its Gemini API key only never uses them.
+    expect((await askUsage('antigravity', bin('agy'), agy({ [ANTIGRAVITY_KEY_ONLY_ENV]: '1' }))).payer).toBeUndefined();
+    rmSync(join(agyHome, '.gemini'), { recursive: true, force: true });
+    expect(await askUsage('antigravity', bin('agy'), agy())).toEqual({
+      plan: 'Google AI Pro',
+      limits: [limit],
+      credits: { balance: 1000 },
+    });
   });
 
   it("passes on Antigravity's error for /usage, and shows the limits without the credits when /credits fails", async () => {
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'usage' }))).toEqual({
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_FAIL: 'usage' }))).toEqual({
       limits: [],
       error: 'quota service unavailable',
     });
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'credits' }))).toEqual({
+    expect(await askUsage('antigravity', bin('agy'), agy({ STAND_FAIL: 'credits' }))).toEqual({
       limits: [{ span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') }],
     });
   });
@@ -772,7 +835,7 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
     'stops a signed-out Antigravity as soon as it asks for a sign-in, rather than waiting the minute it would',
     async () => {
       const t0 = Date.now();
-      expect(await askUsage('antigravity', bin('agy'), env({ STAND_SIGNED_OUT: '1' }))).toEqual({ limits: [], none: 'signedOut' });
+      expect(await askUsage('antigravity', bin('agy'), agy({ STAND_SIGNED_OUT: '1' }))).toEqual({ limits: [], none: 'signedOut' });
       expect(Date.now() - t0).toBeLessThan(15_000);
     },
     slow(40_000),
@@ -785,7 +848,7 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
       setTimeout(() => stop.abort(), 200);
       const t0 = Date.now();
       await askUsage('claude', bin('claude'), env({ STAND_HANG: '1' }), stop.signal);
-      await askUsage('antigravity', bin('agy'), env({ STAND_HANG: '1' }), stop.signal);
+      await askUsage('antigravity', bin('agy'), agy({ STAND_HANG: '1' }), stop.signal);
       expect(Date.now() - t0).toBeLessThan(15_000);
     },
     slow(40_000),

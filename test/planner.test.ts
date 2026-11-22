@@ -1646,6 +1646,49 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(memberAvailable(checked(copilot(false)), { provider: 'copilot' })).toBe(false);
   });
 
+  it('keeps an Antigravity model whose quota is used up while the AI credits the account turned on pay for it, and says so', () => {
+    const now = Date.now();
+    const later = now + 86_400_000;
+    // As `parseAntigravityUsage` reads agy 1.5.14's answer: a group's bucket, named after the group.
+    const argon = (paid: boolean): AccountUsage => ({
+      provider: 'antigravity',
+      account: '',
+      checkedAt: now,
+      limits: [
+        {
+          span: 'week',
+          scope: 'Gemini 4 Argon · Gemini 4 Argon Weekly Limit',
+          usedPercent: 100,
+          resetsAt: later,
+          ...(paid ? { paidPast: true as const } : {}),
+        },
+      ],
+      ...(paid ? { payer: 'credits' as const } : {}),
+    });
+    const checked = (u: AccountUsage): PlannerContext => ({
+      ...ctx,
+      available: ['antigravity'],
+      accounts: { antigravity: [''] },
+      catalog: [
+        {
+          provider: 'antigravity',
+          models: [{ id: 'gemini-4-neon' }, { id: 'gemini-4-argon' }],
+          efforts: [],
+          defaultModel: 'gemini-4-neon',
+          source: 'cli',
+        },
+      ],
+      staffing: { now, usage: [u] },
+    });
+    expect(memberAvailable(checked(argon(false)), { provider: 'antigravity', model: 'gemini-4-argon' })).toBe(false);
+    expect(memberAvailable(checked(argon(false)), { provider: 'antigravity', model: 'gemini-4-neon' })).toBe(true);
+    expect(memberAvailable(checked(argon(true)), { provider: 'antigravity', model: 'gemini-4-argon' })).toBe(true);
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
+    const lead = buildPlannerPrompt('q', settings, checked(argon(true)));
+    expect(lead).toContain('gemini-4-argon (plan limit reached');
+    expect(lead).toContain('Models marked "plan limit reached" run on paid credits, billed for each turn.');
+  });
+
   it('keeps a Muse Code sign-in without a subscription allowance, billed by use as a key is, but not a signed-out one', () => {
     const now = Date.now();
     const muse = (u: Partial<AccountUsage>): PlannerContext => ({
