@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HandoverInput } from '../src/shared/types';
 import {
+  addressOf,
   framePoint,
   isTap,
   keyInput,
@@ -46,6 +47,24 @@ describe('where a point of the screencast lands on the page', () => {
     expect(framePoint(500, 500, { left: 0, top: 0, width: 1000, height: 500 }, { width: 390, height: 700 })).toEqual({ x: 0.5, y: 1 });
     expect(framePoint(100, 250, { left: 0, top: 0, width: 1000, height: 500 }, { width: 390, height: 700 })).toBeUndefined();
     expect(framePoint(1, 1, box, { width: 0, height: 0 })).toBeUndefined();
+    // Let go of past the frame's edge: at the edge.
+    expect(framePoint(510, 100, box, frame, true)).toEqual({ x: 0.5, y: 0 });
+    expect(framePoint(-50, 2000, box, frame, true)).toEqual({ x: 0, y: 1 });
+  });
+});
+
+describe("what the panel's address bar opens", () => {
+  it('an address with its scheme as it is; this computer and the local network over http, the rest over https', () => {
+    expect(addressOf('localhost:3000')).toBe('http://localhost:3000');
+    expect(addressOf('127.0.0.1:8080/token')).toBe('http://127.0.0.1:8080/token');
+    expect(addressOf('192.168.1.5')).toBe('http://192.168.1.5');
+    expect(addressOf('printer.local/admin')).toBe('http://printer.local/admin');
+    expect(addressOf('[::1]:3000')).toBe('http://[::1]:3000');
+    expect(addressOf('example.com/login')).toBe('https://example.com/login');
+    expect(addressOf('  https://example.com  ')).toBe('https://example.com');
+    // A scheme the server refuses goes as it is, and the server says why.
+    expect(addressOf('file:///etc/hosts')).toBe('file:///etc/hosts');
+    expect(addressOf('   ')).toBeUndefined();
   });
 });
 

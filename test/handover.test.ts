@@ -4,6 +4,7 @@
  * what the agent is told, the browser's launch for a window, the tool's refusals, and the routes the
  * card and the screencast panel use. With a real Chromium: test/browser.test.ts.
  */
+import { spawn } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,7 +29,8 @@ const {
   keyCodeOf,
   ownerAllows,
 } = await import('../src/server/browser/handover');
-const { BrowserService, cookieParams, launchArgs, launchEnv, profilePrefs } = await import('../src/server/browser/session');
+const { BLOCKED_SITE_PERMISSIONS, BrowserService, cookieParams, launchArgs, launchEnv, profilePrefs } =
+  await import('../src/server/browser/session');
 const { browserTools } = await import('../src/server/browser/tools');
 const { ToolGateway } = await import('../src/server/gateway');
 const { AuthStore, CODE_TTL_MS } = await import('../src/server/auth');
@@ -49,13 +51,16 @@ describe('where a hand-over can show the page', () => {
     expect(at({ platform: 'darwin', macGui: () => true })).toBe('server');
     expect(at({ platform: 'linux', env: { DISPLAY: ':0' } })).toBe('server');
     expect(at({ platform: 'linux', env: { WAYLAND_DISPLAY: 'wayland-0' } })).toBe('server');
-    expect(at({ platform: 'win32' })).toBe('server');
+    expect(at({ platform: 'win32', env: { SESSIONNAME: 'Console' } })).toBe('server');
+    expect(at({ platform: 'win32', env: { SESSIONNAME: 'RDP-Tcp#3' } })).toBe('server');
   });
 
   it('offers the screencast alone where it cannot: a Mac reached over SSH, Linux with no display (a codespace, a homelab)', () => {
     expect(at({ platform: 'darwin', macGui: () => false })).toBeUndefined();
     expect(at({ platform: 'linux', env: { SSH_CONNECTION: '1 2 3 4' } })).toBeUndefined();
     expect(at({ platform: 'aix' })).toBeUndefined();
+    // Windows with no one signed in at its desktop: a service in session 0.
+    expect(at({ platform: 'win32' })).toBeUndefined();
   });
 
   it("shows the page's address on its card without its query or fragment, which may carry a token", () => {
@@ -116,6 +121,21 @@ describe("the window's browser", () => {
       signin: { allowed: false },
       search: { suggest_enabled: false },
     });
+    // Site permissions blocked, and a grant a site was given in a window taken back at the next start.
+    const granted = profilePrefs({
+      profile: {
+        default_content_setting_values: { geolocation: 1, images: 1 },
+        content_settings: { exceptions: { geolocation: { 'https://maps.example.com:443,*': { setting: 1 } }, cookies: { x: 1 } } },
+      },
+    }) as {
+      profile: { default_content_setting_values: Record<string, number>; content_settings: { exceptions: Record<string, unknown> } };
+    };
+    for (const k of BLOCKED_SITE_PERMISSIONS) expect(granted.profile.default_content_setting_values[k]).toBe(2);
+    expect(granted.profile.default_content_setting_values.images).toBe(1);
+    expect(granted.profile.content_settings.exceptions.geolocation).toEqual({});
+    expect(granted.profile.content_settings.exceptions.cookies).toEqual({ x: 1 });
+    for (const k of ['media_stream_camera', 'media_stream_mic', 'notifications', 'clipboard', 'usb_guard', 'bluetooth_guard'])
+      expect(BLOCKED_SITE_PERMISSIONS).toContain(k);
   });
 
   it('carries cookies from one start to the next, session cookies without an expiry', () => {
@@ -177,6 +197,13 @@ describe("the screencast panel's input", () => {
     const checked = checkInputs(events);
     expect(Array.isArray(checked) && checked.length).toBe(8);
     expect((checked as HandoverInput[])[5]).toEqual({ type: 'navigate', url: 'https://example.com/a%20b' });
+    // An address the user typed in the panel's address bar says so; any other value is not that.
+    expect(checkInputs([{ type: 'navigate', url: 'http://127.0.0.1:3000/', typed: true }])).toEqual([
+      { type: 'navigate', url: 'http://127.0.0.1:3000/', typed: true },
+    ]);
+    expect(checkInputs([{ type: 'navigate', url: 'http://127.0.0.1:3000/', typed: 'yes' }])).toEqual([
+      { type: 'navigate', url: 'http://127.0.0.1:3000/' },
+    ]);
   });
 
   it('refuses what is out of range or of a kind it does not know', () => {
@@ -305,6 +332,13 @@ describe("a hand-over's ticket", () => {
       const deleted = t.wait(60_000, never);
       all.endAll('c1');
       expect(await deleted).toEqual({ action: 'turn' });
+      // The CLI stopped waiting for the call: looked at every second.
+      let gone = false;
+      const left = t.wait(60_000, never, () => gone);
+      vi.advanceTimersByTime(1000);
+      gone = true;
+      vi.advanceTimersByTime(1000);
+      expect(await left).toEqual({ action: 'gone' });
     } finally {
       vi.useRealTimers();
     }
@@ -364,6 +398,10 @@ describe('what the agent is told', () => {
     expect(handoverOutcome({ end: { action: 'cancel', note: 'not now' }, started: true, page: 'closed', minutes }).text).toBe(
       'The user stopped the hand-over before finishing, saying: "not now". The browser closed with its window: open the page again with browser_open.',
     );
+    expect(handoverOutcome({ end: { action: 'gone' }, started: true, page: 'kept', minutes })).toEqual({
+      text: "The agent's CLI stopped waiting for this call, so the hand-over ended.",
+      isError: true,
+    });
     expect(handoverOutcome({ end: { action: 'timeout' }, started: false, page: 'kept', minutes }).text).toBe(
       'The user did not take over the browser within 15 minutes.',
     );
@@ -546,5 +584,92 @@ describe('the hand-over routes', () => {
     await readUntil('ended');
     expect((await post(`/api/conversations/c1/handovers/${t.id}/input`, { events })).status).toBe(404);
     expect((await app.request(`/api/conversations/c1/handovers/${t.id}/screen`, { headers })).status).toBe(404);
+  });
+});
+
+describe('a call its CLI gave up', () => {
+  /** A tool that waits for the user until its caller is gone, as the hand-over does, and says when it saw that. */
+  const waiting = (seen: string[]) => ({
+    name: 'wait_for_user',
+    group: 'browser' as const,
+    tier: 'read' as const,
+    description: '',
+    inputSchema: {},
+    describe: () => ({ title: '' }),
+    run: async (_a: Record<string, unknown>, _c: unknown, _s: unknown, gone?: () => boolean) => {
+      while (!gone?.()) await new Promise((r) => setTimeout(r, 50));
+      seen.push('gone');
+      return { text: 'given up' };
+    },
+  });
+  const ctx = () =>
+    ({
+      convId: 'c1',
+      agentId: 'a',
+      agentName: 'Alice',
+      messageId: 'm',
+      cwd: root,
+      permission: 'full',
+      unattended: false,
+      signal: new AbortController().signal,
+    }) as never;
+
+  it("ends a call waiting for the user once the CLI cancels it, over HTTP and through the stdio program (MCP's notifications/cancelled)", async () => {
+    const seen: string[] = [];
+    const gateway = new ToolGateway(join(root, 'gw2'), join(root, 'gw2-tmp'), () => process.execPath);
+    gateway.register([waiting(seen)]);
+    await gateway.start();
+    try {
+      // Over HTTP: the cancellation in a request of its own, while the call's request waits.
+      const http = gateway.grant(ctx(), ['browser'], { http: true })!;
+      const post = (body: unknown) =>
+        fetch(http.spec.url, {
+          method: 'POST',
+          headers: { ...http.spec.headers, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      const call = post({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'wait_for_user', arguments: {} } });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(seen).toEqual([]);
+      expect(
+        (await post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 7, reason: 'timed out' } })).status,
+      ).toBe(202);
+      expect(((await (await call).json()) as { result: { content: { text: string }[] } }).result.content[0]!.text).toBe('given up');
+      expect(seen).toEqual(['gone']);
+      http.revoke();
+
+      // Through the program a CLI starts: it passes the cancellation on to the server.
+      const stdio = gateway.grant(ctx(), ['browser'])!;
+      const child = spawn(stdio.spec.command, stdio.spec.args, {
+        env: { ...process.env, ...stdio.spec.env },
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      try {
+        let buffer = '';
+        const answers = new Map<number, (m: unknown) => void>();
+        child.stdout!.setEncoding('utf8');
+        child.stdout!.on('data', (chunk: string) => {
+          buffer += chunk;
+          for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
+            const m = JSON.parse(buffer.slice(0, i)) as { id: number };
+            buffer = buffer.slice(i + 1);
+            answers.get(m.id)?.(m);
+          }
+        });
+        const write = (m: unknown) => child.stdin!.write(JSON.stringify(m) + '\n');
+        const answered = new Promise((r) => answers.set(3, r));
+        write({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'wait_for_user', arguments: {} } });
+        await new Promise((r) => setTimeout(r, 500));
+        expect(seen).toEqual(['gone']);
+        write({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 3 } });
+        expect(JSON.stringify(await answered)).toContain('given up');
+        expect(seen).toEqual(['gone', 'gone']);
+      } finally {
+        child.kill();
+        stdio.revoke();
+      }
+    } finally {
+      await gateway.stop();
+    }
   });
 });

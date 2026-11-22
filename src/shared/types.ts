@@ -2211,8 +2211,11 @@ export type HandoverMode = 'window' | 'screencast';
  */
 export type HandoverStatus = 'pending' | 'active' | 'done' | 'declined' | 'cancelled' | 'expired';
 
-/** How a hand-over ended by itself: its time ran out, the turn ended, or the browser could not be shown. */
-export type HandoverEnded = 'timeout' | 'turn' | 'failed';
+/**
+ * How a hand-over ended by itself: its time ran out, the turn ended, the browser could not be shown, or
+ * the agent's CLI stopped waiting for the call (its own time limit).
+ */
+export type HandoverEnded = 'timeout' | 'turn' | 'failed' | 'gone';
 
 /**
  * Where a hand-over's window opens, when it can: beside the desktop app (`desktop`), or on the computer
@@ -2270,7 +2273,8 @@ export type HandoverInput =
       command?: 'selectAll' | 'undo' | 'redo';
     }
   | { type: 'text'; text: string }
-  | { type: 'navigate'; url: string }
+  /** `typed`: the user typed it in the panel's address bar (not a page's address offered to them). */
+  | { type: 'navigate'; url: string; typed?: boolean }
   | { type: 'history'; to: 'back' | 'forward' | 'reload' }
   | { type: 'viewport'; width: number; height: number; scale?: number };
 

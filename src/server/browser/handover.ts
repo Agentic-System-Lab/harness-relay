@@ -37,8 +37,9 @@ export function macGuiSession(): boolean {
 /**
  * Where a hand-over's window can open, or undefined when this computer cannot show one: beside the desktop
  * app; on a Mac whose server runs in a session signed in at its screen (not one started over SSH); on Linux
- * with a display (`DISPLAY` or `WAYLAND_DISPLAY`); on Windows. A codespace or a server reached over SSH
- * offers the screencast only.
+ * with a display (`DISPLAY` or `WAYLAND_DISPLAY`); on Windows in a session someone signed in to
+ * (`SESSIONNAME`, which a service in session 0 has not). A codespace or a server reached over SSH offers
+ * the screencast only.
  */
 export function handoverWindowAt(o: {
   desktop: boolean;
@@ -47,7 +48,7 @@ export function handoverWindowAt(o: {
   macGui: () => boolean;
 }): HandoverWindowAt | undefined {
   if (o.desktop) return 'desktop';
-  if (o.platform === 'win32') return 'server';
+  if (o.platform === 'win32') return o.env.SESSIONNAME ? 'server' : undefined;
   if (o.platform === 'darwin') return o.macGui() ? 'server' : undefined;
   if (o.platform === 'linux' || o.platform === 'freebsd' || o.platform === 'openbsd')
     return o.env.DISPLAY || o.env.WAYLAND_DISPLAY ? 'server' : undefined;
@@ -67,7 +68,12 @@ export function cardUrl(raw: string): string | undefined {
 
 /** What comes next in a hand-over: the user's answer, the window closed, the time limit, the turn's end, or the browser gone. */
 export type HandoverWake =
-  HandoverAnswer | { action: 'timeout' } | { action: 'turn' } | { action: 'closed' } | { action: 'failed'; error: string };
+  | HandoverAnswer
+  | { action: 'timeout' }
+  | { action: 'turn' }
+  | { action: 'gone' }
+  | { action: 'closed' }
+  | { action: 'failed'; error: string };
 
 /** What the screencast panel's input reaches: the browser showing the page. */
 export interface HandoverScreen {
@@ -93,8 +99,11 @@ export class HandoverTicket {
     readonly modes: readonly HandoverMode[],
   ) {}
 
-  /** What comes next, within `ms`: the user's answer, the window closed, the time limit, or the turn's end. */
-  wait(ms: number, signal: AbortSignal): Promise<HandoverWake> {
+  /**
+   * What comes next, within `ms`: the user's answer, the window closed, the time limit, the turn's end, or
+   * the CLI no longer waiting for the call (`gone`, looked at every second).
+   */
+  wait(ms: number, signal: AbortSignal, gone?: () => boolean): Promise<HandoverWake> {
     if (this.queued) {
       const w = this.queued;
       this.queued = undefined;
@@ -103,6 +112,7 @@ export class HandoverTicket {
     return new Promise((resolve) => {
       const finish = (w: HandoverWake) => {
         clearTimeout(timer);
+        clearInterval(watch);
         signal.removeEventListener('abort', onAbort);
         this.waiter = undefined;
         resolve(w);
@@ -110,6 +120,9 @@ export class HandoverTicket {
       const onAbort = () => finish({ action: 'turn' });
       const timer = setTimeout(() => finish({ action: 'timeout' }), ms);
       timer.unref?.();
+      const watch = setInterval(() => gone?.() && finish({ action: 'gone' }), 1000);
+      watch.unref?.();
+      if (!gone) clearInterval(watch);
       this.waiter = finish;
       if (signal.aborted) onAbort();
       else signal.addEventListener('abort', onAbort, { once: true });
@@ -292,7 +305,7 @@ export function checkInputs(raw: unknown): HandoverInput[] | string {
           return 'an address is not valid';
         }
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https pages open';
-        out.push({ type: 'navigate', url: url.href });
+        out.push({ type: 'navigate', url: url.href, ...(e.typed === true ? { typed: true } : {}) });
         break;
       }
       case 'history':
@@ -452,7 +465,8 @@ export function ownerAllows(nearby: boolean, typed: boolean): boolean {
  */
 export class UserBrowserError extends Error {
   constructor(
-    readonly why: 'unavailable' | 'busy' | 'refused' | 'gone',
+    /** `nearby`: the address leads to this computer or the local network, and the user has not confirmed it. */
+    readonly why: 'unavailable' | 'busy' | 'refused' | 'nearby' | 'gone',
     message: string,
   ) {
     super(message);
@@ -461,8 +475,14 @@ export class UserBrowserError extends Error {
 
 /** What the orchestrator reaches of the browsers for the user alone (`BrowserService`). */
 export interface UserBrowsers {
-  /** Opens one for conversation `convId`, at `url` if given; `onEnd` once it closed. Returns its id. */
-  openForUser(convId: string, o?: { url?: string; onEnd?: () => void }): Promise<string>;
+  /**
+   * Opens one for conversation `convId`, at `url` if given (one that leads to this computer or the local
+   * network only once the user confirmed it, `nearbyConfirmed`: else `UserBrowserError('nearby')`);
+   * `onEnd` once it closed. Returns its id.
+   */
+  openForUser(convId: string, o?: { url?: string; nearbyConfirmed?: boolean; onEnd?: () => void }): Promise<string>;
+  /** Takes one that is open to `url`, as `openForUser()` would open it there. */
+  navigateForUser(convId: string, id: string, url: string, o?: { nearbyConfirmed?: boolean }): Promise<void>;
   /** Whether it is open still. */
   userBrowserOpen(convId: string, id: string): boolean;
   /** The text the user selected on its page (in a field too), or a focused field's whole value; '' for none. */
@@ -540,6 +560,8 @@ export function handoverOutcome(o: {
             isError: true,
           }
         : { text: `The user did not take over the browser within ${minutes.start} minutes.`, isError: true };
+    case 'gone':
+      return { text: "The agent's CLI stopped waiting for this call, so the hand-over ended.", isError: true };
     case 'failed':
       return {
         text: `The browser could not be shown to the user: ${end.error}.${o.page === 'closed' ? ' Open the page again with browser_open.' : ''}`,

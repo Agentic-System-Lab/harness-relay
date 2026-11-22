@@ -167,23 +167,40 @@ describe('secrets cards', () => {
     expect(settings.handoffs.secretNames(orchestrator.handoffFolder(conv))).toEqual([]);
   });
   describe('a browser for the user alone, and Save selection', () => {
-    /** A stand-in for the browsers for the user alone: what each page has selected, by id. */
+    /**
+     * A stand-in for the browsers for the user alone: what each page has selected, by id; the addresses that
+     * lead to this computer or the local network (refused until confirmed); and a gate that holds each
+     * read of a selection, while a test makes something happen meanwhile.
+     */
     const standIn = () => {
       const selected = new Map<string, string>();
       const opened: { convId: string; url?: string; id: string }[] = [];
+      const navigated: { id: string; url: string }[] = [];
       const closed: string[] = [];
       const ends = new Map<string, () => void>();
+      const nearby = new Set<string>();
+      const hold: { read?: Promise<void> } = {};
       let n = 0;
+      const here = (url: string | undefined, confirmed?: boolean) => {
+        if (url && nearby.has(url) && !confirmed) throw new UserBrowserError('nearby', url);
+      };
       const browsers: UserBrowsers = {
         openForUser: async (convId, o = {}) => {
+          here(o.url, o.nearbyConfirmed);
+          await new Promise((r) => setTimeout(r, 20));
           const id = `ub-${++n}`;
           opened.push({ convId, id, ...(o.url ? { url: o.url } : {}) });
           if (o.onEnd) ends.set(id, o.onEnd);
           return id;
         },
+        navigateForUser: async (_convId, id, url, o = {}) => {
+          here(url, o.nearbyConfirmed);
+          navigated.push({ id, url });
+        },
         userBrowserOpen: (_convId, id) => opened.some((b) => b.id === id) && !closed.includes(id),
         selectionOf: async (_convId, id) => {
           if (closed.includes(id)) throw new UserBrowserError('gone', 'it closed');
+          await hold.read;
           return selected.get(id) ?? '';
         },
         closeForUser: async (_convId, id) => {
@@ -192,7 +209,7 @@ describe('secrets cards', () => {
         },
       };
       orchestrator.userBrowsers = browsers;
-      return { selected, opened, closed, ends };
+      return { selected, opened, navigated, closed, ends, nearby, hold };
     };
 
     it("opens it at the address an ask named, keeps what the user selected under the ask's name, and answers once none waits", async () => {
@@ -306,6 +323,99 @@ describe('secrets cards', () => {
       orchestrator.userBrowsers = undefined;
       await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
     });
+
+    /** A chat whose reply asks for `blocks`' secrets, its card waiting. */
+    const asking = async (blocks: string) => {
+      const conv = conversation({ mode: 'relay' });
+      // The blocks in Alice's first reply of this chat; her answer to the user's afterwards.
+      fake.reply = (name, prompt) =>
+        name === 'Alice' && !prompt.includes('gave') && !prompt.includes('will not give') ? blocks : 'Thanks.';
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      return { conv, ...partOf(conv.id, 'secrets') };
+    };
+
+    it('opens an address on this computer or the local network only once the user confirmed it, seen whole', () =>
+      withLang('en', async () => {
+        const { opened, nearby } = standIn();
+        nearby.add('http://192.168.1.20:8080/admin/token');
+        const { conv, msg, part } = await asking('<secret name="ROUTER_TOKEN" url="http://192.168.1.20:8080/admin/token"/>');
+        await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'ROUTER_TOKEN')).rejects.toMatchObject({
+          status: 409,
+          code: 'nearby',
+          message: expect.stringContaining('http://192.168.1.20:8080/admin/token is on this computer or your local network'),
+        });
+        expect(opened).toEqual([]);
+        await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'ROUTER_TOKEN', true);
+        expect(opened).toEqual([{ convId: conv.id, id: 'ub-1', url: 'http://192.168.1.20:8080/admin/token' }]);
+      }));
+
+    it("opens one browser for two opens at once, and takes it to another ask's page, not again to the same one's", async () => {
+      const { opened, navigated } = standIn();
+      const { conv, msg, part } = await asking(
+        '<secret name="A_KEY" url="https://a.example.com/keys"/>\n<secret name="B_KEY" url="https://b.example.com/keys"/>',
+      );
+      const [one, two] = await Promise.all([
+        orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'A_KEY'),
+        orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'A_KEY'),
+      ]);
+      expect(one).toEqual(two);
+      expect(opened).toHaveLength(1);
+      expect(navigated).toEqual([]);
+      await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'B_KEY');
+      expect(navigated).toEqual([{ id: one.handoverId, url: 'https://b.example.com/keys' }]);
+      await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'B_KEY');
+      expect(navigated).toHaveLength(1);
+    });
+
+    it("keeps a branch's copy of the card apart: its own browser, and the original's not saving there", async () => {
+      const { opened, selected } = standIn();
+      const { conv, msg, part } = await asking('<secret name="TOKEN"/>');
+      const original = (await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).handoverId;
+      const branch = await orchestrator.branch(conv.id, msg.id);
+      const copy = branch.messages.find((m) => m.parts.some((p) => p.type === 'secrets'))!;
+      const copied = copy.parts.find((p): p is Extract<MessagePart, { type: 'secrets' }> => p.type === 'secrets')!;
+      expect(copied.id).toBe(part.id);
+      const own = (await orchestrator.openSecretsBrowser(branch.id, copy.id, copied.id)).handoverId;
+      expect(own).not.toBe(original);
+      expect(opened.map((o) => o.convId)).toEqual([conv.id, branch.id]);
+      selected.set(original, 'tok-of-the-original');
+      await expect(orchestrator.saveSecretFromPage(branch.id, copy.id, copied.id, original, 'TOKEN')).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+
+    it('takes one of two saves racing for an ask, and none that a decline on the card overtook, answering the team once', () =>
+      withLang('en', async () => {
+        const { selected, hold } = standIn();
+        const { conv, msg, part } = await asking('<secret name="TOKEN"/>');
+        const id = (await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id)).handoverId;
+        selected.set(id, 'tok-racing-1');
+        let release!: () => void;
+        hold.read = new Promise((r) => (release = r));
+        const saves = [
+          orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, id, 'TOKEN'),
+          orchestrator.saveSecretFromPage(conv.id, msg.id, part.id, id, 'TOKEN'),
+        ];
+        release();
+        const results = await Promise.allSettled(saves);
+        expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+        await finish(conv.id);
+        expect(userTexts(conv.id).filter((t) => t.includes('I gave TOKEN'))).toHaveLength(1);
+
+        // A save whose read the card's own answer overtakes: not kept.
+        const second = await asking('<secret name="OTHER_KEY"/>');
+        const other = (await orchestrator.openSecretsBrowser(second.conv.id, second.msg.id, second.part.id)).handoverId;
+        selected.set(other, 'tok-too-late');
+        hold.read = new Promise((r) => (release = r));
+        const late = orchestrator.saveSecretFromPage(second.conv.id, second.msg.id, second.part.id, other, 'OTHER_KEY');
+        await orchestrator.answerSecrets(second.conv.id, second.msg.id, second.part.id, { decline: true });
+        release();
+        await expect(late).rejects.toMatchObject({ status: 409 });
+        expect(settings.handoffs.values(orchestrator.handoffFolder(second.conv))).not.toHaveProperty('OTHER_KEY');
+        await finish(second.conv.id);
+        expect(userTexts(second.conv.id).filter((t) => t.includes('OTHER_KEY'))).toHaveLength(1);
+      }));
   });
 });
 

@@ -311,6 +311,13 @@ export interface BrowserServiceOptions {
   windowAt?: () => HandoverWindowAt | undefined;
   /** How long the user has to start a hand-over, then to hand it back (`HANDOVER_LIMITS`; tests give shorter ones). */
   handoverMs?: { start: number; use: number };
+  /** How many browsers for the user alone may be open at once (`USER_BROWSERS_MAX`; tests give fewer). */
+  userBrowsersMax?: number;
+  /**
+   * Tests only: a hand-over's window started headless, with the window's rules (its own tabs closed, the
+   * browser's own pages sent back), so that they run where no window may open.
+   */
+  windowHeadless?: boolean;
 }
 
 /** One conversation's browser. */
@@ -365,6 +372,8 @@ class BrowserSession {
   owner?: 'user';
   /** Of a browser for the user alone: the hosts the user typed in its address bar, which may be on this computer or the local network. */
   readonly typed = new Set<string>();
+  /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
+  resume?: string;
 
   constructor(
     readonly cdp: CdpConnection,
@@ -506,21 +515,93 @@ export function launchArgs(o: {
 }
 
 /**
+ * The site permissions a page could ask for (Chromium's content settings, as its profile's preferences
+ * name them): blocked by default in every browser of Harness Relay's, and whatever a site was allowed (in
+ * a hand-over's window, through its page info) taken back each time the browser starts, so that a grant the
+ * user gave there never reaches the agents' headless browser. The clipboard's is reading it; writing (a
+ * page's Copy button) stays as Chromium has it.
+ */
+export const BLOCKED_SITE_PERMISSIONS = [
+  'geolocation',
+  'notifications',
+  'media_stream_camera',
+  'media_stream_mic',
+  'midi_sysex',
+  'clipboard',
+  'sensors',
+  'usb_guard',
+  'serial_guard',
+  'hid_guard',
+  'bluetooth_guard',
+  'bluetooth_scanning',
+  'file_system_write_guard',
+  'idle_detection',
+  'window_placement',
+  'local_fonts',
+  'protocol_handlers',
+  'payment_handler',
+  'automatic_downloads',
+  'vr',
+  'ar',
+  'keyboard_lock',
+  'pointer_lock',
+  'captured_surface_control',
+] as const;
+
+/**
+ * The same permissions as Chromium's DevTools protocol names them (`Browser.setPermission`): denied for
+ * every site of a browser of Harness Relay's as it starts, whatever its profile says.
+ */
+export const DENIED_PERMISSIONS = [
+  'geolocation',
+  'notifications',
+  'camera',
+  'microphone',
+  'midi',
+  'clipboard-read',
+  'accelerometer',
+  'gyroscope',
+  'magnetometer',
+  'ambient-light-sensor',
+  'idle-detection',
+  'window-management',
+  'local-fonts',
+  'display-capture',
+  'keyboard-lock',
+  'pointer-lock',
+] as const;
+
+/**
  * The profile's preferences: Chromium's page preloading off (`network_prediction_options` 2, "never"):
  * no prefetch or prerender, which speculation rules and `<link rel=prefetch>` ask of the browser itself,
- * outside the page (they would go through the proxy all the same; this makes no request at all). And
- * for a hand-over's window (`handover.ts`), where the user types into pages: no password manager or
- * autofill keeping what they type in the profile, no signing in to the browser itself, and no search
- * suggestions sending what is typed in the address bar.
+ * outside the page (they would go through the proxy all the same; this makes no request at all). The site
+ * permissions blocked, and those a site was given taken back (`BLOCKED_SITE_PERMISSIONS`). And for a
+ * hand-over's window (`handover.ts`), where the user types into pages: no password manager or autofill
+ * keeping what they type in the profile, no signing in to the browser itself, and no search suggestions
+ * sending what is typed in the address bar.
  */
 export function profilePrefs(prefs: Record<string, unknown>): Record<string, unknown> {
   const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  const profile = obj(prefs.profile);
+  const settings = obj(profile.content_settings);
+  const exceptions = obj(settings.exceptions);
   return {
     ...prefs,
     net: { ...obj(prefs.net), network_prediction_options: 2 },
     credentials_enable_service: false,
     credentials_enable_autosignin: false,
-    profile: { ...obj(prefs.profile), password_manager_enabled: false },
+    profile: {
+      ...profile,
+      password_manager_enabled: false,
+      default_content_setting_values: {
+        ...obj(profile.default_content_setting_values),
+        ...Object.fromEntries(BLOCKED_SITE_PERMISSIONS.map((k) => [k, 2])),
+      },
+      content_settings: {
+        ...settings,
+        exceptions: { ...exceptions, ...Object.fromEntries(BLOCKED_SITE_PERMISSIONS.map((k) => [k, {}])) },
+      },
+    },
     autofill: { ...obj(prefs.autofill), profile_enabled: false, credit_card_enabled: false },
     signin: { ...obj(prefs.signin), allowed: false },
     search: { ...obj(prefs.search), suggest_enabled: false },
@@ -670,6 +751,9 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
   }
 }
 
+/** How soon a hand-over's window that is gone never reached the user (no display it could open on, say). */
+const WINDOW_QUICK_EXIT_MS = 5000;
+
 /** A tab's frames, as `Page.getFrameTree` gives them. */
 interface FrameTree {
   frame: { id: string };
@@ -735,6 +819,8 @@ export class BrowserService {
   readonly handovers = new Handovers();
   /** The browsers for the user alone, by their id (their hand-over's): in none of the conversations' sessions. */
   private readonly forUser = new Map<string, { convId: string; s: BrowserSession; ticket: HandoverTicket; ended: Promise<void> }>();
+  /** Browsers for the user alone being started: their places are taken at once, so that two at a time cannot pass the limit. */
+  private opening = 0;
   private readonly handoverMs: { start: number; use: number };
 
   constructor(private o: BrowserServiceOptions) {
@@ -821,7 +907,12 @@ export class BrowserService {
     const password = this.proxy.issue();
     const abort = new AbortController();
     let pipes: { write: Duplex; read: Duplex } | undefined;
-    const args = launchArgs({ profile, proxyPort: this.proxy.port, window: o.window, root: process.getuid?.() === 0 });
+    const args = launchArgs({
+      profile,
+      proxyPort: this.proxy.port,
+      window: o.window && !this.o.windowHeadless,
+      root: process.getuid?.() === 0,
+    });
     const exited = runProcess({
       bin,
       args,
@@ -853,6 +944,9 @@ export class BrowserService {
     void exited.then(gone, gone);
     try {
       await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }).catch(() => undefined);
+      // No site gets a device, the location, notifications or the clipboard's contents, whatever its profile says.
+      for (const name of DENIED_PERMISSIONS)
+        await cdp.send('Browser.setPermission', { permission: { name }, setting: 'denied' }).catch(() => undefined);
       // What a hand-over carried over: the cookies (the session's, which a restart loses, among them).
       if (carry?.cookies?.length) await setCookies(cdp, carry.cookies);
       const { targetInfos } = await cdp.send<{ targetInfos: { targetId: string; type: string }[] }>('Target.getTargets');
@@ -871,6 +965,8 @@ export class BrowserService {
       session.convId = convId;
       session.windowed = Boolean(o.window);
       if (o.owner) session.owner = o.owner;
+      // A window a turn's end cut short: the next call opens again the page it was on (`with()`).
+      if (carry?.url) session.resume = carry.url;
       for (const [key, g] of carry?.granted ?? []) session.granted.set(key, g);
       const s = session;
       this.byPassword.set(password, s);
@@ -1073,11 +1169,13 @@ export class BrowserService {
    * Runs `fn` on the conversation's browser, as the call `ctx` (whom to ask about a new host), once
    * the calls before it ended: the agents of a conversation share its one tab.
    */
-  private async with<T>(ctx: GatewayContext, fn: (s: BrowserSession) => Promise<T>): Promise<T> {
+  private async with<T>(ctx: GatewayContext, fn: (s: BrowserSession) => Promise<T>, o: { navigates?: boolean } = {}): Promise<T> {
     const before = this.queues.get(ctx.convId) ?? Promise.resolve();
     const turn = before.then(async () => {
       if (ctx.signal.aborted) throw new Error('The turn ended');
       const s = await this.session(ctx.convId);
+      const resume = s.resume;
+      s.resume = undefined;
       s.current = ctx;
       s.call = { asking: 0 };
       s.denied = undefined;
@@ -1086,6 +1184,8 @@ export class BrowserService {
       // Held for the whole call, also while the user is asked about a host (as long as the turn lasts).
       s.hold();
       try {
+        // The page a hand-over's window was on, opened again as this call (its hosts, its questions), unless the call opens another.
+        if (resume && !o.navigates) await this.goTo(s, ctx, resume).catch(() => undefined);
         return await fn(s);
       } finally {
         s.current = undefined;
@@ -1261,10 +1361,14 @@ export class BrowserService {
 
   async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
     await this.refuseBlocked(url);
-    return this.with(ctx, async (s) => {
-      await this.goTo(s, ctx, url);
-      return this.withNotes(s, await this.read(s));
-    });
+    return this.with(
+      ctx,
+      async (s) => {
+        await this.goTo(s, ctx, url);
+        return this.withNotes(s, await this.read(s));
+      },
+      { navigates: true },
+    );
   }
 
   async snapshot(ctx: GatewayContext): Promise<PageSnapshot> {
@@ -1378,7 +1482,13 @@ export class BrowserService {
    * or as a screencast, or declines. Returns only how it ended and the user's note (`handoverOutcome()`).
    * Refused where nobody can be asked: a run nobody watches, a conversation that refuses requests.
    */
-  async handOver(ctx: GatewayContext, reason: string, url?: string): Promise<{ text: string; isError?: boolean }> {
+  async handOver(
+    ctx: GatewayContext,
+    reason: string,
+    url?: string,
+    /** Whether the CLI stopped waiting for the call (its own time limit): the hand-over ends then too. */
+    gone?: () => boolean,
+  ): Promise<{ text: string; isError?: boolean }> {
     const card = ctx.handoverCard;
     if (!card || ctx.unattended || !ctx.ask) return { text: HANDOVER_UNASKED, isError: true };
     if (url) await this.refuseBlocked(url);
@@ -1405,13 +1515,17 @@ export class BrowserService {
         });
         const minutes = { start: Math.round(limits.start / 60_000), use: Math.round(limits.use / 60_000) };
         try {
-          const answer = await ticket.wait(limits.start, ctx.signal);
+          const answer = await ticket.wait(limits.start, ctx.signal, gone);
           if (answer.action !== 'start') {
             const note = answer.action === 'cancel' ? clipNote(answer.note) : undefined;
             shown.update(
               answer.action === 'cancel'
                 ? { status: 'declined', ...(note ? { note } : {}), deadline: undefined }
-                : { status: 'expired', ended: answer.action === 'turn' ? 'turn' : 'timeout', deadline: undefined },
+                : {
+                    status: 'expired',
+                    ended: answer.action === 'turn' ? 'turn' : answer.action === 'gone' ? 'gone' : 'timeout',
+                    deadline: undefined,
+                  },
             );
             if (answer.action === 'turn') throw new Error('The turn ended');
             return handoverOutcome({
@@ -1425,12 +1539,17 @@ export class BrowserService {
           shown.update({ status: 'active', mode: answer.mode, deadline: Date.now() + limits.use });
           let end: HandoverWake;
           let where: 'kept' | 'reopened' | 'closed' = 'kept';
-          if (answer.mode === 'screencast') end = await this.screencast(s, ticket, ctx.signal, limits.use);
-          else {
-            const r = await this.inWindow(s, ticket, ctx, limits.use);
-            end = r.end;
-            where = r.page;
-            live = r.session;
+          try {
+            if (answer.mode === 'screencast') end = await this.screencast(s, ticket, ctx.signal, limits.use, gone);
+            else {
+              const r = await this.inWindow(s, ticket, ctx, limits.use, gone);
+              end = r.end;
+              where = r.page;
+              live = r.session;
+            }
+          } catch (err) {
+            // The browser could not be shown (its screencast would not start, say): the card says so.
+            end = { action: 'failed', error: (err as Error).message };
           }
           // The browser ended under the screencast: the page is gone with it.
           if (end.action === 'failed') where = 'closed';
@@ -1438,8 +1557,9 @@ export class BrowserService {
           shown.update({
             status: end.action === 'done' || end.action === 'closed' ? 'done' : end.action === 'cancel' ? 'cancelled' : 'expired',
             ...(note ? { note } : {}),
-            ...(end.action === 'timeout' ? { ended: 'timeout' } : end.action === 'turn' ? { ended: 'turn' } : {}),
-            ...(end.action === 'failed' ? { ended: 'failed' } : {}),
+            ...(end.action === 'timeout' || end.action === 'turn' || end.action === 'gone' || end.action === 'failed'
+              ? { ended: end.action }
+              : {}),
             deadline: undefined,
           });
           if (end.action === 'turn') throw new Error('The turn ended');
@@ -1468,7 +1588,13 @@ export class BrowserService {
    * back, cancel, the time runs out (`ms`) or the turn ends. Then the page is as the user left it, at the
    * size the agents' calls have.
    */
-  private async screencast(s: BrowserSession, ticket: HandoverTicket, signal: AbortSignal, ms: number): Promise<HandoverWake> {
+  private async screencast(
+    s: BrowserSession,
+    ticket: HandoverTicket,
+    signal: AbortSignal,
+    ms: number,
+    gone?: () => boolean,
+  ): Promise<HandoverWake> {
     let frame = { width: 1280, height: 900 };
     let size: { width: number; height: number; scale: number } | undefined;
     const start = () =>
@@ -1519,9 +1645,10 @@ export class BrowserService {
               // a host the chat's browser has not opened asks (below full access), the gate's question.
               try {
                 await this.refuseBlocked(e.url);
-                // In a browser for the user alone, an address they typed may be on this computer or the local network.
+                // In a browser for the user alone, an address they typed may be on this computer or the local
+                // network; one a page offered (a window it opened: "Open it here") may not.
                 const key = approvalKeys('fetch', e.url)[0];
-                if (s.owner === 'user' && key) s.typed.add(key);
+                if (s.owner === 'user' && key && e.typed) s.typed.add(key);
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
@@ -1535,13 +1662,14 @@ export class BrowserService {
     try {
       await start();
       await this.location(s, ticket);
-      return await ticket.wait(ms, signal);
+      return await ticket.wait(ms, signal, gone);
     } finally {
       ticket.screen = undefined;
       s.onPopup = undefined;
       s.onRefused = undefined;
       for (const [event, on] of handlers) s.cdp.off(event, on);
-      await inputs.catch(() => undefined);
+      // What the user did last reaches the page, unless it takes long (a browser that stopped answering).
+      await Promise.race([inputs.catch(() => undefined), new Promise((r) => setTimeout(r, 5000).unref())]);
       await s.send('Page.stopScreencast').catch(() => undefined);
       if (size) await s.send('Emulation.clearDeviceMetricsOverride').catch(() => undefined);
     }
@@ -1570,6 +1698,7 @@ export class BrowserService {
     ticket: HandoverTicket,
     ctx: GatewayContext,
     ms: number,
+    gone?: () => boolean,
   ): Promise<{ end: HandoverWake; page: 'kept' | 'reopened' | 'closed'; session: BrowserSession | undefined }> {
     const convId = ctx.convId;
     const callGranted = new Map(s.callGranted);
@@ -1586,11 +1715,17 @@ export class BrowserService {
     w.current = ctx;
     for (const [k, g] of callGranted) w.callGranted.set(k, g);
     w.hold();
+    // A window that is gone within seconds never reached the user (no display it could open on, say): not handed back.
+    const openedAt = Date.now();
+    const closed = (): HandoverWake =>
+      Date.now() - openedAt < WINDOW_QUICK_EXIT_MS
+        ? { action: 'failed', error: 'the window closed as soon as it opened' }
+        : { action: 'closed' };
     const handlers: [string, (p: Record<string, unknown>, sid?: string) => void][] = [
       [
         // The tab closed: the user closed the window (or the browser).
         'Target.detachedFromTarget',
-        (p) => p.sessionId === w.sessionId && ticket.wake({ action: 'closed' }),
+        (p) => p.sessionId === w.sessionId && ticket.wake(closed()),
       ],
       [
         'Page.frameNavigated',
@@ -1613,7 +1748,7 @@ export class BrowserService {
       ],
     ];
     for (const [event, on] of handlers) w.cdp.on(event, on);
-    void w.exited.then(() => ticket.wake({ action: 'closed' }));
+    void w.exited.then(() => ticket.wake(closed()));
     // What the user signs in to, now and then: the window may close before it is asked once more.
     const keep = setInterval(() => void cookiesOf(w).then((c) => (cookies = c ?? cookies)), 5000);
     keep.unref();
@@ -1621,18 +1756,20 @@ export class BrowserService {
     try {
       if (lastWeb) void w.send('Page.navigate', { url: lastWeb }, CONFIG.turnTimeoutMs).catch(() => undefined);
       await w.send('Page.bringToFront').catch(() => undefined);
-      end = await ticket.wait(ms, ctx.signal);
+      end = await ticket.wait(ms, ctx.signal, gone);
     } finally {
       clearInterval(keep);
       for (const [event, on] of handlers) w.cdp.off(event, on);
     }
     cookies = (await cookiesOf(w)) ?? cookies;
-    this.carried.set(convId, { granted: new Map(w.granted), cookies, url: lastWeb });
+    // Once the turn is over (or its caller gone), the next call opens it again, at the page the window was
+    // on (`resume`); until then, the call does.
+    const later = end.action === 'turn' || end.action === 'gone';
+    this.carried.set(convId, { granted: new Map(w.granted), cookies, ...(later && lastWeb ? { url: lastWeb } : {}) });
     w.current = undefined;
     w.release();
     await this.shut(convId);
-    // Once the turn is over, the next call opens it again; until then, the call does, at the page the window was on.
-    if (end.action === 'turn') return { end, page: 'closed', session: undefined };
+    if (later) return { end, page: 'closed', session: undefined };
     let h: BrowserSession;
     try {
       h = await this.session(convId);
@@ -1662,40 +1799,45 @@ export class BrowserService {
    * conversation is deleted, or at shutdown (a stopped server's are removed at the next start); then
    * `onEnd`. Returns its id.
    */
-  async openForUser(convId: string, o: { url?: string; onEnd?: () => void } = {}): Promise<string> {
+  async openForUser(convId: string, o: { url?: string; nearbyConfirmed?: boolean; onEnd?: () => void } = {}): Promise<string> {
     const missing = this.unavailable();
     if (missing) throw new UserBrowserError('unavailable', missing);
-    if (this.forUser.size >= USER_BROWSERS_MAX) throw new UserBrowserError('busy', `at most ${USER_BROWSERS_MAX} at once`);
-    if (o.url)
-      await this.refuseBlocked(o.url).catch((err: Error) => {
-        throw new UserBrowserError('refused', err.message);
-      });
-    const ticket = this.handovers.create(convId, ['screencast']);
-    ticket.mode = 'screencast';
-    ticket.status = 'active';
-    const profile = join(this.userProfiles(), ticket.id);
+    const max = this.o.userBrowsersMax ?? USER_BROWSERS_MAX;
+    // Its place taken before anything waits, so that two opened at once cannot both pass the limit.
+    if (this.forUser.size + this.opening >= max) throw new UserBrowserError('busy', `at most ${max} at once`);
+    this.opening++;
+    let ticket: HandoverTicket | undefined;
     let s: BrowserSession;
+    let profile: string;
     try {
+      const typed = o.url ? await this.userAddress(o.url, o.nearbyConfirmed) : undefined;
+      ticket = this.handovers.create(convId, ['screencast']);
+      ticket.mode = 'screencast';
+      ticket.status = 'active';
+      profile = join(this.userProfiles(), ticket.id);
       s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user' }, () => false);
+      if (typed) s.typed.add(typed);
     } catch (err) {
-      this.handovers.remove(ticket);
-      removeTree(profile);
+      this.opening--;
+      if (ticket) {
+        this.handovers.remove(ticket);
+        removeTree(join(this.userProfiles(), ticket.id));
+      }
       throw err;
     }
     // No idle time: it closes when the user closes it, or at its time limit.
     s.hold();
-    const key = o.url ? approvalKeys('fetch', o.url)[0] : undefined;
-    if (key) s.typed.add(key);
+    const t = ticket;
     const ended = (async () => {
       try {
         if (o.url) void s.send('Page.navigate', { url: o.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
         // No turn to end it: the user, its time limit, the conversation's deletion (`endAll()`) or shutdown.
-        await this.screencast(s, ticket, new AbortController().signal, this.handoverMs.use);
+        await this.screencast(s, t, new AbortController().signal, this.handoverMs.use);
       } catch {
         /* it ends all the same */
       } finally {
-        this.forUser.delete(ticket.id);
-        this.handovers.remove(ticket);
+        this.forUser.delete(t.id);
+        this.handovers.remove(t);
         s.release();
         s.stop();
         await Promise.race([s.exited, new Promise((r) => setTimeout(r, 10_000).unref())]);
@@ -1703,8 +1845,43 @@ export class BrowserService {
         o.onEnd?.();
       }
     })();
-    this.forUser.set(ticket.id, { convId, s, ticket, ended });
-    return ticket.id;
+    this.forUser.set(t.id, { convId, s, ticket: t, ended });
+    this.opening--;
+    return t.id;
+  }
+
+  /**
+   * An address a browser for the user alone is opened at (a secrets card's): never one no browser of
+   * Harness Relay's opens; one that leads to this computer or the local network only once the user
+   * confirmed it, having seen it whole (`UserBrowserError('nearby')` until then), and then as if typed
+   * (`typed`, which `ownerAllows()` takes). Returns that key, or undefined for one on the internet.
+   */
+  private async userAddress(url: string, confirmed?: boolean): Promise<string | undefined> {
+    await this.refuseBlocked(url).catch((err: Error) => {
+      throw new UserBrowserError('refused', err.message);
+    });
+    if (!(await this.leadsHere(url))) return undefined;
+    if (!confirmed) throw new UserBrowserError('nearby', url);
+    return approvalKeys('fetch', url)[0];
+  }
+
+  /** Whether `url` leads to this computer or the local network (its host, or the addresses its name has). */
+  async leadsHere(url: string): Promise<boolean> {
+    let host: string;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      return false;
+    }
+    return leadsNearby(host, await this.addresses(url), this.o.own?.() ?? []);
+  }
+
+  async navigateForUser(convId: string, id: string, url: string, o: { nearbyConfirmed?: boolean } = {}): Promise<void> {
+    const u = this.forUser.get(id);
+    if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
+    const typed = await this.userAddress(url, o.nearbyConfirmed);
+    if (typed) u.s.typed.add(typed);
+    void u.s.send('Page.navigate', { url }, CONFIG.turnTimeoutMs).catch(() => undefined);
   }
 
   userBrowserOpen(convId: string, id: string): boolean {

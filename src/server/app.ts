@@ -2584,11 +2584,16 @@ export function createApp({
   });
 
   // A secrets card's browser for the user alone (for a page that shows a secret): opened at the address the
-  // ask `name` named, or blank; the same one while it is open. Shown through the hand-over routes above.
+  // ask `name` named, or blank; the same one while it is open (taken to that address). An address on this
+  // computer or the local network is a 409 (`code: 'nearby'`) until the user confirms it. Shown through the
+  // hand-over routes above.
   app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/browser', async (c) => {
-    const b = await body<{ name?: unknown }>(c);
+    const b = await body<{ name?: unknown; confirm?: unknown }>(c);
     if (b.name !== undefined && typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
-    return c.json(await orchestrator.openSecretsBrowser(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.name));
+    // `confirm`: the user saw an address on this computer or the local network whole, and opens it all the same.
+    return c.json(
+      await orchestrator.openSecretsBrowser(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.name, b.confirm === true),
+    );
   });
 
   // Save selection as a secret: what the user selected on that browser's page, read and kept by the

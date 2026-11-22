@@ -463,11 +463,11 @@ export const api = {
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
   /** Opens a browser for the user alone for a secrets card (at the address its ask `name` named): its hand-over id. */
-  openSecretsBrowser: (id: string, messageId: string, partId: string, name?: string) =>
+  openSecretsBrowser: (id: string, messageId: string, partId: string, name?: string, confirm = false) =>
     request<{ handoverId: string }>(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/browser`,
-      name === undefined ? {} : { name },
+      { ...(name === undefined ? {} : { name }), ...(confirm ? { confirm: true } : {}) },
     ),
   /** Save selection as a secret: the server reads what is selected in that browser and keeps it under `name`. */
   saveSecretSelection: (id: string, messageId: string, partId: string, handoverId: string, name: string) =>

@@ -139,11 +139,11 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       },
       describe: (a) => ({ title: t().gw.handOver(String(a.reason ?? '')) }),
       unavailable,
-      run: async (a, ctx) => {
+      run: async (a, ctx, _scope, gone) => {
         const reason = String(a.reason ?? '').trim();
         if (!reason) return { text: 'reason is required: say what the user should do on the page', isError: true };
         const url = typeof a.url === 'string' && a.url.trim() ? a.url.trim() : undefined;
-        return browser.handOver(ctx, reason, url);
+        return browser.handOver(ctx, reason, url, gone);
       },
     },
     {
