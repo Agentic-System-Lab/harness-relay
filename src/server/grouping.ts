@@ -145,7 +145,8 @@ export function parseGroupReply(text: string, groups: ConversationGroup[], struc
 
 /** Sorts new conversations into the user's groups, in the background. */
 export class AutoGrouper {
-  private runs = new Map<string, { abort: AbortController; done: Promise<void> }>();
+  /** Each run under way; `sorts`: it sorts the conversation into a group (not only names it). */
+  private runs = new Map<string, { abort: AbortController; done: Promise<void>; sorts: boolean }>();
   private closing = false;
 
   constructor(
@@ -159,9 +160,9 @@ export class AutoGrouper {
     private onTitle?: (conv: Conversation) => void,
   ) {}
 
-  /** The lead agent is sorting this conversation right now. */
+  /** The lead agent is sorting this conversation into a group right now (not only naming it). */
   isSorting(convId: string): boolean {
-    return this.runs.has(convId);
+    return Boolean(this.runs.get(convId)?.sorts);
   }
 
   /** The lead agent is sorting some conversation. */
@@ -169,7 +170,7 @@ export class AutoGrouper {
     return this.runs.size > 0;
   }
 
-  /** The conversations the lead agent is sorting right now. */
+  /** The conversations the lead agent is sorting or naming right now (both count as work under way). */
   sorting(): string[] {
     return [...this.runs.keys()];
   }
@@ -189,7 +190,7 @@ export class AutoGrouper {
         if (!abort.signal.aborted) console.warn('[grouping] could not sort or name the conversation:', (err as Error).message);
       })
       .finally(() => this.runs.delete(conv.id));
-    this.runs.set(conv.id, { abort, done });
+    this.runs.set(conv.id, { abort, done, sorts: groups.length > 0 });
   }
 
   /** `titled`: the title to replace, when it is still the conversation's once the lead agent answers. */
@@ -379,10 +380,12 @@ export function decideOrganize(
   }
   const created: { key: string; name: string; n: number }[] = [];
   const room = Math.max(0, GROUP_LIMITS.maxGroups - groups.length);
+  // Nor a name a group has now: the user may leave its rename out, and the two would then clash.
+  const now = new Set(groups.map((g) => g.name.toLowerCase()));
   (Array.isArray(raw.create) ? raw.create : []).forEach((c: any, i: number) => {
     if (created.length >= room) return;
     const name = tryName(c?.name);
-    if (!name) return;
+    if (!name || now.has(name.toLowerCase())) return;
     const key = `new-${created.length + 1}`;
     created.push({ key, name, n: groups.length + i + 1 });
     taken.push({ id: key, name });

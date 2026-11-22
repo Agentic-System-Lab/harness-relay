@@ -5414,12 +5414,14 @@ export class Orchestrator {
       if (state.sessionId && !keptOldSession) state.seen.push(msg.id);
       msg.status = aborted ? 'aborted' : 'error';
       msg.error = aborted ? undefined : (err as Error).message;
-      // Notes the reply finished writing before it stopped are kept too.
+      // Notes the reply finished writing before it stopped are kept too, and so is a schedule it proposed
+      // (its card is the user's to take or leave; its block never shows as text).
       try {
         this.takeMemory(conv, msg, agent);
       } catch (memoryErr) {
         console.warn('[orchestrator] could not record memory notes:', (memoryErr as Error).message);
       }
+      takeSchedule(msg);
       // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
       const spent = err instanceof AgentRunError ? err.usage : undefined;
       msg.meta = {

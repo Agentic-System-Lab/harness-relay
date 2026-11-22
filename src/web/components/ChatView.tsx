@@ -1351,6 +1351,8 @@ function TeamDrawer({
   const [saving, setSaving] = useState(false);
   /** The lead agent is changing the team at the user's request. */
   const [revising, setRevising] = useState(false);
+  /** The lead agent writes the team checks (in the editor's advanced settings): Save waits for it. */
+  const [checksDrafting, setChecksDrafting] = useState(false);
   // Auto team: there are members to edit once the lead agent has designed a team.
   const members = !conv.settings.autoTeam || current.agents.length > 0;
   const problems = teamProblems(team, t, { members, maxAgents: maxTeamAgents });
@@ -1445,6 +1447,7 @@ function TeamDrawer({
             leadLabel={leadText}
             schedule={conv.schedule}
             convId={conv.id}
+            onDrafting={setChecksDrafting}
             checksEditorVersion={checksEditorVersion}
           />
         </fieldset>
@@ -1470,7 +1473,7 @@ function TeamDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || revising || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
+            disabled={saving || revising || checksDrafting || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
             onClick={save}
           >
             {t.common.save}

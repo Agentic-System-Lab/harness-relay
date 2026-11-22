@@ -69,14 +69,21 @@ export function splitSchedule(text: string): { text: string; proposal?: Schedule
   let proposal: ScheduleProposal | undefined;
   for (const b of found) proposal = readProposal(parseJson(b.body)) ?? proposal;
   if (!proposal) return { text };
-  let out = '';
+  // The text around each block, joined with one blank line where both sides have some: what the agent
+  // wrote elsewhere (a code block's empty lines) stays as it is.
+  const pieces: string[] = [];
   let at = 0;
   for (const b of found) {
-    out += text.slice(at, b.start);
+    pieces.push(text.slice(at, b.start));
     at = b.end;
   }
-  out += text.slice(at);
-  return { text: out.replace(/\n{3,}/g, '\n\n').trim(), proposal };
+  pieces.push(text.slice(at));
+  const out = pieces.reduce((all, piece) => {
+    const head = all.replace(/\s+$/, '');
+    const tail = piece.replace(/^\s+/, '');
+    return head && tail ? `${head}\n\n${tail}` : head || tail;
+  });
+  return { text: out.trim(), proposal };
 }
 
 /** A reply's text as it streams: its finished `<schedule>` blocks, and one still being written at its end, left out. */
@@ -158,8 +165,9 @@ function readRepeat(raw: unknown): ScheduleProposalRepeat | undefined {
     case 'manual':
       return { kind };
     case 'once': {
-      const at = typeof r.at === 'string' ? r.at.trim() : '';
-      return LOCAL_RE.test(at) ? { kind, at: at.replace(' ', 'T') } : undefined;
+      const at = (typeof r.at === 'string' ? r.at.trim() : '').replace(' ', 'T');
+      // A real date and time (not 30 February, nor 25:99), wherever it is read.
+      return localMoment(at, 'UTC') !== undefined ? { kind, at } : undefined;
     }
     case 'daily':
       return time ? { kind, time } : undefined;
@@ -207,7 +215,9 @@ export function localMoment(at: string, timeZone: string): number | undefined {
   const m = LOCAL_RE.exec(at);
   if (!m) return undefined;
   const [year, month, day, hour, minute] = m.slice(1).map(Number) as [number, number, number, number, number];
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return undefined;
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59) return undefined;
+  // A day the month has (30 February would roll over into March).
+  if (day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return undefined;
   const ms = zonedTime(year, month, day, hour, minute, timeZone);
   return Number.isFinite(ms) ? ms : undefined;
 }

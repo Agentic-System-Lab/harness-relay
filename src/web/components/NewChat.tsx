@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   cwdSettings,
   cwdsOf,
@@ -104,6 +104,16 @@ export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, s
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const [defaults, setDefaults] = useState<Team | null>(null);
   const [loadError, setLoadError] = useState('');
+  /** The lead agent writes the team checks: the chat cannot be started meanwhile. */
+  const [drafting, setDrafting] = useState(false);
+  /** The draft now: what the lead agent writes lands on it, not on the draft as it was when it was asked. */
+  const latest = useRef(draft);
+  latest.current = draft;
+  const update = (patch: Partial<NewChatDraft>) => {
+    const next = { ...latest.current, ...patch };
+    latest.current = next;
+    onDraft(next);
+  };
 
   const team = draft.team ?? defaults;
   const appChoices = useDraftApps(appStatus, draft.apps ?? [], (apps) => onDraft({ ...draft, apps }), team?.settings.permission);
@@ -177,7 +187,7 @@ export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, s
       problem={problems[0]}
       onSubmit={start}
       submitLabel={busy ? t.newChat.creating : t.newChat.sendQuestion}
-      disabled={!canStart}
+      disabled={!canStart || drafting}
     >
       <label className="first-question" htmlFor="first-question">
         {t.newChat.question}
@@ -195,12 +205,13 @@ export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, s
       />
       <CreationOptions
         team={team}
-        onTeam={(next) => onDraft({ ...draft, team: next })}
+        onTeam={(next) => update({ team: next })}
         providers={providers}
         catalog={catalog}
         title={draft.title}
-        onTitle={(title) => onDraft({ ...draft, title })}
+        onTitle={(title) => update({ title })}
         titlePlaceholder={t.newChat.titlePlaceholder}
+        onDrafting={setDrafting}
       />
       <TemplateLibrary providers={providers} catalog={catalog} />
       <CreationTeamOptions team={team} onTeam={(next) => onDraft({ ...draft, team: next })} automaticLabel={t.newChat.startImmediately} />

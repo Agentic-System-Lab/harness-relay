@@ -393,13 +393,8 @@ function ScheduleCard({
             <dd>{p.goal}</dd>
           </div>
         )}
-        {p.newChat && (
-          <div>
-            <dt />
-            <dd>{t.proposal.newChat}</dd>
-          </div>
-        )}
       </dl>
+      {p.newChat && <p className="small">{t.proposal.newChat}</p>}
       {error && <p className="error-line">{error}</p>}
       {waiting && (
         <>

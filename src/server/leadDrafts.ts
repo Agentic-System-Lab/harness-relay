@@ -1,5 +1,8 @@
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { validTimeZone } from '../shared/schedule';
 import {
+  PROVIDERS,
   REVISE_REQUEST_MAX,
   cwdsOf,
   type ChecksDraftRequest,
@@ -32,9 +35,9 @@ import {
   teamSettings,
   type PlannerContext,
 } from './planner';
-import { relayTmpDir } from './protect';
+import { RUN_TMP_PREFIXES } from './protect';
 import { SCHEDULE_BRIEFING, SCHEDULE_SCHEMA, buildSchedulePrompt, decideSchedule } from './scheduleDraft';
-import type { SettingsStore } from './settings';
+import { DATA_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import { serverTimeZone, validDirectories, validateAgents, validateChecks } from './validate';
 
@@ -44,8 +47,10 @@ import { serverTimeZone, validDirectories, validateAgents, validateChecks } from
  * `ScheduleRevision`, `GroupSuggestion` in `src/shared/types.ts`). Each is one read-only run of the lead
  * agent (Settings), asked for a JSON object, whose answer the editor shows until the user saves it or
  * takes it: nothing is saved here. A run works in the folder it is given (the project whose team checks
- * it writes), else in an empty folder of its own in Harness Relay's temporary folder (`questionDir()`),
- * and keeps no session (`freshState`). A new request of the same kind, for the same editor, stops the
+ * it writes), else in an empty folder of its own in the data folder's `drafts/` (`questionDir()`): not
+ * in Harness Relay's temporary folder, which the agents' sandboxes may not read (`protectedReads()`,
+ * the relay sandbox's `denyRead`), so that a sandboxed lead agent can start in it; and it keeps no
+ * session (`freshState`). A new request of the same kind, for the same editor, stops the
  * one still running and waits for it to end; closing the request (`signal`: the editor closed, or Stop)
  * stops it too.
  */
@@ -85,9 +90,12 @@ export class LeadDrafts {
     private planner: DraftPlanner,
     /** The model the lead agent runs on (`Orchestrator.modelFor`). */
     private modelFor: (p: Provider, chosen?: string, account?: string) => Promise<string | undefined>,
-    /** Where its empty folders go (tests give their own). */
-    private tmp = relayTmpDir(),
-  ) {}
+    /** Where its empty folders go: readable by the agents' sandboxes (tests give their own). */
+    private tmp = draftsDir(),
+  ) {
+    // Left by drafts a server stopped during: none runs yet.
+    clearDraftDirs(this.tmp);
+  }
 
   /** The drafts under way, as `Orchestrator.busy()` counts them. */
   keys(): string[] {
@@ -115,8 +123,12 @@ export class LeadDrafts {
     const draft = {
       name: textOf(input.name, TEMPLATE_TEXT_MAX.name),
       description: textOf(input.description, TEMPLATE_TEXT_MAX.description),
-      // A new template may start with no members (no CLI ready here yet): the lead agent designs them all.
-      agents: Array.isArray(input.agents) && input.agents.length === 0 ? [] : validateAgents(input.agents, CONFIG.maxTeamAgents),
+      // A new template may start with no members (no CLI ready here yet), or with one on each CLI ready here,
+      // more than a team may have (`blankAgents()`): the lead agent designs the team, within the limit.
+      agents:
+        Array.isArray(input.agents) && input.agents.length === 0
+          ? []
+          : validateAgents(input.agents, Math.max(CONFIG.maxTeamAgents, PROVIDERS.length)),
       settings: teamSettings(input.settings, { mode: 'roundtable', rounds: 1, maxHops: 8 }),
     };
     const ctx = await this.planner.context();
@@ -306,6 +318,30 @@ export class LeadDrafts {
       throw new HttpError(503, t().draftFailed((err as Error).message));
     } finally {
       own?.remove();
+    }
+  }
+}
+
+/** Where the drafts' empty folders are made: the data folder's `drafts/`. */
+export function draftsDir(dataDir = DATA_DIR): string {
+  return join(dataDir, 'drafts');
+}
+
+/** Removes the empty folders drafts a server stopped during left in `dir` (`questionDir()`'s). */
+function clearDraftDirs(dir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(RUN_TMP_PREFIXES.ask)) continue;
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[drafts] could not remove ${name}:`, (err as Error).message);
     }
   }
 }

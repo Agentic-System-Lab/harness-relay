@@ -535,6 +535,7 @@ export const zhTW = {
     review: '下面的規則已經寫好，看過（指令可以先試跑）後再儲存。',
     unchanged: '首席 agent 沒有改動規則。',
     changedMeanwhile: '首席 agent 撰寫期間規則已經變更，這次的結果沒有套用，請再試一次。',
+    noProject: '（工作目錄還不存在，所以它沒有查看專案。）',
     /** One change the lead agent made to the list, as listed under its note. */
     change: {
       pathAdded: (path: string) => `保護 ${path}`,
@@ -618,7 +619,6 @@ export const zhTW = {
     needsGroup: (name: string) => `要先新增「${name}」`,
     apply: (n: number) => `套用 ${n} 項`,
     applying: '套用中…',
-    applied: (n: number) => `已套用 ${n} 項建議`,
     all: '全選',
     noneSelected: '全不選',
   },

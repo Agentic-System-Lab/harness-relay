@@ -516,6 +516,7 @@ export const en: Messages = {
     review: 'The rules below are written. Review them (try the commands first), then save.',
     unchanged: 'The lead agent left the rules as they were.',
     changedMeanwhile: 'The rules changed while the lead agent was working, so its answer was not applied. Try again.',
+    noProject: '(The working directory does not exist yet, so it read no project.)',
     change: {
       pathAdded: (path) => `protected ${path}`,
       pathRemoved: (path) => `no longer protects ${path}`,
@@ -595,7 +596,6 @@ export const en: Messages = {
     needsGroup: (name) => `Needs the new group "${name}"`,
     apply: (n) => (n === 1 ? 'Apply 1 suggestion' : `Apply ${n} suggestions`),
     applying: 'Applying…',
-    applied: (n) => (n === 1 ? 'Applied 1 suggestion' : `Applied ${n} suggestions`),
     all: 'Select all',
     noneSelected: 'Select none',
   },

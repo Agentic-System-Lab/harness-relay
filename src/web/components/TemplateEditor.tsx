@@ -82,6 +82,8 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
   }, [providers]); // once, when the statuses first come
   const [saving, setSaving] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  /** The lead agent writes the template's team checks (in the editor below): Save waits for it too. */
+  const [checksDrafting, setChecksDrafting] = useState(false);
   const [error, setError] = useState('');
   /** The template now, for the lead agent's answer: the user may change it while it works. */
   const latest = useRef({ name, description, team });
@@ -208,7 +210,15 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
                 />
               </label>
             </div>
-            <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} members template />
+            <TeamEditor
+              value={team}
+              onChange={setTeam}
+              providers={providers}
+              catalog={catalog}
+              members
+              template
+              onDrafting={setChecksDrafting}
+            />
           </fieldset>
         </div>
         <footer className="template-editor-foot">
@@ -220,7 +230,12 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
           <button type="button" className="ghost" onClick={close}>
             {t.common.cancel}
           </button>
-          <button type="button" className="primary" disabled={saving || drafting || unchanged || problems.length > 0} onClick={save}>
+          <button
+            type="button"
+            className="primary"
+            disabled={saving || drafting || checksDrafting || unchanged || problems.length > 0}
+            onClick={save}
+          >
             {saving ? t.template.saving : builtin ? t.template.saveCopy : t.template.save}
           </button>
         </footer>

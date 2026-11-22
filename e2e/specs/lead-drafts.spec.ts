@@ -2,6 +2,7 @@ import type { Conversation } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { en } from '../../src/web/locales/en';
 import { finishedReply, openNewChat, openTeamChat, send, startChat } from '../support/app';
+import { needsRelaySandbox, withClis } from '../support/clis';
 
 /*
  * The lead agent helping outside a conversation's team: writing a template, team checks and an
@@ -55,10 +56,20 @@ test.describe("the lead agent's drafts in the editors", () => {
     await expect(drawer.getByRole('textbox', { name: en.checks.commandRun })).toHaveValue('npm test');
     // The team drawer's own "Ask the lead agent", for its team, is apart from it.
     await expect(drawer.getByRole('textbox', { name: 'Ask the lead agent' })).toHaveCount(1);
+    // Undo takes back the lead agent's rules only: a member renamed since keeps its new name.
+    await drawer.getByRole('textbox', { name: 'Agent name' }).fill('Claudia');
+    await result.getByRole('button', { name: 'Undo' }).click();
+    await expect(drawer.getByRole('textbox', { name: 'Protected paths' })).toHaveValue('');
+    await expect(drawer.getByRole('textbox', { name: 'Agent name' })).toHaveValue('Claudia');
+    await drawer.getByRole('textbox', { name: en.checksDraft.title }).fill('Run the tests, and keep the secrets out');
+    await drawer.getByRole('button', { name: en.checksDraft.submit }).click();
+    await expect(drawer.getByRole('textbox', { name: 'Protected paths' })).toHaveValue('.env');
+    await expect(drawer.getByRole('textbox', { name: 'Agent name' })).toHaveValue('Claudia');
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
     const conv = await relay.api<Conversation>(`/api/conversations/${id}`);
     expect(conv.settings.checks).toMatchObject({ protectedPaths: ['.env'], commands: [{ run: 'npm test' }] });
+    expect(conv.agents.map((a) => a.name)).toEqual(['Claudia']);
   });
 
   test('fills in a new automation from a sentence', async ({ page }) => {
@@ -70,6 +81,21 @@ test.describe("the lead agent's drafts in the editors", () => {
     await expect(page.getByRole('combobox', { name: en.schedule.repeat })).toHaveValue('daily');
     await expect(page.locator('input[type="time"]')).toHaveValue('18:00');
     await expect(page.getByRole('button', { name: en.newSchedule.create })).toBeEnabled();
+  });
+});
+
+test.describe('with an open agent as the lead agent', () => {
+  withClis('pi');
+
+  test("drafts in an empty folder its sandbox may read, outside Harness Relay's temporary folder", async ({ page, relay }) => {
+    needsRelaySandbox('pi');
+    await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'pi' } } });
+    await page.reload();
+    await page.getByRole('button', { name: 'New automation' }).click();
+    await page.getByRole('textbox', { name: en.scheduleDraft.title }).fill('Every evening, sum up what changed');
+    await page.getByRole('button', { name: en.scheduleDraft.submit }).click();
+    await expect(page.locator('.team-reviser-result')).toContainText('The fake lead agent set it for every evening.', { timeout: 30_000 });
+    await expect(page.getByRole('textbox', { name: en.newSchedule.task })).toHaveValue('Sum up what changed today.');
   });
 });
 

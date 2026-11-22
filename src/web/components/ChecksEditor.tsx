@@ -41,6 +41,8 @@ interface Props {
    * not, or a new chat's): the lead agent reads the project there when asked to write the rules.
    */
   cwds?: string[];
+  /** Told while the lead agent writes the rules: the editor around them holds its Save meanwhile. */
+  onDrafting?: (busy: boolean) => void;
 }
 
 /** What team checks' commands can do on the server's computer (`GET /api/checks/environment`). */
@@ -61,7 +63,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
  * a line each, the commit format, commands that must succeed, and hooks around the members' tool calls.
  * Folded away until it is opened, or while it has rules.
  */
-export function ChecksEditor({ value, onChange, permission, convId, cwds, env, variant }: Props) {
+export function ChecksEditor({ value, onChange, permission, convId, cwds, env, variant, onDrafting }: Props) {
   const t = useT();
   const pathsId = useId();
   const pathsHint = useId();
@@ -137,7 +139,10 @@ export function ChecksEditor({ value, onChange, permission, convId, cwds, env, v
       review={t.checksDraft.review}
       unchanged={t.checksDraft.unchanged}
       changedMeanwhile={t.checksDraft.changedMeanwhile}
-      onBusy={setDrafting}
+      onBusy={(busy) => {
+        setDrafting(busy);
+        onDrafting?.(busy);
+      }}
       ask={async (request, signal) => {
         const sent = latest.current;
         const dirs = (cwds ?? []).map((d) => d.trim()).filter(Boolean);
@@ -152,11 +157,13 @@ export function ChecksEditor({ value, onChange, permission, convId, cwds, env, v
           signal,
         );
         if (!sameChecks(latest.current, sent)) return 'stale';
+        // A chat's or new chat's folders that are not there (yet): it read no project, whatever the hint said.
+        const reason = variant === 'team' && !r.readIn ? `${r.reason}${r.reason ? ' ' : ''}${t.checksDraft.noProject}` : r.reason;
         const changes = checksChanges(sent, r.checks, t);
-        if (!changes.length) return { reason: r.reason, changes: [], meta: r.meta };
+        if (!changes.length) return { reason, changes: [], meta: r.meta };
         const after = load(r.checks);
         return {
-          reason: r.reason,
+          reason,
           changes,
           meta: r.meta,
           undo: () => load(sent),

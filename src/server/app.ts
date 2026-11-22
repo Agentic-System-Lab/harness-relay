@@ -1674,15 +1674,15 @@ export function createApp({
     return { add, remove: removeAttachments };
   }
 
-  // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
-  // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
-  // until the team is confirmed, a time that comes due is skipped.
   // The schedule form asks the lead agent to draft the schedule (the form's schedule and the browser's
   // time zone come along): shown in the form until the user saves it.
   app.post('/api/schedules/draft', async (c) =>
     c.json(await orchestrator.drafts.schedule(await body<Record<string, unknown>>(c), c.req.raw.signal)),
   );
 
+  // A new schedule (New schedule in the sidebar): a conversation for it, with auto team, whose lead
+  // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
+  // until the team is confirmed, a time that comes due is skipped.
   app.post('/api/schedules', async (c) => {
     const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown; hook?: unknown }>(
       c,

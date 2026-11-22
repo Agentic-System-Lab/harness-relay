@@ -30,8 +30,11 @@ import {
 
 const json = (v: unknown) => '```json\n' + JSON.stringify(v) + '\n```';
 const drafter = () => calls.filter((c) => c.name === 'drafter');
-/** Harness Relay's own temporary folder, where a draft with no project runs in an empty folder of its own. */
-const tmp = join(root, 'data', 'tmp');
+/**
+ * Where a draft with no project runs, in an empty folder of its own: the data folder's `drafts/`, not
+ * Harness Relay's temporary folder, which the agents' sandboxes may not read.
+ */
+const tmp = join(root, 'data', 'drafts');
 const leftInTmp = () => (existsSync(tmp) ? readdirSync(tmp).filter((f) => f.startsWith('ask-')) : []);
 
 describe('a template the lead agent drafts', () => {
@@ -91,6 +94,26 @@ describe('a template the lead agent drafts', () => {
     expect(r).toMatchObject({ name: 'Solo', description: 'One agent.', settings: { mode: 'relay', maxHops: 4 } });
     expect(r.agents).toEqual([expect.objectContaining({ id: 'l', role: 'Lead it.' })]);
     expect(drafter()[0]!.prompt).not.toContain('only a starting point');
+  });
+
+  it("takes a new template's starting members on every CLI ready here, more than a team may have, and keeps the team within the limit", async () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, name: `Member${i}`, provider: 'claude', role: '' }));
+    fake.draftReply = json({
+      name: 'Big',
+      agents: twelve.map((a) => ({ name: a.name, provider: 'claude', role: 'Do it.' })),
+      reason: 'ok',
+    });
+    const r = await orchestrator.drafts.template({ request: 'a team', ...blank, agents: twelve });
+    expect(r.agents).toHaveLength(8);
+    await expect(
+      orchestrator.drafts.template({
+        request: 'a team',
+        ...blank,
+        agents: [...twelve, { id: 'x', name: 'X', provider: 'claude', role: '' }],
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('refuses an empty or overlong request, and says why a draft failed', async () => {
@@ -350,6 +373,21 @@ describe('a schedule a member proposes', () => {
     expect(kept.parts.at(-1)).toEqual({ type: 'schedule', proposal, status: 'dismissed' });
   });
 
+  it('becomes a card also in a reply that failed after writing it, whose block never shows as text', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    fake.inTurn = async (name, o) => {
+      if (name !== 'Alice') return;
+      o.onEvent({ type: 'text', text: `On it.\n<schedule>${JSON.stringify(proposal)}</schedule>` });
+      throw new Error('the model went away');
+    };
+    await orchestrator.send(conv.id, 'every morning, please');
+    await finish(conv.id);
+    const alice = agentMessages(conv).find((m) => m.author.kind === 'agent' && m.author.agentId === 'a')!;
+    expect(alice.status).toBe('error');
+    expect(textOf(alice)).toBe('On it.');
+    expect(alice.parts.at(-1)).toEqual({ type: 'schedule', proposal });
+  });
+
   it('leaves a block it cannot read in the reply, so the mistake shows', async () => {
     const conv = conversation({ mode: 'parallel' });
     fake.reply = () => 'Here: <schedule>{"text": "x", "repeat": {"kind": "hourly"}}</schedule>';
@@ -427,6 +465,30 @@ describe('naming new conversations', () => {
     expect(sorter()).toHaveLength(1);
   });
 
+  it('says the conversation is being sorted only while the run sorts it, not while it only names it', async () => {
+    settings.setChatTitles(true);
+    let open!: () => void;
+    fake.sorterGate = new Promise((r) => (open = r));
+    fake.sorterReply = '{"title": "Named"}';
+    const conv = newChat();
+    await orchestrator.send(conv.id, 'first question');
+    await vi.waitFor(() => expect(sorter()).toHaveLength(1));
+    expect(orchestrator.isSorting(conv.id)).toBe(false);
+    // Still work under way, which the desktop app's update waits for.
+    expect(orchestrator.busy()).toBeGreaterThan(0);
+    open();
+    await vi.waitFor(() => expect(store.get(conv.id)!.title).toBe('Named'));
+
+    store.createGroup({ id: 'g1', name: 'Builds' });
+    fake.sorterGate = new Promise((r) => (open = r));
+    const sorted = newChat();
+    await orchestrator.send(sorted.id, 'check the build');
+    await vi.waitFor(() => expect(sorter()).toHaveLength(2));
+    expect(orchestrator.isSorting(sorted.id)).toBe(true);
+    open();
+    await vi.waitFor(() => expect(orchestrator.isSorting(sorted.id)).toBe(false));
+  });
+
   it('runs no lead agent for it when it is off and there are no groups', async () => {
     settings.setChatTitles(false);
     const conv = newChat();
@@ -443,4 +505,18 @@ it('writes nothing into the project while drafting its checks', async () => {
   const conv = conversation({});
   await orchestrator.drafts.checks({ request: 'tests', variant: 'team', convId: conv.id });
   expect(readdirSync(project).sort()).toEqual(['package.json', 'shared.txt']);
+});
+
+it('refuses new drafts once shutting down, and waits for the ones under way', async () => {
+  let open!: () => void;
+  fake.draftGate = new Promise((r) => (open = r));
+  const conv = conversation({});
+  const running = orchestrator.drafts.checks({ request: 'tests', variant: 'team', convId: conv.id });
+  await vi.waitFor(() => expect(drafter()).toHaveLength(1));
+  orchestrator.stopAll();
+  await expect(running).rejects.toMatchObject({ status: 409 });
+  await expect(orchestrator.drafts.groups({})).rejects.toMatchObject({ status: 503 });
+  await orchestrator.settled(5_000);
+  expect(orchestrator.busy()).toBe(0);
+  open();
 });

@@ -343,6 +343,9 @@ export function removeConversationState(homes: readonly string[], conversationId
     stateKeys.revise(conversationId),
     stateKeys.sort(conversationId),
     stateKeys.review(conversationId),
+    // The lead agent drafting the conversation's team checks or schedule in their editors.
+    stateKeys.draft(`checks.${conversationId}`),
+    stateKeys.draft(`schedule.${conversationId}`),
   ];
   for (const home of homes) {
     for (const key of keys) {

@@ -103,7 +103,7 @@ describe('suggesting groups', () => {
   it('keeps only what can be taken, and a new group only when something moves into it', () => {
     const r = decideOrganize(
       {
-        create: [{ name: 'Clients' }, { name: 'Empty' }, { name: 'other' }, { name: '  ' }],
+        create: [{ name: 'Clients' }, { name: 'Empty' }, { name: 'other' }, { name: '  ' }, { name: '資料庫' }],
         rename: [
           { group: 2, name: 'Data' },
           { group: 1, name: 'Frontend' },

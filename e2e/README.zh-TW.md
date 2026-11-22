@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 50 個 spec 檔、621 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 50 個 spec 檔、622 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -67,7 +67,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
+| [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 26 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[實驗室](../docs/user-guide.zh-TW.md#實驗室)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
@@ -556,7 +556,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查內容 |
 | --- | --- | --- |
 | 撰寫新範本，可以復原，儲存後會保留 | Claude Code | 在**＋ 新增範本**裡按**請首席 agent 撰寫範本**：說明列出*名稱改為「Review pair」*和*改寫說明*，名稱欄和成員（Reviewer、Tester）都填好了；**復原**會再清空；再問一次並儲存後，範本庫列出「Review pair」。 |
-| 讀過專案後撰寫對話的團隊檢查，儲存團隊後會保留 | Claude Code | 在**團隊設定 → 進階設定**按**請首席 agent 撰寫規則**：說明寫它讀了專案，列出*保護 .env*和*新增指令 npm test*，欄位也顯示它們；團隊設定自己的**請首席 agent 調整**仍是另一個輸入框；**儲存**後對話的檢查有這兩條。 |
+| 讀過專案後撰寫對話的團隊檢查，儲存團隊後會保留 | Claude Code | 在**團隊設定 → 進階設定**按**請首席 agent 撰寫規則**：說明寫它讀了專案，列出*保護 .env*和*新增指令 npm test*，欄位也顯示它們；團隊設定自己的**請首席 agent 調整**仍是另一個輸入框。之後把成員改名為「Claudia」，**復原**會清空規則並保留新名字，再問一次時規則套用在團隊目前的樣子上；**儲存**後對話有這兩條規則和 Claudia。 |
+| 開源 agent 當首席時，在它的沙箱能讀的空資料夾裡起草，不在 Harness Relay 的暫存資料夾 | Pi | 以 Pi 當首席 agent，在**新自動任務**按**請首席 agent 填寫**會得到回覆（假 CLI 的排程填好訊息）：它的執行在 Harness Relay 自己的沙箱裡啟動，那個沙箱不能讀暫存資料夾。只在那個沙箱能運作的地方執行。 |
 | 用一句話填好新的自動任務 | Claude Code | 在**新自動任務**按**請首席 agent 填寫**，會填好訊息、**每天**和 18:00；**建立自動任務**可以按。 |
 | 成員提議的排程是一張卡片，可以直接建立、先在表單中修改，或略過 | Claude Code | 回覆裡看不到 `<schedule>` 區塊，只有一張**提議的自動任務**卡片：**建立自動任務**會儲存它（每天 08:00、開啟），卡片顯示*已建立自動任務*，按鈕消失。第二張說它會取代對話目前的自動任務；**在表單中修改**會打開**自動任務**抽屜並帶入訊息，在那裡修改並儲存後，卡片顯示已建立。第三張是等郵件的（`e2e:propose=mail`）：**建立自動任務**不能按，說觸發條件還沒有帳號；**略過**後自動任務維持原樣。 |
 | 首席 agent 建議側邊欄的群組，並套用使用者勾選的 | Claude Code | 有兩個對話時，**請首席 agent 整理群組** → **取得建議**：新群組「E2E projects」和兩項搬移都已勾選；取消勾選群組會擋下搬進它的搬移，**套用**也跟著不能按；再勾回來，**套用 3 項**會關閉對話框，側邊欄顯示這個群組裝著兩個對話。 |
@@ -880,6 +881,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 平台與瀏覽器
 
+- 在[首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助)裡，以開源 agent 當首席的測試只在 Harness Relay 自己的沙箱能運作的地方執行（macOS，以及裝了 bubblewrap、socat 與 ripgrep 的 Linux）。
 - [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每次推送到 `main` 時，以及每個碰到它們依賴的檔案的 pull request 上（`scripts/ci-scope.ts`：只改文件、單元測試、桌面 app 或網站首頁的 pull request 不會跑；手動執行一定會跑），以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec：每一種都分成兩個 job，各跑一半的測試（Playwright 的 `--shard=1/2` 與 `2/2`），讓每個 job 都不超過七分鐘多少。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
 - 開源 agent 只在 macOS 與 Linux 上（Linux 需要 bubblewrap、socat 與 ripgrep）以完全存取以外的權限執行：在 Harness Relay 自己的沙箱不支援的 Windows 上，它們只能以完全存取執行，Linux 上的 OpenCode 也是。在那裡，與權限有關的測試會跳過它們並說明原因，其他測試以完全存取執行它們，而 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)會檢查權限低於完全存取的對話不會啟動它們。在沒有這個沙箱的 Mac 或 Linux 電腦上，需要它的測試會跳過並說明原因（`E2E_RELAY_SANDBOX`，由 `global-setup.ts` 判斷一次）。

@@ -20,13 +20,14 @@ const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { runners } = await import('../src/server/agents');
-const { TEMPLATE_BRIEFING } = await import('../src/server/planner');
+const { PLANNER_BRIEFING, TEMPLATE_BRIEFING } = await import('../src/server/planner');
 const { CHECKS_BRIEFING } = await import('../src/server/checksDraft');
 const { SCHEDULE_BRIEFING } = await import('../src/server/scheduleDraft');
-const { ORGANIZER_BRIEFING } = await import('../src/server/grouping');
+const { GROUPER_BRIEFING, ORGANIZER_BRIEFING } = await import('../src/server/grouping');
 
 let app: ReturnType<typeof createApp>;
 let store: InstanceType<typeof Store>;
+let settings: InstanceType<typeof SettingsStore>;
 let project: string;
 let n = 0;
 /** What the fake lead agent answers a draft with, by its briefing. */
@@ -50,7 +51,7 @@ afterAll(() => removeTree(root, { restore: true }));
 beforeEach(() => {
   replies.clear();
   const db = openDatabase(':memory:');
-  const settings = new SettingsStore(db);
+  settings = new SettingsStore(db);
   store = new Store(db);
   const hub = new Hub();
   const orchestrator = new Orchestrator(store, hub, settings);
@@ -230,6 +231,17 @@ describe("a proposed schedule's card", () => {
     expect((await req(`/api/conversations/${conv.id}/messages/nope/schedule`, 'POST', { action: 'create' })).status).toBe(404);
   });
 
+  it('needs a confirmed team, as any automation turned on does', async () => {
+    const conv = conversation();
+    conv.agents = [];
+    store.saveMeta(conv);
+    const msg = proposing(conv, daily);
+    expect(
+      (await req(`/api/conversations/${conv.id}/messages/${msg.id}/schedule`, 'POST', { action: 'create', timeZone: 'UTC' })).status,
+    ).toBe(409);
+    expect(store.get(conv.id)!.messages[0]!.parts.at(-1)).not.toHaveProperty('status');
+  });
+
   it('refuses one whose time has passed, leaving the card to the form', async () => {
     const conv = conversation();
     const msg = proposing(conv, { text: 'Once', repeat: { kind: 'once', at: '2020-01-01T09:00' } });
@@ -269,4 +281,21 @@ it('turns naming new chats on and off in Settings, and refuses a value that is n
   expect((await req('/api/settings', 'PUT', { chatTitles: 'yes' })).status).toBe(400);
   await req('/api/settings', 'PUT', { chatTitles: false });
   expect((await view()).chatTitles).toBe(false);
+});
+
+it("names a new automation's chat after its message, unless it was given a title", async () => {
+  settings.setChatTitles(true);
+  // The lead agent's design for the schedule fails over to a template; naming is what this is about.
+  replies.set(PLANNER_BRIEFING, 'no design');
+  replies.set(GROUPER_BRIEFING, '{"title": "Evening digest"}');
+  const body = (title?: string) => ({
+    ...(title ? { title } : {}),
+    settings: { cwd: project },
+    schedule: { text: 'Every evening, sum up what changed', repeat: { kind: 'manual' }, timeZone: 'UTC' },
+  });
+  const named = (await (await req('/api/schedules', 'POST', body())).json()) as Conversation;
+  await expect.poll(() => store.get(named.id)!.title).toBe('Evening digest');
+  const titled = (await (await req('/api/schedules', 'POST', body('Mine'))).json()) as Conversation;
+  await new Promise((r) => setTimeout(r, 200));
+  expect(store.get(titled.id)!.title).toBe('Mine');
 });

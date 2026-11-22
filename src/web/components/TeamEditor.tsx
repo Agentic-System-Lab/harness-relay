@@ -73,6 +73,8 @@ interface Props {
   schedule?: ConversationSchedule;
   /** The conversation being edited (Team settings): its team checks' commands can be tried there. */
   convId?: string;
+  /** Told while the lead agent writes the team checks: the editor around them holds its Save meanwhile. */
+  onDrafting?: (busy: boolean) => void;
   /** Reset unfinished check fields when the parent reloads its draft. */
   checksEditorVersion?: number;
 }
@@ -156,8 +158,12 @@ export function TeamEditor({
   schedule,
   convId,
   checksEditorVersion,
+  onDrafting,
 }: Props) {
   const t = useT();
+  /** The team now: the lead agent's checks (or their Undo) land on it, not on the team as it was when they were asked for. */
+  const latest = useRef(value);
+  latest.current = value;
   const checksEnv = useChecksEnvironment();
   const { maxTeamAgents } = useLimits();
   const { agents, settings } = value;
@@ -211,9 +217,13 @@ export function TeamEditor({
       permission={template ? undefined : settings.permission}
       convId={template ? undefined : convId}
       cwds={template ? undefined : cwdsOf(settings)}
+      onDrafting={onDrafting}
       onChange={(checks) => {
-        const { checks: _old, ...rest } = settings;
-        onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });
+        const now = latest.current;
+        const { checks: _old, ...rest } = now.settings;
+        const next = { ...now, settings: checks === undefined ? rest : { ...rest, checks } };
+        latest.current = next;
+        onChange(next);
       }}
     />
   );

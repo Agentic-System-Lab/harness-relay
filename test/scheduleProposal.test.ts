@@ -31,6 +31,12 @@ describe('a schedule an agent proposes in its reply', () => {
     expect(splitSchedule(mixed).text).toBe('```\nexample\n\n```');
   });
 
+  it("keeps the rest of the reply as it was written, a code block's empty lines included", () => {
+    const code = '```\na\n\n\n\nb\n```';
+    expect(splitSchedule(`${code}\n\n\n${block(weekdays)}\n\n\nAfter.`).text).toBe(`${code}\n\nAfter.`);
+    expect(splitSchedule(`${block(weekdays)}\n\nOnly after.`).text).toBe('Only after.');
+  });
+
   it('leaves the text as it is when no block is usable, so the mistake shows', () => {
     for (const bad of [
       '<schedule>not json</schedule>',
@@ -122,6 +128,10 @@ describe('making a proposed schedule', () => {
 
   it('reads a once time only as a real one, through a change of the clocks', () => {
     expect(localMoment('2026-13-01T09:00', 'UTC')).toBeUndefined();
+    expect(localMoment('2026-02-30T09:00', 'UTC')).toBeUndefined();
+    expect(localMoment('2028-02-29T09:00', 'UTC')).toBe(Date.UTC(2028, 1, 29, 9, 0));
+    // A block with a date that is not one proposes nothing.
+    expect(readProposal({ text: 't', repeat: { kind: 'once', at: '2026-02-30T09:00' } })).toBeUndefined();
     expect(localMoment('yesterday', 'UTC')).toBeUndefined();
     // New York goes from EST to EDT on 8 March 2026.
     expect(localMoment('2026-03-08T12:00', 'America/New_York')).toBe(Date.UTC(2026, 2, 8, 16, 0));
