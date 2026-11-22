@@ -942,7 +942,8 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     host.write({ t: 'ask', id: 1, host: 'example.org', port: 443 });
     host.write({ t: 'ask', id: 2, host: 'example.org', port: 443 });
     await until(() => answers(host.lines).length === 2);
-    expect(asked).toEqual([{ kind: 'fetch', detail: 'example.org', reason: expect.any(String) }]);
+    // A connection: only its host is known ("Approve for me" tells the lead agent so).
+    expect(asked).toEqual([{ kind: 'fetch', detail: 'example.org', reason: expect.any(String), connection: true }]);
     expect(answers(host.lines)).toEqual([
       { t: 'answer', id: 1, allow: false, reason: DENY_REASONS.declined('example.org', 'use the docs instead') },
       { t: 'answer', id: 2, allow: false, reason: DENY_REASONS.declined('example.org', 'use the docs instead') },
