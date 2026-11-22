@@ -1081,6 +1081,15 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
+  /** What a conversation's working directory has, for its agents' briefing: its secrets' names and its fixed commands. */
+  private handoffsForBriefing(conv: Conversation): { secrets: string[]; commands: FixedCommand[] } {
+    const folder = this.handoffFolder(conv);
+    return {
+      secrets: this.settings.handoffs.secretNames(folder).map((s) => s.name),
+      commands: this.settings.handoffs.commands(folder),
+    };
+  }
+
   /** The working directory a conversation's secrets and fixed commands are kept for: its first one, as a real path. */
   handoffFolder(conv: Conversation): string {
     return realPath(conv.settings.cwd);
@@ -5580,7 +5589,12 @@ export class Orchestrator {
             conv,
             agent,
             workspace,
-            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined, longTerm: this.memory.forBriefing(conv) },
+            {
+              ...tools,
+              grantedGroups: relay ? tools.relayGroups : undefined,
+              longTerm: this.memory.forBriefing(conv),
+              handoffs: this.handoffsForBriefing(conv),
+            },
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),

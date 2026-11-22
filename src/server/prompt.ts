@@ -1,6 +1,7 @@
 import {
   CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
+  FIXED_COMMAND_NEWS,
   HOOK_PROVIDERS,
   PROVIDER_LABEL,
   TEAM_WORKTREE,
@@ -14,6 +15,7 @@ import {
   type ChecksResult,
   type EventSource,
   type Conversation,
+  type FixedCommand,
   type MemoryNote,
   type MemoryPartNote,
   type ConversationSchedule,
@@ -236,7 +238,32 @@ type BriefingTools = Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> & {
    * and whether the user keeps agents' new notes before agents get them (`MemorySettings.review`).
    */
   longTerm?: { pinned: MemoryNote[]; review: boolean };
+  /** The working directory's secrets (names only) and fixed commands (`HandoffStore`). */
+  handoffs?: { secrets: string[]; commands: Pick<FixedCommand, 'name' | 'run' | 'hosts' | 'secrets' | 'cwd'>[] };
 };
+
+/**
+ * How agents ask for what only the user can give (a secret) and have Harness Relay run a script with it
+ * (a fixed command): the blocks of `src/shared/handoffs.ts`, and what this working directory has.
+ */
+export function handoffSection(h: BriefingTools['handoffs'] = { secrets: [], commands: [] }): string {
+  const have = [
+    h.secrets.length ? `Secrets kept for this working directory (their values are never shown to you): ${h.secrets.join(', ')}.` : '',
+    h.commands.length
+      ? `Fixed commands saved for it:\n<fixed_commands>\n${h.commands
+          .map(
+            (c) =>
+              `- ${c.name}: ${c.run.replace(/\s+/g, ' ')}${c.cwd ? ` (in ${c.cwd})` : ''}${c.hosts.length ? `; hosts: ${c.hosts.join(', ')}` : ''}${c.secrets.length ? `; secrets: ${c.secrets.join(', ')}` : ''}`,
+          )
+          .join('\n')}\n</fixed_commands>`
+      : '',
+  ].filter(Boolean);
+  return `\n\n# Secrets and fixed commands
+When the work needs a secret (an API token, an app secret, a password) or a script that uses one, never ask for it in the chat, never ask the user to type it in a terminal or paste it into a file, and never write one yourself. Instead, put these blocks in your reply, each on lines of its own and never inside code; Harness Relay takes them out and shows the user a card:
+- \`<secret name="NAME" label="What it is">why you need it</secret>\`: asks the user for a secret (NAME in capital letters, digits and _). The team waits for their answer, as for ${ASK_TOKEN}. The value is kept for this working directory and never shown to you or the chat; only a fixed command that names it gets it.
+- \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule. The user saves and tries it; you cannot run it yourself. Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration in the folder) changes, until the user approves the change. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you only when the user sends it.
+- \`<command-run name="post">what it reads on its standard input</command-run>\`: puts one run of a saved fixed command in the outbox (to post or send something); it runs only when the user clicks Send.${have.length ? `\n${have.join('\n')}` : ''}`;
+}
 
 /**
  * The tool library's memory and skills for this agent, as briefing sections ('' when it gets neither).
@@ -494,7 +521,7 @@ ${team}
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
 # Workspace
-${workspaceRules(conv, ws, agent.provider)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems), settings.cwd)}`;
+${workspaceRules(conv, ws, agent.provider)}${handoffSection(tools.handoffs)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems), settings.cwd)}`;
 }
 
 /**

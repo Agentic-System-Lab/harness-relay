@@ -13,7 +13,9 @@ import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from '
 import { AppPreviews, isPreviewHost } from './appPreviews';
 import { appProblems, changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import { AppPublisher } from './publish';
-import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
+import type { AppPreviewRequest, CommandProposal, PreviewTerminalEvent, PublishRequest } from '../shared/types';
+import { HANDOFF_LIMITS } from '../shared/types';
+import { dropPin } from './fixedCommands';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -316,6 +318,20 @@ function sameHash(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
+}
+
+/** What the user changed on a proposed fixed command's card before saving it (checked again by the orchestrator). */
+function proposalEdits(value: unknown): Partial<CommandProposal> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const v = value as Record<string, unknown>;
+  const words = (x: unknown) => (Array.isArray(x) ? x.filter((w): w is string => typeof w === 'string') : undefined);
+  return {
+    ...(typeof v.name === 'string' ? { name: v.name } : {}),
+    ...(typeof v.run === 'string' ? { run: v.run } : {}),
+    ...(words(v.hosts) ? { hosts: words(v.hosts) } : {}),
+    ...(words(v.secrets) ? { secrets: words(v.secrets) } : {}),
+    ...(typeof v.cwd === 'string' ? { cwd: v.cwd } : {}),
+  };
 }
 
 export function createApp({
@@ -2477,6 +2493,91 @@ export function createApp({
     if (action !== 'send' && action !== 'discard') throw new HttpError(400, t().invalidField('action'));
     return c.json(await orchestrator.answerOutbox(c.req.param('id'), c.req.param('itemId'), action));
   });
+
+  // Secrets and fixed commands (docs/architecture.md, "Secrets and fixed commands"). A secrets card's
+  // answer: the values go to the credential store for the card's working directory, and never back.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId', async (c) => {
+    const b = await body<{ values?: unknown; decline?: unknown }>(c);
+    const given = b.values && typeof b.values === 'object' && !Array.isArray(b.values) ? (b.values as Record<string, unknown>) : {};
+    const values = Object.fromEntries(Object.entries(given).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    await orchestrator.answerSecrets(
+      c.req.param('id'),
+      c.req.param('messageId'),
+      c.req.param('partId'),
+      b.decline === true ? { decline: true } : { values },
+    );
+    return c.json({ ok: true });
+  });
+
+  // A proposed fixed command's card: save it (with the user's edits) or not, or tell the team about it.
+  app.post('/api/conversations/:id/messages/:messageId/commands/:partId', async (c) => {
+    const b = await body<{ action?: unknown; edits?: unknown }>(c);
+    const [id, messageId, partId] = [c.req.param('id'), c.req.param('messageId'), c.req.param('partId')];
+    switch (b.action) {
+      case 'save':
+        return c.json(await orchestrator.saveCommand(id, messageId, partId, proposalEdits(b.edits)));
+      case 'dismiss':
+        await orchestrator.dismissCommand(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'continue':
+      case 'share':
+        await orchestrator.answerCommand(id, messageId, partId, b.action === 'share');
+        return c.json({ ok: true });
+      default:
+        throw new HttpError(400, t().invalidField('action'));
+    }
+  });
+
+  // Try a saved fixed command of this chat's working directory: in the background, its card follows it.
+  app.post('/api/conversations/:id/commands/:commandId/try', async (c) => {
+    const b = await body<{ extra?: unknown; approve?: unknown }>(c);
+    if (b.extra !== undefined && (typeof b.extra !== 'string' || b.extra.length > HANDOFF_LIMITS.commandLine)) {
+      throw new HttpError(400, t().invalidField('extra'));
+    }
+    await orchestrator.tryCommand(c.req.param('id'), c.req.param('commandId'), {
+      ...(typeof b.extra === 'string' ? { extra: b.extra } : {}),
+      approve: b.approve === true,
+    });
+    return c.json({ ok: true }, 202);
+  });
+
+  // What changed in a fixed command's code since it was pinned, for its card.
+  app.get('/api/conversations/:id/commands/:commandId/diff', async (c) =>
+    c.json(await orchestrator.commandDiff(c.req.param('id'), c.req.param('commandId'))),
+  );
+
+  // Settings: every working directory's secrets (their names) and fixed commands; never a value.
+  app.get('/api/handoffs', (c) => c.json({ storage: settings.handoffs.storage, folders: settings.handoffs.folders() }));
+
+  // Settings: replace or remove one of a working directory's secrets, or remove a fixed command.
+  app.put('/api/handoffs/secrets', async (c) => {
+    const b = await body<{ folder?: unknown; name?: unknown; value?: unknown }>(c);
+    const folder = knownHandoffFolder(b.folder);
+    if (typeof b.name !== 'string' || typeof b.value !== 'string') throw new HttpError(400, t().invalidField('value'));
+    settings.handoffs.setSecrets(folder, { [b.name]: b.value });
+    return c.json({ ok: true });
+  });
+  app.post('/api/handoffs/secrets/delete', async (c) => {
+    const b = await body<{ folder?: unknown; name?: unknown }>(c);
+    const folder = knownHandoffFolder(b.folder);
+    if (typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    settings.handoffs.deleteSecret(folder, b.name);
+    return c.json({ ok: true });
+  });
+  app.delete('/api/handoffs/commands/:commandId', async (c) => {
+    const id = c.req.param('commandId');
+    const { pin } = settings.handoffs.deleteCommand(id);
+    await dropPin(id, pin);
+    return c.json({ ok: true });
+  });
+
+  /** A folder Settings lists (one that has secrets or fixed commands): no other one is given secrets from there. */
+  function knownHandoffFolder(value: unknown): string {
+    if (typeof value !== 'string' || !settings.handoffs.folders().some((f) => f.folder === value)) {
+      throw new HttpError(404, t().invalidField('folder'));
+    }
+    return value;
+  }
 
   // Answer an agent's request to do something its permission does not cover.
   app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {

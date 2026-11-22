@@ -181,6 +181,29 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
 }
 
 /**
+ * The folders of Harness Relay's own sandbox's runs (`relaySandboxRoot()`, `relaySandboxHostRoot()` in
+ * `relaySandbox.ts`, which a test keeps equal to these): each run's own folder, where a fixed command's
+ * run finds its secrets file. Kept from the other CLIs' sandboxes (`agentProtectedReads`); the relay
+ * sandbox's runs keep them from each other with `privateRoots()`, never with `protectedReads()`, which
+ * it takes as paths no run may read or write, its own folders included.
+ */
+export function relaySandboxDirs(dataDir = DATA_DIR): string[] {
+  return [join(dataDir, 'relay-sandbox'), join(dataDir, 'srt')];
+}
+
+/**
+ * What the CLIs that do not run in Harness Relay's own sandbox (Claude Code, Codex, Grok, Cursor,
+ * Antigravity, Copilot, Muse Code) may not read below full access: `protectedReads()`, and the relay
+ * sandbox's run folders, so that none reads a fixed command's secrets while it runs.
+ */
+export function agentProtectedReads(o: Parameters<typeof protectedReads>[0] = {}): string[] {
+  const base = protectedReads(o);
+  if ((o.platform ?? process.platform) === 'win32') return base;
+  const dirs = relaySandboxDirs(o.dataDir).filter((p) => existsSync(p));
+  return [...new Set([...base, ...dirs.flatMap((p) => [p, real(p)])])];
+}
+
+/**
  * Where the browser tools keep each conversation's browser profile (`browser/<conversation>`): its
  * cookies and logins, readable to anything that can read the folder (Chromium keeps them with a fixed
  * key there, `--password-store=basic`), so no agent may (`protectedReads`). Made at the server's start,
