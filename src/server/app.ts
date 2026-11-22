@@ -11,7 +11,7 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { AppPreviews, isPreviewHost } from './appPreviews';
-import { changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
+import { appProblems, changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import { AppPublisher } from './publish';
 import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
 import { aboutInfo, relayVersion } from './about';
@@ -28,6 +28,7 @@ import { HostedAppChecks } from './connectors/hostedApps';
 import { checkedVault } from './connectors/obsidian';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
+  PREVIEW_NOT_READY,
   DEFAULT_ACCOUNT,
   FILE_LIMITS,
   keyOnlyAccount,
@@ -593,7 +594,7 @@ export function createApp({
   app.get('/api/settings', (c) => c.json(settingsView()));
 
   app.patch('/api/settings/checks-default', async (c) => {
-    const patch = await body<Omit<CheckList, 'fromDefault'>>(c);
+    const patch = await body<Record<string, unknown>>(c);
     // Merge with the current default so simultaneous saves of hooks and other checks both survive.
     const { fromDefault: _copied, ...list } = validateChecks({ ...settings.checksDefault, ...patch });
     settings.setChecksDefault(hasRules(list) ? list : undefined);
@@ -2140,7 +2141,17 @@ export function createApp({
   app.post('/api/conversations/:id/preview/changed', async (c) => {
     previewParent(c.req.header('host') ?? '', c.req.header('origin'));
     const input = await body<{ messageId?: unknown }>(c);
-    return c.json(changedPreviewTarget(getConv(c.req.param('id')), input, (id) => store.get(id), settings));
+    const conv = getConv(c.req.param('id'));
+    const lookup = (id: string) => store.get(id);
+    try {
+      return c.json(changedPreviewTarget(conv, input, lookup, settings));
+    } catch (error) {
+      // A new app that cannot run yet: why, for the chat to say and to ask its author to fix.
+      if (!(error instanceof HttpError) || error.status !== 404 || typeof input.messageId !== 'string') throw error;
+      const problem = appProblems(conv, input.messageId, lookup, settings, { added: true }).problems[0];
+      if (problem) throw new HttpError(409, t().previewNotReady(problem.shown, problem.reason), PREVIEW_NOT_READY);
+      throw error;
+    }
   });
   app.post('/api/conversations/:id/preview', async (c) => {
     const parent = previewParent(c.req.header('host') ?? '', c.req.header('origin'));

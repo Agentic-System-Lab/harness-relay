@@ -4,6 +4,7 @@ import {
   TEAM_WORKTREE,
   cwdsOf,
   pendingPlan,
+  PREVIEW_NOT_READY,
   type AppPreviewRequest,
   type ApprovalAnswer,
   type ChatMessage,
@@ -609,6 +610,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // the header's button, and the panel opening by itself.
   const suggestion = useMemo(() => (state.conv ? previewSuggestion(state.conv.messages) : undefined), [state.conv]);
   const [ready, setReady] = useState<PreviewReady>();
+  /** The app the team just made cannot run in a preview: why (the server's sentence), and who made it. */
+  const [notReady, setNotReady] = useState<PreviewSuggestion & { problem: string }>();
   const previewOpen = useRef(false);
   previewOpen.current = appPreview !== null;
   const latest = useRef(state.conv);
@@ -627,6 +630,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const c = latest.current;
     if (!c || !suggestion) {
       setReady(undefined);
+      setNotReady(undefined);
       return;
     }
     const fresh = handled.current?.fresh(suggestion.messageId) ?? false;
@@ -656,6 +660,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         if (lookup.signal.aborted) return;
         const request = { mode: resolved.mode, folder: resolved.folder, entry: resolved.entry, messageId };
         setReady({ ...suggestion, request, shown: resolved.shown });
+        setNotReady(undefined);
         const opens = opensByItself(
           { changed: suggestion.changed, fresh, folder: resolved.folder },
           {
@@ -678,10 +683,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           permission: c.settings.permission,
         });
       },
-      () => {
+      (error: unknown) => {
         if (lookup.signal.aborted) return;
-        // Nothing that runs there (yet): no card, nothing in the header.
+        // Nothing that runs there (yet): nothing in the header; a card says why when the team just made an app.
         setReady(undefined);
+        setNotReady(error instanceof ApiError && error.code === PREVIEW_NOT_READY ? { ...suggestion, problem: error.message } : undefined);
         dealt();
       },
     );
@@ -726,6 +732,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
   // The team has answered, and made or pointed at an app since the user last wrote.
   const readyCard = !running && ready !== undefined && ready.index > lastUser;
+  const notReadyCard = !running && !readyCard && notReady !== undefined && notReady.index > lastUser;
   const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
@@ -986,6 +993,24 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               item
             );
           })}
+          {notReadyCard && notReady && (
+            <section className="preview-ready not-ready" aria-label={t.appPreview.notReadyTitle}>
+              <span className="preview-ready-icon" aria-hidden="true">
+                <PreviewIcon size={22} />
+              </span>
+              <div className="preview-ready-text">
+                <strong>{t.appPreview.notReadyTitle}</strong>
+                <span className="muted small">{notReady.problem}</span>
+              </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => onUseStep(`@${notReady.agentName} ${t.appPreview.notReadyDraft(notReady.problem)}`)}
+              >
+                {t.appPreview.askFix(notReady.agentName)}
+              </button>
+            </section>
+          )}
           {readyCard && ready && (
             <section className="preview-ready" aria-label={t.appPreview.readyTitle}>
               <span className="preview-ready-icon" aria-hidden="true">

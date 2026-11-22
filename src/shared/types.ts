@@ -940,6 +940,40 @@ export const PREVIEW_RECIPES = ['compose.yaml', 'compose.yml', 'docker-compose.y
 /** The error code of a folder with no way to preview it: the panel offers to ask an agent for a Dockerfile. */
 export const PREVIEW_NO_RECIPE = 'preview-no-recipe';
 
+/** The error code of an app a turn added that cannot run in a preview (`POST …/preview/changed`): the chat says why and offers to ask its author to fix it. */
+export const PREVIEW_NOT_READY = 'preview-not-ready';
+
+/**
+ * Files whose change says a turn made or changed an app: what runs one (a compose file, a Dockerfile,
+ * a package.json), an index page, and the usual entry of a web app or terminal program in another
+ * language. A turn that touches none of them made no app, as far as Relay can tell.
+ */
+const APP_ENTRIES: ReadonlySet<string> = new Set([
+  'package.json',
+  ...PREVIEW_RECIPES,
+  'app.py',
+  'main.py',
+  'server.py',
+  'manage.py',
+  'wsgi.py',
+  'asgi.py',
+  'streamlit_app.py',
+  'main.go',
+  'server.go',
+  'app.rb',
+  'config.ru',
+  'server.js',
+  'server.mjs',
+  'server.ts',
+  'app.js',
+  'app.mjs',
+  'app.ts',
+]);
+
+export function isAppEntry(name: string): boolean {
+  return APP_ENTRIES.has(name) || /^index\.html?$/i.test(name);
+}
+
 /** What a container preview's terminal stream sends (`GET …/preview/:id/terminal`, as SSE). */
 export type PreviewTerminalEvent =
   /** Terminal bytes, base64. `replay`: everything so far, sent first to each new stream. */
@@ -1459,6 +1493,20 @@ export interface CheckList {
    */
   hooks?: CheckHook[];
   /**
+   * The app the team builds must open in Harness Relay's preview: once the team has answered, every
+   * folder a turn of the run added or changed an app's file in (`isAppEntry`) must run as a preview
+   * does (a Dockerfile or compose file, an npm project with its lockfile and script, an index page).
+   * A run that made no app has nothing to check.
+   */
+  previewApp?: true;
+  /**
+   * A result that did not pass goes back to the team by itself: the member whose turn broke it (else
+   * the last one that changed files) is asked to fix it, as the card's button asks, at most
+   * `CHECK_LIMITS.autoFixes` times in a row; then the card waits for the user. Not in a run a schedule
+   * started that nobody watched, nor once the user stopped the team.
+   */
+  autoFix?: true;
+  /**
    * The default from Settings (`SettingsView.checksDefault`), copied into a new chat or automation as it
    * was made and not changed since: a template the lead agent picks that has a list of its own replaces
    * it. Any change to the list drops it; a default, a template and an empty list never have it.
@@ -1546,6 +1594,7 @@ export const CHECK_LIMITS = {
   hooks: 10,
   hookTimeoutSec: 60,
   maxHookTimeoutSec: 600,
+  autoFixes: 3,
 };
 
 /** The commit pattern the Conventional Commits button fills in. */
@@ -1559,7 +1608,7 @@ export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|
 export type CheckStatus = 'running' | 'passed' | 'failed' | 'error' | 'na';
 
 /** The rules a team check result reports on. */
-export type CheckRuleKind = 'paths' | 'commits' | 'command';
+export type CheckRuleKind = 'paths' | 'commits' | 'command' | 'preview';
 
 /** Something a check found: a protected file changed, or a commit whose subject does not match. */
 export interface CheckFinding {
@@ -1576,6 +1625,8 @@ export interface CheckFinding {
   by?: string;
   /** paths: in the member's own worktree (parallel mode), not in the working directory yet: applying its result brings it. */
   worktree?: boolean;
+  /** preview: why the app in `path` (its folder) cannot run in a preview. */
+  problem?: string;
 }
 
 /** One rule's result. */
@@ -1650,6 +1701,10 @@ export interface ChecksResult {
   skippedAt?: number;
   /** The user asked a member to fix it (the member's name then). */
   fixBy?: string;
+  /** How many automatic fixes (`CheckList.autoFix`) came before it in a row: at `CHECK_LIMITS.autoFixes`, it waits for the user. */
+  autoFixes?: number;
+  /** Its fix (`fixBy`) was sent by Relay itself, not asked by the user. */
+  fixAuto?: true;
 }
 
 /** Most findings one rule's result keeps, the most of a command's output it keeps, and the most of it agents are shown. */
@@ -2068,6 +2123,8 @@ export interface ChatMessage {
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /** A user message Relay sent by itself to fix the team checks (`CheckList.autoFix`): which attempt, of how many. */
+  autoFix?: { attempt: number; of: number };
   /**
    * A scheduled message a program sent through the schedule's webhook: the JSON body it posted (at most
    * `TRACKING_LIMITS.eventBytes`), which the agents get as data in an `<event>` block, never as instructions.

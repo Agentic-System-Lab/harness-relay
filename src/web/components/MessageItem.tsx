@@ -1092,6 +1092,10 @@ function UserMessage({
               <ClockIcon size={11} />
               {t.schedule.tag}
             </span>
+          ) : msg.autoFix ? (
+            <span className="queued-tag" title={t.checks.autoFixTagTitle}>
+              {t.checks.autoFixTag(msg.autoFix.attempt, msg.autoFix.of)}
+            </span>
           ) : msg.steered?.length ? (
             <span className="queued-tag steered-tag" title={t.message.steeredTitle}>
               {t.message.steeredTag(steeredNames(msg, agents))}

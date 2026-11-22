@@ -1,6 +1,7 @@
 import { localFilePath } from '../shared/media';
 import {
   PREVIEW_RECIPES,
+  isAppEntry,
   type AppPreviewRequest,
   type AppPreviewSession,
   type ChatMessage,
@@ -180,7 +181,8 @@ export interface PreviewSuggestion {
 /** A file a turn added or changed that may say how an app runs, or be its page. */
 function appFile(path: string): boolean {
   const name = path.slice(path.lastIndexOf('/') + 1);
-  return Boolean(filePreviewTarget(name)) && !path.split('/').includes('node_modules');
+  // What runs an app or a page, or an app's entry in another language (app.py, main.go…).
+  return (isAppEntry(name) || Boolean(filePreviewTarget(name))) && !path.split('/').includes('node_modules');
 }
 
 /**

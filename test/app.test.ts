@@ -722,8 +722,33 @@ describe('app preview control and content', () => {
       mode: 'static',
       shown: 'docs/guide.html',
     });
+    // A new app that does not run yet: why, for the chat to say and to ask its author to fix.
     changed('nothing', project, ['lib/package.json']);
-    expect((await find({ messageId: 'nothing' })).status).toBe(404);
+    const notReady = await find({ messageId: 'nothing' });
+    expect(notReady.status).toBe(409);
+    expect(await notReady.json()).toMatchObject({ code: 'preview-not-ready', error: expect.stringMatching(/^lib .*package-lock\.json/) });
+    // An edit of one (not a new app) is not told about.
+    changed('edited', project, ['lib/package.json'], {
+      files: [{ path: 'lib/package.json', status: 'M', added: 1, deleted: 1 }],
+    });
+    expect((await find({ messageId: 'edited' })).status).toBe(404);
+    // An app's entry in another language: the nearest folder above it that runs, or, new and with
+    // nothing to run it, why not.
+    mkdirSync(join(project, 'api', 'src'));
+    writeFileSync(join(project, 'api', 'src', 'app.py'), 'print(1)');
+    changed('python', project, ['api/src/app.py'], { files: [{ path: 'api/src/app.py', status: 'M', added: 1, deleted: 1 }] });
+    expect(await found('python')).toEqual({
+      folder: join(project, 'api'),
+      entry: 'Dockerfile',
+      mode: 'container',
+      shown: 'api/Dockerfile',
+    });
+    mkdirSync(join(project, 'snake'));
+    writeFileSync(join(project, 'snake', 'main.py'), 'print(1)');
+    changed('snake', project, ['snake/main.py']);
+    const noWay = await find({ messageId: 'snake' });
+    expect(noWay.status).toBe(409);
+    expect(await noWay.json()).toMatchObject({ code: 'preview-not-ready', error: expect.stringContaining('snake') });
     // A page that is not the index of a project stays a page, though a project around it runs.
     mkdirSync(join(project, 'shop', 'reports'));
     writeFileSync(join(project, 'shop', 'reports', 'summary.html'), '<h1>summary</h1>');
@@ -2099,6 +2124,12 @@ describe('default team checks', () => {
     expect(await view()).toEqual({ hooks, protectedPaths });
     expect(await (await patch({ protectedPaths: [] })).json()).toEqual({ hooks });
     expect(await (await patch({ hooks: [] })).json()).toEqual({});
+    expect(await view()).toBeUndefined();
+    // The app preview rule and fixing by itself: true keeps one, false takes it out, anything else is refused.
+    expect(await (await patch({ previewApp: true, autoFix: true })).json()).toEqual({ previewApp: true, autoFix: true });
+    expect((await patch({ previewApp: 'yes' })).status).toBe(400);
+    expect(await (await patch({ previewApp: false })).json()).toEqual({ autoFix: true });
+    // Fixing by itself alone checks nothing: no default.
     expect(await view()).toBeUndefined();
   });
 

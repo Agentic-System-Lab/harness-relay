@@ -697,7 +697,9 @@ export const api = {
     request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, { ...b, verifyModels: true }),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
-  updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault'>) => request<CheckList>('PATCH', '/api/settings/checks-default', patch),
+  // The options as booleans: the server merges the patch into the default, so `false` turns one off.
+  updateCheckDefaults: (patch: Omit<CheckList, 'fromDefault' | 'previewApp' | 'autoFix'> & { previewApp?: boolean; autoFix?: boolean }) =>
+    request<CheckList>('PATCH', '/api/settings/checks-default', patch),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
   updateProvider: (p: Provider, b: ProviderSettingsUpdate) => request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),

@@ -1131,7 +1131,7 @@ export const zhTW = {
     confirmApply: '確認後執行指令，通過就套用',
     applyAnywayAsk: (name: string) => `團隊檢查沒有通過。仍要把 @${name} 的結果套用到工作目錄？未通過的紀錄會保留。`,
     applyAnywayAskTeam: '團隊檢查沒有通過。仍要把團隊在這個對話 worktree 裡的結果套用到工作目錄？未通過的紀錄會保留。',
-    rules: { paths: '受保護路徑', commits: 'commit 格式', command: '指令' },
+    rules: { paths: '受保護路徑', commits: 'commit 格式', command: '指令', preview: '應用程式預覽' },
     change: { added: '新增', changed: '修改', removed: '刪除' },
     by: (name: string) => `@${name} 發言時`,
     inWorktree: (name: string) => `在 @${name} 的 worktree 裡，套用它的結果就會帶進工作目錄`,
@@ -1171,6 +1171,16 @@ export const zhTW = {
     confirmRun: '確認後執行指令',
     confirmRunAsk: (files: string) => `這一輪改到了檢查會讀的設定：\n${files}\n\n確認這些修改沒有問題，再執行指令檢查？`,
     // Commands: the editor.
+    previewApp: '團隊做的應用程式必須能在預覽中開啟',
+    previewAppHint:
+      '團隊回覆完後，每一輪新增或修改的應用程式都必須能在 Relay 的預覽中執行：Dockerfile 或 compose 檔、有 lockfile 和指令碼的 npm 專案，或首頁 HTML。',
+    autoFix: '沒通過時自動交回團隊修正',
+    autoFixHint: (n: number) =>
+      `請造成問題的成員（否則是最後修改檔案的成員）修正，連續最多 ${n} 次；之後卡片會等你決定。沒人看著的自動任務不會自動修正。`,
+    autoFixing: (name: string, attempt: number, of: number) => `已自動交回 @${name} 修正（第 ${attempt} 次，共 ${of} 次）`,
+    autoFixGaveUp: (of: number) => `自動修正 ${of} 次後仍未通過：等你決定`,
+    autoFixTag: (attempt: number, of: number) => `Relay 自動修正 ${attempt}/${of}`,
+    autoFixTagTitle: '團隊檢查沒通過時，Relay 自動送出的訊息',
     commands: '指令',
     commandsHint:
       '團隊回答後要成功的指令，例如 npm test 或 npm run lint，環境變數只有 PATH、HOME 等基本的，加上 CI=1。圓桌和接力模式在這一輪改了東西後執行：低於完全存取時在 Harness Relay 的沙箱裡（沒有網路，只能寫工作目錄），完全存取時和 agent 一樣不經過沙箱。平行模式在你套用某位成員的結果時執行：在加上那個結果的工作目錄副本上，只要沙箱能啟動就在沙箱裡。',
@@ -2265,6 +2275,10 @@ export const zhTW = {
     runCommand: '執行這行指令',
     shell: '開啟 shell',
     noRecipe: '請 agent 加上 Dockerfile',
+    notReadyTitle: '應用程式還無法預覽',
+    askFix: (name: string) => `請 @${name} 修正`,
+    notReadyDraft: (problem: string) =>
+      `${problem} 請加上 Dockerfile（需要資料庫等服務時再加上 compose.yaml），讓它能在 Relay 的預覽中執行，完成後在回覆中連結那個檔案。`,
     noRecipeDraft: (folder: string) =>
       `請為 ${folder} 加上 Dockerfile（需要資料庫等服務時再加上 compose.yaml），讓這個應用程式可以在 Relay 預覽：網頁應用程式在 EXPOSE 的 port 或 PORT 環境變數提供 HTTP，終端機程式則從終端機讀寫。完成後在回覆中連結那個檔案。`,
   },

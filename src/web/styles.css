@@ -7804,6 +7804,24 @@ summary + .checks-editor-body {
   margin: 0;
 }
 
+/* Team checks' two options (the app in the preview, fixing by itself): a line each, its hint under it. */
+.checks-flags {
+  gap: 10px;
+}
+
+.checks-flags .check-row {
+  align-items: flex-start;
+}
+
+.checks-flags .check-row input {
+  margin-top: 3px;
+}
+
+.checks-flag-hint {
+  display: block;
+  margin-top: 2px;
+}
+
 .alert-option {
   display: grid;
   gap: 4px;
@@ -10235,6 +10253,16 @@ a.share-action {
 
 .preview-ready > button {
   flex: none;
+}
+
+/* The app the team just made cannot run in a preview yet: why, and asking its author to fix it. */
+.preview-ready.not-ready {
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 50%, transparent);
+}
+
+.preview-ready.not-ready .preview-ready-icon {
+  color: var(--warn);
 }
 
 .app-preview {

@@ -194,6 +194,8 @@ const zhTW = {
   previewFolderChanged: '工作目錄已變更。請重新開啟檔案並確認要預覽的資料夾。',
   previewTarget: '找不到選定的預覽入口，或路徑不在工作目錄內。',
   previewFolderEntry: '請選擇工作目錄內含有 index.html、package.json、Dockerfile 或 compose.yaml 的資料夾，或直接預覽 HTML 檔案。',
+  previewNoWay: '它沒有 Dockerfile、compose 檔、有 start 或 build 指令碼的 package.json，也沒有首頁 HTML。',
+  previewNotReady: (shown: string, reason: string) => `${shown} 的應用程式還無法預覽：${reason}`,
   previewManifestLimit: 'package.json 太大，無法判斷預覽指令。請選擇較小的專案或已建置的 HTML 頁面。',
   previewProjectEntry:
     '這個資料夾沒有預覽的做法。請加上 Dockerfile（需要資料庫時加上 compose.yaml），或在 package.json 加入 start 或 build 指令碼，或選擇可直接開啟的 HTML 頁面。',
@@ -657,6 +659,9 @@ const zhTW = {
   checksNotLatest: '只有最新的一份檢查結果可以這樣處理',
   checksPassedAlready: '這份檢查結果沒有未通過的項目',
   checksFixMessage: (name: string) => `@${name} 請修正上一份團隊檢查未通過的項目（整份結果都要通過）。`,
+  checksAutoFixMessage: (name: string, attempt: number, of: number) =>
+    `@${name} 團隊檢查沒有通過：請修正（Relay 自動送出，第 ${attempt} 次，共 ${of} 次）。`,
+  checksPreviewNoApp: '這次沒有任何一輪做出或修改應用程式。',
   checksScheduleFailed: '團隊檢查未通過',
   checksScheduleError: '團隊檢查無法執行',
   checksSandboxDenial: (kind: string, on: boolean) =>
@@ -1425,6 +1430,8 @@ const en: ServerMessages = {
   previewTarget: 'The preview entry is missing or outside the selected workspace.',
   previewFolderEntry:
     'Choose a workspace folder containing index.html, package.json, a Dockerfile or compose.yaml, or preview an HTML file directly.',
+  previewNoWay: 'It has no Dockerfile, compose file, package.json with a start or build script, or index page.',
+  previewNotReady: (shown: string, reason: string) => `The app in ${shown} cannot be previewed yet: ${reason}`,
   previewManifestLimit: 'The package.json is too large to inspect. Select a smaller project or a built HTML page.',
   previewProjectEntry:
     'This folder has no way to preview it. Add a Dockerfile (and compose.yaml if it needs a database), a start or build script to package.json, or select a ready-to-serve HTML page.',
@@ -1904,6 +1911,9 @@ const en: ServerMessages = {
   checksNotLatest: 'Only the latest check result can be handled this way',
   checksPassedAlready: 'Nothing in this check result failed',
   checksFixMessage: (name) => `@${name} please fix what failed in the latest team checks (the whole result has to pass).`,
+  checksAutoFixMessage: (name, attempt, of) =>
+    `@${name} the team checks did not pass: please fix them (sent by Relay automatically, attempt ${attempt} of ${of}).`,
+  checksPreviewNoApp: 'No turn of this run made or changed an app.',
   checksScheduleFailed: 'The team checks did not pass',
   checksScheduleError: 'The team checks could not run',
   checksSandboxDenial: (kind, on) =>

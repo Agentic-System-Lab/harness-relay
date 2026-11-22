@@ -1109,7 +1109,7 @@ export const en: Messages = {
     applyAnywayAsk: (name) => `The team checks did not pass. Apply @${name}'s result to the working directory anyway? The failure is kept.`,
     applyAnywayAskTeam:
       "The team checks did not pass. Apply the team's result from this chat's worktree to the working directory anyway? The failure is kept.",
-    rules: { paths: 'Protected paths', commits: 'Commit format', command: 'Command' },
+    rules: { paths: 'Protected paths', commits: 'Commit format', command: 'Command', preview: 'App preview' },
     change: { added: 'added', changed: 'changed', removed: 'removed' },
     by: (name) => `in @${name}'s turn`,
     inWorktree: (name) => `in @${name}'s worktree: applying its result brings it into the working directory`,
@@ -1149,6 +1149,16 @@ export const en: Messages = {
     confirmRun: 'Confirm and run the commands',
     confirmRunAsk: (files) =>
       `This run changed settings the checks read:\n${files}\n\nRun the command checks, now that you have looked at them?`,
+    previewApp: 'The app the team builds must open in the preview',
+    previewAppHint:
+      "Once the team has answered, every app a turn added or changed must run in Relay's preview: a Dockerfile or compose file, an npm project with its lockfile and script, or an index page.",
+    autoFix: 'Send what did not pass back to the team to fix',
+    autoFixHint: (n) =>
+      `The member whose turn broke it (else the last one to change files) is asked to fix it, up to ${n} times in a row; then the card waits for you. Not in automations nobody watches.`,
+    autoFixing: (name, attempt, of) => `Sent back to @${name} automatically (${attempt} of ${of})`,
+    autoFixGaveUp: (of) => `Still not passing after ${of} automatic fixes: it waits for you`,
+    autoFixTag: (attempt, of) => `Relay's fix ${attempt}/${of}`,
+    autoFixTagTitle: 'Sent by Relay itself because the team checks did not pass',
     commands: 'Commands',
     commandsHint:
       "Commands that must succeed once the team has answered, such as npm test or npm run lint, with only basic variables (PATH, HOME…) and CI=1. In roundtable and relay mode, after a run that changed something: below full access in Harness Relay's sandbox (no network, writing only in the working directories), with full access as the agents run. In parallel mode, when you apply a member's result: on a copy of the working directories with it in them, in the sandbox whenever it can start.",
@@ -2270,6 +2280,10 @@ export const en: Messages = {
     runCommand: 'Run this command',
     shell: 'Open a shell',
     noRecipe: 'Ask the agent for a Dockerfile',
+    notReadyTitle: "The app can't be previewed yet",
+    askFix: (name) => `Ask @${name} to fix it`,
+    notReadyDraft: (problem) =>
+      `${problem} Give it a Dockerfile (and a compose.yaml for a database or other services) so that it runs in Relay's preview, then link that file in your reply.`,
     noRecipeDraft: (folder: string) =>
       `Please add a Dockerfile to ${folder} (and a compose.yaml if it needs a database or other services) so that this app can be previewed in Relay: a web app serves HTTP on the port it EXPOSEs or on the PORT environment variable, and a terminal program reads from and writes to its terminal. Then link that file in your reply.`,
   },

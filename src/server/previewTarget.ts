@@ -3,7 +3,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseModule } from 'es-module-lexer/minimal/js';
 import type { AppPreviewRequest, Conversation } from '../shared/types';
-import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES } from '../shared/types';
+import { PREVIEW_NO_RECIPE, PREVIEW_RECIPES, isAppEntry } from '../shared/types';
 import { HttpError } from './errors';
 import { fileRoots, readPreview, resolveInRoot } from './files';
 import { mediaRoots, replyWorktrees } from './media';
@@ -311,16 +311,100 @@ function real(path: string): string {
 }
 
 /** Where the files a turn added or changed are now: the member's (or the team's) own worktree for an isolated change. */
-function changedFiles(conv: Conversation, msg: Conversation['messages'][number], lookup: Lookup): string[] {
+function changedFiles(conv: Conversation, msg: Conversation['messages'][number], lookup: Lookup, addedOnly = false): string[] {
   const worktrees = replyWorktrees(conv, msg, lookup);
   const files: string[] = [];
   for (const c of msg.changes ?? []) {
     const where = c.isolated ? worktrees.find((w) => w.root === c.root && (!c.branch || w.branch === c.branch))?.path : c.root;
     if (!where) continue;
     const base = real(where);
-    for (const f of c.files) if (f.status !== 'D') files.push(join(base, ...f.path.split('/')));
+    for (const f of c.files) if (addedOnly ? f.status === 'A' : f.status !== 'D') files.push(join(base, ...f.path.split('/')));
   }
   return files;
+}
+
+/** The working directories (or the member's worktrees) a reply's files can be in, by their real paths. */
+function replyRoots(conv: Conversation, msg: Conversation['messages'][number], lookup: Lookup): string[] {
+  return mediaRoots(conv, msg, lookup)
+    .slice(0, -1)
+    .flatMap((dir) => {
+      try {
+        return [realpathSync.native(dir)];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/** The nearest folder from `dir` up to `root` that says how it runs (a compose file, a Dockerfile, a package.json). */
+function runningFolder(root: string, dir: string): string | undefined {
+  const runs = [...CONTAINER_ENTRIES, 'package.json'];
+  for (let d = dir; ; d = dirname(d)) {
+    if (runs.some((n) => regularFile(join(d, n)))) return d;
+    if (d === root || !inside(root, dirname(d))) return undefined;
+  }
+}
+
+function attempt(fn: () => boolean): boolean {
+  try {
+    return fn();
+  } catch {
+    return false;
+  }
+}
+
+/** An app a turn made or changed that cannot run in a preview, and why. */
+export interface AppProblem {
+  /** Its folder, as found, and where it is in its working directory (or worktree), as shown. */
+  folder: string;
+  shown: string;
+  reason: string;
+}
+
+/**
+ * The apps a reply's turn made or changed, and the ones of them that cannot run in a preview: for each
+ * folder it added or changed one of `APP_ENTRIES` in (the nearest folder above the file, in the same
+ * working directory, that says how it runs; else the file's own), what `detectPreviewTarget` refused
+ * there, as files are now. `added`: only files the turn added (a new app, not an edit of one).
+ */
+export function appProblems(
+  conv: Conversation,
+  messageId: string,
+  lookup: Lookup,
+  settings?: SettingsStore,
+  o: { added?: boolean } = {},
+): { apps: string[]; problems: AppProblem[] } {
+  const msg = conv.messages.find((m) => m.id === messageId && m.author.kind === 'agent');
+  if (!msg) return { apps: [], problems: [] };
+  const roots = replyRoots(conv, msg, lookup);
+  // Each app's folder, its working directory, and the index pages in folders below it, which open as they are.
+  const folders = new Map<string, { root: string; pages: string[] }>();
+  for (const file of changedFiles(conv, msg, lookup, o.added)) {
+    if (!isAppEntry(basename(file)) || file.split(sep).includes('node_modules')) continue;
+    const root = roots.find((r) => inside(r, file));
+    if (!root) continue;
+    const folder = runningFolder(root, dirname(file)) ?? dirname(file);
+    const app = folders.get(folder) ?? { root, pages: [] };
+    if (folder !== dirname(file) && /^index\.html?$/i.test(basename(file))) app.pages.push(file);
+    folders.set(folder, app);
+  }
+  const opens = (folder: string, entry?: string) => {
+    detectPreviewTarget(conv, { folder, messageId, ...(entry && { entry }) }, lookup, settings);
+    return true;
+  };
+  const problems: AppProblem[] = [];
+  for (const [folder, { root, pages }] of folders) {
+    try {
+      opens(folder);
+    } catch (error) {
+      // Its project does not run, but the page a turn wrote opens as it is (as the panel opens it).
+      if (pages.some((p) => attempt(() => opens(dirname(p), basename(p))))) continue;
+      const reason =
+        error instanceof HttpError && error.code === PREVIEW_NO_RECIPE ? t().previewNoWay : (error as Error).message || t().previewTarget;
+      problems.push({ folder, shown: relative(root, folder).split(sep).filter(Boolean).join('/') || '.', reason });
+    }
+  }
+  return { apps: [...folders.keys()], problems };
 }
 
 /**
@@ -335,15 +419,7 @@ export function changedPreviewTarget(conv: Conversation, input: { messageId?: un
   if (typeof messageId !== 'string' || messageId.length > 256) throw new HttpError(400, t().previewTarget);
   const msg = conv.messages.find((m) => m.id === messageId && m.author.kind === 'agent');
   if (!msg) throw missing();
-  const roots = mediaRoots(conv, msg, lookup)
-    .slice(0, -1)
-    .flatMap((dir) => {
-      try {
-        return [realpathSync.native(dir)];
-      } catch {
-        return [];
-      }
-    });
+  const roots = replyRoots(conv, msg, lookup);
   const runs = [...CONTAINER_ENTRIES, 'package.json'];
   const found = new Map<string, { folder: string; entry?: string; depth: number; rank: number; root: string }>();
   const add = (root: string, folder: string, entry?: string) => {
@@ -355,25 +431,21 @@ export function changedPreviewTarget(conv: Conversation, input: { messageId?: un
   for (const file of changedFiles(conv, msg, lookup)) {
     const name = basename(file);
     const page = /\.html?$/i.test(name);
-    if ((!page && !runs.includes(name)) || file.split(sep).includes('node_modules')) continue;
+    if ((!page && !isAppEntry(name)) || file.split(sep).includes('node_modules')) continue;
     const root = roots.find((r) => inside(r, file));
     if (!root) continue;
     const folder = dirname(file);
-    if (!page) {
+    if (runs.includes(name)) {
       add(root, folder);
       continue;
     }
-    // An index page's project: the nearest folder above it that runs (a report or another page stays a page).
-    if (/^index\.html?$/i.test(name)) {
-      for (let dir = folder; ; dir = dirname(dir)) {
-        if (runs.some((n) => regularFile(join(dir, n)))) {
-          add(root, dir);
-          break;
-        }
-        if (dir === root || !inside(root, dirname(dir))) break;
-      }
+    // An index page's project, or another entry's (app.py, main.go…): the nearest folder above it that
+    // runs. A report or another page stays a page, and an entry with nothing that runs it is no app yet.
+    if (!page || /^index\.html?$/i.test(name)) {
+      const project = runningFolder(root, folder);
+      if (project) add(root, project);
     }
-    add(root, folder, name);
+    if (page) add(root, folder, name);
   }
   const ranked = [...found.values()].sort((a, b) => a.depth - b.depth || a.rank - b.rank);
   for (const { folder, entry, root } of ranked) {

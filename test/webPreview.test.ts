@@ -197,9 +197,9 @@ describe('the app the team made', () => {
       user('u1'),
       reply('r1', 'Planned it.'),
       reply('r2', 'Built it.', { changes: changes('todo-app/src/server.js', 'todo-app/Dockerfile') }),
-      reply('r3', 'Reviewed [the server](todo-app/src/server.js).', { changes: changes('todo-app/src/server.js') }),
+      reply('r3', 'Reviewed [the routes](todo-app/src/routes.js).', { changes: changes('todo-app/src/routes.js') }),
     ];
-    // The server finds the app among r2's files; r3 changed none that says how one runs.
+    // The server finds the app among r2's files; r3 changed none that says how one runs, nor an app's entry.
     expect(previewSuggestion(messages)).toEqual({ messageId: 'r2', agentName: 'Builder', index: 2, changed: true });
     const linked = [...messages, reply('r4', 'Try [it](todo-app/public/index.html).')];
     // A link alone: suggested, but its turn changed nothing, so it never opens by itself.
@@ -221,7 +221,11 @@ describe('the app the team made', () => {
       reply('r8', 'Installed.', { changes: changes('app/node_modules/x/package.json') }),
     ];
     expect(previewSuggestion(unfinished)?.messageId).toBe('r2');
-    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')])).toBeUndefined();
+    expect(previewSuggestion([user('u1'), reply('r1', 'Nothing to run.')])).toBeUndefined(); // An app's entry in another language: asked about too (the server finds what runs it, or says why nothing does).
+    for (const file of ['snake/app.py', 'svc/main.go', 'site/server.js', 'shop/config.ru']) {
+      expect(previewSuggestion([user('u1'), reply('r1', 'Built it.', { changes: changes(file) })])).toMatchObject({ messageId: 'r1' });
+    }
+    expect(previewSuggestion([user('u1'), reply('r1', 'Wrote the helpers.', { changes: changes('lib/utils.py') })])).toBeUndefined();
   });
 
   it('reads a reply again once its changes arrive', () => {

@@ -199,6 +199,21 @@ test.describe('the app the team made', () => {
     expect(docker).toEqual([]);
   });
 
+  test('an app the team made that cannot run in a preview says why, and asks its author to fix it', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await send(page, 'Make a snake game e2e:write=snake/main.py');
+    await finishedReply(page, 'Claude');
+    const card = page.getByRole('region', { name: "The app can't be previewed yet" });
+    await expect(card).toContainText('The app in snake cannot be previewed yet: It has no Dockerfile');
+    await expect(page.getByLabel('App preview', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.chat-head .preview-head-button')).toBeDisabled();
+    await card.getByRole('button', { name: 'Ask @Claude to fix it' }).click();
+    await expect(composer(page)).toHaveValue(/^@Claude The app in snake cannot be previewed yet: .* Give it a Dockerfile/);
+    // Sent: the card has done its part.
+    await composer(page).press('Enter');
+    await expect(card).toHaveCount(0);
+  });
+
   test('the divider between the chat and the preview drags, moves with the arrow keys and is remembered', async ({ page, relay }) => {
     mkdirSync(join(relay.workDir, 'site'));
     writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>Wide</h1>');
