@@ -27,6 +27,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - [Safety](#safety)
 - [Scripts](#scripts)
 - [Documentation](#documentation)
+- [Discussions](#discussions)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -144,6 +145,17 @@ To learn to use Harness Relay, start with the [docs on the website](https://agen
 | End-to-end test scenarios | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
 | Desktop app, for developers | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
 | Proposals (not implemented yet) | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
+
+## Discussions
+
+Questions, ideas and what you made with Harness Relay are welcome in [GitHub Discussions](https://github.com/Agentic-System-Lab/harness-relay/discussions). To report a bug, open an [issue](https://github.com/Agentic-System-Lab/harness-relay/issues/new/choose) instead.
+
+- [Q&A](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/q-a): ask how to do something, or why it works as it does
+- [Ideas](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/ideas): suggest a feature or a change, and talk it over
+- [Show and tell](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/show-and-tell): share a team, a template or a way of working you made
+- [Announcements](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/announcements): releases and news from the maintainers
+- [Polls](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/polls): vote on questions put to everyone
+- [General](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/general): anything else
 
 ## Contributing
 

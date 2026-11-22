@@ -27,6 +27,7 @@
 - [安全性](#安全性)
 - [指令](#指令)
 - [文件](#文件)
+- [討論區](#討論區)
 - [參與開發](#參與開發)
 - [授權](#授權)
 
@@ -144,6 +145,17 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 | 端對端測試的情境 | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
 | 桌面 app（給開發者） | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
 | 提案（尚未實作） | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
+
+## 討論區
+
+有問題、有想法，或想分享你用 Harness Relay 做出的東西，歡迎到 [GitHub Discussions](https://github.com/Agentic-System-Lab/harness-relay/discussions)。要回報 bug，請改開 [issue](https://github.com/Agentic-System-Lab/harness-relay/issues/new/choose)。
+
+- [Q&A（問答）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/q-a)：問怎麼做某件事，或它為什麼這樣運作
+- [Ideas（想法）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/ideas)：提出新功能或修改的想法，和大家討論
+- [Show and tell（作品分享）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/show-and-tell)：分享你做的團隊、範本或工作方式
+- [Announcements（公告）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/announcements)：維護者發布的新版本與消息
+- [Polls（投票）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/polls)：參與大家的投票
+- [General（一般）](https://github.com/Agentic-System-Lab/harness-relay/discussions/categories/general)：其他任何話題
 
 ## 參與開發
 
