@@ -43,6 +43,8 @@ const DIRECTIVES = {
     'end the reply with a <remember> block saving what the user said (without the directives) as a long-term memory note for every conversation',
   recall: 'say the long-term memory notes its turn was given: the pinned ones its briefing loads and those its prompt recalls',
   secret: 'end the reply with a <secret> block asking the user for the secret named (`E2E_TOKEN` by default)',
+  secreturl:
+    "with `e2e:secret`, the page where the user gets it (the block's `url`), which the card offers to open in a browser for the user alone",
   command:
     'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, and gets `E2E_TOKEN`',
   commandrun:
@@ -335,7 +337,8 @@ function plan(prompt, turn) {
   if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
   if (d.secret) {
     const name = typeof d.secret === 'string' ? d.secret : 'E2E_TOKEN';
-    text += `\n\n<secret name="${name}" label="E2E token">The fake needs it for the e2e check.</secret>`;
+    const url = typeof d.secreturl === 'string' ? ` url="${d.secreturl}"` : '';
+    text += `\n\n<secret name="${name}" label="E2E token"${url}>The fake needs it for the e2e check.</secret>`;
   }
   if (d.command) {
     const name = typeof d.command === 'string' ? d.command : 'e2e-check';

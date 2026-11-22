@@ -225,7 +225,7 @@ const BUTTON = ['left', 'middle', 'right'] as const;
  * an input method type into, and paste goes through; the address, Back, Forward and Reload; the windows
  * the page opened (closed: one tab) and the pages refused; and the reply's questions about a new host.
  */
-function HandoverPanel({
+export function HandoverPanel({
   convId,
   handoverId,
   reason,
@@ -234,19 +234,37 @@ function HandoverPanel({
   busy,
   onHide,
   onDone,
+  title,
+  doneLabel,
+  saveAs,
+  onEnded,
 }: {
   convId: string;
   handoverId: string;
-  /** Why the agent handed it over, in its words: what the user came to do. */
+  /** Why the agent handed it over, in its words: what the user came to do (or what a browser for the user alone is). */
   reason: string;
   asks: ApprovalPart[];
   onApproval: ((approvalId: string, answer: ApprovalAnswer) => Promise<void>) | undefined;
   busy: boolean;
   onHide: () => void;
   onDone: () => void;
+  /** The dialog's name, and its Done button's words (a browser for the user alone's own). */
+  title?: string;
+  doneLabel?: string;
+  /**
+   * A browser for the user alone: Save selection as one of the secrets card's asks (`onSave`: the server
+   * reads the selection on the page and keeps it; nothing of it comes back here).
+   */
+  saveAs?: { names: { name: string; label?: string }[]; onSave: (name: string) => Promise<void> };
+  /** Told when the browser has closed (its stream ended, or it is gone). */
+  onEnded?: () => void;
 }) {
   const t = useT();
   const p = t.browserHandover.panel;
+  const alone = t.browserHandover.alone;
+  /** Touch drags select text (to save it) instead of scrolling. */
+  const [selecting, setSelecting] = useState(false);
+  const [saving, setSaving] = useState<{ busy?: boolean; done?: string; error?: string }>({});
   const dialog = useRef<HTMLDivElement>(null);
   const screen = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
@@ -281,6 +299,9 @@ function HandoverPanel({
   const sendRef = useRef(send);
   sendRef.current = send;
 
+  const ended = useRef(onEnded);
+  ended.current = onEnded;
+
   // The stream: frames into the image (not through React), the rest into state; again when it drops.
   useEffect(() => {
     const stopped = new AbortController();
@@ -307,13 +328,13 @@ function HandoverPanel({
                 setNav({ back: e.back, forward: e.forward });
                 setAddress((a) => (document.activeElement?.classList.contains('handover-address') ? a : e.url));
               } else if (e.type === 'notice') setNotice({ kind: e.kind, ...(e.url ? { url: e.url } : {}) });
-              else if (e.type === 'ended') return;
+              else if (e.type === 'ended') return void ended.current?.();
             }
           }
         } catch (error) {
           if (stopped.signal.aborted) return;
           const status = (error as { status?: number }).status;
-          if (status === 404 || status === 409) return;
+          if (status === 404 || status === 409) return void ended.current?.();
         }
         if (stopped.signal.aborted) return;
         setState('lost');
@@ -378,7 +399,7 @@ function HandoverPanel({
     if (!at) return;
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'touch' && !selecting) {
       touch.current = { id: e.pointerId, x: e.clientX, y: e.clientY, at: Date.now(), lastX: e.clientX, lastY: e.clientY, scrolled: false };
       return;
     }
@@ -390,7 +411,7 @@ function HandoverPanel({
   const onPointerMove = (e: ReactPointerEvent) => {
     const at = point(e.clientX, e.clientY);
     if (!at) return;
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'touch' && !selecting) {
       const tc = touch.current;
       if (!tc || tc.id !== e.pointerId) return;
       if (!tc.scrolled && Math.hypot(e.clientX - tc.x, e.clientY - tc.y) < 10) return;
@@ -409,7 +430,7 @@ function HandoverPanel({
   };
   const onPointerUp = (e: ReactPointerEvent) => {
     const at = point(e.clientX, e.clientY);
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'touch' && !selecting) {
       const tc = touch.current;
       touch.current = undefined;
       if (!tc || tc.scrolled || !at) return;
@@ -420,8 +441,8 @@ function HandoverPanel({
     }
     if (!at) return;
     send({ type: 'mouse', action: 'up', ...at, button: BUTTON[e.button] ?? 'left', clicks: clicks.current.n, modifiers: modifiersOf(e) });
-    // What is typed next goes to the page (no on-screen keyboard opens for a mouse).
-    typing.current?.focus({ preventScroll: true });
+    // What is typed next goes to the page (no on-screen keyboard opens for a mouse; a finger selecting opens none either).
+    if (e.pointerType !== 'touch') typing.current?.focus({ preventScroll: true });
   };
 
   // The typing box: keys of a hardware keyboard as keys; what an on-screen keyboard or an input method
@@ -454,7 +475,7 @@ function HandoverPanel({
   const waiting = asks.filter((a) => a.status === 'pending' && a.review?.status !== 'reviewing');
   return createPortal(
     <div className="modal-scrim handover-scrim">
-      <div ref={dialog} className="modal handover-panel" role="dialog" aria-modal="true" aria-label={p.title} tabIndex={-1}>
+      <div ref={dialog} className="modal handover-panel" role="dialog" aria-modal="true" aria-label={title ?? p.title} tabIndex={-1}>
         <header className="handover-bar">
           <button
             type="button"
@@ -505,7 +526,7 @@ function HandoverPanel({
             )}
           </form>
           <button type="button" className="primary small-button" disabled={busy} onClick={onDone}>
-            {t.browserHandover.done}
+            {doneLabel ?? t.browserHandover.done}
           </button>
           <button type="button" className="ghost small-button" onClick={onHide}>
             {p.hide}
@@ -590,6 +611,49 @@ function HandoverPanel({
           />
           <span className="muted small handover-clip">{p.clipboard}</span>
         </footer>
+        {saveAs && (
+          <div className="handover-save">
+            <button
+              type="button"
+              className="ghost small-button"
+              aria-pressed={selecting}
+              title={alone.selectHint}
+              onClick={() => setSelecting((v) => !v)}
+            >
+              {alone.select}
+            </button>
+            {saveAs.names.map((a) => (
+              <button
+                key={a.name}
+                type="button"
+                className="primary small-button"
+                disabled={saving.busy}
+                title={a.label}
+                onClick={async () => {
+                  setSaving({ busy: true });
+                  try {
+                    await saveAs.onSave(a.name);
+                    setSaving({ done: a.name });
+                  } catch (err) {
+                    setSaving({ error: (err as Error).message });
+                  }
+                }}
+              >
+                {alone.saveAs(a.name)}
+              </button>
+            ))}
+            {saving.done && (
+              <span className="small handover-saved" role="status">
+                {alone.saved(saving.done)}
+              </span>
+            )}
+            {saving.error && (
+              <span className="error-line small" role="alert">
+                {saving.error}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

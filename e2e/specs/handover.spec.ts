@@ -1,5 +1,7 @@
 import { chromium, type Page } from '@playwright/test';
+import { existsSync, readdirSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { join } from 'node:path';
 import { findBrowser } from '../../src/server/browser/find';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, openTeamChat, send } from '../support/app';
@@ -132,6 +134,52 @@ test.describe('taking over the browser', () => {
       expect(site.posted).toEqual([]);
     } finally {
       site.server.close();
+    }
+  });
+
+  test('a secret from a page: the browser for the user alone opens at its address, and the selection is saved with nothing of it on the page', async ({
+    page,
+    relay,
+  }) => {
+    const TOKEN = 'tok-e2e-from-page-7c41';
+    const site = createServer((req, res) => {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      // A token generator's page: the token over the page's top half.
+      res.end(`<title>Your token</title><p style="position:fixed;left:0;top:0;width:100%;height:50%;margin:0;font-size:32px">${TOKEN}</p>`);
+    });
+    await new Promise<void>((done) => site.listen(0, '127.0.0.1', done));
+    const url = `http://127.0.0.1:${(site.address() as { port: number }).port}/token`;
+    try {
+      await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'A secret from a page');
+      await send(page, `Set up posting e2e:secret e2e:secreturl=${url}`);
+      const card = page.getByRole('region', { name: 'Secrets @Claude asks for' });
+      await expect(card).toContainText('A browser for you alone');
+      await card.getByRole('button', { name: `Open ${new URL(url).host} in a browser for you alone` }).click();
+
+      const panel = page.getByRole('dialog', { name: 'A browser for you alone' });
+      await expect(panel).toBeVisible();
+      await expect(panel.getByLabel('Address')).toHaveValue(url);
+      // Three clicks on the token select it; the server reads the selection and keeps it.
+      const token = await onPage(page, 0.5, 0.25);
+      await page.mouse.click(token.x, token.y, { clickCount: 3 });
+      await panel.getByRole('button', { name: 'Save selection as E2E_TOKEN' }).click();
+      // The card had one ask: it is answered, the browser closes, and the team gets the name.
+      await expect(panel).toBeHidden();
+      await expect(card).toContainText('Saved from the page');
+      await expect(page.locator('.msg-user').last()).toContainText('I gave E2E_TOKEN');
+      // Nothing of the value on the page, nor in what the server sends of the chat or Settings.
+      await expect(page.locator('body')).not.toContainText(TOKEN);
+      const conv = page.url().split('/c/')[1]!;
+      expect(JSON.stringify(await relay.api(`/api/conversations/${decodeURIComponent(conv)}`))).not.toContain(TOKEN);
+      const view = await relay.api<{ folders: { secrets: { name: string }[] }[] }>('/api/handoffs');
+      expect(view.folders.flatMap((f) => f.secrets.map((x) => x.name))).toEqual(['E2E_TOKEN']);
+      expect(JSON.stringify(view)).not.toContain(TOKEN);
+      // Its throwaway profile went with it.
+      await expect
+        .poll(() => (existsSync(join(relay.dataDir, 'browser', 'user')) ? readdirSync(join(relay.dataDir, 'browser', 'user')) : []))
+        .toEqual([]);
+    } finally {
+      site.close();
     }
   });
 

@@ -461,6 +461,20 @@ export const api = {
   branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  /** Opens a browser for the user alone for a secrets card (at the address its ask `name` named): its hand-over id. */
+  openSecretsBrowser: (id: string, messageId: string, partId: string, name?: string) =>
+    request<{ handoverId: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/browser`,
+      name === undefined ? {} : { name },
+    ),
+  /** Save selection as a secret: the server reads what is selected in that browser and keeps it under `name`. */
+  saveSecretSelection: (id: string, messageId: string, partId: string, handoverId: string, name: string) =>
+    request<{ ok: true }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/selection`,
+      { handoverId, name },
+    ),
   /** The user's answer to a hand-over of the chat's browser: start it, decline it, hand it back or cancel it. */
   answerHandover: (id: string, handoverId: string, answer: HandoverAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}`, answer),

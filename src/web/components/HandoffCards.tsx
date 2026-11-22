@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { hostOf } from '../handover';
+import { HandoverPanel } from './HandoverCard';
 import { commandActions, filledValues, formOf, proposalOf, runTone, waitingAsks, type CommandPart, type SecretsPart } from '../handoffs';
 import { useT } from '../i18n';
 import { CommandIcon, KeyIcon } from './icons';
@@ -45,11 +47,20 @@ export function SecretsCard({
 }) {
   const t = useT();
   const c = t.handoffs.secrets;
+  const alone = t.browserHandover.alone;
   const [values, setValues] = useState<Record<string, string>>({});
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const { busy, error, call } = useCall();
   const waiting = waitingAsks(part);
   const filled = filledValues(waiting, values);
+  /** The card's browser for the user alone, while its panel is open here: its hand-over id. */
+  const [browser, setBrowser] = useState<string | undefined>();
+  // Answered (here, from the page, or in another browser): its browser has closed with it.
+  useEffect(() => {
+    if (!waiting.length) setBrowser(undefined);
+  }, [waiting.length]);
+  const openBrowser = (name: string) =>
+    void call(async () => setBrowser((await api.openSecretsBrowser(convId, messageId, part.id, name)).handoverId));
   const answer = async (decline: boolean) => {
     const done = await call(() => api.answerSecrets(convId, messageId, part.id, decline ? { decline: true } : { values: filled }));
     // The values leave the page once sent.
@@ -78,6 +89,9 @@ export function SecretsCard({
               {a.status === 'waiting' ? (
                 <>
                   {a.had && <p className="muted small">{c.had}</p>}
+                  <button type="button" className="ghost small-button handoff-browser" disabled={busy} onClick={() => openBrowser(a.name)}>
+                    {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
+                  </button>
                   <div className="input-row">
                     <input
                       id={id}
@@ -100,7 +114,7 @@ export function SecretsCard({
                   </div>
                 </>
               ) : (
-                <p className="muted small">{c.status[a.status]}</p>
+                <p className="muted small">{a.status === 'saved' && a.from === 'page' ? alone.fromPage : c.status[a.status]}</p>
               )}
             </li>
           );
@@ -109,6 +123,7 @@ export function SecretsCard({
       {waiting.length > 0 && (
         <>
           <p className="muted small">{c.hint}</p>
+          <p className="muted small">{alone.hint}</p>
           {error && <p className="error-line">{error}</p>}
           <div className="approval-actions">
             <button
@@ -124,6 +139,29 @@ export function SecretsCard({
             </button>
           </div>
         </>
+      )}
+      {browser && waiting.length > 0 && (
+        <HandoverPanel
+          convId={convId}
+          handoverId={browser}
+          reason={alone.line}
+          asks={[]}
+          onApproval={undefined}
+          busy={busy}
+          title={alone.title}
+          doneLabel={alone.close}
+          onHide={() => setBrowser(undefined)}
+          onEnded={() => setBrowser(undefined)}
+          onDone={() => {
+            const id = browser;
+            setBrowser(undefined);
+            void api.answerHandover(convId, id, { action: 'done' }).catch(() => undefined);
+          }}
+          saveAs={{
+            names: waiting.map((a) => ({ name: a.name, ...(a.label ? { label: a.label } : {}) })),
+            onSave: (name) => api.saveSecretSelection(convId, messageId, part.id, browser, name).then(() => undefined),
+          }}
+        />
       )}
     </section>
   );

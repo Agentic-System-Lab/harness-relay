@@ -42,6 +42,7 @@ import type {
 } from '../shared/types';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS } from '../shared/types';
 import { checkProposal, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
+import { USER_BROWSERS_MAX, UserBrowserError, type UserBrowsers } from './browser/handover';
 import { askingReplies, splitAsk } from '../shared/ask';
 import { splitSteps, stepsAnswerText, stepsOfMessage, type StepsPart } from '../shared/steps';
 import { nextRun } from '../shared/schedule';
@@ -844,6 +845,10 @@ export class Orchestrator {
   >();
   /** Hand-overs of the chat's browser waiting for the user or in their hands (`browser_hand_over`), by card id: their conversation. */
   private handovers = new Map<string, string>();
+  /** The browsers for the user alone (`browser/session.ts`), when the server runs the browser tools. */
+  userBrowsers?: UserBrowsers;
+  /** A secrets card's browser for the user alone while it is open, by the card's id: its id. */
+  private secretBrowsers = new Map<string, string>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
   /** Long-term memory: the notes agents keep across conversations, and the lead agent's tidying of them. */
@@ -1141,6 +1146,7 @@ export class Orchestrator {
         name: b.name,
         ...(b.label ? { label: b.label } : {}),
         ...(b.reason ? { reason: b.reason } : {}),
+        ...(b.url ? { url: b.url } : {}),
         status: 'waiting',
         ...(store.has(folder, b.name) ? { had: true } : {}),
       });
@@ -1243,8 +1249,89 @@ export class Orchestrator {
     }
     for (const a of waiting) a.status = saved.includes(a.name) ? 'saved' : 'declined';
     this.saveCard(conv, msg);
-    const declined = waiting.filter((a) => a.status === 'declined').map((a) => a.name);
-    await this.answerCard(convId, t().handoffs.secretsAnswer(saved, declined));
+    await this.secretsDecided(conv, part);
+  }
+
+  /**
+   * A secrets card with no ask waiting any more: its browser for the user alone closes, and the team gets
+   * the user's answer, which names every secret given (typed or saved from the page) and those not, never a value.
+   */
+  private async secretsDecided(conv: Conversation, part: Extract<MessagePart, { type: 'secrets' }>): Promise<void> {
+    const browser = this.secretBrowsers.get(part.id);
+    if (browser) {
+      this.secretBrowsers.delete(part.id);
+      await this.userBrowsers?.closeForUser(conv.id, browser);
+    }
+    const names = (status: SecretAsk['status']) => part.asks.filter((a) => a.status === status).map((a) => a.name);
+    await this.answerCard(conv.id, t().handoffs.secretsAnswer(names('saved'), names('declined')));
+  }
+
+  /** What the browsers for the user alone's errors are, for the user. */
+  private userBrowserError(err: unknown): HttpError {
+    if (err instanceof HttpError) return err;
+    if (err instanceof UserBrowserError) {
+      if (err.why === 'busy') return new HttpError(409, t().handoffs.browsersBusy(USER_BROWSERS_MAX));
+      if (err.why === 'gone') return new HttpError(404, t().handoffs.browserGone);
+      if (err.why === 'refused') return new HttpError(409, t().handoffs.browserRefused);
+      return new HttpError(409, t().handoffs.noBrowser);
+    }
+    return new HttpError(409, (err as Error).message);
+  }
+
+  /**
+   * Opens a browser for the user alone for a secrets card that waits (B2 of the proposal), at the address
+   * an ask named (`name`'s `url`), else a blank page; one per card, so the same one comes back while it is
+   * open. Returns its id, for the screencast's panel and routes.
+   */
+  async openSecretsBrowser(convId: string, messageId: string, partId: string, name?: string): Promise<{ handoverId: string }> {
+    const { conv, part } = this.handoffCard(convId, messageId, partId, 'secrets');
+    if (!part.asks.some((a) => a.status === 'waiting')) throw new HttpError(409, t().handoffs.cardDecided);
+    const ask = name === undefined ? undefined : part.asks.find((a) => a.name === name && a.status === 'waiting');
+    if (name !== undefined && !ask) throw new HttpError(409, t().handoffs.notAsked(name));
+    if (!this.userBrowsers) throw new HttpError(409, t().handoffs.noBrowser);
+    const open = this.secretBrowsers.get(part.id);
+    if (open && this.userBrowsers.userBrowserOpen(conv.id, open)) return { handoverId: open };
+    let id: string;
+    try {
+      id = await this.userBrowsers.openForUser(conv.id, {
+        ...(ask?.url ? { url: ask.url } : {}),
+        onEnd: () => {
+          if (this.secretBrowsers.get(part.id) === id) this.secretBrowsers.delete(part.id);
+        },
+      });
+    } catch (err) {
+      throw this.userBrowserError(err);
+    }
+    this.secretBrowsers.set(part.id, id);
+    return { handoverId: id };
+  }
+
+  /**
+   * Save selection as a secret: the text the user selected on the page of the card's browser for the user
+   * alone (`handoverId`), read by the server over the browser's debugging pipe, is kept for the card's
+   * folder under `name` (`HandoffStore.setSecrets()`, checked as a typed value is), and that ask is marked
+   * saved from the page. The value goes nowhere else: not to the page that asked, a message, an agent or a
+   * log (a problem names the secret, never the value). Once no ask waits, the browser closes and the team
+   * gets the user's answer, as `answerSecrets()` gives it.
+   */
+  async saveSecretFromPage(convId: string, messageId: string, partId: string, handoverId: string, name: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
+    const ask = part.asks.find((a) => a.name === name);
+    if (!ask || ask.status !== 'waiting') throw new HttpError(409, t().handoffs.notAsked(name));
+    if (!this.userBrowsers || this.secretBrowsers.get(part.id) !== handoverId || !this.userBrowsers.userBrowserOpen(conv.id, handoverId))
+      throw new HttpError(404, t().handoffs.browserGone);
+    let value: string;
+    try {
+      value = await this.userBrowsers.selectionOf(conv.id, handoverId);
+    } catch (err) {
+      throw this.userBrowserError(err);
+    }
+    if (!value.trim()) throw new HttpError(400, t().handoffs.noSelection);
+    this.settings.handoffs.setSecrets(part.folder, { [name]: value });
+    ask.status = 'saved';
+    ask.from = 'page';
+    this.saveCard(conv, msg);
+    if (!part.asks.some((a) => a.status === 'waiting')) await this.secretsDecided(conv, part);
   }
 
   /** The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as it is now. */

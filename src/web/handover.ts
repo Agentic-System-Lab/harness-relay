@@ -149,6 +149,15 @@ export function screenEvent(data: string): HandoverScreenEvent | undefined {
   return undefined;
 }
 
+/** A page's host, as a button names it (the address itself when it has none). */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
 /** The whole minutes left until `deadline` (at least one while any time is left; zero once it passed). */
 export function minutesLeft(deadline: number, now: number): number {
   const ms = deadline - now;
