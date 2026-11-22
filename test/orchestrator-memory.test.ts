@@ -5,7 +5,7 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MEMORY_LIMITS, type MemoryNote } from '../src/shared/types';
 import { agentMessages, calls, conversation, fake, finish, orchestrator, store, textOf } from './orchestrator-harness';
 
@@ -19,6 +19,10 @@ const note = (over: Partial<MemoryNote> & { id: string; text: string }): MemoryN
 });
 
 describe('long-term memory in team runs', () => {
+  // An experiment in Labs, off until the user turns it on: these tests are about it on (the harness's
+  // own beforeEach, which makes `orchestrator`, runs first).
+  beforeEach(() => orchestrator.memory.updateSettings({ enabled: true }));
+
   it("takes a reply's blocks out of its text, records them, and tells the next teammate", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     fake.reply = (name) =>

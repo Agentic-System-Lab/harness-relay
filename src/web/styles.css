@@ -10500,11 +10500,12 @@ a.share-action {
   }
 }
 
-/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs. */
+/* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs (in a
+   settings-part, whose gap spaces them), then long-term memory's part. */
 .labs-options {
   display: grid;
   gap: 10px;
-  margin: 12px 0;
+  margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
@@ -10545,7 +10546,6 @@ a.share-action {
 .labs-model {
   display: grid;
   gap: 6px;
-  margin-bottom: 12px;
 }
 .labs-model input,
 .labs-model select {

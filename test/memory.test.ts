@@ -407,6 +407,8 @@ describe('LongTermMemory', () => {
     const store = new Store(db);
     const cards: [string, string][] = [];
     const memory = new LongTermMemory(store, new SettingsStore(db), { cardChanged: (n, status) => cards.push([n.id, status]) });
+    // An experiment in Labs, off until the user turns it on: these tests are about it on.
+    memory.updateSettings({ enabled: true });
     const conv: Conversation = {
       id: 'c1',
       title: 'Chat',
@@ -597,6 +599,25 @@ describe('LongTermMemory', () => {
       ['m_a', 'archived'],
     ]);
     expect(cards.map(([id]) => id)).toEqual(['m_a', 'm_b', 'm_ab']);
+  });
+
+  it('is off until the user turns it on: nothing saved or given meanwhile', () => {
+    const db = openDatabase(':memory:');
+    const store = new Store(db);
+    const memory = new LongTermMemory(store, new SettingsStore(db));
+    expect(memory.config).toEqual({ enabled: false, review: false, autoTidy: true });
+    store.create({
+      id: 'c1',
+      title: 'Chat',
+      createdAt: 0,
+      updatedAt: 0,
+      agents: [{ id: 'a', name: 'Alice', provider: 'claude', role: '' }],
+      settings: { mode: 'relay', rounds: 1, maxHops: 3, permission: 'edit', cwd: '/app' },
+      messages: [],
+      agentState: {},
+      worktrees: {},
+    });
+    expect(memory.view().notes).toEqual([]);
   });
 
   it('keeps its settings across a restart', () => {

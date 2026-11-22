@@ -111,10 +111,11 @@ describe('guided tour', () => {
           'Long-term memory',
           'Adjust any time',
         ]);
-      expect(titles(39)).toEqual(['Browse the working directory', 'Long-term memory']);
+      expect(titles(39)).toEqual(['Browse the working directory', 'Long-term memory', 'Adjust any time']);
       // Publishing a preview came to the files step.
-      expect(titles(40)).toEqual(['Browse the working directory', 'Long-term memory']);
-      expect(titles(41)).toEqual(['Long-term memory']);
+      expect(titles(40)).toEqual(['Browse the working directory', 'Long-term memory', 'Adjust any time']);
+      // Long-term memory came, in Labs, which the Settings step names.
+      expect(titles(41)).toEqual(['Long-term memory', 'Adjust any time']);
       expect(tourIndices(42)).toEqual([]);
       value = '21';
       expect(pendingTour()).toBe(21);
@@ -159,6 +160,6 @@ describe('guided tour', () => {
     // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
     // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
     // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: 'e66ea3645c88' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 42, fingerprint: 'bea418a09341' });
   });
 });

@@ -127,8 +127,9 @@ test.describe('the guided tour', () => {
     await expect(update).toHaveAccessibleName('Connect apps to your chats');
     await update.getByRole('button', { name: 'Next' }).click();
     await expect(update).toHaveAccessibleName('Long-term memory');
+    await expect(update).toContainText('Settings → Labs → Long-term memory');
     await update.getByRole('button', { name: 'Next' }).click();
-    // The Settings step: Labs and the subagents' and workflows' switches were added to it.
+    // The Settings step: Labs (long-term memory among it) and the subagents' and workflows' switches were added to it.
     await expect(update).toHaveAccessibleName('Adjust any time');
     await update.getByRole('button', { name: 'Done', exact: true }).click();
     await page.reload();

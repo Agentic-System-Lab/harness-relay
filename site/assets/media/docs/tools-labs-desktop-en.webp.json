@@ -1,4 +1,4 @@
 {
-  "prompt": "Origin: Chromium 157.0.8103.78 screenshot of the card of Settings → Labs, read long texts in parts chosen with a model, in a 1280 × 2200 window in the built Harness Relay settings. Language en, device scale factor 2. Isolated local server and a fictitious Anthropic key; no private data. Encoded with cwebp -q 92.",
-  "createdAt": "2026-11-21T12:38:19.000Z"
+  "prompt": "Origin: Chromium 158.0.8127.18 screenshot of the card of Settings → Labs, read long texts in parts chosen with a model and long-term memory off (its default), in a 1280 × 2200 window in the built Harness Relay settings. Language en, device scale factor 2. Isolated local server and a fictitious Anthropic key; no private data. Encoded with Pillow (libwebp) at quality 92.",
+  "createdAt": "2026-11-22T11:10:03.210Z"
 }

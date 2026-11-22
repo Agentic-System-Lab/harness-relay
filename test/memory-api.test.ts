@@ -54,10 +54,10 @@ const view = async (res: Response) => {
 };
 
 describe('long-term memory API', () => {
-  it('shows the memory, empty at first, with its settings on', async () => {
+  it('shows the memory, empty at first, and off until the user turns it on', async () => {
     const v = await view(await app.request('/api/memory', { headers: HOST }));
     expect(v).toEqual({
-      settings: { enabled: true, review: false, autoTidy: true },
+      settings: { enabled: false, review: false, autoTidy: true },
       notes: [],
       sources: {},
       tidying: false,
@@ -99,8 +99,12 @@ describe('long-term memory API', () => {
     expect((await send('PATCH', '/api/memory/notes/m_1', { state: 'pending' })).status).toBe(400);
   });
 
-  it('refuses Tidy up now with nothing to tidy', async () => {
-    const res = await send('POST', '/api/memory/tidy');
+  it('refuses Tidy up now while memory is off, and with nothing to tidy', async () => {
+    let res = await send('POST', '/api/memory/tidy');
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('Long-term memory is off.');
+    await view(await send('PUT', '/api/memory/settings', { enabled: true }));
+    res = await send('POST', '/api/memory/tidy');
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe('There are no notes to tidy yet.');
   });

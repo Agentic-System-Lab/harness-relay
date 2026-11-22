@@ -1321,7 +1321,11 @@ export const en: Messages = {
 
   labs: {
     title: 'Labs',
-    hint: "Ways of working that are still experimental. Off by default, and only one at a time. They change only how assistants use Harness Relay's own tools (browser, mail, calendar, documents…): an assistant needs those tools from Apps and tools first. A change applies from the assistant's next turn.",
+    hint: 'Features that are still experimental. Each stays off until you turn it on here.',
+    tools: {
+      title: "How assistants use Harness Relay's tools",
+      hint: "Only one of these at a time. They change only how assistants use Harness Relay's own tools (browser, mail, calendar, documents…): an assistant needs those tools from Apps and tools first. A change applies from the assistant's next turn.",
+    },
     fromEnv: (name) => `This comes from the environment variable ${name} for now; once you save here, this setting is used instead.`,
     unavailable: (reason) => `Not available on this computer: ${reason}`,
     goodFor: 'Good for',
@@ -1961,7 +1965,6 @@ export const en: Messages = {
       mcp: 'Connect more tools by URL or local command',
       skills: 'Add reusable instructions from a folder',
       memory: 'Save preferences for everyone or for one type of assistant',
-      longTerm: 'What agents note across conversations, and the lead agent tidying it',
       hooks: 'Run commands before or after tool calls',
       checks: 'Set protected paths, commit formats and check commands',
     },
@@ -3129,11 +3132,11 @@ export const en: Messages = {
       },
       {
         title: 'Long-term memory',
-        body: 'Agents keep what they learn in one chat that later chats can use: your preferences and decisions, facts they checked, mistakes to avoid. Ask an agent to remember something, or let it judge what is worth keeping.',
+        body: 'An experiment, off until you turn it on in Settings → Labs → Long-term memory. Agents then keep what they learn in one chat that later chats can use: your preferences and decisions, facts they checked, mistakes to avoid. Ask an agent to remember something, or let it judge what is worth keeping.',
         points: [
           'A reply that saved a note shows it in a Long-term memory card under its text: Set aside stops agents getting it, and Restore brings it back',
           'Pinned notes come with every chat; the others reach an agent when they bear on what you said',
-          'Settings → Apps and tools → Tool library → Long-term memory lists every note to search, edit, pin, set aside or delete, and can hold new notes until you keep them',
+          'Settings → Labs → Long-term memory turns it on and off, lists every note to search, edit, pin, set aside or delete, and can hold new notes until you keep them',
           'Now and then the lead agent tidies the notes against the chats they came from; it never changes notes you wrote',
         ],
       },
@@ -3152,7 +3155,7 @@ export const en: Messages = {
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
           'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
-          'Labs, the last card: experimental ways of working, off by default, one at a time',
+          'Labs, the last card: experimental features, each off until you turn it on, such as long-term memory and assistants scripting the tools',
         ],
       },
     ],

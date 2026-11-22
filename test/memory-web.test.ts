@@ -12,6 +12,7 @@ import {
   folderName,
   folderOptions,
   memoryCounts,
+  memoryManaged,
   replacedBy,
   shownNotes,
   tidyStatus,
@@ -47,6 +48,13 @@ describe('long-term memory in Settings', () => {
     expect(shownNotes(notes, 'active', 'PNPM app').map((n) => n.id)).toEqual(['m_1']);
     expect(shownNotes(notes, 'active', 'npm yarn')).toEqual([]);
     expect(shownNotes(notes, 'archived', 'm_3').map((n) => n.id)).toEqual(['m_3']);
+  });
+
+  it('shows only its switch while it is off with no notes kept, and everything while it is on or holds notes', () => {
+    const settings = { enabled: false, review: false, autoTidy: true };
+    expect(memoryManaged({ settings, notes: [] })).toBe(false);
+    expect(memoryManaged({ settings: { ...settings, enabled: true }, notes: [] })).toBe(true);
+    expect(memoryManaged({ settings, notes: [notes[2]!] })).toBe(true);
   });
 
   it('names folders and offers each once', () => {

@@ -434,13 +434,14 @@ describe('the docs', () => {
       'mcp-servers',
       'skills',
       'memory',
-      'long-term-memory',
       'hooks',
       'default-team-checks',
       'outbox',
       'per-member',
       'own-setup',
       'labs',
+      // Long-term memory is a part of Labs.
+      'long-term-memory',
     ];
     const pages = docs.filter((d) => d.path === 'docs/tools/');
     expect(pages.map((page) => page.lang).sort()).toEqual(['en', 'zh-TW']);

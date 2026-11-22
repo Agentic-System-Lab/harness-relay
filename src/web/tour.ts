@@ -23,9 +23,9 @@ export const TOUR_STEPS: { target?: string; revision: number }[] = [
   { target: 'new-schedule', revision: 37 },
   { target: 'organize', revision: 17 },
   { target: 'settings', revision: 33 }, // common apps and the tool library
-  { target: 'settings', revision: 42 }, // long-term memory
+  { target: 'settings', revision: 42 }, // long-term memory (in Labs, off by default)
   { target: 'settings', revision: 4 }, // agent sessions
-  { target: 'settings', revision: 39 }, // settings (Labs; subagents and workflows)
+  { target: 'settings', revision: 42 }, // settings (Labs: long-term memory too; subagents and workflows)
 ];
 
 export function tourIndices(since: number): number[] {

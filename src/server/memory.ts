@@ -47,7 +47,7 @@ import type { Store } from './store';
  * aside stays for the user to restore or delete, and a note the user wrote changes only when they say.
  */
 
-const DEFAULT_SETTINGS: MemorySettings = { enabled: true, review: false, autoTidy: true };
+const DEFAULT_SETTINGS: MemorySettings = { enabled: false, review: false, autoTidy: true };
 
 /** How a recalled note is kept in an agent's `seen` list (next to message ids), so it is recalled once per session. */
 export const memorySeenKey = (id: string): string => `memory:${id}`;

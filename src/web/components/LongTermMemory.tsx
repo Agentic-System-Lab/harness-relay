@@ -2,15 +2,26 @@ import { useEffect, useState } from 'react';
 import { MEMORY_LIMITS, type MemoryNote, type MemorySettings, type MemoryState, type MemoryView } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
-import { authorText, firstFilter, folderName, folderOptions, memoryCounts, replacedBy, shownNotes, tidyStatus } from '../memory';
+import {
+  authorText,
+  firstFilter,
+  folderName,
+  folderOptions,
+  memoryCounts,
+  memoryManaged,
+  replacedBy,
+  shownNotes,
+  tidyStatus,
+} from '../memory';
 import { PinIcon } from './icons';
 
 /** How often the view is read again while the lead agent tidies the notes. */
 const TIDY_POLL_MS = 3000;
 
 /**
- * Settings → Apps and tools → Tool library → Long-term memory: its switches, the lead agent's
- * tidying, and every note, by state, to keep, change, pin, set aside, restore or delete.
+ * Settings → Labs → Long-term memory: its switches, the lead agent's tidying, and every note, by state,
+ * to keep, change, pin, set aside, restore or delete. Off (the default) with no notes kept, only its
+ * explanation and the switch that turns it on (`memoryManaged()`).
  */
 export function LongTermMemorySection() {
   const { t, lang } = useI18n();
@@ -74,103 +85,108 @@ export function LongTermMemorySection() {
         <input type="checkbox" checked={view.settings.enabled} disabled={busy} onChange={(e) => setting({ enabled: e.target.checked })} />
         <span>{m.enabled}</span>
       </label>
-      <fieldset className="memory-options" disabled={!view.settings.enabled || busy}>
-        <label className="check-row">
-          <input type="checkbox" checked={view.settings.review} onChange={(e) => setting({ review: e.target.checked })} />
-          <span>{m.review}</span>
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={view.settings.autoTidy} onChange={(e) => setting({ autoTidy: e.target.checked })} />
-          <span>{m.autoTidy}</span>
-        </label>
-        <p className="muted small">{m.autoTidyHint(MEMORY_LIMITS.tidyAfterChanges, MEMORY_LIMITS.tidyHours)}</p>
-        <div className="button-row memory-tidy">
-          <span className="muted small" role="status">
-            {tidyStatus(t, view, when)}
-          </span>
-          <button
-            type="button"
-            className="ghost small-button"
-            disabled={view.tidying || !counts.active}
-            onClick={() => void run(() => api.tidyMemory())}
-          >
-            {m.tidyNow}
-          </button>
-        </div>
-      </fieldset>
+      {memoryManaged(view) && (
+        <>
+          <fieldset className="memory-options" disabled={!view.settings.enabled || busy}>
+            <label className="check-row">
+              <input type="checkbox" checked={view.settings.review} onChange={(e) => setting({ review: e.target.checked })} />
+              <span>{m.review}</span>
+            </label>
+            <label className="check-row">
+              <input type="checkbox" checked={view.settings.autoTidy} onChange={(e) => setting({ autoTidy: e.target.checked })} />
+              <span>{m.autoTidy}</span>
+            </label>
+            <p className="muted small">{m.autoTidyHint(MEMORY_LIMITS.tidyAfterChanges, MEMORY_LIMITS.tidyHours)}</p>
+            <div className="button-row memory-tidy">
+              <span className="muted small" role="status">
+                {tidyStatus(t, view, when)}
+              </span>
+              <button
+                type="button"
+                className="ghost small-button"
+                disabled={view.tidying || !counts.active}
+                onClick={() => void run(() => api.tidyMemory())}
+              >
+                {m.tidyNow}
+              </button>
+            </div>
+          </fieldset>
 
-      <div className="memory-add">
-        <textarea
-          className="memory-note-input"
-          rows={2}
-          value={draft}
-          maxLength={MEMORY_LIMITS.noteChars}
-          aria-label={m.add}
-          placeholder={m.addPlaceholder}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <div className="button-row">
-          <label className="memory-scope">
-            <span className="small">{m.scope}</span>
-            <select value={draftCwd} onChange={(e) => setDraftCwd(e.target.value)}>
-              <option value="">{m.everywhere}</option>
-              {options.map((f) => (
-                <option key={f} value={f} title={f}>
-                  {m.folder(folderName(f))}
-                </option>
+          <div className="memory-add">
+            <textarea
+              className="memory-note-input"
+              rows={2}
+              value={draft}
+              maxLength={MEMORY_LIMITS.noteChars}
+              aria-label={m.add}
+              placeholder={m.addPlaceholder}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <div className="button-row">
+              <label className="memory-scope">
+                <span className="small">{m.scope}</span>
+                <select value={draftCwd} onChange={(e) => setDraftCwd(e.target.value)}>
+                  <option value="">{m.everywhere}</option>
+                  {options.map((f) => (
+                    <option key={f} value={f} title={f}>
+                      {m.folder(folderName(f))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || !draft.trim()}
+                onClick={async () => {
+                  if (await run(() => api.addMemoryNote({ text: draft, ...(draftCwd ? { cwd: draftCwd } : {}) }))) {
+                    setDraft('');
+                    setFilter('active');
+                  }
+                }}
+              >
+                {m.add}
+              </button>
+            </div>
+          </div>
+
+          <div className="memory-list-head">
+            <div className="segmented" role="tablist" aria-label={m.title}>
+              {(['active', 'pending', 'archived'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="tab"
+                  aria-selected={state === s}
+                  className={state === s ? 'on' : ''}
+                  onClick={() => setFilter(s)}
+                >
+                  {m.filters[s](counts[s])}
+                </button>
               ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="primary"
-            disabled={busy || !draft.trim()}
-            onClick={async () => {
-              if (await run(() => api.addMemoryNote({ text: draft, ...(draftCwd ? { cwd: draftCwd } : {}) }))) {
-                setDraft('');
-                setFilter('active');
-              }
-            }}
-          >
-            {m.add}
-          </button>
-        </div>
-      </div>
-
-      <div className="memory-list-head">
-        <div className="segmented" role="tablist" aria-label={m.title}>
-          {(['active', 'pending', 'archived'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="tab"
-              aria-selected={state === s}
-              className={state === s ? 'on' : ''}
-              onClick={() => setFilter(s)}
-            >
-              {m.filters[s](counts[s])}
-            </button>
-          ))}
-        </div>
-        <input
-          type="search"
-          className="memory-search"
-          value={query}
-          placeholder={m.search}
-          aria-label={m.search}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      {error && <p className="error-line">{error}</p>}
-      {notes.length ? (
-        <ul className="memory-list">
-          {notes.map((n) => (
-            <NoteRow key={n.id} note={n} view={view} options={options} when={when} busy={busy} run={run} />
-          ))}
-        </ul>
-      ) : (
-        <p className="muted small">{query.trim() ? m.noMatch : m.empty[state]}</p>
+            </div>
+            <input
+              type="search"
+              className="memory-search"
+              value={query}
+              placeholder={m.search}
+              aria-label={m.search}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </>
       )}
+      {error && <p className="error-line">{error}</p>}
+      {memoryManaged(view) &&
+        (notes.length ? (
+          <ul className="memory-list">
+            {notes.map((n) => (
+              <NoteRow key={n.id} note={n} view={view} options={options} when={when} busy={busy} run={run} />
+            ))}
+          </ul>
+        ) : (
+          <p className="muted small">{query.trim() ? m.noMatch : m.empty[state]}</p>
+        ))}
     </div>
   );
 }

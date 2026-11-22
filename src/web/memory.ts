@@ -10,6 +10,15 @@ export function memoryCounts(notes: readonly MemoryNote[]): Record<MemoryState, 
   return out;
 }
 
+/**
+ * Whether Settings → Labs → Long-term memory shows more than its explanation and its switch: while it is
+ * on, or while notes are kept (to look through, change or delete with it off). Off with none, it is only
+ * an experiment to turn on.
+ */
+export function memoryManaged(view: Pick<MemoryView, 'settings' | 'notes'>): boolean {
+  return view.settings.enabled || view.notes.length > 0;
+}
+
 /** The list Settings opens on: the notes waiting for the user when there are any, else those in use. */
 export function firstFilter(counts: Record<MemoryState, number>): MemoryState {
   return counts.pending ? 'pending' : 'active';

@@ -161,7 +161,7 @@ src/
     report.ts              用電子郵件回報問題：信件的主旨與內容、一起附上的資訊、截圖的連結、mailto 與 Gmail 連結（報告太長放不進連結時改用剪貼簿）
     sharePage.tsx          從畫面上的聊天室做出分享頁（複製、拿掉不要的、樣式、圖片轉成 data URL 並控制在 10 MB 內、附檔的佔位連結）；要分享的訊息裡的檔案連結
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
-    memory.ts              設定 → 長期記憶的純邏輯：依狀態分類與搜尋記憶、資料夾名稱與選項、記憶的作者、哪則記憶取代了它、整理的狀態文字
+    memory.ts              設定 → 實驗室 → 長期記憶的純邏輯：依狀態分類與搜尋記憶、資料夾名稱與選項、記憶的作者、哪則記憶取代了它、整理的狀態文字
     backends.ts            設定 → 模型連線：端點表單的純邏輯（從名稱產生 id、選取或手動輸入的模型 ID、每個模型輸入的上下文長度與輸出上限、表單的問題）
     labs.ts                設定 → 實驗室：它的純邏輯（子模型能用的模型連線、能透過哪些 CLI 帳號問與它們的模型、模型欄位的建議、儲存時送出什麼或為什麼還不能存、有沒有東西可存）
     memberLimits.ts        團隊編輯器中成員自己的上限：哪些 CLI 有、它的單位與範圍、讀取輸入的值
@@ -191,8 +191,8 @@ src/
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
                            SettingsPage、UsagePanel（設定頁中帳號的方案用量）、CliFeatures（帳號的 subagent 與 workflow）、CopyButton、Logo、Onboarding（使用導覽）、TourArt（使用導覽歡迎那一步的圖）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
-                           VoiceSettings（設定 → 語音輸入）、LabsSettings（設定 → 實驗室）、ToolsSettings（設定 → App 與工具，含常用 App 與工具庫兩個分頁）、
-                           LongTermMemory（工具庫 → 長期記憶）、
+                           VoiceSettings（設定 → 語音輸入）、LabsSettings（設定 → 實驗室，各模式下方是長期記憶）、ToolsSettings（設定 → App 與工具，含常用 App 與工具庫兩個分頁）、
+                           LongTermMemory（實驗室 → 長期記憶）、
                            CliInstall（設定頁 CLI 卡片上的安裝與移除）、
                            SandboxSetup（設定 → 沙箱）、SandboxSetupDialog（新對話的對話框）、
                            BackendsSettings（設定 → 模型連線）、
@@ -581,7 +581,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `POST /api/tools/mcp/:name/signin` | `{ origin? }` → `OAuthSignInView`（`provider: "mcp"`、`server: { id, name }`）：開始 HTTP 伺服器自己的登入（MCP 的授權）：探索；保留的用戶端沒有這個重新導向網址時，在它的授權伺服器註冊一個用戶端；之後是要打開的頁面；頁面或權杖端點不在授權伺服器自己的來源上時，則不給頁面，而是 `confirm: { host, issuer, tokenHost? }`，確認後才給（`POST /api/oauth/signins/:id/confirm`）；和帳號的登入一樣追蹤（`GET /api/oauth/signins/:id`）、貼上網址（`…/address`）、取消（`DELETE …`），並在 `POST /api/oauth/callback` 完成。不要求登入的伺服器回 `409`，`code: "mcp-no-sign-in"`；無法登入的伺服器回 `502` 並說明原因（沒有 S256 的 PKCE、沒有註冊、別的資源的中繼資料、別的發行者、連不上、不是 https、別處的伺服器用了這台電腦或區域網路上的位址、註冊被拒）；stdio 伺服器回 `400`，沒有這台伺服器回 `404`，已有 10 個在等或準備中時回 `429` |
 | `DELETE /api/tools/mcp/:name/signin` | → `ToolLibraryView`：讓伺服器登出：從金鑰儲存區與伺服器的記憶體刪除它的權杖，授權伺服器有撤銷端點時也撤銷；沒有這台伺服器時回 `404` |
 | `GET /api/tools/skills/scan?path=` | → `{ path, skills: SkillCandidate[] }`：資料夾底下的 skill（資料夾本身，以及往下兩層內的 skill 資料夾，最多 300 個），已加入的會標示；不會儲存任何東西 |
-| `GET /api/memory` | → `MemoryView`：長期記憶的設定（`enabled`、`review`、`autoTidy`）、所有記憶（等待確認的在前，接著是釘選的，其餘由新到舊）、它們來自的對話標題（`sources`）、上次整理（`lastTidy`：時間、變更數、首席 agent 的摘要或失敗原因）、首席 agent 現在是否在整理，以及上次整理後變動的記憶數 |
+| `GET /api/memory` | → `MemoryView`：長期記憶的設定（`enabled`、`review`、`autoTidy`；預設關、關、開）、所有記憶（等待確認的在前，接著是釘選的，其餘由新到舊）、它們來自的對話標題（`sources`）、上次整理（`lastTidy`：時間、變更數、首席 agent 的摘要或失敗原因）、首席 agent 現在是否在整理，以及上次整理後變動的記憶數 |
 | `PUT /api/memory/settings` | `{ enabled?, review?, autoTidy? }`（布林值）→ `MemoryView`；關閉記憶或自動整理時，會停止正在進行的整理 |
 | `POST /api/memory/notes` | `{ text, cwd?, pinned? }` → `MemoryView`：使用者的一則記憶（`basis: user`），適用所有對話，或有 `cwd`（絕對路徑，展開 `~`）時只適用有那個資料夾的對話；空的或超過 1,000 字元的回 400，超過 1,000 則回 409 |
 | `PATCH /api/memory/notes/:id` | `{ text?, cwd?, pinned?, state? }` → `MemoryView`：改了內容的記憶就成為使用者的；`cwd: null` 表示所有對話；`state: "active"` 保留一則等待中的記憶（agent 的修正會把它取代的記憶擱置）或還原一則擱置的記憶，`"archived"` 把它擱置；不認得的記憶回 404 |
@@ -793,7 +793,7 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 
 ## 常用 App 的服務註冊
 
-**設定 → App 與工具**共用一個導覽連結，卡片內有兩個分頁。既有的 `#/settings/apps` 會開啟**常用 App**，`#/settings/tools` 則會開啟**工具庫**。**常用 App** 有十列，分屬「郵件與行事曆」、「團隊通訊」、「文件與筆記」、「開發與瀏覽」，四個具名區域都顯示在同一分頁。**郵件**和**行事曆**排在最前面，各自顯示服務選項和已連結的帳號。**選擇郵件服務**提供 **Gmail**、**iCloud 郵件**、**Outlook**與**其他信箱**。Gmail 與 Google Calendar 共用同一個 Google 桌面 OAuth 用戶端。用戶端已設定完成時可按**用 Google 登入**。載入後仍可選取各項服務。若用戶端設定不完整或已停用，只有在選取服務後才會顯示停用的登入按鈕與原因，旁邊的說明提供線上教學連結，也可按**設定 Google 登入**開啟**設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）**。面板列出各家服務的狀態，可單獨停用或啟用直接連線，並保留用戶端設定與既有授權。在此選 Google 可儲存用戶端 ID 與用戶端密碼，選 Microsoft 可儲存用戶端 ID 與租用戶。原有的手動信箱沿用已儲存的憑證。iCloud 郵件使用預設伺服器。其他信箱可自行設定 IMAP 與 SMTP，也有 Fastmail 和 Yahoo Mail 的預設值。行事曆在**選擇行事曆服務**下列出 **Google Calendar**、**iCloud 行事曆**、**Outlook** 和**其他（CalDAV）**，選取後只會顯示該服務的設定。在**已連結的信箱**與**已連結的行事曆**中，每個 OAuth 帳號各自列出該服務的資源。使用者可單獨移除資源，移除最後一項後仍可重新加入。共用 OAuth 設定面板依服務提供者列出帳號，使用者可在此解除單一帳號的全部連結。手動設定的資源保留各自的項目。Apple 行事曆以電子郵件地址和 App 專用密碼呼叫既有的 CalDAV 尋找及儲存端點，由 Relay 提供 iCloud 伺服器位址。**瀏覽器**可指定要啟動的執行檔。七個內建工具組別在各自的服務列提供**選擇助理以啟用工具**。如需從 Relay 發送 Slack 訊息，請先連結**從 Relay 傳送訊息**，再於該區展開**可提議傳送訊息的助理**。**工具庫**則包含 MCP 伺服器、Skills、記憶、長期記憶、Hooks 與團隊檢查預設。Drive、Teams、Slack、Notion、Heptabase、GitHub 與 Obsidian 都可免發行者註冊使用。Slack 提供 Claude 與 Codex 官方入口，在所選服務完成授權，適用使用者的助理帳號與工作區規則。[OpenAI 外掛](https://openai.com/business/plugins/) · [Claude 連接器](https://claude.com/marketplace/connectors-plugins)
+**設定 → App 與工具**共用一個導覽連結，卡片內有兩個分頁。既有的 `#/settings/apps` 會開啟**常用 App**，`#/settings/tools` 則會開啟**工具庫**。**常用 App** 有十列，分屬「郵件與行事曆」、「團隊通訊」、「文件與筆記」、「開發與瀏覽」，四個具名區域都顯示在同一分頁。**郵件**和**行事曆**排在最前面，各自顯示服務選項和已連結的帳號。**選擇郵件服務**提供 **Gmail**、**iCloud 郵件**、**Outlook**與**其他信箱**。Gmail 與 Google Calendar 共用同一個 Google 桌面 OAuth 用戶端。用戶端已設定完成時可按**用 Google 登入**。載入後仍可選取各項服務。若用戶端設定不完整或已停用，只有在選取服務後才會顯示停用的登入按鈕與原因，旁邊的說明提供線上教學連結，也可按**設定 Google 登入**開啟**設定與登入 → App 與工具 → 常用 App → 帳號登入設定（OAuth 2.0）**。面板列出各家服務的狀態，可單獨停用或啟用直接連線，並保留用戶端設定與既有授權。在此選 Google 可儲存用戶端 ID 與用戶端密碼，選 Microsoft 可儲存用戶端 ID 與租用戶。原有的手動信箱沿用已儲存的憑證。iCloud 郵件使用預設伺服器。其他信箱可自行設定 IMAP 與 SMTP，也有 Fastmail 和 Yahoo Mail 的預設值。行事曆在**選擇行事曆服務**下列出 **Google Calendar**、**iCloud 行事曆**、**Outlook** 和**其他（CalDAV）**，選取後只會顯示該服務的設定。在**已連結的信箱**與**已連結的行事曆**中，每個 OAuth 帳號各自列出該服務的資源。使用者可單獨移除資源，移除最後一項後仍可重新加入。共用 OAuth 設定面板依服務提供者列出帳號，使用者可在此解除單一帳號的全部連結。手動設定的資源保留各自的項目。Apple 行事曆以電子郵件地址和 App 專用密碼呼叫既有的 CalDAV 尋找及儲存端點，由 Relay 提供 iCloud 伺服器位址。**瀏覽器**可指定要啟動的執行檔。七個內建工具組別在各自的服務列提供**選擇助理以啟用工具**。如需從 Relay 發送 Slack 訊息，請先連結**從 Relay 傳送訊息**，再於該區展開**可提議傳送訊息的助理**。**工具庫**則包含 MCP 伺服器、Skills、記憶、Hooks 與團隊檢查預設。Drive、Teams、Slack、Notion、Heptabase、GitHub 與 Obsidian 都可免發行者註冊使用。Slack 提供 Claude 與 Codex 官方入口，在所選服務完成授權，適用使用者的助理帳號與工作區規則。[OpenAI 外掛](https://openai.com/business/plugins/) · [Claude 連接器](https://claude.com/marketplace/connectors-plugins)
 
 Drive 管理畫面為每個帳號顯示一張卡片，列出電子郵件、目前權限及授權操作。移除 Google Drive 會同時停用該帳號在 Relay 的檔案讀取與 Google 文件編輯。共用 OAuth 設定可解除整個 Google 帳號。第一次連結與「新增另一個 Google 帳號」使用相同的三種選項。預設為搜尋與讀取，也可以選擇讀取與編輯，或只授權編輯。Drive 的直接搜尋與讀取使用使用者自己 Google Cloud 專案的桌面 OAuth 用戶端、Drive API 和 `drive.readonly` 範圍。建立 Google 文件或依 ID 編輯文件則使用 Google Docs API，並要求明確授予獨立的 `documents` 用途（`https://www.googleapis.com/auth/documents`）。Drive 工具 `drive_create_document({ account?, title, content })` 與 `drive_edit_document({ account?, id, before, after, tabId? })` 會在所有權限模式下將提案加入待送出匣。核准編輯時，會針對預覽時的版本及所選分頁替換唯一符合的一段原文。`content`、`before`、`after` 以 UTF-8 計算，每個參數上限為 48 KiB。原文必須在同一內文段落內，起訖點皆不能切開字素叢集（例如組合成一個表情符號的多個字元）。核准建立時則會先建立文件，再加入內文。若寫入內文失敗，結果會標明 Google 已建立的文件。
 
@@ -1085,7 +1085,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/scroll.spec.ts` — 捲動對話：往上捲之後，訊息框上方中間的箭頭（與它置中對齊、蓋在訊息上、沒有東西蓋住它）用點擊（訊息框保有焦點與文字，或維持沒有焦點）、Enter（焦點接著移到訊息框）把對話帶回最後，減少動態效果時立刻到達，回到最後就消失；慢慢串流的長回覆進行中，往上捲的讀者停在原處並看到箭頭，按下去就回到最後並跟著回覆的其餘部分；箭頭在等待區的訊息上方，@ 成員清單打開時隱藏。
 - `e2e/specs/history.spec.ts` — 編輯訊息後重新送出（取代它之後的內容）、對已完成的回答重試、從某則回答分支出新對話。
 - `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答；新增成員卡和旁邊的成員一樣高（清單是有名稱、可以捲動的群組，下面還有時底部有陰影），自己一列時列出所有 CLI，一張卡變高只撐高自己那一列。
-- `e2e/specs/memory.spec.ts` — 長期記憶：每個 CLI 記下的記憶（`e2e:remember`）從回覆文字中取出成卡片、只保留一則，並提供給之後對話的成員（`e2e:recall`）；從卡片擱置再還原一則記憶；設定頁列出每則記憶的作者與怎麼知道的、釘選使用者自己的記憶，以及用假首席 agent 立即整理（它釘選一則 agent 的記憶：`tidyReply`），之後每個對話都拿到釘選的記憶；關閉記憶時什麼都不記下。
+- `e2e/specs/memory.spec.ts` — 長期記憶：每個 CLI 記下的記憶（`e2e:remember`）從回覆文字中取出成卡片、只保留一則，並提供給之後對話的成員（`e2e:recall`）；從卡片擱置再還原一則記憶；設定頁列出每則記憶的作者與怎麼知道的、釘選使用者自己的記憶，以及用假首席 agent 立即整理（它釘選一則 agent 的記憶：`tidyReply`），之後每個對話都拿到釘選的記憶；在實驗室開啟之前記憶都是關閉的（不記下記憶、沒有卡片、工具庫裡沒有它、開啟前實驗室只顯示它的開關）。
 - `e2e/specs/review.spec.ts` — 首席 agent 審閱：審閱卡片（摘要、注意點的類型、引用與說明、下一步），它引用的文字在回覆中被標記（CSS Custom Highlight API），回覆的標籤與兩者之間的連結，團隊的下一步放進輸入框，送出後它自己的審閱標記新的回覆，第一則回覆仍只有一處標記；每個新對話都預設開啟（以未勾選開始一個對話之後，新對話頁面仍會再次勾選）；沒有要求時不審閱（透過 API 建立的對話），在團隊設定中開啟後讀最新的問題；「停止」，以及不是審閱結果的回答；審閱期間送出的訊息（輸入框的提示與提示文字、按 Enter 會停止審閱並立刻送出、佇列區從不出現、下一次審閱從被停止的那次開始讀的地方開始），以及審閱進行中團隊設定只改勾選框就能儲存，並因此停止那次審閱，不另外留「已停止」，之後兩張被停止的卡片都會說明首席 agent 審閱目前已關閉；審閱期間到期的排程訊息（以 `POST …/schedule/run` 送出）在佇列區等待（**1 則等待送出**與它的說明），「略過審閱並立即送出」會停止審閱並送出它，由團隊回答；團隊設計卡片上的勾選框，首席 agent 不會去動它（它的 prompt 不提這個設定）：在卡片上勾選後，正在回答的問題與下一個問題（有自己的設計，勾選框仍是勾選的，第一張卡片的勾選框已移除）都會被審閱，取消勾選後下一個回答就不審閱；新自動任務頁的勾選框一開始是勾選的，排程的對話（每次開新對話的排程）照那裡的設定開啟或關閉，它的團隊設定也這樣顯示；分享頁保留卡片，但沒有 app 的按鈕；跨清單項目的引用標記，用它類型的顏色（待你決定）；伺服器拒絕時勾選框恢復原狀；以及 320px 手機上的中文卡片。
 - `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣；Antigravity 除外，它的轉接器不給它）與附加的圖片（Cline 除外，它不接受圖片）。
 - `e2e/specs/sandbox.spec.ts` — 包住開源 agent 的 Harness Relay 自己的沙箱：唯讀對話中使用者允許的寫入仍被拒絕，這次執行不能連的主機會先詢問、拒絕後就不連；在只能以完全存取執行的地方（Windows；Linux 上的 OpenCode），權限低於完全存取的開源 agent 不會啟動，並說明原因；macOS 上沒有終端機開關的 OpenHands；Antigravity 在 agy 啟動前先詢問專案自己的設定，被拒絕時就不啟動；Copilot 在啟動前先詢問專案的 hook，被拒絕時不啟動，允許後這一輪就執行。

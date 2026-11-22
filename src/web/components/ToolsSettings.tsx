@@ -17,7 +17,6 @@ import {
   type SkillCandidate,
   type ToolLibraryView,
 } from '../../shared/types';
-import { LongTermMemorySection } from './LongTermMemory';
 import { api } from '../api';
 import { checkProblems, hooksFromRows, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
@@ -190,9 +189,6 @@ export function ToolsCard({
             <McpSection lib={lib} change={change} />
             <SkillsSection lib={lib} change={change} />
             <MemorySection lib={lib} change={change} />
-            <LibraryCategory title={t.longTerm.title} hint={t.tools.categories.longTerm}>
-              <LongTermMemorySection />
-            </LibraryCategory>
             {settings && (
               <>
                 <ChecksDefaultSection part="hooks" defaults={settings.checksDefault} env={env} />

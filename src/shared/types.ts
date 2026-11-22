@@ -638,7 +638,7 @@ export interface MemoryNote {
 }
 
 export interface MemorySettings {
-  /** Agents read the notes and save new ones. */
+  /** Agents read the notes and save new ones. An experiment in Settings → Labs, off by default. */
   enabled: boolean;
   /** Agents' new notes and corrections wait for the user to keep them. */
   review: boolean;
