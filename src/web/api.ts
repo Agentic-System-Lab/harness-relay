@@ -597,7 +597,7 @@ export const api = {
     ),
   /** The app a finished turn made, from the files it added or changed (404: none that runs). */
   appPreviewChanged: (id: string, messageId: string, signal?: AbortSignal) =>
-    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string }>(
+    request<{ folder: string; mode: AppPreviewRequest['mode']; entry: string; shown: string }>(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/preview/changed`,
       { messageId },

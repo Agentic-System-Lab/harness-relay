@@ -199,13 +199,7 @@ export async function previewSnapshot(
   let total = 0;
 
   const readFile = async (path: string, name: string, before: BigIntStats) => {
-    if (
-      !before.isFile() ||
-      isPrivate(path) ||
-      before.nlink !== 1n ||
-      withheld.has(fileKey(before))
-    )
-      return;
+    if (!before.isFile() || isPrivate(path) || before.nlink !== 1n || withheld.has(fileKey(before))) return;
     if (before.size > limits.fileBytes || total + Number(before.size) > limits.totalBytes) throw tooLarge();
     const file = await open(path, readFlags);
     try {

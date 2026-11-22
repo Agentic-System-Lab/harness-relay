@@ -116,7 +116,7 @@ function reducer(s: State, e: ServerEvent): State {
 }
 
 /** The app the team made, as the server found it runs. */
-type PreviewReady = PreviewSuggestion & { request: AppPreviewRequest & { entry: string } };
+type PreviewReady = PreviewSuggestion & { request: AppPreviewRequest & { entry: string }; shown: string };
 
 interface Props {
   id: string;
@@ -627,7 +627,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const messageId = suggestion.messageId;
     const link = suggestion.path !== undefined ? filePreviewTarget(suggestion.path) : undefined;
     const lookup = new AbortController();
-    const found =
+    const found: Promise<{ folder: string; mode: AppPreviewRequest['mode']; entry: string; shown?: string }> =
       suggestion.path !== undefined
         ? link
           ? api.appPreviewTarget(c.id, { ...link, messageId }, lookup.signal)
@@ -640,7 +640,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       (resolved) => {
         if (lookup.signal.aborted) return;
         const request = { mode: resolved.mode, folder: resolved.folder, entry: resolved.entry, messageId };
-        setReady({ ...suggestion, request });
+        // The link's folder as written (the server's path is the real one, which a symlinked
+        // working directory does not start), or where the server found the app.
+        const shown =
+          link && !/^(?:[a-z]:)?[\\/]/i.test(link.folder)
+            ? [link.folder, resolved.entry].filter(Boolean).join('/')
+            : (resolved.shown ?? shownApp(resolved.folder, resolved.entry, cwdsOf(c.settings)));
+        setReady({ ...suggestion, request, shown });
         const opens = opensByItself(
           { changed: suggestion.changed, fresh, folder: resolved.folder },
           {
@@ -979,7 +985,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               <div className="preview-ready-text">
                 <strong>{t.appPreview.readyTitle}</strong>
                 <span className="muted small">
-                  <code dir="auto">{shownApp(ready.request.folder, ready.request.entry, cwdsOf(conv.settings))}</code> · @{ready.agentName}
+                  <code dir="auto">{ready.shown}</code> · @{ready.agentName}
                 </span>
               </div>
               <button type="button" className="primary" onClick={openReady}>

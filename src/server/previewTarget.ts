@@ -334,7 +334,7 @@ export function changedPreviewTarget(conv: Conversation, input: { messageId?: un
       }
     });
   const runs = [...CONTAINER_ENTRIES, 'package.json'];
-  const found = new Map<string, { entry?: string; depth: number; rank: number }>();
+  const found = new Map<string, { entry?: string; depth: number; rank: number; root: string }>();
   for (const file of changedFiles(conv, msg, lookup)) {
     const name = basename(file);
     const page = /\.html?$/i.test(name);
@@ -355,12 +355,15 @@ export function changedPreviewTarget(conv: Conversation, input: { messageId?: un
     const rank = entry ? 3 : runs.findIndex((n) => regularFile(join(folder, n))) < CONTAINER_ENTRIES.length ? 0 : 1;
     const depth = relative(root, folder).split(sep).filter(Boolean).length;
     const known = found.get(folder);
-    if (!known || rank < known.rank) found.set(folder, { entry, depth, rank });
+    if (!known || rank < known.rank) found.set(folder, { entry, depth, rank, root });
   }
   const ranked = [...found].sort(([, a], [, b]) => a.depth - b.depth || a.rank - b.rank);
-  for (const [folder, { entry }] of ranked) {
+  for (const [folder, { entry, root }] of ranked) {
     try {
-      return detectPreviewTarget(conv, { folder, messageId, ...(entry && { entry }) }, lookup, settings);
+      const app = detectPreviewTarget(conv, { folder, messageId, ...(entry && { entry }) }, lookup, settings);
+      // Where it is in its working directory (or the member's worktree), as the card shows it.
+      const shown = [...relative(root, app.folder).split(sep).filter(Boolean), app.entry].join('/');
+      return { ...app, shown };
     } catch {
       /* Not one that runs (no lockfile, no script): the next. */
     }

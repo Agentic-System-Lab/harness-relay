@@ -695,22 +695,32 @@ describe('app preview control and content', () => {
     writeFileSync(join(project, 'shop', 'package.json'), JSON.stringify({ scripts: { start: 'node server.js' } }));
     writeFileSync(join(project, 'shop', 'package-lock.json'), emptyLockfile);
     changed('page', project, ['shop/public/index.html']);
-    expect(await found('page')).toEqual({ folder: join(project, 'shop'), entry: 'package.json', mode: 'server' });
+    expect(await found('page')).toEqual({
+      folder: join(project, 'shop'),
+      entry: 'package.json',
+      mode: 'server',
+      shown: 'shop/package.json',
+    });
     // At the same depth, a Dockerfile says more than a package.json; what runs nothing does not count.
     mkdirSync(join(project, 'api'));
     writeFileSync(join(project, 'api', 'Dockerfile'), 'FROM scratch');
     changed('both', project, ['shop/public/index.html', 'api/Dockerfile', 'notes.md']);
-    expect(await found('both')).toEqual({ folder: join(project, 'api'), entry: 'Dockerfile', mode: 'container' });
+    expect(await found('both')).toEqual({ folder: join(project, 'api'), entry: 'Dockerfile', mode: 'container', shown: 'api/Dockerfile' });
     // A page with nothing above it that runs: the page as it is.
     mkdirSync(join(project, 'docs'));
     writeFileSync(join(project, 'docs', 'guide.html'), '<h1>guide</h1>');
     changed('guide', project, ['docs/guide.html']);
-    expect(await found('guide')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static' });
+    expect(await found('guide')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static', shown: 'docs/guide.html' });
     // A project without a lockfile does not run: the next candidate, or none.
     mkdirSync(join(project, 'lib'));
     writeFileSync(join(project, 'lib', 'package.json'), JSON.stringify({ scripts: { start: 'node .' } }));
     changed('unlocked', project, ['lib/package.json', 'docs/guide.html']);
-    expect(await found('unlocked')).toEqual({ folder: join(project, 'docs'), entry: 'guide.html', mode: 'static' });
+    expect(await found('unlocked')).toEqual({
+      folder: join(project, 'docs'),
+      entry: 'guide.html',
+      mode: 'static',
+      shown: 'docs/guide.html',
+    });
     changed('nothing', project, ['lib/package.json']);
     expect((await find({ messageId: 'nothing' })).status).toBe(404);
     // The second working directory: its own project, though the first has one at the same place.
@@ -719,14 +729,19 @@ describe('app preview control and content', () => {
     writeFileSync(join(second, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }));
     writeFileSync(join(second, 'package-lock.json'), emptyLockfile);
     changed('second', second, ['package.json']);
-    expect(await found('second')).toEqual({ folder: second, entry: 'package.json', mode: 'build' });
+    expect(await found('second')).toEqual({ folder: second, entry: 'package.json', mode: 'build', shown: 'package.json' });
     // A parallel member's change: the files in its own worktree, not the working directory's.
     const worktree = join(root, 'changed-worktree-' + n);
     mkdirSync(join(worktree, 'site'), { recursive: true });
     writeFileSync(join(worktree, 'site', 'index.html'), '<h1>mine</h1>');
     live.worktrees[agentId] = [{ root: project, path: worktree, branch: 'relay/mine', base: 'b', needsReset: false }];
     changed('isolated', project, ['site/index.html'], { isolated: true, branch: 'relay/mine' });
-    expect(await found('isolated')).toEqual({ folder: join(worktree, 'site'), entry: 'index.html', mode: 'static' });
+    expect(await found('isolated')).toEqual({
+      folder: join(worktree, 'site'),
+      entry: 'index.html',
+      mode: 'static',
+      shown: 'site/index.html',
+    });
     // A deleted file, another's reply, or no reply at all.
     live.messages.push({
       id: 'gone',
