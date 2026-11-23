@@ -67,7 +67,6 @@
 - **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
 - **agent 自己的功能**：每個帳號開關各 CLI 自己的 subagent 與 Claude Code 的 workflow；subagent 的步驟收在啟動它的那一步底下；訊息直接送進正在發言的成員進行中的回合；你自己模型的上下文長度；成員自己的上限。（[Subagent 與 workflow](docs/user-guide.zh-TW.md#subagent-與-workflow)）
 - **實驗室**：還在試驗中的功能，每一項都要你開啟才會使用：Harness Relay 工具的用法，一次只能開一種（在 Harness Relay 自己的沙箱裡寫程式來用工具 CodeAct，或用你選的模型分段閱讀長文字 RLM，每一種都寫了代價），以及長期記憶。（[實驗室](docs/user-guide.zh-TW.md#實驗室)）
-- **長期記憶**（在實驗室，預設關閉）：助理在一個對話中學到的事（你的偏好和決定、查證過的事實）會記成記憶，留給之後的對話；每則都顯示在回覆中、由你修改，並由首席 agent 定期整理。（[長期記憶](docs/user-guide.zh-TW.md#長期記憶)）
 - **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器（用 OAuth 登入的也在這裡登入）、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
 - **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
