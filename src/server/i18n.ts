@@ -159,6 +159,9 @@ const zhTW = {
     networkRefused: '沙箱擋下了它的網路連線。',
     sandboxRefused: '沙箱擋下了它要做的事（例如寫到工作目錄以外）。',
     noCommand: (name: string) => `這個工作目錄沒有叫「${name}」的固定指令，所以沒有放進待送出匣。`,
+    leftOutSecrets: (n: number, names: string[]) => `一則回覆最多要 ${n} 個密鑰，所以這些沒有卡片：${names.join('、')}。`,
+    leftOutCommands: (n: number, names: string[]) => `一則回覆最多提議 ${n} 個固定指令，所以這些沒有卡片：${names.join('、')}。`,
+    leftOutInteractive: (n: number, more: number) => `一則回覆最多 ${n} 個要你自己執行的指令，所以另外 ${more} 個沒有卡片。`,
     outboxTitle: (name: string) => `執行一次固定指令「${name}」`,
     fieldCommand: '指令',
     fieldFolder: '資料夾',
@@ -1392,6 +1395,7 @@ const zhTW = {
   // Files
   previewSnapshotChanged: '複製期間檔案有變動。請在編輯結束後重建預覽。',
   previewSnapshotLimit: '這個資料夾超過預覽上限。請選較小的資料夾（最多 4,096 個項目、32 層、每個檔案 16 MiB、合計 64 MiB）。',
+  previewPageLimit: '這個網頁和它用到的檔案超過預覽上限（最多 4,096 個檔案、32 層、每個檔案 16 MiB、合計 64 MiB）。',
   fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
   zipTooBig: (items: number, gb: number) =>
     `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
@@ -1563,6 +1567,9 @@ const en: ServerMessages = {
     networkRefused: 'The sandbox refused its network connection.',
     sandboxRefused: 'The sandbox refused something it tried to do (such as writing outside the working directory).',
     noCommand: (name) => `This working directory has no fixed command named "${name}", so nothing was put in the outbox.`,
+    leftOutSecrets: (n, names) => `A reply may ask for ${n} secrets at most, so these got no card: ${names.join(', ')}.`,
+    leftOutCommands: (n, names) => `A reply may propose ${n} fixed commands at most, so these got no card: ${names.join(', ')}.`,
+    leftOutInteractive: (n, more) => `A reply may give you ${n} commands to run yourself at most, so ${more} more got no card.`,
     outboxTitle: (name) => `Run the fixed command "${name}" once`,
     fieldCommand: 'Command',
     fieldFolder: 'Folder',
@@ -2861,6 +2868,8 @@ const en: ServerMessages = {
 
   previewSnapshotChanged: 'Files changed during the copy. Rebuild the preview after editing finishes.',
   previewSnapshotLimit: 'Choose a smaller preview folder (at most 4,096 entries, 32 levels, 16 MiB per file and 64 MiB total).',
+  previewPageLimit:
+    'This page and the files it uses are over the preview limits (at most 4,096 files, 32 levels, 16 MiB per file and 64 MiB total).',
   fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
   zipTooBig: (items, gb) =>
     `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,

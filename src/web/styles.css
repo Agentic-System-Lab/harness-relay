@@ -10738,6 +10738,11 @@ a.share-action {
   padding: 10px 18px;
 }
 
+.app-preview-partial {
+  margin: 0;
+  padding: 6px 18px;
+}
+
 .app-preview-error {
   margin: 6px 18px 12px;
 }

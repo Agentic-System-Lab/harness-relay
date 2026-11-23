@@ -424,7 +424,7 @@
             </a>
             <figcaption>在手機上也能直接操作預覽中的網頁。</figcaption>
           </figure>
-          <p>Relay 會自動判斷如何啟動應用程式。靜態 HTML 或含 <code>index.html</code> 的靜態資料夾會直接開啟。若 npm 專案含有 lockfile，並提供 start 指令或預設的 <code>server.js</code>，就會執行 <code>npm start</code>；只有建置指令的前端會執行 <code>npm run build</code>。<code>Dockerfile</code> 或 <code>compose.yaml</code> 可以是任何語言：面板先在終端機顯示建置過程，應用程式提供網頁後就顯示網頁；在終端機執行的程式則留在終端機，可以在裡面輸入、用其他參數再執行一次，或開啟 shell。</p>
+          <p>Relay 會自動判斷如何啟動應用程式。靜態 HTML 或含 <code>index.html</code> 的靜態資料夾會直接開啟；所在資料夾大到無法整個複製時（例如大型工作目錄的最上層），只會帶著網頁本身和它用到的檔案開啟。若 npm 專案含有 lockfile，並提供 start 指令或預設的 <code>server.js</code>，就會執行 <code>npm start</code>；只有建置指令的前端會執行 <code>npm run build</code>。<code>Dockerfile</code> 或 <code>compose.yaml</code> 可以是任何語言：面板先在終端機顯示建置過程，應用程式提供網頁後就顯示網頁；在終端機執行的程式則留在終端機，可以在裡面輸入、用其他參數再執行一次，或開啟 shell。</p>
           <figure class="doc-figure">
             <a href="../../../assets/media/docs/app-preview-terminal-zh-TW.webp">
               <img src="../../../assets/media/docs/app-preview-terminal-zh-TW.webp" width="768" height="450" alt="預覽面板中由 Dockerfile 建置的終端機程式，上方有「再執行一次」、「指令」與「開啟 shell」。" loading="lazy" />

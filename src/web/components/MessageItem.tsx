@@ -644,6 +644,7 @@ function ApprovalCard({
                 : t.approval.reviewFailed(part.review.reason ?? '')}
         </p>
       )}
+      {part.review?.status === 'flagged' && part.ruleLabel && <p className="muted small approval-once">{t.approval.flaggedOnce}</p>}
       <input
         className="approval-note"
         value={note}
@@ -657,14 +658,15 @@ function ApprovalCard({
         <button type="button" className="primary small-button" disabled={sending || !onAnswer} onClick={() => answer({ allow: true })}>
           {t.approval.allow}
         </button>
-        {part.ruleLabel && (
+        {/* One the lead agent flagged is allowed once only: a rule would let the next one like it through unreviewed. */}
+        {part.ruleLabel && part.review?.status !== 'flagged' && (
           <button
             type="button"
             className="ghost small-button"
             disabled={sending || !onAnswer}
             onClick={() => answer({ allow: true, always: true })}
           >
-            {part.kind === 'edit' ? t.approval.alwaysEdits : t.approval.always(part.ruleLabel)}
+            {part.kind === 'edit' ? t.approval.alwaysEdits : part.ruleExact ? t.approval.alwaysExact : t.approval.always(part.ruleLabel)}
           </button>
         )}
         <button

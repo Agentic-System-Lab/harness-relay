@@ -154,10 +154,12 @@ describe('secrets and fixed commands API', () => {
     expect(store.get(conv.id)!.schedule!.command).toBeUndefined();
   });
 
-  it('refuses an unknown card action, and extra words that are not text', async () => {
+  it('refuses an unknown card action, and extra words or input that are not text or too long', async () => {
     const { conv } = chatAsking();
     expect((await send('POST', `/api/conversations/${conv.id}/messages/m2/commands/x`, { action: 'run' })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { extra: 5 })).status).toBe(400);
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { stdin: 5 })).status).toBe(400);
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, { stdin: 'x'.repeat(16 * 1024 + 1) })).status).toBe(400);
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, {})).status).toBe(404);
   });
 
