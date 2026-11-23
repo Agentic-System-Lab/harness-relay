@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +8,11 @@ import {
   MODEL_ADDRESS_VARS,
   MODEL_KEY_VARS,
   OWN_KEY_VARS,
+  SIGN_IN_ORDER,
   codexConfigKeys,
   codexHomeFor,
   codexHomeKeys,
+  envSignIn,
   passEnvList,
   withheldEnv,
   type SignInProvider,
@@ -29,7 +31,9 @@ let db: Database;
 
 /** Every key and address of the lists unset, so that the developer's own environment does not count. */
 function clearModelVars(): void {
-  for (const k of [...MODEL_KEY_VARS, ...MODEL_ADDRESS_VARS, ...INHERITED_BACKEND_VARS, ...GITHUB_TOKENS, 'CODEX_HOME']) vi.stubEnv(k, '');
+  const order = Object.values(SIGN_IN_ORDER).flat();
+  for (const k of [...MODEL_KEY_VARS, ...MODEL_ADDRESS_VARS, ...INHERITED_BACKEND_VARS, ...GITHUB_TOKENS, ...order, 'CODEX_HOME'])
+    vi.stubEnv(k, '');
 }
 
 function fakeKeyring(): SecretStore {
@@ -90,6 +94,36 @@ describe('the lists of model keys', () => {
   });
 });
 
+describe('the sign-in a default account runs on (envSignIn)', () => {
+  it('lists every variable each CLI takes a sign-in from, in its order', () => {
+    for (const p of SIGN_IN) for (const k of CREDENTIAL_ENV[p]) expect(SIGN_IN_ORDER[p], `${p}: ${k}`).toContain(k);
+  });
+
+  it('names the first one the CLI takes, not the first one listed', () => {
+    // Claude Code takes ANTHROPIC_AUTH_TOKEN before ANTHROPIC_API_KEY, and a cloud provider before both.
+    expect(envSignIn('claude', { ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', CLAUDE_CODE_OAUTH_TOKEN: 'o' })).toBe(
+      'ANTHROPIC_AUTH_TOKEN',
+    );
+    expect(envSignIn('claude', { ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_USE_BEDROCK: '1' })).toBe('CLAUDE_CODE_USE_BEDROCK');
+    expect(envSignIn('claude', { ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: 'false' })).toBe(
+      'ANTHROPIC_API_KEY',
+    );
+    expect(envSignIn('copilot', { GITHUB_TOKEN: 'g', GH_TOKEN: 'h' })).toBe('GH_TOKEN');
+    expect(envSignIn('grok', {})).toBeUndefined();
+    expect(envSignIn('opencode', { OPENAI_API_KEY: 'k' })).toBeUndefined();
+  });
+
+  it('names none once a key Settings keeps comes first, and the one above it when one does', () => {
+    // A saved Copilot token goes in COPILOT_GITHUB_TOKEN, which Copilot takes before GH_TOKEN.
+    expect(envSignIn('copilot', { GH_TOKEN: 'h' }, 'COPILOT_GITHUB_TOKEN')).toBeUndefined();
+    // A saved Claude key goes in ANTHROPIC_API_KEY, which ANTHROPIC_AUTH_TOKEN still goes before.
+    expect(envSignIn('claude', { ANTHROPIC_AUTH_TOKEN: 't', CLAUDE_CODE_OAUTH_TOKEN: 'o' }, 'ANTHROPIC_API_KEY')).toBe(
+      'ANTHROPIC_AUTH_TOKEN',
+    );
+    expect(envSignIn('claude', { CLAUDE_CODE_OAUTH_TOKEN: 'o' }, 'ANTHROPIC_API_KEY')).toBeUndefined();
+  });
+});
+
 describe('withheldEnv', () => {
   const shell = {
     OPENAI_API_KEY: 'sk-openai',
@@ -137,6 +171,16 @@ describe("Codex's configuration", () => {
     expect(codexConfigKeys(toml)).toEqual(['OPENROUTER_API_KEY', 'AZURE_OPENAI_API_KEY']);
     expect(codexConfigKeys('')).toEqual([]);
   });
+
+  it.skipIf(process.platform === 'win32' || !existsSync('/dev/zero'))(
+    'reads no config.toml that is not a plain file, which could hold the server up',
+    () => {
+      const home = join(dir, 'device-home');
+      mkdirSync(home);
+      symlinkSync('/dev/zero', join(home, 'config.toml'));
+      expect(codexHomeKeys(home)).toEqual([]);
+    },
+  );
 
   it("finds the home's config.toml, and reads none that is missing or too large", () => {
     const home = join(dir, 'codex-home');
@@ -274,7 +318,7 @@ describe("a CLI's environment (SettingsStore.env)", () => {
     expect(s.withheldEnv('codex')).toContain('HF_TOKEN');
   });
 
-  it('shows names only: the sign-in variables, the keys withheld and the ones passed on', () => {
+  it('shows names only: the variable the default account signs in with, the keys withheld and the ones passed on', () => {
     stubShell();
     vi.stubEnv('GH_TOKEN', 'gh-shell');
     const s = new SettingsStore(db, fakeKeyring());
@@ -282,7 +326,7 @@ describe("a CLI's environment (SettingsStore.env)", () => {
     const view = s.view();
     const env = (p: Provider) => view.providers.find((x) => x.provider === p)!.environment;
     expect(env('claude')).toEqual({
-      signIn: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
+      signIn: 'ANTHROPIC_API_KEY',
       withheld: [
         'OPENAI_API_KEY',
         'CODEX_API_KEY',
@@ -295,21 +339,48 @@ describe("a CLI's environment (SettingsStore.env)", () => {
       ],
       pass: ['HF_TOKEN'],
     });
-    // Copilot takes a GitHub token from the environment too, in its own order.
-    expect(env('copilot')!.signIn).toEqual(['COPILOT_GITHUB_TOKEN', 'GH_TOKEN']);
-    // A key Settings keeps goes before the variable: it is not what the account runs on.
+    expect(env('copilot')!.signIn).toBe('COPILOT_GITHUB_TOKEN');
+    // A key Settings keeps comes before its variable and the ones below it: the account runs on it.
     s.update('claude', { apiKey: 'sk-ant-stored-123456' });
-    expect(s.view().providers.find((x) => x.provider === 'claude')!.environment!.signIn).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
+    s.update('copilot', { apiKey: 'github_pat_stored_123456' });
+    const stored = s.view().providers;
+    expect(stored.find((x) => x.provider === 'claude')!.environment).not.toHaveProperty('signIn');
+    expect(stored.find((x) => x.provider === 'copilot')!.environment).not.toHaveProperty('signIn');
+    // Unless one the CLI takes before it is set.
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'bearer-shell');
+    expect(s.view().providers.find((x) => x.provider === 'claude')!.environment!.signIn).toBe('ANTHROPIC_AUTH_TOKEN');
     for (const p of OPEN_PROVIDERS) expect(env(p), p).toBeUndefined();
     expect(JSON.stringify(s.view())).not.toMatch(/-shell/);
   });
 
-  it('drops a saved list that is not valid, name by name, as it reads it', () => {
+  it("drops a CLI's saved list that is not valid as it reads it, and keeps the others'", () => {
     db.prepare("INSERT INTO app_settings (key, value) VALUES ('pass_env', ?)").run(
       JSON.stringify({ claude: ['HF_TOKEN'], codex: ['1BAD'], grok: 'HF_TOKEN', opencode: ['HF_TOKEN'], nobody: ['HF_TOKEN'] }),
     );
     const s = new SettingsStore(db);
     expect(PROVIDERS.filter((p) => s.passEnv(p).length).map((p) => [p, s.passEnv(p)])).toEqual([['claude', ['HF_TOKEN']]]);
+  });
+
+  it("keeps the list through the CLI's other settings, and leaves it as it was when it cannot be saved", () => {
+    const s = new SettingsStore(db);
+    s.update('claude', { passEnv: ['HF_TOKEN'] });
+    s.update('claude', { bin: '/opt/claude' });
+    expect(s.passEnv('claude')).toEqual(['HF_TOKEN']);
+    db.close();
+    expect(() => s.update('claude', { passEnv: ['MISTRAL_API_KEY'] })).toThrow();
+    expect(s.passEnv('claude')).toEqual(['HF_TOKEN']);
+    db = openDatabase(file);
+  });
+
+  it("passes on a CLI's own sign-in variable to its default account, never to its other accounts", () => {
+    stubShell();
+    const s = new SettingsStore(db);
+    s.setAgentHome(join(dir, 'agents'));
+    const work = s.addAccount('codex', 'Work');
+    s.update('codex', { passEnv: ['OPENAI_API_KEY', 'HF_TOKEN'] });
+    expect(s.env('codex').OPENAI_API_KEY).toBe('sk-openai-shell');
+    expect(s.env('codex', work).OPENAI_API_KEY).toBeUndefined();
+    expect(s.env('codex', work).HF_TOKEN).toBe('hf-shell');
   });
 
   it('reads a broken saved list as none', () => {

@@ -3792,11 +3792,12 @@ export interface ProviderSettingsView {
  */
 export interface ProviderEnvView {
   /**
-   * The CLI's own sign-in variables set in the server's environment, in the order the CLI reads them:
-   * its default account runs on the first of them rather than the sign-in kept in its home (an API key
-   * saved in Settings goes before its variable, which is then left out of this list).
+   * The variable of the server's environment the CLI's default account signs in with, ahead of the
+   * sign-in kept in its home: the first one set in the order the CLI reads them (Claude Code's cloud
+   * providers, then `ANTHROPIC_AUTH_TOKEN`…); absent when there is none, or when an API key saved in
+   * Settings comes first.
    */
-  signIn: string[];
+  signIn?: string;
   /** Other model providers' keys set in the server's environment that this CLI's runs are not given. */
   withheld: string[];
   /** The names the user passes on to this CLI's runs all the same (whether or not they are set now). */

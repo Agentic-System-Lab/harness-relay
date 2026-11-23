@@ -15,9 +15,16 @@ export { ENV_NAME_RE, MAX_PASS_ENV };
  * or reaches its models with (`OWN_KEY_VARS`; Codex also those its `config.toml` names), and the
  * others are withheld unless the user passes them on for that CLI (`SettingsStore.passEnv()`).
  * Only keys and tokens are withheld: addresses (base URLs, a host, a project) are not secrets, and
- * GitHub's tokens (`GH_TOKEN`, `GITHUB_TOKEN`) and the cloud's (`AWS_*`) stay, since agents' git, gh
- * and cloud tools use them. The open agents are not concerned: they get no key of the server's at all
+ * GitHub's tokens (`GH_TOKEN`, `GITHUB_TOKEN`) and the cloud's (`AWS_*`, but Amazon Bedrock's API key,
+ * `AWS_BEARER_TOKEN_BEDROCK`, which is Claude Code's) stay, since agents' git, gh and cloud tools use
+ * them. The open agents are not concerned: they get no key of the server's at all
  * (`INHERITED_BACKEND_VARS`), only their run's backend's.
+ *
+ * This keeps the keys out of the environment a CLI's commands inherit, so that a tool which picks a
+ * key up by itself does not find one; it is no wall. The server's own process still holds them all
+ * (changing `process.env` does not change what the system shows of it), and a command of the same
+ * user that can see that process reads them there (`/proc/<pid>/environ` on Linux, `ps -E` on macOS):
+ * with full access, outside a sandbox, or in one that does not hide other processes.
  */
 
 /**
@@ -114,6 +121,48 @@ export const OWN_KEY_VARS: Record<SignInProvider, readonly string[]> = {
   muse: ['META_API_KEY'],
 };
 
+/**
+ * Where each CLI with a sign-in takes it from in the server's environment, the first one set winning
+ * (`envSignIn()`): Claude Code's cloud providers before any key (its own docs, and `claudeEndpointEnv()`),
+ * then `ANTHROPIC_AUTH_TOKEN` before `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; Copilot's
+ * `COPILOT_GITHUB_TOKEN` before `GH_TOKEN` and `GITHUB_TOKEN`; the others as `CREDENTIAL_ENV` lists them.
+ */
+export const SIGN_IN_ORDER: Record<SignInProvider, readonly string[]> = {
+  claude: [
+    'CLAUDE_CODE_USE_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_USE_FOUNDRY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+  ],
+  codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
+  grok: ['XAI_API_KEY'],
+  cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
+  antigravity: ['GEMINI_API_KEY'],
+  copilot: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
+  muse: ['META_API_KEY'],
+};
+
+/** Claude Code's switches to a cloud provider, which count only when on (`1`, `true`), not `0`. */
+const SWITCHES = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']);
+
+/**
+ * The variable of `env` a CLI's default account signs in with, ahead of the sign-in kept in its home:
+ * the first one set in `SIGN_IN_ORDER`. `stored` is the variable an API key Settings keeps for the
+ * account goes in: once the order reaches it, the account runs on that key, and nothing of `env` is
+ * named. Undefined for an open agent, or when nothing of `env` signs it in.
+ */
+export function envSignIn(p: Provider, env: NodeJS.ProcessEnv, stored?: string): string | undefined {
+  if (isOpenProvider(p)) return undefined;
+  for (const k of SIGN_IN_ORDER[p]) {
+    if (k === stored) return undefined;
+    const v = env[k]?.trim();
+    if (v && !(SWITCHES.has(k) && /^(0|false|no|off)$/i.test(v))) return k;
+  }
+  return undefined;
+}
+
 /** The most of Codex's `config.toml` read for the keys it names; a larger file is not read. */
 const CODEX_CONFIG_MAX = 1024 * 1024;
 
@@ -135,11 +184,16 @@ export function codexConfigKeys(text: string): string[] {
   return [...names];
 }
 
-/** `codexConfigKeys()` of the `config.toml` in a Codex home: none when it cannot be read or is larger than `CODEX_CONFIG_MAX`. */
+/**
+ * `codexConfigKeys()` of the `config.toml` in a Codex home: none when it cannot be read, is not a
+ * plain file (a FIFO, or a link to a device, would hold the server up: it runs on every CLI start) or
+ * is larger than `CODEX_CONFIG_MAX`.
+ */
 export function codexHomeKeys(home: string): string[] {
   const file = join(home, 'config.toml');
   try {
-    if (statSync(file).size > CODEX_CONFIG_MAX) return [];
+    const st = statSync(file);
+    if (!st.isFile() || st.size > CODEX_CONFIG_MAX) return [];
     return codexConfigKeys(readFileSync(file, 'utf8'));
   } catch {
     return [];

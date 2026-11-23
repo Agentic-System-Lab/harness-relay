@@ -35,7 +35,7 @@ import {
   type VoiceModelId,
 } from '../shared/types';
 import type { RunBackends } from './agents/types';
-import { codexHomeFor, codexHomeKeys, passEnvList, withheldEnv } from './agentEnv';
+import { codexHomeFor, codexHomeKeys, envSignIn, passEnvList, withheldEnv } from './agentEnv';
 import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backends';
 import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
@@ -514,10 +514,13 @@ export class SettingsStore {
     return [...(this.passEnvLists[p] ?? [])];
   }
 
+  /** Saved first, then kept in memory, so that a write that fails leaves both as they were. */
   private setPassEnv(p: Provider, names: string[]): void {
-    if (names.length) this.passEnvLists[p] = [...names];
-    else delete this.passEnvLists[p];
-    this.saveAppSetting('pass_env', JSON.stringify(this.passEnvLists));
+    const next = { ...this.passEnvLists };
+    if (names.length) next[p] = [...names];
+    else delete next[p];
+    this.saveAppSetting('pass_env', JSON.stringify(next));
+    this.passEnvLists = next;
   }
 
   /**
@@ -531,18 +534,18 @@ export class SettingsStore {
   }
 
   /**
-   * The CLI's own sign-in variables set in the server's environment (`CREDENTIAL_ENV`, in its order),
-   * which its default account runs on: the API key Settings keeps for it goes before its variable.
+   * The variable of the server's environment the CLI's default account signs in with (`envSignIn()`):
+   * the first one set in the CLI's order, unless the API key Settings keeps for it comes first.
    */
-  signInEnv(p: Provider): string[] {
-    const stored = this.hasStoredApiKey(p) ? API_KEY_ENV[p] : undefined;
-    return CREDENTIAL_ENV[p].filter((k) => Boolean(process.env[k]) && k !== stored);
+  signInEnv(p: Provider): string | undefined {
+    return envSignIn(p, process.env, this.hasStoredApiKey(p) ? API_KEY_ENV[p] : undefined);
   }
 
   /** Settings' view of a CLI's environment variables (names only); undefined for an open agent. */
   private envView(p: Provider): ProviderEnvView | undefined {
     if (isOpenProvider(p)) return undefined;
-    return { signIn: this.signInEnv(p), withheld: this.withheldEnv(p), pass: this.passEnv(p) };
+    const signIn = this.signInEnv(p);
+    return { ...(signIn ? { signIn } : {}), withheld: this.withheldEnv(p), pass: this.passEnv(p) };
   }
 
   /** Folder of the CLIs' own homes when Harness Relay runs them; empty = each CLI's usual home. */
@@ -1073,7 +1076,10 @@ export class SettingsStore {
       return env;
     }
     const id = this.resolveAccount(p, account);
-    for (const k of this.withheldEnv(p, id)) delete env[k];
+    // Windows' variable names are the same in any letter case; the copy keeps the spelling they had.
+    const withheld = new Set(this.withheldEnv(p, id));
+    const name = (k: string) => (process.platform === 'win32' ? k.toUpperCase() : k);
+    for (const k of Object.keys(env)) if (withheld.has(name(k))) delete env[k];
     const keyVar = API_KEY_ENV[p];
     const key = this.apiKey(p, id);
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];

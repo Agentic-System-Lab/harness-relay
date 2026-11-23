@@ -26,12 +26,13 @@ export function AgentEnvSettings({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const save = async (list: string[]) => {
+  /** `typed`: the list came from the name box, which is emptied once it is saved (a Pass on leaves it as it is). */
+  const save = async (list: string[], typed = false) => {
     setBusy(true);
     setNote('');
     try {
       onSettings(await api.updateProvider(provider, { passEnv: list }));
-      setName('');
+      if (typed) setName('');
     } catch (err) {
       setNote((err as Error).message);
     } finally {
@@ -39,13 +40,13 @@ export function AgentEnvSettings({
     }
   };
 
-  const add = (input: string) => {
+  const add = (input: string, typed = false) => {
     const next = addPassName(view.pass, input);
     if ('error' in next) {
       setNote(next.error === 'full' ? e.errors.full(MAX_PASS_ENV) : e.errors[next.error]);
       return;
     }
-    void save(next.list);
+    void save(next.list, typed);
   };
 
   return (
@@ -59,10 +60,7 @@ export function AgentEnvSettings({
           {e.hint(cli)}
           {provider === 'codex' && ` ${e.codexHint}`}
         </p>
-        <p className="small">
-          {view.signIn.length ? e.signIn(cli, view.signIn.join(e.sep)) : e.signInNone}
-          {view.signIn.length > 1 && e.signInMany}
-        </p>
+        <p className="small">{view.signIn ? e.signIn(cli, view.signIn) : e.signInNone}</p>
         <div>
           <p className="small">{view.withheld.length ? e.withheld : e.withheldNone}</p>
           {view.withheld.length > 0 && (
@@ -112,9 +110,9 @@ export function AgentEnvSettings({
             spellCheck={false}
             autoComplete="off"
             onChange={(ev) => setName(ev.target.value)}
-            onKeyDown={(ev) => ev.key === 'Enter' && !busy && name.trim() && add(name)}
+            onKeyDown={(ev) => ev.key === 'Enter' && !ev.nativeEvent.isComposing && !busy && name.trim() && add(name, true)}
           />
-          <button type="button" className="ghost" disabled={busy || !name.trim()} onClick={() => add(name)}>
+          <button type="button" className="ghost" disabled={busy || !name.trim()} onClick={() => add(name, true)}>
             {e.add}
           </button>
         </div>

@@ -3348,10 +3348,9 @@ export const zhTW = {
     title: '環境變數',
     summaryWithheld: (n: number) => `（${n} 個金鑰沒有傳給它）`,
     hint: (cli: string) =>
-      `啟動 Harness Relay 的環境（shell 裡 export 的變數、Codespaces secrets）會傳給 ${cli}，但別家模型供應商的金鑰只會傳給它自己的 CLI，免得 agent 執行的指令和 MCP server 拿到不屬於它的金鑰。這裡只列名稱，從不顯示值。GitHub 的 token、雲端（AWS_*）的憑證和網址類的變數（例如 OPENAI_BASE_URL）照樣會傳。`,
+      `啟動 Harness Relay 的環境（shell 裡 export 的變數、Codespaces secrets）會傳給 ${cli}，但別家模型供應商的金鑰只會傳給它自己的 CLI，免得 agent 執行的指令和 MCP server 拿到不屬於它的金鑰。這裡只列名稱，從不顯示值。GitHub 的 token、雲端（AWS_*，但 Amazon Bedrock 的 API key 只給 Claude Code）的憑證和網址類的變數（例如 OPENAI_BASE_URL）照樣會傳。`,
     codexHint: 'Codex 也會拿到它的 config.toml 替模型供應商指定的金鑰（env_key）。',
-    signIn: (cli: string, names: string) => `${cli} 的預設帳號會用啟動環境裡的 ${names} 登入，優先於它資料夾裡保存的登入。`,
-    signInMany: '（CLI 會用它最先讀到的那一個。）',
+    signIn: (cli: string, name: string) => `${cli} 的預設帳號用的是啟動環境裡的 ${name}，優先於它資料夾裡保存的登入。`,
     signInNone: '預設帳號沒有用啟動環境裡的變數登入。',
     withheld: '有設定、但不會傳給它的金鑰：',
     withheldNone: '沒有別家的金鑰被擋下。',
@@ -3371,8 +3370,8 @@ export const zhTW = {
     },
     sep: '、',
     notice: {
-      title: '別家的金鑰不再傳給每個 CLI',
-      body: '從這個版本起，啟動 Harness Relay 的環境裡別家模型供應商的金鑰，只會傳給它自己的 CLI。下面這些現在沒有傳出去：',
+      title: '每個 CLI 只拿到自己的金鑰',
+      body: '啟動 Harness Relay 的環境裡模型供應商的金鑰，只會傳給那家自己的 CLI（之前的版本會傳給每個 CLI）。下面這些現在沒有傳出去：',
       item: (cli: string, names: string) => `${cli}：${names}`,
       hint: '如果某個 agent 需要其中一個（例如專案的測試要呼叫 OpenAI），可以到「設定與登入」那個 CLI 的卡片，在「環境變數」把它加回去。這個提示只會出現一次。',
       open: '開啟設定',

@@ -3364,11 +3364,10 @@ export const en: Messages = {
     title: 'Environment variables',
     summaryWithheld: (n) => ` (${n} ${n === 1 ? 'key' : 'keys'} not given)`,
     hint: (cli) =>
-      `${cli} gets the environment Harness Relay was started with (your shell's exports, Codespaces secrets), but another model provider's keys go only to that provider's own CLI, so that the commands and MCP servers agents run do not get keys that are not theirs. Only names are shown here, never a value. GitHub's tokens, the cloud's credentials (AWS_*) and addresses (such as OPENAI_BASE_URL) are passed on as before.`,
+      `${cli} gets the environment Harness Relay was started with (your shell's exports, Codespaces secrets), but another model provider's keys go only to that provider's own CLI, so that the commands and MCP servers agents run do not get keys that are not theirs. Only names are shown here, never a value. GitHub's tokens, the cloud's credentials (AWS_*, but Amazon Bedrock's API key, which is Claude Code's alone) and addresses (such as OPENAI_BASE_URL) are passed on as before.`,
     codexHint: 'Codex also gets the keys its config.toml names for its model providers (env_key).',
-    signIn: (cli, names) =>
-      `${cli}'s default account signs in with ${names} from the environment Harness Relay was started with, ahead of the sign-in kept in its folder.`,
-    signInMany: ' (The CLI takes the first one it reads.)',
+    signIn: (cli, name) =>
+      `${cli}'s default account runs on ${name} from the environment Harness Relay was started with, ahead of the sign-in kept in its folder.`,
     signInNone: 'The default account signs in with nothing from the environment Harness Relay was started with.',
     withheld: 'Set, but not given to it:',
     withheldNone: "No other provider's key is held back.",
@@ -3388,8 +3387,8 @@ export const en: Messages = {
     },
     sep: ', ',
     notice: {
-      title: "Other providers' keys no longer go to every CLI",
-      body: "From this version on, a model provider's key in the environment Harness Relay was started with goes only to that provider's own CLI. These are not passed on now:",
+      title: 'Each CLI gets only its own keys',
+      body: "A model provider's key in the environment Harness Relay was started with goes only to that provider's own CLI (versions before this one gave every CLI all of them). These are not passed on now:",
       item: (cli, names) => `${cli}: ${names}`,
       hint: "If an agent needs one of them (say the project's tests call OpenAI), add it back on that CLI's card in Settings, under Environment variables. This notice shows only once.",
       open: 'Open Settings',

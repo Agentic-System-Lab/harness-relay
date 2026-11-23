@@ -516,11 +516,14 @@ function RelayApp() {
   const [sandboxClosed, setSandboxClosed] = useState(false);
   const sandbox = useSandboxSetup(route.page === 'new' && !sandboxAsked && !sandboxClosed);
   const [sandboxOpen, setSandboxOpen] = useState(false);
+  /** What the notice of the keys a CLI is not given lists while it is open (below), taken as it opens. */
+  const [envItems, setEnvItems] = useState<{ provider: Provider; names: string[] }[]>();
   useEffect(() => {
     // Not over the tour, another dialog, or what the user is typing or recording (it would take their keys).
     if (
       route.page === 'new' &&
       !sandboxOpen &&
+      !envItems &&
       !tourOpen &&
       !offer &&
       dialogs === 0 &&
@@ -529,16 +532,16 @@ function RelayApp() {
       askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)
     )
       setSandboxOpen(true);
-  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
+  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, envItems, tourOpen, offer, dialogs, typing, held]);
 
-  // The keys of the server's environment some CLI is no longer given, said once in this browser as
-  // New chat opens (src/web/agentEnv.ts), after the sandboxes' dialog; Settings keeps them.
+  // The keys of the server's environment some CLI is not given, said once in this browser as New chat
+  // opens (src/web/agentEnv.ts), after the sandboxes' dialog and never beside it; Settings keeps them.
   const [envSeen, setEnvSeen] = useState(readNoticeSeen);
   const [envView, setEnvView] = useState<SettingsView>();
-  const [envOpen, setEnvOpen] = useState(false);
   const installedCli = (p: Provider) => providers.some((s) => s.provider === p && s.installed);
+  // Asked again each time New chat opens while the notice is still to be seen: Settings may have changed it.
   useEffect(() => {
-    if (route.page !== 'new' || envSeen || envView) return;
+    if (route.page !== 'new' || envSeen) return;
     let live = true;
     api.getSettings().then(
       (v) => live && setEnvView(v),
@@ -549,12 +552,15 @@ function RelayApp() {
     return () => {
       live = false;
     };
-  }, [route.page, envSeen, envView]);
+  }, [route.page, envSeen]);
+  // While this browser has not answered the sandboxes' question, wait for what they need: it goes first.
+  const sandboxSettled = sandboxAsked || sandboxClosed || sandbox.view !== undefined;
   useEffect(() => {
     if (
       route.page === 'new' &&
-      !envOpen &&
+      !envItems &&
       !sandboxOpen &&
+      sandboxSettled &&
       !askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed) &&
       !tourOpen &&
       !offer &&
@@ -563,13 +569,14 @@ function RelayApp() {
       !held &&
       showNotice(envView, envSeen, installedCli)
     )
-      setEnvOpen(true);
+      setEnvItems(withheldByCli(envView, installedCli));
   }, [
     route.page,
     envView,
     envSeen,
-    envOpen,
+    envItems,
     sandboxOpen,
+    sandboxSettled,
     sandbox.view,
     sandboxAsked,
     sandboxClosed,
@@ -583,7 +590,7 @@ function RelayApp() {
   const closeEnv = () => {
     writeNoticeSeen();
     setEnvSeen(true);
-    setEnvOpen(false);
+    setEnvItems(undefined);
   };
 
   return (
@@ -733,9 +740,9 @@ function RelayApp() {
           />
         </Deferred>
       )}
-      {envOpen && envView && (
+      {envItems && (
         <Deferred onClose={closeEnv}>
-          <WithheldEnvDialog items={withheldByCli(envView, installedCli)} onClose={closeEnv} />
+          <WithheldEnvDialog items={envItems} onClose={closeEnv} />
         </Deferred>
       )}
       {offer && update?.available && (

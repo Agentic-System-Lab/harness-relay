@@ -16,9 +16,9 @@ test.describe("other providers' keys in the server's environment", () => {
   test.describe('the notice', () => {
     test.use({ envNotice: true });
 
-    test('New chat says once which keys each installed CLI is no longer given, names only, and leads to its card', async ({ page }) => {
+    test('New chat says once which keys each installed CLI is not given, names only, and leads to its card', async ({ page }) => {
       await openNewChat(page);
-      const dialog = page.getByRole('dialog', { name: "Other providers' keys no longer go to every CLI" });
+      const dialog = page.getByRole('dialog', { name: 'Each CLI gets only its own keys' });
       await expect(dialog).toBeVisible();
       // The three CLIs installed here, each with both keys; none that is not installed.
       for (const cli of ['Claude Code', 'Codex', 'Grok']) await expect(dialog).toContainText(`${cli}: MISTRAL_API_KEY, HF_TOKEN`);
@@ -52,10 +52,19 @@ test.describe("other providers' keys in the server's environment", () => {
     await env.getByRole('button', { name: 'Pass HF_TOKEN on to it' }).click();
     await expect(env.getByRole('button', { name: 'Stop passing HF_TOKEN on' })).toBeVisible();
     await expect(env.locator('summary')).toHaveText('Environment variables (1 key not given)');
-    // A name that is not one is refused in the page, before it is sent.
-    await env.getByRole('textbox', { name: 'Name of a variable to pass on' }).fill('NOT-A-NAME');
+    // A name that is not one is refused in the page, before it is sent; one typed is added, and × takes it off.
+    const box = env.getByRole('textbox', { name: 'Name of a variable to pass on' });
+    await box.fill('NOT-A-NAME');
     await env.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(env.getByRole('alert')).toContainText("A variable's name has letters, digits and underscores only");
+    await box.fill(' MISTRAL_API_KEY ');
+    await box.press('Enter');
+    await expect(env.getByRole('button', { name: 'Stop passing MISTRAL_API_KEY on' })).toBeVisible();
+    await expect(box).toHaveValue('');
+    await expect(env.locator('summary')).toHaveText('Environment variables');
+    await env.getByRole('button', { name: 'Stop passing MISTRAL_API_KEY on' }).click();
+    await expect(env.getByRole('button', { name: 'Pass MISTRAL_API_KEY on to it' })).toBeVisible();
+    await expect(env.locator('summary')).toHaveText('Environment variables (1 key not given)');
     const saved = await relay.api<SettingsView>('/api/settings');
     expect(saved.providers.find((p) => p.provider === 'claude')!.environment).toMatchObject({
       pass: ['HF_TOKEN'],

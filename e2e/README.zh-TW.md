@@ -725,8 +725,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查什麼 |
 | --- | --- | --- |
-| 新對話說一次每個已安裝的 CLI 不再拿到哪些金鑰，只列名稱，並帶到它的卡片 | Claude Code、Codex、Grok | 設定 `envNotice: true` 時，新對話會開一個提示，為每個已安裝的 CLI 列出它拿不到的金鑰（沒有未安裝的 CLI，也沒有值）；**開啟設定** 關掉提示並打開 Claude Code 的卡片，它的 **環境變數** 說有兩個金鑰沒傳給它。再開新對話、重新載入後，都不再出現。 |
-| 從 CLI 的卡片傳過去的金鑰，只有那個 CLI 的執行拿得到 | Claude Code、Grok | fake 會說每個變數有沒有設定（`e2e:env`）：一開始兩個都沒有。在 Claude Code 的卡片按 `HF_TOKEN` 旁的 **傳給它**，它就移到要傳過去的清單（摘要改說有一個金鑰沒傳給它），不是名稱的輸入在送出前就被頁面擋下；伺服器只為 Claude Code 保存這份清單。在同一個對話裡，Claude Code 的下一次執行拿到 `HF_TOKEN`，仍然沒有 `MISTRAL_API_KEY`，Grok 則兩個都沒有。 |
+| 新對話說一次每個已安裝的 CLI 拿不到哪些金鑰，只列名稱，並帶到它的卡片 | Claude Code、Codex、Grok | 設定 `envNotice: true` 時，新對話會開一個提示，為每個已安裝的 CLI 列出它拿不到的金鑰（沒有未安裝的 CLI，也沒有值）；**開啟設定** 關掉提示並打開 Claude Code 的卡片，它的 **環境變數** 說有兩個金鑰沒傳給它。再開新對話、重新載入後，都不再出現。 |
+| 從 CLI 的卡片傳過去的金鑰，只有那個 CLI 的執行拿得到 | Claude Code、Grok | fake 會說每個變數有沒有設定（`e2e:env`）：一開始兩個都沒有。在 Claude Code 的卡片按 `HF_TOKEN` 旁的 **傳給它**，它就移到要傳過去的清單（摘要改說有一個金鑰沒傳給它），不是名稱的輸入在送出前就被頁面擋下，打進去的名稱（前後有空白）按 Enter 就加入並清空輸入框，再按 **×** 拿掉；伺服器只為 Claude Code 保存這份清單。在同一個對話裡，Claude Code 的下一次執行拿到 `HF_TOKEN`，仍然沒有 `MISTRAL_API_KEY`，Grok 則兩個都沒有。 |
 
 ## 方案用量
 
@@ -912,7 +912,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 新增的帳號各自登出 | ✓ | ✓ | ✓ | —（只用 key） | —（只用 key） | ✓（透過 ACP） | —（只用 key） |
 | 帳號的 API key 只交給那個帳號 | ✓ | ✓（透過 `codex login`） | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 伺服器自己的 API key 只交給預設帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 伺服器環境變數裡別家的金鑰會擋下，也能從卡片傳過去 | ✓（傳過去） | ✓（擋下） | ✓（擋下） | — | — | — | — |
+| 伺服器環境變數裡別家的金鑰會擋下，也能從卡片傳過去 | ✓（傳過去，檢查它的執行） | ✓（列在提示裡） | ✓（擋下，檢查它的執行） | — | — | — | — |
 | 移除新增的帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CLI 啟動前先詢問專案自己的設定 | — | — | — | — | ✓ | ✓（它專案的 hook） | — |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | — | — | — | ✓（它自己的） | — | — | ✓（它自己的） |
@@ -977,7 +977,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **伺服器環境變數裡的金鑰，每個 CLI 拿到哪些的大部分。** 端對端測試對 Claude Code、Codex 與 Grok 擋下兩個金鑰，並把一個傳給 Claude Code。離線測試（`test/agent-env.test.ts`）涵蓋：七個有登入的 CLI 各自保留自己的金鑰、Codex 保留它的 `config.toml` 指定的、開源 agent 維持原樣、預設以外的帳號、GitHub 與雲端的 token 和網址類的變數從不擋下，以及清單在重新啟動後仍保留。
+- **伺服器環境變數裡的金鑰，每個 CLI 拿到哪些的大部分。** 端對端測試列出 Claude Code、Codex 與 Grok 被擋下的金鑰，檢查 Claude Code 與 Grok 的執行，並把一個金鑰傳給 Claude Code（沒有檢查 Codex 的執行）。離線測試（`test/agent-env.test.ts`）涵蓋：七個有登入的 CLI 各自保留自己的金鑰、Codex 保留它的 `config.toml` 指定的、開源 agent 維持原樣、預設以外的帳號、GitHub 與雲端的 token 和網址類的變數從不擋下，以及清單在重新啟動後仍保留。
 - **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（它以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。

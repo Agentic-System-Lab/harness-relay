@@ -7,7 +7,7 @@ import { NOTICE_KEY, addPassName, readNoticeSeen, removePassName, showNotice, wi
 function view(envs: Partial<Record<Provider, { withheld: string[] } | undefined>>): SettingsView {
   const providers = Object.entries(envs).map(
     ([provider, env]) =>
-      ({ provider, ...(env ? { environment: { signIn: [], pass: [], withheld: env.withheld } } : {}) }) as unknown as ProviderSettingsView,
+      ({ provider, ...(env ? { environment: { pass: [], withheld: env.withheld } } : {}) }) as unknown as ProviderSettingsView,
   );
   return { providers } as unknown as SettingsView;
 }
