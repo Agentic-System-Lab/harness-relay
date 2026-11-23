@@ -427,6 +427,12 @@ beforeAll(() => {
         });
       }
       await fake.inTurn?.(name, o);
+      // What the fake acts on below is what was said in the chat, never the chat's automation as the turn
+      // prompt describes it (its message may hold the same words).
+      const asked = o.prompt.replace(
+        /\n\nThis chat's automation, as it is now[^\n]*\n(?:- [^\n]*(?:\n|$)|This chat has no automation now\.(?:\n|$))*/,
+        '\n',
+      );
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
         await Promise.race([fake.gates[name] ?? fake.gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
@@ -435,13 +441,13 @@ beforeAll(() => {
       if (o.signal?.aborted) throw new AgentRunError('stopped', true);
       const failure = fake.fail?.(name, o.sessionId);
       if (failure) throw failure;
-      if (o.prompt.includes('keep asking')) fake.keptAsk = o.requestApproval;
-      if (o.prompt.includes('crash after asking')) {
+      if (asked.includes('keep asking')) fake.keptAsk = o.requestApproval;
+      if (asked.includes('crash after asking')) {
         // The CLI asks, then dies before the user answers.
         void o.requestApproval?.({ kind: 'command', detail: 'npm install left-pad' });
         throw new Error('CLI crashed');
       }
-      if (o.prompt.includes('please install')) {
+      if (asked.includes('please install')) {
         // Something the permission does not cover: ask (when the conversation asks).
         const answer = o.requestApproval
           ? await o.requestApproval({ kind: 'command', detail: 'npm install left-pad', reason: 'Install a dependency' })
@@ -451,7 +457,7 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
-      if (o.prompt.includes('search the web')) {
+      if (asked.includes('search the web')) {
         // Like a server-side web search: what it searched for only comes with the result.
         o.onEvent({ type: 'tool_start', id: `ws-${name}`, name: 'Web search' });
         o.onEvent({ type: 'tool_end', id: `ws-${name}`, ok: true, detail: `${name}'s query` });
@@ -459,7 +465,7 @@ beforeAll(() => {
         o.onEvent({ type: 'tool_start', id: `sh-${name}`, name: 'Shell', detail: 'npm test', kind: 'execute' });
         o.onEvent({ type: 'tool_end', id: `sh-${name}`, ok: true, output: 'ok' });
       }
-      if (o.prompt.includes('use a subagent')) {
+      if (asked.includes('use a subagent')) {
         // A subagent's calls between the agent's words, one the CLI says only later was a subagent's,
         // and a note about the CLI's own run.
         o.onEvent({ type: 'tool_start', id: `ag-${name}`, name: 'Agent', detail: 'Look around', agent: 'Explore', model: 'haiku' });
@@ -472,7 +478,7 @@ beforeAll(() => {
         o.onEvent({ type: 'tool_end', id: `ag-${name}`, ok: true, output: 'Found it.' });
         o.onEvent({ type: 'notice', text: 'Claude Code compacted the conversation' });
       }
-      if (fake.asking.has(name) && !o.prompt.includes('ANSWER:')) {
+      if (fake.asking.has(name) && !asked.includes('ANSWER:')) {
         o.onEvent({ type: 'text', text: `${name} asks: A or B?\n\n[ASK_USER]` });
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };

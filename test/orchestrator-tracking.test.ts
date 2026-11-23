@@ -131,7 +131,7 @@ describe('a schedule that tracks a goal', () => {
     await finish(conv.id);
     // Its run is that time's run: told the goal, its report kept.
     fake.reply = () => 'Looked.\n<progress status="working">2 of 5 jobs pass</progress>';
-    const queuedRun = calls.find((c) => c.prompt.includes('check CI'));
+    const queuedRun = calls.find((c) => c.prompt.includes('<message from="user" via="schedule">\ncheck CI'));
     expect(queuedRun?.systemPrompt).toContain('<tracked_goal');
     await finish(conv.id);
 

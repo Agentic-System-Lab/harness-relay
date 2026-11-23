@@ -402,6 +402,7 @@ export type Segment =
   | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
   /** A fixed command the reply proposes. */
   | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
+  | { kind: 'command-changed'; part: Extract<MessagePart, { type: 'command-changed' }>; key: number }
   /** Steps the reply asks the user to take outside Harness Relay. */
   | { kind: 'steps'; part: StepsPart; key: number }
   /** A command the reply asks the user to run themselves. */
@@ -482,6 +483,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'command':
         out.push({ kind: 'command', part: p, key: i });
+        break;
+      case 'command-changed':
+        if (p.commandId) out.push({ kind: 'command-changed', part: p, key: i });
         break;
       case 'steps':
         if (p.items.length) out.push({ kind: 'steps', part: p, key: i });

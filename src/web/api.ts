@@ -448,7 +448,10 @@ export const api = {
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
   runSchedule: (id: string) =>
-    request<{ ok: true; queued: boolean; ran?: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+    request<{ ok: true; queued: boolean; ran?: boolean; noted?: boolean; chatId?: string }>(
+      'POST',
+      `/api/conversations/${id}/schedule/run`,
+    ),
   /** Check what an automation that starts when something happens waits for, now: the schedule as it is then. */
   checkSchedule: (id: string) => request<ConversationSchedule | null>('POST', `/api/conversations/${id}/schedule/check`, {}),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
@@ -606,8 +609,13 @@ export const api = {
       b,
     ),
   /** Try a saved fixed command (in the background: its card follows it). */
-  tryCommand: (id: string, commandId: string, b: { extra?: string; stdin?: string; approve?: string }) =>
+  tryCommand: (id: string, commandId: string, b: { extra?: string; stdin?: string; confirm?: boolean }) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/try`, b),
+  /** Approve what changed in a fixed command's code: the code whose diff had this digest is pinned again (nothing runs). */
+  approveCommand: (id: string, commandId: string, digest: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/approve`, {
+      digest,
+    }),
   /** The fixed commands of a chat's working directory. */
   conversationCommands: (id: string) => request<FixedCommand[]>('GET', `/api/conversations/${encodeURIComponent(id)}/commands`),
   commandDiff: (id: string, commandId: string) =>

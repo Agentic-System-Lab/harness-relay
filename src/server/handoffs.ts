@@ -258,6 +258,14 @@ export class HandoffStore {
     this.save();
   }
 
+  /** Forgets a last run that did not happen because the code changed (the user approved the change since). */
+  clearChangedRun(id: string): void {
+    const c = this.find(id);
+    if (c?.lastRun?.status !== 'changed') return;
+    delete c.lastRun;
+    this.save();
+  }
+
   /** Removes a command: returns it with its pin (whose kept snapshot the caller drops). */
   deleteCommand(id: string): { command: FixedCommand; pin?: CommandPin } {
     for (const [folder, f] of Object.entries(this.saved.folders)) {

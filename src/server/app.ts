@@ -346,6 +346,7 @@ function proposalEdits(value: unknown): Partial<CommandProposal> {
     ...(words(v.hosts) ? { hosts: words(v.hosts) } : {}),
     ...(words(v.secrets) ? { secrets: words(v.secrets) } : {}),
     ...(typeof v.cwd === 'string' ? { cwd: v.cwd } : {}),
+    ...(typeof v.publishes === 'boolean' ? { publishes: v.publishes } : {}),
   };
 }
 
@@ -1861,7 +1862,10 @@ export function createApp({
     }
     if (b.action !== 'create') throw new HttpError(400, t().invalidField('action'));
     const tz = typeof b.timeZone === 'string' && validTimeZone(b.timeZone.trim()) ? b.timeZone.trim() : serverTimeZone();
-    const saved = saveSchedule(conv, proposalUpdate(proposal, tz));
+    // The fixed command it names: one saved for this chat's working directory, by its name.
+    const command = proposal.command ? settings.handoffs.commandByName(orchestrator.handoffFolder(conv), proposal.command) : undefined;
+    if (proposal.command && !command) throw new HttpError(409, t().handoffs.proposalCommandMissing(proposal.command));
+    const saved = saveSchedule(conv, proposalUpdate(proposal, tz, command?.id));
     orchestrator.markProposal(conv.id, messageId, 'created');
     return c.json(saved);
   });
@@ -1876,8 +1880,9 @@ export function createApp({
     const files = scheduleFileChanges(input);
     refuseMissingTrigger(update);
     refuseForeignCommand(conv, update);
-    // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
-    if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
+    // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation
+    // (one that only runs its fixed command never goes to the team).
+    if (update.enabled && !update.commandOnly && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
     }
     const prev = conv.schedule;
@@ -2043,9 +2048,16 @@ export function createApp({
       throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1), sent.result === 'failed' ? sent.code : undefined);
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
-    // `ran`: its fixed command found nothing new, so nothing was sent.
+    // `ran`: its fixed command found nothing new, so nothing was sent; `noted`: run alone, it found
+    // something, which a note in the chat says (nothing goes to the team).
     return c.json(
-      { ok: true, queued: sent.result === 'queued', ...(sent.result === 'ran' ? { ran: true } : {}), ...(chatId ? { chatId } : {}) },
+      {
+        ok: true,
+        queued: sent.result === 'queued',
+        ...(sent.result === 'ran' ? { ran: true } : {}),
+        ...(sent.result === 'noted' ? { noted: true } : {}),
+        ...(chatId ? { chatId } : {}),
+      },
       202,
     );
   });
@@ -2730,8 +2742,9 @@ export function createApp({
   });
 
   // Try a saved fixed command of this chat's working directory: in the background, its card follows it.
+  // `confirm`: the user confirmed trying one whose runs publish, post or send something.
   app.post('/api/conversations/:id/commands/:commandId/try', async (c) => {
-    const b = await body<{ extra?: unknown; stdin?: unknown; approve?: unknown }>(c);
+    const b = await body<{ extra?: unknown; stdin?: unknown; confirm?: unknown }>(c);
     if (b.extra !== undefined && (typeof b.extra !== 'string' || b.extra.length > HANDOFF_LIMITS.commandLine)) {
       throw new HttpError(400, t().invalidField('extra'));
     }
@@ -2740,16 +2753,22 @@ export function createApp({
     if (typeof b.stdin === 'string' && new TextEncoder().encode(b.stdin).length > HANDOFF_LIMITS.input) {
       throw new HttpError(400, t().handoffs.inputTooLong(HANDOFF_LIMITS.input));
     }
-    // `approve`: the digest of the code whose diff the user saw (`GET …/diff`), which is pinned again first.
-    if (b.approve !== undefined && (typeof b.approve !== 'string' || !/^[0-9a-f]{32}$/.test(b.approve))) {
-      throw new HttpError(400, t().invalidField('approve'));
-    }
+    if (b.confirm !== undefined && typeof b.confirm !== 'boolean') throw new HttpError(400, t().invalidField('confirm'));
     await orchestrator.tryCommand(c.req.param('id'), c.req.param('commandId'), {
       ...(typeof b.extra === 'string' ? { extra: b.extra } : {}),
       ...(typeof b.stdin === 'string' && b.stdin ? { stdin: b.stdin } : {}),
-      ...(typeof b.approve === 'string' ? { approve: b.approve } : {}),
+      ...(b.confirm === true ? { confirm: true } : {}),
     });
     return c.json({ ok: true }, 202);
+  });
+
+  // Approve what changed in a fixed command's code: `digest`, of the code whose diff the user saw (`GET
+  // …/diff`), which is pinned again. Nothing runs: Try it, Send or its schedule does that.
+  app.post('/api/conversations/:id/commands/:commandId/approve', async (c) => {
+    const b = await body<{ digest?: unknown }>(c);
+    if (typeof b.digest !== 'string' || !/^[0-9a-f]{32}$/.test(b.digest)) throw new HttpError(400, t().invalidField('digest'));
+    await orchestrator.approveCommand(c.req.param('id'), c.req.param('commandId'), b.digest);
+    return c.json({ ok: true });
   });
 
   // The fixed commands of this chat's working directory (the schedule's form offers them).
@@ -2785,12 +2804,13 @@ export function createApp({
     const { pin } = settings.handoffs.deleteCommand(id);
     await dropPin(id, pin);
     orchestrator.forgetCommand(id);
-    // The schedules that ran it first run none now (their message alone), rather than failing at each time.
+    // The schedules that ran it first run none now (their message alone), rather than failing at each time;
+    // one that ran only it has nothing left to do, and is turned off.
     for (const convId of store.schedulesWithCommand(id)) {
       const conv = store.get(convId);
       if (!conv?.schedule || conv.schedule.command !== id) continue;
-      const { command: _gone, ...rest } = conv.schedule;
-      conv.schedule = rest;
+      const { command: _gone, commandOnly, nextRunAt: _next, ...rest } = conv.schedule;
+      conv.schedule = commandOnly ? { ...rest, enabled: false } : { ...rest, ...(_next !== undefined ? { nextRunAt: _next } : {}) };
       store.saveSchedule(conv);
       orchestrator.emitConversation(conv);
     }

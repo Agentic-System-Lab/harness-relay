@@ -265,6 +265,11 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         type: 'text',
         text: `[Handed the browser to the user${p.mode ? ` (${p.mode === 'window' ? 'in a window' : 'in the chat'})` : ''}: ${p.reason} — ${HANDOVER_END[p.status]}${p.note ? `: "${p.note}"` : ''}]`,
       };
+    case 'command-changed':
+      return {
+        type: 'text',
+        text: `[The fixed command "${p.name}" did not run: its code changed (${p.changed.join(', ')}) — ${p.approved ? 'approved since' : "waiting for the user's approval"}]`,
+      };
     case 'interactive':
       // Its output reaches the team only when the user sends it (as their message): never here.
       return {

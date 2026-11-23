@@ -1,3 +1,4 @@
+import { commandName } from './handoffs';
 import { filePattern, mailFolder, parseTime, repoName, validBranch, validRepo, zonedTime } from './schedule';
 import {
   SCHEDULE_KINDS,
@@ -18,7 +19,9 @@ import {
  *
  * which is taken out of the reply's text: the chat shows a card instead, from which the user creates
  * the schedule (as it is, or once changed in the schedule's form) or dismisses it. Nothing is
- * scheduled until then. Pure, shared by the server and the UI.
+ * scheduled until then. It may name a fixed command of the working directory that runs first each
+ * time (`"command": "post"`), and have only that command run, never the team (`"commandOnly": true`).
+ * Pure, shared by the server and the UI.
  */
 
 const OPEN = '<schedule>';
@@ -200,13 +203,21 @@ export function readProposal(raw: unknown): ScheduleProposal | undefined {
   if (!text || text.length > SCHEDULE_LIMITS.maxText) return undefined;
   const repeat = readRepeat(r.repeat);
   if (!repeat) return undefined;
-  const goal = typeof r.goal === 'string' ? r.goal.trim().slice(0, SCHEDULE_LIMITS.maxGoal) : '';
+  // A fixed command by its name (the schedule keeps its id once created), on the schedule's own times only.
+  const named = typeof r.command === 'string' ? commandName(r.command) : undefined;
+  if (r.command !== undefined && r.command !== null && r.command !== '' && !named) return undefined;
+  const command = repeat.kind !== 'event' ? named : undefined;
+  // Only the command, never the team: no goal (no agent says where it stands), nor a new chat each time.
+  const commandOnly = Boolean(command) && r.commandOnly === true;
+  const goal = typeof r.goal === 'string' && !commandOnly ? r.goal.trim().slice(0, SCHEDULE_LIMITS.maxGoal) : '';
   return {
     text,
     repeat,
     ...(goal ? { goal } : {}),
-    ...(r.newChat === true ? { newChat: true } : {}),
+    ...(r.newChat === true && !commandOnly ? { newChat: true } : {}),
     ...(r.missed === 'run' ? { missed: 'run' as const } : {}),
+    ...(command ? { command } : {}),
+    ...(commandOnly ? { commandOnly: true } : {}),
   };
 }
 
@@ -225,8 +236,9 @@ export function localMoment(at: string, timeZone: string): number | undefined {
 /**
  * The schedule to save from a proposal, in the user's time zone: on, refusing approvals in its runs
  * (the default), its once time turned into an instant (0, which no schedule takes, when it is not one).
+ * `commandId`: the saved fixed command its `command` names, which the schedule keeps (left out without one).
  */
-export function proposalUpdate(p: ScheduleProposal, timeZone: string): ScheduleUpdate {
+export function proposalUpdate(p: ScheduleProposal, timeZone: string, commandId?: string): ScheduleUpdate {
   const repeat: ScheduleRepeat = p.repeat.kind === 'once' ? { kind: 'once', at: localMoment(p.repeat.at, timeZone) ?? 0 } : p.repeat;
   return {
     text: p.text,
@@ -237,12 +249,23 @@ export function proposalUpdate(p: ScheduleProposal, timeZone: string): ScheduleU
     missed: p.missed ?? 'skip',
     newChat: Boolean(p.newChat),
     ...(p.goal ? { goal: p.goal } : {}),
+    ...(p.command && commandId ? { command: commandId, ...(p.commandOnly ? { commandOnly: true } : {}) } : {}),
   };
 }
 
-/** What keeps a proposal from being made as it is (the schedule's form can still take it): its once time passed, a trigger needs an account. */
-export function proposalGaps(p: ScheduleProposal, timeZone: string, now: number): ('past' | 'account')[] {
-  const gaps: ('past' | 'account')[] = [];
+/**
+ * What keeps a proposal from being made as it is (the schedule's form can still take it): its once time
+ * passed, a trigger needs an account, the fixed command it names is not saved (`saved`: the names of the
+ * working directory's fixed commands, when known).
+ */
+export function proposalGaps(
+  p: ScheduleProposal,
+  timeZone: string,
+  now: number,
+  saved?: readonly string[],
+): ('past' | 'account' | 'command')[] {
+  const gaps: ('past' | 'account' | 'command')[] = [];
+  if (p.command && saved && !saved.includes(p.command)) gaps.push('command');
   if (p.repeat.kind === 'once' && (localMoment(p.repeat.at, timeZone) ?? 0) <= now) gaps.push('past');
   if (p.repeat.kind === 'event' && p.repeat.triggers.some((t) => (t.source === 'mail' || t.source === 'calendar') && !t.account))
     gaps.push('account');

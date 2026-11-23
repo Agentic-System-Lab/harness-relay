@@ -13,6 +13,7 @@ import {
   scheduleTrouble,
   shownZone,
   toUpdate,
+  withCommand,
   type ScheduleDraft,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
@@ -92,8 +93,9 @@ export function ScheduleDrawer({
       (list) => {
         if (!live) return;
         setCommands(list);
-        // A command removed meanwhile (in Settings): not one the form could save, nor show.
-        setDraft((d) => (d.command && !list.some((c) => c.id === d.command) ? { ...d, command: '' } : d));
+        // A command removed meanwhile (in Settings): not one the form could save, nor show. The one a
+        // proposal named, found by its name.
+        setDraft((d) => withCommand(d, list));
       },
       () => live && setCommands([]),
     );
@@ -156,8 +158,20 @@ export function ScheduleDrawer({
     setInfo('');
     setRanIn(undefined);
     try {
-      const { queued, ran, chatId } = await api.runSchedule(conv.id);
-      setInfo(ran ? t.schedule.ranNow : chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      const { queued, ran, noted, chatId } = await api.runSchedule(conv.id);
+      setInfo(
+        noted
+          ? t.schedule.notedNow
+          : ran
+            ? conv.schedule?.commandOnly
+              ? t.schedule.ranOnlyNow
+              : t.schedule.ranNow
+            : chatId
+              ? t.schedule.sentInNewChat
+              : queued
+                ? t.schedule.queuedNow
+                : t.schedule.sentNow,
+      );
       setRanIn(chatId);
     } catch (e) {
       setError((e as Error).message);

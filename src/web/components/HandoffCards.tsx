@@ -192,6 +192,52 @@ function CodeFiles({ view }: { view: readonly CodeViewFile[] }) {
   );
 }
 
+/**
+ * What changed in a saved fixed command's code since the user saved or approved it, and their approval
+ * of it: the files, their diff (opened here), and Approve, which pins the code they looked at again and
+ * runs nothing. Shown wherever a run waits on it: the command's card, a run of it in the outbox, the note
+ * of a scheduled run that did not happen. The server updates those cards once it is approved.
+ */
+export function CommandChanges({ convId, commandId, changed }: { convId: string; commandId: string; changed: readonly string[] }) {
+  const c = useT().handoffs.command;
+  const { busy, error, call } = useCall();
+  const [diff, setDiff] = useState<{ changed: string[]; files: CodeViewFile[]; missing: string[]; digest: string } | null>(null);
+  const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, commandId))));
+  const files = diff?.changed.length ? diff.changed : changed.filter((f) => f !== '.');
+  return (
+    <div className="handoff-changes">
+      {files.length > 0 && (
+        <ul className="handoff-changed">
+          {files.map((f) => (
+            <li key={f}>
+              <code>{f}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* Its files apart, as the server sends them: a file's own lines never pass for another file. */}
+      {diff && (diff.files.length ? <CodeFiles view={diff.files} /> : <p className="muted small">{c.noDiff}</p>)}
+      {diff && diff.files.length > 0 && diff.missing.length > 0 && <p className="muted small">{c.someNoDiff(diff.missing.join(', '))}</p>}
+      {error && <p className="error-line">{error}</p>}
+      <div className="approval-actions">
+        <button type="button" className="ghost small-button" disabled={busy} onClick={toggleDiff} aria-expanded={Boolean(diff)}>
+          {diff ? c.hideDiff : c.showDiff}
+        </button>
+        <button
+          type="button"
+          className="primary small-button"
+          disabled={busy || !diff?.digest}
+          title={diff ? undefined : c.approveNeedsDiff}
+          onClick={() => void call(() => api.approveCommand(convId, commandId, diff!.digest))}
+        >
+          {c.approve}
+        </button>
+      </div>
+      <p className="muted small">{c.approveHint}</p>
+    </div>
+  );
+}
+
 /** A fixed command a reply proposes: save it (or edit it first) or not; once saved, try it and tell the team. */
 export function CommandCard({
   part,
@@ -212,7 +258,8 @@ export function CommandCard({
   const [extra, setExtra] = useState('');
   // What the agent suggested typing there, if it did (the block's `input`).
   const [stdin, setStdin] = useState(part.input ?? '');
-  const [diff, setDiff] = useState<{ changed: string[]; files: CodeViewFile[]; missing: string[]; digest: string } | null>(null);
+  // A try of a command whose runs publish, post or send something: asked once more before it really does it.
+  const [confirming, setConfirming] = useState(false);
   const actions = commandActions(part);
   const p = part.proposal;
   const run = part.run;
@@ -243,18 +290,16 @@ export function CommandCard({
       }
       setEditing(false);
     });
-  // Approve sends the digest of the code whose diff the user looked at: a later change is refused.
-  const tryIt = (approve?: string) =>
+  const tryIt = (confirm = false) =>
     call(async () => {
       await api.tryCommand(convId, part.commandId!, {
         ...(extra.trim() ? { extra } : {}),
         ...(stdin ? { stdin } : {}),
-        ...(approve ? { approve } : {}),
+        ...(confirm ? { confirm: true } : {}),
       });
-      setDiff(null);
+      setConfirming(false);
     });
-  const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!))));
-  const field = (key: keyof typeof form, label: string, hint?: string, multiline = false) => (
+  const field = (key: Exclude<keyof typeof form, 'publishes'>, label: string, hint?: string, multiline = false) => (
     <label className="field">
       <span>{label}</span>
       {multiline ? (
@@ -282,6 +327,10 @@ export function CommandCard({
           {field('hosts', c.hosts, c.hostsHint)}
           {field('secrets', c.secrets, c.secretsHint)}
           {field('cwd', c.folder, c.cwdHint)}
+          <label className="check-row">
+            <input type="checkbox" checked={form.publishes} onChange={(e) => setForm((f) => ({ ...f, publishes: e.target.checked }))} />
+            <span>{c.publishes}</span>
+          </label>
         </div>
       ) : (
         <dl className="outbox-fields">
@@ -313,6 +362,7 @@ export function CommandCard({
           )}
         </dl>
       )}
+      {!editing && p.publishes && <p className="warn-line small">{c.publishesNote}</p>}
       {actions.decide && part.replaces && !part.blocked && <p className="warn-line small">{c.replaces}</p>}
       {actions.decide && part.blocked && <p className="warn-line small">{part.blocked === 'windows' ? c.windows : c.blocked}</p>}
       {actions.decide && part.blocked !== 'windows' && <p className="muted small">{c.hint}</p>}
@@ -344,23 +394,7 @@ export function CommandCard({
           {run.status === 'changed' && (
             <>
               <p className="small">{c.changedHint}</p>
-              {run.changed && run.changed.length > 0 && (
-                <ul className="handoff-changed">
-                  {run.changed.map((f) => (
-                    <li key={f}>
-                      <code>{f}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button type="button" className="ghost small-button" disabled={busy} onClick={toggleDiff}>
-                {diff ? c.hideDiff : c.showDiff}
-              </button>
-              {/* Its files apart, as the server sends them: a file's own lines never pass for another file. */}
-              {diff && (diff.files.length ? <CodeFiles view={diff.files} /> : <p className="muted small">{c.noDiff}</p>)}
-              {diff && diff.files.length > 0 && diff.missing.length > 0 && (
-                <p className="muted small">{c.someNoDiff(diff.missing.join(', '))}</p>
-              )}
+              {part.commandId && <CommandChanges convId={convId} commandId={part.commandId} changed={run.changed ?? []} />}
             </>
           )}
           {run.output && (
@@ -429,22 +463,33 @@ export function CommandCard({
               <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} placeholder={c.stdinPlaceholder} rows={2} />
             </label>
           )}
+          {confirming && !actions.approve && (
+            <p className="warn-line small" role="alert">
+              {c.confirmTry}
+            </p>
+          )}
           <div className="approval-actions">
-            {actions.approve ? (
-              <button
-                type="button"
-                className="primary small-button"
-                disabled={busy || !diff?.digest}
-                title={diff ? undefined : c.approveNeedsDiff}
-                onClick={() => void tryIt(diff?.digest)}
-              >
-                {c.approve}
-              </button>
-            ) : (
-              <button type="button" className="primary small-button" disabled={busy || !actions.tryIt} onClick={() => void tryIt()}>
-                {run?.status === 'running' ? c.running : c.tryIt}
-              </button>
-            )}
+            {/* Approving its changes is on the run's result above; Try it comes back once they are approved. */}
+            {!actions.approve &&
+              (confirming ? (
+                <>
+                  <button type="button" className="primary small-button" disabled={busy || !actions.tryIt} onClick={() => void tryIt(true)}>
+                    {c.confirmTryButton}
+                  </button>
+                  <button type="button" className="ghost small-button" disabled={busy} onClick={() => setConfirming(false)}>
+                    {c.cancel}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="primary small-button"
+                  disabled={busy || !actions.tryIt}
+                  onClick={() => (p.publishes ? setConfirming(true) : void tryIt())}
+                >
+                  {run?.status === 'running' ? c.running : c.tryIt}
+                </button>
+              ))}
             {actions.share && (
               <button
                 type="button"

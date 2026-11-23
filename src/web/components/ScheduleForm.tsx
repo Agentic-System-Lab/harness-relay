@@ -186,11 +186,18 @@ export function ScheduleForm({
   );
   const sourceHint = [...(several ? [w.severalHint] : []), ...hints].join(' ');
 
+  // Only its fixed command runs, never the team: no goal to report on, no chat to open.
+  const commandOnly = Boolean(draft.command && draft.commandOnly && draft.kind !== 'event');
   const runOptions = (
     <>
       <div className="field">
         <label className="check-row">
-          <input type="checkbox" checked={draft.newChat} onChange={(e) => onEdit({ newChat: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={draft.newChat && !commandOnly}
+            disabled={commandOnly}
+            onChange={(e) => onEdit({ newChat: e.target.checked })}
+          />
           {t.schedule.newChat}
         </label>
         <span className="small muted">{t.schedule.newChatHint[draft.newChat ? 'on' : 'off']}</span>
@@ -307,22 +314,36 @@ export function ScheduleForm({
             <span className="small muted" id={commandHintId}>
               {t.schedule.commandHint}
             </span>
+            {draft.command && (
+              <>
+                <label className="check-row">
+                  <input type="checkbox" checked={draft.commandOnly} onChange={(e) => onEdit({ commandOnly: e.target.checked })} />
+                  {t.schedule.commandOnly}
+                </label>
+                <span className="small muted">{draft.commandOnly ? t.schedule.commandOnlyHint : t.schedule.commandTeamHint}</span>
+                {commands.find((c) => c.id === draft.command)?.publishes && (
+                  <span className="small warn-text">{t.schedule.commandPublishes}</span>
+                )}
+              </>
+            )}
           </div>
         )}
+        {draft.commandName !== undefined && <span className="small warn-text">{t.schedule.commandNotSaved(draft.commandName)}</span>}
 
         <div className="field">
           <label htmlFor={goalId}>{t.schedule.goal}</label>
           <textarea
             id={goalId}
             aria-describedby={goalHintId}
-            value={draft.goal}
+            value={commandOnly ? '' : draft.goal}
             rows={2}
             maxLength={SCHEDULE_LIMITS.maxGoal}
             placeholder={t.schedule.goalPlaceholder}
+            disabled={commandOnly}
             onChange={(e) => onEdit({ goal: e.target.value })}
           />
           <span className="small muted" id={goalHintId}>
-            {creation ? t.newSchedule.goalHint : t.schedule.goalHint}
+            {commandOnly ? t.schedule.goalCommandOnly : creation ? t.newSchedule.goalHint : t.schedule.goalHint}
           </span>
         </div>
 

@@ -2241,6 +2241,13 @@ export interface ScheduleProposal {
   goal?: string;
   newChat?: boolean;
   missed?: ConversationSchedule['missed'];
+  /**
+   * The name of a fixed command of the working directory that Harness Relay runs first, each time
+   * (`ConversationSchedule.command`, which holds its id once the user creates the schedule).
+   */
+  command?: string;
+  /** With `command`: only it runs, never the team (`ConversationSchedule.commandOnly`). */
+  commandOnly?: boolean;
 }
 
 export type ScheduleProposalRepeat = Exclude<ScheduleRepeat, { kind: 'once' }> | { kind: 'once'; at: string };
@@ -2516,6 +2523,12 @@ export type MessagePart =
        * `outbox:<id>` in its `seen`); a fixed command's run with its output, secrets masked.
        */
       forAgent?: string;
+      /**
+       * A fixed command's run (`FIXED_COMMAND_TOOL`): the command (its id), and, while its code changed
+       * since the user saved or approved it, the files that did: Send waits until the user approved them,
+       * which the card offers.
+       */
+      command?: { id: string; changed?: string[] };
     }
   /** What the reply saved to long-term memory (its `<remember>` and `<forget>` blocks, taken out of its text). */
   | { type: 'memory'; notes: MemoryPartNote[] }
@@ -2590,6 +2603,12 @@ export type MessagePart =
        */
       blocked?: 'automation' | 'windows';
     }
+  /**
+   * A fixed command did not run because its code changed since the user saved or approved it (a run
+   * its schedule started; the note in the chat holds it): its name, the files that changed, and a way
+   * to look at them and approve them. `approved`: the user did, here or on another card of it.
+   */
+  | { type: 'command-changed'; commandId: string; name: string; changed: string[]; approved?: boolean }
   /**
    * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its
    * text): a sign-in, a CLI's login with a device code. Only the user starts it, from this card; it runs
@@ -2700,6 +2719,11 @@ export interface CommandProposal {
   secrets: string[];
   /** Where it runs: a folder relative to the working directory (its top when absent). */
   cwd?: string;
+  /**
+   * Its runs publish, post or send something (`publishes="yes"`): Try it on its card asks the user to
+   * confirm first, as such a try would really do it.
+   */
+  publishes?: boolean;
 }
 
 /**
@@ -3090,7 +3114,11 @@ export const WATCH_LIMITS = {
  * start (`failed`). `lastError` says why for the last two.
  */
 /** `ran`: its fixed command ran and found nothing for the team (exit code 0), so no message went. */
-export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed' | 'ran';
+/**
+ * How a schedule's time went: its message sent, or queued for the team; missed, skipped, failed; its fixed
+ * command ran and found nothing (`ran`); or, running only its command, found something it noted in the chat (`noted`).
+ */
+export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed' | 'ran' | 'noted';
 
 /** Longest scheduled message, and the longest interval in hours; `maxGoal`: the longest goal a schedule tracks. */
 export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168, maxGoal: 2000 };
@@ -3213,6 +3241,12 @@ export interface ConversationSchedule {
    * failed, with its output; when it exits 0 nothing goes (`ran`), and no model runs.
    */
   command?: string;
+  /**
+   * With `command`: only it runs, never the team. What it found (`FIXED_COMMAND_NEWS`) or how it failed
+   * goes into the chat as a note with its output, and nothing goes to the team: no model runs, nor does
+   * the team's state (a question waiting for the user, a run under way) hold it. No goal is tracked.
+   */
+  commandOnly?: boolean;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -3231,7 +3265,7 @@ export interface ZonedParts {
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
 export type ScheduleUpdate = Pick<
   ConversationSchedule,
-  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal' | 'command'
+  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal' | 'command' | 'commandOnly'
 >;
 
 /**

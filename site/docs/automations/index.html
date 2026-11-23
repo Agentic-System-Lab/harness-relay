@@ -452,6 +452,8 @@
             A script can do the work without a model: in the automation's window, <b>Run a fixed command first</b> picks one of the working directory's
             <a href="../permissions/#secrets">fixed commands</a>. Each time, Harness Relay runs it in its own sandbox first; exit code 0 means nothing to do,
             and no message goes; exit code 10 (something new) or a failure sends the message to the team, with the command's output.
+            Tick <b>Only run the fixed command, never the team</b> for work that needs no agent, such as posting at set times: then no message ever goes to the team,
+            and what the command finds, or how it fails, is noted in the chat with its output. An agent can propose such an automation for you, naming the command.
           </p>
         </section>
 

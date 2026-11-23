@@ -7,7 +7,9 @@ import {
   type ApprovalAnswer,
   type ChatMessage,
   type EventSource,
+  type FixedCommand,
   type MessageMeta,
+  type MessagePart,
   type PlanEntry,
   type ProgressStatus,
   type ReviewHighlight,
@@ -55,11 +57,11 @@ import { HandoverCard } from './HandoverCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
+import { BranchIcon, ClockIcon, CommandIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
-import { CommandCard, InteractiveCard, SecretsCard } from './HandoffCards';
+import { CommandCard, CommandChanges, InteractiveCard, SecretsCard } from './HandoffCards';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -281,6 +283,8 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
   const approve =
     doc && doc.before === null ? t.outbox.document.create : note && note.before === null ? t.outbox.note.create : t.outbox.note.save;
   const posting = part.tool === 'slack_send_message' || part.tool === 'teams_send_message';
+  // A fixed command's run whose code changed since it was pinned: Send waits for the user's approval, here.
+  const changed = waiting && part.command?.changed?.length ? part.command : undefined;
   const status =
     doc && part.status === 'failed'
       ? t.outbox.document.check
@@ -316,6 +320,12 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
       {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
       {part.result && <p className="approval-reason">{doc ? <DocumentResult text={part.result} /> : part.result}</p>}
       {error && <p className="error-line">{error}</p>}
+      {changed && (
+        <>
+          <p className="warn-line small">{t.handoffs.command.outboxChanged}</p>
+          <CommandChanges convId={convId} commandId={changed.id} changed={changed.changed ?? []} />
+        </>
+      )}
       {waiting && (
         <>
           <p className="muted small">{doc ? t.outbox.document.hint : note ? t.outbox.note.hint : t.outbox.hint}</p>
@@ -329,6 +339,26 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * A fixed command a schedule ran did not run, its code having changed since it was pinned (the note of
+ * that time holds it): what changed and the approval it waits for, or that it was approved since.
+ */
+function CommandChangedCard({ part, convId }: { part: Extract<MessagePart, { type: 'command-changed' }>; convId: string }) {
+  const c = useT().handoffs.command;
+  return (
+    <section className={`outbox-card ${part.approved ? 'outbox-sent' : 'outbox-pending'}`} aria-label={c.changedTitle(part.name)}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          <CommandIcon size={16} />
+        </span>
+        <strong>{c.changedTitle(part.name)}</strong>
+        <span className="approval-waiting">{part.approved ? c.changedApproved : c.changedWaiting}</span>
+      </header>
+      {!part.approved && <CommandChanges convId={convId} commandId={part.commandId} changed={part.changed} />}
     </section>
   );
 }
@@ -358,9 +388,31 @@ function ScheduleCard({
   const [error, setError] = useState('');
   const p = part.proposal;
   const zone = browserTimeZone();
-  const gaps = proposalGaps(p, zone, Date.now());
-  const when = describeRepeat(proposalUpdate(p, zone).repeat, t, lang);
   const waiting = !part.status;
+  // The fixed command it names, as saved in the working directory (read while it waits: the user may save it meanwhile).
+  const [saved, setSaved] = useState<FixedCommand[]>();
+  const named = p.command;
+  const readSaved = useMemo(
+    () => () =>
+      named
+        ? api.conversationCommands(convId).then(
+            (list) => setSaved(list),
+            () => setSaved(undefined),
+          )
+        : Promise.resolve(),
+    [convId, named],
+  );
+  useEffect(() => {
+    if (waiting) void readSaved();
+  }, [waiting, readSaved]);
+  const command = named ? saved?.find((c) => c.name === named) : undefined;
+  const gaps = proposalGaps(
+    p,
+    zone,
+    Date.now(),
+    saved?.map((c) => c.name),
+  );
+  const when = describeRepeat(proposalUpdate(p, zone).repeat, t, lang);
   const answer = async (action: 'create' | 'dismiss') => {
     setBusy(true);
     setError('');
@@ -368,6 +420,8 @@ function ScheduleCard({
       await api.answerProposal(convId, messageId, action, zone);
     } catch (e) {
       setError((e as Error).message);
+      // Its command may have been saved, or removed, since it was read.
+      void readSaved();
     } finally {
       setBusy(false);
     }
@@ -399,13 +453,30 @@ function ScheduleCard({
             <dd>{p.goal}</dd>
           </div>
         )}
+        {named && (
+          <div>
+            <dt>{t.proposal.command}</dt>
+            <dd>
+              <code>{named}</code> {p.commandOnly ? t.proposal.commandOnly : t.proposal.commandFirst}
+            </dd>
+          </div>
+        )}
       </dl>
       {p.newChat && <p className="small">{t.proposal.newChat}</p>}
+      {named && waiting && (
+        <p className="warn-line small">{command?.publishes ? t.proposal.commandPublishes : t.proposal.commandUnattended}</p>
+      )}
       {error && <p className="error-line">{error}</p>}
       {waiting && (
         <>
           <p className="muted small">
-            {gaps.includes('past') ? t.proposal.gapPast : gaps.includes('account') ? t.proposal.gapAccount : t.proposal.note}
+            {gaps.includes('past')
+              ? t.proposal.gapPast
+              : gaps.includes('account')
+                ? t.proposal.gapAccount
+                : gaps.includes('command')
+                  ? t.proposal.gapCommand(named ?? '')
+                  : t.proposal.note}
             {hasSchedule ? ` ${t.proposal.replaces}` : ''}
           </p>
           <div className="approval-actions">
@@ -1485,9 +1556,16 @@ export const MessageItem = memo(function MessageItem({
         />
       );
     }
+    // A note of a fixed command that did not run because its code changed carries the approval it waits for.
+    const changed = msg.parts.filter(
+      (p): p is Extract<MessagePart, { type: 'command-changed' }> => p.type === 'command-changed' && Boolean(p.commandId),
+    );
     return (
-      <div className="msg-system">
+      <div className={changed.length ? 'msg-system with-card' : 'msg-system'}>
         <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
+        {changed.map((p, i) => (
+          <CommandChangedCard key={`${p.commandId}-${i}`} part={p} convId={convId} />
+        ))}
       </div>
     );
   }
@@ -1666,6 +1744,8 @@ function AgentMessage({
               return <SecretsCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
             case 'command':
               return <CommandCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
+            case 'command-changed':
+              return <CommandChangedCard key={s.key} part={s.part} convId={convId} />;
             case 'steps':
               return (
                 <StepsCard

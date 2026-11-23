@@ -90,6 +90,17 @@ describe('hand-off blocks in a reply', () => {
     expect(blocks[2]).toEqual({ kind: 'command', name: 'hidden', run: 'cat', hosts: [], secrets: [] });
   });
 
+  it('marks a command whose runs publish, post or send something, only when its block says yes', () => {
+    const { blocks } = splitHandoffs(
+      [
+        '<command name="post" publishes="yes" hosts="graph.threads.com">python3 post.py</command>',
+        '<command name="check" publishes="no">python3 check.py</command>',
+      ].join('\n'),
+    );
+    expect(blocks[0]).toMatchObject({ kind: 'command', name: 'post', publishes: true });
+    expect(blocks[1]).not.toHaveProperty('publishes');
+  });
+
   it("takes the page a secret's block names, an http or https address only, and leaves the block without a bad one", () => {
     const { blocks } = splitHandoffs(
       [
@@ -227,7 +238,7 @@ describe("the cards' logic", () => {
       ),
     ).toEqual({ A: 'x' });
     const form = formOf(part().proposal);
-    expect(form).toEqual({ name: 'post', run: 'python3 post.py', hosts: 'a.com', secrets: 'K', cwd: '' });
+    expect(form).toEqual({ name: 'post', run: 'python3 post.py', hosts: 'a.com', secrets: 'K', cwd: '', publishes: false });
     expect(proposalOf({ ...form, hosts: 'a.com b.com', cwd: 'bot' })).toEqual({
       name: 'post',
       run: 'python3 post.py',
@@ -235,6 +246,9 @@ describe("the cards' logic", () => {
       secrets: ['K'],
       cwd: 'bot',
     });
+    // Its runs publish something: kept, so that Try it asks first.
+    expect(proposalOf({ ...form, publishes: true })).toMatchObject({ publishes: true });
+    expect(formOf({ ...part().proposal, publishes: true }).publishes).toBe(true);
     expect(proposalOf({ ...form, name: 'Bad Name' })).toBeUndefined();
   });
 

@@ -36,6 +36,7 @@ import {
   shownZone,
   sidebarScheduleTitle,
   toUpdate,
+  withCommand,
 } from '../src/web/schedule';
 
 const HOUR = 3_600_000;
@@ -214,6 +215,20 @@ describe('validateSchedule', () => {
     const at = (repeat: unknown) => withLang('en', () => validateSchedule({ ...valid, repeat, command: 'cmd-1' }, MON));
     expect(at({ kind: 'interval', hours: 1 }).command).toBe('cmd-1');
     expect(at({ kind: 'event', triggers: [{ source: 'mail', account: 'work' }] }).command).toBeUndefined();
+  });
+
+  it('runs only the fixed command when asked, then with no goal and never a new chat; never without a command', () => {
+    const only = validateSchedule({ ...valid, command: 'cmd-1', commandOnly: true, newChat: true }, MON);
+    expect(only).toMatchObject({ command: 'cmd-1', commandOnly: true, newChat: false });
+    expect(validateSchedule({ ...valid, commandOnly: true }, MON)).not.toHaveProperty('commandOnly');
+    expect(
+      validateSchedule(
+        { ...valid, repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.csv' }] }, command: 'c', commandOnly: true },
+        MON,
+      ),
+    ).not.toHaveProperty('commandOnly');
+    expect(message({ ...valid, command: 'cmd-1', commandOnly: true, goal: 'all posted' })).toMatch(/remove the goal/);
+    expect(message({ ...valid, command: 'cmd-1', commandOnly: 'yes' })).toMatch(/commandOnly/);
   });
 
   it('takes what an automation waits for: a new mail in a folder of an account, with conditions', () => {
@@ -875,5 +890,23 @@ describe("the lead agent's schedule in the form", () => {
     const d = proposalDraft({ text: 'Remind me', repeat: { kind: 'once', at: '2026-12-01T09:00' }, newChat: true }, now, zone);
     expect(d).toMatchObject({ text: 'Remind me', kind: 'once', at: '2026-12-01T09:00', newChat: true, enabled: true, approvals: 'deny' });
     expect(fromLocalInput(d.at)).toBeGreaterThan(now);
+  });
+
+  it('finds the fixed command a proposal names among the saved ones, by its name, or leaves it for the user', () => {
+    const d = proposalDraft({ text: 'Post', repeat: { kind: 'interval', hours: 1 }, command: 'post', commandOnly: true }, now, 'UTC');
+    expect(d).toMatchObject({ commandName: 'post', commandOnly: true, command: '' });
+    const found = withCommand(d, [
+      { id: 'c-1', name: 'check' },
+      { id: 'c-2', name: 'post' },
+    ]);
+    expect(found).toMatchObject({ command: 'c-2', commandOnly: true });
+    expect(found).not.toHaveProperty('commandName');
+    expect(toUpdate(found)).toMatchObject({ command: 'c-2', commandOnly: true, newChat: false });
+    // Not saved: none picked, and nothing runs only a command.
+    expect(withCommand(d, [{ id: 'c-1', name: 'check' }])).toMatchObject({ command: '', commandOnly: false });
+    // A saved schedule's command that was removed meanwhile.
+    expect(withCommand({ ...found }, [])).toMatchObject({ command: '', commandOnly: false });
+    // Only its command: no goal goes with it.
+    expect(toUpdate({ ...found, goal: 'all posted' })).not.toHaveProperty('goal');
   });
 });

@@ -112,7 +112,7 @@ function runLineZh(run: FixedCommandRun): string {
     case 'failed':
       return `失敗（結束碼 ${run.exitCode ?? '?'}）${why}`;
     case 'changed':
-      return `沒有執行：儲存之後，它的程式碼改過了（${(run.changed ?? []).slice(0, 5).join('、')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}）。請在它的卡片上檢查變更再試跑。`;
+      return `沒有執行：儲存或核准之後，它的程式碼改過了（${(run.changed ?? []).slice(0, 5).join('、')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}）。變更經過核准後才會再執行。`;
     default:
       return `無法執行${why}`;
   }
@@ -131,7 +131,7 @@ function runLineEn(run: FixedCommandRun): string {
     case 'failed':
       return `failed (exit code ${run.exitCode ?? '?'})${why}`;
     case 'changed':
-      return `not run: its code changed since it was saved (${(run.changed ?? []).slice(0, 5).join(', ')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}). Check the changes on its card, then try it again.`;
+      return `not run: its code changed since it was saved or approved (${(run.changed ?? []).slice(0, 5).join(', ')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}). It runs again once the changes are approved.`;
     default:
       return `could not run${why}`;
   }
@@ -222,6 +222,14 @@ const zhTW = {
         .join(''),
     notKept: (why: string) => `它寫回的新值沒有保存：${why}`,
     commandChangedSince: (name: string) => `固定指令「${name}」在這次執行放進待送出匣之後改過了，所以沒有執行。`,
+    approveFirst: (name: string) =>
+      `固定指令「${name}」的程式碼在儲存或核准之後改過了，所以還不能執行：先在這張卡片上查看變更並核准，再按送出。`,
+    confirmPublish: (name: string) => `固定指令「${name}」會發布、貼文或寄出東西，試跑會真的這麼做：請先確認。`,
+    scheduleRunNote: (name: string, run: FixedCommandRun) =>
+      `自動任務執行了固定指令「${name}」：${ended(runLineZh(run), '。')}${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`,
+    scheduleChangedNote: (name: string) =>
+      `自動任務沒有執行固定指令「${name}」：儲存或核准之後，它的程式碼改過了。看過下面的變更並核准後，下一次時間到就會執行。`,
+    proposalCommandMissing: (name: string) => `固定指令「${name}」還沒有儲存：先在它的卡片上儲存，再建立這個自動任務。`,
     runLine: runLineZh,
     interactiveRunning: '這個指令正在執行。',
     interactiveAutomation: '這個指令是在自動任務的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
@@ -1055,6 +1063,7 @@ const zhTW = {
   scheduleHasTeam: '這個自動任務已經有團隊了',
   scheduleCreatedNote: '已建立自動任務。首席 agent 會為它的訊息組隊；團隊確認後，每次自動任務執行時都會把訊息傳給它，現在不會先執行。',
   scheduleGoalTooLong: (max: number) => `目標最多 ${max} 個字`,
+  scheduleCommandOnlyGoal: '只執行固定指令的自動任務不會交給團隊，沒有人回報目標的進度：請拿掉目標，或讓訊息也送給團隊。',
   trackingDoneNote: (agent: string, note: string) => `@${agent} 回報目標已達成，自動任務已關閉${note ? `：${note}` : '。'}`,
   trackingBlockedNote: (agent: string, note: string) => `@${agent} 回報目標卡住了，需要你處理${note ? `：${note}` : '。'}`,
   trackingRetryNotNeeded: '之後已經有新的進度回報，不再重試',
@@ -1636,6 +1645,16 @@ const en: ServerMessages = {
         .join(' '),
     notKept: (why) => `The new value it wrote back was not kept: ${why}`,
     commandChangedSince: (name) => `The fixed command "${name}" changed after this run was put in the outbox, so it was not run.`,
+    approveFirst: (name) =>
+      `The code of the fixed command "${name}" changed since it was saved or approved, so it cannot run yet: look at the changes on this card and approve them, then click Send.`,
+    confirmPublish: (name) =>
+      `The fixed command "${name}" publishes, posts or sends something, and trying it would really do it: confirm first.`,
+    scheduleRunNote: (name, run) =>
+      `The automation ran the fixed command "${name}": ${ended(runLineEn(run), '.')}${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`,
+    scheduleChangedNote: (name) =>
+      `The automation did not run the fixed command "${name}": its code changed since it was saved or approved. Once you look at the changes below and approve them, it runs at its next time.`,
+    proposalCommandMissing: (name) =>
+      `The fixed command "${name}" is not saved yet: save it on its card first, then create this automation.`,
     runLine: runLineEn,
     interactiveRunning: 'This command is running.',
     interactiveAutomation:
@@ -2514,6 +2533,8 @@ const en: ServerMessages = {
   scheduleCreatedNote:
     'Automation created. The lead agent designs a team for its message; once the team is confirmed, the automation sends it the message each time it runs. Nothing runs now.',
   scheduleGoalTooLong: (max) => `A goal can be at most ${max} characters`,
+  scheduleCommandOnlyGoal:
+    'An automation that only runs its fixed command never goes to the team, so nobody reports on a goal: remove the goal, or have its message go to the team too.',
   trackingDoneNote: (agent, note) => `@${agent} says the goal is reached; the automation is off now${note ? `: ${note}` : '.'}`,
   trackingBlockedNote: (agent, note) => `@${agent} says the goal is held up and needs you${note ? `: ${note}` : '.'}`,
   trackingRetryNotNeeded: 'progress was reported since, so it is not tried again',
