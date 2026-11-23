@@ -22,8 +22,6 @@ const commandCard = (page: Page) => replies(page, 'Claude').getByRole('region', 
 async function giveSecret(page: Page) {
   const card = secretsCard(page);
   await card.getByLabel(/E2E_TOKEN/).fill(VALUE);
-  // Save pins the code it runs: it is looked at first.
-  await card.getByRole('button', { name: 'Show the code it runs' }).click();
   await card.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(card).toContainText('Saved');
   await expect(page.locator('.msg-user').last()).toContainText('I gave E2E_TOKEN');
@@ -74,6 +72,7 @@ test.describe('secrets and fixed commands', () => {
     const card = commandCard(page);
     await expect(card).toContainText('Fixed command "e2e-check"');
     await expect(card).toContainText('No network');
+    // Save pins the code it runs: it is looked at first.
     await card.getByRole('button', { name: 'Show the code it runs' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');

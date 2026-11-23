@@ -2042,7 +2042,10 @@ export function createApp({
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
     // `ran`: its fixed command found nothing new, so nothing was sent.
-    return c.json({ ok: true, queued: sent.result === 'queued', ran: sent.result === 'ran', ...(chatId ? { chatId } : {}) }, 202);
+    return c.json(
+      { ok: true, queued: sent.result === 'queued', ...(sent.result === 'ran' ? { ran: true } : {}), ...(chatId ? { chatId } : {}) },
+      202,
+    );
   });
 
   app.delete('/api/conversations/:id', async (c) => {
