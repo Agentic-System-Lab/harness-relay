@@ -320,7 +320,7 @@ export function CommandCard({
           )}
         </dl>
       )}
-      {actions.decide && part.replaces && <p className="warn-line small">{c.replaces}</p>}
+      {actions.decide && part.replaces && !part.blocked && <p className="warn-line small">{c.replaces}</p>}
       {actions.decide && part.blocked && <p className="warn-line small">{part.blocked === 'windows' ? c.windows : c.blocked}</p>}
       {actions.decide && part.blocked !== 'windows' && <p className="muted small">{c.hint}</p>}
       {actions.decide && !part.blocked && (
