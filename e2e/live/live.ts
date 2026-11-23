@@ -8,7 +8,8 @@
  * - E2E_LIVE_VLLM, E2E_LIVE_VLLM_MODEL, E2E_LIVE_VLLM_KEY: a vLLM server, its model and its key.
  * - E2E_LIVE_CLIS: the CLIs to try, comma-separated (default: all twelve).
  * - E2E_LIVE_CLOUD=1: also the CLIs' own cloud models (Claude Code's, Codex's, Grok's, Cursor's,
- *   Antigravity's and Copilot's and Muse Code's), which the user's sign-ins pay for.
+ *   Antigravity's and Copilot's and Muse Code's), which the user's sign-ins pay for. Antigravity's
+ *   only sign-in in Harness Relay is a Gemini API key: it is tried only with GEMINI_API_KEY set.
  * - E2E_LIVE_MODEL_<CLI> (E2E_LIVE_MODEL_ANTIGRAVITY=gemini-3.8-flash, say): a model of that CLI's own,
  *   picked in Team settings for its cloud tests; unset, its default model.
  */
@@ -66,7 +67,8 @@ const fullOnly = (p: Provider) =>
 export const askPermission = (p: Provider): ConversationSettings['permission'] => (fullOnly(p) ? 'full' : 'read-only');
 /** The permission a member that writes runs with. */
 export const editPermission = (p: Provider): ConversationSettings['permission'] => (fullOnly(p) ? 'full' : 'edit');
-export const has = (p: Provider) => CLIS.includes(p);
+/** Whether the environment names this CLI: Antigravity also needs GEMINI_API_KEY, as Harness Relay never runs agy on a Google sign-in. */
+export const has = (p: Provider) => CLIS.includes(p) && (p !== 'antigravity' || Boolean(env.GEMINI_API_KEY));
 export const modelId = (e: LiveEndpoint) => `${e.id}/${e.model}`;
 /** The endpoint a member's model is on (`<endpoint>/<model>`), or undefined for a model of the CLI's own. */
 export const endpointOf = (model: string | undefined): string | undefined => ENDPOINTS.find((e) => model?.startsWith(`${e.id}/`))?.id;

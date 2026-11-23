@@ -11,6 +11,7 @@ import {
   OPEN,
   editPermission,
   folder,
+  has,
   homeFolder,
   liveTurn,
   modelId,
@@ -33,7 +34,7 @@ const slashes = (path: string) => path.replace(/\\/g, '/');
 test.describe("a command that writes outside the chat's folders", () => {
   const first = ENDPOINTS[0];
   /** Each CLI that runs below full access here, on an endpoint's model, or on its own with E2E_LIVE_CLOUD=1. */
-  const cases: { provider: Provider; model?: string }[] = CLIS.flatMap((provider) => {
+  const cases: { provider: Provider; model?: string }[] = CLIS.filter(has).flatMap((provider) => {
     if (editPermission(provider) === 'full') return [];
     const onEndpoint = ([...ENDPOINT_CLIS, ...OPEN] as readonly string[]).includes(provider);
     if (onEndpoint && first) return [{ provider, model: modelId(first) }];

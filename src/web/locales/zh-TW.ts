@@ -3030,7 +3030,7 @@ export const zhTW = {
       'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy、copilot、muse 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
-      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們放在平常家目錄裡的內容不再載入，但有些仍會自己讀你家目錄的部分內容：其他 CLI 的 skill（Codex、Grok、Muse Code 與 Cursor；例如 ~/.agents/skills 的）、MCP 與 hook（Grok 讀 Claude Code 的 plugin，以及 ~/.claude.json 與 ~/.cursor/mcp.json 的伺服器；Cursor 讀 ~/.cursor 裡它自己的，以及 Claude Code 的 hook；專案在家目錄底下時，Claude Code 讀 ~/.mcp.json 的），以及指示檔（Grok 讀 ~/.claude/CLAUDE.md，Muse Code 沒有自己的規則時也讀；專案在家目錄底下時，Claude Code 與 Cursor 讀家目錄裡的）。Cursor 的登入仍留在 Cursor 為你的使用者保存的地方，只有它的設定與 session 紀錄會放到那裡。各 CLI 會讀什麼見使用者說明；上方各 CLI 的卡片列出它會載入的 skill、MCP 與 hook。Harness Relay 工具庫裡的照常提供。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
+      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們放在平常家目錄裡的內容不再載入，但有些仍會自己讀你家目錄的部分內容：其他 CLI 的 skill（Codex、Grok、Muse Code 與 Cursor；例如 ~/.agents/skills 的）、MCP 與 hook（Grok 讀 Claude Code 的 plugin，以及 ~/.claude.json 與 ~/.cursor/mcp.json 的伺服器；Cursor 讀 ~/.cursor 裡它自己的，以及 Claude Code 的 hook；專案在家目錄底下時，Claude Code 讀 ~/.mcp.json 的），以及指示檔（Grok 讀 ~/.claude/CLAUDE.md，Muse Code 沒有自己的規則時也讀；專案在家目錄底下時，Claude Code 與 Cursor 讀家目錄裡的）。Cursor 的登入仍留在 Cursor 為你的使用者保存的地方，只有它的設定與 session 紀錄會放到那裡。各 CLI 會讀什麼見使用者說明；上方各 CLI 的卡片列出它會載入的 skill、MCP 與 hook。Harness Relay 工具庫裡的照常提供。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡；它用 Gemini API key 執行，金鑰的設定不受影響。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
     agentHomeUse: (dir: string) => `使用 ${dir}`,
     agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',
@@ -3165,7 +3165,7 @@ export const zhTW = {
       cursor:
         '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
       antigravity:
-        '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它改用 Gemini API（依用量計費）而不是 Google 登入；你自己的設定檔不會被改動。',
+        '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它用 Gemini API 執行（依用量計費）；你自己的設定檔不會被改動。',
       copilot:
         '儲存後，Harness Relay 啟動 Copilot 時會帶入 COPILOT_GITHUB_TOKEN（優先於它保存的 GitHub 登入）。請用有「Copilot Requests」權限的 fine-grained personal access token；Copilot 不接受 classic token（ghp_）。',
       muse: '儲存後，Harness Relay 啟動 Muse Code 時會帶入 META_API_KEY，它就改用這把金鑰（Meta API 計費），而不是你的 Meta 帳號登入。',
@@ -3210,7 +3210,7 @@ export const zhTW = {
     keyOnlyAccount:
       'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡，不論它的資料夾在哪），所以這個額外帳號只能用 API key：請在下方設定。Cursor 自己的登入只屬於預設帳號。',
     keyOnlyAntigravity:
-      'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以這個額外帳號只能用 Gemini API key：請在下方設定。Google 登入只屬於預設帳號。',
+      'Harness Relay 只用 Gemini API key 執行 Antigravity，每個帳號都一樣：Google 的條款不允許第三方應用程式用 Google 登入（Google AI 方案）執行它。請在下方設定 API key。agy 自己保存的 Google 登入會原樣保留，Harness Relay 不會使用它。',
     keyOnlyMuse:
       'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以這個額外帳號只能用 Meta API key：請在下方設定。Meta 帳號登入只屬於預設帳號。',
     keySaved: '已儲存 API key',
