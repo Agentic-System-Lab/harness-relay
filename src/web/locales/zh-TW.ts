@@ -1382,6 +1382,7 @@ export const zhTW = {
     expired: '沒有回覆（這一輪已結束）',
     pageTitle: (n: number) => `(${n}) 等你回覆 · Harness Relay`,
     withNote: (note: string) => `：${note}`,
+    moreLines: (n: number) => `還有 ${n} 行`,
   },
 
   browserHandover: {
@@ -1444,9 +1445,9 @@ export const zhTW = {
       open: '開一個只給你的瀏覽器',
       openAt: (host: string) => `在只給你的瀏覽器開啟 ${host}`,
       show: '顯示只給你的瀏覽器',
-      hint: '只給你的瀏覽器是 Harness Relay 自己的瀏覽器，沒有任何 agent 操作或讀取它，關閉時連同裡面的一切一起刪除。在網頁上選取那個值（或點一下放著它的欄位），按「把選取的文字存成…」：值會直接存進這張卡片，不會經過聊天。在執行 Harness Relay 的這台電腦上，你也可以用自己的瀏覽器開那個網頁，再把值貼到這裡。',
+      hint: '只給你的瀏覽器是 Harness Relay 自己的瀏覽器，沒有任何 agent 操作或讀取它，關閉時連同裡面的一切一起刪除。它一開始沒有登入任何網站，網頁需要時請先在那裡登入。在網頁上選取那個值（或點一下放著它的欄位），按「把選取的文字存成…」：值會直接存進這張卡片，不會經過聊天。在執行 Harness Relay 的這台電腦上，你也可以用自己的瀏覽器開那個網頁，再把值貼到這裡。',
       title: '只給你的瀏覽器',
-      line: '沒有任何 agent 操作或讀取這個瀏覽器，關閉時就刪除。選取網頁上的值，再把它存起來。',
+      line: '沒有任何 agent 操作或讀取這個瀏覽器，關閉時就刪除。它一開始沒有登入任何網站：值要登入才看得到時，先在網頁上登入（有些網站不會要你登入，而是顯示錯誤頁面）。選取網頁上的值，再把它存起來。',
       close: '關閉瀏覽器',
       saveAs: (name: string) => `把選取的文字存成 ${name}`,
       saved: (name: string) => `已存成 ${name}`,

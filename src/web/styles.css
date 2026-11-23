@@ -7432,6 +7432,68 @@ summary + .checks-editor-body {
   font-family: var(--mono);
 }
 
+/*
+ * A long command answered: its first line beside the answer, cut where the line ends; open, all of it
+ * with its line breaks. The line keeps room for 24 characters of the command: an answer too long for
+ * what is left (the lead agent's reason, the user's note) goes on under it.
+ */
+.approval-fold {
+  display: block;
+}
+
+.approval-fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.approval-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.approval-fold .approval-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+
+.approval-head-line {
+  flex: 1 1 24ch;
+  max-width: max-content;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent);
+  text-underline-offset: 3px;
+}
+
+.approval-more {
+  flex: none;
+}
+
+.approval-fold .approval-outcome {
+  min-width: 0;
+}
+
+.approval-full {
+  margin: 4px 0 4px 20px;
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .approval-done.allowed .approval-mark {
   color: var(--ok);
 }
