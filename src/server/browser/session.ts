@@ -12,7 +12,7 @@ import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
 import { relayBrowserDir } from '../protect';
 import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
-import { HANDOVER_LIMITS, type HandoverMode, type HandoverWindowAt } from '../../shared/types';
+import { HANDOVER_LIMITS, type HandoverInput, type HandoverMode, type HandoverWindowAt } from '../../shared/types';
 import { CdpConnection } from './cdp';
 import {
   HANDOVER_UNASKED,
@@ -375,6 +375,8 @@ class BrowserSession {
   convId = '';
   /** It runs with a window, for a hand-over (`handover.ts`): a tab the user opens is closed too. */
   windowed = false;
+  /** Its window shows on a screen (not a test's headless one): a page's alerts and questions are the person's to answer there. */
+  visible = false;
   /** It was stopped (or its process ended): nothing starts its idle time again. */
   stopped = false;
   /** During a hand-over's screencast: told of a window the page opened (closed), and of a page refused. */
@@ -1229,6 +1231,7 @@ export class BrowserService {
       session.proxyPassword = password;
       session.convId = convId;
       session.windowed = Boolean(o.window);
+      session.visible = Boolean(o.window && !this.o.windowHeadless);
       if (o.owner) session.owner = o.owner;
       // A window a turn's end cut short: the next call opens again the page it was on (`with()`).
       if (carry?.url) session.resume = carry.url;
@@ -1312,8 +1315,15 @@ export class BrowserService {
       await s.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => undefined);
       const tree = await s.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree');
       s.mainFrame = tree.frameTree.frame.id;
-      cdp.on('Page.javascriptDialogOpening', (_p, sid) => {
-        if (sid === sessionId) void s.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
+      // A page's dialogs are refused: a page waiting on one would hold the agents up. In a window a person
+      // uses, a "Leave site?" never keeps them from closing it or leaving the page (they chose to), and where
+      // Chromium shows a page's alerts and questions in the window, they answer those themselves.
+      cdp.on('Page.javascriptDialogOpening', (p: Record<string, unknown>, sid?: string) => {
+        if (sid !== sessionId) return;
+        if (s.windowed && p.type === 'beforeunload')
+          return void s.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined);
+        if (s.visible && p.hasBrowserHandler === true) return;
+        void s.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
       });
       await s.send('Fetch.enable', FETCH_ALL);
       // The tab's frames in processes of their own and its workers: each held before it starts, gated, then let go.
@@ -1986,39 +1996,8 @@ export class BrowserService {
                 .catch(() => undefined);
               await s.send('Page.stopScreencast').catch(() => undefined);
               await start().catch(() => undefined);
-            } else if (e.type === 'navigate') {
-              // As the agents' own pages are: never another scheme, Harness Relay or a metadata address;
-              // a host the chat's browser has not opened asks (below full access), the gate's question.
-              try {
-                await this.refuseBlocked(e.url);
-                // In a browser for the user alone, an address they typed may be on this computer or the local
-                // network, while it leads where it did when they typed it; one a page offered (a window it
-                // opened: "Open it here") may not, nor what they typed before.
-                if (s.owner === 'user') {
-                  const page = e.typed ? await this.ownerPage(e.url) : undefined;
-                  s.typed = undefined;
-                  if (page) await this.leaveFor(s, page, e.url);
-                  s.typed = page && typedAt(page, e.url);
-                }
-                // The very address refused a moment before, its error page perhaps still committing on a slow
-                // computer: that load stops first, or it would swallow this one (Chromium sends no request
-                // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
-                // Swallowed all the same (a busy Windows), it is sent once more when no request for it came.
-                const again = s.denied?.url === e.url;
-                if (again) await s.send('Page.stopLoading').catch(() => undefined);
-                const requested = again
-                  ? s.cdp.waitFor('Fetch.requestPaused', 3000, s.sessionId, (p) => {
-                      const url = (p.request as { url?: unknown } | undefined)?.url;
-                      return typeof url === 'string' && sameAddress(url, e.url);
-                    })
-                  : undefined;
-                void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
-                if (requested && !(await requested))
-                  void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
-              } catch {
-                ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
-              }
-            } else if (e.type === 'history') await history(s, e.to);
+            } else if (e.type === 'navigate') await this.openAsked(s, ticket, e);
+            else if (e.type === 'history') await history(s, e.to);
             else for (const c of inputCalls(e, frame)) await s.send(c.method, c.params).catch(() => undefined);
           }
         })),
@@ -2038,6 +2017,44 @@ export class BrowserService {
       await Promise.race([inputs.catch(() => undefined), new Promise((r) => setTimeout(r, 5000).unref())]);
       await s.send('Page.stopScreencast').catch(() => undefined);
       if (size) await s.send('Emulation.clearDeviceMetricsOverride').catch(() => undefined);
+    }
+  }
+
+  /**
+   * An address the user gave the tab (the screencast panel's address bar, or "Open it here" on a window
+   * the page opened, also from a window's card), opened as the gate allows it; refused, the panel or card
+   * is told.
+   */
+  private async openAsked(s: BrowserSession, ticket: HandoverTicket, e: Extract<HandoverInput, { type: 'navigate' }>): Promise<void> {
+    // As the agents' own pages are: never another scheme, Harness Relay or a metadata address;
+    // a host the chat's browser has not opened asks (below full access), the gate's question.
+    try {
+      await this.refuseBlocked(e.url);
+      // In a browser for the user alone, an address they typed may be on this computer or the local
+      // network, while it leads where it did when they typed it; one a page offered (a window it
+      // opened: "Open it here") may not, nor what they typed before.
+      if (s.owner === 'user') {
+        const page = e.typed ? await this.ownerPage(e.url) : undefined;
+        s.typed = undefined;
+        if (page) await this.leaveFor(s, page, e.url);
+        s.typed = page && typedAt(page, e.url);
+      }
+      // The very address refused a moment before, its error page perhaps still committing on a slow
+      // computer: that load stops first, or it would swallow this one (Chromium sends no request
+      // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
+      // Swallowed all the same (a busy Windows), it is sent once more when no request for it came.
+      const again = s.denied?.url === e.url;
+      if (again) await s.send('Page.stopLoading').catch(() => undefined);
+      const requested = again
+        ? s.cdp.waitFor('Fetch.requestPaused', 3000, s.sessionId, (p) => {
+            const url = (p.request as { url?: unknown } | undefined)?.url;
+            return typeof url === 'string' && sameAddress(url, e.url);
+          })
+        : undefined;
+      void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+      if (requested && !(await requested)) void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+    } catch {
+      ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
     }
   }
 
@@ -2317,21 +2334,46 @@ export class BrowserService {
   /**
    * A browser for the user alone in its window: until the user closes the window (or Close on the card),
    * or the time runs out (`ms`). It keeps to one tab (a tab the user opens is closed, `adopt()`), and is
-   * brought to the front. No agent reads it, so a page of the browser's own or a file the user opens there
-   * is theirs alone, as in their own browser (the hand-over's window keeps its tab to the web instead, for
-   * the agents that read it after). What the user selects there is read as in the screencast (`selectionOf()`).
+   * brought to the front. A page of the browser's own (its settings, flags, inspect) is not kept open: the
+   * tab goes back to the page before it, as Back does (`history()`: a page of the user's opens again as they
+   * opened it), or to the blank page. The card is told of a window the page opened (closed) and of a page
+   * refused, and its "Open it here" opens the first in the tab (`openAsked()`, the only input taken: the
+   * user works in the window itself). What the user selects there is read as in the screencast (`selectionOf()`).
    */
   private async userWindow(s: BrowserSession, ticket: HandoverTicket, ms: number): Promise<HandoverWake> {
     const closed = (p: Record<string, unknown>) => {
       if (p.sessionId === s.sessionId) ticket.wake({ action: 'closed' });
     };
+    const own = (p: Record<string, unknown>, sid?: string) => {
+      const f = p.frame as { parentId?: string; url?: string } | undefined;
+      if (sid !== s.sessionId || !f || f.parentId || !/^(chrome|chrome-untrusted|devtools):/i.test(f.url ?? '')) return;
+      void (async () => {
+        const h = await s.send<{ currentIndex: number }>('Page.getNavigationHistory').catch(() => undefined);
+        if (h && h.currentIndex > 0) await history(s, 'back');
+        else await s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
+      })();
+    };
     s.cdp.on('Target.detachedFromTarget', closed);
+    s.cdp.on('Page.frameNavigated', own);
+    s.onPopup = (url) => ticket.emit({ type: 'notice', kind: 'popup', ...(url ? { url } : {}) });
+    s.onRefused = (r) => ticket.emit({ type: 'notice', kind: 'refused', url: r.url });
+    let inputs = Promise.resolve();
+    ticket.screen = {
+      input: (events) =>
+        (inputs = inputs.then(async () => {
+          for (const e of events) if (e.type === 'navigate') await this.openAsked(s, ticket, { ...e, typed: false });
+        })),
+    };
     void s.exited.then(() => ticket.wake({ action: 'closed' }));
     try {
       await s.send('Page.bringToFront').catch(() => undefined);
       return await ticket.wait(ms, new AbortController().signal);
     } finally {
+      ticket.screen = undefined;
+      s.onPopup = undefined;
+      s.onRefused = undefined;
       s.cdp.off('Target.detachedFromTarget', closed);
+      s.cdp.off('Page.frameNavigated', own);
     }
   }
 
