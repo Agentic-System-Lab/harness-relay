@@ -1281,7 +1281,12 @@ export class Orchestrator {
         proposal,
         status: 'proposed',
         ...(store.commandByName(folder, proposal.name) ? { replaces: true } : {}),
-        ...(o.automation ? { blocked: 'automation' as const } : {}),
+        // Nor on native Windows, where Harness Relay's own sandbox does not run: the card says so at once.
+        ...(this.fixedCommandDeps.platform === 'win32'
+          ? { blocked: 'windows' as const }
+          : o.automation
+            ? { blocked: 'automation' as const }
+            : {}),
       });
       proposed++;
     }
@@ -1560,7 +1565,7 @@ export class Orchestrator {
   ): Promise<{ diff: string; missing: string[]; digest: string }> {
     const { conv, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    if (part.blocked) throw new HttpError(409, t().handoffs.commandBlocked);
+    if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
     const proposal = checkProposal({ ...part.proposal, ...edits });
     if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
     if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
@@ -1633,7 +1638,7 @@ export class Orchestrator {
   ): Promise<FixedCommand> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    if (part.blocked) throw new HttpError(409, t().handoffs.commandBlocked);
+    if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
     const proposal = checkProposal({ ...part.proposal, ...edits });
     if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
     const store = this.settings.handoffs;

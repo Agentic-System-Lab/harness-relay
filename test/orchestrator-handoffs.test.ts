@@ -682,6 +682,23 @@ describe('fixed command cards', () => {
     expect(partOf(conv.id, 'command').part.blocked).toBe('automation');
   });
 
+  it('blocks a command card proposed on native Windows, where its sandbox does not run, and says so', async () => {
+    orchestrator.fixedCommandDeps = { ...orchestrator.fixedCommandDeps, platform: 'win32' };
+    const conv = conversation({ mode: 'relay' });
+    fake.reply = () => 'Here.\n\n<command name="post">python3 post.py</command>';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const { msg, part } = partOf(conv.id, 'command');
+    expect(part.blocked).toBe('windows');
+    await withLang('en', async () => {
+      await expect(orchestrator.commandCode(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409, message: /native Windows/ });
+      await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, '0'.repeat(32))).rejects.toMatchObject({
+        status: 409,
+        message: /native Windows/,
+      });
+    });
+  });
+
   it("never saves a command an automation's run proposed", async () => {
     const conv = conversation({ mode: 'relay' });
     fake.reply = () => 'Here.\n\n<command name="post">python3 post.py</command>';

@@ -1168,6 +1168,8 @@ export class BrowserService {
       bin,
       args,
       env: launchEnv(process.env, profile, process.platform, { window: o.window }),
+      // A hand-over's window shows on Windows (a child starts hidden there, and its windows with it).
+      showWindow: Boolean(o.window && !this.o.windowHeadless),
       signal: abort.signal,
       pipes: (write, read) => (pipes = { write, read }),
     });
@@ -1992,8 +1994,18 @@ export class BrowserService {
                 // The very address refused a moment before, its error page perhaps still committing on a slow
                 // computer: that load stops first, or it would swallow this one (Chromium sends no request
                 // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
-                if (s.denied?.url === e.url) await s.send('Page.stopLoading').catch(() => undefined);
+                // Swallowed all the same (a busy Windows), it is sent once more when no request for it came.
+                const again = s.denied?.url === e.url;
+                if (again) await s.send('Page.stopLoading').catch(() => undefined);
+                const requested = again
+                  ? s.cdp.waitFor('Fetch.requestPaused', 3000, s.sessionId, (p) => {
+                      const url = (p.request as { url?: unknown } | undefined)?.url;
+                      return typeof url === 'string' && sameAddress(url, e.url);
+                    })
+                  : undefined;
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+                if (requested && !(await requested))
+                  void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
               }

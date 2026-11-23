@@ -2555,8 +2555,11 @@ export type MessagePart =
       run?: FixedCommandRun;
       /** A saved command of the same name existed when it was proposed: saving replaces it. */
       replaces?: boolean;
-      /** It cannot be saved from this card: an automation's run proposed it, which nobody watched. */
-      blocked?: 'automation';
+      /**
+       * It cannot be saved from this card: an automation's run proposed it, which nobody watched; or it
+       * was proposed on native Windows, where Harness Relay's own sandbox that runs it does not run.
+       */
+      blocked?: 'automation' | 'windows';
     }
   /**
    * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its
