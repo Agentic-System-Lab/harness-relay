@@ -47,8 +47,6 @@ export interface ScheduleDraft {
   newChat: boolean;
   /** The goal it tracks ('' for none). */
   goal: string;
-  /** The fixed command it runs first ('' for none): its id. */
-  command: string;
   /**
    * `event`: what it waits for, any of them (at least one, at most `WATCH_LIMITS.triggers`), each with
    * every source's fields as the inputs keep them ('' for a condition not given), so that switching
@@ -177,7 +175,6 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     missed: 'skip',
     newChat: false,
     goal: '',
-    command: '',
     triggers: [EMPTY_TRIGGER],
   };
   if (!s) return draft;
@@ -197,7 +194,6 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     missed: s.missed,
     newChat: s.newChat,
     goal: s.goal ?? '',
-    command: s.command ?? '',
   };
 }
 
@@ -249,8 +245,6 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     missed: d.missed,
     newChat: d.newChat,
     ...(d.goal.trim() ? { goal: d.goal.trim() } : {}),
-    // A fixed command runs only on the schedule's own times, never for a webhook's or a trigger's event.
-    ...(d.command && d.kind !== 'event' ? { command: d.command } : {}),
   };
 }
 
@@ -545,7 +539,7 @@ export function forgetHandedHook(convId: string): void {
  * is shown as it came.
  */
 export function shownEvent(event: string, source?: EventSource): string {
-  if (!source || source === 'webhook' || source === 'command') return event;
+  if (!source || source === 'webhook') return event;
   try {
     return JSON.stringify(JSON.parse(event), null, 2);
   } catch {

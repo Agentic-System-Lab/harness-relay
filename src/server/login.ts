@@ -8,11 +8,6 @@ export const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const URL_RE = /https?:\/\/[^\s"'<>\u001b]+/g;
 const CODE_RE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/g;
 
-/** The links and the codes (a device sign-in's `ABCD-1234`) in a program's output, each once. */
-export function linksAndCodes(text: string): { urls: string[]; codes: string[] } {
-  return { urls: [...new Set(text.match(URL_RE) ?? [])], codes: [...new Set(text.match(CODE_RE) ?? [])] };
-}
-
 /**
  * A CLI's own sign-in, run as it is in a terminal but without one: what it prints, with the links and
  * the codes in it for the UI to show, and what is pasted to it. A device sign-in (a link and a code
@@ -77,7 +72,8 @@ export class CliLogin {
 
   view(): CliLoginView {
     const clean = stripAnsi(this.output).replace(/\r/g, '');
-    const { urls, codes } = linksAndCodes(clean);
+    const urls = [...new Set(clean.match(URL_RE) ?? [])];
+    const codes = [...new Set(clean.match(CODE_RE) ?? [])];
     const lastLine = clean.trimEnd().split('\n').pop() ?? '';
     return {
       id: this.id,

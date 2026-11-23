@@ -430,27 +430,6 @@ describe('asking the user', () => {
     expect(relay).toContain('Mention a teammate to hand off');
     expect(buildTurnPrompt(conv, team[0]!, [], false, { mode: 'roundtable', round: 1, rounds: 1 })).not.toContain('You asked');
   });
-
-  it('tells agents to give the user steps to take outside the chat in a block, never asking for a secret', () => {
-    const briefing = buildBriefing(conv, team[0]!);
-    expect(briefing).toContain('end your reply with the steps in a block on lines of its own: <steps>, then one numbered step per line');
-    expect(briefing).toContain('as plain text: never in a code block or backticks');
-    expect(briefing).toContain(`never for questions (ask those with ${ASK_TOKEN})`);
-    expect(briefing).toContain('Never ask the user for a password, token, API key or other secret');
-  });
-
-  it("shows teammates a reply's steps as the block it wrote, after its text", () => {
-    const m = agentMessage({
-      parts: [
-        { type: 'text', text: 'Set it up first.' },
-        { type: 'steps', items: [{ text: 'Sign in', done: true }, { text: 'Create a key\nunder Settings' }] },
-      ],
-    });
-    expect(forwardText(m)).toBe('Set it up first.\n\n<steps>\n1. Sign in\n2. Create a key\n   under Settings\n</steps>');
-    expect(renderMessage(conv, agentMessage({ parts: [{ type: 'steps', items: [{ text: 'Sign in' }] }] }))).toContain(
-      '<steps>\n1. Sign in\n</steps>',
-    );
-  });
 });
 
 describe('scheduled messages', () => {

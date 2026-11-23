@@ -43,11 +43,6 @@ export interface SpawnOptions {
   stdin?: string | Buffer;
   /** Keep stdin open for a two-way protocol; the caller writes and ends it through `onSpawn`. */
   keepStdinOpen?: boolean;
-  /**
-   * On Windows, the program's own windows show (a browser opened in a window for the user): without it
-   * a child starts hidden (`windowsHide`), and its windows with it. Elsewhere it changes nothing.
-   */
-  showWindow?: boolean;
   /** Called once the child is spawned (before any output is read). */
   onSpawn?: (child: ChildProcess) => void;
   signal?: AbortSignal;
@@ -373,9 +368,8 @@ function supervise(
       // Own process group on macOS and Linux, which killTree signals. Not on Windows (`detachedChild`):
       // detached there drops the hidden console, and programs the child starts each open a window.
       detached: detachedChild(),
-      // On Windows, no window: the child gets a hidden console, which programs it starts inherit
-      // (but for a program whose own windows are for the user: `showWindow`).
-      windowsHide: !o.showWindow,
+      // On Windows, no window: the child gets a hidden console, which programs it starts inherit.
+      windowsHide: true,
       stdio: [
         o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe',
         'pipe',
@@ -656,11 +650,10 @@ export async function converseFramed(o: {
   return { stderr: res.stderr, timedOut: res.timedOut };
 }
 
-/** Spawn a long-lived interactive process (sign-ins; the user's interactive commands, in `cwd`). */
-export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv, o: { cwd?: string } = {}): ChildProcess {
+/** Spawn a long-lived interactive process (used for login flows). */
+export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   const launch = launchOf(bin, args, env);
   const child = spawn(launch.file, launch.args, {
-    ...(o.cwd ? { cwd: o.cwd } : {}),
     env: withLaunchEnv(env, launch),
     detached: detachedChild(),
     windowsHide: true,

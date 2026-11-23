@@ -342,7 +342,7 @@ export async function runCheckCommand(
 }
 
 /** File names a test or lint run reads its settings from, wherever they are in the working directory. */
-export const CONFIG_FILE = new RegExp(
+const CONFIG_FILE = new RegExp(
   '^(?:' +
     [
       '\\.eslintrc(?:\\..+)?',

@@ -20,7 +20,6 @@ import { Updates } from './updates';
 import { relayVersion } from './about';
 import { apiPort, DEFAULT_HOST, devWebPort, isDevRun } from './ports';
 import { killAll, runProcess } from './process';
-import { defaultInteractiveDeps } from './interactive';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
@@ -30,7 +29,6 @@ import { GatewaySocketPathError, ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
-import { handoverWindowAt, macGuiSession } from './browser/handover';
 import { messagingTools } from './connectors/messaging';
 import { TeamsGraph } from './connectors/teams';
 import { appTools } from './connectors/apps';
@@ -173,8 +171,6 @@ const browser = new BrowserService({
   // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
-  // Where a hand-over's window opens (`browser_hand_over`): beside the desktop app, or on this computer when it can show one.
-  windowAt: () => handoverWindowAt({ desktop: Boolean(parent), platform: process.platform, env: process.env, macGui: macGuiSession }),
 });
 gateway.register([
   outboxTool((id) => outbox.list(id)),
@@ -216,14 +212,7 @@ if (process.platform !== 'win32') {
   ]);
 }
 orchestrator.onDelete = (id) => void browser.close(id, true);
-// The browsers for the user alone a secrets card opens (for a page that shows a secret).
-orchestrator.userBrowsers = browser;
 orchestrator.gateway = gateway;
-// The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.
-orchestrator.interactiveDeps = {
-  ...defaultInteractiveDeps,
-  askpass: (ask) => gateway.askpassGrant(ask) ?? (gateway.unavailable() === 'no-node' ? 'no-node' : 'off'),
-};
 orchestrator.outbox = outbox;
 orchestrator.reconcileOutbox();
 settings.tools.browserStatus = () => {
@@ -357,7 +346,6 @@ const app = createApp({
   push,
   alerts,
   scheduler,
-  handovers: browser.handovers,
 });
 
 // --- Static web app (production build) ------------------------------------------

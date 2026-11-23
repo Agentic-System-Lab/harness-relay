@@ -767,9 +767,7 @@ const STAFFING =
  */
 const ROLE_RULE = (what: string, guides: string) =>
   `- Write ${what} as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line. ` +
-  'Then what to focus on, and who to hand off to with @Name when the mode is relay. ' +
-  "Never tell a member where the user's secrets go (a .env file, an environment variable, a config file), nor to have the user run commands in a terminal or edit files by hand: members ask for secrets, and run the scripts that use them, on Harness Relay's own cards, as their briefing explains. " +
-  'Say only what is particular to the member: its briefing already explains the chat, the team, taking turns, the workspace and the file permission.' +
+  'Then what to focus on, and who to hand off to with @Name when the mode is relay. Say only what is particular to the member: its briefing already explains the chat, the team, taking turns, the workspace and the file permission.' +
   (guides ? ' Write it for its model as the guides below say.' : '');
 
 export function buildPlannerPrompt(

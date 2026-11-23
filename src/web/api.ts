@@ -28,8 +28,6 @@ import type {
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
-  HandoverAnswer,
-  HandoverInput,
   ChatMessage,
   CheckCommand,
   CheckList,
@@ -43,9 +41,6 @@ import type {
   FileChange,
   FileListing,
   FilePreview,
-  FileSaveRequest,
-  FileUploadRequest,
-  FileWritten,
   GitInstallView,
   GitRequirement,
   GrokFolderTrust,
@@ -70,10 +65,6 @@ import type {
   PushSubscriptionJson,
   ReportScreenshots,
   OutboxItem,
-  CommandProposal,
-  FixedCommand,
-  FolderHandoffs,
-  InteractiveSession,
   CalendarAccountUpdate,
   ConnectorsView,
   OAuthCalendar,
@@ -446,8 +437,7 @@ export const api = {
   /** Have the lead agent design the team for the schedule's message (again). */
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
-  runSchedule: (id: string) =>
-    request<{ ok: true; queued: boolean; ran?: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+  runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** Check what an automation that starts when something happens waits for, now: the schedule as it is then. */
   checkSchedule: (id: string) => request<ConversationSchedule | null>('POST', `/api/conversations/${id}/schedule/check`, {}),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
@@ -488,43 +478,6 @@ export const api = {
   branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
-  /** Opens a browser for the user alone for a secrets card (at the address its ask `name` named): its hand-over id. */
-  openSecretsBrowser: (id: string, messageId: string, partId: string, name?: string, confirm = false) =>
-    request<{ handoverId: string }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/browser`,
-      { ...(name === undefined ? {} : { name }), ...(confirm ? { confirm: true } : {}) },
-    ),
-  /** Save selection as a secret: the server reads what is selected in that browser and keeps it under `name`. */
-  saveSecretSelection: (id: string, messageId: string, partId: string, handoverId: string, name: string) =>
-    request<{ ok: true }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/selection`,
-      { handoverId, name },
-    ),
-  /** The user's answer to a hand-over of the chat's browser: start it, decline it, hand it back or cancel it. */
-  answerHandover: (id: string, handoverId: string, answer: HandoverAnswer) =>
-    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}`, answer),
-  /**
-   * A hand-over's screencast, as the server streams it (SSE). Read with fetch, not EventSource, so that
-   * the key goes in its header like every other request's.
-   */
-  handoverScreen: async (id: string, handoverId: string, signal: AbortSignal): Promise<Response> => {
-    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}/screen`, {
-      headers: headers(false, readKey()),
-      signal,
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-      throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
-    }
-    return res;
-  },
-  /** What the user did in a hand-over's screencast panel, in order. */
-  handoverInput: (id: string, handoverId: string, events: HandoverInput[]) =>
-    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}/input`, {
-      events,
-    }),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
   saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
   addDiscoveredCalendar: (b: CalendarAccountUpdate) => request<ConnectorsView>('POST', '/api/connectors/calendar', b),
@@ -574,72 +527,6 @@ export const api = {
   removeOAuthDrive: (id: string) => request<OAuthView>('DELETE', `/api/oauth/accounts/${id}/drive`),
   removeOAuthAccount: (id: string) =>
     request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
-  /** A secrets card's answer: the values (kept for its working directory, never shown again), or none. */
-  answerSecrets: (id: string, messageId: string, partId: string, b: { values?: Record<string, string>; decline?: boolean }) =>
-    request<{ ok: true }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}`,
-      b,
-    ),
-  /** A proposed fixed command's card: save it (with edits), dismiss it, or tell the team about it (with its last run: `share`). */
-  commandCard: (
-    id: string,
-    messageId: string,
-    partId: string,
-    action: 'save' | 'dismiss' | 'continue' | 'share',
-    edits?: Partial<CommandProposal>,
-    digest?: string,
-  ) =>
-    request<FixedCommand | { ok: true }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
-      { action, ...(edits ? { edits } : {}), ...(digest ? { digest } : {}) },
-    ),
-  /** The code a proposed fixed command would run, and its digest, which Save sends back. */
-  commandCode: (id: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) =>
-    request<{ diff: string; missing: string[]; digest: string }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
-      { action: 'code', ...(edits ? { edits } : {}) },
-    ),
-  /** An interactive command's card: start it, type a line into it, answer its password helper, cancel it, send its output to the team, or not run it. */
-  interactiveCard: (
-    id: string,
-    messageId: string,
-    partId: string,
-    b:
-      | { action: 'start'; workdir: boolean; seen: string[] }
-      | { action: 'input'; text: string; hidden: boolean }
-      | { action: 'answer'; askId: string; text?: string }
-      | { action: 'cancel' | 'send' | 'dismiss' },
-  ) =>
-    request<InteractiveSession | { ok: true }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/interactive/${encodeURIComponent(partId)}`,
-      b,
-    ),
-  /** Try a saved fixed command (in the background: its card follows it). */
-  tryCommand: (id: string, commandId: string, b: { extra?: string; stdin?: string; approve?: string }) =>
-    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/try`, b),
-  /** The fixed commands of a chat's working directory. */
-  conversationCommands: (id: string) => request<FixedCommand[]>('GET', `/api/conversations/${encodeURIComponent(id)}/commands`),
-  commandDiff: (id: string, commandId: string) =>
-    request<{ changed: string[]; diff: string; missing: string[]; digest: string }>(
-      'GET',
-      `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/diff`,
-    ),
-  /** Settings: every working directory's secrets (names) and fixed commands. */
-  handoffs: () => request<{ storage: boolean; folders: FolderHandoffs[] }>('GET', '/api/handoffs'),
-  setHandoffSecret: (folder: string, name: string, value: string) =>
-    request<{ ok: true }>('PUT', '/api/handoffs/secrets', { folder, name, value }),
-  deleteHandoffSecret: (folder: string, name: string) => request<{ ok: true }>('POST', '/api/handoffs/secrets/delete', { folder, name }),
-  deleteFixedCommand: (commandId: string) => request<{ ok: true }>('DELETE', `/api/handoffs/commands/${encodeURIComponent(commandId)}`),
-  /** A steps card, while the team waits for the user: tick a step (by index) or untick it. */
-  tickStep: (id: string, messageId: string, index: number, done: boolean) =>
-    request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}/steps/${index}`, { done }),
-  /** Answer it: posted as the user's message, and the team goes on with the agent that asked. */
-  answerSteps: (id: string, messageId: string, answer: { done: number[]; stuckAt?: number; note?: string }) =>
-    request<{ ok: true; queued: boolean }>('POST', `/api/conversations/${id}/messages/${messageId}/steps/answer`, answer),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),
@@ -837,10 +724,6 @@ export const api = {
   /** A folder as a ZIP file; `unignored`: only what git does not ignore. */
   zipUrl: (id: string, root: string, path: string, unignored = false) =>
     `/api/conversations/${id}/files/zip?${fileQuery(root, path)}${unignored ? '&unignored=1' : ''}`,
-  /** Saves a text file over the version it was loaded at, or (`version: null`) makes a new one. */
-  saveFile: (id: string, file: FileSaveRequest) => request<FileWritten>('PUT', `/api/conversations/${id}/files/text`, file),
-  /** Uploads one file into a folder (base64); `replace` once the user agreed to replace one there. */
-  uploadFile: (id: string, file: FileUploadRequest) => request<FileWritten>('POST', `/api/conversations/${id}/files/upload`, file),
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked

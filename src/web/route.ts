@@ -39,7 +39,6 @@ export const SETTINGS_SECTIONS = [
   'sessions',
   'shares',
   'publish',
-  'handoffs',
   'browsers',
   'home-screen',
   'tour',

@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-
-import type { CliInstallBlock, OAuthUse, Permission, FileNameProblem } from '../shared/types';
-import { FIXED_COMMAND_NEWS, INTERACTIVE_LIMITS, LANGS, type FixedCommandRun, type InteractiveSession, type Lang } from '../shared/types';
+import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
+import { LANGS, type Lang } from '../shared/types';
 
 /*
  * Language of user-facing server text (errors, system notes, adapter messages).
@@ -42,189 +41,7 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
   return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
 }
 
-/** A fence for `text` in a message: one backtick more than its longest run of them, three at least. */
-function fenced(text: string): string {
-  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
-  const mark = '`'.repeat(longest + 1);
-  return `${mark}\n${text}\n${mark}`;
-}
-
-/** A command line in a message: as inline code (with more backticks than it has), or fenced when it has several lines. */
-function codeOf(text: string): string {
-  if (text.includes('\n')) return `\n${fenced(text)}\n`;
-  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
-  const mark = '`'.repeat(longest + 1);
-  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
-  return `${mark}${pad}${text}${pad}${mark}`;
-}
-
-/** How an interactive command's run ended, as the user tells the team (zh-TW). */
-function interactiveEndZh(s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason'>): string {
-  switch (s.state) {
-    case 'exited':
-      return s.exitCode === null || s.exitCode === undefined ? '它結束了' : `結束碼 ${s.exitCode}`;
-    case 'cancelled':
-      return '我中途取消了它';
-    case 'timedOut':
-      return `它執行超過 ${INTERACTIVE_LIMITS.timeoutMin} 分鐘，被停止了`;
-    case 'stopped':
-      return 'Harness Relay 停止時它也跟著停止了';
-    case 'failed':
-      return `它無法啟動${s.reason ? `：${s.reason}` : ''}`;
-    default:
-      return '它還在執行';
-  }
-}
-
-/** How an interactive command's run ended, as the user tells the team (English). */
-function interactiveEndEn(s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason'>): string {
-  switch (s.state) {
-    case 'exited':
-      return s.exitCode === null || s.exitCode === undefined ? 'it ended' : `it finished with exit code ${s.exitCode}`;
-    case 'cancelled':
-      return 'I cancelled it';
-    case 'timedOut':
-      return `it was stopped after ${INTERACTIVE_LIMITS.timeoutMin} minutes`;
-    case 'stopped':
-      return 'it stopped when Harness Relay stopped';
-    case 'failed':
-      return `it could not start${s.reason ? `: ${s.reason}` : ''}`;
-    default:
-      return 'it is still running';
-  }
-}
-
-/** How a fixed command's run went, in a line (zh-TW). */
-function runLineZh(run: FixedCommandRun): string {
-  const why = run.reason ? `：${run.reason}` : '';
-  switch (run.status) {
-    case 'running':
-      return '執行中';
-    case 'passed':
-      return '完成（結束碼 0）';
-    case 'news':
-      return `完成，有新的內容（結束碼 ${FIXED_COMMAND_NEWS}）`;
-    case 'failed':
-      return `失敗（結束碼 ${run.exitCode ?? '?'}）${why}`;
-    case 'changed':
-      return `沒有執行：儲存之後，它的程式碼改過了（${(run.changed ?? []).slice(0, 5).join('、')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}）。請在它的卡片上檢查變更再試跑。`;
-    default:
-      return `無法執行${why}`;
-  }
-}
-
-/** How a fixed command's run went, in a line (English). */
-function runLineEn(run: FixedCommandRun): string {
-  const why = run.reason ? `: ${run.reason}` : '';
-  switch (run.status) {
-    case 'running':
-      return 'running';
-    case 'passed':
-      return 'done (exit code 0)';
-    case 'news':
-      return `done, with something new (exit code ${FIXED_COMMAND_NEWS})`;
-    case 'failed':
-      return `failed (exit code ${run.exitCode ?? '?'})${why}`;
-    case 'changed':
-      return `not run: its code changed since it was saved (${(run.changed ?? []).slice(0, 5).join(', ')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}). Check the changes on its card, then try it again.`;
-    default:
-      return `could not run${why}`;
-  }
-}
-
 const zhTW = {
-  handoffs: {
-    storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',
-    storeFailed: (why: string) =>
-      `無法在憑證儲存區保存或讀取密鑰：${why}。如果這台伺服器沒有桌面工作階段（例如透過 SSH 執行），可以用 RELAY_KEYRING=off 啟動，改把密鑰加密存在資料庫裡。`,
-    badName: (name: string) => `「${name}」不是有效的密鑰名稱：只能用大寫英文字母、數字和底線，而且不能以數字開頭。`,
-    badValue: (name: string, problem: 'empty' | 'short' | 'long' | 'lines') =>
-      problem === 'empty'
-        ? `${name} 是空的。`
-        : problem === 'short'
-          ? `${name} 太短了（至少 4 個字元）。`
-          : problem === 'long'
-            ? `${name} 太長了（最多 16 KB）。`
-            : `${name} 不能有換行。`,
-    tooManySecrets: (n: number) => `一個工作目錄最多保存 ${n} 個密鑰。`,
-    secretNotFound: (name: string) => `這個工作目錄沒有叫 ${name} 的密鑰。`,
-    commandNotFound: '找不到這個固定指令，可能已經刪除了。',
-    tooManyCommands: (n: number) => `一個工作目錄最多保存 ${n} 個固定指令。`,
-    tooManyFiles: (n: number) => `這個資料夾的程式碼和設定檔超過 ${n} 個，無法鎖定固定指令的程式碼。`,
-    windows: '固定指令要在 Harness Relay 自己的沙箱裡執行，原生 Windows 上還沒有這個沙箱。',
-    missingSecrets: (names: string) => `還沒有提供這些密鑰：${names}。`,
-    inputTooLong: (n: number) => `要交給指令的輸入太長了（最多 ${Math.round(n / 1024)} KB）。`,
-    timedOut: (min: number) => `執行超過 ${min} 分鐘，已經停止。`,
-    hostsRefused: (hosts: string) => `沙箱擋下了它要連的主機：${hosts}。需要的話，請把這些主機加進這個固定指令。`,
-    networkRefused: '沙箱擋下了它的網路連線。',
-    sandboxRefused: '沙箱擋下了它要做的事（例如寫到工作目錄以外）。',
-    noCommand: (name: string) => `這個工作目錄沒有叫「${name}」的固定指令，所以沒有放進待送出匣。`,
-    leftOutSecrets: (n: number, names: string[]) => `一則回覆最多要 ${n} 個密鑰，所以這些沒有卡片：${names.join('、')}。`,
-    leftOutCommands: (n: number, names: string[]) => `一則回覆最多提議 ${n} 個固定指令，所以這些沒有卡片：${names.join('、')}。`,
-    leftOutInteractive: (n: number, more: number) => `一則回覆最多 ${n} 個要你自己執行的指令，所以另外 ${more} 個沒有卡片。`,
-    outboxTitle: (name: string) => `執行一次固定指令「${name}」`,
-    fieldCommand: '指令',
-    fieldFolder: '資料夾',
-    fieldHosts: '可連的主機',
-    cardNotFound: '找不到這張卡片。',
-    cardDecided: '這張卡片已經回覆過了。',
-    noValues: '請至少填一個值，或選擇不提供。',
-    noBrowser: '這台電腦找不到 Chromium、Chrome 或 Edge：請在「設定 → App 與工具 → 常用 App → 瀏覽器」安裝或指定一個。',
-    browsersBusy: (n: number) => `最多只能同時開 ${n} 個只給你的瀏覽器：請先關掉一個。`,
-    browserGone: '這個只給你的瀏覽器已經關閉了：請再開一個。',
-    browserRefused: 'Harness Relay 的瀏覽器不會開這個網址（Harness Relay 自己的連接埠或雲端的中繼資料位址）。',
-    browserNearby: (url: string) => `${url} 在這台電腦或你的區域網路上：確定要在只給你的瀏覽器開它嗎？`,
-    noSelection: '網頁上沒有選取任何文字：請先選取那個值（或點一下放著它的欄位），再按儲存選取的文字。',
-    notAsked: (name: string) => `這張卡片沒有在等 ${name}。`,
-    badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
-    commandRunning: '這個固定指令正在執行，請等它結束。',
-    changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
-    codeNotSeen: '先查看它要執行的程式碼，才能儲存。',
-    changingNow: '它的程式碼正在改變：請稍等一下再看一次。',
-    commandBlocked: '這個固定指令是自動任務的執行提議的，沒有人看著那次執行，所以不能從這張卡片儲存。',
-    linkOutside: (path: string) =>
-      `${path} 是連到資料夾外面（或 .git 裡）的連結，那裡的內容可能在沒被發現的情況下改變，所以無法鎖定固定指令的程式碼。`,
-    pinTooLarge: (mb: number) => `這個資料夾的程式碼超過 ${mb} MB，無法鎖定固定指令的程式碼。`,
-    gitUnreadable: (why: string) => `讀不到它的 git 設定，所以無法鎖定它會執行的東西：${why}`,
-    protectedFile: (path: string) =>
-      `${path} 是 Harness Relay 自己保管、不會開啟的檔案（它的資料庫或鎖檔），所以無法鎖定固定指令的程式碼。`,
-    tooManyRepositories: (n: number) => `這個資料夾裡的 git 儲存庫超過 ${n} 個，無法鎖定固定指令的程式碼。`,
-    namedInTemp: (path: string) => `指令提到的 ${path} 在暫存資料夾裡，agent 可以在那裡寫入，所以無法鎖定它：請把它放進工作目錄。`,
-    cwdOutside: (cwd: string) => `${cwd} 不在工作目錄裡，或在已安裝套件的資料夾裡，那裡的程式碼不會被鎖定。`,
-    folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
-    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束再送出。',
-    commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
-    commandAnswer: (name: string, run?: FixedCommandRun) =>
-      run
-        ? `我已儲存固定指令「${name}」並試跑了一次：${runLineZh(run)}。${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`
-        : `我已儲存固定指令「${name}」。`,
-    secretsAnswer: (saved: string[], declined: string[]) =>
-      [
-        saved.length ? `我已提供 ${saved.join('、')}，它存在這個工作目錄的憑證儲存區，只會交給列出它的固定指令。` : '',
-        declined.length ? `我現在不提供 ${declined.join('、')}。` : '',
-      ]
-        .filter(Boolean)
-        .join(''),
-    notKept: (why: string) => `它寫回的新值沒有保存：${why}`,
-    commandChangedSince: (name: string) => `固定指令「${name}」在這次執行放進待送出匣之後改過了，所以沒有執行。`,
-    runLine: runLineZh,
-    interactiveRunning: '這個指令正在執行。',
-    interactiveAutomation: '這個指令是在自動任務的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
-    interactiveWindows: '原生 Windows 上還不能從卡片執行指令。',
-    interactiveTooMany: (n: number) => `同時最多只能執行 ${n} 個這樣的指令，請等其他的結束。`,
-    interactiveConfigChanged: '卡片列出之後，工作目錄裡有東西改過或多了出來。請先看過卡片上更新的清單，再啟動一次。',
-    interactiveTooMuch: '工作目錄裡的設定和安裝的程式太多，無法確認它們從卡片列出後沒有改過：請在它自己的空資料夾裡執行。',
-    interactiveNotStarted: (why: string) => `無法啟動：${why}`,
-    interactiveHidden: '這個指令含有看不見的字元或控制字元，卡片顯示的不一定是實際會執行的內容，所以不會執行。',
-    interactiveNotRunning: '這個指令已經沒有在執行了。',
-    interactiveNoQuestion: '它現在沒有在問這個問題。',
-    interactiveNotEnded: '指令結束後才能送給團隊。',
-    interactiveDismissed: (run: string) => `我不執行 ${codeOf(run)}。`,
-    interactiveAnswer: (run: string, s: Pick<InteractiveSession, 'state' | 'exitCode' | 'reason' | 'inWorkdir' | 'output'>) =>
-      `我自己執行了 ${codeOf(run)}（${s.inWorkdir ? '在工作目錄裡' : '在它自己的空資料夾裡'}）：${interactiveEndZh(s)}。${
-        s.output.trim() ? `\n\n它的輸出（密鑰和我隱藏輸入的內容已遮蔽）：\n${fenced(s.output.trimEnd())}` : '它沒有輸出任何內容。'
-      }`,
-  },
   publish: {
     unreachable: (host: string) => `無法連到 ${host}，或它的回應無法讀取。請稍後再試。`,
     badAnswer: '雲端服務的回應不是預期的格式。',
@@ -798,32 +615,6 @@ const zhTW = {
   reportShotsNotGithub: 'gh 登入的不是 github.com，截圖只能上傳到 github.com 的 gist',
   reportShotsNotFound: '這裡找不到這次上傳的截圖（可能是伺服器重新啟動過）：請到 GitHub 刪除那個 gist。',
   messageNotFound: '找不到這則訊息',
-  // A steps card (an agent's <steps> block): the user's answer, as their message says it, and its errors
-  steps: {
-    summary: (o: { agent: string; done: number; total: number; stuckAt?: number }) => {
-      if (o.total === 1) {
-        return o.stuckAt !== undefined
-          ? `${o.agent} 給我的步驟，我卡住了。`
-          : o.done
-            ? `${o.agent} 給我的步驟完成了。`
-            : `${o.agent} 給我的步驟，我還沒完成。`;
-      }
-      if (o.stuckAt !== undefined) return `${o.agent} 給我的步驟，我卡在第 ${o.stuckAt} 步（${o.total} 步中完成了 ${o.done} 步）。`;
-      if (o.done === o.total) return `${o.agent} 給我的 ${o.total} 個步驟都完成了。`;
-      if (!o.done) return `${o.agent} 給我的 ${o.total} 個步驟，我都還沒完成。`;
-      return `${o.agent} 給我的 ${o.total} 個步驟，我完成了 ${o.done} 個。`;
-    },
-    done: '完成',
-    notDone: '未完成',
-    stuck: '卡在這步',
-    note: '備註：',
-    notFound: '找不到這些步驟',
-    answered: '這些步驟已經回覆過了',
-    notWaiting: '團隊已經沒有在等這些步驟了',
-    busy: '團隊正在回覆：等它這一輪結束，再回覆這些步驟',
-    noStep: (n: number) => `沒有第 ${n} 步`,
-    noteTooLong: (max: number) => `備註最多 ${max} 個字`,
-  },
   branchTitle: (title: string) => `分支 · ${title}`,
   branchOnlyReply: '只能從 agent 的回覆分支',
   branchStreaming: '這則之前還有回覆在進行中，請等它們完成再分支',
@@ -957,8 +748,6 @@ const zhTW = {
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
-  handoverNotFound: '這次交接已經結束或已失效',
-  handoverNotNow: '這次交接現在不能這樣做（可能已經有人回覆，或還沒開始）',
   approvalDeclined: '使用者拒絕了這個操作。',
   retryAgentGone: (name: string) => `@${name} 已不在團隊中，無法重試這則回覆`,
 
@@ -1268,7 +1057,6 @@ const zhTW = {
     mailSent: (id: string, host: string, answer: string) => `${host} 已收下 ${id}${answer ? `（${answer}）` : ''}`,
     inviteSent: (calendar: string) => `已加到「${calendar}」，邀請由行事曆寄出`,
     click: (what: string) => `在開啟的網頁上點擊${what}`,
-    handOver: (reason: string) => `把瀏覽器交給你：${reason}`,
     refLink: (label: string, href: string) => `連結「${label}」（${href}）`,
     refButton: (label: string) => `按鈕「${label}」`,
     refField: (name: string, label: string) => `欄位${name ? ` ${name}` : ''}${label ? `「${label}」` : ''}`,
@@ -1395,44 +1183,10 @@ const zhTW = {
   // Files
   previewSnapshotChanged: '複製期間檔案有變動。請在編輯結束後重建預覽。',
   previewSnapshotLimit: '這個資料夾超過預覽上限。請選較小的資料夾（最多 4,096 個項目、32 層、每個檔案 16 MiB、合計 64 MiB）。',
-  previewPageLimit: '這個網頁和它用到的檔案超過預覽上限（最多 4,096 個檔案、32 層、每個檔案 16 MiB、合計 64 MiB）。',
   fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
   zipTooBig: (items: number, gb: number) =>
     `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   fileRootNotFound: '這個資料夾已經不存在',
-  // Changing files from the Files panel (fileEdit.ts)
-  filesEdit: {
-    worktreeReadOnly: 'agent 的 worktree 在這裡只能檢視：要改動工作目錄，請套用它的結果。',
-    relayFolder: '「檔案」不會改動這個資料夾：裡面有 Harness Relay 本身、它的資料或語音輸入的資料夾。',
-    agentFolder: (folder: string) =>
-      `「檔案」不會改動這個資料夾：它包含 ${folder}，那裡決定 agent 怎麼執行（家目錄或某個 CLI 自己的資料夾）。`,
-    link: '「檔案」不會透過符號連結寫入：請到它實際所在的位置開啟。',
-    protectedPath: '「檔案」不會寫入這裡：Harness Relay 不讓 agent 碰這個位置（它的資料、瀏覽器的設定檔或存放權杖的檔案）。',
-    isFolder: (name: string) => `這裡已經有一個叫「${name}」的資料夾。`,
-    readOnlyFile: (name: string) => `「${name}」是唯讀檔案。`,
-    badName: (name: string, problem: FileNameProblem) =>
-      `「${name}」不能當檔名：${
-        {
-          empty: '請輸入檔名。',
-          separator: '檔名不能有 / 或 \\。',
-          dots: '「.」和「..」不是檔名。',
-          control: '檔名不能有控制字元或不完整的字元。',
-          reserved: '檔名不能有 < > : " | ? *、不能以句點或空格結尾，也不能是 Windows 保留給裝置的名稱（CON、NUL、COM1…）。',
-          git: '.git 是 git 自己的資料夾。',
-          tooLong: '檔名最多 255 個位元組。',
-        }[problem]
-      }`,
-    notText: '這裡只能儲存文字：不能有 NUL 字元或不完整的字元。',
-    textTooLarge: (kb: number) => `內容太大，無法在這裡儲存：最多 ${kb} KB 的文字。`,
-    uploadTooLarge: (name: string, mb: number) => `「${name}」太大，無法上傳：最多 ${mb} MB。`,
-    tooLarge: '要傳送的內容太大。',
-    exists: (name: string) => `「${name}」已經存在。`,
-    changed: (name: string) => `你開啟「${name}」之後，它已經被改過了。請重新載入以查看最新版本。`,
-    gone: (name: string) => `「${name}」已經不在了。`,
-    moved: '儲存期間資料夾有變動，請再試一次。',
-    cannotWrite: (name: string, why: string) => `無法寫入「${name}」（${why}）。如果有其他程式開著它，請先關閉再試一次。`,
-    busy: '有任務正在改動這個資料夾裡的檔案（這個對話或其他對話的團隊）。請等它結束後再儲存。',
-  },
 
   // Workspace
   gitMissing: '這個操作需要 Git。請安裝 Git 後再試一次。',
@@ -1541,107 +1295,6 @@ const zhTW = {
 export type ServerMessages = typeof zhTW;
 
 const en: ServerMessages = {
-  handoffs: {
-    storage: 'There is no credential store on this computer to keep secrets in.',
-    storeFailed: (why) =>
-      `The credential store could not keep or read the secret: ${why}. On a server with no desktop session (run over SSH, say), start it with RELAY_KEYRING=off to keep secrets encrypted in its database instead.`,
-    badName: (name) => `"${name}" is not a valid secret name: capital letters, digits and underscores only, not starting with a digit.`,
-    badValue: (name, problem) =>
-      problem === 'empty'
-        ? `${name} is empty.`
-        : problem === 'short'
-          ? `${name} is too short (4 characters at least).`
-          : problem === 'long'
-            ? `${name} is too long (16 KB at most).`
-            : `${name} cannot have line breaks.`,
-    tooManySecrets: (n) => `A working directory keeps ${n} secrets at most.`,
-    secretNotFound: (name) => `This working directory has no secret named ${name}.`,
-    commandNotFound: 'This fixed command was not found; it may have been removed.',
-    tooManyCommands: (n) => `A working directory keeps ${n} fixed commands at most.`,
-    tooManyFiles: (n) => `This folder has more than ${n} code and configuration files, too many to pin a fixed command's code to.`,
-    windows: "Fixed commands run in Harness Relay's own sandbox, which native Windows does not have yet.",
-    missingSecrets: (names) => `These secrets were not given yet: ${names}.`,
-    inputTooLong: (n) => `The input for the command is too long (${Math.round(n / 1024)} KB at most).`,
-    timedOut: (min) => `It ran for more than ${min} minutes and was stopped.`,
-    hostsRefused: (hosts) => `The sandbox refused the hosts it tried to reach: ${hosts}. Add them to this fixed command if it needs them.`,
-    networkRefused: 'The sandbox refused its network connection.',
-    sandboxRefused: 'The sandbox refused something it tried to do (such as writing outside the working directory).',
-    noCommand: (name) => `This working directory has no fixed command named "${name}", so nothing was put in the outbox.`,
-    leftOutSecrets: (n, names) => `A reply may ask for ${n} secrets at most, so these got no card: ${names.join(', ')}.`,
-    leftOutCommands: (n, names) => `A reply may propose ${n} fixed commands at most, so these got no card: ${names.join(', ')}.`,
-    leftOutInteractive: (n, more) => `A reply may give you ${n} commands to run yourself at most, so ${more} more got no card.`,
-    outboxTitle: (name) => `Run the fixed command "${name}" once`,
-    fieldCommand: 'Command',
-    fieldFolder: 'Folder',
-    fieldHosts: 'Hosts it may reach',
-    cardNotFound: 'This card was not found.',
-    cardDecided: 'This card was answered already.',
-    noValues: 'Fill in at least one value, or choose not to give them.',
-    noBrowser:
-      'No Chromium, Chrome or Edge was found on this computer: install or choose one under Settings → Apps and tools → Common apps → Browser.',
-    browsersBusy: (n) => `At most ${n} browsers for you alone can be open at once: close one first.`,
-    browserGone: 'This browser for you alone has closed: open another.',
-    browserRefused: "Harness Relay's browsers never open this address (Harness Relay's own port, or a cloud metadata address).",
-    browserNearby: (url) => `${url} is on this computer or your local network: open it in the browser for you alone all the same?`,
-    noSelection: 'Nothing is selected on the page: select the value (or tap the field that holds it), then Save selection.',
-    notAsked: (name) => `This card is not waiting for ${name}.`,
-    badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
-    commandRunning: 'This fixed command is running; wait until it ends.',
-    changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
-    codeNotSeen: 'Look at the code it would run first, then save it.',
-    changingNow: 'Its code is changing right now: look again in a moment.',
-    commandBlocked: "An automation's run proposed this fixed command, which nobody watched, so it cannot be saved from this card.",
-    linkOutside: (path) =>
-      `${path} is a link that leads out of the folder (or into .git), where what it leads to could change unseen, so the fixed command's code cannot be pinned.`,
-    pinTooLarge: (mb) => `This folder's code is over ${mb} MB, too much to pin the fixed command's code.`,
-    gitUnreadable: (why) => `Its git settings could not be read, so what it would run cannot be pinned: ${why}`,
-    protectedFile: (path) =>
-      `${path} is a file Harness Relay keeps to itself and never opens (its database or its lock), so the fixed command's code cannot be pinned.`,
-    tooManyRepositories: (n) => `This folder holds more than ${n} git repositories, too many to pin the fixed command's code.`,
-    namedInTemp: (path) =>
-      `${path}, which the command names, is in a temp folder, where agents can write, so it cannot be pinned: put it in the working directory.`,
-    cwdOutside: (cwd) => `${cwd} is not in the working directory, or is in a folder of installed packages, whose code is not pinned.`,
-    folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
-    folderHeld: "A fixed or interactive command is running in this conversation's folder: send once it ends.",
-    commandDismissed: (name) => `I did not save the fixed command "${name}".`,
-    commandAnswer: (name, run) =>
-      run
-        ? `I saved the fixed command "${name}" and tried it once: ${runLineEn(run)}.${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`
-        : `I saved the fixed command "${name}".`,
-    secretsAnswer: (saved, declined) =>
-      [
-        saved.length
-          ? `I gave ${saved.join(', ')}: kept in this working directory's credential store, for the fixed commands that name ${saved.length > 1 ? 'them' : 'it'} only.`
-          : '',
-        declined.length ? `I will not give ${declined.join(', ')} for now.` : '',
-      ]
-        .filter(Boolean)
-        .join(' '),
-    notKept: (why) => `The new value it wrote back was not kept: ${why}`,
-    commandChangedSince: (name) => `The fixed command "${name}" changed after this run was put in the outbox, so it was not run.`,
-    runLine: runLineEn,
-    interactiveRunning: 'This command is running.',
-    interactiveAutomation:
-      "This command was proposed in an automation's run, so it cannot be started from this card. If it is still needed, ask the agent in the chat to propose it again.",
-    interactiveWindows: 'Commands cannot be run from a card on native Windows yet.',
-    interactiveTooMany: (n) => `At most ${n} such commands run at once: wait until another one ends.`,
-    interactiveConfigChanged:
-      'Something in the working directory changed or appeared since the card listed it. Look at the updated list on the card, then start it again.',
-    interactiveTooMuch:
-      'There is too much configuration and installed programs in the working directory to tell whether they changed since the card listed them: run it in its own empty folder.',
-    interactiveNotStarted: (why) => `It could not start: ${why}`,
-    interactiveHidden: 'This command holds invisible or control characters, so the card may not show what would run: it is not run.',
-    interactiveNotRunning: 'This command is not running any more.',
-    interactiveNoQuestion: 'It is not asking this question now.',
-    interactiveNotEnded: 'Send it to the team once it has ended.',
-    interactiveDismissed: (run) => `I will not run ${codeOf(run)}.`,
-    interactiveAnswer: (run, s) =>
-      `I ran ${codeOf(run)} myself (${s.inWorkdir ? 'in the working directory' : 'in an empty folder of its own'}): ${interactiveEndEn(s)}.${
-        s.output.trim()
-          ? `\n\nIts output (secrets and what I typed hidden are masked):\n${fenced(s.output.trimEnd())}`
-          : ' It printed nothing.'
-      }`,
-  },
   publish: {
     unreachable: (host: string) => `${host} could not be reached, or its answer could not be read. Try again in a moment.`,
     badAnswer: 'The cloud service answered in a form Harness Relay does not expect.',
@@ -2246,31 +1899,6 @@ const en: ServerMessages = {
   reportShotsNotGithub: 'gh is signed in to a host other than github.com: screenshots go only to gists on github.com',
   reportShotsNotFound: 'This upload is not known here (the server may have restarted since): delete its gist on GitHub.',
   messageNotFound: 'Message not found',
-  steps: {
-    summary: (o) => {
-      if (o.total === 1) {
-        return o.stuckAt !== undefined
-          ? `I'm stuck at the step ${o.agent} gave me.`
-          : o.done
-            ? `I did the step ${o.agent} gave me.`
-            : `I haven't done the step ${o.agent} gave me.`;
-      }
-      if (o.stuckAt !== undefined) return `I'm stuck at step ${o.stuckAt} of the ${o.total} steps ${o.agent} gave me (${o.done} done).`;
-      if (o.done === o.total) return `I did all ${o.total} steps ${o.agent} gave me.`;
-      if (!o.done) return `I haven't done any of the ${o.total} steps ${o.agent} gave me.`;
-      return `I did ${o.done} of the ${o.total} steps ${o.agent} gave me.`;
-    },
-    done: 'done',
-    notDone: 'not done',
-    stuck: 'stuck here',
-    note: 'Note: ',
-    notFound: 'These steps were not found',
-    answered: 'These steps were already answered',
-    notWaiting: 'The team is no longer waiting for these steps',
-    busy: 'The team is replying: answer these steps once its turn is over',
-    noStep: (n) => `There is no step ${n}`,
-    noteTooLong: (max) => `A note may have at most ${max} characters`,
-  },
   branchTitle: (title) => `Branch · ${title}`,
   branchOnlyReply: "Only an agent's reply can be branched from",
   branchStreaming: 'A reply before this one is still being written; branch once it has finished',
@@ -2413,8 +2041,6 @@ const en: ServerMessages = {
   cliModelSwitched: (cli, from, to) => (from ? `${cli} switched models from ${from} to ${to}.` : `${cli} switched to the model ${to}.`),
 
   approvalNotFound: 'This request was already answered or has expired',
-  handoverNotFound: 'This hand-over is over or has expired',
-  handoverNotNow: 'This hand-over cannot do that now (someone may have answered it already, or it has not started)',
   approvalDeclined: 'The user declined this action.',
   retryAgentGone: (name) => `@${name} is no longer on the team, so this reply cannot be retried`,
 
@@ -2741,7 +2367,6 @@ const en: ServerMessages = {
     mailSent: (id, host, answer) => `${id} accepted by ${host}${answer ? ` (${answer})` : ''}`,
     inviteSent: (calendar) => `Added to ${calendar}; the calendar sends the invitations`,
     click: (what) => `Click ${what} on the open page`,
-    handOver: (reason) => `Hand the browser to you: ${reason}`,
     refLink: (label, href) => `link "${label}" (${href})`,
     refButton: (label) => `button "${label}"`,
     refField: (name, label) => `field${name ? ` ${name}` : ''}${label ? ` "${label}"` : ''}`,
@@ -2868,46 +2493,10 @@ const en: ServerMessages = {
 
   previewSnapshotChanged: 'Files changed during the copy. Rebuild the preview after editing finishes.',
   previewSnapshotLimit: 'Choose a smaller preview folder (at most 4,096 entries, 32 levels, 16 MiB per file and 64 MiB total).',
-  previewPageLimit:
-    'This page and the files it uses are over the preview limits (at most 4,096 files, 32 levels, 16 MiB per file and 64 MiB total).',
   fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
   zipTooBig: (items, gb) =>
     `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
-  filesEdit: {
-    worktreeReadOnly: "An agent's worktree is read-only here: apply its result to change the working directory.",
-    relayFolder: 'Files does not change this folder: it holds Harness Relay itself, its data or voice input’s folder.',
-    agentFolder: (folder) =>
-      `Files does not change this folder: it holds ${folder}, which decides how the agents run (the home folder or a coding agent's own folder).`,
-    link: 'Files does not write through a symbolic link: open the file where it really is.',
-    protectedPath:
-      "Files does not write here: Harness Relay keeps this place from the agents (its data, a browser's profile or a file of tokens).",
-    isFolder: (name) => `There is a folder named "${name}" here.`,
-    readOnlyFile: (name) => `"${name}" is read-only.`,
-    badName: (name, problem) =>
-      `"${name}" cannot be a file's name: ${
-        {
-          empty: 'give it a name.',
-          separator: 'a name cannot have / or \\.',
-          dots: '. and .. are not names.',
-          control: 'a name cannot have control characters or broken characters.',
-          reserved:
-            'a name cannot have < > : " | ? *, end with a dot or a space, or be a name Windows keeps for devices (CON, NUL, COM1…).',
-          git: ".git is git's own folder.",
-          tooLong: 'a name is at most 255 bytes.',
-        }[problem]
-      }`,
-    notText: 'Only text can be saved here: no NUL character or broken character.',
-    textTooLarge: (kb) => `Too large to save here: at most ${kb} KB of text.`,
-    uploadTooLarge: (name, mb) => `"${name}" is too large to upload: at most ${mb} MB.`,
-    tooLarge: 'What was sent is too large.',
-    exists: (name) => `"${name}" exists already.`,
-    changed: (name) => `"${name}" changed since you opened it. Reload it to see the new version.`,
-    gone: (name) => `"${name}" is no longer there.`,
-    moved: 'The folder changed while saving. Try again.',
-    cannotWrite: (name, why) => `Could not write "${name}" (${why}). If another program has it open, close it and try again.`,
-    busy: "A run is changing files in this folder (this chat's team, or another chat's). Save once it is done.",
-  },
 
   gitMissing: 'This action needs Git. Install Git and try again.',
   gitInstallUnavailable: 'Automatic Git installation is unavailable on this computer.',

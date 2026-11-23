@@ -95,14 +95,6 @@ describe('Windows children get a hidden console', () => {
     expect(call.options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
   });
 
-  it("shows a program's own windows when asked (a browser opened in a window for the user), still attached", async () => {
-    setPlatform('win32');
-    await runProcess({ bin: exe, args: [], env: { PATH: '', PATHEXT: '.EXE' }, showWindow: true });
-    const call = take();
-    expect(call.options.detached).toBe(false);
-    expect(call.options.windowsHide).toBe(false);
-  });
-
   it('starts a fixed shell script the same way', async () => {
     setPlatform('win32');
     const shell = 'C:\\Program Files\\Git\\bin\\bash.exe';
