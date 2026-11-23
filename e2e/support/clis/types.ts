@@ -69,6 +69,13 @@ export interface CliFacts {
    * key only (`key-only`), or there are none (`none`: the open agents run on the model backends).
    */
   accounts: 'sign-in' | 'key-only' | 'none';
+  /**
+   * Whether its default account runs on an API key only too, with no sign-in of its own (Antigravity:
+   * Harness Relay never runs agy on a Google sign-in). A test server gives it a key in the server's
+   * environment (`apiKeyEnv`: `DEFAULT_KEY` in `support/relay.ts`), so that it is signed in as the others
+   * are; a spec that needs it without one sets that variable to an empty value (`serverEnv`).
+   */
+  defaultKeyOnly?: boolean;
   /** The variable an API key reaches it in, the server's own environment's too (Codex: one of two); none for the open agents. */
   apiKeyEnv?: string;
   /** The placeholder of an account's API key box in Settings. */
@@ -80,7 +87,10 @@ export interface CliFacts {
   homeIn?: readonly string[];
   /** The arguments of its own sign-out command, as its fake logs them (default `logout`; Claude Code `auth logout`). */
   logout?: string;
-  /** A part of its reply's error when it is not signed in (E2E_FAKE_SIGNED_OUT); none: the reply's error is not checked. */
+  /**
+   * A part of its reply's error when it is not signed in (E2E_FAKE_SIGNED_OUT; for `defaultKeyOnly`,
+   * without a key); none: the reply's error is not checked.
+   */
   signedOutError?: string;
   /** Whether it asks the user before reading a tool library skill outside the working directory (default false). */
   skillReadAsks?: boolean;

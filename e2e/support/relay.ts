@@ -28,8 +28,16 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types';
+import { FACTS } from './clis/all';
 import { fakeBin, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
+
+/** The API key a test server gives a CLI whose default account runs on a key only (`defaultKeyOnly`). */
+export const DEFAULT_KEY = 'AIza-e2e-default-key-0000';
+
+/** That key, in each such CLI's variable (`apiKeyEnv`). */
+const defaultKeys = (): Record<string, string> =>
+  Object.fromEntries(Object.values(FACTS).flatMap((c) => (c.defaultKeyOnly && c.apiKeyEnv ? [[c.apiKeyEnv, DEFAULT_KEY]] : [])));
 
 /**
  * What a fake CLI wrote to its log (E2E_FAKE_LOG): a start, or a prompt it got; or a start of the fake
@@ -359,6 +367,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
     PATH: [...(o.live ? [] : [o.fakeBinDir, pwshDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
     NO_COLOR: '1',
+    // A CLI whose default account runs on an API key only (`defaultKeyOnly`: Antigravity) gets one, as a
+    // user's environment would give it, so that it is signed in as the fakes of the others are.
+    ...(o.live ? {} : defaultKeys()),
     ...o.env,
   });
   // Windows names it Path; two spellings would leave the child one of them.

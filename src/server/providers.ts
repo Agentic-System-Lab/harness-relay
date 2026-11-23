@@ -13,13 +13,7 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
-import {
-  antigravityKeyOnly,
-  antigravityLogout,
-  antigravityProbeEnv,
-  antigravityProbeSettings,
-  ANTIGRAVITY_NO_BROWSER,
-} from './agents/antigravity';
+import { antigravityHasKey } from './agents/antigravity';
 import { askCopilotModels, copilotHome, copilotLogout, copilotSignedInAs, copilotSignedOut } from './agents/copilot';
 import { openAgents } from './agents/index';
 import { museKeyOnly, museProbeEnv } from './agents/muse';
@@ -115,18 +109,10 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       if (j.status === 'unauthenticated') return { loggedIn: false };
       return { loggedIn: null, detail: typeof j.message === 'string' ? j.message : undefined };
     }
-    case 'antigravity': {
-      // With a Gemini API key it runs on that key (its runs' own settings make agy use it).
-      if (env.GEMINI_API_KEY) return { loggedIn: true, method: 'API key' };
-      // An account besides the default one runs on its own key only: without one it is signed out,
-      // whatever Google sign-in agy keeps (that is the default account's).
-      if (antigravityKeyOnly(env)) return { loggedIn: false };
-      // `agy models` answers only signed in ("Please sign in to view available models"); it opens no browser.
-      const r = await capture(bin, [...antigravityProbeSettings(env), 'models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
-      const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
-      if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
-      return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };
-    }
+    case 'antigravity':
+      // Every account runs on its Gemini API key only (`keyOnlyAccount`; its runs' own settings make agy
+      // use it): without one it is signed out, whatever Google sign-in agy keeps, and agy is not asked.
+      return antigravityHasKey(env) ? { loggedIn: true, method: 'API key' } : { loggedIn: false };
     case 'copilot': {
       // It has no status command: a session opened over ACP, in a home and an empty folder of its own
       // (`askCopilotModels`), needs a working sign-in ("Authentication required" otherwise). No prompt
@@ -389,15 +375,15 @@ export class ProviderService {
 
   /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
   startLogin(p: Provider, methodId?: string, account = ''): LoginSessionView {
-    // Its sign-in would replace the default account's (see `keyOnlyAccount`).
+    // It signs in with its API key only (`keyOnlyAccount`): its sign-in would replace the default
+    // account's (Cursor, Muse Code), or Harness Relay never signs it in (Antigravity).
     if (keyOnlyAccount(p, this.settings.resolveAccount(p, account))) throw new KeyOnlyAccountError(p);
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
-    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`),
-    // Muse Code's by its XDG folders (`museProbeEnv`).
+    // Muse Code's sign-in finds the account's home by its XDG folders (`museProbeEnv`).
     const own = this.settings.env(p, account);
-    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : p === 'muse' ? museProbeEnv(own) : own), ...method.env };
+    const env = { ...(p === 'muse' ? museProbeEnv(own) : own), ...method.env };
     let session: LoginSession;
     try {
       session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
@@ -440,7 +426,7 @@ export class ProviderService {
   }
 
   async logout(p: Provider, account = '', timeoutMs = 30_000): Promise<string> {
-    if (!LOGIN_METHODS[p].length) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
+    if (isOpenProvider(p)) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     const env = this.settings.env(p, account);
     // Cursor's default account signs out of the sign-in Cursor keeps, which its API key (if any) keeps
     // aside: in the store the server was started with, if it names one.
@@ -459,15 +445,15 @@ export class ProviderService {
    */
   async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000, keyOnly = false): Promise<string> {
     // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
-    // An Antigravity account that signs in with its key only has no Google sign-in of its own to drop: the one agy keeps is the default account's.
-    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || ((p === 'antigravity' || p === 'muse') && keyOnly)) {
+    // Antigravity runs on its Gemini API key only, every account of it: a Google sign-in agy keeps is not Harness Relay's to drop.
+    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || p === 'antigravity' || (p === 'muse' && keyOnly)) {
       this.invalidate(p);
       return '';
     }
     const bin = this.settings.bin(p);
-    if (p === 'antigravity' || p === 'copilot') {
+    if (p === 'copilot') {
       try {
-        await (p === 'antigravity' ? antigravityLogout : copilotLogout)(bin, env, timeoutMs);
+        await copilotLogout(bin, env, timeoutMs);
       } finally {
         this.invalidate(p);
       }
@@ -550,16 +536,9 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
       env: { NO_OPEN_BROWSER: '1' },
     },
   ],
-  // `agy acp --login` prints its link (it opens no browser when it finds itself over SSH:
-  // `ANTIGRAVITY_NO_BROWSER`), then reads the code the page shows, or the page's whole address.
-  antigravity: [
-    {
-      id: 'google',
-      key: 'antigravityGoogle',
-      args: ['acp', '--login'],
-      env: { ...ANTIGRAVITY_NO_BROWSER },
-    },
-  ],
+  // None: Antigravity runs on a Gemini API key only (`keyOnlyAccount`). Google's terms for it do not
+  // allow a third-party app to run it on a Google sign-in, so Harness Relay never signs agy in with Google.
+  antigravity: [],
   // `copilot login --device-code` prints GitHub's device link and a code, and waits for it to be
   // authorized. Where it finds no credential store to keep the token in (a Linux server without a
   // keyring), it says so and exits 0 all the same: that sign-in failed, and its words say what to do.

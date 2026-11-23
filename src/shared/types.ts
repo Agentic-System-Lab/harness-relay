@@ -3656,7 +3656,7 @@ export interface AccountUsage {
   limits: UsageLimit[];
   /** The CLI explicitly says ordinary usage on this plan is blocked (its included usage; `payer` may still pay past it). */
   planUsageBlocked?: boolean;
-  /** Credits beside the plan's limits (Codex's, Antigravity's), when the account has some: for display. */
+  /** Credits beside the plan's limits (Codex's), when the account has some: for display. */
   credits?: { balance?: number; unlimited?: boolean };
   /**
    * What pays once the plan's included usage is used up, when the CLI keeps running then: past the limits
@@ -3676,14 +3676,16 @@ export interface AccountUsage {
 }
 
 /**
- * Whether an account signs in with its API key only: Cursor's, Antigravity's and Muse Code's accounts
- * besides the default one. Cursor keeps one sign-in per computer user (on macOS, in the keychain)
- * whatever its config folder; Antigravity keeps its Google sign-in in the system keyring too, and Muse
+ * Whether an account signs in with its API key only: every Antigravity account, the default one too,
+ * and Cursor's and Muse Code's accounts besides the default one. Antigravity runs on a Gemini API key
+ * alone: Google's terms for it do not allow a third-party app to run it on a Google sign-in (a Google AI
+ * plan), so Harness Relay neither signs agy in with Google nor runs it on the sign-in agy keeps. Cursor
+ * keeps one sign-in per computer user (on macOS, in the keychain) whatever its config folder, and Muse
  * Code its Meta sign-in in the login keychain on macOS, under names their folders do not change, so
  * another account's sign-in could replace the default one's.
  */
 export function keyOnlyAccount(p: Provider, account: string | undefined): boolean {
-  return (p === 'cursor' || p === 'antigravity' || p === 'muse') && Boolean(account);
+  return p === 'antigravity' || ((p === 'cursor' || p === 'muse') && Boolean(account));
 }
 
 /**

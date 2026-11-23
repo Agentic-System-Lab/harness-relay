@@ -99,16 +99,17 @@ export type SignInProvider = Exclude<Provider, OpenProvider>;
 
 /**
  * The keys of `MODEL_KEY_VARS` each CLI signs in or reaches its models with, which its runs keep:
- * its own sign-in by key (`CREDENTIAL_ENV`); Claude Code's Amazon Bedrock key too; Antigravity's
- * Google API key (Vertex AI's express mode), beside its Gemini one; Copilot's key for a model provider
- * of the user's (BYOK). Codex also keeps the keys its `config.toml` names (`codexConfigKeys()`).
+ * its own sign-in by key (`CREDENTIAL_ENV`); Claude Code's Amazon Bedrock key too; Copilot's key for a
+ * model provider of the user's (BYOK). Antigravity runs on its Gemini API key alone (`GOOGLE_API_KEY`
+ * does not change the key agy uses, `antigravityOtherSignIn()`). Codex also keeps the keys its
+ * `config.toml` names (`codexConfigKeys()`).
  */
 export const OWN_KEY_VARS: Record<SignInProvider, readonly string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK'],
   codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
   cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
-  antigravity: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+  antigravity: ['GEMINI_API_KEY'],
   copilot: ['COPILOT_GITHUB_TOKEN', 'COPILOT_PROVIDER_API_KEY', 'COPILOT_PROVIDER_BEARER_TOKEN'],
   muse: ['META_API_KEY'],
 };

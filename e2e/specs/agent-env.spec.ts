@@ -9,8 +9,9 @@ import { finishedReply, openNewChat, openTeamChat, replies, send } from '../supp
  */
 
 test.describe("other providers' keys in the server's environment", () => {
-  // Nobody's own: withheld from every CLI with a sign-in.
-  test.use({ serverEnv: { HF_TOKEN: 'hf-e2e-value', MISTRAL_API_KEY: 'mistral-e2e-value' } });
+  // Nobody's own: withheld from every CLI with a sign-in. Without the Gemini API key a test server gives
+  // Antigravity (`DEFAULT_KEY`), which is not installed here and would be another key the others lose.
+  test.use({ serverEnv: { HF_TOKEN: 'hf-e2e-value', MISTRAL_API_KEY: 'mistral-e2e-value', GEMINI_API_KEY: '' } });
 
   test.describe('the notice', () => {
     test.use({ envNotice: true });

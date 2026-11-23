@@ -521,10 +521,12 @@ const zhTW = {
   antigravityRejectedModel: (value: string, err: string) => `Antigravity 不接受模型「${value}」：${err}`,
   antigravityRejectedEffort: (value: string, err: string) => `Antigravity 不接受思考強度「${value}」：${err}`,
   antigravityRejectedMode: (err: string) => `Antigravity 無法切換回預設模式：${err}`,
-  antigravitySignIn: (err: string) => `Antigravity 尚未登入（${err}）。請到「設定」的 Antigravity 登入，或設定 Gemini API key。`,
+  antigravityNoKey:
+    'Antigravity 沒有 Gemini API key，所以沒有啟動。Harness Relay 只用 Gemini API key 執行 Antigravity：Google 的條款不允許第三方應用程式用 Google 登入（Google AI 方案）執行它。請到「設定」的 Antigravity 設定 API key。',
+  antigravityKeyRefused: (err: string) => `Antigravity 無法用它的 Gemini API key 登入（${err}）。請到「設定」的 Antigravity 檢查 API key。`,
   antigravityConfigFailed: (err: string) => `無法替這一輪準備 Antigravity 的設定：${err}`,
   antigravityAccountLogin:
-    'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以額外的 Antigravity 帳號只能用 Gemini API key。預設帳號才用 Google 登入。',
+    'Harness Relay 只用 Gemini API key 執行 Antigravity，每個帳號都一樣：Google 的條款不允許第三方應用程式用 Google 登入（Google AI 方案）執行它。請改為這個帳號設定 API key。',
   copilotRefused: '超出這個對話的權限，已拒絕',
   copilotProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   copilotEndsTurn: '（Copilot 在拒絕後會結束這一輪）',
@@ -1397,6 +1399,7 @@ const zhTW = {
 
   // What each CLI loads by itself
   nativeTimeout: (cli: string) => `${cli} 沒有在時間內回應。`,
+  nativeNoKey: (cli: string) => `沒有詢問 ${cli}：它只用 API key 執行，而這個帳號還沒有設定（請到「設定」的 ${cli} 設定）。`,
   nativeFileNotListed: '這個檔案不在這個 CLI 回報的清單裡，或已經不存在。',
   grokTrustFailed: (e: string) => `無法記錄 Grok 對這個資料夾的信任：${e}`,
   grokTrustNotTaken: (dir: string) => `記錄信任 ${dir} 後，Grok 仍回報這個資料夾未受信任（可能被組織的設定限制），所以已還原這項變更。`,
@@ -1476,6 +1479,7 @@ const zhTW = {
   grokModelsEmpty: 'grok models 沒有回傳模型',
   cursorModelsFailed: 'cursor-agent 沒有回傳模型清單',
   antigravityModelsFailed: 'agy models 沒有回傳模型',
+  antigravityModelsNoKey: '沒有 Gemini API key：設定後才能列出 Antigravity 的模型',
   copilotModelsFailed: 'Copilot 沒有回傳模型',
   museSkillsFailed: 'muse skills list 沒有回傳技能清單',
   // Installing a CLI from Settings
@@ -1550,7 +1554,6 @@ const zhTW = {
     grokDevice: ['xAI 裝置碼', '開啟連結並確認下方代碼。'],
     grokBrowser: ['xAI 瀏覽器登入', '在這台電腦開啟瀏覽器完成 OAuth 登入。'],
     cursorBrowser: ['Cursor 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Cursor 並允許 CLI。'],
-    antigravityGoogle: ['Google 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Google，再把頁面顯示的授權碼（或整個網址）貼回來。'],
     copilotDevice: ['GitHub 帳號（裝置代碼）', '開啟下方的 GitHub 連結，在任何一台裝置的瀏覽器輸入顯示的代碼並授權。'],
     museMeta: ['Meta 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Meta 帳號，確認頁面上的代碼和下方的一樣。'],
   } as Record<string, [string, string]>,
@@ -1955,10 +1958,13 @@ const en: ServerMessages = {
   antigravityRejectedModel: (value, err) => `Antigravity does not accept the model "${value}": ${err}`,
   antigravityRejectedEffort: (value, err) => `Antigravity does not accept the thinking level "${value}": ${err}`,
   antigravityRejectedMode: (err) => `Antigravity could not switch back to its default mode: ${err}`,
-  antigravitySignIn: (err) => `Antigravity is not signed in (${err}). Sign in under Antigravity in Settings, or set a Gemini API key.`,
+  antigravityNoKey:
+    "Antigravity has no Gemini API key, so it was not started. Harness Relay runs Antigravity on a Gemini API key only: Google's terms do not allow a third-party app to run it on a Google sign-in (a Google AI plan). Set an API key under Antigravity in Settings.",
+  antigravityKeyRefused: (err) =>
+    `Antigravity could not sign in with its Gemini API key (${err}). Check the API key under Antigravity in Settings.`,
   antigravityConfigFailed: (err) => `Could not prepare Antigravity's settings for this turn: ${err}`,
   antigravityAccountLogin:
-    "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so an extra Antigravity account runs on a Gemini API key only. Only the default account signs in with Google.",
+    "Harness Relay runs Antigravity on a Gemini API key only, for every account: Google's terms do not allow a third-party app to run it on a Google sign-in (a Google AI plan). Set an API key for this account instead.",
   copilotRefused: "Refused: not covered by this conversation's permission",
   copilotProtected:
     "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
@@ -2869,6 +2875,8 @@ const en: ServerMessages = {
   skillDuplicate: (name) => `Another skill is already named "${name}"; agents do not get this one`,
 
   nativeTimeout: (cli) => `${cli} did not answer in time.`,
+  nativeNoKey: (cli) =>
+    `${cli} was not asked: it runs on an API key only, and this account has none yet (set one under ${cli} in Settings).`,
   nativeFileNotListed: 'This file is not one the CLI reported, or it no longer exists.',
   grokTrustFailed: (e) => `Could not record Grok's trust in this folder: ${e}`,
   grokTrustNotTaken: (dir) =>
@@ -2949,6 +2957,7 @@ const en: ServerMessages = {
   grokModelsEmpty: 'grok models returned no models',
   cursorModelsFailed: 'cursor-agent returned no model list',
   antigravityModelsFailed: 'agy models returned no models',
+  antigravityModelsNoKey: "No Gemini API key: set one to list Antigravity's models",
   copilotModelsFailed: 'Copilot returned no models',
   museSkillsFailed: 'muse skills list returned no skills',
   cliInstallRunning: (cli) => `${cli} is being installed. Wait for it to finish, or cancel it first.`,
@@ -3027,10 +3036,6 @@ const en: ServerMessages = {
     grokDevice: ['xAI device code', 'Open the link and confirm the code below.'],
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
     cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
-    antigravityGoogle: [
-      'Google account',
-      'Open the link below in a browser on any device, sign in to Google, then paste back the code the page shows (or its whole address).',
-    ],
     copilotDevice: [
       'GitHub account (device code)',
       'Open the GitHub link below in a browser on any device, enter the code shown, and authorize it.',

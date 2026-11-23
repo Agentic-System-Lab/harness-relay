@@ -16,7 +16,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 1. **建立。** 點上面的按鈕，再點「**Create codespace**」。GitHub 在你的地區已經預先做好最新正式版的 codespace 時（prebuild），它會比較快就緒；沒有的話大約需要四分鐘：安裝套件與 CLI、建置介面。
 2. **登入。** 編輯器開好後，它的終端機會啟動 Harness Relay（`bash .devcontainer/start.sh`），並印出 codespace 自己網址上的登入連結 `https://<codespace>-8787.app.github.dev/#code=…`，旁邊附上登入碼。打開這個連結。第一次 GitHub 可能會先確認是你本人，再放行頁面，接著頁面會要你輸入登入碼：輸入終端機印出的那組即可。
-3. **登入 agent。** 在「**設定與登入**」登入你有帳號的那些：Claude Code 和 Cursor 用它們的連結，Codex 用它的裝置代碼（它用瀏覽器登入時，會把瀏覽器導回 `localhost`，那是你自己的電腦，不是 codespace），Grok 和 Muse Code 用它們的裝置代碼，Antigravity 則用 Google 的連結，再把它給你的代碼貼回來。Copilot 用 codespace 的 GitHub token 登入（見 [codespace 的 GitHub token](#codespace-的-github-token)），等 Copilot 回報你帳號的方案後才顯示為已登入；Copilot Free 也算。
+3. **登入 agent。** 在「**設定與登入**」登入你有帳號的那些：Claude Code 和 Cursor 用它們的連結，Codex 用它的裝置代碼（它用瀏覽器登入時，會把瀏覽器導回 `localhost`，那是你自己的電腦，不是 codespace），Grok 和 Muse Code 用它們的裝置代碼。Antigravity 在那裡沒有登入：Harness Relay 只用 Gemini API key 執行它（見 [API key](#api-key)）。Copilot 用 codespace 的 GitHub token 登入（見 [codespace 的 GitHub token](#codespace-的-github-token)），等 Copilot 回報你帳號的方案後才顯示為已登入；Copilot Free 也算。
 4. **提問。** 點「**新對話**」，工作目錄用 `/workspaces/playground`：dev container 已經幫你建好。Harness Relay 自己的資料夾（`/workspaces/harness-relay`）和包含它的 `/workspaces`，在完全存取以下的編輯模式都會被拒絕。
 
 在那個終端機按 Ctrl+C 停止伺服器，用 `bash .devcontainer/start.sh` 再次啟動。伺服器執行中時再跑同一個指令，可以拿到另一個登入連結，給另一個瀏覽器或手機用。
@@ -31,8 +31,8 @@ codespace 會停在建立時的那一版，之後再按按鈕，它會讓你回�
 - **如果你裝了 OpenCode，它只能用完全存取。** 在 Linux 上，Harness Relay 自己的沙箱看不到 OpenCode 的伺服器，所以完全存取以下會拒絕執行它（見[開源 agent](open-agents.zh-TW.md)）。其他開源 agent 可以在完全存取以下執行。
 - **要先登入 gh 才能分享成連結。** GitHub CLI 已經裝好，但 codespace 自己的 token 不能建立分享對話所用的 gist。第一次分享時，對話框會說 gh 還沒登入：按那裡的「**登入 GitHub**」，到 GitHub 的頁面輸入它顯示的代碼，對話框接著就會建立連結。（從 codespace 的終端機登入則是 `env -u GITHUB_TOKEN gh auth login`：只要那個 token 還在，`gh auth login` 就不肯保存登入。）Harness Relay 的 `gh` 分享時會用這個登入，並且不帶 codespace 的 token。codespace 裡沒有金鑰圈，所以 gh 把登入存成它資料夾（`~/.config/gh`）裡的一個檔案；在 codespace 裡，完全存取以下的 agent 讀不到這個資料夾（見[安全](#安全)）。
 - **沒有桌面 app。** 選單、用 Tailscale 分享和 app 的更新都是桌面 app 的功能；這裡只有伺服器本身（`npm start`）。
-- **Antigravity 的 Google 登入**在其他地方存放在系統金鑰圈，而 codespace 沒有金鑰圈：它在那裡能不能保持登入沒有試過。它也能用 Gemini API key（`GEMINI_API_KEY`）執行，不需要金鑰圈。
-- **沒在那裡試過：** 完成 Claude Code、Codex、Grok、Cursor、Antigravity 和 Muse Code 的登入（每一個的登入流程都能在那裡開始，並顯示它的連結或代碼）、從分享對話框完成 GitHub 登入、語音輸入與推播通知。
+- **Antigravity 只用 Gemini API key 執行**，在哪裡都一樣：Harness Relay 絕不用 Google 登入執行它（原因見[登入](user-guide.zh-TW.md#登入)），所以它不需要金鑰圈。
+- **沒在那裡試過：** 完成 Claude Code、Codex、Grok、Cursor 和 Muse Code 的登入（每一個的登入流程都能在那裡開始，並顯示它的連結或代碼）、從分享對話框完成 GitHub 登入、語音輸入與推播通知。
 
 ## 計算了什麼
 
@@ -62,7 +62,7 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。和每個模型供應商的金鑰一樣，它們都只會傳給自己的 CLI（見[使用者說明 → 環境變數](user-guide.zh-TW.md#環境變數)）。這個 repo 的其他 Codespaces secret（例如 `NPM_TOKEN`）會以環境變數傳給每個 CLI，也就傳給 agent 在那裡執行的每個指令，不論權限為何（Codespaces 存放它們的檔案 agent 讀不到，但變數讀得到）：只給 codespace agent 可以用的 secret。開源 agent 只用「**設定 → 模型連線**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code、Codex 和 Antigravity 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 或 `GEMINI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費；Antigravity 的預設帳號則用 `GEMINI_API_KEY` 執行，那是它在 Harness Relay 唯一的登入，同樣依用量計費。和每個模型供應商的金鑰一樣，它們都只會傳給自己的 CLI（見[使用者說明 → 環境變數](user-guide.zh-TW.md#環境變數)）。這個 repo 的其他 Codespaces secret（例如 `NPM_TOKEN`）會以環境變數傳給每個 CLI，也就傳給 agent 在那裡執行的每個指令，不論權限為何（Codespaces 存放它們的檔案 agent 讀不到，但變數讀得到）：只給 codespace agent 可以用的 secret。開源 agent 只用「**設定 → 模型連線**」裡設定的 key。
 
 ## 在你自己的電腦上
 

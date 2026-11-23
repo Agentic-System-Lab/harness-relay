@@ -14,7 +14,7 @@ import {
   type Provider,
   type ProviderModels,
 } from '../shared/types';
-import { antigravityAppDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import { ANTIGRAVITY_PROBE_SETTINGS, antigravityAppDir, antigravityHasKey, antigravityProbeEnv } from './agents/antigravity';
 import { askCopilotModels, parseCopilotModels } from './agents/copilot';
 import { museConfigBase, museDataBase, MUSE_EFFORTS } from './agents/muse';
 import { openAgents } from './agents/index';
@@ -301,11 +301,13 @@ export function antigravityDefaultModel(model: unknown, models: readonly ModelOp
 }
 
 /**
- * Asks Antigravity for its models (`agy models`, signed in: it lists those of the account's plan), in
- * the account's home; with a Gemini API key, told to use it (`antigravityProbeSettings`).
+ * Asks Antigravity for its models (`agy models`), in the account's home, on its Gemini API key
+ * (`ANTIGRAVITY_PROBE_SETTINGS`); without a key it is not asked (it would answer on a Google sign-in).
  */
 async function discoverAntigravity(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
-  const r = await capture(bin, [...antigravityProbeSettings(env), 'models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
+  if (!antigravityHasKey(env))
+    return { provider: 'antigravity', models: [], efforts: ANTIGRAVITY_EFFORTS, source: 'builtin', error: t().antigravityModelsNoKey };
+  const r = await capture(bin, [...ANTIGRAVITY_PROBE_SETTINGS, 'models'], antigravityProbeEnv(env), { timeoutMs: 30_000 });
   const models = parseAntigravityModels(r.stdout);
   let own: unknown;
   try {

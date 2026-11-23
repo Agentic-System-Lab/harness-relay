@@ -67,7 +67,7 @@ export function usageLine(l: UsageLimit, t: Messages, lang: Lang, now = Date.now
     .join(' · ');
 }
 
-/** The credits line (Codex's, Antigravity's), or empty when the account has none. */
+/** The credits line (Codex's), or empty when the account has none. */
 export function usageCredits(u: Pick<AccountUsage, 'credits'>, t: Messages, lang: Lang): string {
   if (!u.credits) return '';
   if (u.credits.unlimited) return t.usage.creditsUnlimited;

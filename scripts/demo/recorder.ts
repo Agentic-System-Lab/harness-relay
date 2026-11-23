@@ -153,7 +153,9 @@ export async function checkProviders(base: string, log: Log, providers: readonly
   });
   for (const p of all)
     log('provider', p.provider, p.version ?? '', p.installed ? (p.auth.loggedIn === false ? 'not signed in' : 'ready') : 'not installed');
-  if (missing.length) throw new Error(`The recording needs these CLIs, installed and signed in: ${missing.join(', ')}`);
+  // Antigravity signs in with a Gemini API key only (never Google's sign-in in Harness Relay).
+  const agy = missing.includes('antigravity') ? ' (Antigravity: set GEMINI_API_KEY, its only sign-in in Harness Relay)' : '';
+  if (missing.length) throw new Error(`The recording needs these CLIs, installed and signed in: ${missing.join(', ')}${agy}`);
   if (!providers.includes('grok')) return;
   const check = grokTrustCheck.then(async () => {
     const trust = await api<{ folder: string; trusted?: boolean }>(base, '/api/providers/grok/folder-trust', { cwd });

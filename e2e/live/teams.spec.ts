@@ -122,7 +122,7 @@ test.describe("writing in each of a chat's working directories", () => {
 });
 
 test.describe('Antigravity', () => {
-  test.skip(!CLOUD || !has('antigravity'), 'needs E2E_LIVE_CLOUD=1 and Antigravity (signed in with Google, or GEMINI_API_KEY)');
+  test.skip(!CLOUD || !has('antigravity'), 'needs E2E_LIVE_CLOUD=1, Antigravity and GEMINI_API_KEY (its only sign-in in Harness Relay)');
 
   test('antigravity: a refused command ends its turn, and the chat says so', async ({ relay }) => {
     const dir = folder(relay, 'refused');

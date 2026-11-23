@@ -13,10 +13,9 @@ import { writeFileSync } from 'node:fs';
  *   `initialize` (agy's capabilities, or `FAKE_AGY_CAPS`), `session/new` (`s-1`, with a model and a
  *   thinking-level option; none with `FAKE_AGY_NO_SESSION`), `session/resume`, `session/set_config_option`
  *   (an error for the value `FAKE_AGY_REJECT`), `session/prompt` (a reply, after an update of another
- *   session with `FAKE_AGY_FOREIGN`; `stopReason: "cancelled"` with `FAKE_AGY_CANCELLED`) and `logout`
- *   (an error with `FAKE_AGY_LOGOUT_FAIL`). `/work/app`, the recordings' working directory, is played as
- *   `FAKE_AGY_CWD` when that is set.
- * - `acp --login`: prints agy's sign-in link and prompt, and exits 0 once it reads a line.
+ *   session with `FAKE_AGY_FOREIGN`; `stopReason: "cancelled"` with `FAKE_AGY_CANCELLED`). `/work/app`,
+ *   the recordings' working directory, is played as `FAKE_AGY_CWD` when that is set. Harness Relay never
+ *   signs agy in or out (it runs on a Gemini API key only), so neither `acp --login` nor `logout` is here.
  * - `--version`: prints 1.5.6. `--settings <json>` before a subcommand is skipped (its first line records it).
  * - `models`: prints `FAKE_AGY_CLI/<FAKE_AGY_MODELS or models.txt>` (a file named `*signed-out*` exits 1).
  * - `-p /<command> --output-format json`: prints `FAKE_AGY_CLI/<command>.json`; `plugin list --json`
@@ -54,11 +53,6 @@ if (argv[0] === 'models') {
 if (argv[0] === '-p') { process.stdout.write(cli(argv[1].replace(/^\\//, '') + '.json')); process.exit(0); }
 if (argv[0] === 'plugin') { process.stdout.write(cli('plugins.json')); process.exit(0); }
 if (argv[0] !== 'acp') { process.stderr.write('unexpected: ' + argv.join(' ') + '\\n'); process.exit(2); }
-if (argv.includes('--login')) {
-  process.stdout.write('Open this link in a browser to log in with Google:\\n\\n  https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=test\\n\\nThen paste the authorization code, or the full URL of the page you land on, and press Enter:\\n');
-  readline.createInterface({ input: process.stdin }).on('line', (line) => { record({ code: line }); process.exit(0); });
-  return;
-}
 
 const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const queues = new Map();
@@ -98,7 +92,6 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const s = (queues.get('req:' + m.method) || []).shift();
     if (s) { ids.set(s.recordedId, m.id); return play(s); }
     if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: env.FAKE_AGY_CAPS ? JSON.parse(env.FAKE_AGY_CAPS) : CAPS, agentInfo: { name: 'Antigravity ACP Server', version: '1.5.6' }, authMethods: [] } });
-    if (m.method === 'logout') return env.FAKE_AGY_LOGOUT_FAIL ? send({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: 'keyring locked' } }) : send({ jsonrpc: '2.0', id: m.id, result: {} });
     if (m.method === 'session/new') return send({ jsonrpc: '2.0', id: m.id, result: env.FAKE_AGY_NO_SESSION ? {} : { sessionId: 's-1', configOptions: OPTIONS } });
     if (m.method === 'session/resume') return send({ jsonrpc: '2.0', id: m.id, result: { configOptions: OPTIONS } });
     if (m.method === 'session/set_config_option') {

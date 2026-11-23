@@ -23,8 +23,8 @@ import {
   elapsedSeconds,
   parseProcs,
   strayProcs,
+  ANTIGRAVITY_PROBE_SETTINGS,
   ANTIGRAVITY_RUN_PREFIX,
-  antigravityAiCredits,
   antigravityAppDir,
   antigravityApprovalRequest,
   antigravityArgs,
@@ -32,7 +32,7 @@ import {
   antigravityCommandOutput,
   antigravityEffortOption,
   antigravityGeminiDir,
-  antigravityLogout,
+  antigravityHasKey,
   antigravityPermissionDecision,
   antigravityProbeEnv,
   antigravityPromptText,
@@ -46,7 +46,7 @@ import {
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
 import { antigravityDefaultModel, parseAntigravityModels } from '../src/server/models';
-import { antigravityMcpServers, antigravityMemoryFiles, parseAntigravityProbe } from '../src/server/native';
+import { antigravityMcpServers, antigravityMemoryFiles, nativeProblemText, parseAntigravityProbe } from '../src/server/native';
 import { ANTIGRAVITY_HOME_ENV } from '../src/server/settings';
 import type { ApprovalAnswer } from '../src/shared/types';
 import { writeFakeAntigravity } from './fake-antigravity';
@@ -349,10 +349,13 @@ describe("Antigravity's settings and home for one run", () => {
   beforeAll(() => (root = mkdtempSync(join(tmpdir(), 'relay-agy-run-'))));
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-  it("keeps only the account's model and service, asks about everything below full access, and uses a Gemini API key when it has one", () => {
+  it("keeps only the account's model, asks about everything below full access, and always runs on the Gemini API key", () => {
     const own = {
       model: 'gemini-4-argon-high',
+      customModelsConfig: { x: 1 },
       gcp: { project: 'p1' },
+      modelProvider: 'vertex',
+      useG1Credits: true,
       toolPermission: 'always-proceed',
       agentMode: 'accept-edits',
       allowNonWorkspaceAccess: true,
@@ -362,72 +365,52 @@ describe("Antigravity's settings and home for one run", () => {
       enableTerminalSandbox: true,
       colorScheme: 'dark',
     };
-    // What decides what runs without asking, or runs a command, is never kept (agy reads the run's settings only).
-    expect(antigravityRunSettings(own, 'edit', false)).toEqual({
+    // What decides what runs without asking, runs a command, or signs in and pays (another service, a
+    // Google Cloud project, a Google AI plan's AI credits) is never kept: agy reads the run's settings only.
+    expect(antigravityRunSettings(own, 'edit')).toEqual({
       model: 'gemini-4-argon-high',
-      gcp: { project: 'p1' },
+      customModelsConfig: { x: 1 },
       toolPermission: 'request-review',
       agentMode: '',
       allowNonWorkspaceAccess: false,
+      modelProvider: 'gemini',
     });
-    expect(antigravityRunSettings(own, 'read-only', true)).toMatchObject({
+    expect(antigravityRunSettings(own, 'read-only')).toMatchObject({
       toolPermission: 'request-review',
       allowNonWorkspaceAccess: false,
       modelProvider: 'gemini',
     });
-    expect(antigravityRunSettings(undefined, 'full', false)).toEqual({ toolPermission: 'always-proceed', agentMode: '' });
-    expect(antigravityRunSettings([1, 2], 'edit', false)).toEqual({
+    expect(antigravityRunSettings(undefined, 'full')).toEqual({ toolPermission: 'always-proceed', agentMode: '', modelProvider: 'gemini' });
+    expect(antigravityRunSettings([1, 2], 'edit')).toEqual({
       toolPermission: 'request-review',
       agentMode: '',
       allowNonWorkspaceAccess: false,
+      modelProvider: 'gemini',
     });
-    // An account that runs on its key only is told to use it, also without one (agy then fails, never takes the default account's sign-in).
-    expect(antigravityRunSettings(undefined, 'edit', false, true)).toMatchObject({ modelProvider: 'gemini' });
-    expect(Object.keys(antigravityRunSettings(own, 'edit', false))).toEqual(
-      expect.not.arrayContaining(['permissions', 'trustedWorkspaces', 'statusLine', 'enableTerminalSandbox']),
-    );
+    expect(ANTIGRAVITY_PROBE_SETTINGS).toEqual(['--settings', JSON.stringify({ modelProvider: 'gemini' })]);
   });
 
-  it("keeps the account's choice of running on its AI credits once a quota is used up, as agy's own CLI takes it, never with a key", () => {
-    // agy's ACP server reads the run's settings alone, so the choice is carried there: from the account's or the Antigravity app's.
-    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', false)).toMatchObject({ useG1Credits: true });
-    expect(antigravityRunSettings({ useG1Credits: false }, 'edit', false, false, true)).toMatchObject({ useG1Credits: true });
-    expect(antigravityRunSettings({ useG1Credits: false }, 'full', false)).not.toHaveProperty('useG1Credits');
-    expect(antigravityRunSettings({ useG1Credits: 'yes' }, 'edit', false)).not.toHaveProperty('useG1Credits');
-    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', true, false, true)).not.toHaveProperty('useG1Credits');
-    expect(antigravityRunSettings({ useG1Credits: true }, 'edit', false, true, true)).not.toHaveProperty('useG1Credits');
-  });
-
-  it("reads whether AI credits are on from the account's settings or the Antigravity app's, and gives a run that choice", () => {
+  it("never carries a Google sign-in's AI credits into a run, whatever the account's or the Antigravity app's settings say", () => {
     const gemini = join(root, 'credits', '.gemini');
     const app = join(gemini, 'antigravity-cli');
     mkdirSync(join(gemini, 'config'), { recursive: true });
     mkdirSync(app, { recursive: true });
-    const runCredits = () => {
-      const run = prepareAntigravityRun(app, 'edit', false);
-      try {
-        return (JSON.parse(readFileSync(join(run.dir, 'settings.json'), 'utf8')) as Record<string, unknown>).useG1Credits;
-      } finally {
-        run.done();
-      }
-    };
-    expect(antigravityAiCredits(app)).toBe(false); // neither file yet
-    expect(runCredits()).toBeUndefined();
-    writeFileSync(join(app, 'settings.json'), JSON.stringify({ useG1Credits: true }));
-    expect(antigravityAiCredits(app)).toBe(true);
-    expect(runCredits()).toBe(true);
-    // agy's own CLI takes the app's setting over its own turned off ("inherited useG1Credits=true"), in either spelling.
-    writeFileSync(join(app, 'settings.json'), JSON.stringify({ useG1Credits: false }));
-    for (const shared of [{ userSettings: { useAiCredits: true } }, { user_settings: { use_ai_credits: true } }]) {
-      writeFileSync(join(gemini, 'config', 'config.json'), JSON.stringify({ plugins: {}, ...shared }));
-      expect(antigravityAiCredits(app)).toBe(true);
-      expect(runCredits()).toBe(true);
+    writeFileSync(join(app, 'settings.json'), JSON.stringify({ useG1Credits: true, modelProvider: 'google' }));
+    writeFileSync(join(gemini, 'config', 'config.json'), JSON.stringify({ userSettings: { useAiCredits: true } }));
+    const run = prepareAntigravityRun(app, 'edit');
+    try {
+      const written = JSON.parse(readFileSync(join(run.dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+      expect(written).not.toHaveProperty('useG1Credits');
+      expect(written.modelProvider).toBe('gemini');
+    } finally {
+      run.done();
     }
-    writeFileSync(join(gemini, 'config', 'config.json'), JSON.stringify({ userSettings: { useAiCredits: false } }));
-    expect(antigravityAiCredits(app)).toBe(false);
-    expect(runCredits()).toBeUndefined();
-    writeFileSync(join(gemini, 'config', 'config.json'), 'not json');
-    expect(antigravityAiCredits(app)).toBe(false);
+  });
+
+  it('has a key only with a Gemini API key that is not empty', () => {
+    expect(antigravityHasKey({ GEMINI_API_KEY: 'AIza-x' })).toBe(true);
+    for (const env of [{}, { GEMINI_API_KEY: '' }, { GEMINI_API_KEY: '  ' }, { AGY_ADC_AUTH: '1' }])
+      expect(antigravityHasKey(env)).toBe(false);
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -436,7 +419,7 @@ describe("Antigravity's settings and home for one run", () => {
       const app = join(root, 'acct', '.gemini', 'antigravity-cli');
       mkdirSync(app, { recursive: true });
       writeFileSync(join(app, 'settings.json'), JSON.stringify({ toolPermission: 'proceed-in-sandbox' }));
-      const run = prepareAntigravityRun(app, 'edit', true);
+      const run = prepareAntigravityRun(app, 'edit');
       expect(run.name.startsWith(ANTIGRAVITY_RUN_PREFIX)).toBe(true);
       expect(statSync(run.dir).mode & 0o777).toBe(0o700);
       expect(statSync(join(run.dir, 'settings.json')).mode & 0o777).toBe(0o600);
@@ -462,12 +445,12 @@ describe("Antigravity's settings and home for one run", () => {
       mkdirSync(recent, { recursive: true });
       const long = new Date(Date.now() - TURN_TIMEOUT_MS - 2 * 60_000); // older than a turn may last, and the minute after it
       utimesSync(old, long, long);
-      const run = prepareAntigravityRun(app, 'edit', false);
+      const run = prepareAntigravityRun(app, 'edit');
       expect(existsSync(old)).toBe(false);
       expect(existsSync(recent)).toBe(true); // another Harness Relay on the same home may be running it
       // A run of this server still under way is never swept, however old its folder looks.
       utimesSync(run.dir, long, long);
-      const next = prepareAntigravityRun(app, 'edit', false);
+      const next = prepareAntigravityRun(app, 'edit');
       expect(existsSync(run.dir)).toBe(true);
       next.done();
       run.done();
@@ -871,12 +854,23 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(r.approvals).toEqual([]);
   });
 
-  it('says to sign in when agy is not signed in', async () => {
+  it('says to check the key when agy does not sign in with it', async () => {
     const r = run('signedout', { prompt: 'hi' });
-    delete r.o.env.GEMINI_API_KEY;
     await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(
-      withLang('en', () => t().antigravitySignIn('Authentication required')),
+      withLang('en', () => t().antigravityKeyRefused('Authentication required')),
     );
+  });
+
+  it('does not start agy without a Gemini API key, so never on a Google sign-in it keeps', async () => {
+    for (const key of [undefined, '', '  ']) {
+      const r = run(undefined, { prompt: 'hi', permission: 'full' });
+      if (key === undefined) delete r.o.env.GEMINI_API_KEY;
+      else r.o.env.GEMINI_API_KEY = key;
+      await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(withLang('en', () => t().antigravityNoKey));
+      expect(r.log()).toEqual([]); // agy never started
+      // Before the project's own setup is asked about: nothing would run anyway.
+      expect(r.approvals).toEqual([]);
+    }
   });
 
   it('stops a turn: it cancels the session, and the run ends as stopped', async () => {
@@ -900,26 +894,52 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(r.log()).toEqual([]);
   });
 
-  it("asks agy for its models and what it loads in the account's home, telling it to use a Gemini API key when there is one", async () => {
+  it("asks agy for its models and what it loads in the account's home, on its Gemini API key, and never without one", async () => {
     const { discoverModels } = await import('../src/server/models');
     const { NativeSetupService } = await import('../src/server/native');
     const r = run(undefined);
     const env = { ...r.o.env, FAKE_AGY_CLI: CLI };
     const keyed = await discoverModels('antigravity', bin, env);
     expect(keyed.models.map((m) => m.id)).toContain('gemini-4-argon');
-    const signedOut = await discoverModels('antigravity', bin, { ...env, GEMINI_API_KEY: '', FAKE_AGY_MODELS: 'models-signed-out.txt' });
-    expect(signedOut.models).toEqual([]);
-    expect(signedOut.error).toContain('Please sign in');
+    const refused = await discoverModels('antigravity', bin, { ...env, FAKE_AGY_MODELS: 'models-signed-out.txt' });
+    expect(refused.models).toEqual([]);
+    expect(refused.error).toContain('Please sign in');
     const probe = await new NativeSetupService({ env: () => env, bin: () => bin } as never).get('antigravity', r.o.cwd);
     expect(probe.skills.some((x) => x.name === 'demo-skill')).toBe(true);
     expect(probe.problems).toEqual([]);
     const starts = r.log().filter((l) => l.start);
     const settings = JSON.stringify({ modelProvider: 'gemini' });
-    expect(starts.filter((l) => l.argv.includes('models')).map((l) => l.argv)).toEqual([['--settings', settings, 'models'], ['models']]);
+    expect(starts.filter((l) => l.argv.includes('models')).map((l) => l.argv)).toEqual([
+      ['--settings', settings, 'models'],
+      ['--settings', settings, 'models'],
+    ]);
     expect(starts.filter((l) => l.argv[0] === '-p').map((l) => l.argv.slice(1))).toEqual(
       expect.arrayContaining([['/skills', '--output-format', 'json', '--settings', settings]]),
     );
+    // Its plugins too, with the settings before the subcommand.
+    expect(starts.filter((l) => l.argv.includes('plugin')).map((l) => l.argv)).toEqual([
+      ['--settings', settings, 'plugin', 'list', '--json'],
+    ]);
     expect(starts.every((l) => l.env.HOME === r.home && l.env.SSH_CONNECTION)).toBe(true);
+
+    // Without a key, agy is not asked at all (it would answer on a Google sign-in it keeps): what its
+    // files say still shows, and the setup says why the rest is missing.
+    const before = r.log().length;
+    const keyless = { ...env, GEMINI_API_KEY: '' };
+    const none = await withLang('en', () => discoverModels('antigravity', bin, keyless));
+    expect(none).toMatchObject({ models: [], source: 'builtin', error: withLang('en', () => t().antigravityModelsNoKey) });
+    mkdirSync(join(r.o.cwd, '.agents'), { recursive: true });
+    writeFileSync(join(r.o.cwd, '.agents', 'mcp_config.json'), JSON.stringify({ mcpServers: { files: { command: 'x' } } }));
+    const unasked = await withLang('en', () =>
+      new NativeSetupService({ env: () => keyless, bin: () => bin } as never).get('antigravity', r.o.cwd),
+    );
+    expect(unasked.skills).toEqual([]);
+    expect(unasked.mcpServers.map((m) => m.name)).toContain('files');
+    expect(unasked.problems).toEqual([{ kind: 'no-key' }]);
+    expect(withLang('en', () => nativeProblemText('antigravity', unasked.problems[0]!))).toBe(
+      withLang('en', () => t().nativeNoKey('Antigravity')),
+    );
+    expect(r.log().length).toBe(before);
   });
 
   it("asks before agy runs a project's own MCP servers, hooks or plugins, and does not start when that is refused", async () => {
@@ -955,14 +975,12 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(full.approvals).toEqual([]);
   });
 
-  it('keeps an account besides the default one on its own key: told to use it, never on the default sign-in', async () => {
+  it('runs on its Gemini API key, which agy is told to use, never on a Google sign-in it keeps', async () => {
     const r = run(undefined);
-    r.o.env.HARNESS_RELAY_ANTIGRAVITY_KEY_ONLY = '1';
-    delete r.o.env.GEMINI_API_KEY;
     await antigravityRunner.run(r.o);
     const start = r.log()[0]!;
     expect(start.settings).toMatchObject({ modelProvider: 'gemini' });
-    expect(start.env.HARNESS_RELAY_ANTIGRAVITY_KEY_ONLY).toBeUndefined(); // not passed on (not in the stand-in's list either)
+    expect(start.env.GEMINI_API_KEY).toBe('AIza-test-0000');
   });
 
   it('fails plainly when agy rejects a model, a thinking level or the default mode, or ends the turn by itself', async () => {
@@ -1033,20 +1051,6 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     await antigravityRunner.run(r.o);
     expect(sent(r, 'session/new')!.params._meta).toBeUndefined();
     expect(sent(r, 'session/prompt')!.params.prompt[0].text).toBe(antigravityPromptText('Write hello.txt', 'Be @Ada.'));
-  });
-
-  it("says what went wrong when agy's logout fails", async () => {
-    const r = run(undefined);
-    r.o.env.FAKE_AGY_LOGOUT_FAIL = '1';
-    await expect(antigravityLogout(bin, r.o.env, 10_000)).rejects.toThrow('keyring locked');
-  });
-
-  it("signs out with agy's ACP logout, in the account's home", async () => {
-    const r = run(undefined);
-    await antigravityLogout(bin, r.o.env, 10_000);
-    expect(methods(r)).toEqual(['initialize', 'logout']);
-    expect(r.log()[0]!.argv).toEqual(['acp', '--gemini-dir', join(r.home, '.gemini')]);
-    expect(r.log()[0]!.env.SSH_CONNECTION).toBeTruthy();
   });
 });
 

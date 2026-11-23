@@ -9,9 +9,9 @@ import type { RelayServer } from '../support/relay';
 /*
  * Each account's plan usage in Settings, as its CLI reports it without a prompt (Claude Code's
  * `get_usage`, Codex's `account/rateLimits/read`, Grok's `_x.ai/billing`, `muse usage --json`,
- * Copilot's `account.getQuota` on its headless server, Antigravity's `/usage` and `/credits` in print
- * mode, Cursor's plan from `about`). The fakes report 42% used for the default sign-in (e2e@example.com) and 7% for
- * any other account, so that each account shows its own.
+ * Copilot's `account.getQuota` on its headless server, Cursor's plan from `about`); Antigravity, on a
+ * Gemini API key only, has no plan and is never asked. The fakes report 42% used for the default sign-in
+ * (e2e@example.com) and 7% for any other account, so that each account shows its own.
  */
 
 /** An account's box in a CLI's card in Settings, by the name it shows. */
@@ -60,6 +60,8 @@ test.describe('plan usage in Settings', () => {
       }
       if (u.note) await expect(panel).toContainText(u.note);
       await expect(panel.locator('.error-line')).toHaveCount(0);
+      // One that runs on a key only has no plan to ask its CLI about.
+      if (cli.defaultKeyOnly) expect(usageAsked(relay, cli.provider)).toEqual([]);
     });
   });
 
