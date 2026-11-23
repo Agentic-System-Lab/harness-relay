@@ -6,6 +6,7 @@ import type {
   ConversationBranch,
   ConversationSummary,
   MessagePart,
+  HandoverPart,
   Mode,
   PlanEntry,
   ProgressStatus,
@@ -14,8 +15,10 @@ import type {
   TeamPlan,
   TeamRevision,
   MessageChanges,
+  StepsPart,
 } from '../shared/types';
 import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
+
 import { ApiError } from './api';
 import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';
@@ -387,12 +390,22 @@ export type Segment =
   | { kind: 'approval'; part: ApprovalPart; key: number }
   | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
   | { kind: 'outbox'; part: OutboxPart; key: number }
+  /** The agent handed the chat's browser to the user (`browser_hand_over`). */
+  | { kind: 'handover'; part: HandoverPart; key: number }
   /** What the reply saved to long-term memory. */
   | { kind: 'memory'; part: MemoryPart; key: number }
   /** A schedule the reply proposed, for the user to create or dismiss. */
   | { kind: 'schedule'; part: SchedulePart; key: number }
   /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
-  | { kind: 'notice'; text: string; key: number };
+  | { kind: 'notice'; text: string; key: number }
+  /** The secrets the reply asks the user for. */
+  | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
+  /** A fixed command the reply proposes. */
+  | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
+  /** Steps the reply asks the user to take outside Harness Relay. */
+  | { kind: 'steps'; part: StepsPart; key: number }
+  /** A command the reply asks the user to run themselves. */
+  | { kind: 'interactive'; part: Extract<MessagePart, { type: 'interactive' }>; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 export type MemoryPart = Extract<MessagePart, { type: 'memory' }>;
@@ -451,6 +464,9 @@ export function segments(parts: MessagePart[]): Segment[] {
       case 'outbox':
         out.push({ kind: 'outbox', part: p, key: i });
         break;
+      case 'handover':
+        out.push({ kind: 'handover', part: p, key: i });
+        break;
       case 'memory':
         if (p.notes.length) out.push({ kind: 'memory', part: p, key: i });
         break;
@@ -460,6 +476,18 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'notice':
         out.push({ kind: 'notice', text: p.text, key: i });
+        break;
+      case 'secrets':
+        if (p.asks.length) out.push({ kind: 'secrets', part: p, key: i });
+        break;
+      case 'command':
+        out.push({ kind: 'command', part: p, key: i });
+        break;
+      case 'steps':
+        if (p.items.length) out.push({ kind: 'steps', part: p, key: i });
+        break;
+      case 'interactive':
+        out.push({ kind: 'interactive', part: p, key: i });
         break;
     }
   });
@@ -542,6 +570,21 @@ export function isPathDetail(detail: string): boolean {
   if (detail.startsWith('…')) return !detail.endsWith('…');
   if (detail.endsWith('…') || /\s/.test(detail) || detail.includes('://') || /[|*;$"'<>=]/.test(detail)) return false;
   return detail.includes('/') || /^(?:[A-Za-z]:\\|\\\\|\.{1,2}\\|~\\)/.test(detail);
+}
+
+/** Past this many characters, an answered request's command is folded. */
+export const FOLD_DETAIL_CHARS = 160;
+
+/**
+ * What an answered request shows of a long command until it is opened: its first line, and how many
+ * lines come after it. None for a command short enough to show as it is (at most `FOLD_DETAIL_CHARS`
+ * characters, on one line or a few short ones).
+ */
+export function foldedDetail(detail: string): { head: string; more: number } | undefined {
+  const text = detail.trim();
+  if (text.length <= FOLD_DETAIL_CHARS) return undefined;
+  const lines = text.split('\n');
+  return { head: lines[0].trim(), more: lines.length - 1 };
 }
 
 /** A line of thinking as a one-line preview: bold and heading marks taken out. */

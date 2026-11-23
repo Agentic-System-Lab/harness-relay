@@ -428,6 +428,27 @@ describe.skipIf(!chromium)('the browser itself', () => {
         return void req.on('close', () => (hangClosed = true));
       }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
+      if (url.pathname === '/leave')
+        // A form page that asks "Leave site?" before it is closed or left.
+        return res.end(
+          `<title>Leave</title><p>Unsaved</p><script>addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = '' })</script>`,
+        );
+      if (url.pathname === '/handover')
+        // A field over the top half of the page and a button over the bottom half: clicked by where they are.
+        return res.end(
+          `<title>Hand over</title><input id="f" style="position:fixed;left:0;top:0;width:100%;height:50%;font-size:40px">` +
+            `<button style="position:fixed;left:0;top:50%;width:100%;height:50%" onclick="document.title = 'Clicked ' + document.getElementById('f').value">Go</button>`,
+        );
+      if (url.pathname === '/rebind')
+        // A page asking its own host for something, again and again.
+        return res.end(
+          `<title>Rebind</title><script>let n = 0; setInterval(() => fetch('/rebind-fetch?n=' + n++, { mode: 'no-cors' }).catch(() => {}), 100)</script>`,
+        );
+      if (url.pathname === '/perms')
+        // What the page may have of the site permissions: each one's state, in its title.
+        return res.end(
+          `<title>Perms</title><script>Promise.all(['geolocation','notifications','camera','microphone','clipboard-read'].map((n) => navigator.permissions.query({ name: n }).then((r) => n + '=' + r.state, () => n + '=?'))).then((r) => (document.title = r.join(' ')))</script>`,
+        );
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
       if (url.pathname === '/search')
@@ -827,6 +848,354 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await browser.close('conv-turn-ends', true);
     },
     slow(60_000),
+  );
+
+  it(
+    'hands the page to the user as a screencast: frames at the size of their panel, their clicks and typing, and only how it ended back to the agent',
+    async () => {
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      const own = ctx({ convId: 'conv-handover', permission: 'full', handoverCard: card as never });
+      const handing = browser.handOver(own, 'Sign in to the test site', `http://127.0.0.1:${port}/handover?code=secret`);
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+      // This computer shows no window here (no `windowAt`): the screencast only. The card's page has no query.
+      expect(cards[0]).toMatchObject({
+        reason: 'Sign in to the test site',
+        url: `http://127.0.0.1:${port}/handover`,
+        modes: ['screencast'],
+      });
+      const id = String(cards[0]!.id);
+      // Meanwhile another call of the chat's waits for the hand-over.
+      let read = false;
+      const waiting = browser.snapshot(ctx({ convId: 'conv-handover', permission: 'full' })).then((p) => ((read = true), p));
+      expect(browser.handovers.answer('conv-handover', id, { action: 'start', mode: 'window' })).toBe('mode');
+      expect(browser.handovers.answer('conv-handover', id, { action: 'start', mode: 'screencast' })).toBeUndefined();
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('active'), { timeout: slow(10_000) });
+      const frames: { width: number; height: number }[] = [];
+      const locations: string[] = [];
+      await vi.waitFor(() => {
+        const watching = browser.handovers.watch('conv-handover', id, (e) => {
+          if (e.type === 'frame') frames.push({ width: e.width, height: e.height });
+          if (e.type === 'location') locations.push(e.url);
+        });
+        expect(typeof watching).toBe('function');
+      });
+      // A phone's panel: the page is laid out to it.
+      expect(await browser.handovers.input('conv-handover', id, [{ type: 'viewport', width: 400, height: 700 }])).toBeUndefined();
+      await vi.waitFor(() => expect(frames.at(-1)).toEqual({ width: 400, height: 700 }), { timeout: slow(10_000) });
+      expect(locations[0]).toBe(`http://127.0.0.1:${port}/handover?code=secret`);
+      await browser.handovers.input('conv-handover', id, [
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.25, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.25, clicks: 1 },
+        { type: 'text', text: '注音' },
+        { type: 'key', key: 'x', code: 'KeyX', keyCode: 88, text: 'x' },
+        { type: 'mouse', action: 'down', x: 0.5, y: 0.75, clicks: 1 },
+        { type: 'mouse', action: 'up', x: 0.5, y: 0.75, clicks: 1 },
+      ]);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(read).toBe(false);
+      expect(browser.handovers.answer('conv-handover', id, { action: 'done', note: 'Typed it' })).toBeUndefined();
+      expect(await handing).toEqual({
+        text: `The user took over the browser and handed it back, saying: "Typed it". The page is open as they left it. What they signed in to stays in this conversation's browser: read the page with browser_snapshot before going on.`,
+      });
+      expect(cards[0]).toMatchObject({ status: 'done', mode: 'screencast', note: 'Typed it' });
+      // The agents' calls go on with the page as the user left it, at their own size again.
+      expect((await waiting).title).toBe('Clicked 注音x');
+      expect(await browser.handovers.input('conv-handover', id, [{ type: 'text', text: 'late' }])).toBe('missing');
+
+      // Declined: the agent hears so, and its note.
+      const declining = browser.handOver(own, 'Again');
+      await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(10_000) });
+      expect(browser.handovers.answer('conv-handover', String(cards[1]!.id), { action: 'cancel', note: 'Not now' })).toBeUndefined();
+      expect(await declining).toEqual({ text: 'The user declined to take over the browser, saying: "Not now".', isError: true });
+      expect(cards[1]).toMatchObject({ status: 'declined', note: 'Not now' });
+
+      // The turn ends while it waits: the card says so, and the call fails as a turn's call does.
+      const turn = new AbortController();
+      const ending = browser.handOver({ ...own, signal: turn.signal }, 'Once more');
+      await vi.waitFor(() => expect(cards[2]?.status).toBe('pending'), { timeout: slow(10_000) });
+      turn.abort();
+      await expect(ending).rejects.toThrow('The turn ended');
+      expect(cards[2]).toMatchObject({ status: 'expired', ended: 'turn' });
+      await browser.close('conv-handover', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "lets the user open an address and go back, forward and reload in a hand-over's screencast, asking about a new host as the agents' pages do",
+    async () => {
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      // Below full access: a host the chat's browser has not opened asks.
+      const own = ctx({ convId: 'conv-address', permission: 'edit', handoverCard: card as never });
+      allow = true;
+      const handing = browser.handOver(own, 'Find the page', `http://127.0.0.1:${port}/handover`);
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+      const id = String(cards[0]!.id);
+      expect(browser.handovers.answer('conv-address', id, { action: 'start', mode: 'screencast' })).toBeUndefined();
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('active'), { timeout: slow(10_000) });
+      const at: { url: string; back: boolean; forward: boolean }[] = [];
+      const notices: { kind: string; url?: string }[] = [];
+      await vi.waitFor(() => {
+        const watching = browser.handovers.watch('conv-address', id, (e) => {
+          if (e.type === 'location') at.push({ url: e.url, back: e.back, forward: e.forward });
+          if (e.type === 'notice') notices.push({ kind: e.kind, ...(e.url ? { url: e.url } : {}) });
+        });
+        expect(typeof watching).toBe('function');
+      });
+      const now = () => at.at(-1);
+      await vi.waitFor(() => expect(now()?.url).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(10_000) });
+      const before = asked.length;
+
+      // An address typed in its bar, on a host the chat's browser has not opened: asked about, then opened.
+      expect(
+        await browser.handovers.input('conv-address', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]),
+      ).toBeUndefined();
+      await vi.waitFor(() => expect(now()).toEqual({ url: `http://localhost:${port}/next`, back: true, forward: false }), {
+        timeout: slow(20_000),
+      });
+      expect(asked.slice(before).map((r) => r.detail)).toEqual([expect.stringContaining(`localhost:${port}`)]);
+
+      // Back, forward and reload, in that order (the blank page the tab opened with is behind the first page).
+      await browser.handovers.input('conv-address', id, [{ type: 'history', to: 'back' }]);
+      await vi.waitFor(() => expect(now()).toMatchObject({ url: `http://127.0.0.1:${port}/handover`, forward: true }), {
+        timeout: slow(10_000),
+      });
+      await browser.handovers.input('conv-address', id, [{ type: 'history', to: 'forward' }]);
+      await vi.waitFor(() => expect(now()).toEqual({ url: `http://localhost:${port}/next`, back: true, forward: false }), {
+        timeout: slow(10_000),
+      });
+      const loads = () => hits.filter((h) => h === '/next').length;
+      const loaded = loads();
+      await browser.handovers.input('conv-address', id, [{ type: 'history', to: 'reload' }]);
+      await vi.waitFor(() => expect(loads()).toBe(loaded + 1), { timeout: slow(10_000) });
+      expect(now()?.url).toBe(`http://localhost:${port}/next`);
+
+      // Never Harness Relay's own port, nor another scheme: refused at once, the page where it was.
+      await browser.handovers.input('conv-address', id, [{ type: 'navigate', url: `http://127.0.0.1:${relayPort}/x` }]);
+      await browser.handovers.input('conv-address', id, [{ type: 'navigate', url: 'file:///etc/passwd' }]);
+      await vi.waitFor(() =>
+        expect(notices).toEqual([
+          { kind: 'refused', url: `http://127.0.0.1:${relayPort}/x` },
+          { kind: 'refused', url: 'file:///etc/passwd' },
+        ]),
+      );
+      expect(relayHits).not.toContain('/x');
+      expect(now()?.url).toBe(`http://localhost:${port}/next`);
+
+      expect(browser.handovers.answer('conv-address', id, { action: 'done' })).toBeUndefined();
+      await handing;
+      // The agents go on where the user ended.
+      expect((await browser.snapshot(ctx({ convId: 'conv-address', permission: 'edit' }))).url).toBe(`http://localhost:${port}/next`);
+      await browser.close('conv-address', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "tells pages it is automated while the agents drive it (a person driving it, as in a hand-over's window, is not)",
+    async () => {
+      await browser.open(ctx({ convId: 'conv-webdriver', permission: 'full' }), `http://127.0.0.1:${port}/`);
+      const s = await (
+        browser as unknown as { sessions: Map<string, Promise<{ send: <T>(m: string, p: Record<string, unknown>) => Promise<T> }>> }
+      ).sessions.get('conv-webdriver')!;
+      const webdriver = await s.send<{ result: { value: unknown } }>('Runtime.evaluate', {
+        expression: 'navigator.webdriver',
+        returnByValue: true,
+      });
+      expect(webdriver.result.value).toBe(true);
+      await browser.close('conv-webdriver', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'denies every site the location, notifications, the camera, the microphone and reading the clipboard',
+    async () => {
+      const own = ctx({ convId: 'conv-perms', permission: 'full' });
+      await browser.open(own, `http://127.0.0.1:${port}/perms`);
+      await vi.waitFor(async () =>
+        expect((await browser.snapshot(own)).title).toBe(
+          'geolocation=denied notifications=denied camera=denied microphone=denied clipboard-read=denied',
+        ),
+      );
+      await browser.close('conv-perms', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "ends a hand-over its caller stopped waiting for (the CLI's own time limit), or whose screencast will not start, and says so on its card",
+    async () => {
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      let gone = false;
+      const handing = browser.handOver(
+        ctx({ convId: 'conv-gone', permission: 'full', handoverCard: card as never }),
+        'Sign in',
+        undefined,
+        () => gone,
+      );
+      await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+      gone = true;
+      expect(await handing).toEqual({ text: "The agent's CLI stopped waiting for this call, so the hand-over ended.", isError: true });
+      expect(cards[0]).toMatchObject({ status: 'expired', ended: 'gone' });
+
+      // A screencast that will not start: the card says the browser could not be shown, never "in your hands".
+      const broken = browser as unknown as { screencast: (...a: unknown[]) => Promise<unknown> };
+      const screencast = broken.screencast;
+      broken.screencast = async () => {
+        throw new Error('Page.startScreencast: not available');
+      };
+      try {
+        const failing = browser.handOver(ctx({ convId: 'conv-gone', permission: 'full', handoverCard: card as never }), 'Sign in');
+        await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(20_000) });
+        browser.handovers.answer('conv-gone', String(cards[1]!.id), { action: 'start', mode: 'screencast' });
+        const failed = await failing;
+        expect(failed).toMatchObject({
+          isError: true,
+          text: expect.stringMatching(/could not be shown to the user: Page.startScreencast/),
+        });
+        // Its page is still open: the agent is not told to open it again.
+        expect(failed.text).not.toMatch(/browser_open/);
+        expect(cards[1]).toMatchObject({ status: 'expired', ended: 'failed' });
+      } finally {
+        broken.screencast = screencast;
+      }
+      await browser.close('conv-gone', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "keeps a hand-over's window to one tab and the web (headless here, with the window's rules), and opens its page again after it",
+    async () => {
+      const win = new BrowserService({
+        dataDir: join(root, 'data'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        windowAt: () => 'server',
+        windowHeadless: true,
+      });
+      const cards: Record<string, unknown>[] = [];
+      const card = (part: Record<string, unknown>) => {
+        const shown = { ...part };
+        cards.push(shown);
+        return { update: (change: Record<string, unknown>) => Object.assign(shown, change) };
+      };
+      const own = ctx({ convId: 'conv-window', permission: 'full', handoverCard: card as never });
+      type Session = {
+        windowed: boolean;
+        targetId: string;
+        cdp: { send: <T>(m: string, p?: Record<string, unknown>) => Promise<T> };
+        send: <T>(m: string, p?: Record<string, unknown>) => Promise<T>;
+      };
+      const windowSession = async () => {
+        let w: Session | undefined;
+        await vi.waitFor(
+          async () => {
+            w = (await (win as unknown as { sessions: Map<string, Promise<Session>> }).sessions.get('conv-window')) ?? undefined;
+            expect(w?.windowed).toBe(true);
+          },
+          { timeout: slow(20_000) },
+        );
+        return w!;
+      };
+      const here = async (w: Session) => {
+        const h = await w.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory');
+        return h.entries[h.currentIndex]!.url;
+      };
+      try {
+        const handing = win.handOver(own, 'Sign in', `http://127.0.0.1:${port}/handover`);
+        await vi.waitFor(() => expect(cards[0]?.status).toBe('pending'), { timeout: slow(20_000) });
+        expect(cards[0]).toMatchObject({ modes: ['window', 'screencast'], windowAt: 'server' });
+        expect(win.handovers.answer('conv-window', String(cards[0]!.id), { action: 'start', mode: 'window' })).toBeUndefined();
+        const w = await windowSession();
+        // Nobody watches a window as a screencast.
+        expect(win.handovers.watch('conv-window', String(cards[0]!.id), () => undefined)).toBe('state');
+        await vi.waitFor(async () => expect(await here(w)).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(20_000) });
+        // The user drives the window: no page is told it is automated (the agents' headless browser is, after it).
+        expect(
+          (await w.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
+            .result.value,
+        ).toBe(false);
+        // A tab the user opens (Chromium's new tab page, another window): closed at once.
+        const tab = await w.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'chrome://newtab/' });
+        const page = async () =>
+          (await w.cdp.send<{ targetInfos: { targetId: string; type: string }[] }>('Target.getTargets')).targetInfos
+            .filter((t) => t.type === 'page')
+            .map((t) => t.targetId);
+        await vi.waitFor(async () => expect(await page()).toEqual([w.targetId]), { timeout: slow(10_000) });
+        expect(tab.targetId).not.toBe(w.targetId);
+        // Chromium's own page in its tab (its settings, its flags): back to the web page before it.
+        await w.send('Page.navigate', { url: 'chrome://settings/' }).catch(() => undefined);
+        await vi.waitFor(async () => expect(await here(w)).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(10_000) });
+        expect(win.handovers.answer('conv-window', String(cards[0]!.id), { action: 'done' })).toBeUndefined();
+        expect((await handing).text).toMatch(/The browser opened again without a window, at the page the user ended on/);
+        expect((await win.snapshot(own)).title).toBe('Hand over');
+        // The agents' browser, opened again without a window, tells pages it is automated once more.
+        const agents = await (win as unknown as { sessions: Map<string, Promise<Session>> }).sessions.get('conv-window')!;
+        expect(agents.windowed).toBe(false);
+        expect(
+          (
+            await agents.send<{ result: { value: unknown } }>('Runtime.evaluate', {
+              expression: 'navigator.webdriver',
+              returnByValue: true,
+            })
+          ).result.value,
+        ).toBe(true);
+
+        // A window gone at once (no display it could open on, say): not handed back.
+        const quick = win.handOver(own, 'Again');
+        await vi.waitFor(() => expect(cards[1]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[1]!.id), { action: 'start', mode: 'window' });
+        const w2 = await windowSession();
+        await w2.cdp.send('Target.closeTarget', { targetId: w2.targetId });
+        expect(await quick).toMatchObject({ isError: true, text: expect.stringMatching(/could not be shown/) });
+        expect(cards[1]).toMatchObject({ status: 'expired', ended: 'failed' });
+
+        // The turn ends while the user has the window: the next call opens again the page it was on.
+        const turn = new AbortController();
+        const cut = win.handOver({ ...own, signal: turn.signal }, 'Once more', `http://127.0.0.1:${port}/next`);
+        await vi.waitFor(() => expect(cards[2]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[2]!.id), { action: 'start', mode: 'window' });
+        const w3 = await windowSession();
+        await vi.waitFor(async () => expect(await here(w3)).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(20_000) });
+        turn.abort();
+        await expect(cut).rejects.toThrow('The turn ended');
+        const after = await win.snapshot(ctx({ convId: 'conv-window', permission: 'full' }));
+        expect(after.url).toBe(`http://127.0.0.1:${port}/next`);
+
+        // A form page asks "Leave site?" as the user closes the window: it closes all the same, and the hand-over ends.
+        const leaving = win.handOver(own, 'Fill the form', `http://127.0.0.1:${port}/leave`);
+        await vi.waitFor(() => expect(cards[3]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[3]!.id), { action: 'start', mode: 'window' });
+        const w4 = await windowSession();
+        await vi.waitFor(async () => expect(await here(w4)).toBe(`http://127.0.0.1:${port}/leave`), { timeout: slow(20_000) });
+        // The page needs a person's click before it may ask.
+        for (const type of ['mousePressed', 'mouseReleased'])
+          await w4.send('Input.dispatchMouseEvent', { type, x: 20, y: 20, button: 'left', clickCount: 1 });
+        await w4.send('Page.close');
+        await leaving;
+        expect(['done', 'expired']).toContain(cards[3]!.status);
+      } finally {
+        win.closeAll();
+      }
+    },
+    slow(120_000),
   );
 
   it(

@@ -77,6 +77,20 @@ describe('Approve for me', () => {
     expect(approvals(conv)[0]).toMatchObject({ status: 'denied', note: 'not now', review: { status: 'flagged' } });
   });
 
+  it('allows what the lead agent flags this once only, even when the answer says always', async () => {
+    const conv = solo();
+    fake.approverReply = '{"decision": "ask", "reason": "It downloads code from the network."}';
+    await orchestrator.send(conv.id, 'please install');
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
+    orchestrator.answerApproval(conv.id, approvals(conv)[0]!.id, { allow: true, always: true });
+    await finish(conv.id);
+    expect(lastReply(conv)).toBe('Alice installed');
+    expect(approvals(conv)[0]).toMatchObject({ status: 'allowed', review: { status: 'flagged' } });
+    expect(approvals(conv)[0]!.always).toBeUndefined();
+    // No rule: the next request like it is reviewed again, not let through.
+    expect(conv.allowRules ?? []).toEqual([]);
+  });
+
   it('does not wait for the user while the lead agent reviews, and lets the user answer first', async () => {
     const conv = solo();
     const release = holdReviewer();

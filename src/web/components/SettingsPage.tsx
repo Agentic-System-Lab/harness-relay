@@ -75,6 +75,7 @@ import { HomeScreenGuide } from './HomeScreenGuide';
 import { SessionsCard } from './SessionsSettings';
 import { SharesCard } from './SharesSettings';
 import { PublishCard } from './PublishSettings';
+import { HandoffsCard } from './HandoffsSettings';
 import { ToolsCard } from './ToolsSettings';
 import { VersionCard } from './VersionSettings';
 import { VoiceCard } from './VoiceSettings';
@@ -381,6 +382,7 @@ export function SettingsPage({
 
         <SharesCard />
         <PublishCard />
+        <HandoffsCard />
 
         <BrowsersCard browsers={browsers} />
         <HomeScreenGuide phone={browsers.phone} />

@@ -7,7 +7,7 @@ import type { Permission, PlanEntry } from '../../shared/types';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
-import { patternPath, protectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
+import { patternPath, agentProtectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
 import {
   AgentRunError,
@@ -692,7 +692,7 @@ export const cursorRunner: AgentRunner = {
   provider: 'cursor',
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
-    const deny = o.permission === 'full' ? [] : (o.protectedPaths ?? protectedReads());
+    const deny = o.permission === 'full' ? [] : (o.protectedPaths ?? agentProtectedReads());
     // The team's protected paths (with full access too) are patterns of its own, never checked as names.
     // A path Cursor would read as a pattern would be left unprotected: the run does not start.
     const pattern = patternPath(deny);

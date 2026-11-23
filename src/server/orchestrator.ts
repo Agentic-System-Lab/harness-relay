@@ -25,6 +25,7 @@ import type {
   MessageChanges,
   MessagePart,
   MemoryPartNote,
+  HandoverPart,
   OutboxItem,
   ProgressStatus,
   Provider,
@@ -36,8 +37,19 @@ import type {
   TeamPreset,
   TeamRevision,
   CheckFinding,
+  CodeViewFile,
+  CommandProposal,
+  FixedCommand,
+  FixedCommandRun,
+  InteractiveSession,
+  SecretAsk,
+  HandoffBlock,
+  StepsPart,
 } from '../shared/types';
-import { splitAsk } from '../shared/ask';
+import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS } from '../shared/types';
+import { checkProposal, interactiveLine, maskValues, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
+import { askingReplies, splitAsk } from '../shared/ask';
+import { splitSteps, stepsAnswerText, stepsOfMessage, withoutStepsTail } from '../shared/steps';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
@@ -49,6 +61,7 @@ import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
+  STEPS_LIMITS,
   TEAM_WORKTREE,
   agentLimitsFor,
   STEER_PROVIDERS,
@@ -71,17 +84,35 @@ import {
   GATEWAY_SANDBOXED_MCP,
   gatewayToolNamed,
   reservedMcpName,
+  type GatewayTool,
   type ToolGateway,
 } from './gateway';
 import { outboxAnswerText, type Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
-import { approvalKeys, isAllowed } from './approvals';
+import { approvalKeys, exactLineRule, isAllowed } from './approvals';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
 import { LeadDrafts } from './leadDrafts';
 import { LongTermMemory, memorySeenKey, type MemoryCardRef } from './memory';
 import { splitMemory, type MemoryOp } from '../shared/memory';
+import {
+  defaultFixedCommandDeps,
+  dropPin,
+  codeView,
+  commandFiles,
+  manifestChanges,
+  manifestDigest,
+  pinChanges,
+  pinDiff,
+  pinManifest,
+  runFixedCommand,
+  takePin,
+  type FixedCommandDeps,
+  type PinEntry,
+} from './fixedCommands';
+import type { CommandPin } from './handoffs';
+import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, workdirDigest, type InteractiveDeps } from './interactive';
 import { splitSchedule } from '../shared/scheduleProposal';
 import type { Hub } from './hub';
 import {
@@ -125,6 +156,11 @@ import {
   buildBriefing,
   buildSteerPrompt,
   buildTurnPrompt,
+  handoffsNow,
+  notesForAgent,
+  outboxNotes,
+  commandRunNotes,
+  outputForAgent,
   isForwardable,
   isPass,
   parseMentions,
@@ -209,7 +245,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
-import { currentLang, isBranchTitle, isDefaultTitle, t } from './i18n';
+import { currentLang, isBranchTitle, isDefaultTitle, runForAgent, t, withLang } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
@@ -416,6 +452,11 @@ interface StartOptions {
   question?: 'new' | 'edited';
   /** The current team answers: no team design (the team was just confirmed, or a schedule or a waiting message starts the run). */
   keepTeam?: boolean;
+  /**
+   * The user's message answers this agent alone (its steps card): while others wait for the user too,
+   * only it goes on, and the team keeps waiting for theirs (`takePause`).
+   */
+  answers?: string;
   /** Attached files of the new user message (already saved). */
   files?: AttachmentPart[];
   /** Post the messages waiting in the queue first: they were sent before this one, and start the run too. */
@@ -454,6 +495,8 @@ interface StartOptions {
 export type ScheduledSend =
   | { result: 'sent'; chatId?: string }
   | { result: 'queued' }
+  /** Its fixed command ran and found nothing for the team: no message. */
+  | { result: 'ran' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped'; reason: string }
   | { result: 'failed'; reason: string; code?: string };
@@ -482,6 +525,14 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   const copies = messages.map((m) => {
     const copy = { ...structuredClone(m), id: randomUUID() };
     copy.parts = copy.parts.filter((p) => p.type !== 'outbox' || p.status !== 'pending');
+    // A command the user runs from a card runs for its own conversation: the copy's card says it stopped.
+    for (const p of copy.parts) {
+      // So does a fixed command's run from a card: it goes on for the conversation it was started in.
+      if (p.type === 'command' && p.run?.status === 'running') p.run = { ...p.run, status: 'error', reason: t().stoppedNote };
+      if (p.type !== 'interactive' || p.session?.state !== 'running') continue;
+      const { asking: _asking, ...session } = p.session;
+      p.session = { ...session, state: 'stopped' };
+    }
     // A branch is no run of the schedule: its replies carry no goal on.
     delete copy.tracked;
     return copy;
@@ -657,6 +708,33 @@ export function branchAfterCut(
 }
 
 /**
+ * The notice for the hand-off blocks a reply wrote past its limits (`HANDOFF_LIMITS`, `INTERACTIVE_LIMITS`),
+ * which got no card: for the user, and for the agent on its next turn. Undefined when none was left out.
+ */
+export function leftOutNotice(left: { secrets: string[]; commands: string[]; interactive: number }): MessagePart | undefined {
+  const parts: string[] = [];
+  const told: string[] = [];
+  if (left.secrets.length) {
+    parts.push(t().handoffs.leftOutSecrets(HANDOFF_LIMITS.secretsPerReply, left.secrets));
+    told.push(`at most ${HANDOFF_LIMITS.secretsPerReply} secrets (left out: ${left.secrets.join(', ')})`);
+  }
+  if (left.commands.length) {
+    parts.push(t().handoffs.leftOutCommands(HANDOFF_LIMITS.commandsPerReply, left.commands));
+    told.push(`at most ${HANDOFF_LIMITS.commandsPerReply} fixed commands (left out: ${left.commands.join(', ')})`);
+  }
+  if (left.interactive) {
+    parts.push(t().handoffs.leftOutInteractive(INTERACTIVE_LIMITS.perReply, left.interactive));
+    told.push(`at most ${INTERACTIVE_LIMITS.perReply} interactive commands (${left.interactive} left out)`);
+  }
+  if (!parts.length) return undefined;
+  return {
+    type: 'notice',
+    text: parts.join(' '),
+    forAgent: `Your last reply asked for more cards than a reply may: ${told.join('; ')}. The user got no card for those left out. If they are still needed, put them in this reply, and do not tell the user about cards they did not get.`,
+  };
+}
+
+/**
  * Where a branch from the reply at `index` waits for the user: a reply that asked the user something
  * keeps its question open there, whatever the user answered here since, so they can answer it another
  * way. Branched where this conversation waits now, the branch waits the same way. Otherwise the agent
@@ -672,9 +750,14 @@ export function branchPause(conv: Conversation, index: number): RunPause | undef
     const { tracked: _schedules, ...pause } = structuredClone(conv.pause);
     return pause;
   }
-  const { mode, rounds, maxHops } = conv.settings;
+  const { mode, rounds } = conv.settings;
   const askerId = reply.author.agentId;
-  if (mode === 'relay') return { mode, askers: [askerId], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: maxHops };
+  if (mode === 'relay') {
+    // The teammates its reply handed to speak once it has answered, as in the run.
+    const by = conv.agents.find((a) => a.id === askerId)?.name ?? reply.agentName;
+    const rest = parseMentions(textOf(reply), conv.agents, askerId).map((a) => ({ agentId: a.id, ...(by ? { handedBy: by } : {}) }));
+    return { mode, askers: [askerId], rest, participants: [], round: 1, rounds: 1 };
+  }
   const asked = conv.messages.slice(0, index).findLastIndex((m) => m.author.kind === 'user');
   const question = conv.messages[asked];
   const mentioned = question ? mentionsOf([question], conv.agents) : [];
@@ -719,6 +802,54 @@ function takeAsk(msg: ChatMessage): boolean {
     if (text) part.text = text;
     else msg.parts.splice(i, 1);
     return asks;
+  }
+  return false;
+}
+
+/**
+ * Takes a finished reply's hand-off blocks (`<secret>`, `<command>`, `<command-run>`: see
+ * `src/shared/handoffs.ts`) out of its text, anywhere in it; returns them in order.
+ */
+function takeHandoffBlocks(msg: ChatMessage): HandoffBlock[] {
+  const blocks: HandoffBlock[] = [];
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const split = splitHandoffs(part.text);
+    if (!split.blocks.length) continue;
+    blocks.unshift(...split.blocks);
+    if (split.text) part.text = split.text;
+    else msg.parts.splice(i, 1);
+  }
+  return blocks;
+}
+
+/** An interactive command's run from its card, by its conversation and card (a branch copies a card's id). */
+const interactiveKey = (convId: string, partId: string) => `${convId}\u0000${partId}`;
+
+/** A secrets card, by conversation and card (a branch copies the card's id). */
+const secretsCardKey = (convId: string, partId: string) => `${convId}\n${partId}`;
+
+/** How a member's `seen` keeps the version of the working directory's secrets and commands it heard last. */
+const HANDOFFS_SEEN = 'handoffs:';
+
+/** The name outbox items of fixed command runs are kept under (no gateway tool has it). */
+export const FIXED_COMMAND_TOOL = 'relay_fixed_command';
+
+/**
+ * Take the steps block off a finished reply (see `src/shared/steps.ts`): the reply keeps its steps as a
+ * `steps` part, at its end. Returns whether it had one: such a reply asks the user.
+ */
+function takeSteps(msg: ChatMessage): boolean {
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const { text, steps } = splitSteps(part.text);
+    if (!steps) return false;
+    if (text) part.text = text;
+    else msg.parts.splice(i, 1);
+    msg.parts.push({ type: 'steps', items: steps.map((step) => ({ text: step })) });
+    return true;
   }
   return false;
 }
@@ -771,6 +902,11 @@ interface Schedule {
   hopsLeft: number;
   /** Agents whose question the user just answered: told so on their next turn. */
   answering: Set<string>;
+  /**
+   * The user answered one of several agents that wait for them (a steps card): only it speaks, then
+   * the team waits again, for these agents and any that ask now.
+   */
+  waiting?: RunPause;
 }
 
 /**
@@ -813,6 +949,10 @@ export class Orchestrator {
     string,
     { convId: string; reviewing?: boolean; resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => void }
   >();
+  /** Hand-overs of the chat's browser waiting for the user or in their hands (`browser_hand_over`), by card id: their conversation. */
+  private handovers = new Map<string, string>();
+  /** The secrets cards whose answer was posted (by `secretsCardKey()`): posted once. */
+  private secretsAnswered = new Set<string>();
   /** Sorts new conversations into the user's sidebar groups. */
   private grouper: AutoGrouper;
   /** The lead agent's drafts for the editors that are not a conversation's team (a template, team checks, a schedule, the sidebar's groups). */
@@ -845,10 +985,29 @@ export class Orchestrator {
   clock: () => number = Date.now;
   /** How team checks' commands are run (swapped in tests). */
   checkCommandDeps: CheckCommandDeps = defaultCheckCommandDeps;
+  /** How fixed commands run (swapped in tests). */
+  fixedCommandDeps: FixedCommandDeps = defaultFixedCommandDeps;
   /** Conversations whose team checks' commands run by themselves (Check again, Try it): Stop stops them. */
   private checking = new Map<string, AbortController>();
   /** That work, until it has finished its clean-up (`settled()` waits for it). */
   private checkWork = new Set<Promise<unknown>>();
+  /** Fixed commands' runs under way, by command id (one at a time each), and the work of those Try it started. */
+  private commandRuns = new Map<string, AbortController>();
+  private commandWork = new Set<Promise<unknown>>();
+  /** What a schedule's fixed command found while the team could not take its message: sent at the time's retry. */
+  private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource; command: string }>();
+  /**
+   * The fixed commands, and the interactive commands in the working directory, running for each
+   * conversation: its folder is held meanwhile (`lockDirs()`), and the conversation is busy (`isBusy()`:
+   * nothing starts until they end), so that no run writes where they run, nor changes the code a command
+   * runs once pinned.
+   */
+  private folderHolds = new Map<string, number>();
+  /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
+  interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
+  /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
+  private interactive = new Map<string, { convId: string; messageId: string; partId: string; run: InteractiveRun }>();
+  private interactiveUpdates = new Map<string, NodeJS.Timeout>();
   /**
    * Steering: per conversation, the messages being sent while the team replies, one after another in the
    * order they were sent (each waits for the one before it to go into running turns or into the queue).
@@ -966,7 +1125,9 @@ export class Orchestrator {
 
   /** Running, or reserved by a request that will change it. */
   private isBusy(id: string): boolean {
-    return this.runs.has(id) || this.reserved.has(id) || this.deleting.has(id);
+    // A fixed command, or an interactive command in the working directory, holding the folder (`folderHolds`):
+    // nothing starts there until it ends (a message, Retry, Resend, Fix, a team confirmed, a schedule's time).
+    return this.runs.has(id) || this.reserved.has(id) || this.deleting.has(id) || this.folderHolds.has(id);
   }
 
   /** Reserve a conversation; the returned function releases it (once). */
@@ -984,6 +1145,8 @@ export class Orchestrator {
   private checkAvailable(convId: string, busyMessage: string): void {
     if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
+    // No team replies then, nor is there a Stop: say what holds it.
+    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, t().handoffs.folderHeld);
     if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
   }
 
@@ -1011,6 +1174,8 @@ export class Orchestrator {
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
+      // A command the user runs from one of its cards stops with it.
+      this.stopInteractive(convId);
       // A team checks' command running by itself is stopped: its reservation then ends at once.
       this.checking.get(convId)?.abort();
       // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
@@ -1044,6 +1209,8 @@ export class Orchestrator {
       this.traces?.forget?.(convId);
       this.outbox?.forget(convId);
       this.skipNotes.delete(convId);
+      this.heldCommandEvents.delete(convId);
+      for (const key of this.secretsAnswered) if (key.startsWith(`${convId}\n`)) this.secretsAnswered.delete(key);
       this.onDelete?.(convId);
     } finally {
       this.deleting.delete(convId);
@@ -1057,6 +1224,7 @@ export class Orchestrator {
       ...[...this.revisions.values()].flatMap((set) => [...set].map((r) => r.done)),
       ...[...this.branching.values()].flatMap((set) => [...set]),
       ...this.checkWork,
+      ...this.commandWork,
       this.grouper.settled(),
       this.drafts.settled(),
       this.memory.settled(),
@@ -1071,6 +1239,8 @@ export class Orchestrator {
   /** An agent in this conversation is waiting for the user to approve something. */
   isWaiting(id: string): boolean {
     for (const a of this.approvals.values()) if (a.convId === id && !a.reviewing) return true;
+    // An agent handed the browser to the user (a sign-in), and waits for it back.
+    for (const c of this.handovers.values()) if (c === id) return true;
     // Something an agent asked to send waits in the outbox for the user.
     return (this.outbox?.waiting(id) ?? 0) > 0;
   }
@@ -1081,15 +1251,845 @@ export class Orchestrator {
   }
 
   /** The card of an outbox item in its reply, as the item now is. */
-  private updateOutboxCard(item: OutboxItem): void {
+  private updateOutboxCard(item: OutboxItem, forAgent?: string): void {
     const conv = this.store.get(item.convId);
     const msg = conv?.messages.find((m) => m.id === item.messageId);
     const part = msg?.parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox' && p.id === item.id);
     if (!conv || !msg || !part) return;
     part.status = item.status;
     if (item.result !== undefined) part.result = item.result;
+    // How it ended, for the agent that asked: in its next turn (`outboxNotes()`).
+    if (item.status !== 'pending' && item.status !== 'sending') part.forAgent = forAgent ?? withLang('en', () => outboxAnswerText(item));
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /**
+   * The working directory's secrets (names) and fixed commands for a member's turn prompt (`handoffsNow()`),
+   * when they are not what its session last heard (`seen`, as `handoffs:<digest>`): undefined when they are,
+   * or when there is nothing and it never heard of any. `text` is '' once all of them are gone.
+   */
+  private handoffsNow(conv: Conversation, seen: ReadonlySet<string>): { text: string; key: string } | undefined {
+    const folder = this.handoffFolder(conv);
+    const text = handoffsNow({
+      secrets: this.settings.handoffs.secretNames(folder).map((s) => s.name),
+      commands: this.settings.handoffs.commands(folder),
+    });
+    const key = `${HANDOFFS_SEEN}${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
+    if (seen.has(key)) return undefined;
+    if (!text && ![...seen].some((k) => k.startsWith(HANDOFFS_SEEN))) return undefined;
+    return { text, key };
+  }
+
+  /** The working directory a conversation's secrets and fixed commands are kept for: its first one, as a real path. */
+  handoffFolder(conv: Conversation): string {
+    return realPath(conv.settings.cwd);
+  }
+
+  /**
+   * Takes a finished reply's hand-off blocks out of its text and records them: the secrets it asks for
+   * and the fixed commands it proposes become cards that wait for the user (returns whether there is
+   * one); a run of a saved fixed command goes to the outbox, for the user to send.
+   */
+  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig, o: { automation?: boolean } = {}): boolean {
+    const blocks = takeHandoffBlocks(msg);
+    if (!blocks.length) return false;
+    const folder = this.handoffFolder(conv);
+    const store = this.settings.handoffs;
+    const asks: SecretAsk[] = [];
+    // The blocks past a reply's limits: the user and, on its next turn, the agent are told which.
+    const left = { secrets: [] as string[], commands: [] as string[], interactive: 0 };
+    for (const b of blocks) {
+      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name)) continue;
+      if (asks.length >= HANDOFF_LIMITS.secretsPerReply) {
+        if (!left.secrets.includes(b.name)) left.secrets.push(b.name);
+        continue;
+      }
+      asks.push({
+        name: b.name,
+        ...(b.label ? { label: b.label } : {}),
+        ...(b.reason ? { reason: b.reason } : {}),
+        ...(b.url ? { url: b.url } : {}),
+        status: 'waiting',
+        ...(store.has(folder, b.name) ? { had: true } : {}),
+      });
+    }
+    if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder, asks });
+    let proposed = 0;
+    const renewed = new Set<string>();
+    for (const b of blocks) {
+      if (b.kind !== 'command') continue;
+      if (proposed >= HANDOFF_LIMITS.commandsPerReply) {
+        if (!left.commands.includes(b.name)) left.commands.push(b.name);
+        continue;
+      }
+      const { kind: _kind, input, ...proposal } = b;
+      // A saved command of the same name would be replaced (its schedules and outbox runs then run this one).
+      // One an automation's run proposed is never saved from its card: nobody watched that run.
+      msg.parts.push({
+        type: 'command',
+        id: randomUUID(),
+        folder,
+        proposal,
+        status: 'proposed',
+        ...(store.commandByName(folder, proposal.name) ? { replaces: true } : {}),
+        ...(input ? { input } : {}),
+        // Nor on native Windows, where Harness Relay's own sandbox does not run: the card says so at once.
+        ...(this.fixedCommandDeps.platform === 'win32'
+          ? { blocked: 'windows' as const }
+          : o.automation
+            ? { blocked: 'automation' as const }
+            : {}),
+      });
+      if (this.fixedCommandDeps.platform !== 'win32' && !o.automation) renewed.add(proposal.name);
+      proposed++;
+    }
+    if (renewed.size) this.supersedeProposals(conv, msg, folder, renewed);
+    // Commands for the user to run themselves: never started from an automation's run, nor on native Windows.
+    let interactive = 0;
+    const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
+    for (const b of blocks) {
+      if (b.kind !== 'interactive') continue;
+      if (interactive >= INTERACTIVE_LIMITS.perReply) {
+        left.interactive++;
+        continue;
+      }
+      const configFiles = workdirConfigFiles(folder);
+      msg.parts.push({
+        type: 'interactive',
+        id: randomUUID(),
+        folder,
+        run: b.run,
+        ...(b.reason ? { reason: b.reason } : {}),
+        ...(b.workdir ? { workdir: true } : {}),
+        configFiles,
+        configDigest: workdirDigest(folder, configFiles),
+        ...(blocked ? { blocked } : {}),
+        status: 'proposed',
+      });
+      interactive++;
+    }
+    const leftOut = leftOutNotice(left);
+    if (leftOut) msg.parts.push(leftOut);
+    for (const b of blocks) {
+      if (b.kind !== 'command-run') continue;
+      const cmd = store.commandByName(folder, b.name);
+      if (!cmd || !this.outbox) {
+        msg.parts.push({ type: 'notice', text: t().handoffs.noCommand(b.name) });
+        continue;
+      }
+      const { item, existing } = this.outbox.add(
+        {
+          convId: conv.id,
+          messageId: msg.id,
+          agentId: agent.id,
+          agentName: agent.name,
+          tool: FIXED_COMMAND_TOOL,
+          title: t().handoffs.outboxTitle(cmd.name),
+          preview: {
+            fields: [
+              { label: t().handoffs.fieldCommand, value: cmd.run },
+              { label: t().handoffs.fieldFolder, value: cmd.cwd ? join(folder, cmd.cwd) : folder },
+              ...(cmd.hosts.length ? [{ label: t().handoffs.fieldHosts, value: cmd.hosts.join(', ') }] : []),
+            ],
+            ...(b.input ? { body: b.input } : {}),
+          },
+        },
+        // What the card showed, pinned: a command saved again with another command line is not run for it.
+        { commandId: cmd.id, run: cmd.run, hosts: cmd.hosts, secrets: cmd.secrets, cwd: cmd.cwd ?? '', input: b.input },
+      );
+      if (!existing)
+        msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
+    }
+    return asks.length > 0 || proposed > 0 || interactive > 0;
+  }
+
+  /**
+   * A reply proposed fixed commands named `names` for `folder`: the cards of replies before the user's
+   * latest message proposing one of those names, still undecided, are dismissed as superseded, so that
+   * the user saves the latest. Cards since that message stay (the same reply's, a parallel teammate's in
+   * the same round): the user picks one of them.
+   */
+  private supersedeProposals(conv: Conversation, msg: ChatMessage, folder: string, names: ReadonlySet<string>): void {
+    const at = conv.messages.findIndex((m) => m.id === msg.id);
+    const since = conv.messages.slice(0, at < 0 ? conv.messages.length : at).findLastIndex((m) => m.author.kind === 'user');
+    for (const m of conv.messages.slice(0, Math.max(since, 0))) {
+      let changed = false;
+      for (const part of m.parts) {
+        if (part.type !== 'command' || part.status !== 'proposed' || part.folder !== folder || !names.has(part.proposal.name)) continue;
+        part.status = 'dismissed';
+        part.superseded = true;
+        changed = true;
+      }
+      if (changed) this.saveCard(conv, m);
+    }
+  }
+
+  /** A secrets or command card of a reply. */
+  private handoffCard<K extends 'secrets' | 'command' | 'interactive'>(
+    convId: string,
+    messageId: string,
+    partId: string,
+    type: K,
+  ): { conv: Conversation; msg: ChatMessage; part: Extract<MessagePart, { type: K }> } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    const part = msg?.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type && 'id' in p && p.id === partId);
+    if (!msg || !part) throw new HttpError(404, t().handoffs.cardNotFound);
+    return { conv, msg, part };
+  }
+
+  private saveCard(conv: Conversation, msg: ChatMessage): void {
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** Posts the user's answer to a card as their message, which the team takes as the answer to its question. */
+  /** Posts a card's answer as the user's message, or queues it; false when neither could be (the queue was full). */
+  private async answerCard(convId: string, text: string): Promise<boolean> {
+    try {
+      await this.send(convId, text);
+      return true;
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      // Refused at the last moment (`cardAnswerable()` was asked before the card was decided): the answer
+      // waits in the queue, which goes once the conversation can take it, never lost.
+      const conv = this.store.get(convId);
+      try {
+        if (!conv) return false;
+        this.enqueue(conv, text, undefined, {});
+        return true;
+      } catch {
+        /* the queue is full: the card says what was decided */
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Refuses, as `send()` would, the user's answer on a card while it could not be posted (the conversation
+   * held for a moment, its queue full): asked before the card is decided, so that it can be answered again.
+   */
+  private cardAnswerable(convId: string): void {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    if (this.queues(conv)) {
+      if ((conv.queue?.length ?? 0) >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
+      return;
+    }
+    this.getIdle(convId);
+  }
+
+  /**
+   * The user's answer to a secrets card: the values given (kept for the card's folder, in the credential
+   * store, never in the chat), or none (`decline`). Asks left without a value are declined. The answer
+   * the team gets names them, never a value.
+   */
+  async answerSecrets(
+    convId: string,
+    messageId: string,
+    partId: string,
+    answer: { values?: Record<string, string>; decline?: boolean },
+  ): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
+    const waiting = part.asks.filter((a) => a.status === 'waiting');
+    if (!waiting.length) throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
+    let saved: string[] = [];
+    if (!answer.decline) {
+      const values = Object.fromEntries(
+        Object.entries(answer.values ?? {}).filter(
+          (e): e is [string, string] => waiting.some((a) => a.name === e[0]) && typeof e[1] === 'string' && Boolean(e[1].trim()),
+        ),
+      );
+      if (!Object.keys(values).length) throw new HttpError(400, t().handoffs.noValues);
+      this.settings.handoffs.setSecrets(part.folder, values);
+      saved = Object.keys(values);
+    }
+    for (const a of waiting) a.status = saved.includes(a.name) ? 'saved' : 'declined';
+    this.saveCard(conv, msg);
+    await this.secretsDecided(conv, part);
+  }
+
+  /**
+   * A secrets card with no ask waiting any more: the team gets the user's answer, which names every secret
+   * given and those not, never a value.
+   */
+  private async secretsDecided(conv: Conversation, part: Extract<MessagePart, { type: 'secrets' }>): Promise<void> {
+    const key = secretsCardKey(conv.id, part.id);
+    if (this.secretsAnswered.has(key)) return;
+    this.secretsAnswered.add(key);
+    const names = (status: SecretAsk['status']) => part.asks.filter((a) => a.status === status).map((a) => a.name);
+    await this.answerCard(conv.id, t().handoffs.secretsAnswer(names('saved'), names('declined')));
+  }
+
+  /**
+   * The code a proposed fixed command would run (`codeView()`), for the user to look at before its first Save
+   * if they want to, and its digest, which Save sends back (the card reads it itself when the code was not
+   * opened): Save pins that code, and no other. Refused while a run writes in its folder, and when the code
+   * changed while it was read.
+   */
+  async commandCode(
+    convId: string,
+    messageId: string,
+    partId: string,
+    edits: Partial<CommandProposal> = {},
+  ): Promise<{ diff: string; files: CodeViewFile[]; missing: string[]; elsewhere: string[]; digest: string }> {
+    const { conv, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
+    const proposal = checkProposal({ ...part.proposal, ...edits });
+    if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
+    if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    const named = commandFiles(proposal, part.folder);
+    // Compared with the folder as it was before this conversation's agents first changed files there
+    // (a turn's kept snapshot), so that what they wrote shows, committed or not.
+    const root = (await repoRoot(part.folder).catch(() => null)) ?? undefined;
+    const base = root ? this.firstBase(conv, root) : undefined;
+    const manifest = await this.steadyManifest(part.folder, named, async (now) => {
+      const values = Object.values(this.settings.handoffs.values(part.folder));
+      return codeView(part.folder, now, values, { named, ...(proposal.cwd ? { cwd: proposal.cwd } : {}), ...(base ? { base } : {}) });
+    });
+    return { ...manifest.view, digest: manifestDigest(manifest.now) };
+  }
+
+  /** Starts what waits in the queue once a schedule's own command run let go of the folder, if nothing else started. */
+  private queueAfterHold(convId: string): void {
+    const conv = this.store.get(convId);
+    if (conv && !this.closing && !this.deleting.has(convId) && !this.isBusy(convId)) this.startQueued(conv);
+  }
+
+  /** Forgets what a schedule held of a removed fixed command's finding (its id may come back with its name). */
+  forgetCommand(commandId: string): void {
+    for (const [convId, held] of this.heldCommandEvents) if (held.command === commandId) this.heldCommandEvents.delete(convId);
+  }
+
+  /**
+   * The snapshot of `root` taken before this conversation's first turn that changed files there (in the
+   * working tree, not an agent's worktree), or undefined when none did.
+   */
+  private firstBase(conv: Conversation, root: string): string | undefined {
+    for (const m of conv.messages) for (const c of m.changes ?? []) if (c.root === root && !c.isolated) return c.base;
+    return undefined;
+  }
+
+  /**
+   * A folder's pin manifest, and what `read` makes of it, only when the code did not change meanwhile (else
+   * 409): what the user is shown is the code the digest is of.
+   */
+  private async steadyManifest<T>(
+    folder: string,
+    named: readonly string[],
+    read: (now: Record<string, PinEntry>) => Promise<T>,
+  ): Promise<{ now: Record<string, PinEntry>; view: T }> {
+    let now: Record<string, PinEntry>;
+    let view: T;
+    let after: Record<string, PinEntry>;
+    try {
+      now = await pinManifest(folder, named);
+      view = await read(now);
+      after = await pinManifest(folder, named);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(409, (err as Error).message);
+    }
+    if (manifestDigest(after) !== manifestDigest(now)) throw new HttpError(409, t().handoffs.changingNow);
+    return { now, view };
+  }
+
+  /**
+   * The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as
+   * it is now, which must be the code `commandCode()` read (`digest`): the code the user opened on its card,
+   * or, when they saved without opening it, read by the card at once. Code changed since is refused.
+   */
+  async saveCommand(
+    convId: string,
+    messageId: string,
+    partId: string,
+    edits: Partial<CommandProposal> = {},
+    digest?: string,
+  ): Promise<FixedCommand> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
+    const proposal = checkProposal({ ...part.proposal, ...edits });
+    if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
+    const store = this.settings.handoffs;
+    const id = store.commandId(part.folder, proposal.name);
+    if (this.commandRuns.has(id)) throw new HttpError(409, t().handoffs.commandRunning);
+    const refused = this.writeRefusal(part.folder);
+    if (refused) throw new HttpError(409, refused);
+    const old = store.pin(id);
+    let pin: CommandPin;
+    try {
+      pin = await takePin(part.folder, id, commandFiles(proposal, part.folder));
+    } catch (err) {
+      throw new HttpError(409, (err as Error).message);
+    }
+    // Pinned only as `commandCode()` read it (its digest): code changed since is refused.
+    if (manifestDigest(pin.manifest) !== digest) {
+      await dropPin(id, pin, old);
+      throw new HttpError(409, digest ? t().handoffs.codeChangedSaving : t().handoffs.codeNotSeen);
+    }
+    const command = store.saveCommand(part.folder, id, proposal, pin);
+    await dropPin(id, old, pin);
+    // The other cards proposing this name in the chat would replace it now.
+    this.markNamesakes(conv, part.folder, proposal.name, part.id);
+    part.proposal = proposal;
+    part.status = 'saved';
+    part.commandId = id;
+    delete part.run;
+    this.saveCard(conv, msg);
+    return command;
+  }
+
+  /** The user does not save a proposed fixed command: the team is told. */
+  async dismissCommand(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
+    part.status = 'dismissed';
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.commandDismissed(part.proposal.name));
+  }
+
+  /**
+   * The user tells the team about a saved command's card: that it is saved, and, with `share`, how its
+   * last run from the card went (its output, its secrets masked).
+   */
+  async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
+    const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
+    // Sent as the answer: the chat has it, so the agent's next turn does not tell it again (`commandRunNotes()`).
+    // Marked before it is sent (the turn it starts reads it), and not, should it go nowhere.
+    if (run) {
+      part.sharedAt = run.at;
+      this.saveCard(conv, msg);
+    }
+    const posted = await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
+    if (run && !posted && part.sharedAt === run.at) {
+      delete part.sharedAt;
+      this.saveCard(conv, msg);
+    }
+  }
+
+  /** A saved command of this conversation's working directory. */
+  private ownCommand(convId: string, commandId: string): { conv: Conversation; cmd: FixedCommand } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const cmd = this.settings.handoffs.command(commandId);
+    if (!cmd || cmd.folder !== this.handoffFolder(conv)) throw new HttpError(404, t().handoffs.commandNotFound);
+    return { conv, cmd };
+  }
+
+  /**
+   * Try it, on a fixed command's card: one run, in the background (its card follows it). `approve`: the
+   * user saw what changed in its code and approves it, which pins it again first. `extra`: words added
+   * to its command line for this run only.
+   */
+  async tryCommand(convId: string, commandId: string, o: { extra?: string; stdin?: string; approve?: string } = {}): Promise<void> {
+    const { conv, cmd } = this.ownCommand(convId, commandId);
+    if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
+    if (o.approve) {
+      // Pinned again only as the user saw it: the digest of the code whose diff they read.
+      const old = this.settings.handoffs.pin(cmd.id);
+      let pin: CommandPin;
+      try {
+        pin = await takePin(cmd.folder, cmd.id, commandFiles(cmd, cmd.folder));
+      } catch (err) {
+        throw new HttpError(409, (err as Error).message);
+      }
+      if (manifestDigest(pin.manifest) !== o.approve) {
+        await dropPin(cmd.id, pin, old);
+        throw new HttpError(409, t().handoffs.changedAgain);
+      }
+      this.settings.handoffs.repin(cmd.id, pin);
+      await dropPin(cmd.id, old, pin);
+    }
+    this.trackCommand(
+      this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}), ...(o.stdin ? { stdin: o.stdin } : {}) }),
+    );
+  }
+
+  /** A fixed command's run, waited for at shutdown before the database closes. */
+  private trackCommand<T>(work: Promise<T>): Promise<T> {
+    this.commandWork.add(work);
+    void work.finally(() => this.commandWork.delete(work));
+    return work;
+  }
+
+  /** What changed in a fixed command's code since it was pinned: the files, and git's diff of them (its secrets masked). */
+  async commandDiff(
+    convId: string,
+    commandId: string,
+  ): Promise<{ changed: string[]; diff: string; files: CodeViewFile[]; missing: string[]; digest: string }> {
+    const { cmd } = this.ownCommand(convId, commandId);
+    const pin = this.settings.handoffs.pin(cmd.id);
+    if (!pin) return { changed: [], diff: '', files: [], missing: [], digest: '' };
+    if (this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    // Masked whole before it is cut, so that no value's start shows at the cut.
+    const values = Object.values(this.settings.handoffs.values(cmd.folder));
+    const { now, view } = await this.steadyManifest(cmd.folder, commandFiles(cmd, cmd.folder), async (now) => {
+      const changed = manifestChanges(pin.manifest, now);
+      const shown = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', files: [], missing: changed }));
+      return { changed, ...shown };
+    });
+    // What Approve sends back: this code, the one this diff shows, and no later one.
+    return { ...view, digest: manifestDigest(now) };
+  }
+
+  /** Marks the proposed cards of a chat that name a command saved now: saving one of them would replace it. */
+  private markNamesakes(conv: Conversation, folder: string, name: string, except: string): void {
+    for (const m of conv.messages) {
+      let changed = false;
+      for (const p of m.parts) {
+        if (p.type !== 'command' || p.id === except || p.status !== 'proposed' || p.folder !== folder) continue;
+        if (p.proposal.name !== name || p.replaces) continue;
+        p.replaces = true;
+        changed = true;
+      }
+      if (changed) this.saveCard(conv, m);
+    }
+  }
+
+  /**
+   * One run of a fixed command (Try it, an outbox item, a schedule), which never throws: refused while
+   * another run of it is under way, and not run when its pinned code changed (`changed`). Its secrets
+   * renewed in the run are kept; its card in `conv` follows it.
+   */
+  private async executeCommand(
+    conv: Conversation | undefined,
+    cmd: FixedCommand,
+    source: FixedCommandRun['source'],
+    o: { extra?: string; stdin?: string },
+  ): Promise<FixedCommandRun> {
+    const store = this.settings.handoffs;
+    const record = (run: FixedCommandRun) => {
+      store.setLastRun(cmd.id, run);
+      if (conv) this.updateCommandCards(conv.id, cmd.id, run);
+    };
+    if (this.commandRuns.has(cmd.id)) return { at: Date.now(), source, status: 'error', reason: t().handoffs.commandRunning };
+    const abort = new AbortController();
+    this.commandRuns.set(cmd.id, abort);
+    let release: (() => void) | undefined;
+    try {
+      // Not while a run may be writing in its folder: what it would run could change under it. And its
+      // folder held while it runs, from the pin's check on, as a team check's commands hold theirs.
+      if (conv && this.writingIn(conv.id, cmd.folder)) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
+        record(run);
+        return run;
+      }
+      const refused = this.writeRefusal(cmd.folder);
+      if (refused) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: refused };
+        record(run);
+        return run;
+      }
+      if (conv) {
+        try {
+          release = this.holdFolder(conv, cmd.folder, { startQueue: source !== 'schedule' });
+        } catch {
+          const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
+          record(run);
+          return run;
+        }
+      }
+      const pin = store.pin(cmd.id);
+      const changed = pin ? await pinChanges(cmd.folder, pin, commandFiles(cmd, cmd.folder)) : [];
+      if (!pin || changed.length) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'changed', changed: changed.slice(0, 50) };
+        record(run);
+        return run;
+      }
+      record({ at: Date.now(), source, status: 'running' });
+      const { run, written } = await runFixedCommand(
+        cmd,
+        source,
+        {
+          values: store.values(cmd.folder),
+          ...(o.extra !== undefined ? { extra: o.extra } : {}),
+          ...(o.stdin !== undefined ? { stdin: o.stdin } : {}),
+          protectedPaths: protectedReads(),
+          privateRoots: privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
+          signal: abort.signal,
+        },
+        this.fixedCommandDeps,
+      );
+      if (Object.keys(written).length) {
+        try {
+          store.setSecrets(cmd.folder, written);
+        } catch (err) {
+          run.reason = t().handoffs.notKept((err as Error).message);
+        }
+      }
+      record(run);
+      return run;
+    } catch (err) {
+      let values: string[] = [];
+      try {
+        values = Object.values(store.values(cmd.folder));
+      } catch {
+        /* the credential store failed too: the message, which names no value of ours, as it is */
+      }
+      const reason = maskValues((err as Error).message, values);
+      const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason };
+      record(run);
+      return run;
+    } finally {
+      this.commandRuns.delete(cmd.id);
+      release?.();
+    }
+  }
+
+  /**
+   * Holds `folder` for a command of `conv`'s running (`folderHolds`): another conversation's run cannot
+   * take it, and this one is busy. Returns the release, which then starts what waits in the queue, but
+   * for a schedule's own run (`startQueue: false`), whose message goes next. Throws 409 when another
+   * conversation holds the folder.
+   */
+  private holdFolder(conv: Conversation, folder: string, o: { startQueue?: boolean } = {}): () => void {
+    // A lock this conversation had on it already (an action allowed in a read-only run) is left to it.
+    const had = this.dirLocks.get(folder) === conv.id && !this.folderHolds.has(conv.id);
+    this.lockDirs([folder], conv);
+    this.folderHolds.set(conv.id, (this.folderHolds.get(conv.id) ?? 0) + 1);
+    this.emitStatus(conv.id);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.folderHolds.get(conv.id) ?? 1) - 1;
+      if (left > 0) this.folderHolds.set(conv.id, left);
+      else {
+        this.folderHolds.delete(conv.id);
+        if (!had) this.unlockDirs([folder], conv.id);
+      }
+      this.emitStatus(conv.id);
+      const now = this.store.get(conv.id);
+      if (left <= 0 && o.startQueue !== false && now && !this.closing && !this.deleting.has(conv.id)) this.startQueued(now);
+    };
+  }
+
+  /**
+   * Why a command may not write in `folder`, which a fixed command's runs, or an interactive command run in
+   * the working directory, do whatever the conversation's permission: one that holds Harness Relay or what
+   * decides how the agents run, where edit mode is refused too (`relayFolderRefusal()`).
+   */
+  private writeRefusal(folder: string): string | undefined {
+    return relayFolderRefusal({ permission: 'edit', cwd: folder }, agentFolderOptions(this.settings));
+  }
+
+  /** The command cards of a conversation for this fixed command show its run. */
+  private updateCommandCards(convId: string, commandId: string, run: FixedCommandRun): void {
+    const conv = this.store.get(convId);
+    if (!conv) return;
+    for (const msg of conv.messages) {
+      let changed = false;
+      for (const p of msg.parts) {
+        if (p.type === 'command' && p.commandId === commandId) {
+          p.run = run;
+          changed = true;
+        }
+      }
+      if (changed) this.saveCard(conv, msg);
+    }
+  }
+
+  /**
+   * Start, on an interactive command's card (docs/architecture.md, "Interactive commands"): the user
+   * runs the command themselves, with their rights, outside the agents' sandboxes; its card follows it.
+   * Never for a card an automation's run proposed, nor on native Windows. In an empty folder of its own,
+   * or in the working directory (`workdir`), whose configuration files the card listed (`seen`): refused
+   * when others appeared since, the card then listing them. Again once a run of it ended.
+   */
+  async startInteractive(
+    convId: string,
+    messageId: string,
+    partId: string,
+    o: { workdir?: boolean; seen?: readonly string[] } = {},
+  ): Promise<InteractiveSession> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    if (part.status === 'dismissed') throw new HttpError(409, t().handoffs.cardDecided);
+    // What the card shows is what runs: a line kept before its characters were checked is checked again.
+    if (interactiveLine(part.run) !== part.run) throw new HttpError(409, t().handoffs.interactiveHidden);
+    const key = interactiveKey(convId, part.id);
+    if (this.interactive.has(key)) throw new HttpError(409, t().handoffs.interactiveRunning);
+    if (part.blocked === 'automation') throw new HttpError(409, t().handoffs.interactiveAutomation);
+    if (part.blocked === 'windows' || this.interactiveDeps.platform === 'win32') throw new HttpError(409, t().handoffs.interactiveWindows);
+    if (this.interactive.size >= INTERACTIVE_LIMITS.running)
+      throw new HttpError(429, t().handoffs.interactiveTooMany(INTERACTIVE_LIMITS.running));
+    let workdir: string | undefined;
+    if (o.workdir) {
+      if (!existsSync(part.folder)) throw new HttpError(409, t().checksCommandNoFolder(part.folder));
+      // Another file, or one of those listed changed since the card listed them (an agent writing a script
+      // or a package's program there): listed again, and Start refused until the user has seen it.
+      const now = workdirConfigFiles(part.folder);
+      const digest = workdirDigest(part.folder, now);
+      // More there than it can tell apart (a limit stopped it): never started there.
+      if (digest.startsWith('partial:')) throw new HttpError(409, t().handoffs.interactiveTooMuch);
+      if (now.some((f) => !(o.seen ?? []).includes(f)) || (part.configDigest !== undefined && digest !== part.configDigest)) {
+        part.configFiles = now;
+        part.configDigest = digest;
+        this.saveCard(conv, msg);
+        throw new HttpError(409, t().handoffs.interactiveConfigChanged);
+      }
+      // Held while it runs there, as a fixed command holds its folder: no run writes where the user's command works.
+      if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+      const refused = this.writeRefusal(part.folder);
+      if (refused) throw new HttpError(409, refused);
+      workdir = part.folder;
+    }
+    const masks = Object.values(this.settings.handoffs.values(part.folder));
+    const release = workdir ? this.holdFolder(conv, workdir) : undefined;
+    try {
+      const run: InteractiveRun = new InteractiveRun(
+        {
+          run: part.run,
+          ...(workdir ? { workdir } : {}),
+          masks,
+          onChange: (urgent) => this.interactiveChanged(key, urgent),
+          onEnd: () => {
+            // Values saved for the folder meanwhile are masked in what is kept, too.
+            try {
+              run.addMasks(Object.values(this.settings.handoffs.values(part.folder)));
+            } catch {
+              /* the credential store cannot be read now: the values it had at the start stay masked */
+            }
+            this.interactiveChanged(key, true);
+            this.interactive.delete(key);
+            release?.();
+          },
+        },
+        { windows: t().handoffs.interactiveWindows, notStarted: (why) => t().handoffs.interactiveNotStarted(why) },
+        this.interactiveDeps,
+      );
+      this.interactive.set(key, { convId, messageId, partId: part.id, run });
+      part.status = 'started';
+      part.session = run.view();
+      this.saveCard(conv, msg);
+      run.start();
+      return run.view();
+    } catch (err) {
+      // Its run never started (onEnd will not come): the folder is let go.
+      if (!this.interactive.has(key)) release?.();
+      throw err;
+    }
+  }
+
+  /** An interactive command's card changed: its output (sent a moment later, with what follows), or its state at once. */
+  private interactiveChanged(key: string, urgent: boolean): void {
+    const entry = this.interactive.get(key);
+    if (!entry) return;
+    const pending = this.interactiveUpdates.get(key);
+    if (pending && !urgent) return;
+    clearTimeout(pending);
+    this.interactiveUpdates.delete(key);
+    const update = () => {
+      this.interactiveUpdates.delete(key);
+      const conv = this.store.get(entry.convId);
+      const msg = conv?.messages.find((m) => m.id === entry.messageId);
+      const part = msg?.parts.find(
+        (p): p is Extract<MessagePart, { type: 'interactive' }> => p.type === 'interactive' && p.id === entry.partId,
+      );
+      if (!conv || !msg || !part) return;
+      part.session = { ...entry.run.view(), ...(part.session?.sent ? { sent: true } : {}) };
+      try {
+        this.store.saveMessage(conv.id, msg, !entry.run.running);
+      } catch (err) {
+        // The database closing as the server stops: the next start says it stopped (`Store`).
+        console.warn('[orchestrator] could not save an interactive command card:', (err as Error).message);
+      }
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    };
+    if (urgent) update();
+    else this.interactiveUpdates.set(key, setTimeout(update, 200));
+  }
+
+  /** The running session of an interactive command's card in this conversation, or 409 when it does not run. */
+  private interactiveRun(convId: string, messageId: string, partId: string): InteractiveRun {
+    this.handoffCard(convId, messageId, partId, 'interactive');
+    const entry = this.interactive.get(interactiveKey(convId, partId));
+    if (!entry || !entry.run.running) throw new HttpError(409, t().handoffs.interactiveNotRunning);
+    return entry.run;
+  }
+
+  /** A line the user typed into a running interactive command: sent as it is; masked wherever it shows when `hidden`. */
+  interactiveInput(convId: string, messageId: string, partId: string, text: string, hidden: boolean): void {
+    if (Buffer.byteLength(text) > INTERACTIVE_LIMITS.input || /[\u0000\r\n]/.test(text)) throw new HttpError(400, t().invalidField('text'));
+    if (!this.interactiveRun(convId, messageId, partId).write(text, hidden)) throw new HttpError(409, t().handoffs.interactiveNotRunning);
+  }
+
+  /** The user's answer to a running interactive command's password helper (`line`), or their refusal (none). */
+  interactiveAnswer(convId: string, messageId: string, partId: string, askId: string, line: string | undefined): void {
+    if (line !== undefined && (Buffer.byteLength(line) > INTERACTIVE_LIMITS.input || /[\u0000\r\n]/.test(line))) {
+      throw new HttpError(400, t().invalidField('text'));
+    }
+    if (!this.interactiveRun(convId, messageId, partId).answer(askId, line)) throw new HttpError(409, t().handoffs.interactiveNoQuestion);
+  }
+
+  /** Cancel, on a running interactive command's card. */
+  cancelInteractive(convId: string, messageId: string, partId: string): void {
+    this.interactiveRun(convId, messageId, partId).stop('cancelled');
+  }
+
+  /** Stops the interactive commands running from a conversation's cards (it is being deleted), or all of them (the server stops). */
+  stopInteractive(convId?: string): void {
+    for (const entry of [...this.interactive.values()]) if (!convId || entry.convId === convId) entry.run.stop('stopped');
+  }
+
+  /**
+   * Send to the team, on an interactive command's card once its run ended: how it ended and its output,
+   * masked (the folder's values again, for those saved since), posted as the user's answer. Once a run.
+   */
+  async sendInteractive(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    const session = part.session;
+    if (!session || this.interactive.has(interactiveKey(convId, part.id)) || session.state === 'running')
+      throw new HttpError(409, t().handoffs.interactiveNotEnded);
+    if (session.sent) throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
+    const values = Object.values(this.settings.handoffs.values(part.folder));
+    const output = maskValues(session.output, values);
+    part.session = { ...session, output, sent: true };
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.interactiveAnswer(maskValues(part.run, values), { ...session, output }));
+  }
+
+  /** Don't run, on a proposed interactive command's card: the team is told. */
+  async dismissInteractive(convId: string, messageId: string, partId: string): Promise<void> {
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
+    part.status = 'dismissed';
+    this.saveCard(conv, msg);
+    await this.answerCard(convId, t().handoffs.interactiveDismissed(part.run));
+  }
+
+  /** What Send does for an outbox item of a fixed command's run: that run, once, with the item's input on its standard input. */
+  private fixedCommandSender(convId: string, onRun?: (run: FixedCommandRun) => void): { send: NonNullable<GatewayTool['send']> } {
+    return {
+      send: async (args) => {
+        const conv = this.store.get(convId);
+        const cmd = typeof args.commandId === 'string' ? this.settings.handoffs.command(args.commandId) : undefined;
+        if (!conv || !cmd || cmd.folder !== this.handoffFolder(conv)) throw new Error(t().handoffs.commandNotFound);
+        const same =
+          args.run === cmd.run &&
+          isDeepStrictEqual(args.hosts, cmd.hosts) &&
+          isDeepStrictEqual(args.secrets, cmd.secrets) &&
+          args.cwd === (cmd.cwd ?? '');
+        if (!same) throw new Error(t().handoffs.commandChangedSince(cmd.name));
+        const run = await this.trackCommand(
+          this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' }),
+        );
+        onRun?.(run);
+        const text = t().handoffs.runLine(run);
+        if (run.status === 'passed' || run.status === 'news') return text;
+        throw new Error(text);
+      },
+    };
   }
 
   /**
@@ -1154,15 +2154,110 @@ export class Orchestrator {
   }
 
   /**
+   * A reply's steps card while its team waits for the user (`askingReplies`: an agent the pause waits
+   * for, the run idle): the message and its steps. 404 for none; 409 once answered or no longer waited for.
+   */
+  private waitingSteps(convId: string, messageId: string): { conv: Conversation; msg: ChatMessage; part: StepsPart } {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = conv.messages.find((m) => m.id === messageId);
+    const part = msg && stepsOfMessage(msg);
+    if (!msg || !part) throw new HttpError(404, t().steps.notFound);
+    if (part.answer) throw new HttpError(409, t().steps.answered);
+    if (!askingReplies(conv.messages, conv.pause).includes(msg)) throw new HttpError(409, t().steps.notWaiting);
+    // Still waited for, while another agent's answered turn runs: its answer would wait in the queue
+    // and go to every agent that waits then, so it is taken only once the team is done.
+    if (this.isRunning(convId) || this.reviewing.has(convId)) throw new HttpError(409, t().steps.busy);
+    return { conv, msg, part };
+  }
+
+  /** Save a steps card's change and show it in every browser. */
+  private saveSteps(conv: Conversation, msg: ChatMessage): void {
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /** The user ticks a step of a steps card as they go (or unticks it), while the team waits for them. */
+  tickStep(convId: string, messageId: string, index: number, done: boolean): void {
+    const { conv, msg, part } = this.waitingSteps(convId, messageId);
+    const item = part.items[index];
+    if (!item) throw new HttpError(400, t().steps.noStep(index + 1));
+    if (Boolean(item.done) === done) return;
+    if (done) item.done = true;
+    else delete item.done;
+    this.saveSteps(conv, msg);
+  }
+
+  /**
+   * The user's answer to a steps card: the steps they did (`done`, by index; the others are not done),
+   * the one they are stuck at, their note. It is posted as their message (`stepsAnswerText`), which the
+   * team takes as an answer to the agent that gave the steps: it goes on first, and when other agents
+   * wait for the user too, it alone, and the team keeps waiting for theirs. The card keeps the answer
+   * and no longer changes; one that could not be posted is as it was.
+   */
+  async answerSteps(
+    convId: string,
+    messageId: string,
+    answer: { done: number[]; stuckAt?: number; note?: string },
+  ): Promise<{ queued: boolean }> {
+    const { conv, msg, part } = this.waitingSteps(convId, messageId);
+    const { done, stuckAt } = answer;
+    const note = answer.note?.trim() ?? '';
+    for (const i of [...done, ...(stuckAt !== undefined ? [stuckAt] : [])]) {
+      if (!Number.isInteger(i) || !part.items[i]) throw new HttpError(400, t().steps.noStep(i + 1));
+    }
+    if (note.length > STEPS_LIMITS.noteChars) throw new HttpError(400, t().steps.noteTooLong(STEPS_LIMITS.noteChars));
+    const before = part.items.map((item) => ({ ...item }));
+    part.items.forEach((item, i) => {
+      // The step they are stuck at is not done, whatever its box said.
+      if (done.includes(i) && i !== stuckAt) item.done = true;
+      else delete item.done;
+    });
+    part.answer = { at: Date.now(), ...(stuckAt !== undefined ? { stuckAt } : {}), ...(note ? { note } : {}) };
+    const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
+    const name = conv.agents.find((a) => a.id === agentId)?.name ?? msg.agentName ?? 'agent';
+    const text = stepsAnswerText({ agent: `@${name}`, items: part.items, stuckAt, note, names: conv.agents.map((a) => a.name) }, t().steps);
+    // Answered on the card at once, so that a second click (here or in another browser) finds it so.
+    this.saveSteps(conv, msg);
+    try {
+      return await this.send(convId, text, undefined, false, undefined, agentId);
+    } catch (err) {
+      part.items = before;
+      delete part.answer;
+      this.saveSteps(conv, msg);
+      throw err;
+    }
+  }
+
+  /**
    * The user's Send or Discard on an outbox item: sent by its tool, in this server, with the
    * credentials it holds; its card then says what happened, and so does a note in the chat.
    */
   async answerOutbox(convId: string, itemId: string, action: 'send' | 'discard'): Promise<OutboxItem> {
     const conv = this.store.get(convId);
     if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
-    const item = await this.outbox.answer(convId, itemId, action, (name) => this.gateway?.tool(name));
-    this.updateOutboxCard(item);
-    this.systemNote(conv, outboxAnswerText(item));
+    // A fixed command's run is refused while a run writes in its folder, before its item is decided:
+    // Send can be clicked again once that is done.
+    const pending = action === 'send' ? this.outbox.get(itemId) : undefined;
+    if (pending?.tool === FIXED_COMMAND_TOOL && pending.convId === convId && pending.status === 'pending') {
+      const cmd = this.settings.handoffs.command(String(this.outbox.argsOf(itemId)?.commandId ?? ''));
+      if (cmd && this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    }
+    // A fixed command's run, as it went: its note says it ran (never "not sent") and shows its output.
+    let ran: { name: string; run: FixedCommandRun } | undefined;
+    const item = await this.outbox.answer(convId, itemId, action, (name) =>
+      name === FIXED_COMMAND_TOOL
+        ? this.fixedCommandSender(convId, (run) => {
+            const cmd = this.settings.handoffs.command(String(this.outbox!.argsOf(itemId)?.commandId ?? ''));
+            ran = { name: cmd?.name ?? '', run };
+          })
+        : this.gateway?.tool(name),
+    );
+    this.updateOutboxCard(
+      item,
+      ran ? `${runForAgent(ran.name, ran.run, 'outbox')}${outputForAgent(ran.run.output)}` : withLang('en', () => outboxAnswerText(item)),
+    );
+    this.systemNote(conv, ran ? t().handoffs.outboxRunNote(ran.name, ran.run) : outboxAnswerText(item));
     this.emitStatus(conv.id);
     return item;
   }
@@ -1319,11 +2414,16 @@ export class Orchestrator {
     uploads?: AttachmentUpload[],
     interrupt = false,
     request?: TaskRequest,
+    /** The message answers this agent alone (`StartOptions.answers`). */
+    answers?: string,
   ): Promise<{ queued: boolean }> {
     const text = rawText.trim();
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
     if (!found) throw new HttpError(404, t().conversationNotFound);
+    // An answer to one agent alone (a steps card) is never queued nor steered into running turns: a
+    // message taken from the queue answers every agent that waits then.
+    if (answers && (this.queues(found) || this.reviewing.has(convId))) throw new HttpError(409, t().steps.busy);
     // While the lead agent reviews, a message stops the review and goes now, and so does what waits when
     // the tray's "Skip the review and send now" sends it.
     const stopsReview = this.reviewing.has(convId) && (content || (interrupt && Boolean(found.queue?.length)));
@@ -1350,7 +2450,13 @@ export class Orchestrator {
       }
       const files = saveAttachments(conv.id, uploads);
       try {
-        await this.start(conv, text, { files, queue: true, request, ...(content ? { question: 'new' as const } : {}) });
+        await this.start(conv, text, {
+          files,
+          queue: true,
+          request,
+          ...(content ? { question: 'new' as const } : {}),
+          ...(answers ? { answers } : {}),
+        });
       } catch (err) {
         removeAttachments(conv.id, files);
         throw err;
@@ -1560,7 +2666,69 @@ export class Orchestrator {
     const tracking = s.goal
       ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
       : undefined;
-    const event = opts.event !== undefined ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) } : {};
+    // A schedule with a fixed command runs it first: the team hears of it only when it found something
+    // new or failed, with its output as the message's event; when it found nothing, no model runs. It
+    // runs only once its message could go now, and what a run found while the team could not take it
+    // (busy) is kept for the time's retry, never run again for it.
+    let found: { event: string; eventSource: EventSource } | undefined;
+    if (s.command && opts.event === undefined) {
+      // Held for this command only (the schedule may have another now).
+      const held = this.heldCommandEvents.get(convId);
+      if (held?.command === s.command) found = { event: held.event, eventSource: held.eventSource };
+      if (!found) {
+        const blocked = s.newChat ? undefined : this.scheduleBlocked(conv);
+        if (blocked) return blocked;
+        const ran = await this.runScheduledCommand(conv, s.command);
+        if ('result' in ran) {
+          // No message of the schedule follows: what waited in the queue while it ran goes now.
+          this.queueAfterHold(convId);
+          return ran;
+        }
+        found = { event: ran.event, eventSource: 'command' };
+      }
+      this.heldCommandEvents.delete(convId);
+    }
+    const sent = await this.deliverScheduled(conv, s, at, opts, tracking, found);
+    // Not sent (busy, or skipped by a pause or a full queue that came while it ran): what it found waits
+    // for the next try, the command having perhaps recorded it as seen.
+    if (found && s.command && (sent.result === 'busy' || sent.result === 'skipped')) {
+      this.heldCommandEvents.set(convId, { ...found, command: s.command });
+    }
+    // Its command ran here, and its message went elsewhere (a new chat) or not at all: the queue goes now.
+    if (s.command && (s.newChat || sent.result !== 'sent')) this.queueAfterHold(convId);
+    return sent;
+  }
+
+  /**
+   * Why a schedule's message could not go to this conversation's team now (its own chat's: a new chat
+   * each time always can), or undefined when it could: the checks `deliverScheduled()` makes, asked
+   * before a fixed command runs for it.
+   */
+  private scheduleBlocked(conv: Conversation): ScheduledSend | undefined {
+    const replying = this.runs.has(conv.id) || this.starting.has(conv.id);
+    if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
+    if (Boolean(conv.queue?.some((m) => m.scheduled)) && replying) return { result: 'skipped', reason: t().scheduleStillQueued };
+    if (this.designing.has(conv.id) && !conv.settings.autoConfirm) return { result: 'busy', reason: t().scheduleDesigning };
+    if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
+    if (!replying && this.isBusy(conv.id)) return { result: 'busy', reason: t().scheduleConvBusy };
+    return undefined;
+  }
+
+  /** A schedule's message sent (or queued), with what its fixed command found when it has one. */
+  private async deliverScheduled(
+    conv: Conversation,
+    s: ConversationSchedule,
+    at: number,
+    opts: { event?: string; eventSource?: EventSource; attempt?: number; retries?: boolean },
+    tracking: TrackedRun | undefined,
+    found: { event: string; eventSource: EventSource } | undefined,
+  ): Promise<ScheduledSend> {
+    const convId = conv.id;
+    const event = found
+      ? found
+      : opts.event !== undefined
+        ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) }
+        : {};
     if (s.newChat) return this.sendInNewChat(conv, s, at, event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
@@ -1580,8 +2748,9 @@ export class Orchestrator {
       // A settings change or an apply holds the conversation for a moment.
       if (this.isBusy(convId)) return { result: 'busy', reason: t().scheduleConvBusy };
       // Another conversation writing in its folder holds nothing up: the team then works in its own worktree.
-      // An earlier scheduled message left waiting goes out now instead; a webhook's body still goes, in a message of its own.
-      const own = !waiting || opts.event !== undefined;
+      // An earlier scheduled message left waiting goes out now instead; a webhook's body, or what the schedule's
+      // fixed command found, still goes, in a message of its own.
+      const own = !waiting || opts.event !== undefined || found !== undefined;
       await this.startScheduledMessage(conv, conv.id, own ? s.text : '', {
         queue: true,
         scheduledQueueOnly: Boolean(checksHold(conv.messages)),
@@ -1597,6 +2766,31 @@ export class Orchestrator {
       if (err instanceof HttpError && err.status === 404) throw err;
       return sendFailure(err);
     }
+  }
+
+  /**
+   * A schedule's fixed command, run as its time came: nothing for the team (`ran`), a reason it could
+   * not (`failed`: gone, or its code changed and waits for the user's approval; `busy`: a run of it is
+   * under way), or the event its message takes: what it found, or how it failed, with its output masked.
+   */
+  private async runScheduledCommand(conv: Conversation, id: string): Promise<ScheduledSend | { event: string }> {
+    const cmd = this.settings.handoffs.command(id);
+    if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };
+    if (this.commandRuns.has(cmd.id)) return { result: 'busy', reason: t().handoffs.commandRunning };
+    // Its own team (or another chat) writing in the folder: tried again a little later, as for any busy moment.
+    if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
+    const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
+    if (run.status === 'passed') return { result: 'ran' };
+    if (run.status === 'changed') return { result: 'failed', reason: t().handoffs.runLine(run) };
+    const what =
+      run.status === 'news'
+        ? `found something new (exit code ${FIXED_COMMAND_NEWS})`
+        : run.status === 'failed'
+          ? `failed (exit code ${run.exitCode ?? '?'})${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`
+          : `could not run${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`;
+    return {
+      event: `The fixed command "${cmd.name}" (${cmd.run}) ${what}.${run.output ? `\n\nIts output, secrets masked:\n${run.output}` : ''}`,
+    };
   }
 
   private async startScheduledMessage(conv: Conversation, sourceId: string, text: string, options: StartOptions): Promise<void> {
@@ -2049,6 +3243,8 @@ export class Orchestrator {
     const copied = conv.messages.slice(0, index + 1);
     const messages = copyMessages(copied);
     const pause = branchPause(conv, index);
+    // The branch waits for its own answer: a steps card answered here is to be answered again there.
+    for (const m of askingReplies(messages, pause)) if (stepsOfMessage(m)) delete stepsOfMessage(m)!.answer;
     // A branch of the conversation the reply was written in (this one, or one it was copied from).
     const titleOf = (from: string) => this.store.titleOf(from);
     let branch = branchOrigin(conv, index, messages, titleOf);
@@ -2274,7 +3470,7 @@ export class Orchestrator {
       else if (opts.request) this.store.recordTask(opts.request, convId, false);
       if (teamNote) this.systemNote(conv, teamNote);
       const pausedTracked = conv.pause?.tracked;
-      const resumed = this.takePause(conv, posted, only, planning);
+      const resumed = this.takePause(conv, posted, only, planning, opts.answers);
       resume = resumed?.schedule;
       const pausedChecks = resumed ? this.pendingPauseChecks(conv) : undefined;
       tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
@@ -2449,6 +3645,8 @@ export class Orchestrator {
     this.grouper.stopAll();
     this.drafts.stopAll();
     this.memory.stopAll();
+    this.stopInteractive();
+    for (const abort of this.commandRuns.values()) abort.abort();
   }
 
   emitConversation(conv: Conversation): void {
@@ -2557,6 +3755,26 @@ export class Orchestrator {
     return this.lockedFolder(conv, [conv.settings.cwd]);
   }
 
+  /**
+   * Whether a run may be writing in `folder` (a real path) now: the conversation's own, as for
+   * `folderInUse()`, or any conversation's (its own included) holding a lock on a folder around or
+   * inside it (a run writing there, a result being applied, a team check's commands, an action allowed
+   * in a read-only run). The Files panel changes a file only when none is, so that each turn's changes
+   * stay its own. Nothing is started or changed.
+   */
+  writingIn(convId: string, folder: string): boolean {
+    const conv = this.store.get(convId);
+    if (conv) {
+      const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
+      const run = this.runs.get(convId);
+      if (run?.lockRoots || this.reserved.has(convId)) return true;
+      if (writes && (run ? !run.ws.isolated : this.starting.has(convId))) return true;
+    }
+    const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+    for (const held of this.dirLocks.keys()) if (within(folder, held) || within(held, folder)) return true;
+    return false;
+  }
+
   /** Whether another conversation's lock covers one of these working directories of this one (around it or inside it). */
   private lockedFolder(conv: Conversation, folders: string[]): boolean {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
@@ -2587,6 +3805,8 @@ export class Orchestrator {
     // A run that has ended let go of its lock already: taking one now would keep it until a restart.
     if (this.runs.get(conv.id) !== run) return undefined;
     if (run.ws.isolated || run.lockRoots) return undefined;
+    // A fixed or interactive command of this conversation holds the folder: no action writes there meanwhile.
+    if (this.folderHolds.has(conv.id)) return t().handoffs.folderHeld;
     const dirs: string[] = [];
     for (const cwd of cwdsOf(conv.settings)) {
       try {
@@ -4667,6 +5887,9 @@ export class Orchestrator {
     const ids = (agents: AgentConfig[]) => agents.map((a) => a.id);
     /** The user's reply answers this agent's question (it is told on this turn only). */
     const answered = (a: AgentConfig) => s.answering.delete(a.id);
+    /** After an answer to one of several agents that wait: the team waits again, for them and any that asked now. */
+    const waitAgain = (waiting: RunPause, asked: AgentConfig[]) =>
+      this.pauseFor(conv, { ...waiting, askers: [...new Set([...waiting.askers, ...ids(asked)])] }, run);
 
     if (mode === 'relay') {
       const queue = [...s.first];
@@ -4681,14 +5904,17 @@ export class Orchestrator {
         this.deliverBefore(conv, run, [agent]);
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
         await run.checks?.checkpoint(agent.name);
+        if (spoke(msg)) {
+          for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
+            if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
+          }
+        }
+        // A reply that asks the user (a question, steps, a secret) and hands off too: the teammates it
+        // named wait with the rest of the queue, and speak once it has had the user's answer.
         if (msg.asked) {
           const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
-          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft }, run);
+          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1 }, run);
           return;
-        }
-        if (!spoke(msg)) continue;
-        for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
-          if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
         }
       }
       return;
@@ -4729,6 +5955,7 @@ export class Orchestrator {
         msgs.push(...settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value));
         // The others answered already; the ones that asked answer again once the user replied.
         const askers = speakers.filter((_, i) => msgs[i]!.asked);
+        if (s.waiting) return waitAgain(s.waiting, askers);
         if (askers.length) return pause(askers, []);
       } else {
         for (const [i, a] of speakers.entries()) {
@@ -4737,8 +5964,13 @@ export class Orchestrator {
           const msg = await this.turn(conv, a, run, info(a));
           await run.checks?.checkpoint(a.name);
           msgs.push(msg);
-          if (msg.asked) return pause([a], speakers.slice(i + 1));
+          if (msg.asked && !s.waiting) return pause([a], speakers.slice(i + 1));
         }
+        if (s.waiting)
+          return waitAgain(
+            s.waiting,
+            speakers.filter((_, i) => msgs[i]?.asked),
+          );
       }
       if (msgs.length && !msgs.some(spoke)) break; // everyone passed: the discussion has converged
     }
@@ -4790,12 +6022,15 @@ export class Orchestrator {
    * changed mode starts afresh. Continue with nobody left to speak starts a fresh speaking order
    * but still completes the checks for the work before the pause. Only what the user wrote counts:
    * a scheduled message that waited in the queue is no answer, and its @mentions do not start afresh.
+   * In relay mode the handoffs count afresh from `maxHops`: the user stepped in, as a new message does.
    */
   private takePause(
     conv: Conversation,
     posted: ChatMessage[],
     only: AgentConfig[] | undefined,
     planning: boolean,
+    /** The user's message answers this agent alone (its steps card). */
+    answers?: string,
   ): { schedule?: Schedule } | undefined {
     const pause = conv.pause;
     if (!pause) return undefined;
@@ -4806,6 +6041,26 @@ export class Orchestrator {
     const replies = posted.filter((m) => !m.scheduled);
     if (replies.some((m) => parseMentions(textOf(m), conv.agents).some((a) => !pause.askers.includes(a.id)))) return undefined;
     const byId = (id: string) => conv.agents.find((a) => a.id === id);
+    // An answer to one of several agents that wait (a steps card): it alone goes on, in the round it
+    // asked in, and the team keeps waiting for the others.
+    const alone = answers && replies.length && pause.mode !== 'relay' && pause.askers.length > 1 ? byId(answers) : undefined;
+    if (alone && pause.askers.includes(alone.id)) {
+      conv.pause = { ...pause, askers: pause.askers.filter((id) => id !== alone.id) };
+      this.store.saveMeta(conv);
+      this.emitConversation(conv);
+      const participants = pause.participants.flatMap((id) => byId(id) ?? []);
+      return {
+        schedule: {
+          participants: participants.length ? participants : conv.agents,
+          round: pause.round,
+          rounds: pause.rounds,
+          first: [{ agent: alone }],
+          hopsLeft: conv.settings.maxHops,
+          answering: new Set([alone.id]),
+          waiting: conv.pause,
+        },
+      };
+    }
     const askers = pause.askers.flatMap((id) => byId(id) ?? []);
     const skip = replies.length === 0;
     const rest = pause.rest.flatMap((r) => {
@@ -4821,7 +6076,8 @@ export class Orchestrator {
         round: pause.round,
         rounds: pause.rounds,
         first,
-        hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+        // The user stepped in: the relay's handoffs count afresh, as for a new message.
+        hopsLeft: conv.settings.maxHops,
         answering: new Set(skip ? [] : askers.map((a) => a.id)),
       },
     };
@@ -5079,6 +6335,7 @@ export class Orchestrator {
               detail: req.detail,
               reason: req.reason,
               ruleLabel: keys.join(', ') || undefined,
+              ...(req.kind === 'command' && keys.length && exactLineRule(req.command ?? req.detail ?? '') ? { ruleExact: true } : {}),
               ...(req.outsideSandbox ? { outsideSandbox: true } : {}),
               ...(req.readOnlySandbox ? { readOnlySandbox: true } : {}),
               status: 'pending',
@@ -5161,7 +6418,9 @@ export class Orchestrator {
               this.emitStatus(conv.id);
               return { allow: false, note: UNATTENDED_REFUSAL };
             }
-            if (answer.allow && answer.always) {
+            // One the lead agent flagged is allowed this once only: a rule would let every request like it
+            // through from now on, unreviewed, which is what it warned about.
+            if (answer.allow && answer.always && part.review?.status !== 'flagged') {
               part.always = true;
               const rules = conv.allowRules ?? [];
               for (const key of keys) if (!isAllowed(rules, req.kind, [key])) rules.push({ kind: req.kind, key });
@@ -5205,6 +6464,36 @@ export class Orchestrator {
       return item;
     };
 
+    // A hand-over of the chat's browser (`browser_hand_over`): its card in the reply, which the browser keeps
+    // up to date; the conversation waits for the user while it is pending or in their hands. Only where
+    // someone may be asked, as approvals are: never in a run nobody watches.
+    const turnHandovers = new Map<string, HandoverPart>();
+    const handoverCard =
+      requestApproval && !run.refuseApprovals
+        ? (part: HandoverPart) => {
+            textOpen = false;
+            msg.parts.push(part);
+            this.handovers.set(part.id, conv.id);
+            turnHandovers.set(part.id, part);
+            this.hub.emit(conv.id, { type: 'message', message: msg });
+            this.store.saveMessage(conv.id, msg, true);
+            this.emitStatus(conv.id);
+            return {
+              update: (change: Partial<HandoverPart>) => {
+                Object.assign(part, change);
+                if (change.deadline === undefined && 'deadline' in change) delete part.deadline;
+                if (part.status !== 'pending' && part.status !== 'active') {
+                  this.handovers.delete(part.id);
+                  turnHandovers.delete(part.id);
+                }
+                this.hub.emit(conv.id, { type: 'message', message: msg });
+                this.store.saveMessage(conv.id, msg, true);
+                this.emitStatus(conv.id);
+              },
+            };
+          }
+        : undefined;
+
     // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
     const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
     const attempt = async (fresh: boolean): Promise<RunResult> => {
@@ -5226,13 +6515,37 @@ export class Orchestrator {
       );
       // Long-term memory's notes that match what was said, once per session (kept in `seen` with the messages).
       const recalled = this.memory.recall(conv, delta, seen);
-      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info, recalled);
+      // What Harness Relay noted about its last reply (cards left out of it), told once.
+      const noted = notesForAgent(conv, agent.id, msg.id, seen);
+      // How what it put in the outbox ended (sent, failed, discarded), and the runs the user tried from the
+      // cards of the commands it proposed, told once.
+      const outcomes = outboxNotes(conv, agent.id, seen);
+      const tried = commandRunNotes(conv, agent.id, seen);
+      // The working directory's secrets and fixed commands, told when they changed since this session
+      // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
+      const handoffs = this.handoffsNow(conv, seen);
+      const prompt = buildTurnPrompt(
+        conv,
+        agent,
+        delta,
+        !state.sessionId,
+        { ...info, notes: [...noted.notes, ...outcomes.notes, ...tried.notes], ...(handoffs ? { handoffs: handoffs.text } : {}) },
+        recalled,
+      );
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
-      state.seen = [...state.seen, ...delta.map((m) => m.id).filter((id) => !seen.has(id)), ...recalled.map((n) => memorySeenKey(n.id))];
+      state.seen = [
+        ...(handoffs ? state.seen.filter((k) => !k.startsWith(HANDOFFS_SEEN)) : state.seen),
+        ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
+        ...recalled.map((n) => memorySeenKey(n.id)),
+        ...(noted.id ? [`notice:${noted.id}`] : []),
+        ...outcomes.ids.map((id) => `outbox:${id}`),
+        ...tried.keys,
+        ...(handoffs ? [handoffs.key] : []),
+      ];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
       // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
@@ -5287,6 +6600,7 @@ export class Orchestrator {
                 lang: currentLang(),
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
+                ...(handoverCard ? { handoverCard } : {}),
                 toOutbox,
                 usage: (u) => {
                   subModel.inputTokens += u.inputTokens;
@@ -5313,7 +6627,11 @@ export class Orchestrator {
             conv,
             agent,
             workspace,
-            { ...tools, grantedGroups: relay ? tools.relayGroups : undefined, longTerm: this.memory.forBriefing(conv) },
+            {
+              ...tools,
+              grantedGroups: relay ? tools.relayGroups : undefined,
+              longTerm: this.memory.forBriefing(conv),
+            },
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),
@@ -5378,22 +6696,36 @@ export class Orchestrator {
         }
       }
       // Long-term memory's blocks and a proposed schedule, anywhere in the reply, come out first: the
-      // ask marker and a <progress> block end it.
+      // ask marker, a steps block and a <progress> block end it.
       this.takeMemory(conv, msg, agent);
       takeSchedule(msg);
+      // Secrets asked for and fixed commands proposed wait for the user, as a question does.
+      const handedOff = this.takeHandoffs(conv, msg, agent, { automation: Boolean(run.unattended) });
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
       const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
-      if (takeAsk(msg)) msg.asked = true;
+      let asks = takeAsk(msg) || handedOff;
+      // Steps for the user to take ask them too, before or after an ask marker (which adds nothing then).
+      if (takeSteps(msg)) asks = takeAsk(msg) || true;
+      if (asks) msg.asked = true;
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
-      // A reply that only reported on the goal, or only asked to send something, said something.
+      // A reply that only reported on the goal, only asked to send something or only gave steps said something.
       msg.passed =
         isPass(text) ||
         (!text &&
           !msg.parts.some(
-            (p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox' || p.type === 'memory' || p.type === 'schedule',
+            (p) =>
+              p.type === 'tool' ||
+              p.type === 'progress' ||
+              p.type === 'outbox' ||
+              p.type === 'memory' ||
+              p.type === 'secrets' ||
+              p.type === 'command' ||
+              p.type === 'steps' ||
+              p.type === 'interactive' ||
+              p.type === 'schedule',
           ));
       msg.status = 'done';
       msg.meta = {
@@ -5422,6 +6754,16 @@ export class Orchestrator {
         console.warn('[orchestrator] could not record memory notes:', (memoryErr as Error).message);
       }
       takeSchedule(msg);
+      // Hand-off and steps blocks are acted on only in a reply that finished: one that failed or was
+      // stopped asks nothing, and they are taken out of it, never shown (nor given to teammates) as text.
+      for (let i = msg.parts.length - 1; i >= 0; i--) {
+        const part = msg.parts[i]!;
+        if (part.type !== 'text') continue;
+        const text = withoutStepsTail(splitSteps(withoutHandoffBlocks(part.text, { partial: false })).text);
+        if (text === part.text) continue;
+        if (text.trim()) part.text = text;
+        else msg.parts.splice(i, 1);
+      }
       // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
       const spent = err instanceof AgentRunError ? err.usage : undefined;
       msg.meta = {
@@ -5434,6 +6776,13 @@ export class Orchestrator {
       // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.
       turnOver = true;
       for (const id of waiting) this.approvals.get(id)?.resolve({ allow: false, expired: true });
+      // A hand-over the browser has not ended yet ends with the turn (the browser hears it from the turn's signal too).
+      for (const part of turnHandovers.values()) {
+        Object.assign(part, { status: 'expired', ended: 'turn' });
+        delete part.deadline;
+        this.handovers.delete(part.id);
+      }
+      turnHandovers.clear();
       // Record file changes even when the turn failed or was stopped: the files changed anyway.
       if (before) {
         try {

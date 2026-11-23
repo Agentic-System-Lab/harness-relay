@@ -20,13 +20,15 @@ const DIRECTIVES = {
   tool: 'list the working directory with a tool first',
   todo: 'show a to-do list',
   approve:
-    'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
+    'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too; with `=long`, `LONG_COMMAND`, a heredoc of six lines that an answered approval folds), then say whether it ran',
   flag: 'as the lead agent reviewing a request ("Approve for me"), find it potentially unsafe instead of approving it',
   slowapprove: 'as the lead agent reviewing a request ("Approve for me"), take `=<seconds>` (ten by default) to answer',
   fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
+  steps:
+    'end the reply with a <steps> block of three steps for the user to take outside Harness Relay, the first with a link (a steps card)',
   handoff: 'mention the member named, to hand the floor to it (not when that member is speaking)',
   slow: 'stream the reply slowly, about ten seconds (`=<seconds>` for another time), to be stopped or waited for; a reply of several paragraphs (`e2e:long`) one paragraph after another',
   fail: 'exit with an error on stderr',
@@ -40,9 +42,17 @@ const DIRECTIVES = {
   remember:
     'end the reply with a <remember> block saving what the user said (without the directives) as a long-term memory note for every conversation',
   recall: 'say the long-term memory notes its turn was given: the pinned ones its briefing loads and those its prompt recalls',
+  secret: 'end the reply with a <secret> block asking the user for the secret named (`E2E_TOKEN` by default)',
+  secreturl: "with `e2e:secret`, the page where the user gets it (the block's `url`), which the card links to for the user's own browser",
+  command:
+    'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, gets `E2E_TOKEN`, and suggests typing `hello from the agent` for Try it (its `input`)',
+  commandrun:
+    'end the reply with a <command-run> block putting one run of the fixed command named (`e2e-check` by default) in the outbox, with a line of input',
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
   progress:
     'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
+  interactive:
+    'end the reply with an <interactive> block: a command for the user to run from its card, which prints a link and a code, asks for a password and prints what it read (`=askpass`: one that asks through the password helper, as `sudo -A` does)',
   mcpserver: 'choose the server for an e2e:mcp call; defaults to the Relay gateway',
   mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
   subagent:
@@ -53,6 +63,18 @@ const DIRECTIVES = {
     'end the reply with a <schedule> block proposing a schedule for the chat: "Check the build" every day at 08:00 (`=mail` for one that waits for a new mail, its account for the user to pick)',
   title:
     'as the lead agent naming a new conversation, give it the title `=<words>`, with _ for a space (none by default: it keeps its first line)',
+};
+
+/**
+ * The commands `e2e:interactive` asks the user to run (shell, run by Harness Relay from the card): a
+ * device sign-in that reads a password from its input and prints it (masked on the card), or one that
+ * asks through the password helper (`$SUDO_ASKPASS`, as `sudo -A` runs it).
+ */
+const INTERACTIVE = {
+  device:
+    '<interactive reason="To sign in to the example service.">printf \'Open https://example.test/device and enter ABCD-1234\\nPassword: \'; IFS= read -r p; printf \'Got %s\\n\' "$p"</interactive>',
+  askpass:
+    '<interactive reason="To unlock the e2e key.">p=$("$SUDO_ASKPASS" \'Passphrase for the e2e key:\'); echo "helper got $p"</interactive>',
 };
 
 function directivesIn(text) {
@@ -309,6 +331,19 @@ const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
  */
 const MODEL_CHECK_PROMPT = 'Reply with exactly RELAY_MODEL_OK.';
 
+/**
+ * `e2e:approve=long`'s command: longer than an answered approval shows whole (`FOLD_DETAIL_CHARS`), on six
+ * lines. The specs ask Claude Code's fake for it, which runs no command (OpenCode's runs what it is given).
+ */
+const LONG_COMMAND = [
+  "python3 - <<'EOF'",
+  '# e2e:approve=long: a command long enough to be folded to its first line once it is answered',
+  'import sys',
+  "sys.stdout.write('e2e-approval\\n')",
+  'sys.stdout.flush()',
+  'EOF',
+].join('\n');
+
 function plan(prompt, turn) {
   if (prompt.includes(MODEL_CHECK_PROMPT)) {
     const fails = process.env.E2E_FAIL_MODEL_CHECK_CLIS?.split(',').includes(self.cli());
@@ -364,7 +399,11 @@ function plan(prompt, turn) {
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
   if (d.subagent) steps.push({ type: 'subagent', output: safeList(turn.cwd), wait: slowMs(d.subagent === true ? 1 : d.subagent) });
-  if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
+  if (d.approve)
+    steps.push({
+      type: 'approve',
+      command: d.approve === 'publish' ? 'npm publish e2e-approval' : d.approve === 'long' ? LONG_COMMAND : 'echo e2e-approval',
+    });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   if (typeof d.mcp === 'string') {
     const json = /\{[\s\S]*\}/.exec(user);
@@ -401,12 +440,31 @@ function plan(prompt, turn) {
   if (d.widecode) text += `\n\n\`\`\`js\nconst wide = '${'wide '.repeat(80).trim()}';\n\`\`\``;
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
+  if (d.steps) {
+    text +=
+      '\n\nPlease set up the app, then come back.\n\n<steps>\n1. Open [the example console](https://example.com/console) and create an app.\n' +
+      '2. Copy the app ID.\n3. Turn on the API under **Use cases**.\n</steps>';
+  }
   if (d.progress) {
     const status = typeof d.progress === 'string' ? d.progress : 'working';
     const goal = /<tracked_goal[^>]*>\n([\s\S]*?)\n<\/tracked_goal>/.exec(turn.briefing || '');
     text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
   }
   if (d.remember) text += `\n\n<remember scope="everywhere" basis="user">${said}</remember>`;
+  if (d.secret) {
+    const name = typeof d.secret === 'string' ? d.secret : 'E2E_TOKEN';
+    const url = typeof d.secreturl === 'string' ? ` url="${d.secreturl}"` : '';
+    text += `\n\n<secret name="${name}" label="E2E token"${url}>The fake needs it for the e2e check.</secret>`;
+  }
+  if (d.command) {
+    const name = typeof d.command === 'string' ? d.command : 'e2e-check';
+    text += `\n\n<command name="${name}" secrets="E2E_TOKEN" input="hello from the agent">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
+  }
+  if (d.commandrun) {
+    const name = typeof d.commandrun === 'string' ? d.commandrun : 'e2e-check';
+    text += `\n\n<command-run name="${name}">hello from the outbox</command-run>`;
+  }
+  if (d.interactive) text += `\n\n${INTERACTIVE[d.interactive === 'askpass' ? 'askpass' : 'device']}`;
   if (d.propose) {
     const repeat =
       d.propose === 'mail' ? { kind: 'event', triggers: [{ source: 'mail', from: 'ci@example.com' }] } : { kind: 'daily', time: '08:00' };

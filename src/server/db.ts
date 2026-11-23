@@ -565,6 +565,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX memories_by_conversation ON memories(conversation_id);
   `,
+  // 42: a schedule's fixed command, which Harness Relay runs first each time (docs/architecture.md,
+  // "Secrets and fixed commands").
+  `
+  ALTER TABLE schedules ADD COLUMN command TEXT;
+  `,
 ];
 
 /**
