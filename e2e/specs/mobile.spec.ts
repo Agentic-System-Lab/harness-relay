@@ -615,6 +615,28 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  test('an answered long command keeps to one line and opens to all of it, and nothing scrolls sideways', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await composer(page).fill('Print a line e2e:approve=long');
+    await page.getByRole('button', { name: 'Send' }).tap();
+    await page.getByRole('region', { name: '@Claude wants to run a command' }).getByRole('button', { name: 'Allow', exact: true }).tap();
+    const line = (await finishedReply(page, 'Claude')).locator('.approval-fold');
+    const summary = line.locator('summary');
+    await expect(summary).toContainText('Allowed');
+    const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    // The command's first line, cut where the line ends, and the answer beside it: one line.
+    const head = line.locator('.approval-head-line');
+    const [headBox, outcomeBox] = await Promise.all([head.boundingBox(), line.locator('.approval-outcome').boundingBox()]);
+    expect(Math.abs(headBox!.y - outcomeBox!.y)).toBeLessThanOrEqual(2);
+    expect(await sideways()).toBeLessThanOrEqual(1);
+    await summary.tap();
+    const full = line.locator('.approval-full');
+    await expect(full).toBeVisible();
+    // Its long line wraps inside the box.
+    expect(await full.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    expect(await sideways()).toBeLessThanOrEqual(1);
+  });
+
   test('a row is added to a CSV file from Files by touch, and nothing scrolls sideways', async ({ page, relay }) => {
     writeFileSync(
       join(relay.workDir, 'queue.csv'),

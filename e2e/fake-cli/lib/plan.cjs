@@ -20,7 +20,7 @@ const DIRECTIVES = {
   tool: 'list the working directory with a tool first',
   todo: 'show a to-do list',
   approve:
-    'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
+    'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too; with `=long`, `LONG_COMMAND`, a heredoc of six lines that an answered approval folds), then say whether it ran',
   flag: 'as the lead agent reviewing a request ("Approve for me"), find it potentially unsafe instead of approving it',
   slowapprove: 'as the lead agent reviewing a request ("Approve for me"), take `=<seconds>` (ten by default) to answer',
   fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
@@ -332,6 +332,19 @@ const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
  */
 const MODEL_CHECK_PROMPT = 'Reply with exactly RELAY_MODEL_OK.';
 
+/**
+ * `e2e:approve=long`'s command: longer than an answered approval shows whole (`FOLD_DETAIL_CHARS`), on six
+ * lines. The specs ask Claude Code's fake for it, which runs no command (OpenCode's runs what it is given).
+ */
+const LONG_COMMAND = [
+  "python3 - <<'EOF'",
+  '# e2e:approve=long: a command long enough to be folded to its first line once it is answered',
+  'import sys',
+  "sys.stdout.write('e2e-approval\\n')",
+  'sys.stdout.flush()',
+  'EOF',
+].join('\n');
+
 function plan(prompt, turn) {
   if (prompt.includes(MODEL_CHECK_PROMPT)) {
     const fails = process.env.E2E_FAIL_MODEL_CHECK_CLIS?.split(',').includes(self.cli());
@@ -387,7 +400,11 @@ function plan(prompt, turn) {
   }
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
   if (d.subagent) steps.push({ type: 'subagent', output: safeList(turn.cwd), wait: slowMs(d.subagent === true ? 1 : d.subagent) });
-  if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
+  if (d.approve)
+    steps.push({
+      type: 'approve',
+      command: d.approve === 'publish' ? 'npm publish e2e-approval' : d.approve === 'long' ? LONG_COMMAND : 'echo e2e-approval',
+    });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   if (typeof d.mcp === 'string') {
     const json = /\{[\s\S]*\}/.exec(user);

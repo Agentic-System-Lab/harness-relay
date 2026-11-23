@@ -561,7 +561,8 @@ export function HandoverPanel({
             {p.hide}
           </button>
         </header>
-        <p className="handover-why muted small" title={reason}>
+        {/* The agent's reason on one line; a browser for the user alone's own words whole, wrapped. */}
+        <p className={`handover-why muted small${saveAs ? ' whole' : ''}`} title={saveAs ? undefined : reason}>
           {reason}
         </p>
         {waiting.length > 0 && onApproval && (

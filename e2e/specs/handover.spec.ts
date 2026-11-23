@@ -170,6 +170,10 @@ test.describe('taking over the browser', () => {
       const panel = page.getByRole('dialog', { name: 'A browser for you alone' });
       await expect(panel).toBeVisible();
       await expect(panel.getByLabel('Address')).toHaveValue(url);
+      // Its line shows whole, wrapped where it must: that it starts signed in to no site too.
+      const why = panel.locator('.handover-why');
+      await expect(why).toContainText('This browser starts signed in to no site');
+      expect(await why.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
       // Three clicks on the token select it; the server reads the selection and keeps it.
       const token = await onPage(page, 0.5, 0.25);
       await page.mouse.click(token.x, token.y, { clickCount: 3 });
