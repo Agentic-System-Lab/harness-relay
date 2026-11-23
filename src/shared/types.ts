@@ -1350,6 +1350,10 @@ export interface FileListing {
   entries: FileEntry[];
   /** The folder has more entries than are listed. */
   truncated: boolean;
+  /** The Files panel may change files in this root (edit, new file, upload): never an agent's worktree. */
+  writable?: boolean;
+  /** Why it may not, when it is a working directory (one that holds Harness Relay, the home folder…). */
+  readOnly?: string;
 }
 
 export type FilePreviewKind = 'text' | 'image' | 'video' | 'binary';
@@ -1362,6 +1366,11 @@ export interface FilePreview {
   /** For text: the content (the beginning, when `truncated`). */
   text?: string;
   truncated?: boolean;
+  /**
+   * The file's version (a hash of its bytes), when the Files panel can edit it: whole, valid UTF-8 text
+   * of at most `FILE_EDIT_LIMITS.maxEditBytes`, reached through no link. A save names it (`FileSaveRequest`).
+   */
+  version?: string;
 }
 
 /**
@@ -1369,6 +1378,55 @@ export interface FilePreview {
  * downloaded as a ZIP file may hold (it is streamed, and stays well under ZIP's 4 GB and 65,535 entries).
  */
 export const FILE_LIMITS = { maxEntries: 2000, maxPreviewBytes: 512 * 1024, zipItems: 10_000, zipBytes: 1024 * 1024 * 1024 };
+
+/**
+ * Changing files from the Files panel. `maxEditBytes`: the largest text file it edits, in UTF-8 bytes:
+ * what its preview shows whole (`maxPreviewBytes`), so that a file it saved always opens for editing
+ * again; about 10,000 lines of a CSV, which a phone's text box still edits smoothly and a save sends
+ * in one JSON body. `maxUploadBytes`: the largest file uploaded, as for an attachment
+ * (`ATTACHMENT_LIMITS.maxBytes`): a phone's photo or a PDF, base64 in one JSON body of about 27 MB.
+ * `maxUploadFiles`: the most files one pick or drop takes; they go up one at a time.
+ */
+export const FILE_EDIT_LIMITS = { maxEditBytes: FILE_LIMITS.maxPreviewBytes, maxUploadBytes: 20 * 1024 * 1024, maxUploadFiles: 20 };
+
+/** Saving a text file from the Files panel (`PUT /api/conversations/:id/files/text`). */
+export interface FileSaveRequest {
+  /** A `FileRoot.id` of a working directory (`cwd` when absent). */
+  root?: string;
+  /** The file, relative to the root, with `/`. */
+  path: string;
+  text: string;
+  /** The version the text was loaded at (`FilePreview.version`); null makes a new file, refused when one is there. */
+  version: string | null;
+}
+
+/** Uploading a file into a folder from the Files panel (`POST /api/conversations/:id/files/upload`). */
+export interface FileUploadRequest {
+  root?: string;
+  /** The folder, relative to the root ('' = the root). */
+  dir: string;
+  name: string;
+  /** Base64 contents, as attachments send them. */
+  data: string;
+  /** Replace a file of that name, which the user agreed to; without it, one there is a 409 `FILE_EXISTS`. */
+  replace?: boolean;
+}
+
+/** A file the Files panel wrote. */
+export interface FileWritten {
+  path: string;
+  size: number;
+  mtime: number;
+  /** Its version now, for the next save (text files the panel edits). */
+  version: string;
+}
+
+/** The error `code` (409) for a save whose file changed since it was loaded: reload it. */
+export const FILE_CHANGED = 'file-changed';
+/** The error `code` (409) for a new file or an upload whose name is taken (`replace` not given). */
+export const FILE_EXISTS = 'file-exists';
+/** The error `code` (409) for a write while a run may be writing in that folder. */
+export const FOLDER_BUSY = 'folder-busy';
 
 /** How many files a folder's ZIP holds, and their size before compression. */
 export interface ZipSize {
@@ -2249,11 +2307,133 @@ export interface ApprovalReview {
   reason?: string;
 }
 
+/*
+ * Taking over the chat's browser (`browser_hand_over`, `src/server/browser/handover.ts`): an agent hands
+ * the page to the user when it needs them (a sign-in, a two-factor code, a CAPTCHA, a consent screen),
+ * and the call waits until the user hands it back.
+ */
+
+/**
+ * How the user is shown the page: in a window of the browser itself on the computer Harness Relay runs
+ * on, or in the chat, as Chromium's screencast, with the user's clicks and keys sent back.
+ */
+export type HandoverMode = 'window' | 'screencast';
+
+/**
+ * Where a hand-over stands: waiting for the user to start it (or decline), in the user's hands, or over:
+ * handed back (`done`), declined before it started, cancelled once started, or over by itself (`expired`:
+ * the time ran out, the turn ended, or the window could not open, `HandoverPart.ended` says which).
+ */
+export type HandoverStatus = 'pending' | 'active' | 'done' | 'declined' | 'cancelled' | 'expired';
+
+/**
+ * How a hand-over ended by itself: its time ran out, the turn ended, the browser could not be shown, or
+ * the agent's CLI stopped waiting for the call (its own time limit).
+ */
+export type HandoverEnded = 'timeout' | 'turn' | 'failed' | 'gone';
+
+/**
+ * Where a hand-over's window opens, when it can: beside the desktop app (`desktop`), or on the computer
+ * the server runs on (`server`: a Mac signed in at its screen, Linux with a display, Windows).
+ */
+export type HandoverWindowAt = 'desktop' | 'server';
+
+/**
+ * A hand-over's limits: the minutes the user has to start it, then to hand it back; the longest note to
+ * the agent, text typed at once, and events in one request of the screencast's.
+ */
+export const HANDOVER_LIMITS = {
+  startMinutes: 15,
+  useMinutes: 30,
+  noteMax: 2000,
+  textMax: 2000,
+  eventsMax: 100,
+  wheelMax: 10_000,
+} as const;
+
+/**
+ * What the screencast panel is told (`GET /api/conversations/:id/handovers/:handoverId/screen`): a frame
+ * of the page (a JPEG, its size in the page's own pixels), where the page is now, a new window the page
+ * opened (closed: the browser keeps to one tab) or a page it was refused, and that the hand-over is over.
+ */
+export type HandoverScreenEvent =
+  | { type: 'frame'; data: string; width: number; height: number }
+  | { type: 'location'; url: string; back: boolean; forward: boolean }
+  | { type: 'notice'; kind: 'popup' | 'refused'; url?: string }
+  | { type: 'ended' };
+
+/** Modifier keys as Chromium's input takes them: Alt 1, Ctrl 2, Meta (⌘) 4, Shift 8. */
+export type HandoverModifiers = number;
+
+/**
+ * What the user does in the screencast panel (`POST /api/conversations/:id/handovers/:handoverId/input`),
+ * in order. `x` and `y` are fractions (0 to 1) of the frame shown, which the server turns into the
+ * page's own pixels. A key with `text` types it (a key of a hardware keyboard); `text` alone inserts it
+ * as typed (an on-screen keyboard, an input method's composed text, a paste). `command`: an editing
+ * command a shortcut stands for. `viewport`: the panel's size, which the page is laid out to (as a desktop
+ * browser's window of that size: no phone emulation, whose zoomed-out pages take input elsewhere than
+ * where the frame shows them).
+ */
+export type HandoverInput =
+  | {
+      type: 'mouse';
+      action: 'down' | 'up' | 'move';
+      x: number;
+      y: number;
+      button?: 'left' | 'middle' | 'right' | 'none';
+      clicks?: number;
+      modifiers?: HandoverModifiers;
+    }
+  | { type: 'wheel'; x: number; y: number; dx: number; dy: number; modifiers?: HandoverModifiers }
+  | {
+      type: 'key';
+      key: string;
+      code?: string;
+      keyCode?: number;
+      text?: string;
+      modifiers?: HandoverModifiers;
+      command?: 'selectAll' | 'undo' | 'redo';
+    }
+  | { type: 'text'; text: string }
+  /** `typed`: the user typed it in the panel's address bar (not a page's address offered to them). */
+  | { type: 'navigate'; url: string; typed?: boolean }
+  | { type: 'history'; to: 'back' | 'forward' | 'reload' }
+  | { type: 'viewport'; width: number; height: number; scale?: number };
+
+/** The user's answer to a hand-over: start it (one of its modes), hand it back, or decline or cancel it. */
+export type HandoverAnswer =
+  { action: 'start'; mode: HandoverMode } | { action: 'done'; note?: string } | { action: 'cancel'; note?: string };
+
 /** One step of an agent's plan / to-do list. */
 export interface PlanEntry {
   text: string;
   status: 'pending' | 'in_progress' | 'completed';
 }
+
+/**
+ * One step a reply asks the user to take outside Harness Relay (its `<steps>` block, `src/shared/steps.ts`):
+ * the agent's words (Markdown), and whether the user ticked it.
+ */
+export interface StepItem {
+  text: string;
+  done?: boolean;
+}
+
+/**
+ * The user's answer to a steps card, once sent (`POST …/steps/answer`): when, the step they are stuck at
+ * (its index), and their note. The steps they did are the items ticked then; the card no longer changes.
+ */
+export interface StepsAnswer {
+  at: number;
+  stuckAt?: number;
+  note?: string;
+}
+
+/**
+ * A steps block: at most `steps` steps, `blockChars` characters in all (past either, the block stays
+ * text); the user's note at most `noteChars`.
+ */
+export const STEPS_LIMITS = { steps: 30, blockChars: 8000, noteChars: 2000 };
 
 export type MessagePart =
   | { type: 'text'; text: string }
@@ -2323,10 +2503,258 @@ export type MessagePart =
   /** A schedule the agent proposed (its `<schedule>` block, taken out of its text), for the user to create or dismiss. */
   | { type: 'schedule'; proposal: ScheduleProposal; status?: ScheduleProposalStatus }
   /**
+   * Steps the reply asks the user to take outside Harness Relay (its `<steps>` block, taken out of its
+   * text): the reply asks, and the team waits as for `ASK_TOKEN`. Each step is ticked as the user goes;
+   * `answer`: what they sent, after which the card no longer changes.
+   */
+  | { type: 'steps'; items: StepItem[]; answer?: StepsAnswer }
+  /**
+   * The agent handed the chat's browser to the user (`browser_hand_over`): why, in its words; the page;
+   * how it can be shown (`modes`, the window's only where this computer can show one, and where it opens);
+   * where it stands, and the user's note when they wrote one.
+   */
+  | {
+      type: 'handover';
+      id: string;
+      reason: string;
+      /** The page open when it was asked (its address without the query, as the card shows it). */
+      url?: string;
+      modes: HandoverMode[];
+      windowAt?: HandoverWindowAt;
+      status: HandoverStatus;
+      /** How the user took it over, once they did. */
+      mode?: HandoverMode;
+      /** When it ends by itself unless the user starts it or hands it back first (milliseconds since the epoch). */
+      deadline?: number;
+      /** The user's words to the agent, as they handed it back, declined or cancelled. */
+      note?: string;
+      /** Why it ended by itself (`expired`). */
+      ended?: HandoverEnded;
+    }
+  /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
    * library MCP server left out of it, its sign-in needing renewal.
    */
-  | { type: 'notice'; text: string };
+  | { type: 'notice'; text: string }
+  /**
+   * The secrets the reply asked the user for (its `<secret>` blocks, taken out of its text): their
+   * names and why, never a value. `folder`: the working directory they are kept for.
+   */
+  | { type: 'secrets'; id: string; folder: string; asks: SecretAsk[] }
+  /**
+   * A fixed command the reply proposed (its `<command>` block, taken out of its text): the user saves
+   * it for the working directory, or not. `run`: its last run from this card.
+   */
+  | {
+      type: 'command';
+      id: string;
+      folder: string;
+      proposal: CommandProposal;
+      status: 'proposed' | 'saved' | 'dismissed';
+      commandId?: string;
+      run?: FixedCommandRun;
+      /** A saved command of the same name existed when it was proposed: saving replaces it. */
+      replaces?: boolean;
+      /**
+       * It cannot be saved from this card: an automation's run proposed it, which nobody watched; or it
+       * was proposed on native Windows, where Harness Relay's own sandbox that runs it does not run.
+       */
+      blocked?: 'automation' | 'windows';
+    }
+  /**
+   * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its
+   * text): a sign-in, a CLI's login with a device code. Only the user starts it, from this card; it runs
+   * with their rights, outside the agents' sandboxes, and its output reaches the team only when they send it.
+   */
+  | {
+      type: 'interactive';
+      id: string;
+      /** The conversation's working directory: where it runs when the user chooses so. */
+      folder: string;
+      /** The command line, as the agent wrote it. */
+      run: string;
+      /** Why, in the agent's words. */
+      reason?: string;
+      /** The agent says it needs the working directory (`workdir="yes"`): the card offers it first. */
+      workdir?: boolean;
+      /**
+       * The configuration files in the working directory a program may load there (`.npmrc`, `.env`…),
+       * which agents can write: the card lists them, and starting there is refused when others appeared since.
+       */
+      configFiles: string[];
+      /** What those files held when the card listed them (`workdirDigest()`): Start there is refused once it changed. */
+      configDigest?: string;
+      /** It cannot be started from this card: proposed in an automation's run, or on native Windows. */
+      blocked?: 'automation' | 'windows';
+      status: 'proposed' | 'started' | 'dismissed';
+      /** Its latest run from this card. */
+      session?: InteractiveSession;
+    };
+
+/** How an interactive command's run from its card goes (`src/server/interactive.ts`), as the card shows it. */
+export interface InteractiveSession {
+  /**
+   * `running`, then how it ended: `exited` (by itself, `exitCode`), `cancelled` (the user stopped it),
+   * `timedOut` (its time limit), `failed` (it could not start: `reason`), `stopped` (the server stopped).
+   */
+  state: 'running' | 'exited' | 'cancelled' | 'timedOut' | 'failed' | 'stopped';
+  startedAt: number;
+  /** When its time limit stops it, if it still runs. */
+  endsAt: number;
+  endedAt?: number;
+  exitCode?: number | null;
+  /** It ran in the working directory, not in an empty folder of its own. */
+  inWorkdir: boolean;
+  /**
+   * What it printed and what the user typed into it (not what they typed hidden), its end only, with
+   * the folder's secret values and everything typed hidden replaced by dots.
+   */
+  output: string;
+  /** The links and codes in its output (a device sign-in's). */
+  urls: string[];
+  codes: string[];
+  /** Its password helper (`sudo -A`, ssh, git) asks for a line: the card asks the user, hidden. */
+  asking?: { id: string; prompt: string };
+  /** Whether it had the password helper; why not otherwise (no Node.js to run it with, or no way to reach it). */
+  helper: 'on' | 'no-node' | 'off';
+  reason?: string;
+  /** The user sent its output to the team. */
+  sent?: boolean;
+}
+
+/** Limits of interactive commands (`<interactive>` blocks). */
+export const INTERACTIVE_LIMITS = {
+  /** Characters of the command line, and of the agent's reason. */
+  commandLine: 2000,
+  reason: 500,
+  /** Interactive commands a reply may propose. */
+  perReply: 2,
+  /** Minutes one may run, waiting for the user included (a device code lasts about as long). */
+  timeoutMin: 15,
+  /** Characters of its output a card keeps (its end). */
+  output: 16_000,
+  /** Bytes of one line the user types into it. */
+  input: 4096,
+  /** Characters of a password helper's prompt shown. */
+  prompt: 300,
+  /** Interactive commands running at once on this server. */
+  running: 4,
+} as const;
+
+/**
+ * A secret an agent asked the user for (a `<secret>` block, `src/shared/handoffs.ts`). The value is
+ * kept in the credential store for the working directory and given only to the fixed commands that
+ * name it: never to an agent, the chat or the database.
+ */
+export interface SecretAsk {
+  name: string;
+  /** What the agent calls it, for the card. */
+  label?: string;
+  /** Why it needs it, in the agent's words. */
+  reason?: string;
+  /** `saved`: the user gave it; `declined`: they said no. */
+  status: 'waiting' | 'saved' | 'declined';
+  /** The folder had a value for this name already when it was asked: saving replaces it. */
+  had?: boolean;
+  /**
+   * The page where the user gets it (a token generator), which the agent named (`url` on the block):
+   * the card offers to open it in a browser for the user alone (`src/server/browser/handover.ts`).
+   */
+  url?: string;
+  /** It was saved from that browser's page (Save selection), not typed on the card. */
+  from?: 'page';
+}
+
+/** What a `<command>` block proposes: a command line for the working directory, the hosts it reaches and the secrets it gets. */
+export interface CommandProposal {
+  name: string;
+  run: string;
+  hosts: string[];
+  secrets: string[];
+  /** Where it runs: a folder relative to the working directory (its top when absent). */
+  cwd?: string;
+}
+
+/** How one run of a fixed command went, as its card shows it. Its output has every secret it holds masked. */
+export interface FixedCommandRun {
+  at: number;
+  source: 'try' | 'schedule' | 'outbox';
+  /**
+   * `passed`: exit code 0; `news`: `FIXED_COMMAND_NEWS`, something new for the team; `failed`: any
+   * other code; `error`: it could not run (`reason`); `changed`: not run, its pinned code changed since
+   * it was saved (`changed`); `running`: under way.
+   */
+  status: 'running' | 'passed' | 'news' | 'failed' | 'error' | 'changed';
+  exitCode?: number | null;
+  durationMs?: number;
+  output?: string;
+  reason?: string;
+  /** `changed`: the pinned files that changed, added or went since it was saved, relative to its folder. */
+  changed?: string[];
+}
+
+/**
+ * A fixed command the user saved for a working directory (docs/architecture.md, "Fixed commands"):
+ * run by Harness Relay itself in its own sandbox, reaching only its hosts, with its secrets in a file,
+ * pinned to the code in its folder.
+ */
+export interface FixedCommand extends CommandProposal {
+  id: string;
+  /** The working directory it belongs to (its real path). */
+  folder: string;
+  createdAt: number;
+  /** When its code was last pinned (saved, or changes approved). */
+  pinnedAt: number;
+  lastRun?: FixedCommandRun;
+}
+
+/** The exit code a fixed command uses to say it found something new for the team (in a schedule, its output goes to them). */
+export const FIXED_COMMAND_NEWS = 10;
+
+/** Limits of secrets and fixed commands. */
+export const HANDOFF_LIMITS = {
+  /** Secrets a reply may ask for, and a working directory may keep. */
+  secretsPerReply: 5,
+  secretsPerFolder: 30,
+  /** Characters of a secret's name, its label, an agent's reason, and bytes of its value. */
+  secretName: 64,
+  label: 80,
+  reason: 500,
+  secretValue: 16 * 1024,
+  /** Characters of the address a `<secret>` block names, for a browser for the user alone. */
+  secretUrl: 2000,
+  /** Fixed commands a working directory may keep, and a reply may propose. */
+  commandsPerFolder: 20,
+  commandsPerReply: 3,
+  commandName: 40,
+  commandLine: 2000,
+  /** Hosts and secrets one command may name. */
+  hosts: 10,
+  commandSecrets: 10,
+  /** What one run may take on its standard input (an outbox run), in bytes. */
+  input: 16 * 1024,
+  /** Minutes a run may take. */
+  timeoutMin: 10,
+  /** Characters of a run's output kept. */
+  output: 8000,
+  /** Pinned files a command's folder may have. */
+  pinnedFiles: 5000,
+} as const;
+
+/** A secret's name: an environment variable's (upper case, digits and `_`, not starting with a digit). */
+export const SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]{0,63}$/;
+/** A fixed command's name: lower case letters, digits, `-` and `_`. */
+export const COMMAND_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/** A working directory's secrets and fixed commands, for Settings: names only, never a value. */
+export interface FolderHandoffs {
+  folder: string;
+  secrets: { name: string; setAt: number }[];
+  commands: FixedCommand[];
+}
+
+/** A hand-over's card in a reply (`browser_hand_over`). */
+export type HandoverPart = Extract<MessagePart, { type: 'handover' }>;
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
@@ -2439,7 +2867,7 @@ export interface ChatMessage {
    * members whose turn took it, who count it as seen. It is `queued` too (it joined a discussion under way).
    */
   steered?: string[];
-  /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
+  /** An agent reply that asks the user something (it ended with `ASK_TOKEN`, or with steps for them to take): the team waited for the answer. */
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
@@ -2521,7 +2949,8 @@ export type ScheduleTrigger =
 export const TRIGGER_SOURCES: ScheduleTrigger['source'][] = ['mail', 'calendar', 'github', 'file'];
 
 /** Where a scheduled message's `<event>` block came from: the schedule's webhook, or what a trigger found. */
-export type EventSource = 'webhook' | ScheduleTrigger['source'];
+/** `command`: what a schedule's fixed command found (its output), sent to the team. */
+export type EventSource = 'webhook' | 'command' | ScheduleTrigger['source'];
 
 /**
  * What an automation that starts when something happens keeps of one trigger's source between checks,
@@ -2615,7 +3044,8 @@ export const WATCH_LIMITS = {
  * answer, had no confirmed team, or the previous scheduled message was still waiting), or could not
  * start (`failed`). `lastError` says why for the last two.
  */
-export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed';
+/** `ran`: its fixed command ran and found nothing for the team (exit code 0), so no message went. */
+export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed' | 'ran';
 
 /** Longest scheduled message, and the longest interval in hours; `maxGoal`: the longest goal a schedule tracks. */
 export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168, maxGoal: 2000 };
@@ -2732,6 +3162,12 @@ export interface ConversationSchedule {
    * checks, one for each trigger by its key (in the triggers' order; a trigger not checked yet has none).
    */
   watches?: ScheduleWatch[];
+  /**
+   * A fixed command of the conversation's working directory (its id) that Harness Relay runs first,
+   * each time: the message goes to the team only when it found something new (`FIXED_COMMAND_NEWS`) or
+   * failed, with its output; when it exits 0 nothing goes (`ran`), and no model runs.
+   */
+  command?: string;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -2750,7 +3186,7 @@ export interface ZonedParts {
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
 export type ScheduleUpdate = Pick<
   ConversationSchedule,
-  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'
+  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal' | 'command'
 >;
 
 /**
@@ -3839,3 +4275,27 @@ export type ServerToDesktop =
    * there: the app's menus and dialogs follow it.
    */
   | { type: 'lang'; lang: Lang };
+
+/** A hand-off block of a reply (`<secret>`, `<command>`, `<command-run>`, `<interactive>`), as `splitHandoffs()` reads it. */
+export type HandoffBlock =
+  | { kind: 'secret'; name: string; label?: string; reason?: string; url?: string }
+  | ({ kind: 'command' } & CommandProposal)
+  | { kind: 'command-run'; name: string; input: string }
+  | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
+
+/** A steps card (`<steps>`). */
+export type StepsPart = Extract<MessagePart, { type: 'steps' }>;
+
+/** The words of the user's answer, in their language (the server's `t().steps`). */
+export interface StepsWords {
+  /** Its first line: who gave the steps (`@name`), how many the user did of how many, and the step they are stuck at (from 1). */
+  summary: (o: { agent: string; done: number; total: number; stuckAt?: number }) => string;
+  done: string;
+  notDone: string;
+  stuck: string;
+  /** Before the user's note, with what separates it ("Note: "). */
+  note: string;
+}
+
+/** Why a name the user typed for a new file is not one (`fileNameProblem()` in `src/shared/fileNames.ts`). */
+export type FileNameProblem = 'empty' | 'separator' | 'dots' | 'control' | 'reserved' | 'git' | 'tooLong';

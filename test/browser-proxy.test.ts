@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, request, type Server } from 'node:http';
 import { connect, createServer, type Socket } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BrowserProxy, PROXY_USER, connectTarget, type ProxyRoute } from '../src/server/browser/proxy';
+import { BrowserProxy, PROXY_USER, connectTarget, tunnelOpening, type ProxyRoute } from '../src/server/browser/proxy';
 
 /*
  * The browser's own proxy (`src/server/browser/proxy.ts`) on its own, with Node's HTTP client in
@@ -15,9 +15,12 @@ describe("the browser's own proxy", () => {
   let echo: ReturnType<typeof createServer>;
   let echoPort = 0;
   const routes: [string, number, boolean][] = [];
+  /** The address of each http request its route was asked about (none for a tunnel). */
+  const requests: (string | undefined)[] = [];
   let decide: (host: string) => ProxyRoute = () => ({ addresses: ['127.0.0.1'] });
-  const proxy = new BrowserProxy(async (_password, host, port, secure) => {
+  const proxy = new BrowserProxy(async (_password, host, port, secure, request) => {
     routes.push([host, port, secure]);
+    requests.push(request);
     return decide(host);
   });
   let password = '';
@@ -112,6 +115,7 @@ describe("the browser's own proxy", () => {
     expect(r).toMatchObject({ status: 200, body: 'hello /page?q=1' });
     expect(r.headers['x-site']).toBe('yes');
     expect(routes).toEqual([['anything.test', sitePort, false]]);
+    expect(requests.at(-1)).toBe(`http://anything.test:${sitePort}/page?q=1`);
     expect(seen.at(-1)).toEqual({ url: '/page?q=1', host: `anything.test:${sitePort}`, auth: undefined });
     // Refused by its route: a 403, and nothing reaches the site.
     const before = seen.length;
@@ -135,5 +139,71 @@ describe("the browser's own proxy", () => {
     const refused = await tunnel(`blocked.test:${echoPort}`, basic(password));
     expect(refused.line).toBe('HTTP/1.1 403 Forbidden');
     refused.sock.destroy();
+    expect(requests.at(-1)).toBeUndefined();
+  });
+
+  it("reads what a tunnel's first bytes say: TLS, or a request and whether it opens a WebSocket, from which origin", () => {
+    const head = (lines: string[]) => Buffer.from(lines.join('\r\n') + '\r\n\r\n', 'latin1');
+    expect(tunnelOpening(Buffer.from([0x16, 0x03, 0x01]))).toEqual({ kind: 'tls' });
+    expect(tunnelOpening(Buffer.alloc(0))).toEqual({ kind: 'more' });
+    expect(tunnelOpening(Buffer.from('GET /ws HTTP/1.1\r\nUpgrade: websocket\r\n'))).toEqual({ kind: 'more' });
+    expect(tunnelOpening(head(['GET /ws HTTP/1.1', 'Host: a.test', 'Upgrade: WebSocket', 'Origin: http://own.test']))).toEqual({
+      kind: 'http',
+      socket: true,
+      origin: 'http://own.test',
+    });
+    // Two origins say none; a request that opens no socket is not one.
+    expect(tunnelOpening(head(['GET /ws HTTP/1.1', 'upgrade: websocket', 'origin: http://a.test', 'Origin: http://b.test']))).toEqual({
+      kind: 'http',
+      socket: true,
+    });
+    expect(tunnelOpening(head(['GET / HTTP/1.1', 'Host: a.test', 'Origin: http://a.test']))).toEqual({
+      kind: 'http',
+      socket: false,
+      origin: 'http://a.test',
+    });
+    // A head that never ends: a socket's with no origin.
+    expect(tunnelOpening(Buffer.from('GET /ws HTTP/1.1\r\nX: ' + 'y'.repeat(17_000)))).toEqual({ kind: 'http', socket: true });
+  });
+
+  it("lets a WebSocket's handshake through a tunnel only from an origin its route allows, before anything reaches the server", async () => {
+    let reached = 0;
+    const counted = createServer((sock) => {
+      reached++;
+      sock.pipe(sock);
+    });
+    await new Promise<void>((r) => counted.listen(0, '127.0.0.1', () => r()));
+    const port = (counted.address() as { port: number }).port;
+    try {
+      decide = () => ({ addresses: ['127.0.0.1'], socket: (origin) => origin === 'http://own.test' });
+      const handshake = (origin: string) =>
+        `GET /ws HTTP/1.1\r\nHost: ws.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nOrigin: ${origin}\r\n\r\n`;
+      const echoed = (sock: Socket) => new Promise<string>((r) => sock.once('data', (d: Buffer) => r(d.toString('latin1'))));
+      const closed = (sock: Socket) => new Promise<void>((r) => (sock.destroyed ? r() : sock.once('close', () => r())));
+      // From the page's own origin, in two pieces: passed on, as it was.
+      const own = await tunnel(`ws.test:${port}`, basic(password));
+      expect(own.line).toBe('HTTP/1.1 200 Connection Established');
+      const back = echoed(own.sock);
+      const text = handshake('http://own.test');
+      own.sock.write(text.slice(0, 20));
+      setTimeout(() => own.sock.write(text.slice(20)), 50);
+      expect(await back).toContain('GET /ws HTTP/1.1');
+      own.sock.destroy();
+      expect(reached).toBe(1);
+      // From another page: closed, and the server never sees it.
+      const other = await tunnel(`ws.test:${port}`, basic(password));
+      other.sock.write(handshake('http://elsewhere.test'));
+      await closed(other.sock);
+      expect(reached).toBe(1);
+      // TLS (https, wss) is not read: passed on.
+      const tls = await tunnel(`ws.test:${port}`, basic(password));
+      const tlsBack = echoed(tls.sock);
+      tls.sock.write(Buffer.from([0x16, 0x03, 0x01, 0x00, 0x01, 0x00]));
+      expect((await tlsBack).charCodeAt(0)).toBe(0x16);
+      tls.sock.destroy();
+      expect(reached).toBe(2);
+    } finally {
+      await new Promise((r) => counted.close(r));
+    }
   });
 });

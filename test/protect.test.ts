@@ -4,6 +4,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   agentFolderOverlap,
+  agentProtectedReads,
   appBrowserDirs,
   browserDataDirs,
   clearRunTmp,
@@ -431,5 +432,24 @@ describe("the turns' own temporary folders", () => {
     } finally {
       chmodSync(join(tmp, 'claude-l0cked', 'inner'), 0o700);
     }
+  });
+});
+
+describe("the relay sandbox's run folders, kept from the other CLIs", () => {
+  it('adds them to what agents below full access may not read, once they exist, but not on Windows', () => {
+    const data = join(root, 'agent-reads');
+    mkdirSync(data, { recursive: true });
+    const home = join(root, 'agent-reads-home');
+    mkdirSync(home, { recursive: true });
+    const at = (platform: NodeJS.Platform) => agentProtectedReads({ platform, home, dataDir: data }).map((p) => resolve(p));
+    // Not made yet: nothing to keep.
+    expect(at('linux')).not.toContain(join(data, 'relay-sandbox'));
+    mkdirSync(join(data, 'relay-sandbox'));
+    mkdirSync(join(data, 'srt'));
+    expect(at('linux')).toEqual(expect.arrayContaining([join(data, 'relay-sandbox'), join(data, 'srt')]));
+    expect(at('darwin')).toEqual(expect.arrayContaining([join(data, 'relay-sandbox'), join(data, 'srt')]));
+    // protectedReads(), which the relay sandbox takes for its own runs too, never has them.
+    expect(protectedReads({ platform: 'linux', home, dataDir: data }).map((p) => resolve(p))).not.toContain(join(data, 'srt'));
+    expect(at('win32')).not.toContain(join(data, 'srt'));
   });
 });

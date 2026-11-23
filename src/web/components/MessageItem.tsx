@@ -15,8 +15,10 @@ import {
 } from '../../shared/types';
 import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
+import { withoutStepsTail } from '../../shared/steps';
 import { withoutProgressTail } from '../../shared/tracking';
 import { withoutMemoryBlocks } from '../../shared/memory';
+import { withoutHandoffBlocks } from '../../shared/handoffs';
 import { cardEntry } from '../memory';
 import { api } from '../api';
 import { settingsHref } from '../route';
@@ -47,6 +49,8 @@ import { fallbackExplanation, mentionWarning, messageText, planChecksMentions, p
 import { useI18n, useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
+import { StepsCard } from './StepsCard';
+import { HandoverCard } from './HandoverCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
@@ -54,6 +58,7 @@ import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon,
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
+import { CommandCard, InteractiveCard, SecretsCard } from './HandoffCards';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -738,6 +743,10 @@ interface Props {
   onRetry: (messageId: string) => Promise<void>;
   /** This reply's question waits for the user's answer (the team stopped for it). */
   waitingAnswer?: boolean;
+  /** The other agents that wait for the user's answer too, as `@name`s (its steps card says an answer there is this reply's alone). */
+  othersWaiting?: string;
+  /** This reply's steps still wait for the user, while the team replies to another card's answer. */
+  answerLater?: boolean;
   /** Let the team go on without answering. */
   onSkipQuestion?: () => void;
   /** Copy or share the conversation up to and including this reply. */
@@ -1392,6 +1401,8 @@ export const MessageItem = memo(function MessageItem({
   onApproval,
   onRetry,
   waitingAnswer,
+  othersWaiting,
+  answerLater,
   onSkipQuestion,
   onShare,
   onBranch,
@@ -1471,6 +1482,8 @@ export const MessageItem = memo(function MessageItem({
       onApproval={onApproval}
       onRetry={onRetry}
       waitingAnswer={waitingAnswer}
+      othersWaiting={othersWaiting}
+      answerLater={answerLater}
       onSkipQuestion={onSkipQuestion}
       onShare={onShare}
       onBranch={onBranch}
@@ -1496,6 +1509,8 @@ function AgentMessage({
   onApproval,
   onRetry,
   waitingAnswer,
+  othersWaiting,
+  answerLater,
   onSkipQuestion,
   onShare,
   onBranch,
@@ -1517,6 +1532,8 @@ function AgentMessage({
   | 'onApproval'
   | 'onRetry'
   | 'waitingAnswer'
+  | 'othersWaiting'
+  | 'answerLater'
   | 'onSkipQuestion'
   | 'onShare'
   | 'onBranch'
@@ -1581,7 +1598,13 @@ function AgentMessage({
               return (
                 <Markdown
                   key={s.key}
-                  text={live ? withoutScheduleBlocks(withoutMemoryBlocks(withoutProgressTail(splitAsk(s.text).text))) : s.text}
+                  text={
+                    live
+                      ? withoutScheduleBlocks(
+                          withoutHandoffBlocks(withoutMemoryBlocks(withoutProgressTail(withoutStepsTail(splitAsk(s.text).text)))),
+                        )
+                      : s.text
+                  }
                   mentions={mentionNames}
                   mediaBase={api.mediaBase(convId, msg.id)}
                   downloadBase={api.downloadBase(convId, msg.id)}
@@ -1598,8 +1621,43 @@ function AgentMessage({
               return <ProgressCard key={s.key} status={s.status} text={s.text} />;
             case 'outbox':
               return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+            case 'handover':
+              return (
+                <HandoverCard
+                  key={s.key}
+                  part={s.part}
+                  convId={convId}
+                  agentName={name}
+                  live={live}
+                  asks={msg.parts.filter((p): p is ApprovalPart => p.type === 'approval' && p.status === 'pending')}
+                  onApproval={onApproval}
+                />
+              );
             case 'memory':
               return <MemoryCard key={s.key} part={s.part} />;
+            case 'secrets':
+              return <SecretsCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
+            case 'command':
+              return <CommandCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
+            case 'steps':
+              return (
+                <StepsCard
+                  key={s.key}
+                  part={s.part}
+                  convId={convId}
+                  messageId={msg.id}
+                  agentName={name}
+                  waiting={Boolean(waitingAnswer)}
+                  othersWaiting={othersWaiting}
+                  later={answerLater}
+                  mentions={mentionNames}
+                  mediaBase={api.mediaBase(convId, msg.id)}
+                  downloadBase={api.downloadBase(convId, msg.id)}
+                  onPreview={previewFile}
+                />
+              );
+            case 'interactive':
+              return <InteractiveCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
             case 'schedule':
               return (
                 <ScheduleCard
@@ -1637,7 +1695,8 @@ function AgentMessage({
             onApply={() => onApply(resultOwner(msg) ?? agentId)}
           />
         )}
-        {waitingAnswer && (
+        {/* A steps card says it already, and has its own answer. */}
+        {waitingAnswer && !segs.some((x) => x.kind === 'steps') && (
           <div className="ask-card" id={`ask-${msg.id}`}>
             <strong>{t.message.askWaiting}</strong>
             <span className="muted">{t.message.askNote(name)}</span>

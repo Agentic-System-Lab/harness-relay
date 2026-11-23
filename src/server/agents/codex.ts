@@ -17,7 +17,7 @@ import { outputReserve, runLimits } from '../contextWindow';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
-import { patternPath, protectedReads } from '../protect';
+import { patternPath, agentProtectedReads } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
 import { codexBindTeamHooks, codexListTeamHooks, codexTeamHooks, codexVerifyTeamHooks } from './codexHooks';
 import {
@@ -1028,7 +1028,7 @@ const codexTurnRunner: AgentRunner = {
     const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.codex);
     const o = {
       ...given,
-      protectedPaths: given.protectedPaths ?? protectedReads(),
+      protectedPaths: given.protectedPaths ?? agentProtectedReads(),
       ...(endpoint ? { env: endpointKeyEnv(given.env, endpoint) } : {}),
     };
     // A permission profile is an experimental thread field, which the client opts into.
@@ -1245,7 +1245,7 @@ export const codexRunner: AgentRunner = {
     try {
       return await codexTurnRunner.run(o);
     } catch (err) {
-      const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads(), process.platform, o.addDirs, o.guard);
+      const profiled = codexProfile(o.permission, o.protectedPaths ?? agentProtectedReads(), process.platform, o.addDirs, o.guard);
       if (!profiled || !(err instanceof AgentRunError) || err.aborted || !CODEX_PROFILE_LOAD_FAILED.test(err.message)) throw err;
       profilesUnavailable = true;
       if (o.hooks && o.permission === 'edit') throw new AgentRunError(t().codexHooksUnprotected);

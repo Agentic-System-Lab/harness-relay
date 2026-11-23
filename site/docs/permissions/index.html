@@ -6,7 +6,7 @@
     <title>Permissions and approvals · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make."
+      content="Harness Relay docs: what agents may do without asking, approvals, the sandboxes, giving a secret or running a command yourself, and reviewing changes."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Permissions and approvals · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit, approve for me or full access, answer approval cards, send what waits in the outbox yourself, and review each reply's changes before you keep them."
+      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit, approve for me or full access, answer approval cards, send what waits in the outbox yourself, give secrets on a card for scripts Harness Relay runs itself, and review each reply's changes before you keep them."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/",
         "name": "Permissions and approvals · Harness Relay docs",
-        "description": "Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make.",
+        "description": "Harness Relay docs: what agents may do without asking, approvals, the sandboxes, giving a secret or running a command yourself, and reviewing changes.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -243,6 +243,8 @@
           <li><a href="#approvals">Approval cards</a></li>
           <li><a href="#sandboxes">What the sandboxes do</a></li>
           <li><a href="#outbox">The outbox</a></li>
+          <li><a href="#secrets">Secrets and fixed commands</a></li>
+          <li><a href="#your-commands">Commands you run yourself</a></li>
           <li>
             <details>
               <summary>Review and apply changes</summary>
@@ -418,6 +420,63 @@
             Until you answer, the conversation is marked <b>Needs you</b> and you are notified, as for an approval; the
             agent does not wait, so you can send it later. <a href="../tools/">Tools: browser, mail and calendar</a>
           </p>
+        </section>
+
+        <section id="secrets" aria-labelledby="secrets-title">
+          <h2 id="secrets-title">Secrets and fixed commands</h2>
+          <p>
+            Agents never ask you to paste a secret (an API token, an app secret, a password) in the chat, type it in a terminal or put it in a file. They ask with a card: its masked field keeps the value in this computer's credential store, for that
+            working directory. The team is told which secrets you gave, never their values, and no agent's sandbox can read them. Harness Relay never needs the password of your own accounts.
+          </p>
+          <p>
+            When the value is on a web page (a token generator), choose <b>Open a browser for you alone</b> on the card: a browser
+            that no agent drives or reads, deleted when you close it, shown in the chat, so it works from your phone too. Select the
+            value on the page and choose <b>Save selection as</b> its name: it goes straight to the card, never through the chat. On
+            the computer Harness Relay runs on, you can also open the page in your own browser and paste the value.
+          </p>
+          <p>A script that needs a secret, or should run on a schedule, comes as a <b>fixed command</b> card: the command line, the hosts it may reach and the secrets it gets. Harness Relay, not an agent, runs it:</p>
+          <ul>
+            <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
+            <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
+            <li>only with the code you looked at before saving it (<b>Show the code it runs</b>), and only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
+            <li>when you click <b>Try it</b>, <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
+          </ul>
+          <p>
+            <b>Settings → Secrets and commands</b> lists each working directory's secrets, by name only (<b>Replace</b> or <b>Remove</b> one), and its fixed commands with their last run.
+            Fixed commands do not run on native Windows yet. A command you allow outside a sandbox, and every agent with full access, runs with your rights. <a href="../automations/">Automations</a>
+          </p>
+        </section>
+
+        <section id="your-commands" aria-labelledby="your-commands-title">
+          <h2 id="your-commands-title">Commands you run yourself</h2>
+          <p>
+            Some steps only you can take at a command line: a sign-in that shows a link or a code (<code>gcloud auth login --no-launch-browser</code>,
+            <code>npm login</code>) or a password prompt (<code>sudo -A</code>). Agents cannot type into the commands they run, so an agent asks you
+            to run it yourself instead: its reply shows a <b>Run a command yourself</b> card with the command and why, and the team waits for you.
+          </p>
+          <ul>
+            <li>
+              <b>Start</b> runs it with your rights on this computer, outside every agent's sandbox, in an empty folder of its own, or in the
+              working directory if you choose it there (the card then lists the configuration files, git hooks and installed programs it may load, which agents can change, and
+              does not start once one of them changed).
+              Nothing runs until you click it, and a card an automation's run proposed cannot be started.
+            </li>
+            <li>
+              While it runs, the card shows its output with the page to open and the code to enter picked out. Type a line and press Enter to send it;
+              with <b>Hide what I type</b> it stays off the card and is masked should the program print it. <code>sudo -A</code>, ssh and git ask
+              through Harness Relay's password helper, on the card. <b>Cancel</b> stops it, and it stops by itself after 15 minutes.
+            </li>
+            <li><b>Send the output to the team</b> posts how it ended and its masked output as your answer. Until then the agents see nothing of it.</li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                What a sign-in saves goes where the program keeps it, usually your home folder, which agents below full access can read. It has no
+                terminal, so a full-screen program cannot be answered, and it does not run on native Windows yet.
+              </p>
+            </div>
+          </div>
         </section>
 
         <section id="changes" aria-labelledby="changes-title">

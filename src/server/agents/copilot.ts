@@ -19,7 +19,7 @@ import { endpointRunModel, type EndpointModel } from '../backends';
 import { isPublishCommand } from '../commands';
 import { t } from '../i18n';
 import { converse, runProcess, stripAnsi, tail } from '../process';
-import { patternPath, protectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
+import { patternPath, agentProtectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { PROJECT_AGENT_CONFIG } from '../relaySandbox';
 import {
   JsonRpcConnection,
@@ -1642,7 +1642,7 @@ export const copilotRunner: AgentRunner = {
     const protectedPaths =
       o.permission === 'full'
         ? []
-        : [...new Set([...(o.protectedPaths ?? protectedReads()), ...(o.hooks ? spellings(relayTmpDir()) : [])])];
+        : [...new Set([...(o.protectedPaths ?? agentProtectedReads()), ...(o.hooks ? spellings(relayTmpDir()) : [])])];
     // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
     const pattern = patternPath(protectedPaths);
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));

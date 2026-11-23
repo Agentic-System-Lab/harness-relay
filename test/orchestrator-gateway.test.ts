@@ -236,6 +236,75 @@ describe("Harness Relay's own tools in a turn", () => {
       await expect(orchestrator.answerOutbox('missing', items[0]!.id, 'send')).rejects.toMatchObject({ status: 404 });
     }));
 
+  it("shows a hand-over's card in the reply, keeps the chat waiting while the user has the browser, and ends it with the turn", () =>
+    withLang('en', async () => {
+      const { grants } = fakeGateway();
+      settings.tools.update({ relayTools: { browser: ['claude'] } });
+      const conv = solo();
+      const waiting: boolean[] = [];
+      fake.inTurn = async () => {
+        const ctx = grants.at(-1)!.ctx;
+        const card = ctx.handoverCard!({
+          type: 'handover',
+          id: 'h1',
+          reason: 'Sign in to the dashboard',
+          modes: ['screencast'],
+          status: 'pending',
+          deadline: 1000,
+        });
+        waiting.push(orchestrator.isWaiting(conv.id));
+        card.update({ status: 'active', mode: 'screencast', deadline: 2000 });
+        waiting.push(orchestrator.isWaiting(conv.id));
+        card.update({ status: 'done', note: 'Signed in', deadline: undefined });
+        waiting.push(orchestrator.isWaiting(conv.id));
+        // A second one, which the turn ends before the user takes it.
+        ctx.handoverCard!({ type: 'handover', id: 'h2', reason: 'Again', modes: ['screencast'], status: 'pending', deadline: 3000 });
+        waiting.push(orchestrator.isWaiting(conv.id));
+      };
+      await orchestrator.send(conv.id, 'sign me in');
+      await finish(conv.id);
+      expect(waiting).toEqual([true, true, false, true]);
+      expect(orchestrator.isWaiting(conv.id)).toBe(false);
+      const reply = conv.messages.find((m) => m.author.kind === 'agent')!;
+      expect(reply.parts.filter((p) => p.type === 'handover')).toEqual([
+        {
+          type: 'handover',
+          id: 'h1',
+          reason: 'Sign in to the dashboard',
+          modes: ['screencast'],
+          status: 'done',
+          mode: 'screencast',
+          note: 'Signed in',
+        },
+        { type: 'handover', id: 'h2', reason: 'Again', modes: ['screencast'], status: 'expired', ended: 'turn' },
+      ]);
+      expect(
+        store
+          .get(conv.id)!
+          .messages.find((m) => m.id === reply.id)!
+          .parts.filter((p) => p.type === 'handover'),
+      ).toHaveLength(2);
+
+      // A run a schedule started, nobody watching: no card can be shown (the tool refuses).
+      conv.schedule = {
+        text: 'check the dashboard',
+        repeat: { kind: 'interval', hours: 1 },
+        timeZone: 'UTC',
+        lang: 'en',
+        enabled: true,
+        approvals: 'deny',
+        missed: 'skip',
+        newChat: false,
+        updatedAt: 0,
+      };
+      store.saveSchedule(conv);
+      fake.inTurn = async () => undefined;
+      await orchestrator.sendScheduled(conv.id);
+      await finish(conv.id);
+      expect(grants.at(-1)!.ctx).toMatchObject({ unattended: true });
+      expect(grants.at(-1)!.ctx.handoverCard).toBeUndefined();
+    }));
+
   /** A conversation whose reply left a mail waiting in the outbox. */
   const waitingMail = async () => {
     const { grants, sent } = fakeGateway();

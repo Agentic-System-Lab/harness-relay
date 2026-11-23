@@ -7454,6 +7454,222 @@ summary + .checks-editor-body {
   font-size: 13px;
 }
 
+/* The browser handed to the user (browser_hand_over): its card, and the screencast's panel over the chat. */
+.handover-card {
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+  background: color-mix(in srgb, var(--info) 6%, var(--bg));
+}
+
+.handover-card .approval-icon,
+.handover-card .approval-waiting {
+  color: var(--info);
+}
+
+.handover-reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.handover-url {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.handover-url code {
+  font-family: var(--mono);
+}
+
+.handover-kept {
+  color: var(--text);
+}
+
+.handover-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.handover-mode {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.handover-mode button {
+  flex-shrink: 0;
+}
+
+.handover-done.expired .approval-mark {
+  color: var(--muted);
+}
+
+.handover-scrim {
+  padding: 12px;
+}
+
+.handover-panel {
+  width: min(1280px, 100%);
+  height: min(900px, 100%);
+  padding: 10px;
+  gap: 8px;
+}
+
+.handover-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.handover-go {
+  display: flex;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.handover-address {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.handover-why {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.handover-asks,
+.handover-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 9%, var(--bg));
+}
+
+.handover-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.handover-ask code {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.handover-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  /* The page takes the touches: no scrolling, zooming or text selection of the chat around it. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.handover-screen img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.handover-screen img:not([src]) {
+  visibility: hidden;
+}
+
+.handover-state {
+  position: absolute;
+  font-size: 13px;
+}
+
+.handover-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.handover-type {
+  flex: 1 1 240px;
+  min-width: 0;
+  /* At least 16px: Safari on a phone would zoom the page in on a smaller field. */
+  font-size: 16px;
+}
+
+.handover-clip {
+  flex: 1 1 200px;
+}
+
+/* A browser for the user alone: Save selection as one of the secrets card's asks. */
+.handover-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.handover-saved {
+  color: var(--ok);
+}
+
+.handoff-where {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.handoff-nearby {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.handoff-browser {
+  align-self: flex-start;
+  margin: 4px 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .handover-scrim {
+    padding: 0;
+  }
+
+  .handover-panel {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+    padding: 8px;
+  }
+
+  .handover-clip {
+    display: none;
+  }
+}
+
 /* An agent's question the team stopped for, until the user answers */
 .ask-card {
   display: flex;
@@ -7470,6 +7686,196 @@ summary + .checks-editor-body {
 
 .ask-card .muted {
   flex: 1 1 240px;
+}
+
+/* A steps card: what an agent asks the user to do outside Harness Relay, a box ticked for each step */
+.steps-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.steps-card-waiting {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg));
+}
+
+.steps-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.steps-icon {
+  display: inline-grid;
+  color: var(--muted);
+}
+
+.steps-card-waiting .steps-icon {
+  color: var(--warn);
+}
+
+.steps-status {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.steps-card-waiting .steps-status {
+  color: var(--warn);
+}
+
+.steps-wait {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.step-item {
+  display: grid;
+  grid-template-columns: 28px auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  padding: 5px 0;
+}
+
+.step-item + .step-item {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* The box: the checkbox itself lies over it, unseen, with a larger area to tap. */
+.step-check {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.step-input {
+  position: absolute;
+  inset: -8px;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.step-input:disabled {
+  cursor: not-allowed;
+}
+
+.step-box {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid color-mix(in srgb, var(--text) 35%, var(--border));
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--primary-contrast);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.step-input:hover:not(:disabled) + .step-box {
+  border-color: var(--text);
+}
+
+.step-input:focus-visible + .step-box {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+.step-done .step-box {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+/* Answered, or no longer waited for: a step not done is no box to tick. */
+.steps-card:not(.steps-card-waiting) .step-open .step-box {
+  border-style: dashed;
+  background: transparent;
+}
+
+.step-stuck .step-box {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
+.step-num {
+  padding-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-text {
+  padding-top: 2px;
+  min-width: 0;
+  font-size: 14.5px;
+}
+
+.step-text .markdown p {
+  margin-bottom: 4px;
+}
+
+.step-text .markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.step-done .step-text {
+  color: var(--muted);
+}
+
+.steps-note {
+  font-size: 13.5px;
+}
+
+.steps-note-text {
+  white-space: pre-wrap;
+}
+
+.steps-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.steps-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.steps-field textarea,
+.steps-field select {
+  width: 100%;
+  font-size: 14px;
+  color: var(--text);
 }
 
 /* Conversation states in the sidebar ------------------------------------------------ */
