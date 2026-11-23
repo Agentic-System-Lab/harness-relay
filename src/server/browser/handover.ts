@@ -218,8 +218,10 @@ export class Handovers {
   }
 
   /**
-   * A watcher of a screencast going on (`HandoverTicket.watch()`), or of a window, which is told only
-   * that it ended (a browser for the user alone's card, whose window the user may close).
+   * A watcher of a screencast going on (`HandoverTicket.watch()`), or of a window (a hand-over's, or a
+   * browser for the user alone's, whose card hears from it that the user closed the window): a window's
+   * stream has no frames or addresses, only that it ended, and for a browser for the user alone the
+   * windows its page opened (closed) and the pages refused.
    */
   watch(convId: string, id: string, fn: (e: HandoverScreenEvent) => void): (() => void) | HandoverRefusal {
     const t = this.get(convId, id);

@@ -202,7 +202,7 @@ test.describe('taking over the browser', () => {
   test.describe('where this computer shows windows (headless here)', () => {
     test.use({ serverEnv: async ({}, use) => use({ RELAY_BROWSER: await aBrowser(), RELAY_HEADLESS_WINDOWS: 'on' }) });
 
-    test('a secret from a page in a window: the card offers it, Close closes it, and the selection made there is saved', async ({
+    test('a secret from a page in a window: the card offers it, hears it closed, Close closes it, and the selection made there is saved', async ({
       page,
       relay,
     }) => {
@@ -229,11 +229,24 @@ test.describe('taking over the browser', () => {
         await inWindow.click();
         // On this computer: said whole, and opened only once the user confirms it, in the window still.
         await expect(card.getByRole('alert')).toContainText(`${url} is on this computer or your local network`);
+        const opened = page.waitForResponse((r) => r.request().method() === 'POST' && /\/secrets\/[^/]+\/browser$/.test(r.url()) && r.ok());
         await card.getByRole('button', { name: 'Open it all the same' }).click();
+        const res = await opened;
+        const { handoverId, mode } = (await res.json()) as { handoverId: string; mode: string };
+        expect(mode).toBe('window');
         const box = card.getByRole('group', { name: 'A browser for you alone' });
-        await expect(box).toContainText('Open in a window on the computer Harness Relay runs on');
+        await expect(box).toContainText('It is open in a window on the computer Harness Relay runs on');
         // No screencast: the page is in the window.
         await expect(page.getByRole('dialog', { name: 'A browser for you alone' })).toHaveCount(0);
+        // The window closed there (the user closed it): the card hears it, and its box goes.
+        const convId = new URL(res.url()).pathname.split('/')[3]!;
+        await relay.api(`/api/conversations/${convId}/handovers/${handoverId}`, { body: { action: 'done' } });
+        await expect(box).toHaveCount(0);
+
+        // Opened again, Close on the card closes it.
+        await inWindow.click();
+        await card.getByRole('button', { name: 'Open it all the same' }).click();
+        await expect(box).toBeVisible();
         await box.getByRole('button', { name: 'Close the browser' }).click();
         await expect(box).toHaveCount(0);
         await expect.poll(() => readdirSync(join(relay.dataDir, 'browser', 'user'))).toEqual([]);

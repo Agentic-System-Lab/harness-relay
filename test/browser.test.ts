@@ -446,6 +446,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<a href="http://localhost:${port}/next" style="position:fixed;left:0;top:30%;width:100%;height:20%;display:block;font-size:30px">Elsewhere</a>` +
             `<input readonly value="ro-field-5678" style="position:fixed;left:0;top:60%;width:100%;height:40%;font-size:30px">`,
         );
+      if (url.pathname === '/leave')
+        // A form page that asks "Leave site?" before it is closed or left.
+        return res.end(
+          `<title>Leave</title><p>Unsaved</p><script>addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = '' })</script>`,
+        );
       if (url.pathname === '/csrf')
         // A page that reaches another host here by itself: a request with no answer read, then a page opened.
         return res.end(
@@ -998,6 +1003,14 @@ describe.skipIf(!chromium)('the browser itself', () => {
         expect(typeof watching).toBe('function');
       });
       await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: 20_000 });
+      // A person drives it, in the chat too: no page is told it is automated.
+      const shown = (
+        browser as unknown as { forUser: Map<string, { s: { send: <T>(m: string, p: Record<string, unknown>) => Promise<T> } }> }
+      ).forUser.get(id)!.s;
+      expect(
+        (await shown.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
+          .result.value,
+      ).toBe(false);
       const asked = asked0();
       // Nothing selected yet, nothing focused: nothing to save.
       await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe(''), { timeout: 10_000 });
@@ -1051,7 +1064,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
   );
 
   it(
-    'opens a browser for the user alone in a window where this computer shows one (headless here), tells no page it is automated, and ends when the user closes the window',
+    'opens a browser for the user alone in a window where this computer shows one (headless here), tells no page it is automated, keeps it on the web, and ends when the user closes the window, also on a page that asks "Leave site?"',
     async () => {
       type Session = {
         targetId: string;
@@ -1089,19 +1102,16 @@ describe.skipIf(!chromium)('the browser itself', () => {
         expect(win.userBrowserMode('conv-alone-window', id)).toBe('window');
         expect(win.userBrowserMode('another', id)).toBeUndefined();
         const told: string[] = [];
-        expect(typeof win.handovers.watch('conv-alone-window', id, (e) => told.push(e.type))).toBe('function');
-        // Nothing to send it as a screencast: the user works in the window.
-        expect(await win.handovers.input('conv-alone-window', id, [{ type: 'text', text: 'a' }])).toBe('state');
+        expect(
+          typeof win.handovers.watch('conv-alone-window', id, (e) =>
+            told.push(e.type === 'notice' ? `${e.kind} ${e.url ?? ''}`.trim() : e.type),
+          ),
+        ).toBe('function');
         const s = (win as unknown as { forUser: Map<string, { s: Session }> }).forUser.get(id)!.s;
-        await vi.waitFor(
-          async () =>
-            expect(
-              await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'location.pathname', returnByValue: true }),
-            ).toMatchObject({ result: { value: '/token' } }),
-          {
-            timeout: slow(20_000),
-          },
-        );
+        const at = async () =>
+          (await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'location.href', returnByValue: true })).result
+            .value;
+        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/token`), { timeout: slow(20_000) });
         // A person drives it: no page is told it is automated.
         expect(await webdriver(s)).toBe(false);
         // What the user selects in the window is read as in the screencast.
@@ -1109,10 +1119,29 @@ describe.skipIf(!chromium)('the browser itself', () => {
           expression: `getSelection().selectAllChildren(document.querySelector('p'))`,
         });
         expect((await win.selectionOf('conv-alone-window', id)).trim()).toBe('tok-from-page-1234');
-        // The user closes the window: it ends, and its profile goes.
-        await s.cdp.send('Target.closeTarget', { targetId: s.targetId });
+        // A page of Chromium's own (its settings, inspect) is not kept open: back to the page of the user's before it.
+        await s.send('Page.navigate', { url: 'chrome://settings/' }).catch(() => undefined);
+        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/token`), { timeout: slow(10_000) });
+        // A window the page opens is closed, and the card told; its "Open it here" opens the page in the tab,
+        // the only input a window takes (the user works in the window itself).
+        await s.send('Runtime.evaluate', { expression: `window.open('http://127.0.0.1:${port}/next')`, userGesture: true });
+        await vi.waitFor(() => expect(told.some((t) => t.startsWith('popup'))).toBe(true), { timeout: slow(10_000) });
+        expect(await win.handovers.input('conv-alone-window', id, [{ type: 'text', text: 'ignored' }])).toBeUndefined();
+        expect(
+          await win.handovers.input('conv-alone-window', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/next` }]),
+        ).toBeUndefined();
+        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(10_000) });
+        // A form page asks "Leave site?" as the user closes the window: it closes all the same, and its profile goes.
+        expect(
+          await win.handovers.input('conv-alone-window', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/leave` }]),
+        ).toBeUndefined();
+        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/leave`), { timeout: slow(10_000) });
+        // The page needs a person's click before it may ask.
+        for (const type of ['mousePressed', 'mouseReleased'])
+          await s.send('Input.dispatchMouseEvent', { type, x: 20, y: 20, button: 'left', clickCount: 1 });
+        await s.send('Page.close');
         await vi.waitFor(() => expect(ended).toEqual(['ended']), { timeout: slow(20_000) });
-        expect(told).toEqual(['ended']);
+        expect(told.at(-1)).toBe('ended');
         expect(win.userBrowserOpen('conv-alone-window', id)).toBe(false);
         expect(existsSync(join(root, 'data-window', 'browser', 'user', id))).toBe(false);
       } finally {
@@ -1516,6 +1545,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
         expect(win.handovers.answer('conv-window', String(cards[0]!.id), { action: 'start', mode: 'window' })).toBeUndefined();
         const w = await windowSession();
         await vi.waitFor(async () => expect(await here(w)).toBe(`http://127.0.0.1:${port}/handover`), { timeout: slow(20_000) });
+        // The user drives the window: no page is told it is automated (the agents' headless browser is, after it).
+        expect(
+          (await w.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
+            .result.value,
+        ).toBe(false);
         // A tab the user opens (Chromium's new tab page, another window): closed at once.
         const tab = await w.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'chrome://newtab/' });
         const page = async () =>

@@ -53,14 +53,21 @@ function useCall(): { busy: boolean; error: string; call: (fn: () => Promise<unk
   return { busy, error, call };
 }
 
-/** Where a browser for the user alone can open in a window, asked once for the page (none where this computer shows none). */
+/**
+ * Where a browser for the user alone can open in a window, asked once for the page (none where this
+ * computer shows none); a card shown after the answer has it from its first paint, so its buttons stay put.
+ */
 let windowAsked: Promise<HandoverWindowAt | undefined> | undefined;
+let windowKnown: { at: HandoverWindowAt | undefined } | undefined;
 function useWindowAt(wanted: boolean): HandoverWindowAt | undefined {
-  const [at, setAt] = useState<HandoverWindowAt>();
+  const [at, setAt] = useState<HandoverWindowAt | undefined>(windowKnown?.at);
   useEffect(() => {
     if (!wanted) return;
     windowAsked ??= api.handoverWindow().then(
-      (r) => r.windowAt ?? undefined,
+      (r) => {
+        windowKnown = { at: r.windowAt ?? undefined };
+        return windowKnown.at;
+      },
       () => {
         // Asked again the next time a card wants it.
         windowAsked = undefined;
@@ -79,7 +86,8 @@ function useWindowAt(wanted: boolean): HandoverWindowAt | undefined {
 /**
  * A secrets card's browser for the user alone while it is open in a window on the computer Harness Relay
  * runs on: what to do there, Save selection for each secret the card waits for (read in the server, as in
- * the screencast), and Close; `onEnded` once it closed, the window too (its hand-over's stream says so).
+ * the screencast), and Close; what its stream tells (a window the page opened, closed, with Open it here;
+ * a page refused); `onEnded` once it closed, the window too.
  */
 function WindowedBrowser({
   convId,
@@ -96,11 +104,15 @@ function WindowedBrowser({
   onClose: () => void;
   onEnded: () => void;
 }) {
-  const alone = useT().browserHandover.alone;
+  const t = useT();
+  const alone = t.browserHandover.alone;
+  const p = t.browserHandover.panel;
   const [saving, setSaving] = useState<{ busy?: boolean; done?: string; error?: string }>({});
+  const [notice, setNotice] = useState<{ kind: 'popup' | 'refused'; url?: string } | undefined>();
   const ended = useRef(onEnded);
   ended.current = onEnded;
-  // Told only that it ended: the user closed the window, its time ran out, or the card was answered.
+  // What the window did that the user may not see there (a window the page opened, closed; a page refused),
+  // and that it ended: the user closed the window, its time ran out, or the card was answered.
   useEffect(() => {
     const stopped = new AbortController();
     const read = async () => {
@@ -115,7 +127,11 @@ function WindowedBrowser({
             if (done) break;
             const { messages, rest } = sseMessages(buffer + value);
             buffer = rest;
-            if (messages.some((m) => screenEvent(m)?.type === 'ended')) return void ended.current();
+            for (const m of messages) {
+              const e = screenEvent(m);
+              if (e?.type === 'ended') return void ended.current();
+              if (e?.type === 'notice') setNotice({ kind: e.kind, ...(e.url ? { url: e.url } : {}) });
+            }
           }
         } catch (error) {
           if (stopped.signal.aborted) return;
@@ -165,6 +181,26 @@ function WindowedBrowser({
       {saving.error && (
         <p className="error-line small" role="alert">
           {saving.error}
+        </p>
+      )}
+      {notice && (
+        <p className="handover-notice small" role="status">
+          {notice.kind === 'popup' ? p.popup(notice.url ?? '') : p.refused(notice.url ?? '')}
+          {notice.kind === 'popup' && notice.url && /^https?:/i.test(notice.url) && (
+            <button
+              type="button"
+              className="ghost small-button"
+              onClick={() => {
+                void api.handoverInput(convId, handoverId, [{ type: 'navigate', url: notice.url! }]).catch(() => undefined);
+                setNotice(undefined);
+              }}
+            >
+              {p.openHere}
+            </button>
+          )}
+          <button type="button" className="icon-button" onClick={() => setNotice(undefined)} aria-label={t.common.close}>
+            ×
+          </button>
         </p>
       )}
     </div>
@@ -258,25 +294,33 @@ export function SecretsCard({
               {a.status === 'waiting' ? (
                 <>
                   {a.had && <p className="muted small">{c.had}</p>}
+                  {/* The way offered first comes first and is the primary one, as on a hand-over's card. */}
                   <div className="handoff-browsers">
-                    {windowAt && (
-                      <button
-                        type="button"
-                        className={`${first === 'window' ? 'primary' : 'ghost'} small-button handoff-browser`}
-                        disabled={busy}
-                        onClick={() => openBrowser(a.name, { window: true })}
-                      >
-                        {a.url ? alone.openWindowAt(hostOf(a.url)) : alone.openWindow}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="ghost small-button handoff-browser"
-                      disabled={busy}
-                      onClick={() => openBrowser(a.name)}
-                    >
-                      {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
-                    </button>
+                    {(() => {
+                      const inWindow = windowAt && (
+                        <button
+                          key="window"
+                          type="button"
+                          className={`${first === 'window' ? 'primary' : 'ghost'} small-button handoff-browser`}
+                          disabled={busy}
+                          onClick={() => openBrowser(a.name, { window: true })}
+                        >
+                          {a.url ? alone.openWindowAt(hostOf(a.url)) : alone.openWindow}
+                        </button>
+                      );
+                      const inChat = (
+                        <button
+                          key="screencast"
+                          type="button"
+                          className={`${windowAt && first === 'screencast' ? 'primary' : 'ghost'} small-button handoff-browser`}
+                          disabled={busy}
+                          onClick={() => openBrowser(a.name)}
+                        >
+                          {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
+                        </button>
+                      );
+                      return first === 'window' ? [inWindow, inChat] : [inChat, inWindow];
+                    })()}
                   </div>
                   {nearby?.name === a.name && (
                     <div className="handoff-nearby" role="alert">

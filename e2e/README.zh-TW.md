@@ -506,10 +506,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 用滑鼠與按鍵透過畫面串流登入，附上給助理的話交回 | 卡片（agent 的原因、網頁、使用者登入的帳號會留在對話的瀏覽器中）、側邊欄的**需要你**；**在這裡顯示** 開啟面板，網址就是那個網頁；在畫面上點一下讓欄位取得焦點，在打字框打的按鍵和輸入法的文字會送到欄位，點按鈕送出（網頁的伺服器收到 `someone注音`），網址也跟著變；**先隱藏**、在卡片上寫給助理的話、**完成，交回給 agent**；回覆只說使用者交回了，附上那句話，絕不包含打的字；卡片顯示**已交回（在聊天中）**。 |
 | 婉拒 | 附上一句話按**不用了**：agent 會聽到，卡片顯示**已婉拒**，沒有送出任何東西。 |
 | 從網頁取得的密鑰 | 假 CLI 要求 `E2E_TOKEN`，並附上替身權杖網頁的網址（`e2e:secret e2e:secreturl=…`）；卡片以連結顯示完整網址；它的 **Open *主機* in a browser for you alone** 說明網址在這台電腦上，按 **Open it all the same** 之後才在那裡開啟面板；面板的說明完整顯示、會換行，寫著瀏覽器一開始沒有登入任何網站；在權杖上點三下選取它，**Save selection as E2E_TOKEN** 保存它：瀏覽器關閉，卡片顯示 **Saved from the page**，團隊收到名稱；網頁的文字、伺服器送出的對話與列出名稱的設定中都沒有那個權杖；瀏覽器的拋棄式設定檔也不在了。 |
-| 在視窗中從網頁取得的密鑰 | 設定 `RELAY_HEADLESS_WINDOWS=on`（代替能顯示視窗的電腦，視窗以無頭模式開啟）時，卡片說明視窗會開在哪裡，並把 **Open *主機* in a window** 排在 **Open *主機* in a browser for you alone** 前面（對話在 127.0.0.1）；確認這台電腦上的網址後，瀏覽器開在視窗中，沒有面板：卡片顯示它開在那裡，附上 **Save selection as E2E_TOKEN** 與 **Close the browser**。按 **Close** 會關閉它並刪除設定檔；再開一次後，從卡片儲存權杖網頁自己選取的文字，卡片顯示 **Saved from the page**，視窗關閉，團隊收到名稱，網頁上沒有那個權杖。 |
+| 在視窗中從網頁取得的密鑰 | 設定 `RELAY_HEADLESS_WINDOWS=on`（代替能顯示視窗的電腦，視窗以無頭模式開啟）時，卡片說明視窗會開在哪裡，並把 **Open *主機* in a window** 排在 **Open *主機* in a browser for you alone** 前面（對話在 127.0.0.1）；確認這台電腦上的網址後，瀏覽器開在視窗中（`mode: 'window'`），沒有面板：卡片顯示它開在那裡，附上 **Save selection as E2E_TOKEN** 與 **Close the browser**。在那裡關閉時（透過 API 回答它的交接，和使用者關閉視窗時一樣），卡片會得知並移除那個區塊；再開一次後，按 **Close** 會關閉它並刪除設定檔；再開一次後，從卡片儲存權杖網頁自己選取的文字，卡片顯示 **Saved from the page**，視窗關閉，團隊收到名稱，網頁上沒有那個權杖。 |
 | 在手機上，中文介面 | 390 像素寬、繁體中文的觸控螢幕：面板佔滿螢幕，在畫面上點一下就是點擊，在打字框打的字會送到網頁，**完成，交回給 agent** 交回。 |
 
-這裡只會以無頭模式（`RELAY_HEADLESS_WINDOWS`）為只給使用者的瀏覽器開執行 Harness Relay 的電腦上的視窗；交接的視窗會開在開發者的螢幕上：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流、只給使用者的瀏覽器與兩種視窗（無頭模式）則在 `test/browser.test.ts`。
+這裡只會以無頭模式（`RELAY_HEADLESS_WINDOWS`）為只給使用者的瀏覽器開執行 Harness Relay 的電腦上的視窗；還沒有 spec 開交接的視窗：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流、只給使用者的瀏覽器與兩種視窗（無頭模式）則在 `test/browser.test.ts`。
 
 ## 用 OAuth 登入的帳號
 
@@ -967,7 +967,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（只給使用者的瀏覽器的視窗以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站；在只給使用者的瀏覽器中，也沒有測這裡另一個主機的網頁（會被拒絕）或欄位中的選取（兩者都在 `test/browser.test.ts`），以及手機上的**拖曳選取**。
+- **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（只給使用者的瀏覽器的視窗以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA，或在卡片上顯示網頁在那裡開的視窗的通知（伺服器的部分在 `test/browser.test.ts`）：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站；在只給使用者的瀏覽器中，也沒有測這裡另一個主機的網頁（會被拒絕）或欄位中的選取（兩者都在 `test/browser.test.ts`），以及手機上的**拖曳選取**。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令，以及從待送出匣送出一次執行：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值，以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。
