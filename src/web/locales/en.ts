@@ -1423,6 +1423,14 @@ export const en: Messages = {
     alone: {
       open: 'Open a browser for you alone',
       openAt: (host) => `Open ${host} in a browser for you alone`,
+      openWindow: 'Open a browser for you alone in a window',
+      openWindowAt: (host) => `Open ${host} in a window`,
+      windowServer:
+        'In a window, it opens on the computer Harness Relay runs on: the best way for a page that asks you to sign in or solve a CAPTCHA. From another device, use the other button: the page shows in this chat.',
+      windowDesktop:
+        'In a window, it opens on this computer, beside the Harness Relay app: the best way for a page that asks you to sign in or solve a CAPTCHA.',
+      inWindow:
+        'Open in a window on the computer Harness Relay runs on. Select the value there, then save it here; closing the window closes the browser.',
       show: 'Show your browser',
       hint: "A browser for you alone is Harness Relay's own browser, which no agent drives or reads, deleted with all it holds when you close it. It starts signed in to no site, so sign in there first when the page needs it. Select the value on the page (or tap the field that holds it) and choose Save selection as…: the value goes straight to this card, never through the chat. On the computer Harness Relay runs on, you can also open the page in your own browser and paste the value here.",
       title: 'A browser for you alone',

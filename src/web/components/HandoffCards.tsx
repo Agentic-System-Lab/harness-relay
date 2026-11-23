@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import type { HandoverMode, HandoverWindowAt } from '../../shared/types';
 import { ApiError, api } from '../api';
-import { hostOf } from '../handover';
+import { sseMessages } from '../appPreview';
+import { hostOf, preferredMode, screenEvent } from '../handover';
+import { isAppWindow } from '../update';
 import { HandoverPanel } from './HandoverCard';
 import {
   commandActions,
@@ -50,6 +53,124 @@ function useCall(): { busy: boolean; error: string; call: (fn: () => Promise<unk
   return { busy, error, call };
 }
 
+/** Where a browser for the user alone can open in a window, asked once for the page (none where this computer shows none). */
+let windowAsked: Promise<HandoverWindowAt | undefined> | undefined;
+function useWindowAt(wanted: boolean): HandoverWindowAt | undefined {
+  const [at, setAt] = useState<HandoverWindowAt>();
+  useEffect(() => {
+    if (!wanted) return;
+    windowAsked ??= api.handoverWindow().then(
+      (r) => r.windowAt ?? undefined,
+      () => {
+        // Asked again the next time a card wants it.
+        windowAsked = undefined;
+        return undefined;
+      },
+    );
+    let live = true;
+    void windowAsked.then((w) => live && setAt(w));
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return at;
+}
+
+/**
+ * A secrets card's browser for the user alone while it is open in a window on the computer Harness Relay
+ * runs on: what to do there, Save selection for each secret the card waits for (read in the server, as in
+ * the screencast), and Close; `onEnded` once it closed, the window too (its hand-over's stream says so).
+ */
+function WindowedBrowser({
+  convId,
+  handoverId,
+  names,
+  onSave,
+  onClose,
+  onEnded,
+}: {
+  convId: string;
+  handoverId: string;
+  names: { name: string; label?: string }[];
+  onSave: (name: string) => Promise<void>;
+  onClose: () => void;
+  onEnded: () => void;
+}) {
+  const alone = useT().browserHandover.alone;
+  const [saving, setSaving] = useState<{ busy?: boolean; done?: string; error?: string }>({});
+  const ended = useRef(onEnded);
+  ended.current = onEnded;
+  // Told only that it ended: the user closed the window, its time ran out, or the card was answered.
+  useEffect(() => {
+    const stopped = new AbortController();
+    const read = async () => {
+      for (let attempt = 0; attempt < 8 && !stopped.signal.aborted; attempt++) {
+        try {
+          const res = await api.handoverScreen(convId, handoverId, stopped.signal);
+          attempt = 0;
+          const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+          let buffer = '';
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const { messages, rest } = sseMessages(buffer + value);
+            buffer = rest;
+            if (messages.some((m) => screenEvent(m)?.type === 'ended')) return void ended.current();
+          }
+        } catch (error) {
+          if (stopped.signal.aborted) return;
+          const status = (error as { status?: number }).status;
+          if (status === 404 || status === 409) return void ended.current();
+        }
+        if (stopped.signal.aborted) return;
+        await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+      }
+    };
+    void read();
+    return () => stopped.abort();
+  }, [convId, handoverId]);
+  return (
+    <div className="handoff-window" role="group" aria-label={alone.title}>
+      <p className="small">{alone.inWindow}</p>
+      <div className="approval-actions">
+        {names.map((a) => (
+          <button
+            key={a.name}
+            type="button"
+            className="primary small-button"
+            disabled={saving.busy}
+            title={a.label}
+            onClick={async () => {
+              setSaving({ busy: true });
+              try {
+                await onSave(a.name);
+                setSaving({ done: a.name });
+              } catch (err) {
+                setSaving({ error: (err as Error).message });
+              }
+            }}
+          >
+            {alone.saveAs(a.name)}
+          </button>
+        ))}
+        <button type="button" className="ghost small-button" onClick={onClose}>
+          {alone.close}
+        </button>
+      </div>
+      {saving.done && (
+        <p className="small handover-saved" role="status">
+          {alone.saved(saving.done)}
+        </p>
+      )}
+      {saving.error && (
+        <p className="error-line small" role="alert">
+          {saving.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The secrets a reply asks for: a masked field for each, Save and Don't give. */
 export function SecretsCard({
   part,
@@ -70,24 +191,36 @@ export function SecretsCard({
   const { busy, error, call } = useCall();
   const waiting = waitingAsks(part);
   const filled = filledValues(waiting, values);
-  /** The card's browser for the user alone, while its panel is open here: its hand-over id. */
-  const [browser, setBrowser] = useState<string | undefined>();
+  /** The card's browser for the user alone, while it is open here (its panel, or its window): its hand-over id and how it shows. */
+  const [browser, setBrowser] = useState<{ id: string; mode: HandoverMode } | undefined>();
   // Answered (here, from the page, or in another browser): its browser has closed with it.
   useEffect(() => {
     if (!waiting.length) setBrowser(undefined);
   }, [waiting.length]);
+  /** Where it can open in a window instead (asked once a secret waits); the way offered first, as a hand-over's card does. */
+  const windowAt = useWindowAt(waiting.length > 0);
+  const first = preferredMode(windowAt ? ['window', 'screencast'] : ['screencast'], {
+    desktop: isAppWindow(navigator.userAgent),
+    hostname: location.hostname,
+  });
   /** An ask's address on this computer or the local network, shown whole, which the user confirms before it opens. */
-  const [nearby, setNearby] = useState<{ name: string; message: string } | undefined>();
-  const openBrowser = (name: string, confirm = false) =>
+  const [nearby, setNearby] = useState<{ name: string; message: string; window: boolean } | undefined>();
+  const openBrowser = (name: string, o: { confirm?: boolean; window?: boolean } = {}) =>
     void call(async () => {
       try {
-        setBrowser((await api.openSecretsBrowser(convId, messageId, part.id, name, confirm)).handoverId);
+        const opened = await api.openSecretsBrowser(convId, messageId, part.id, name, o);
+        setBrowser({ id: opened.handoverId, mode: opened.mode });
         setNearby(undefined);
       } catch (e) {
-        if (e instanceof ApiError && e.code === 'nearby') return setNearby({ name, message: e.message });
+        if (e instanceof ApiError && e.code === 'nearby') return setNearby({ name, message: e.message, window: Boolean(o.window) });
         throw e;
       }
     });
+  const saveFromPage = (id: string, name: string) => api.saveSecretSelection(convId, messageId, part.id, id, name).then(() => undefined);
+  const closeBrowser = (id: string) => {
+    setBrowser(undefined);
+    void api.answerHandover(convId, id, { action: 'done' }).catch(() => undefined);
+  };
   const answer = async (decline: boolean) => {
     const done = await call(() => api.answerSecrets(convId, messageId, part.id, decline ? { decline: true } : { values: filled }));
     // The values leave the page once sent.
@@ -125,14 +258,36 @@ export function SecretsCard({
               {a.status === 'waiting' ? (
                 <>
                   {a.had && <p className="muted small">{c.had}</p>}
-                  <button type="button" className="ghost small-button handoff-browser" disabled={busy} onClick={() => openBrowser(a.name)}>
-                    {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
-                  </button>
+                  <div className="handoff-browsers">
+                    {windowAt && (
+                      <button
+                        type="button"
+                        className={`${first === 'window' ? 'primary' : 'ghost'} small-button handoff-browser`}
+                        disabled={busy}
+                        onClick={() => openBrowser(a.name, { window: true })}
+                      >
+                        {a.url ? alone.openWindowAt(hostOf(a.url)) : alone.openWindow}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="ghost small-button handoff-browser"
+                      disabled={busy}
+                      onClick={() => openBrowser(a.name)}
+                    >
+                      {a.url ? alone.openAt(hostOf(a.url)) : alone.open}
+                    </button>
+                  </div>
                   {nearby?.name === a.name && (
                     <div className="handoff-nearby" role="alert">
                       <p className="warn-line small">{nearby.message}</p>
                       <div className="approval-actions">
-                        <button type="button" className="primary small-button" disabled={busy} onClick={() => openBrowser(a.name, true)}>
+                        <button
+                          type="button"
+                          className="primary small-button"
+                          disabled={busy}
+                          onClick={() => openBrowser(a.name, { confirm: true, window: nearby.window })}
+                        >
                           {alone.openAnyway}
                         </button>
                         <button type="button" className="ghost small-button" onClick={() => setNearby(undefined)}>
@@ -169,10 +324,23 @@ export function SecretsCard({
           );
         })}
       </ul>
+      {/* Open in a window: right under the secrets whose buttons opened it. */}
+      {browser?.mode === 'window' && waiting.length > 0 && (
+        <WindowedBrowser
+          key={browser.id}
+          convId={convId}
+          handoverId={browser.id}
+          names={waiting.map((a) => ({ name: a.name, ...(a.label ? { label: a.label } : {}) }))}
+          onSave={(name) => saveFromPage(browser.id, name)}
+          onClose={() => closeBrowser(browser.id)}
+          onEnded={() => setBrowser(undefined)}
+        />
+      )}
       {waiting.length > 0 && (
         <>
           <p className="muted small">{c.hint}</p>
           <p className="muted small">{alone.hint}</p>
+          {windowAt && <p className="muted small">{windowAt === 'desktop' ? alone.windowDesktop : alone.windowServer}</p>}
           {error && <p className="error-line">{error}</p>}
           <div className="approval-actions">
             <button
@@ -189,10 +357,10 @@ export function SecretsCard({
           </div>
         </>
       )}
-      {browser && waiting.length > 0 && (
+      {browser?.mode === 'screencast' && waiting.length > 0 && (
         <HandoverPanel
           convId={convId}
-          handoverId={browser}
+          handoverId={browser.id}
           reason={alone.line}
           asks={[]}
           onApproval={undefined}
@@ -201,14 +369,10 @@ export function SecretsCard({
           doneLabel={alone.close}
           onHide={() => setBrowser(undefined)}
           onEnded={() => setBrowser(undefined)}
-          onDone={() => {
-            const id = browser;
-            setBrowser(undefined);
-            void api.answerHandover(convId, id, { action: 'done' }).catch(() => undefined);
-          }}
+          onDone={() => closeBrowser(browser.id)}
           saveAs={{
             names: waiting.map((a) => ({ name: a.name, ...(a.label ? { label: a.label } : {}) })),
-            onSave: (name) => api.saveSecretSelection(convId, messageId, part.id, browser, name).then(() => undefined),
+            onSave: (name) => saveFromPage(browser.id, name),
           }}
         />
       )}

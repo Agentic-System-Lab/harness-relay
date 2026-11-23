@@ -11,8 +11,9 @@ import { composer, finishedReply, openTeamChat, send } from '../support/app';
  * sign-in page to the user; the card says what stays with the chat's browser and offers to show the page
  * here; the user clicks and types into the screencast's panel (with a mouse, or a finger on a phone),
  * the page's server gets what they typed, and the agent hears only that they handed it back, with their
- * note. The window on the computer Harness Relay runs on is not opened here (it would open on the
- * developer's screen): its launch is tested in test/handover.test.ts.
+ * note. The window on the computer Harness Relay runs on opens here only for a browser for the user
+ * alone, and headless (`RELAY_HEADLESS_WINDOWS`, else it would open on the developer's screen); the
+ * hand-over's window is tested in test/browser.test.ts.
  */
 
 /** A sign-in page: a field over its top half, a button over its bottom half; what is posted, and the page after it. */
@@ -196,6 +197,65 @@ test.describe('taking over the browser', () => {
     } finally {
       site.close();
     }
+  });
+
+  test.describe('where this computer shows windows (headless here)', () => {
+    test.use({ serverEnv: async ({}, use) => use({ RELAY_BROWSER: await aBrowser(), RELAY_HEADLESS_WINDOWS: 'on' }) });
+
+    test('a secret from a page in a window: the card offers it, Close closes it, and the selection made there is saved', async ({
+      page,
+      relay,
+    }) => {
+      const TOKEN = 'tok-e2e-in-window-93ad';
+      // A token page that selects its token itself: nobody can drag a mouse in a headless window.
+      const site = createServer((_req, res) => {
+        res.setHeader('content-type', 'text/html; charset=utf-8');
+        res.end(
+          `<title>Your token</title><p id="t">${TOKEN}</p><script>getSelection().selectAllChildren(document.getElementById('t'))</script>`,
+        );
+      });
+      await new Promise<void>((done) => site.listen(0, '127.0.0.1', done));
+      const url = `http://127.0.0.1:${(site.address() as { port: number }).port}/token`;
+      const host = new URL(url).host;
+      try {
+        await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'A secret in a window');
+        await send(page, `Set up posting e2e:secret e2e:secreturl=${url}`);
+        const card = page.getByRole('region', { name: 'Secrets @Claude asks for' });
+        await expect(card).toContainText('In a window, it opens on the computer Harness Relay runs on');
+        // The chat is at 127.0.0.1, as on the computer Harness Relay runs on: the window is the way offered first.
+        const inWindow = card.getByRole('button', { name: `Open ${host} in a window` });
+        await expect(inWindow).toHaveClass(/primary/);
+        await expect(card.getByRole('button', { name: `Open ${host} in a browser for you alone` })).toBeVisible();
+        await inWindow.click();
+        // On this computer: said whole, and opened only once the user confirms it, in the window still.
+        await expect(card.getByRole('alert')).toContainText(`${url} is on this computer or your local network`);
+        await card.getByRole('button', { name: 'Open it all the same' }).click();
+        const box = card.getByRole('group', { name: 'A browser for you alone' });
+        await expect(box).toContainText('Open in a window on the computer Harness Relay runs on');
+        // No screencast: the page is in the window.
+        await expect(page.getByRole('dialog', { name: 'A browser for you alone' })).toHaveCount(0);
+        await box.getByRole('button', { name: 'Close the browser' }).click();
+        await expect(box).toHaveCount(0);
+        await expect.poll(() => readdirSync(join(relay.dataDir, 'browser', 'user'))).toEqual([]);
+
+        // Opened again: what the user selected there is saved from the card, and the window closes with it.
+        await inWindow.click();
+        await card.getByRole('button', { name: 'Open it all the same' }).click();
+        await expect(box).toBeVisible();
+        await expect(async () => {
+          await box.getByRole('button', { name: 'Save selection as E2E_TOKEN' }).click();
+          await expect(card).toContainText('Saved from the page', { timeout: 2000 });
+        }).toPass({ timeout: 20_000 });
+        await expect(box).toHaveCount(0);
+        await expect(page.locator('.msg-user').last()).toContainText('I gave E2E_TOKEN');
+        await expect(page.locator('body')).not.toContainText(TOKEN);
+        const view = await relay.api<{ folders: { secrets: { name: string }[] }[] }>('/api/handoffs');
+        expect(view.folders.flatMap((f) => f.secrets.map((x) => x.name))).toEqual(['E2E_TOKEN']);
+        await expect.poll(() => readdirSync(join(relay.dataDir, 'browser', 'user'))).toEqual([]);
+      } finally {
+        site.close();
+      }
+    });
   });
 
   test.describe('on a phone, in Chinese', () => {

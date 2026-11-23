@@ -18,6 +18,7 @@ describe('server configuration from the environment', () => {
       voiceDir: undefined,
       runCode: false,
       chatTitles: true,
+      headlessWindows: false,
     });
     expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
     const blank = readConfig({
@@ -126,6 +127,15 @@ describe('server configuration from the environment', () => {
       "RELAY_NEON_API_URL must be a stand-in's URL on this computer (127.0.0.1, localhost or [::1]).",
     ]);
     expect(readConfig({ RELAY_PUBLISH_GIT_DIR: 'relative' }).problems).toHaveLength(1);
+  });
+
+  it("takes the end-to-end tests' stand-in for a computer that shows windows: off unless on", () => {
+    expect(readConfig({}).config.headlessWindows).toBe(false);
+    expect(readConfig({ RELAY_HEADLESS_WINDOWS: 'ON' }).config.headlessWindows).toBe(true);
+    expect(readConfig({ RELAY_HEADLESS_WINDOWS: 'off' }).config.headlessWindows).toBe(false);
+    const wrong = readConfig({ RELAY_HEADLESS_WINDOWS: '1' });
+    expect(wrong.config.headlessWindows).toBe(false);
+    expect(wrong.problems).toEqual(['RELAY_HEADLESS_WINDOWS=1 is neither on nor off.']);
   });
 
   it("takes Microsoft's mail servers as host:port, TLS or STARTTLS as the port says, plain TCP only to this computer", () => {

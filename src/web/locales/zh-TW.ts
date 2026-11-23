@@ -1444,6 +1444,12 @@ export const zhTW = {
     alone: {
       open: '開一個只給你的瀏覽器',
       openAt: (host: string) => `在只給你的瀏覽器開啟 ${host}`,
+      openWindow: '在視窗中開一個只給你的瀏覽器',
+      openWindowAt: (host: string) => `在視窗中開啟 ${host}`,
+      windowServer:
+        '在視窗中開啟時，它會開在執行 Harness Relay 的電腦上：網頁要你登入或通過 CAPTCHA 時，這是最好的方式。在別的裝置上請用另一個按鈕：網頁會顯示在這個對話中。',
+      windowDesktop: '在視窗中開啟時，它會開在這台電腦上、Harness Relay app 的旁邊：網頁要你登入或通過 CAPTCHA 時，這是最好的方式。',
+      inWindow: '已在執行 Harness Relay 的電腦上的視窗中開啟。在那裡選取那個值，再回到這裡存起來；關閉視窗就會關閉這個瀏覽器。',
       show: '顯示只給你的瀏覽器',
       hint: '只給你的瀏覽器是 Harness Relay 自己的瀏覽器，沒有任何 agent 操作或讀取它，關閉時連同裡面的一切一起刪除。它一開始沒有登入任何網站，網頁需要時請先在那裡登入。在網頁上選取那個值（或點一下放著它的欄位），按「把選取的文字存成…」：值會直接存進這張卡片，不會經過聊天。在執行 Harness Relay 的這台電腦上，你也可以用自己的瀏覽器開那個網頁，再把值貼到這裡。',
       title: '只給你的瀏覽器',

@@ -174,6 +174,7 @@ const zhTW = {
     browserGone: '這個只給你的瀏覽器已經關閉了：請再開一個。',
     browserRefused: 'Harness Relay 的瀏覽器不會開這個網址（Harness Relay 自己的連接埠或雲端的中繼資料位址）。',
     browserNearby: (url: string) => `${url} 在這台電腦或你的區域網路上：確定要在只給你的瀏覽器開它嗎？`,
+    noWindow: '執行 Harness Relay 的電腦無法顯示視窗（例如透過 SSH 啟動，或在 Codespace 裡）：請改在對話中顯示。',
     noSelection: '網頁上沒有選取任何文字：請先選取那個值（或點一下放著它的欄位），再按儲存選取的文字。',
     notAsked: (name: string) => `這張卡片沒有在等 ${name}。`,
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
@@ -1583,6 +1584,8 @@ const en: ServerMessages = {
     browserGone: 'This browser for you alone has closed: open another.',
     browserRefused: "Harness Relay's browsers never open this address (Harness Relay's own port, or a cloud metadata address).",
     browserNearby: (url) => `${url} is on this computer or your local network: open it in the browser for you alone all the same?`,
+    noWindow:
+      'The computer Harness Relay runs on cannot show a window (started over SSH, say, or in a codespace): show it in the chat instead.',
     noSelection: 'Nothing is selected on the page: select the value (or tap the field that holds it), then Save selection.',
     notAsked: (name) => `This card is not waiting for ${name}.`,
     badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",

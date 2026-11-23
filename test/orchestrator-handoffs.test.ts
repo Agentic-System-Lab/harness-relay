@@ -180,7 +180,7 @@ describe('secrets cards', () => {
      */
     const standIn = () => {
       const selected = new Map<string, string>();
-      const opened: { convId: string; url?: string; id: string }[] = [];
+      const opened: { convId: string; url?: string; id: string; window?: boolean }[] = [];
       const navigated: { id: string; url: string }[] = [];
       const closed: string[] = [];
       const ends = new Map<string, () => void>();
@@ -195,7 +195,7 @@ describe('secrets cards', () => {
           here(o.url, o.nearbyConfirmed);
           await new Promise((r) => setTimeout(r, 20));
           const id = `ub-${++n}`;
-          opened.push({ convId, id, ...(o.url ? { url: o.url } : {}) });
+          opened.push({ convId, id, ...(o.url ? { url: o.url } : {}), ...(o.window ? { window: true } : {}) });
           if (o.onEnd) ends.set(id, o.onEnd);
           return id;
         },
@@ -204,6 +204,11 @@ describe('secrets cards', () => {
           navigated.push({ id, url });
         },
         userBrowserOpen: (_convId, id) => opened.some((b) => b.id === id) && !closed.includes(id),
+        userBrowserMode: (_convId, id) => {
+          const b = opened.find((o) => o.id === id && !closed.includes(id));
+          return b && (b.window ? 'window' : 'screencast');
+        },
+        userWindowAt: () => 'server',
         selectionOf: async (_convId, id) => {
           if (closed.includes(id)) throw new UserBrowserError('gone', 'it closed');
           await hold.read;
@@ -232,7 +237,7 @@ describe('secrets cards', () => {
       const { handoverId } = await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'TOKEN');
       expect(opened).toEqual([{ convId: conv.id, id: handoverId, url: 'https://dev.example.com/tokens?app=1' }]);
       // One per card: the same one again while it is open.
-      expect(await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'APP_ID')).toEqual({ handoverId });
+      expect(await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'APP_ID')).toEqual({ handoverId, mode: 'screencast' });
       await expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'OTHER')).rejects.toMatchObject({ status: 409 });
 
       // Nothing selected: refused, nothing kept.
@@ -293,6 +298,38 @@ describe('secrets cards', () => {
         expect(answer).toMatch(/I gave A_KEY/);
         expect(answer).toMatch(/I will not give B_KEY/);
       }));
+
+    it('opens it in a window when asked, and the same one comes back however the user asks again', async () => {
+      const { opened, navigated, ends } = standIn();
+      const conv = conversation({ mode: 'relay' });
+      fake.reply = () =>
+        '<secret name="TOKEN" url="https://dev.example.com/tokens"/>\n<secret name="APP_ID" url="https://dev.example.com/app"/>';
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      const { msg, part } = partOf(conv.id, 'secrets');
+      const first = await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'TOKEN', false, true);
+      expect(first.mode).toBe('window');
+      expect(opened).toEqual([{ convId: conv.id, id: first.handoverId, url: 'https://dev.example.com/tokens', window: true }]);
+      // Asked to show it in the chat while the window is open: the window, at the other ask's page.
+      expect(await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'APP_ID')).toEqual(first);
+      expect(navigated).toEqual([{ id: first.handoverId, url: 'https://dev.example.com/app' }]);
+      // The user closed the window: the next one shows as asked.
+      ends.get(first.handoverId)!();
+      const next = await orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'APP_ID');
+      expect(next.mode).toBe('screencast');
+      expect(opened).toHaveLength(2);
+      // No window on this computer after all: said in the user's words.
+      ends.get(next.handoverId)!();
+      orchestrator.userBrowsers!.openForUser = async () => {
+        throw new UserBrowserError('window', 'this computer shows no window');
+      };
+      await withLang('en', () =>
+        expect(orchestrator.openSecretsBrowser(conv.id, msg.id, part.id, 'TOKEN', false, true)).rejects.toMatchObject({
+          status: 409,
+          message: expect.stringMatching(/cannot show a window/),
+        }),
+      );
+    });
 
     it('opens another once the browser closed by itself, and says when none can be opened', async () => {
       const { opened, ends } = standIn();
