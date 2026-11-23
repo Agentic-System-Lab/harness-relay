@@ -5,9 +5,9 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Permission } from '../../shared/types';
 import { t } from '../i18n';
-import { converse, runProcess, runSync, tail } from '../process';
+import { runProcess, runSync, tail } from '../process';
 import { protectedReads, realPath } from '../protect';
-import { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } from '../settings';
+import { ANTIGRAVITY_HOME_ENV } from '../settings';
 import {
   JsonRpcConnection,
   RpcError,
@@ -58,10 +58,12 @@ import { isGuarded, type WriteGuard } from '../writeGuard';
  * - Its home has no variable: `--gemini-dir` moves the whole `.gemini` folder for `agy acp`.
  * - Model and thinking level are the session's config options `model` and `thought_level`; a resumed
  *   session starts again on the account's default model, so both are set on every turn they are given.
- * - Once a quota is used up, it runs on the account's AI credits only when they are turned on: its own
- *   CLI turns them on when its settings say so (`useG1Credits`) or the Antigravity app's do
- *   (`antigravityAiCredits`), but its ACP server reads the run's settings alone (agy 1.5.14, seen in
- *   its `applySettings`), so a run's settings carry that choice (`antigravityRunSettings`).
+ * - It runs on a Gemini API key only: `GEMINI_API_KEY` in its environment, and `modelProvider:
+ *   "gemini"` in the run's settings, without which agy does not use the key and takes the Google
+ *   sign-in it keeps instead. Google's terms for Antigravity do not allow a third-party app to run it on
+ *   a Google sign-in (its FAQ: wrapping agy in third-party coding agents or applications is not
+ *   supported under consumer plans; use a Gemini API key), so Harness Relay never signs agy in with
+ *   Google, and does not start it without a key (`antigravityHasKey`).
  */
 
 /** The `.gemini` folder of an account (`ANTIGRAVITY_HOME_ENV`), else the user's own. */
@@ -86,90 +88,41 @@ function readSettings(file: string): Record<string, any> | undefined {
 }
 
 /**
- * Whether the Antigravity app's settings, which agy shares (`config/config.json` beside the CLI
- * folder, its `userSettings`), turn AI credits on. agy's own CLI then turns them on too, whatever its
- * own settings say ("inherited useG1Credits=true" in its log).
- */
-export function antigravitySharedAiCredits(appDir: string): boolean {
-  const c = readSettings(join(dirname(appDir), 'config', 'config.json'));
-  const s = (c?.userSettings ?? c?.user_settings) as Record<string, unknown> | undefined;
-  return s?.useAiCredits === true || s?.use_ai_credits === true;
-}
-
-/**
- * Whether the account runs on its AI credits once a quota is used up, as agy's own CLI decides: its
- * Use AI Credits setting (`useG1Credits`), or the Antigravity app's (`antigravitySharedAiCredits`).
- */
-export function antigravityAiCredits(appDir: string): boolean {
-  return readSettings(join(appDir, 'settings.json'))?.useG1Credits === true || antigravitySharedAiCredits(appDir);
-}
-
-/**
- * agy opens a browser on this computer to sign in, unless it finds itself in an SSH session: then it
- * prints the link (and waits for the code on its standard input). It has no other switch for it.
+ * agy opens a browser on this computer to sign in when it finds no sign-in it can use, unless it finds
+ * itself in an SSH session: then it prints the link (and waits for the code on its standard input). It
+ * has no other switch for it. Harness Relay never signs it in, and a question it asks opens no browser.
  */
 export const ANTIGRAVITY_NO_BROWSER = { SSH_CONNECTION: '127.0.0.1 0 127.0.0.1 0' } as const;
 
 /**
- * The environment of a command that asks Antigravity something (`agy models`, `agy -p /skills`, its
- * sign-in and sign-out): an account's home as `HOME` (`USERPROFILE` on Windows), since only `agy acp`
- * takes `--gemini-dir`, and no browser opened (`ANTIGRAVITY_NO_BROWSER`) when it finds itself signed
- * out; Harness Relay's own variable is not passed on.
+ * The environment of a command that asks Antigravity something (`agy models`, `agy -p /skills`): an
+ * account's home as `HOME` (`USERPROFILE` on Windows), since only `agy acp` takes `--gemini-dir`, and
+ * no browser opened (`ANTIGRAVITY_NO_BROWSER`) should it find no sign-in it can use; Harness Relay's own
+ * variable is not passed on.
  */
 export function antigravityProbeEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const root = env[ANTIGRAVITY_HOME_ENV];
   const out: NodeJS.ProcessEnv = { ...env, ...ANTIGRAVITY_NO_BROWSER };
   delete out[ANTIGRAVITY_HOME_ENV];
-  delete out[ANTIGRAVITY_KEY_ONLY_ENV];
   if (root) out[platform === 'win32' ? 'USERPROFILE' : 'HOME'] = root;
   return out;
 }
 
 /**
- * The settings a question to Antigravity needs for this one command (`agy --settings`, never saved):
- * with a Gemini API key, `modelProvider: "gemini"`, without which agy does not use the key and answers
- * as if signed out. Placed before the subcommand (`agy --settings … models`); `-p` takes it after.
+ * The settings every question to Antigravity gets for that one command (`agy --settings`, never saved):
+ * `modelProvider: "gemini"`, so that it answers on the account's Gemini API key, never on the Google
+ * sign-in agy keeps (without it agy does not use the key). Placed before the subcommand (`agy --settings
+ * … models`); `-p` takes it after.
  */
-export function antigravityProbeSettings(env: NodeJS.ProcessEnv): string[] {
-  return env.GEMINI_API_KEY || antigravityKeyOnly(env) ? ['--settings', JSON.stringify({ modelProvider: 'gemini' })] : [];
-}
-
-/** Whether this is an account that runs on its own Gemini API key only (`ANTIGRAVITY_KEY_ONLY_ENV`). */
-export function antigravityKeyOnly(env: NodeJS.ProcessEnv): boolean {
-  return env[ANTIGRAVITY_KEY_ONLY_ENV] === '1';
-}
+export const ANTIGRAVITY_PROBE_SETTINGS: readonly string[] = ['--settings', JSON.stringify({ modelProvider: 'gemini' })];
 
 /**
- * Signs Antigravity out (its ACP `logout`, which drops the Google sign-in it keeps), in the account's
- * home. Resolves once agy answered; fails with what went wrong otherwise.
+ * Whether an Antigravity account has the Gemini API key it runs on (`GEMINI_API_KEY`, its own or, for
+ * the default account, the server's). Without one it is signed out: Harness Relay does not start agy for
+ * it, neither for a turn nor to ask it something.
  */
-export async function antigravityLogout(bin: string, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<void> {
-  let error: string | undefined;
-  let done = false;
-  const failed = (msg: Record<string, any>) => String(msg.error?.data?.message ?? msg.error?.message ?? 'error');
-  const own: NodeJS.ProcessEnv = { ...env, ...ANTIGRAVITY_NO_BROWSER };
-  delete own[ANTIGRAVITY_HOME_ENV];
-  delete own[ANTIGRAVITY_KEY_ONLY_ENV];
-  const res = await converse({
-    bin,
-    args: ['acp', ...(env[ANTIGRAVITY_HOME_ENV] ? ['--gemini-dir', antigravityGeminiDir(env)] : [])],
-    cwd: homedir(),
-    env: own,
-    timeoutMs,
-    open: (write) => write({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1, clientCapabilities: {} } }),
-    onMessage: (msg, write, finish) => {
-      if (msg.method !== undefined) return;
-      if (msg.error) {
-        error = failed(msg);
-        finish();
-      } else if (msg.id === 1) write({ jsonrpc: '2.0', id: 2, method: 'logout', params: {} });
-      else if (msg.id === 2) {
-        done = true;
-        finish();
-      }
-    },
-  });
-  if (!done) throw new Error(error ?? (res.timedOut ? t().timedOut : tail(res.stderr, 300) || t().logoutFailed(null)));
+export function antigravityHasKey(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.GEMINI_API_KEY?.trim());
 }
 
 /** How the folders of runs' own settings begin, in the account's CLI folder. */
@@ -191,42 +144,32 @@ export function antigravityArgs(env: NodeJS.ProcessEnv, permission: Permission, 
 }
 
 /**
- * The keys of the account's own `settings.json` a run keeps: which model and service it uses. Nothing
- * else is kept as it is (what pays once a quota is used up aside: `antigravityRunSettings`), since
- * other keys decide what runs without asking (`toolPermission`, `allowNonWorkspaceAccess`,
- * `permissions`, `trustedWorkspaces`, `agentMode`) or run commands of their own (`statusLine`). With
- * `--cli_dir_name`, agy reads the run's settings only, not the account's.
+ * The keys of the account's own `settings.json` a run keeps: which model it uses. Nothing else is kept
+ * as it is, since other keys decide what runs without asking (`toolPermission`,
+ * `allowNonWorkspaceAccess`, `permissions`, `trustedWorkspaces`, `agentMode`), run commands of their
+ * own (`statusLine`), or what it signs in with and pays with (`modelProvider`, `gcp`, `useG1Credits`):
+ * a run is always on the Gemini API key (`antigravityRunSettings`). With `--cli_dir_name`, agy reads the
+ * run's settings only, not the account's.
  */
-export const ANTIGRAVITY_KEPT_SETTINGS = ['model', 'modelProvider', 'gcp', 'customModelsConfig'] as const;
+export const ANTIGRAVITY_KEPT_SETTINGS = ['model', 'customModelsConfig'] as const;
 
 /**
- * The settings of one run: the account's model and service (`ANTIGRAVITY_KEPT_SETTINGS`), with
- * `toolPermission: "request-review"` and `allowNonWorkspaceAccess: false` (so that nothing runs
- * without asking that Harness Relay has not decided on: a read outside the workspace asks too; full
- * access passes `--dangerously-skip-permissions` instead), the default mode (also set on each
- * session), and `modelProvider: "gemini"` with a Gemini API key, or for an account that runs on its key
- * only (`keyOnly`): without it agy does not use the key, and would take the Google sign-in it keeps.
- * The account's own choice of running on its AI credits once a quota is used up stays as agy's own CLI
- * takes it, from its settings (`useG1Credits`) or the Antigravity app's (`sharedAiCredits`,
- * `antigravitySharedAiCredits`): its ACP server reads the run's alone. A key never uses AI credits.
+ * The settings of one run: the account's model (`ANTIGRAVITY_KEPT_SETTINGS`), with `toolPermission:
+ * "request-review"` and `allowNonWorkspaceAccess: false` (so that nothing runs without asking that
+ * Harness Relay has not decided on: a read outside the workspace asks too; full access passes
+ * `--dangerously-skip-permissions` instead), the default mode (also set on each session), and
+ * `modelProvider: "gemini"`: it runs on the account's Gemini API key, never on the Google sign-in agy
+ * keeps (without it agy does not use the key), so never on a Google AI plan's quota or its AI credits.
  */
-export function antigravityRunSettings(
-  own: unknown,
-  permission: Permission,
-  apiKey: boolean,
-  keyOnly = false,
-  sharedAiCredits = false,
-): Record<string, unknown> {
+export function antigravityRunSettings(own: unknown, permission: Permission): Record<string, unknown> {
   const base = own && typeof own === 'object' && !Array.isArray(own) ? (own as Record<string, unknown>) : {};
   const kept = Object.fromEntries(ANTIGRAVITY_KEPT_SETTINGS.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
-  const aiCredits = !apiKey && !keyOnly && (base.useG1Credits === true || sharedAiCredits);
   return {
     ...kept,
     toolPermission: permission === 'full' ? 'always-proceed' : 'request-review',
     agentMode: '',
     ...(permission === 'full' ? {} : { allowNonWorkspaceAccess: false }),
-    ...(apiKey || keyOnly ? { modelProvider: 'gemini' } : {}),
-    ...(aiCredits ? { useG1Credits: true } : {}),
+    modelProvider: 'gemini',
   };
 }
 
@@ -266,12 +209,10 @@ function sweep(appDir: string, now = Date.now()): void {
 
 /**
  * Makes a run's settings folder in the account's CLI folder (owner only), with its `settings.json`
- * (`antigravityRunSettings`, from the account's own and the Antigravity app's); the account's own
- * settings stay as they are.
+ * (`antigravityRunSettings`, from the account's own); the account's own settings stay as they are.
  */
-export function prepareAntigravityRun(appDir: string, permission: Permission, apiKey: boolean, keyOnly = false): AntigravityRun {
+export function prepareAntigravityRun(appDir: string, permission: Permission): AntigravityRun {
   const own = readSettings(join(appDir, 'settings.json')); // none yet, or not JSON: agy's defaults
-  const shared = antigravitySharedAiCredits(appDir);
   mkdirSync(appDir, { recursive: true, mode: 0o700 });
   sweep(appDir);
   const name = `${ANTIGRAVITY_RUN_PREFIX}${randomBytes(6).toString('hex')}`;
@@ -284,13 +225,7 @@ export function prepareAntigravityRun(appDir: string, permission: Permission, ap
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    writeFileSync(
-      join(dir, 'settings.json'),
-      `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly, shared), null, 2)}\n`,
-      {
-        mode: 0o600,
-      },
-    );
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission), null, 2)}\n`, { mode: 0o600 });
   } catch (err) {
     done();
     throw err;
@@ -902,10 +837,12 @@ export const antigravityRunner: AgentRunner = {
   provider: 'antigravity',
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
+    // Never on the Google sign-in agy may keep: without a key, agy is not started at all.
+    if (!antigravityHasKey(o.env)) throw new AgentRunError(t().antigravityNoKey);
     await antigravityProjectGate(o);
     let run: AntigravityRun;
     try {
-      run = prepareAntigravityRun(antigravityAppDir(o.env), o.permission, Boolean(o.env.GEMINI_API_KEY), antigravityKeyOnly(o.env));
+      run = prepareAntigravityRun(antigravityAppDir(o.env), o.permission);
     } catch (err) {
       throw new AgentRunError(t().antigravityConfigFailed((err as Error).message));
     }
@@ -1086,7 +1023,6 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
 
   const env: NodeJS.ProcessEnv = { ...o.env };
   delete env[ANTIGRAVITY_HOME_ENV];
-  delete env[ANTIGRAVITY_KEY_ONLY_ENV];
   const exited = runProcess({
     bin: o.bin,
     args: antigravityArgs(o.env, o.permission, runDir),
@@ -1123,7 +1059,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     const dirs = caps.sessionCapabilities?.additionalDirectories && o.addDirs?.length ? { additionalDirectories: o.addDirs } : {};
     const signIn = (err: unknown): never => {
       const message = err instanceof Error ? err.message : String(err);
-      if (/authenticat|sign in|log in|login/i.test(message)) throw new AgentRunError(t().antigravitySignIn(message));
+      if (/authenticat|sign in|log in|login/i.test(message)) throw new AgentRunError(t().antigravityKeyRefused(message));
       throw err instanceof AgentRunError ? err : new AgentRunError(message);
     };
     let opened: any;

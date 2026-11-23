@@ -347,7 +347,7 @@
               </tr>
               <tr>
                 <th scope="row">Antigravity</th>
-                <td>With your Google account: open the link on any device and sign in to Google, then paste the code the page shows into the box and click <b>Submit</b>.</td>
+                <td>No sign-in: Harness Relay runs Antigravity on a Gemini API key only, since <a href="https://antigravity.google/terms">Google's terms</a> don't allow other apps to run it on your Google sign-in (a Google AI plan). Set a key under <b>API key</b>, <a href="#api-keys">below</a>.</td>
               </tr>
               <tr>
                 <th scope="row">Copilot</th>
@@ -378,7 +378,7 @@
         <section id="api-keys" aria-labelledby="api-keys-title">
           <h2 id="api-keys-title">Or use an API key</h2>
           <p>
-            Instead of signing in, each of the seven takes a key under <b>API key</b> in its account's box. Claude Code's, Codex's,
+            Instead of signing in, each of the seven takes a key under <b>API key</b> in its account's box (Antigravity takes nothing else). Claude Code's, Codex's,
             Grok's, Antigravity's and Muse Code's are billed by use, by the agent's maker, rather than counted against a
             subscription:
           </p>
@@ -387,7 +387,7 @@
             <li><b>Codex</b>: an OpenAI API key. Codex keeps it, and it replaces your ChatGPT sign-in.</li>
             <li><b>Grok</b>: an xAI API key.</li>
             <li><b>Cursor</b>: a Cursor API key, for Harness Relay's runs only; your own Cursor sign-in stays as it was.</li>
-            <li><b>Antigravity</b>: a Gemini API key. Antigravity then runs on the Gemini API instead of your Google sign-in.</li>
+            <li><b>Antigravity</b>: a Gemini API key, for every account: without one, Antigravity doesn't start. A Google sign-in you use with <code>agy</code> yourself stays as it is, and Harness Relay doesn't use it.</li>
             <li><b>Copilot</b>: a fine-grained GitHub token with the “Copilot Requests” permission (classic tokens don't work). It uses that GitHub account's plan.</li>
             <li><b>Muse Code</b>: a Meta API key.</li>
           </ul>
@@ -485,19 +485,20 @@
             out and deletes it.
           </p>
           <p>
-            Cursor, Antigravity and Muse Code keep their sign-in in one place for your whole computer user, so their extra
-            accounts take an API key instead (a Cursor API key, a Gemini API key, a Meta API key).
+            Cursor and Muse Code keep their sign-in in one place for your whole computer user, so their extra accounts take
+            an API key instead (a Cursor API key, a Meta API key). Every Antigravity account, the default one too, takes a
+            Gemini API key.
           </p>
           <h3 id="plan-usage">Plan usage</h3>
           <p>
             Once an account is signed in, its box shows <b>Plan usage</b>: how much of its plan is left, as the agent reports
             it, with a bar for each limit and when it starts over (Claude Code's 5-hour and weekly limits, say, or Copilot's
             premium requests this month). Harness Relay asks without sending a prompt, so checking uses nothing up.
-            <b>Check again</b> asks anew. An account on an API key (Claude Code, Codex, Grok, Antigravity, Muse Code) has no plan
-            limits: its provider bills the key by use, so see the balance in the provider's console. Copilot on a GitHub
+            <b>Check again</b> asks anew. An account on an API key (Claude Code, Codex, Grok, Muse Code, and every Antigravity
+            account) has no plan limits: its provider bills the key by use, so see the balance in the provider's console. Copilot on a GitHub
             token shows that GitHub account's plan. For Cursor, the box names the plan only, and nothing for an account on a
             Cursor API key. A limit used up that the agent keeps running past, billed (credits, Claude Code's usage credits,
-            Copilot's additional paid usage, Grok's pay-as-you-go, Antigravity's AI credits once Use AI Credits is on), says
+            Copilot's additional paid usage, Grok's pay-as-you-go), says
             <b>Plan limit reached</b> and what it uses instead; the lead agent still staffs that account, but prefers others
             that fit as well, since each turn costs money.
           </p>

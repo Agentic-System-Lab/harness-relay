@@ -421,7 +421,7 @@
               </div>
               <div class="t-antigravity">
                 <dt>Antigravity</dt>
-                <dd>The Agent Client Protocol, over <code>agy acp</code>. It has no sandbox there either, so below full access every command it wants to run asks you first (or is refused, if the conversation refuses automatically), and a refusal ends its turn.</dd>
+                <dd>The Agent Client Protocol, over <code>agy acp</code>, on your Gemini API key: Google’s terms don’t let other apps run it on your Google sign-in. It has no sandbox there either, so below full access every command it wants to run asks you first (or is refused, if the conversation refuses automatically), and a refusal ends its turn.</dd>
               </div>
               <div class="t-copilot">
                 <dt>Copilot</dt>
@@ -432,7 +432,7 @@
                 <dd>The Agent Client Protocol, over <code>muse acp</code>. Below full access its commands run in Muse Code’s own OS sandbox, which lets them write only in the working directories and the temp folder. In read-only every command asks you first; in edit mode, one that pushes or publishes; in both, one that wants the network.</dd>
               </div>
             </dl>
-            <p class="agents-foot">One is enough, and any mix of the twelve works: the lead agent builds each team only from the agents you have ready, and several members can be the same agent, each with a role of its own. Sign in to Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code from Settings, and give the others a <a href="#open">model backend</a>.</p>
+            <p class="agents-foot">One is enough, and any mix of the twelve works: the lead agent builds each team only from the agents you have ready, and several members can be the same agent, each with a role of its own. Sign in to Claude Code, Codex, Grok, Cursor, Copilot and Muse Code from Settings, give Antigravity a Gemini API key, and give the others a <a href="#open">model backend</a>.</p>
           </div>
           <div class="mark" aria-hidden="true">
             <div class="disc t-claude"><strong>Claude Code</strong><code>claude</code></div>
@@ -912,7 +912,7 @@
             <li><b>Status at a glance</b>The sidebar marks conversations that need you, are replying or have a new reply. Conversations keep running when you switch away.</li>
             <li><b>Pin what you come back to</b>A pinned conversation stays at the top of the sidebar, above your groups, in every browser and on your phone.</li>
             <li><b>Notifications and sound</b>A notification and a short sound when a reply is done or an agent needs you, and push notifications even with the phone locked, once Harness Relay is on its home screen. The bell in the sidebar keeps every one.</li>
-            <li><b>Sign in from the app</b>Sign in to Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, or give the open-source agents a model backend. Turn off what an agent loads by itself, where it allows.</li>
+            <li><b>Sign in from the app</b>Sign in to Claude Code, Codex, Grok, Cursor, Copilot and Muse Code, give Antigravity a Gemini API key, or give the open-source agents a model backend. Turn off what an agent loads by itself, where it allows.</li>
             <li><b>Automations</b>Send the team a message at set times, when something happens (a new mail, an upcoming event, a pull request or a failed CI run, a file in the working directory) or from a webhook. Nobody may be watching, so by default anything beyond the permission is refused. Give it a goal, and it reports progress each run and switches off once it is reached.</li>
             <li><b>Use apps in a chat or automation</b>Connect a service in <a href="docs/tools/#common-apps">Common apps settings</a>. When you start a chat or create an automation, choose Common apps (the four squares before the paperclip) and select the apps you want to use.</li>
             <li><b>One tool library for every member</b>Add MCP servers, skills and memory for every member or just the agents you choose. Sign in to MCP servers that use OAuth. Set the hooks and checks that new chats and automations start with.</li>
@@ -1042,7 +1042,7 @@
                       Any of these agents: <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a> (<code>claude</code>),
                       <a href="https://github.com/openai/codex">Codex CLI</a> (<code>codex</code>), <a href="https://github.com/xai-org/grok-build">Grok CLI</a> (<code>grok</code>),
                       <a href="https://cursor.com/cli">Cursor CLI</a> (<code>cursor-agent</code>),
-                      <a href="https://antigravity.google/download">Antigravity CLI</a> (<code>agy</code>),
+                      <a href="https://antigravity.google/download">Antigravity CLI</a> (<code>agy</code>, with a Gemini API key),
                       <a href="https://github.com/features/copilot/cli">GitHub Copilot CLI</a> (<code>copilot</code>),
                       <a href="https://dev.meta.ai/products/muse-code/">Muse Code</a> (<code>muse</code>)
                     </li>

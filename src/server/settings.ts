@@ -103,18 +103,18 @@ export const API_KEY_ENV: Partial<Record<Provider, string>> = {
  * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`)
  * before its own sign-in, Codex an API key from `CODEX_API_KEY` or `OPENAI_API_KEY`, Grok from
  * `XAI_API_KEY`, Cursor from `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`, Antigravity from `GEMINI_API_KEY`
- * (which its adapter makes it use: `antigravityRunSettings`), Copilot from `COPILOT_GITHUB_TOKEN`,
- * `GH_TOKEN` or `GITHUB_TOKEN` (a GitHub token, in that order), Muse Code from `META_API_KEY`. An account besides the default
- * one gets none of them from the server's environment (only its own key), or every such account would
- * run as whoever they sign in. The open agents have no sign-in, nor accounts: their keys are the model
- * backends' (`INHERITED_BACKEND_VARS`).
+ * (the only sign-in it runs on in Harness Relay, which its adapter makes it use: `antigravityRunSettings`),
+ * Copilot from `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` (a GitHub token, in that order), Muse
+ * Code from `META_API_KEY`. An account besides the default one gets none of them from the server's
+ * environment (only its own key), or every such account would run as whoever they sign in. The open
+ * agents have no sign-in, nor accounts: their keys are the model backends' (`INHERITED_BACKEND_VARS`).
  */
 export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
   codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
   cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
-  antigravity: ['GEMINI_API_KEY', 'AGY_ADC_AUTH'],
+  antigravity: ['GEMINI_API_KEY'],
   copilot: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
   muse: ['META_API_KEY'],
   opencode: [],
@@ -163,12 +163,11 @@ export const OPEN_AGENT_ROOTS_ENV = 'HARNESS_RELAY_AGENT_HOMES_BEFORE';
 export const ANTIGRAVITY_HOME_ENV = 'HARNESS_RELAY_ANTIGRAVITY_HOME';
 
 /**
- * Set ('1') for an Antigravity account besides the default one, which runs on its own Gemini API key
- * only (`keyOnlyAccount`): its runs and questions tell agy to use the key (`modelProvider: "gemini"`),
- * so that it never falls back to the Google sign-in agy keeps in the system keyring, the default
- * account's; without a key it counts as signed out. Not passed on to agy.
+ * Antigravity's sign-ins besides a Gemini API key that agy takes from its environment: Application
+ * Default Credentials (`AGY_ADC_AUTH`, Google Cloud's). Every Antigravity account runs on its Gemini API
+ * key alone (`keyOnlyAccount`), so none of them reaches agy, the server's own included.
  */
-export const ANTIGRAVITY_KEY_ONLY_ENV = 'HARNESS_RELAY_ANTIGRAVITY_KEY_ONLY';
+export const ANTIGRAVITY_OTHER_SIGN_IN_ENV = ['AGY_ADC_AUTH'] as const;
 
 /**
  * Where a Muse Code account's home is: its config folder is `<home>/config/muse` and its data folder
@@ -189,8 +188,8 @@ export const MUSE_KEY_ONLY_ENV = 'HARNESS_RELAY_MUSE_KEY_ONLY';
  * The variable that moves each CLI's home: its sign-in, settings and session transcripts. Cursor's
  * moves its settings and sessions only: its sign-in stays where Cursor keeps it for the computer user
  * (on macOS, the keychain), see `CURSOR_SHARED_SIGN_IN`; Antigravity's is Harness Relay's own
- * (`ANTIGRAVITY_HOME_ENV`), and its Google sign-in stays in the system keyring; so is Muse Code's
- * (`MUSE_HOME_ENV`).
+ * (`ANTIGRAVITY_HOME_ENV`), and a Google sign-in agy keeps stays in the system keyring, never used by
+ * Harness Relay; so is Muse Code's (`MUSE_HOME_ENV`).
  */
 export const AGENT_HOME_ENV: Record<Provider, string> = {
   claude: 'CLAUDE_CONFIG_DIR',
@@ -1006,7 +1005,7 @@ export class SettingsStore {
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
     if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
-    if (p === 'antigravity' && id) env[ANTIGRAVITY_KEY_ONLY_ENV] = '1';
+    if (p === 'antigravity') for (const k of ANTIGRAVITY_OTHER_SIGN_IN_ENV) delete env[k];
     if (p === 'muse' && id) env[MUSE_KEY_ONLY_ENV] = '1';
     const home = this.accountHome(p, id);
     if (home) {

@@ -10,7 +10,8 @@ import type { FakeLogEntry, RelayServer } from '../support/relay';
 /*
  * The CLIs with a sign-in of their own have accounts (the open agents have none: they run on the
  * model backends). An account besides the default one signs in on its own (`accounts: 'sign-in'`),
- * or with an API key only (`key-only`: Cursor, Antigravity), which these tests then give it.
+ * or with an API key only (`key-only`: Cursor, Antigravity, Muse Code), which these tests then give it.
+ * Antigravity's default account runs on a key only too (`defaultKeyOnly`): the test servers give it one.
  */
 
 /** An account's box in a CLI's card in Settings, by the name it shows. */
@@ -227,8 +228,9 @@ test.describe('more than one account', () => {
         const work = accountBlock(page, cli.provider, 'Work');
         const main = accountBlock(page, cli.provider, 'Default account');
 
-        // The tests' servers run with RELAY_KEYRING=off: the boxes say where a key goes.
-        await keyBox(main).locator('summary').click();
+        // The tests' servers run with RELAY_KEYRING=off: the boxes say where a key goes. (A default
+        // account that runs on a key only has its box open already.)
+        if (!cli.defaultKeyOnly) await keyBox(main).locator('summary').click();
         await expect(keyBox(main)).toContainText(
           "Keys are kept in Harness Relay's database, encrypted (with a key kept in a file of its own, readable only by your user account).",
         );
@@ -262,9 +264,9 @@ test.describe('more than one account', () => {
         await finishedReply(page, `${cli.name}2`);
         await settled(relay, conv);
         // The account's CLI got its key, in `apiKeyEnv` (the fake logs only whether it is the one
-        // expected); the default account's did not.
+        // expected); the default account's did not (one that runs on a key only got the server's own).
         expect(turnStart(relay, cli.provider, cli.name, 'Which key do you have?')?.apiKey).toBe('expected');
-        expect(turnStart(relay, cli.provider, `${cli.name}2`, 'Which key do you have?')?.apiKey).toBeNull();
+        expect(turnStart(relay, cli.provider, `${cli.name}2`, 'Which key do you have?')?.apiKey).toBe(cli.defaultKeyOnly ? 'other' : null);
         for (const s of relay.fakeLog().filter((e) => e.cli === cli.provider && e.args)) expect(JSON.stringify(s.args)).not.toContain(key);
       });
     });

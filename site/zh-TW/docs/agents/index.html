@@ -333,7 +333,7 @@
               </tr>
               <tr>
                 <th scope="row">Antigravity</th>
-                <td>用你的 Google 帳號：在任何一台裝置打開連結並登入 Google，再把頁面顯示的授權碼貼到輸入框，按<b>送出</b>。</td>
+                <td>不用登入：Harness Relay 只用 Gemini API key 執行 Antigravity，因為 <a href="https://antigravity.google/terms">Google 的條款</a>不允許其他應用程式用你的 Google 登入（Google AI 方案）執行它。請在<a href="#api-keys">下方</a>的 <b>API key</b> 設定金鑰。</td>
               </tr>
               <tr>
                 <th scope="row"><span class="keep">Copilot</span></th>
@@ -361,13 +361,13 @@
 
         <section id="api-keys" aria-labelledby="api-keys-title">
           <h2 id="api-keys-title">或使用 API key</h2>
-          <p>不登入的話，七個 agent 都可以在帳號框的 <b>API key</b> 填一把金鑰。Claude Code、Codex、Grok、Antigravity 與 Muse Code 的金鑰由 agent 的供應商依用量計費，而不是算在訂閱方案裡：</p>
+          <p>不登入的話，七個 agent 都可以在帳號框的 <b>API key</b> 填一把金鑰（Antigravity 只能這樣）。Claude Code、Codex、Grok、Antigravity 與 Muse Code 的金鑰由 agent 的供應商依用量計費，而不是算在訂閱方案裡：</p>
           <ul>
             <li><b>Claude Code</b>：Anthropic API key。它優先於你的 Claude 訂閱。</li>
             <li><b>Codex</b>：OpenAI API key。Codex 會保存它，並取代你的 ChatGPT 登入。</li>
             <li><b>Grok</b>：xAI API key。</li>
             <li><b>Cursor</b>：Cursor API key，只用在 Harness Relay 的執行；你自己的 Cursor 登入維持原樣。</li>
-            <li><b>Antigravity</b>：Gemini API key。之後 Antigravity 改用 Gemini API 執行，而不是你的 Google 登入。</li>
+            <li><b>Antigravity</b>：Gemini API key，每個帳號都要：沒有金鑰時 Antigravity 不會啟動。你自己在 <code>agy</code> 用的 Google 登入維持原樣，Harness Relay 不會使用它。</li>
             <li><b>Copilot</b>：具有「Copilot Requests」權限的 fine-grained GitHub token（classic token 不能用）。它用的是那個 GitHub 帳號的方案。</li>
             <li><b>Muse Code</b>：Meta API key。</li>
           </ul>
@@ -443,15 +443,14 @@
             每個 agent 都能同時登入好幾個帳號，例如公司和個人的 Claude 訂閱：打開 agent 帳號下方的<b>新增帳號</b>，取個名稱，按<b>新增帳號</b>。每個帳號各自登入，也有自己的 API key
             與預設模型。在團隊裡，用成員卡片上的<b>帳號</b>選擇它用哪個帳號；沒有選的成員使用預設帳號。按<b>移除</b>會登出並刪除多出來的帳號。
           </p>
-          <p>Cursor、Antigravity 與 Muse Code 在整個電腦使用者只存一個登入，所以它們多出來的帳號改用 API key（Cursor API key、Gemini API key、Meta API key）。</p>
+          <p>Cursor 與 Muse Code 在整個電腦使用者只存一個登入，所以它們多出來的帳號改用 API key（Cursor API key、Meta API key）。Antigravity 的每個帳號，包括預設帳號，都用 Gemini API key。</p>
           <h3 id="plan-usage">方案用量</h3>
           <p>
             帳號登入後，它的框會顯示<b>方案用量</b>：agent 回報的方案還剩多少，每個額度一條長條，以及何時重置（例如 Claude Code 的 5 小時與每週額度，或 Copilot 這個月的 premium 請求）。Harness
-            Relay 查詢時不會送出 prompt，所以查看不會用掉額度。按<b>重新查詢</b>會再問一次。用 API key 的帳號（Claude Code、Codex、Grok、Antigravity、Muse
-            Code）沒有方案額度：供應商依用量向金鑰計費，餘額請到供應商的主控台查看。用 GitHub token 的 Copilot 會顯示那個 GitHub
+            Relay 查詢時不會送出 prompt，所以查看不會用掉額度。按<b>重新查詢</b>會再問一次。用 API key 的帳號（Claude Code、Codex、Grok、Muse Code，以及每個
+            Antigravity 帳號）沒有方案額度：供應商依用量向金鑰計費，餘額請到供應商的主控台查看。用 GitHub token 的 Copilot 會顯示那個 GitHub
             帳號的方案。Cursor 的框只會寫出方案名稱；用 Cursor API key 的帳號則什麼都不顯示。額度用完、但 agent
-            會繼續執行並另外計費時（點數、Claude Code 的用量點數、Copilot 的額外付費用量、Grok 的隨用隨付、開啟 Use AI Credits 後
-            Antigravity 的 AI 點數），會顯示<b>已達方案上限</b>與改用什麼；首席 agent 仍會用這個帳號，但因為每回合都要花錢，會優先選其他一樣合適的。
+            會繼續執行並另外計費時（點數、Claude Code 的用量點數、Copilot 的額外付費用量、Grok 的隨用隨付），會顯示<b>已達方案上限</b>與改用什麼；首席 agent 仍會用這個帳號，但因為每回合都要花錢，會優先選其他一樣合適的。
           </p>
         </section>
 

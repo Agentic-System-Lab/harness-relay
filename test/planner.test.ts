@@ -1656,18 +1656,19 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(memberAvailable(checked(copilot(false)), { provider: 'copilot' })).toBe(false);
   });
 
-  it('keeps an Antigravity model whose quota is used up while the AI credits the account turned on pay for it, and says so', () => {
+  it("keeps a model whose own quota is used up while the account's credits pay for it, and says so", () => {
     const now = Date.now();
     const later = now + 86_400_000;
-    // As `parseAntigravityUsage` reads agy 1.5.14's answer: a group's bucket, named after the group.
-    const argon = (paid: boolean): AccountUsage => ({
-      provider: 'antigravity',
+    // As `parseCodexUsage` reads a named Codex quota for one model.
+    const spark = (paid: boolean): AccountUsage => ({
+      provider: 'codex',
       account: '',
       checkedAt: now,
       limits: [
         {
-          span: 'week',
-          scope: 'Gemini 4 Argon · Gemini 4 Argon Weekly Limit',
+          span: 'fiveHour',
+          scope: 'Spark plan quota',
+          model: 'gpt-6.1-spark',
           usedPercent: 100,
           resetsAt: later,
           ...(paid ? { paidPast: true as const } : {}),
@@ -1677,25 +1678,25 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     });
     const checked = (u: AccountUsage): PlannerContext => ({
       ...ctx,
-      available: ['antigravity'],
-      accounts: { antigravity: [''] },
+      available: ['codex'],
+      accounts: { codex: [''] },
       catalog: [
         {
-          provider: 'antigravity',
-          models: [{ id: 'gemini-4-neon' }, { id: 'gemini-4-argon' }],
+          provider: 'codex',
+          models: [{ id: 'gpt-6.1' }, { id: 'gpt-6.1-spark' }],
           efforts: [],
-          defaultModel: 'gemini-4-neon',
+          defaultModel: 'gpt-6.1',
           source: 'cli',
         },
       ],
       staffing: { now, usage: [u] },
     });
-    expect(memberAvailable(checked(argon(false)), { provider: 'antigravity', model: 'gemini-4-argon' })).toBe(false);
-    expect(memberAvailable(checked(argon(false)), { provider: 'antigravity', model: 'gemini-4-neon' })).toBe(true);
-    expect(memberAvailable(checked(argon(true)), { provider: 'antigravity', model: 'gemini-4-argon' })).toBe(true);
+    expect(memberAvailable(checked(spark(false)), { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(false);
+    expect(memberAvailable(checked(spark(false)), { provider: 'codex', model: 'gpt-6.1' })).toBe(true);
+    expect(memberAvailable(checked(spark(true)), { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(true);
     const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
-    const lead = buildPlannerPrompt('q', settings, checked(argon(true)));
-    expect(lead).toContain('gemini-4-argon (plan limit reached');
+    const lead = buildPlannerPrompt('q', settings, checked(spark(true)));
+    expect(lead).toContain('gpt-6.1-spark (plan limit reached');
     expect(lead).toContain('Models marked "plan limit reached" run on paid credits, billed for each turn.');
   });
 

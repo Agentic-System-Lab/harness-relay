@@ -31,14 +31,16 @@ export const antigravity: CliFacts = {
   pickModel: { model: 'gemini-fake-flash', effort: 'medium' },
   // Its `.gemini` folder; an added account's is `<the account's folder>/.gemini` too.
   defaultHome: { in: 'home', path: ['.gemini'] },
+  // Every account, the default one too, runs on a Gemini API key only: no Google sign-in in Harness Relay.
   accounts: 'key-only',
+  defaultKeyOnly: true,
   apiKeyEnv: 'GEMINI_API_KEY',
   apiKeyPlaceholder: 'AIza…',
   homeIn: ['.gemini'],
-  // Its ACP `logout`, in an `agy acp` of its own (the default account's: no --gemini-dir).
-  logout: 'acp',
-  signedOutError: 'Authentication required',
+  // Without a key agy is not started: the reply says to set one.
+  signedOutError: 'Antigravity has no Gemini API key, so it was not started',
   // It asks before reading outside the workspace, and its adapter allows any read but of the protected paths.
   skillReadAsks: false,
-  usage: { plan: 'Google AI Pro', limit: '5-hour limit · Gemini 3.1 Pro' },
+  // A key has no plan: agy is never asked for one.
+  usage: { note: 'This account runs on an API key' },
 };

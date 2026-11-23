@@ -35,7 +35,7 @@ import {
   type ClaudePlugin,
 } from './agents/claude';
 import { codexMcpConfig, codexMcpOff, codexMcpToolId, codexNativeConfig, codexOverrideArgs, codexUserMcpConfig } from './agents/codex';
-import { antigravityGeminiDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import { ANTIGRAVITY_PROBE_SETTINGS, antigravityGeminiDir, antigravityHasKey, antigravityProbeEnv } from './agents/antigravity';
 import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } from './agents/copilot';
 import { museConfigBase, museEnv, prepareMuseRun } from './agents/muse';
 import { grokNativeEnv } from './agents/grok';
@@ -91,7 +91,9 @@ export type NativeProblem =
   /** Asking the CLI again the way Harness Relay starts it went wrong, so nothing is marked left out. */
   | { kind: 'as-run'; cause: NativeProblem }
   /** Asking it again ran out of time after some answers: those are marked, the rest is not. */
-  | { kind: 'as-run-partial' };
+  | { kind: 'as-run-partial' }
+  /** It was not asked: it runs on an API key only, and the account has none (Antigravity). */
+  | { kind: 'no-key' };
 
 /** A probe's answer before its problems are put into words. */
 export type NativeProbe = Omit<NativeSetup, 'errors'> & { problems: NativeProblem[] };
@@ -1508,10 +1510,10 @@ async function askAntigravity(
   command: string,
   timeoutMs: number,
 ): Promise<{ data?: Json; problem?: NativeProblem }> {
-  // With a Gemini API key it needs `modelProvider: "gemini"` for this one command, or it answers as if signed out.
+  // On its Gemini API key (`modelProvider: "gemini"` for this one command), never on a Google sign-in.
   const res = await runProcess({
     bin,
-    args: ['-p', command, '--output-format', 'json', ...antigravityProbeSettings(env)],
+    args: ['-p', command, '--output-format', 'json', ...ANTIGRAVITY_PROBE_SETTINGS],
     cwd,
     env: antigravityProbeEnv(env),
     timeoutMs,
@@ -1553,7 +1555,8 @@ async function antigravityPlugins(
  * What Antigravity loads by itself for `cwd`: its skills, hooks and custom agents as it reports them
  * (`/skills`, `/hooks`, `/agents` in print mode, which start no agent turn and spend nothing), its
  * plugins (`agy plugin list --json`), and its MCP servers and instruction files from the files it reads.
- * Nothing can be left out of its runs (`NATIVE_OFF_SUPPORT`).
+ * Nothing can be left out of its runs (`NATIVE_OFF_SUPPORT`). Without a Gemini API key agy is not asked
+ * at all (it would answer on a Google sign-in): only what its files say is listed.
  */
 async function probeAntigravity(
   bin: string,
@@ -1564,13 +1567,17 @@ async function probeAntigravity(
   timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<NativeProbe> {
   const geminiDir = antigravityGeminiDir(env);
+  const keyed = antigravityHasKey(env);
+  const none = async (): Promise<{ data?: Json; problem?: NativeProblem }> => ({});
   const [skills, hooks, agents, plugins] = await Promise.all([
-    askAntigravity(bin, env, cwd, '/skills', timeoutMs),
-    askAntigravity(bin, env, cwd, '/hooks', timeoutMs),
-    askAntigravity(bin, env, cwd, '/agents', timeoutMs),
-    antigravityPlugins(bin, env, cwd, timeoutMs),
+    keyed ? askAntigravity(bin, env, cwd, '/skills', timeoutMs) : none(),
+    keyed ? askAntigravity(bin, env, cwd, '/hooks', timeoutMs) : none(),
+    keyed ? askAntigravity(bin, env, cwd, '/agents', timeoutMs) : none(),
+    keyed ? antigravityPlugins(bin, env, cwd, timeoutMs) : none(),
   ]);
-  const problems = [skills, hooks, agents, plugins].flatMap((r) => (r.problem ? [r.problem] : []));
+  const problems: NativeProblem[] = keyed
+    ? [skills, hooks, agents, plugins].flatMap((r) => (r.problem ? [r.problem] : []))
+    : [{ kind: 'no-key' }];
   const lists = parseAntigravityProbe(
     { skills: skills.data, hooks: hooks.data, agents: agents.data, plugins: plugins.data },
     cwd,
@@ -2074,9 +2081,12 @@ export function probeCompleteness(probe: {
   const lists = [probe.skills, probe.mcpServers, probe.builtinTools, probe.agents, probe.plugins];
   if (lists.every((l) => !l?.length)) {
     if (problems.some((x) => x.kind === 'timeout')) return 'late';
-    if (problems.some((x) => (x.kind === 'failed' && !x.refused) || (x.kind === 'no-answer' && x.part === 'all'))) return 'failed';
+    if (problems.some((x) => (x.kind === 'failed' && !x.refused) || x.kind === 'no-key' || (x.kind === 'no-answer' && x.part === 'all')))
+      return 'failed';
   }
-  return problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer') ? 'incomplete' : 'complete';
+  return problems.some((x) => x.kind === 'timeout' || x.kind === 'failed' || x.kind === 'no-answer' || x.kind === 'no-key')
+    ? 'incomplete'
+    : 'complete';
 }
 
 /** A probe that got none of the CLI's lists (`probeCompleteness`): not worth giving the lead again. */
@@ -2105,6 +2115,7 @@ export function nativeProblemText(provider: Provider, p: NativeProblem): string 
   if (p.kind === 'as-run') return m.nativeAsRunFailed(cli, nativeProblemText(provider, p.cause));
   if (p.kind === 'as-run-partial') return m.nativeAsRunPartial(cli);
   if (p.kind === 'timeout') return m.nativeTimeout(cli);
+  if (p.kind === 'no-key') return m.nativeNoKey(cli);
   if (p.kind === 'failed') return m.nativeFailed(cli, p.detail);
   return m.nativeNoAnswer(cli, p.part);
 }

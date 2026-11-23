@@ -91,7 +91,7 @@ npm start
 
 - **工作目錄**是那台電腦上的資料夾，不是手機上的。
 - **agent 做的檔案**（PDF、簡報、試算表…）：點回覆裡的連結，或在 **檔案** 裡按 **下載**，檔案就會存到手機上：iPhone 與 iPad 存在「檔案」App 的 **下載項目**（Safari 可能會先詢問），Android 則在 **下載**。
-- **用手機登入 agent**：選會顯示連結或代碼的方式。Codex 的「ChatGPT 瀏覽器登入」會在那台電腦上開瀏覽器，不是在手機上，請改用「ChatGPT 裝置碼」。Cursor 的「Cursor 帳號」會顯示連結，不會開瀏覽器，所以在手機上也能登入。Antigravity 的「Google 帳號」也一樣：在手機上開啟它的連結、登入 Google，再把頁面顯示的授權碼（或整個網址）貼回框中。Copilot 的「GitHub 帳號（裝置代碼）」會顯示 GitHub 的連結與一組代碼：在手機上開啟連結，輸入代碼即可。Muse Code 的「Meta 帳號」也是：在手機上開啟它的連結、登入你的 Meta 帳號，確認頁面上的代碼和連結下方的一樣（沒有用真正的 Meta 帳號試過）。
+- **用手機登入 agent**：選會顯示連結或代碼的方式。Codex 的「ChatGPT 瀏覽器登入」會在那台電腦上開瀏覽器，不是在手機上，請改用「ChatGPT 裝置碼」。Cursor 的「Cursor 帳號」會顯示連結，不會開瀏覽器，所以在手機上也能登入。Antigravity 沒有要完成的登入：它只用 Gemini API key 執行，把金鑰貼到它卡片上的 **API key** 即可。Copilot 的「GitHub 帳號（裝置代碼）」會顯示 GitHub 的連結與一組代碼：在手機上開啟連結，輸入代碼即可。Muse Code 的「Meta 帳號」也是：在手機上開啟它的連結、登入你的 Meta 帳號，確認頁面上的代碼和連結下方的一樣（沒有用真正的 Meta 帳號試過）。
 - **對話會繼續跑**：手機鎖定或關掉頁面時，對話仍在電腦上進行。回來後頁面會重新連線並補上進度。
 - **語音輸入**：瀏覽器詢問時，允許使用麥克風。錄音會送到那台電腦轉成文字，不會傳到其他地方。
 
@@ -240,7 +240,7 @@ systemctl --user restart harness-relay
 在伺服器上：
 
 - **port 已被佔用：** 如果 8787 已經被其他程式使用，在 unit 檔設定另一個 `PORT`，第 1 步也分享那個 port。
-- **登入各 CLI：** 在瀏覽器的 **設定與登入** 登入（用裝置碼或連結），或透過 SSH 執行各 CLI 自己的登入指令。在 Harness Relay 的登入中，Antigravity 不會在伺服器上開瀏覽器：在任何一台裝置開啟它的連結，再把授權碼貼回來。Copilot 的裝置代碼也一樣，但 Copilot 把 token 存在系統的金鑰儲存區，而沒有桌面工作階段的機器通常沒有：這時 `copilot login` 最後會說 *Login succeeded, but the token was not saved…*，Harness Relay 會把這次登入顯示為失敗。在帳號的 Copilot `settings.json`（`~/.copilot/settings.json`，或帳號資料夾裡的那一個）設定 `"storeTokenPlaintext": true` 再登入一次，或改用 GitHub token（`COPILOT_GITHUB_TOKEN`，有「Copilot Requests」權限的 fine-grained token）。Muse Code 也不會：在任何一台裝置開啟它的連結，確認代碼即可。
+- **登入各 CLI：** 在瀏覽器的 **設定與登入** 登入（用裝置碼或連結），或透過 SSH 執行各 CLI 自己的登入指令。Antigravity 在 Harness Relay 沒有登入：給它一把 Gemini API key（在它的卡片上，或用下面的 `GEMINI_API_KEY`）。Copilot 的裝置代碼也能在任何一台裝置上完成，但 Copilot 把 token 存在系統的金鑰儲存區，而沒有桌面工作階段的機器通常沒有：這時 `copilot login` 最後會說 *Login succeeded, but the token was not saved…*，Harness Relay 會把這次登入顯示為失敗。在帳號的 Copilot `settings.json`（`~/.copilot/settings.json`，或帳號資料夾裡的那一個）設定 `"storeTokenPlaintext": true` 再登入一次，或改用 GitHub token（`COPILOT_GITHUB_TOKEN`，有「Copilot Requests」權限的 fine-grained token）。Muse Code 也不會：在任何一台裝置開啟它的連結，確認代碼即可。
 - **API key：** 沒有桌面環境的機器通常沒有 Secret Service，在設定頁儲存的 API key 會存在 `data/relay.db`，並以 Harness Relay 第一次啟動時產生的 `data/secrets.key` 加密（見 [API key](user-guide.zh-TW.md#api-key選用)）。想把這把金鑰放在資料夾（以及它的備份）之外，可以先產生一次（`openssl rand -base64 32 > /etc/harness-relay/secrets.key`，只有 root 能讀），再當作 credential 交給服務：在 unit 檔加上 `LoadCredential=secrets.key:/etc/harness-relay/secrets.key` 與 `Environment=RELAY_SECRETS_KEY_FILE=%d/secrets.key`（`%d` 是服務的 credentials 資料夾；即使設了 `ProtectSystem` 或用別的使用者執行，systemd 仍會把檔案交給它）。已經有 `data/secrets.key` 的話，請把它搬過去而不是產生新的，否則用它存的金鑰都得重新設定。若完全不想存在磁碟上，改在 unit 檔加上 `Environment=ANTHROPIC_API_KEY=…`、`XAI_API_KEY`、`GEMINI_API_KEY`（Antigravity 的）或 `COPILOT_GITHUB_TOKEN`（Copilot 的）或 `META_API_KEY`（Muse Code 的）。
 
 ## 安全性

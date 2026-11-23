@@ -255,10 +255,7 @@ function limitUsedUp(
   if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= now)) return false;
   if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
   if (!limit.scope && !limit.model) return true;
-  const scopes = [
-    ...(limit.model ? [limit.model] : []),
-    ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
-  ];
+  const scopes = [...(limit.model ? [limit.model] : []), ...(limit.scope ? [limit.scope] : [])];
   return scopes.some((scope) =>
     model
       ? scopeMatches(provider, scope, model, label)

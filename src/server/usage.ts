@@ -1,13 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountUsage, Provider, UsageKind, UsageLimit, UsageNone, UsagePayer, UsageProblem, UsageSpan } from '../shared/types';
-import {
-  antigravityAiCredits,
-  antigravityAppDir,
-  antigravityKeyOnly,
-  antigravityProbeEnv,
-  antigravityProbeSettings,
-} from './agents/antigravity';
 import { CLAUDE_PROBE_ARGS } from './agents/claude';
 import { copilotHome, copilotProbeEnv, prepareCopilotProbeHome } from './agents/copilot';
 import { grokNativeEnv } from './agents/grok';
@@ -27,15 +20,14 @@ import { CREDENTIAL_ENV } from './settings';
  * - Muse Code: `muse usage --json`.
  * - Copilot: `account.getQuota` and `account.getCurrentAuth` on its headless server (`copilot
  *   --headless --stdio`, the JSON-RPC its SDK speaks), without a session.
- * - Antigravity: `/usage` and `/credits` in print mode (`agy -p /usage --output-format json`), which
- *   it answers without a turn.
  * - Cursor: only its plan (`cursor-agent about --format json`); its usage shows in its own terminal
  *   UI only (`/usage`), which has no command or ACP request outside it.
  *
  * An account that runs on an API key its provider bills by use has no plan limits, and the key cannot
  * read a balance: it is told so without asking its CLI (Grok's billing would describe the grok.com
  * sign-in, not the key the runs use); Claude Code and Codex say so themselves. Cursor's and Copilot's
- * keys belong to the user's own plan.
+ * keys belong to the user's own plan. Antigravity runs on a Gemini API key only (`keyOnlyAccount`), so
+ * it is never asked: it has no plan here.
  *
  * Nothing here is translated: an answer is kept a while and given to every browser, whatever its
  * language, so Harness Relay's own reasons are codes (`UsageProblem`) the UI words.
@@ -616,135 +608,6 @@ async function askCopilot(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSig
 }
 
 // ---------------------------------------------------------------------------
-// Antigravity
-
-/** The span of one of Antigravity's buckets, from its `window` ("5h", "weekly"…), when it is a usual one. */
-function windowSpan(w: unknown): UsageSpan | undefined {
-  const s = String(w ?? '').toLowerCase();
-  if (/^(5\s*h|5[-\s]?hours?|five[-_\s]?hours?)/.test(s)) return 'fiveHour';
-  if (/week|^7\s*d/.test(s)) return 'week';
-  if (/month|^30\s*d/.test(s)) return 'month';
-  if (/day|daily|^24\s*h/.test(s)) return 'day';
-  return undefined;
-}
-
-/**
- * Antigravity's answers to `/usage` (`groups` of `buckets`, each with the fraction of it left, its
- * `window` and when it resets) and `/credits` (`remaining_credits`, and `plan_name` when it has one) in
- * print mode, as agy types them (read from 1.5.8's binary; seen from 1.5.14 with a Google AI Pro
- * account's quota unused). The account's AI credits, when it turned them on (`aiCredits`:
- * `antigravityAiCredits`, since neither answer says) and has some left, pay past every quota.
- */
-export function parseAntigravityUsage(usage: unknown, credits: unknown, aiCredits = false): UsageAnswer | undefined {
-  const u = usage as Record<string, any> | undefined;
-  if (!u || typeof u !== 'object') return undefined;
-  const groups = (Array.isArray(u.groups) ? u.groups : []).filter(
-    (g: unknown): g is Record<string, any> => Boolean(g) && typeof g === 'object',
-  );
-  const several = groups.length > 1;
-  const limits: UsageLimit[] = [];
-  for (const g of groups) {
-    for (const b of Array.isArray(g.buckets) ? g.buckets : []) {
-      if (!b || typeof b !== 'object' || b.disabled) continue;
-      const left = num(b.remaining_fraction);
-      if (left === undefined) continue;
-      const span = windowSpan(b.window);
-      const scope = [several ? text(g.name) : undefined, text(b.name)].filter(Boolean).join(' · ');
-      const resetsAt = when(b.reset_time);
-      limits.push({
-        ...(span ? { span } : {}),
-        ...(scope ? { scope } : {}),
-        usedPercent: clampPercent((1 - left) * 100),
-        ...(resetsAt ? { resetsAt } : {}),
-      });
-    }
-  }
-  const c = credits as Record<string, any> | undefined;
-  const plan = text(c?.plan_name);
-  const balance = num(c?.remaining_credits);
-  // No credits on a plan without them: a zero says nothing then.
-  const withCredits = balance !== undefined && (balance > 0 || Boolean(plan));
-  return {
-    ...(plan ? { plan } : {}),
-    ...paidBy(limits, aiCredits && balance !== undefined && balance > 0 ? 'credits' : undefined),
-    ...(withCredits ? { credits: { balance } } : {}),
-    ...(limits.length || withCredits ? {} : { none: 'noData' as const }),
-  };
-}
-
-/** The last line of `stdout` that is a JSON object: agy's answer, after anything it printed before it. */
-function lastJsonObject(stdout: string): Record<string, any> | undefined {
-  const lines = stdout.split(/\r?\n/).map((l) => l.trim());
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i]!.startsWith('{')) continue;
-    try {
-      const v: unknown = JSON.parse(lines[i]!);
-      if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, any>;
-    } catch {
-      // not this line
-    }
-  }
-  return undefined;
-}
-
-/** What agy prints when a print-mode command finds no sign-in, before it waits for a code. */
-const ANTIGRAVITY_SIGN_IN_ASKED = /authentication required|visit the url to log in/i;
-/** Antigravity's words for a print-mode command without a sign-in. */
-const ANTIGRAVITY_SIGNED_OUT = /sign in|authentication failed|not (signed|logged) in/i;
-
-/** One of the commands Antigravity answers in print mode without a turn (`agy -p /usage --output-format json`). */
-async function askAntigravityCommand(
-  bin: string,
-  env: NodeJS.ProcessEnv,
-  command: string,
-  signal?: AbortSignal,
-): Promise<{ data?: unknown; failed?: UsageAnswer; signedOut?: boolean }> {
-  // Signed out, agy prints a sign-in link and waits a minute for a code, even with its stdin closed
-  // (agy 1.5.8): it is stopped as soon as it asks (on stderr).
-  const stop = new AbortController();
-  if (signal?.aborted) stop.abort();
-  else signal?.addEventListener('abort', () => stop.abort(), { once: true });
-  let signedOut = false;
-  const res = await runProcess({
-    bin,
-    args: ['-p', command, '--output-format', 'json', ...antigravityProbeSettings(env)],
-    cwd: probeDir(),
-    env: antigravityProbeEnv(env),
-    signal: stop.signal,
-    timeoutMs: USAGE_TIMEOUT_MS,
-    maxCapture: 1024 * 1024,
-    onSpawn: (child) => {
-      let said = '';
-      child.stderr?.on('data', (chunk: Buffer) => {
-        said = (said + chunk.toString('utf8')).slice(-4096);
-        if (signedOut || !ANTIGRAVITY_SIGN_IN_ASKED.test(said)) return;
-        signedOut = true;
-        stop.abort();
-      });
-    },
-  });
-  if (signedOut) return { signedOut };
-  const j = lastJsonObject(res.stdout);
-  if (j?.status === 'SUCCESS') return { data: j.command?.data ?? {} };
-  if (j) {
-    const error = String(j.error ?? 'error');
-    return ANTIGRAVITY_SIGNED_OUT.test(error) ? { signedOut: true } : { failed: failed(error) };
-  }
-  return { failed: failure(undefined, res.timedOut, res.stderr || res.stdout) };
-}
-
-async function askAntigravity(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<UsageAnswer> {
-  const usage = await askAntigravityCommand(bin, env, '/usage', signal);
-  if (usage.signedOut) return none('signedOut');
-  if (usage.failed) return usage.failed;
-  // One after the other: two agy processes in the same home at once could get in each other's way.
-  // Its credits are a part of the answer only: without them the limits still show.
-  const credits = await askAntigravityCommand(bin, env, '/credits', signal);
-  const aiCredits = !antigravityKeyOnly(env) && antigravityAiCredits(antigravityAppDir(env));
-  return parseAntigravityUsage(usage.data, credits.data, aiCredits) ?? trouble('noAnswer');
-}
-
-// ---------------------------------------------------------------------------
 // Cursor
 
 /** `cursor-agent about --format json`: its plan only (`subscriptionTier`). */
@@ -797,7 +660,8 @@ export async function askUsage(p: Provider, bin: string, env: NodeJS.ProcessEnv,
       // account runs on: it would name another plan than the key's.
       return CREDENTIAL_ENV.cursor.some((k) => env[k]) ? none('notReported') : askCursor(bin, env, signal);
     case 'antigravity':
-      return apiKey ? none('apiKey') : askAntigravity(bin, env, signal);
+      // On its Gemini API key only: no plan, and agy is never asked (it would answer for a Google sign-in).
+      return none(apiKey ? 'apiKey' : 'signedOut');
     case 'copilot':
       // A GitHub token belongs to the user's own Copilot plan: asked about too.
       return askCopilot(bin, env, signal);

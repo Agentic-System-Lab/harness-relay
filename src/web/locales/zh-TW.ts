@@ -2867,7 +2867,7 @@ export const zhTW = {
       cursor:
         '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
       antigravity:
-        '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它改用 Gemini API（依用量計費）而不是 Google 登入；你自己的設定檔不會被改動。',
+        '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它用 Gemini API 執行（依用量計費）；你自己的設定檔不會被改動。',
       copilot:
         '儲存後，Harness Relay 啟動 Copilot 時會帶入 COPILOT_GITHUB_TOKEN（優先於它保存的 GitHub 登入）。請用有「Copilot Requests」權限的 fine-grained personal access token；Copilot 不接受 classic token（ghp_）。',
       muse: '儲存後，Harness Relay 啟動 Muse Code 時會帶入 META_API_KEY，它就改用這把金鑰（Meta API 計費），而不是你的 Meta 帳號登入。',
@@ -2912,7 +2912,7 @@ export const zhTW = {
     keyOnlyAccount:
       'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡，不論它的資料夾在哪），所以這個額外帳號只能用 API key：請在下方設定。Cursor 自己的登入只屬於預設帳號。',
     keyOnlyAntigravity:
-      'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以這個額外帳號只能用 Gemini API key：請在下方設定。Google 登入只屬於預設帳號。',
+      'Harness Relay 只用 Gemini API key 執行 Antigravity，每個帳號都一樣：Google 的條款不允許第三方應用程式用 Google 登入（Google AI 方案）執行它。請在下方設定 API key。agy 自己保存的 Google 登入會原樣保留，Harness Relay 不會使用它。',
     keyOnlyMuse:
       'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以這個額外帳號只能用 Meta API key：請在下方設定。Meta 帳號登入只屬於預設帳號。',
     keySaved: '已儲存 API key',

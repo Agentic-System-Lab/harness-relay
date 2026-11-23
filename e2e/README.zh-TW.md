@@ -22,7 +22,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 每個測試一開始有什麼
 
-- **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
+- **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡（Antigravity 的預設帳號改拿測試自己的替身 Gemini API key，放在 `GEMINI_API_KEY`，這是它在 Harness Relay 唯一的登入方式），git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型連線**），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。伺服器列出這兩個模型，另外提供只能按 ID 查到的 `unlisted-model`，並收下在沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
 - **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`，或給伺服器更多環境變數（`serverEnv`）。
@@ -30,7 +30,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **假的 `gh`**（[`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)），用於分享、問題回報的截圖，以及等 GitHub 的自動任務：它把 gist 存在測試自己的資料夾（`fake-github/`），從不送到 GitHub，並列出測試寫在那裡的 pull request 與執行（`fake-github/repos/<owner>/<name>/pulls.json`、`runs.json`）；`E2E_FAKE_SIGNED_OUT=gh` 會讓它處於未登入狀態，直到測試核准它自己的登入（`auth login --web`）。Linux 上還有假的選擇資料夾視窗（`zenity`）。AgentsView 則是 [`specs/sessions.spec.ts`](specs/sessions.spec.ts) 裡的一個小 HTTP 伺服器，因為 Harness Relay 只會送請求給它。
 - **假的 PowerShell**（[`fake-cli/fake-pwsh.cjs`](fake-cli/fake-pwsh.cjs)）在每個 Teams 測試自己的程序和資料夾內模擬 Graph 裝置登入、讀取頻道與發文。
 
-下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十二個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的七個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。在 CI 上，某個 CLI 自己的測試（各一的，以及它在兩個團隊中的位置）在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同的 CLI：見[平台與瀏覽器](#平台與瀏覽器)。
+下面的表格中，CLI 欄寫出測試用哪些 CLI 執行：「**各一**」表示十二個 CLI 各跑一次；「**有登入的各一**」表示 Claude Code、Codex、Grok、Cursor、Antigravity（它在 Harness Relay 唯一的登入方式是 Gemini API key）、Copilot 與 Muse Code 各跑一次；「**開源 agent 各一**」表示 OpenCode、Goose、Cline、OpenHands 與 Pi 各跑一次；「**兩個團隊**」表示測試跑兩次，一次是有登入的七個組成的團隊，一次是五個開源 agent 組成的團隊（這時標題以 `open agents:` 開頭）。某個 CLI 只能以完全存取執行的地方（Windows 上的開源 agent、Linux 上的 OpenCode），與權限有關的測試會跳過它並說明原因，其他測試則以完全存取執行它。在 CI 上，某個 CLI 自己的測試（各一的，以及它在兩個團隊中的位置）在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同的 CLI：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 分區
 
@@ -608,7 +608,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 桌面與手機的設定小標題間距 | — | 檢查**開源助理的 API Key**、**自訂端點**、**已刪除的端點**及 session 設定的小標題與第一個欄位或說明之間的距離。展開自訂端點後才會看到已刪除的端點。 |
 | 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。翻譯後的「模型連線」連結都開啟同一張卡片，開源助理的 API Key與自訂端點的標籤也會跟著切換。 |
 | 選另一個 CLI 擔任首席 agent | Codex 當首席 agent | 新對話頁寫出它，團隊卡片寫著「Lead agent: Codex」，首席 agent 的 prompt 交給了 Codex。 |
-| 未登入的 CLI 顯示未登入，它的回答說明原因 | 有登入的各一 | `E2E_FAKE_SIGNED_OUT=<cli>`：狀態點與卡片顯示**未登入**（不含 CLI 自己的說法），並有**登入**按鈕，另一個 CLI 則仍然登入；它的回答帶著 CLI 的錯誤。 |
+| 未登入的 CLI 顯示未登入，它的回答說明原因 | 有登入的各一 | `E2E_FAKE_SIGNED_OUT=<cli>`：狀態點與卡片顯示**未登入**（不含 CLI 自己的說法），並有**登入**按鈕，另一個 CLI 則仍然登入；它的回答帶著 CLI 的錯誤。Harness Relay 只用 Gemini API key 執行的 Antigravity：伺服器以空的 `GEMINI_API_KEY` 執行，而它的假 CLI 保留它（假的）Google 登入；它照樣顯示**未登入**，沒有**登入**按鈕，API key 欄位已展開，附上 Harness Relay 只用 Gemini API key 執行它的說明；它的回答說它沒有 Gemini API key、所以沒有啟動，agy 除了 `--version` 之外從沒被啟動。 |
 
 ## 安裝 CLI
 
@@ -650,14 +650,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 帳號
 
-[`accounts.spec.ts`](specs/accounts.spec.ts)：**設定 → 各 CLI 的卡片 → 新增帳號**，針對有自己登入的七個 CLI（開源 agent 沒有帳號：它們使用模型來源）。Cursor、Antigravity 與 Muse Code 新增的帳號只能用 API key 登入，由這些測試給它們。
+[`accounts.spec.ts`](specs/accounts.spec.ts)：**設定 → 各 CLI 的卡片 → 新增帳號**，針對有自己登入的七個 CLI（開源 agent 沒有帳號：它們使用模型來源）。Cursor 與 Muse Code 新增的帳號只能用 API key 登入，由這些測試給它們；Antigravity 的每個帳號也一樣，預設帳號也是：測試的伺服器在它自己的環境變數（`GEMINI_API_KEY`）裡給預設帳號一把 key。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 新增的帳號有自己的資料夾，設定使用它的成員在那裡執行 | 有登入的各一 | 帳號放在 `<資料>/accounts/<cli>-<id>`，卡片上顯示這個資料夾，並在那裡登入（Cursor、Antigravity 與 Muse Code 用給它的 key：「Using an API key」；Copilot 的登入狀態在這次詢問自己的家目錄中詢問，放在資料資料夾的 `tmp` 裡，帶著帳號登入狀態的副本）；使用它的成員以這個家目錄執行（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`、Cursor 的帳號資料夾、裡面 Antigravity 的 `.gemini`、Copilot 這次執行自己的家目錄，它的 session 連到那個資料夾、裡面 Muse Code 的資料資料夾 `data/muse`，它的設定資料夾則是那個回合自己的），使用預設帳號的成員則用預設的。 |
 | 每個帳號各自登入與登出 | Claude Code | **登出**只在新增帳號的家目錄執行 `auth logout`；**登入**走 CLI 自己的流程（一個連結，再貼上代碼），等待時狀態旁有 app 的載入標示（旋轉的標誌），之後顯示這個帳號已登入，載入標示消失。 |
 | 登出新增的帳號，只會登出那個帳號 | Codex、Grok、Copilot | `logout`（Copilot 的透過 ACP）只在那個帳號的資料夾執行；它的卡片顯示**未登入**，預設帳號仍然登入。 |
-| 金鑰儲存區關閉時，帳號的 API key 加密存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok、Cursor、Antigravity、Copilot、Muse Code | API key 欄位說明金鑰存在哪裡（加密存在資料庫；只能用 key 登入的帳號，欄位一開始就展開）；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它，`relay.db` 和它的 WAL 裡也沒有它的原文，資料夾裡則有金鑰檔 `secrets.key`；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`、`META_API_KEY`），不在任何參數裡，預設帳號的執行則沒有。 |
+| 金鑰儲存區關閉時，帳號的 API key 加密存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok、Cursor、Antigravity、Copilot、Muse Code | API key 欄位說明金鑰存在哪裡（加密存在資料庫；只能用 key 登入的帳號，包括 Antigravity 的預設帳號，欄位一開始就展開）；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它，`relay.db` 和它的 WAL 裡也沒有它的原文，資料夾裡則有金鑰檔 `secrets.key`；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`、`META_API_KEY`），不在任何參數裡，預設帳號的執行則沒有（Antigravity 的拿到啟動伺服器時帶的 key）。 |
 | 帳號的 API key 用 Codex 自己的登入讓那個帳號登入 | Codex | Codex 不從環境變數拿 key：key 經由 stdin 交給只在那個帳號資料夾執行的 `codex login --with-api-key`，Harness Relay 不保存它，只有那個帳號的執行拿得到。 |
 | 啟動 Harness Relay 時帶的 API key 只屬於預設帳號 | 有登入的各一 | 伺服器自己環境中的 key（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`、`META_API_KEY`）會交給預設帳號的回合，不會交給新增的帳號（Cursor、Antigravity 與 Muse Code 新增的帳號用自己的 key）。 |
 | 移除新增的帳號會登出它並刪除它的資料夾，它的成員與首席 agent 改用預設帳號 | 有登入的各一 | 確認時寫出資料夾；帳號在那裡登出（只能用 key 登入的帳號沒有東西要登出），之後資料夾與其中的 session 都刪除；首席 agent 回到預設帳號；成員的下一回合在預設的家目錄、以新的 session 執行。 |
@@ -667,11 +667,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 方案用量
 
-[`usage.spec.ts`](specs/usage.spec.ts)：**設定 → 每個 CLI 的卡片 → 帳號的方案用量**，涵蓋有自己登入的七個 CLI。每個替身都像它的 CLI 一樣不送 prompt 回報方案用量（Claude Code 的 `get_usage`、Codex 的 `account/rateLimits/read`、Grok 的 `_x.ai/billing`、`muse usage --json`、Copilot headless 伺服器的 `account.getQuota`、Antigravity print 模式的 `/usage` 與 `/credits`、Cursor 從 `about --format json` 取得的方案）：預設的登入（e2e@example.com）已用 42%，其他帳號 7%，並記下每次詢問與它的家目錄。
+[`usage.spec.ts`](specs/usage.spec.ts)：**設定 → 每個 CLI 的卡片 → 帳號的方案用量**，涵蓋有自己登入的七個 CLI。每個替身都像它的 CLI 一樣不送 prompt 回報方案用量（Claude Code 的 `get_usage`、Codex 的 `account/rateLimits/read`、Grok 的 `_x.ai/billing`、`muse usage --json`、Copilot headless 伺服器的 `account.getQuota`、Cursor 從 `about --format json` 取得的方案）：預設的登入（e2e@example.com）已用 42%，其他帳號 7%，並記下每次詢問與它的家目錄。只用 Gemini API key 執行的 Antigravity 沒有方案，也從不詢問 agy。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 預設帳號顯示方案還剩多少，或它的 CLI 為什麼不說 | 每個有登入的 | Claude Code、Codex、Grok、Antigravity、Copilot 與 Muse Code：方案（Muse Code 沒有）、第一個額度的名稱（「5-hour limit」、「Weekly limit」、「5-hour limit · Gemini 3.1 Pro」、「Monthly limit · Premium requests」、「Allowance」）、「58% left · 42% used · resets …」（Copilot：「126 of 300 requests used」）與停在 42 的 meter，在預設帳號的家目錄只問一次（Copilot 在詢問專用的家目錄）。Cursor：取自 `about` 的方案，以及它的用量只在它自己的終端畫面顯示。都沒有錯誤。 |
+| 預設帳號顯示方案還剩多少，或它的 CLI 為什麼不說 | 每個有登入的 | Claude Code、Codex、Grok、Copilot 與 Muse Code：方案（Muse Code 沒有）、第一個額度的名稱（「5-hour limit」、「Weekly limit」、「Monthly limit · Premium requests」、「Allowance」）、「58% left · 42% used · resets …」（Copilot：「126 of 300 requests used」）與停在 42 的 meter，在預設帳號的家目錄只問一次（Copilot 在詢問專用的家目錄）。Cursor：取自 `about` 的方案，以及它的用量只在它自己的終端畫面顯示。Antigravity：說明這個帳號用 API key 執行、沒有額度，也從不詢問 agy。都沒有錯誤。 |
 | 每個帳號顯示自己方案的用量，在它自己的資料夾詢問，「重新查詢」會再問一次 | Claude Code | 以另一個地址登入的新帳號在區塊捲到畫面上後顯示「93% left · 7% used」與它的每週額度，旁邊是預設帳號的 58%，各在自己的家目錄詢問；它的「重新查詢」（以帳號命名）只會再問那個帳號的 CLI 一次，不問預設帳號的。 |
 | 用 API key 的帳號說明它沒有方案額度，未登入的帳號不顯示用量 | Claude Code | 有自己金鑰的帳號（它的 `get_usage` 回答 `rate_limits_available: false`）說明它用 API key 執行、沒有額度；未登入的帳號沒有用量區塊。 |
 
@@ -814,7 +814,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | subagent 的呼叫摺進啟動它的那次呼叫，以及 CLI 對自己這次執行的附註 | ✓ | — | — | — | — | — | — |
-| 設定頁的方案用量 | ✓（5 小時與每週額度） | ✓（5 小時與每週時段） | ✓（這週的點數） | 只有方案 | ✓（模型的 5 小時額度、點數） | ✓（以次數計的 premium 請求） | ✓（訂閱額度） |
+| 設定頁的方案用量 | ✓（5 小時與每週額度） | ✓（5 小時與每週時段） | ✓（這週的點數） | 只有方案 | ✓（用 API key：沒有方案，從不詢問 agy） | ✓（以次數計的 premium 請求） | ✓（訂閱額度） |
 | 允許指令，以及附註後拒絕 | ✓ | ✓（沒有附註） | ✓ | ✓（丟掉附註） | ✓（被拒絕就結束回合） | ✓（編輯模式下的 `npm publish`；被拒絕就結束回合） | ✓（丟掉附註） |
 | 完全存取：不詢問就執行並寫到任何地方 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 唯讀對話不寫入任何檔案 | ✓（沒有檔案工具） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（被自己的規則拒絕，沒有卡片） | ✓（詢問後被拒絕；結束回合） | ✓（被它的沙箱拒絕，沒有卡片） | ✓（沒有檔案工具） |
@@ -833,7 +833,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | ✓ | ✓ | —（只有離線測試） | —（不能） | —（只有離線測試） | —（還不能） | —（還不能） |
 | 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓（它的 Gemini API key；沒有時不提供登入，也不啟動 agy） | ✓ | ✓ |
 | 在設定與側邊欄顯示未安裝 | — | — | ✓（錯誤的執行檔路徑） | ✓ | ✓ | — | — |
 | 從設定頁的卡片安裝，再移除 | — | — | 提供官方腳本（不執行） | — | — | ✓（用假的 npm） | — |
 | 成員的模型與推理強度 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -924,7 +924,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **觸發的檢查頻率、行事曆來源、CI 執行，以及團隊自己寫的檔案。** [自動任務](#自動任務)用**立即檢查**來檢查，GitHub 只透過假的 `gh`（它的 pull request；從不連到真的 gh 與 GitHub）；每 2 分鐘一次、失敗後放慢、重新啟動後保留的狀態、團隊在資料夾裡寫的檔案（不會再啟動一次執行），以及兩個檔案樣式以外的多件要等的事（不同來源一起、各自的錯誤與放慢、同一次檢查送出兩則訊息、IMAP IDLE 只要求其中一件），在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`，即將開始的行程（對 CalDAV 行事曆替身，也包括會展開重複行程的，以及透過 OAuth 的）、失敗的 CI 執行（對 gh 的替身），以及還在寫的檔案在 `test/watch-sources.test.ts`，IMAP IDLE（在資料夾中等待的連線、重新開始與重新連線）在 `test/idle.test.ts`，沒有端對端測試。
 - **真實服務帳號與郵件伺服器 TLS。** 單元測試使用本機未加密的 IMAP、SMTP 與 CalDAV 替身。若 STARTTLS 回應後還跟著其他資料，會在啟動 TLS 前拒絕（`test/connectors.test.ts`）。找得到 Chromium 時，瀏覽器工具會使用真的 Chromium 測試（`test/browser.test.ts`）。端對端測試透過 Claude Code 的假 CLI 經由 stdio 呼叫 `mail_send`，Codex、Copilot 與 OpenCode 則經由本機 HTTP 呼叫。Claude Code 的假 CLI 也會透過郵件、行事曆、瀏覽器、Google Drive、GitHub、Obsidian、Notion 與 Heptabase 工具讀取資料。Google 文件與 Slack 案例則涵蓋確認後寫入。確認流程使用本機替身或暫存筆記庫，不需要真實的雲端帳號。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。
-- **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
+- **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋，沒有 live 測試問真正的 CLI。Harness Relay 只用 Gemini API key 執行的 Antigravity 沒有方案用量可以詢問。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
 - **捲到對話最後的平滑捲動。**[捲動對話](#捲動對話)檢查箭頭把對話帶到哪裡，以及減少動態效果時立刻到達，不檢查平滑捲動途中的樣子。在最後展開訊息的某個部分、底下又多了內容時出現的箭頭，只有 `test/chat.test.ts` 測到；手機上的對話是用程式捲動，不是用手指。
 - **使用導覽歡迎圖的樣子。**[使用導覽與主題](#使用導覽與主題)檢查它的各個部分、尺寸、動畫與最後的狀態；它在淺色與深色、兩種語言、桌面與手機上的樣子，以及逐格的動畫，則是用眼睛確認的。
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。團隊設計卡片上、組隊完成前不停旋轉的 logo 也一樣（[新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊)檢查它沒有任何元素同時有兩個 `transform` 動畫，那樣 Chrome 兩個都不會交給 compositor）：它不再每一格都重新計算樣式，是手動量測的（Chrome 的 `RecalcStyleCount`，兩圈旋轉放在同一個元素上時每秒約 60 次）。app 的載入標示（`LogoSpinner`）也一樣：[agent 回答前做了什麼](#agent-回答前做了什麼)檢查只有它軌道的旋轉在動；同時十個時，頁面重新計算樣式的次數和沒有時差不多、也不重新排版，是手動量測的（兩秒內的 `RecalcStyleCount` 與 `LayoutCount`）。
@@ -938,11 +938,11 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **端點模型的上下文長度在執行中的作用。** [設定](#設定) 測儲存時會讀取它、並以使用者填的優先；各轉接器據此寫入的內容（OpenCode 的 `limit` 與清理、Goose 的 `context_limit` 與環境變數、Pi 的 `contextWindow` 與壓縮、OpenHands 的 condenser、Codex 與 Claude Code 的設定）由轉接器自己的測試檢查，因為假 CLI 不會壓縮。測試伺服器預設的端點 `e2e` 是沒經過模型檢查就設定的，所以它的執行拿不到上下文長度。
 - **成員自己的上限在執行中的作用、首席 agent 依形狀回答，以及以 interrupt 停止 Claude Code。** 團隊編輯器的上限欄位由範本與團隊的測試檢查，但沒有假 CLI 會依上限或 JSON 形狀行動：各轉接器傳出的內容（`--max-budget-usd`、`--max-ai-credits`、`GOOSE_MAX_TURNS`、`steps`、`--json-schema`、`outputSchema`）與 Claude Code 在結束程序前的 interrupt 由單元測試涵蓋（`test/orchestrator-budgets.test.ts`、各轉接器的測試）。透過 Grok、Antigravity、Goose 與 Pi 的引導也由單元測試涵蓋（`test/steer.test.ts`）；只有 Claude Code 與 Codex 的假 CLI 會在回合中接收訊息。
 - **首席 agent 的草稿在固定回覆之外的部分**：假的首席 agent 對範本、團隊檢查、排程和群組建議都回固定的草稿，所以每個 prompt 告訴它什麼（要讀的專案、使用者時區的時間、帳號、分支家族），以及它可能寫錯的草稿（用不了的規則、沒設定的帳號、已過的時間、和現有群組同名），都在 `test/checksDraft.test.ts`、`test/scheduleDraft.test.ts`、`test/grouping.test.ts`、`test/planner.test.ts` 與 `test/orchestrator-drafts.test.ts` 裡；在分類群組的同一次執行裡替對話命名，以及使用者期間打的標題，也在那裡。
-- **還沒有 spec 走過的功能**：agent 從「設定 → 實驗室」呼叫 `run_code`，以及它 RLM 模式的子模型（沒有假 CLI 會呼叫它：`test/runCode.test.ts` 跑它真的 runner，並透過真的 gateway 發出呼叫，`test/llmQuery.test.ts` 測子模型的請求，`test/cliSubModel.test.ts` 測透過 CLI 的問題，`scripts/cli-check.ts` 的 `toolless` 情境測真的 CLI 沒有工具的執行，`scripts/sandbox-check.ts --only run-code` 在真的沙箱裡跑 runner）；同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；實體麥克風與下載的引擎一起執行語音轉寫（自動任務的瀏覽器測試使用合成音訊與固定的轉寫結果）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Claude Code 以外每個 CLI 的 subagent，以及 Codex、Grok、Copilot 與 Pi 對自己這次執行的附註（只有 Claude Code 的假 CLI 會送出：各轉接器的測試播放它的 CLI 的訊息，`test/codex.test.ts`、`test/grok.test.ts`（用替身等一個背景 subagent，以及它喚醒 Grok 的那一輪）、`test/cursor.test.ts`、`test/copilot.test.ts`、`test/pi.test.ts`）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：agent 從「設定 → 實驗室」呼叫 `run_code`，以及它 RLM 模式的子模型（沒有假 CLI 會呼叫它：`test/runCode.test.ts` 跑它真的 runner，並透過真的 gateway 發出呼叫，`test/llmQuery.test.ts` 測子模型的請求，`test/cliSubModel.test.ts` 測透過 CLI 的問題，`scripts/cli-check.ts` 的 `toolless` 情境測真的 CLI 沒有工具的執行，`scripts/sandbox-check.ts --only run-code` 在真的沙箱裡跑 runner）；同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；實體麥克風與下載的引擎一起執行語音轉寫（自動任務的瀏覽器測試使用合成音訊與固定的轉寫結果）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Claude Code 以外每個 CLI 的 subagent，以及 Codex、Grok、Copilot 與 Pi 對自己這次執行的附註（只有 Claude Code 的假 CLI 會送出：各轉接器的測試播放它的 CLI 的訊息，`test/codex.test.ts`、`test/grok.test.ts`（用替身等一個背景 subagent，以及它喚醒 Grok 的那一輪）、`test/cursor.test.ts`、`test/copilot.test.ts`、`test/pi.test.ts`）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
 
-[`live/`](live/) 裡是第二套測試，`npm run test:e2e:live`，設定是 [`playwright.live.config.ts`](../playwright.live.config.ts)：真正的 CLI，用你自己的登入，跑在真正的模型上，所以會花一點費用，也從不在 CI 上執行，不算在上面的數量裡。它預設試用全部十二個 CLI，環境沒有提供某個測試需要的東西時（一個端點，或各 CLI 自己的雲端模型所需的 `E2E_LIVE_CLOUD=1`），那個測試就會跳過：在 Mac 上，有一個端點時是三個檔案、48 個測試，再加上雲端模型時是 58 個（每個 `E2E_LIVE_MODEL_<CLI>` 再多一個；什麼都沒設定時列出 21 個，全部跳過）。它們涵蓋：每個 CLI 用在「團隊設定」中選的端點模型、在設定中把 CLI 的預設模型設為某個端點的模型、有登入的七個 CLI 自己的雲端模型（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code 的）、成員用的端點被刪除、替端點手動輸入的模型、原生 Windows 上權限低於完全存取的開源 agent、雲端與本機模型一起組成的團隊、每個 CLI 用它的 shell 在對話的兩個工作目錄中各寫一個檔案（用端點的模型，有登入的七個也用它們自己的模型）、Cursor 用自己的檔案工具寫入第二個工作目錄、Antigravity 在指令被拒絕時結束它的回合，以及啟動前先詢問專案自己的 MCP 伺服器、Copilot 同樣在指令被拒絕時結束回合，以及啟動前先詢問專案自己的 hook，還有每個 CLI 在完全存取以外都不會寫到對話的資料夾之外。執行方式見開發者說明的[實機測試](../docs/developer-guide.zh-TW.md#實機測試)。
+[`live/`](live/) 裡是第二套測試，`npm run test:e2e:live`，設定是 [`playwright.live.config.ts`](../playwright.live.config.ts)：真正的 CLI，用你自己的登入（Antigravity 只在設定了 `GEMINI_API_KEY` 時試用，這是它在 Harness Relay 唯一的登入方式），跑在真正的模型上，所以會花一點費用，也從不在 CI 上執行，不算在上面的數量裡。它預設試用全部十二個 CLI，環境沒有提供某個測試需要的東西時（一個端點，或各 CLI 自己的雲端模型所需的 `E2E_LIVE_CLOUD=1`），那個測試就會跳過：在 Mac 上，有一個端點時是三個檔案、48 個測試，再加上雲端模型並設定 `GEMINI_API_KEY` 時是 58 個（每個 `E2E_LIVE_MODEL_<CLI>` 再多一個；什麼都沒設定時列出 21 個，全部跳過）。它們涵蓋：每個 CLI 用在「團隊設定」中選的端點模型、在設定中把 CLI 的預設模型設為某個端點的模型、有登入的七個 CLI 自己的雲端模型（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code 的）、成員用的端點被刪除、替端點手動輸入的模型、原生 Windows 上權限低於完全存取的開源 agent、雲端與本機模型一起組成的團隊、每個 CLI 用它的 shell 在對話的兩個工作目錄中各寫一個檔案（用端點的模型，有登入的七個也用它們自己的模型）、Cursor 用自己的檔案工具寫入第二個工作目錄、Antigravity 在指令被拒絕時結束它的回合，以及啟動前先詢問專案自己的 MCP 伺服器、Copilot 同樣在指令被拒絕時結束回合，以及啟動前先詢問專案自己的 hook，還有每個 CLI 在完全存取以外都不會寫到對話的資料夾之外。執行方式見開發者說明的[實機測試](../docs/developer-guide.zh-TW.md#實機測試)。
 
 ## 相關文件
 

@@ -2882,7 +2882,7 @@ export const en: Messages = {
       cursor:
         "Once saved, Harness Relay passes CURSOR_API_KEY when it starts Cursor, and has Cursor use it for that run only: it is not saved into Cursor's sign-in (so it does not replace your own Cursor sign-in).",
       antigravity:
-        'Once saved, Harness Relay passes GEMINI_API_KEY when it starts Antigravity, and adds modelProvider: "gemini" to that run\'s own settings, so it runs on the Gemini API (billed by usage) instead of your Google sign-in; your own settings file is not changed.',
+        'Once saved, Harness Relay passes GEMINI_API_KEY when it starts Antigravity, and adds modelProvider: "gemini" to that run\'s own settings, so it runs on the Gemini API (billed by usage); your own settings file is not changed.',
       copilot:
         'Once saved, Harness Relay passes COPILOT_GITHUB_TOKEN when it starts Copilot (ahead of the GitHub sign-in it keeps). Use a fine-grained personal access token with the "Copilot Requests" permission; Copilot does not take classic tokens (ghp_).',
       muse: 'Once saved, Harness Relay passes META_API_KEY when it starts Muse Code, which then runs on that key (Meta API billing) instead of your Meta account sign-in.',
@@ -2929,7 +2929,7 @@ export const en: Messages = {
     keyOnlyAccount:
       "Cursor keeps one sign-in per computer user (on macOS in the keychain, wherever its folder is), so this extra account can only use an API key: set one below. Cursor's own sign-in belongs to the default account.",
     keyOnlyAntigravity:
-      "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so this extra account can only use a Gemini API key: set one below. The Google sign-in belongs to the default account.",
+      "Harness Relay runs Antigravity on a Gemini API key only, for every account: Google's terms do not allow a third-party app to run it on a Google sign-in (a Google AI plan). Set an API key below. A Google sign-in agy keeps stays as it is, and Harness Relay does not use it.",
     keyOnlyMuse:
       "On macOS Muse Code keeps its Meta sign-in in the login keychain under names its folders do not change, so another account's sign-in could replace the default one's: this extra account can only use a Meta API key. Set one below. The Meta account sign-in belongs to the default account.",
     keySaved: 'API key saved',

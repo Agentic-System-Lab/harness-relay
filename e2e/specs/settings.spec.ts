@@ -97,7 +97,8 @@ test.describe('assistant setup on a fresh installation', () => {
 test.describe('a CLI that is not signed in', () => {
   eachCli(SIGNED_IN, (cli) => {
     test.describe(() => {
-      test.use({ serverEnv: { E2E_FAKE_SIGNED_OUT: cli.provider } });
+      // One that runs on a key only has none: its fake stays signed in (a Google sign-in agy keeps), unused.
+      test.use({ serverEnv: cli.defaultKeyOnly ? { [cli.apiKeyEnv!]: '' } : { E2E_FAKE_SIGNED_OUT: cli.provider } });
 
       test(`${cli.provider}: shows as signed out in Settings and the sidebar, and its reply says why`, async ({ page, relay }) => {
         // Another CLI stays signed in.
@@ -117,12 +118,25 @@ test.describe('a CLI that is not signed in', () => {
         // Nothing of the CLI's own words after it (Codex's "Not logged in"). (Elsewhere on the card,
         // a CLI whose models it asks for may say why it could not list them.)
         if (cli.signedOutError) await expect(head).not.toContainText(cli.signedOutError);
-        await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+        if (cli.defaultKeyOnly) {
+          // No sign-in to offer: its API key box is open instead, saying why.
+          await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+          await expect(card.locator('.account-block').first()).toContainText(`Harness Relay runs ${cli.label} on a Gemini API key only`);
+          const keyBox = card
+            .locator('.account-block')
+            .first()
+            .locator('details.sub')
+            .filter({ has: page.locator('summary', { hasText: /^API key/ }) });
+          await expect(keyBox).toHaveAttribute('open', '');
+        } else await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
 
         await openTeamChat(page, relay, [member(cli)]);
         await send(page, 'Anyone there?');
         if (cli.signedOutError) await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(cli.signedOutError);
         else await expect(replies(page, cli.name).last().locator('.msg-error')).not.toBeEmpty();
+        // Without its key it was never started, nor asked anything but its version: not on the sign-in its fake keeps.
+        if (cli.defaultKeyOnly)
+          expect(relay.fakeLog().filter((e) => e.cli === cli.provider && e.args && e.args.join(' ') !== '--version')).toEqual([]);
       });
     });
   });
