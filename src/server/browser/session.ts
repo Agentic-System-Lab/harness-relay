@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isIP, isIPv6 } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -65,6 +65,18 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  * while it led to the internet that now leads to this computer or the local network).
  */
 export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved' | 'mixed';
+
+/**
+ * Removes a browser's throwaway profile once it exited: on Windows its helper processes may hold files a
+ * moment longer, so it is tried again for a few seconds rather than left behind.
+ */
+async function removeProfile(path: string): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    removeTree(path);
+    if (!existsSync(path)) return;
+    await new Promise((r) => setTimeout(r, 500).unref());
+  }
+}
 
 /**
  * Whether a host leads to this computer or the local network: a loopback name, one of this
@@ -1977,6 +1989,10 @@ export class BrowserService {
                   if (page) await this.leaveFor(s, page, e.url);
                   s.typed = page && typedAt(page, e.url);
                 }
+                // The very address refused a moment before, its error page perhaps still committing on a slow
+                // computer: that load stops first, or it would swallow this one (Chromium sends no request
+                // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
+                if (s.denied?.url === e.url) await s.send('Page.stopLoading').catch(() => undefined);
                 void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
               } catch {
                 ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
@@ -2173,7 +2189,7 @@ export class BrowserService {
         s.release();
         s.stop();
         await Promise.race([s.exited, new Promise((r) => setTimeout(r, 10_000).unref())]);
-        removeTree(profile);
+        await removeProfile(profile);
         o.onEnd?.();
       }
     })();
