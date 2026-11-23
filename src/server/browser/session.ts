@@ -2335,8 +2335,8 @@ export class BrowserService {
    * A browser for the user alone in its window: until the user closes the window (or Close on the card),
    * or the time runs out (`ms`). It keeps to one tab (a tab the user opens is closed, `adopt()`), and is
    * brought to the front. A page of the browser's own (its settings, flags, inspect) is not kept open: the
-   * tab goes back to the page before it, as Back does (`history()`: a page of the user's opens again as they
-   * opened it), or to the blank page. The card is told of a window the page opened (closed) and of a page
+   * tab opens again the last web page it showed, as the user opened it (as Back does, `history()`), or the
+   * blank page. The card is told of a window the page opened (closed) and of a page
    * refused, and its "Open it here" opens the first in the tab (`openAsked()`, the only input taken: the
    * user works in the window itself). What the user selects there is read as in the screencast (`selectionOf()`).
    */
@@ -2344,14 +2344,21 @@ export class BrowserService {
     const closed = (p: Record<string, unknown>) => {
       if (p.sessionId === s.sessionId) ticket.wake({ action: 'closed' });
     };
+    // The last web page its tab showed, as the user opened it (`top`, which the session's own handler,
+    // registered first, has just set): what a page of the browser's own goes back to, whatever Chromium's
+    // history kept of it (one Chromium keeps no entry before such a page).
+    let last: { url: string; top?: OwnerPage } | undefined;
     const own = (p: Record<string, unknown>, sid?: string) => {
       const f = p.frame as { parentId?: string; url?: string } | undefined;
-      if (sid !== s.sessionId || !f || f.parentId || !/^(chrome|chrome-untrusted|devtools):/i.test(f.url ?? '')) return;
-      void (async () => {
-        const h = await s.send<{ currentIndex: number }>('Page.getNavigationHistory').catch(() => undefined);
-        if (h && h.currentIndex > 0) await history(s, 'back');
-        else await s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
-      })();
+      if (sid !== s.sessionId || !f || f.parentId) return;
+      const url = f.url ?? '';
+      if (/^https?:/i.test(url)) return void (last = { url, ...(s.top ? { top: s.top } : {}) });
+      if (!/^(chrome|chrome-untrusted|devtools):/i.test(url)) return;
+      if (!last) return void s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
+      // Opened again as Back would (`history()`): a page of the user's here as they opened it.
+      s.typed = last.top?.nearby ? typedAt(last.top, last.url) : undefined;
+      s.restoring = last.top;
+      void s.send('Page.navigate', { url: last.url }).catch(() => undefined);
     };
     s.cdp.on('Target.detachedFromTarget', closed);
     s.cdp.on('Page.frameNavigated', own);
