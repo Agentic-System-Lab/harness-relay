@@ -1191,9 +1191,10 @@ export const en: Messages = {
       hideDiff: 'Hide the changes',
       showCode: 'Show the code it runs',
       hideCode: 'Hide the code',
-      codeHint: 'Saving pins the code it runs as it is now: look at it first (what is not committed yet, and its git settings and hooks).',
-      noCode: 'Nothing that is not committed already: it runs the code as it is in the repository.',
-      codeNotShown: (files: string) => `Not shown (they hold secrets): ${files}`,
+      codeHint:
+        'Saving pins the code it runs as it is now: look at it first (the scripts it runs, what the agents of this chat changed, its git settings and hooks).',
+      noCode: 'Nothing changed in its code since the agents of this chat began: it runs the code as it was then.',
+      codeNotShown: (files: string) => `Not shown here (gone, not text, outside the folder, or past the length shown): ${files}`,
       blocked: "An automation's run proposed it, which nobody watched: it cannot be saved from this card.",
       noDiff: 'No diff to show (git may ignore these files, or they are outside the repository or git’s own).',
       someNoDiff: (files) => `No diff to show for these (git may ignore them, or they are outside the repository or git’s own): ${files}`,

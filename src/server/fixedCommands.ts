@@ -162,12 +162,12 @@ async function hashFile(abs: string): Promise<string> {
 }
 
 /**
- * Whether a file with no ending sits beside a file of code of its name (`lib/helper` beside
- * `lib/helper.js`): what `require('./lib/helper')` loads first, so it is pinned with it.
+ * Whether a file with no ending sits beside a file of its name with one (`lib/helper` beside `lib/helper.js`,
+ * `config` beside `config.json`): what `require('./lib/helper')` loads first, as code, so it is pinned.
  */
 function shadows(name: string, names: readonly string[]): boolean {
   if (name.includes('.')) return false;
-  return names.some((n) => n.startsWith(`${name}.`) && PIN_PATTERN.regex.test(n));
+  return names.some((n) => n.startsWith(`${name}.`));
 }
 
 /** `p` as the system finds its deepest folder that is there, the rest as it is written. */
@@ -501,101 +501,162 @@ async function textNow(abs: string, max: number, within: readonly string[]): Pro
  * repository or ignored), what it is now. `values` are masked before it is cut to at most `max`
  * characters. `missing`: the changes it shows nothing of (gone, or not text).
  */
-/** Whether a pin's entry is a `.env` file, which holds secrets of the user's own. */
-const dotEnvEntry = (e: string) => /(?:^|\/)\.env[^/]*$/.test(e.replace(/^named:/, ''));
+/**
+ * Whether a pin's entry is a file of secrets of the user's own (`.env*`, `.envrc`, `.npmrc`, `.yarnrc*`,
+ * `.pypirc`, `.netrc`): shown by its names alone, never its values (`secretsShape()`).
+ */
+const SECRET_FILE = /^(?:\.env.*|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|\.netrc)$/i;
+const secretEntry = (e: string) => SECRET_FILE.test(basename(e.replace(/^named:/, '')));
 
+/** A file of secrets as a view shows it: each line's name, its value hidden (an agent's edit still shows). */
+function secretsShape(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !/^\s*[#;]/.test(l))
+    .map((l) => {
+      const m = /^(\s*[^=:\s]+(?:\s*[=:]|\s))/.exec(l);
+      return m ? `${m[1]}••••` : '••••';
+    })
+    .join('\n');
+}
+
+/**
+ * The view of a fixed command's code (`pinDiff()`, `codeView()`), cut to at most `max` characters a
+ * whole file at a time: those that do not fit are named in `missing`, never shown in part.
+ */
+function cutView(
+  pieces: readonly { entry: string; text: string }[],
+  values: readonly string[],
+  max: number,
+): { diff: string; missing: string[] } {
+  const kept: string[] = [];
+  const missing: string[] = [];
+  let size = 0;
+  for (const p of pieces) {
+    const text = maskValues(p.text, values);
+    if (size + text.length > max && kept.length) {
+      missing.push(p.entry);
+      continue;
+    }
+    kept.push(text.length > max ? `${text.slice(0, max)}\n…` : text);
+    size += Math.min(text.length, max);
+  }
+  return { diff: kept.join('\n'), missing };
+}
+
+/**
+ * What changed in a command's code since its pin (or, for `codeView()`, since a base), to show before the
+ * user approves it: git's diff of the changed files from the pin's snapshot to one taken now (as text,
+ * a file git calls binary too), for those in the repository that git does not ignore; then, for each change
+ * git has no diff of (a git setting, a hook, a file outside the repository or ignored), what it is now; a
+ * file of secrets by its names alone. `first`: entries shown before the others (the scripts the command
+ * line names). `values` are masked, and the view is cut a whole file at a time (`cutView()`). `missing`:
+ * the changes it shows nothing of (gone, not readable as text here, outside the folder, or cut).
+ */
 export async function pinDiff(
   folder: string,
   pin: CommandPin,
   changed: readonly string[],
   values: readonly string[] = [],
   max = 60_000,
+  first: readonly string[] = [],
 ): Promise<{ diff: string; missing: string[] }> {
   if (!changed.length) return { diff: '', missing: [] };
-  // A `.env` file holds secrets of the user's own: named, never shown (`missing`).
-  const secretFiles = changed.filter(dotEnvEntry);
-  changed = changed.filter((e) => !dotEnvEntry(e));
+  const order = [...new Set([...first.filter((e) => changed.includes(e)), ...changed])];
   const prefix = pin.root && folder !== pin.root ? `${relative(pin.root, folder).split(sep).join('/')}/` : '';
-  // Repository paths of the changed files in the folder (a git setting, a hook or a file outside has none).
+  // Repository paths of the changed files in the folder (a git setting, a hook, a file outside or of secrets has none).
   const repoPath = (entry: string) => {
-    if (entry.startsWith('git config ') || entry.startsWith('git hook ')) return undefined;
+    if (entry.startsWith('git config ') || entry.startsWith('git hook ') || secretEntry(entry)) return undefined;
     const p = entry.replace(/^named:/, '');
     return isAbsolute(p) ? undefined : `${prefix}${p}`;
   };
-  let full = '';
+  const sections = new Map<string, string>();
   if (pin.root && pin.commit) {
-    const paths = changed.map(repoPath).filter((p): p is string => Boolean(p));
+    const paths = order.map(repoPath).filter((p): p is string => Boolean(p));
     const { commit } = await snapshot(pin.root);
-    full = await diffPaths(pin.root, pin.commit, commit, paths);
+    const full = await diffPaths(pin.root, pin.commit, commit, paths);
+    for (const part of full.split(/(?=^diff --git )/m)) {
+      const path = sectionPath(part.slice(0, part.indexOf('\n')));
+      if (path) sections.set(path, part);
+    }
   }
-  const shown = new Set(
-    full
-      .split(/(?=^diff --git )/m)
-      .map((part) => sectionPath(part.slice(0, part.indexOf('\n'))))
-      .filter(Boolean),
-  );
-  const rest = changed.filter((e) => !repoPath(e) || !shown.has(repoPath(e)!));
-  const git = rest.some((e) => e.startsWith('git ')) ? await repoGitState(folder).catch(() => undefined) : undefined;
+  const git = order.some((e) => e.startsWith('git ')) ? await repoGitState(folder).catch(() => undefined) : undefined;
+  const within = [await realpath(folder).catch(() => folder), ...(pin.root ? [pin.root] : [])];
+  const pieces: { entry: string; text: string }[] = [];
   const missing: string[] = [];
-  const extra: string[] = [];
-  for (const entry of rest) {
+  for (const entry of order) {
+    const path = repoPath(entry);
+    if (path && sections.has(path)) {
+      pieces.push({ entry, text: sections.get(path)! });
+      continue;
+    }
     if (entry.startsWith('git config ')) {
       const key = entry.slice('git config '.length);
       const now = git?.settings.get(key);
-      extra.push(
-        `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key.split('.').pop()!) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
-      );
+      pieces.push({
+        entry,
+        text: `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key.split('.').pop()!) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
+      });
       continue;
     }
     const abs = entry.startsWith('git hook ')
       ? git && join(git.hooksDir, entry.slice('git hook '.length))
       : resolve(folder, entry.replace(/^named:/, ''));
-    const text = abs
-      ? await textNow(abs, 20_000, [await realpath(folder).catch(() => folder), ...(pin.root ? [pin.root] : [])])
-      : undefined;
-    if (text === undefined) missing.push(entry);
-    else extra.push(`### ${entry} (as it is now)\n${text}${text.endsWith('\n') ? '' : '\n'}`);
+    const now = abs ? await textNow(abs, 20_000, within) : undefined;
+    if (now === undefined) {
+      missing.push(entry);
+      continue;
+    }
+    // A file of secrets (by its name, or by what a link of it leads to): its names, never its values.
+    const to = abs ? await realpath(abs).catch(() => abs) : '';
+    const secret = secretEntry(entry) || SECRET_FILE.test(basename(to));
+    const text = secret ? secretsShape(now) : now;
+    pieces.push({
+      entry,
+      text: `### ${entry} (${secret ? 'its names; values not shown' : 'as it is now'})\n${text}${text.endsWith('\n') ? '' : '\n'}`,
+    });
   }
-  const text = maskValues([full, ...extra].filter(Boolean).join('\n'), values);
-  return { diff: text.length > max ? `${text.slice(0, max)}\n…` : text, missing: [...missing, ...secretFiles] };
+  const view = cutView(pieces, values, max);
+  return { diff: view.diff, missing: [...missing, ...view.missing] };
 }
 
 /**
  * What a proposed fixed command would run, for the user to see before its first Save pins it (`manifest`,
- * its pin's): of the files it pins, those git has not committed as they are (new, or changed since the
- * last commit) as git's diff from that commit, and those git ignores as they are now; its git settings,
- * hooks and the files its command line names outside the repository, as they are now (`pinDiff()`, which
- * names `.env` files, holding secrets, without showing them). Values masked before it is cut.
+ * its pin's): the scripts its command line names, in full; of the other files it pins, those that changed
+ * since `base` (the state before the conversation's agents first changed files there, `commandCode()`;
+ * else the last commit), commits an agent made included, as git's diff, and those git ignores as they are
+ * now; its git settings, hooks and the files its command line names outside the repository, as they are
+ * now; files of secrets by their names alone (`pinDiff()`). Values masked; cut a whole file at a time.
  */
 export async function codeView(
   folder: string,
   manifest: Record<string, PinEntry>,
   values: readonly string[] = [],
-  max = 60_000,
+  o: { base?: string; named?: readonly string[]; max?: number } = {},
 ): Promise<{ diff: string; missing: string[] }> {
+  const max = o.max ?? 60_000;
   const entries = Object.keys(manifest);
+  // The scripts the command line names, as the pin keys them: shown in full, first, whatever git says.
+  const named = new Set(
+    (o.named ?? []).map((abs) => {
+      const rel = inside(abs, folder) ? relative(folder, abs).split(sep).join('/') : undefined;
+      return rel !== undefined && rel in manifest ? rel : `named:${rel ?? abs}`;
+    }),
+  );
   const outside = (e: string) =>
     e.startsWith('git ') || e.includes(': git ') || e.endsWith('/.git') || (e.startsWith('named:') && isAbsolute(e.slice(6)));
   const root = await repoRoot(folder).catch(() => null);
-  const shown: string[] = [];
-  if (!root) {
-    // No repository: every file as it is now.
-    for (const e of entries) shown.push(e);
-    return pinDiff(folder, { manifest: {} }, shown, values, max);
-  }
-  const base = await committedBase(root);
+  if (!root) return pinDiff(folder, { manifest: {} }, entries, values, max, [...named]);
+  const base = o.base ?? (await committedBase(root));
   const { commit } = await snapshot(root);
   const prefix = folder === root ? '' : `${relative(root, folder).split(sep).join('/')}/`;
   const repoPath = (e: string) => `${prefix}${e.replace(/^named:/, '')}`;
   const inRepo = entries.filter((e) => !outside(e));
   const changed = new Set(await changedPaths(root, base, commit, inRepo.map(repoPath)));
   const tracked = await treePaths(root, commit);
-  for (const e of entries) {
-    if (outside(e)) shown.push(e);
-    else if (!tracked.has(repoPath(e))) shown.push(e);
-    else if (changed.has(repoPath(e))) shown.push(e);
-  }
-  return pinDiff(folder, { manifest: {}, root, commit: base }, shown, values, max);
+  const shown = entries.filter((e) => named.has(e) || outside(e) || !tracked.has(repoPath(e)) || changed.has(repoPath(e)));
+  // A named script with no change has no diff: shown as it is now (`pinDiff()`'s pieces of the rest).
+  return pinDiff(folder, { manifest: {}, root, commit: base }, shown, values, max, [...named]);
 }
 
 /** What `runFixedCommand` needs (swapped in tests). */

@@ -484,6 +484,8 @@ export async function diffPaths(root: string, base: string, head: string, paths:
       'diff',
       '--no-color',
       '--no-renames',
+      // As text, a file git calls binary too (a NUL in a comment, `-diff` in .gitattributes): a script still shows.
+      '--text',
       '--src-prefix',
       'a/',
       '--dst-prefix',

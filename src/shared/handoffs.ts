@@ -330,7 +330,7 @@ export function withoutHandoffBlocks(text: string, o: { partial?: boolean } = {}
   }
   if (!ANY.test(text)) return text;
   const done = splitHandoffs(text).text;
-  const open = /(?:^|\n)[ \t]{0,3}<(?:secret|command-run|command|interactive)(?=[\s/>])/gi;
+  const open = /(?:^|\n)[ \t]{0,3}<(?:secret|command-run|command|interactive)(?=[\s/>]|$)/gi;
   let m: RegExpExecArray | null;
   let cut = -1;
   while ((m = open.exec(done))) {

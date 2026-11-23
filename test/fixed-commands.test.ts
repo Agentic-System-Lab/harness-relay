@@ -19,6 +19,7 @@ import {
   readSecretsFile,
   runFixedCommand,
   secretsFile,
+  codeView,
   commandFiles,
   manifestDigest,
   pinManifest,
@@ -274,6 +275,14 @@ describe('what a fixed command run leaves behind', () => {
     expect(existsSync(file)).toBe(false);
   });
 
+  it('masks the hosts the sandbox refused, in its reason', async () => {
+    const dir = folder();
+    const s = stand(() => ({ code: 1 }), { refused: ['tok-0123456789.example.com'] });
+    const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }), s.deps);
+    expect(run.reason).toBeDefined();
+    expect(run.reason).not.toContain('tok-0123456789');
+  });
+
   it('masks a value the output limit cut in two', async () => {
     const dir = folder();
     const token = 'tok-0123456789abcdefghijklmnopq';
@@ -501,6 +510,38 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     const keys = Object.keys(await pinManifest(dir));
     expect(keys).toEqual(expect.arrayContaining(['lib/helper', 'lib/helper.js', 'GNUmakefile', 'main.go']));
     expect(keys).not.toContain('LICENSE');
+  });
+
+  it('shows in the code view what changed since a base, committed or not, a script git calls binary, and names what its length cut', async () => {
+    const dir = folder();
+    await ensureRepo(dir);
+    writeFileSync(join(dir, 'post.py'), 'print("before")\n');
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
+    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // An agent's change, committed: compared with the base, it shows.
+    writeFileSync(join(dir, 'post.py'), 'print("agent")\x00\n');
+    writeFileSync(join(dir, '.gitattributes'), 'post.py -diff\n');
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'agent');
+    const manifest = await pinManifest(dir);
+    const view = await codeView(dir, manifest, [], { base });
+    expect(view.diff).toContain('+print("agent")');
+    expect(view.diff).not.toContain('Binary files');
+    // Against HEAD alone, it would not.
+    expect((await codeView(dir, manifest)).diff).not.toContain('print("agent")');
+    // Cut a whole file at a time: the scripts it runs first, what does not fit named.
+    writeFileSync(join(dir, 'a-vendor.js'), `// ${'x'.repeat(5000)}\n`);
+    const cut = await codeView(dir, await pinManifest(dir), [], { base, named: [join(dir, 'post.py')], max: 2000 });
+    expect(cut.diff).toContain('print("agent")');
+    expect(cut.missing).toContain('a-vendor.js');
+  });
+
+  it('pins a file with no ending beside a file of its name, code or not', async () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'config.json'), '{}\n');
+    writeFileSync(join(dir, 'config'), 'module.exports = "planted"\n');
+    expect(Object.keys(await pinManifest(dir))).toContain('config');
   });
 
   it('pins the script after an interpreter and its options', () => {

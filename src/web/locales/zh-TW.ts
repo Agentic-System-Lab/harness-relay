@@ -1210,9 +1210,10 @@ export const zhTW = {
       hideDiff: '收起變更',
       showCode: '查看它要執行的程式碼',
       hideCode: '收起程式碼',
-      codeHint: '儲存會把它要執行的程式碼照現在的樣子鎖定：請先看過（還沒提交的部分，以及它的 git 設定和 hooks）。',
-      noCode: '沒有還沒提交的部分：它執行的是儲存庫裡的程式碼。',
-      codeNotShown: (files: string) => `沒有顯示（裡面有密鑰）：${files}`,
+      codeHint:
+        '儲存會把它要執行的程式碼照現在的樣子鎖定：請先看過（它執行的腳本、這個對話的 agent 改過的部分，以及它的 git 設定和 hooks）。',
+      noCode: '從這個對話的 agent 開始工作以來，它的程式碼沒有改過：它執行的是那時的程式碼。',
+      codeNotShown: (files: string) => `這裡沒有顯示（已刪除、不是文字、在資料夾外，或超過顯示的長度）：${files}`,
       blocked: '這是自動任務的執行提議的，沒有人看著那次執行：不能從這張卡片儲存。',
       noDiff: '沒有可顯示的差異（這些檔案可能被 git 忽略、在儲存庫外面，或是 git 自己的設定）。',
       someNoDiff: (files: string) => `這些檔案沒有差異可顯示（可能被 git 忽略、在儲存庫外面，或是 git 自己的設定）：${files}`,

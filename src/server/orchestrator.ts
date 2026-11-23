@@ -1111,6 +1111,8 @@ export class Orchestrator {
   private checkAvailable(convId: string, busyMessage: string): void {
     if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
+    // No team replies then, nor is there a Stop: say what holds it.
+    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, t().handoffs.folderHeld);
     if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
   }
 
@@ -1545,7 +1547,6 @@ export class Orchestrator {
     if (!part.asks.some((a) => a.status === 'waiting')) await this.secretsDecided(conv, part);
   }
 
-  /** The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as it is now. */
   /**
    * The code a proposed fixed command would run (`codeView()`), for the user to see before its first Save,
    * which sends back its digest: Save pins that code, and no other. Refused while a run writes in its
@@ -1557,18 +1558,42 @@ export class Orchestrator {
     partId: string,
     edits: Partial<CommandProposal> = {},
   ): Promise<{ diff: string; missing: string[]; digest: string }> {
-    const { part } = this.handoffCard(convId, messageId, partId, 'command');
+    const { conv, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
     if (part.blocked) throw new HttpError(409, t().handoffs.commandBlocked);
     const proposal = checkProposal({ ...part.proposal, ...edits });
     if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
     if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
     const named = commandFiles(proposal, part.folder);
+    // Compared with the folder as it was before this conversation's agents first changed files there
+    // (a turn's kept snapshot), so that what they wrote shows, committed or not.
+    const root = (await repoRoot(part.folder).catch(() => null)) ?? undefined;
+    const base = root ? this.firstBase(conv, root) : undefined;
     const manifest = await this.steadyManifest(part.folder, named, async (now) => {
       const values = Object.values(this.settings.handoffs.values(part.folder));
-      return codeView(part.folder, now, values);
+      return codeView(part.folder, now, values, { named, ...(base ? { base } : {}) });
     });
     return { ...manifest.view, digest: manifestDigest(manifest.now) };
+  }
+
+  /** Starts what waits in the queue once a schedule's own command run let go of the folder, if nothing else started. */
+  private queueAfterHold(convId: string): void {
+    const conv = this.store.get(convId);
+    if (conv && !this.closing && !this.deleting.has(convId) && !this.isBusy(convId)) this.startQueued(conv);
+  }
+
+  /** Forgets what a schedule held of a removed fixed command's finding (its id may come back with its name). */
+  forgetCommand(commandId: string): void {
+    for (const [convId, held] of this.heldCommandEvents) if (held.command === commandId) this.heldCommandEvents.delete(convId);
+  }
+
+  /**
+   * The snapshot of `root` taken before this conversation's first turn that changed files there (in the
+   * working tree, not an agent's worktree), or undefined when none did.
+   */
+  private firstBase(conv: Conversation, root: string): string | undefined {
+    for (const m of conv.messages) for (const c of m.changes ?? []) if (c.root === root && !c.isolated) return c.base;
+    return undefined;
   }
 
   /**
@@ -1595,6 +1620,10 @@ export class Orchestrator {
     return { now, view };
   }
 
+  /**
+   * The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as
+   * it is now, which must be the code `commandCode()` showed them (`digest`).
+   */
   async saveCommand(
     convId: string,
     messageId: string,
@@ -1905,6 +1934,8 @@ export class Orchestrator {
       // or a package's program there): listed again, and Start refused until the user has seen it.
       const now = workdirConfigFiles(part.folder);
       const digest = workdirDigest(part.folder, now);
+      // More there than it can tell apart (a limit stopped it): never started there.
+      if (digest.startsWith('partial:')) throw new HttpError(409, t().handoffs.interactiveTooMuch);
       if (now.some((f) => !(o.seen ?? []).includes(f)) || (part.configDigest !== undefined && digest !== part.configDigest)) {
         part.configFiles = now;
         part.configDigest = digest;
@@ -1919,33 +1950,39 @@ export class Orchestrator {
     }
     const masks = Object.values(this.settings.handoffs.values(part.folder));
     const release = workdir ? this.holdFolder(conv, workdir) : undefined;
-    const run: InteractiveRun = new InteractiveRun(
-      {
-        run: part.run,
-        ...(workdir ? { workdir } : {}),
-        masks,
-        onChange: (urgent) => this.interactiveChanged(key, urgent),
-        onEnd: () => {
-          // Values saved for the folder meanwhile are masked in what is kept, too.
-          try {
-            run.addMasks(Object.values(this.settings.handoffs.values(part.folder)));
-          } catch {
-            /* the credential store cannot be read now: the values it had at the start stay masked */
-          }
-          this.interactiveChanged(key, true);
-          this.interactive.delete(key);
-          release?.();
+    try {
+      const run: InteractiveRun = new InteractiveRun(
+        {
+          run: part.run,
+          ...(workdir ? { workdir } : {}),
+          masks,
+          onChange: (urgent) => this.interactiveChanged(key, urgent),
+          onEnd: () => {
+            // Values saved for the folder meanwhile are masked in what is kept, too.
+            try {
+              run.addMasks(Object.values(this.settings.handoffs.values(part.folder)));
+            } catch {
+              /* the credential store cannot be read now: the values it had at the start stay masked */
+            }
+            this.interactiveChanged(key, true);
+            this.interactive.delete(key);
+            release?.();
+          },
         },
-      },
-      { windows: t().handoffs.interactiveWindows, notStarted: (why) => t().handoffs.interactiveNotStarted(why) },
-      this.interactiveDeps,
-    );
-    this.interactive.set(key, { convId, messageId, partId: part.id, run });
-    part.status = 'started';
-    part.session = run.view();
-    this.saveCard(conv, msg);
-    run.start();
-    return run.view();
+        { windows: t().handoffs.interactiveWindows, notStarted: (why) => t().handoffs.interactiveNotStarted(why) },
+        this.interactiveDeps,
+      );
+      this.interactive.set(key, { convId, messageId, partId: part.id, run });
+      part.status = 'started';
+      part.session = run.view();
+      this.saveCard(conv, msg);
+      run.start();
+      return run.view();
+    } catch (err) {
+      // Its run never started (onEnd will not come): the folder is let go.
+      if (!this.interactive.has(key)) release?.();
+      throw err;
+    }
   }
 
   /** An interactive command's card changed: its output (sent a moment later, with what follows), or its state at once. */
@@ -2637,7 +2674,11 @@ export class Orchestrator {
         const blocked = s.newChat ? undefined : this.scheduleBlocked(conv);
         if (blocked) return blocked;
         const ran = await this.runScheduledCommand(conv, s.command);
-        if ('result' in ran) return ran;
+        if ('result' in ran) {
+          // No message of the schedule follows: what waited in the queue while it ran goes now.
+          this.queueAfterHold(convId);
+          return ran;
+        }
         found = { event: ran.event, eventSource: 'command' };
       }
       this.heldCommandEvents.delete(convId);
@@ -2648,6 +2689,8 @@ export class Orchestrator {
     if (found && s.command && (sent.result === 'busy' || sent.result === 'skipped')) {
       this.heldCommandEvents.set(convId, { ...found, command: s.command });
     }
+    // Its command ran here, and its message went elsewhere (a new chat) or not at all: the queue goes now.
+    if (s.command && (s.newChat || sent.result !== 'sent')) this.queueAfterHold(convId);
     return sent;
   }
 
@@ -3757,6 +3800,8 @@ export class Orchestrator {
     // A run that has ended let go of its lock already: taking one now would keep it until a restart.
     if (this.runs.get(conv.id) !== run) return undefined;
     if (run.ws.isolated || run.lockRoots) return undefined;
+    // A fixed or interactive command of this conversation holds the folder: no action writes there meanwhile.
+    if (this.folderHolds.has(conv.id)) return t().handoffs.folderHeld;
     const dirs: string[] = [];
     for (const cwd of cwdsOf(conv.settings)) {
       try {

@@ -14,6 +14,8 @@ import {
   readFileSync,
   readlinkSync,
   readSync,
+  realpathSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
@@ -141,26 +143,46 @@ export function workdirConfigFiles(dir: string): string[] {
   return [...new Set(found)].sort().slice(0, CONFIG_FILES_MAX);
 }
 
-/** Most bytes `workdirDigest()` reads of one listed file, and of all of them. */
-const DIGEST_LIMITS = { file: 1024 * 1024, total: 32 * 1024 * 1024, entries: 2000 };
+/** What `workdirDigest()` reads at most: of one file, of all of them, and names (the programs a folder installs apart). */
+const DIGEST_LIMITS = { file: 4 * 1024 * 1024, total: 64 * 1024 * 1024, entries: 5000, programs: 5000 };
 
 /**
- * What the files `workdirConfigFiles()` listed hold now, in a few characters: each file's content, and for
- * a folder (`node_modules`, `.venv`, `venv`, `.cargo`…) its names, and those of the programs it installs
- * (`.bin`, `bin`, `Scripts`) with what each leads to. Start in the working directory is refused when this
- * changed since the card listed them, not only when another file appeared. Never follows a link out.
+ * What the files `workdirConfigFiles()` listed hold now, in a few characters: each file's size and content,
+ * and for a folder (`node_modules`, `.venv`, `venv`, `.cargo`…) the programs it installs (`.bin`, `bin`,
+ * `Scripts`: each with what it leads to and, inside the folder, that file's content), then its names; a
+ * link inside the working directory followed. Start in the working directory is refused when this changed
+ * since the card listed them; `partial` when a limit stopped it, which refuses Start too (too much to tell).
  */
 export function workdirDigest(dir: string, files: readonly string[]): string {
   const hash = createHash('sha256');
   let total = 0;
   let entries = 0;
+  let programs = 0;
+  let partial = false;
+  const real = (() => {
+    try {
+      return realpathSync(dir);
+    } catch {
+      return dir;
+    }
+  })();
+  const insideDir = (p: string) => {
+    const rel = relative(real, p);
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  };
   const file = (abs: string) => {
     let fd: number | undefined;
     try {
       fd = openSync(abs, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
-      if (!fstatSync(fd).isFile()) return hash.update('\0not a file');
-      const buf = Buffer.alloc(Math.min(DIGEST_LIMITS.file, Math.max(0, DIGEST_LIMITS.total - total)));
-      const n = buf.length ? readSync(fd, buf, 0, buf.length, 0) : 0;
+      const st = fstatSync(fd);
+      if (!st.isFile()) return void hash.update('\0not a file');
+      hash.update(`\0size ${st.size}`);
+      if (st.size > DIGEST_LIMITS.file || total + st.size > DIGEST_LIMITS.total) {
+        partial = true;
+        return;
+      }
+      const buf = Buffer.alloc(st.size);
+      const n = st.size ? readSync(fd, buf, 0, buf.length, 0) : 0;
       total += n;
       hash.update(buf.subarray(0, n));
     } catch {
@@ -169,7 +191,18 @@ export function workdirDigest(dir: string, files: readonly string[]): string {
       if (fd !== undefined) closeSync(fd);
     }
   };
-  const folder = (abs: string, depth: number) => {
+  /** A link: what it leads to, and that file's content when it is inside the working directory. */
+  const link = (at: string) => {
+    hash.update(`->${readlinkSync(at)}`);
+    let to: string | undefined;
+    try {
+      to = realpathSync(at);
+    } catch {
+      return void hash.update('\0dangling');
+    }
+    if (insideDir(to) && statSync(to).isFile()) file(to);
+  };
+  const folder = (abs: string, budget: 'entries' | 'programs', withFiles: boolean) => {
     let names: string[];
     try {
       names = readdirSync(abs).sort();
@@ -177,14 +210,16 @@ export function workdirDigest(dir: string, files: readonly string[]): string {
       return void hash.update('\0unreadable');
     }
     for (const name of names) {
-      if (++entries > DIGEST_LIMITS.entries) return void hash.update('\0more');
+      if (budget === 'entries' ? ++entries > DIGEST_LIMITS.entries : ++programs > DIGEST_LIMITS.programs) {
+        partial = true;
+        return;
+      }
       const at = join(abs, name);
       hash.update(`\0${name}`);
       try {
         const st = lstatSync(at);
-        if (st.isSymbolicLink()) hash.update(`->${readlinkSync(at)}`);
-        else if (st.isDirectory() && depth > 0) folder(at, depth - 1);
-        else if (st.isFile() && depth === 0) file(at);
+        if (st.isSymbolicLink()) link(at);
+        else if (withFiles && st.isFile()) file(at);
       } catch {
         hash.update('\0gone');
       }
@@ -201,15 +236,16 @@ export function workdirDigest(dir: string, files: readonly string[]): string {
       hash.update('\0gone');
       continue;
     }
-    if (st.isSymbolicLink()) hash.update(`->${readlinkSync(abs)}`);
+    if (st.isSymbolicLink()) link(abs);
     else if (st.isFile()) file(abs);
     else if (st.isDirectory()) {
-      folder(abs, 0);
-      // The programs it installs, which a command run there may start (npx, make, a venv's python…).
-      for (const bin of ['.bin', 'bin', 'Scripts']) if (existsSync(join(abs, bin))) folder(join(abs, bin), 0);
+      // The programs it installs first, each read, with their own budget: what a command run there starts.
+      for (const bin of ['.bin', 'bin', 'Scripts']) if (existsSync(join(abs, bin))) folder(join(abs, bin), 'programs', true);
+      folder(abs, 'entries', false);
     }
   }
-  return hash.digest('hex').slice(0, 32);
+  const digest = hash.digest('hex').slice(0, 32);
+  return partial ? `partial:${digest}` : digest;
 }
 
 /** Where its password helper is, for its environment. */

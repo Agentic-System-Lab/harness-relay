@@ -2798,6 +2798,7 @@ export function createApp({
     const id = c.req.param('commandId');
     const { pin } = settings.handoffs.deleteCommand(id);
     await dropPin(id, pin);
+    orchestrator.forgetCommand(id);
     // The schedules that ran it first run none now (their message alone), rather than failing at each time.
     for (const convId of store.schedulesWithCommand(id)) {
       const conv = store.get(convId);

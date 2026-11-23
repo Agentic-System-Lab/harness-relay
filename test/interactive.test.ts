@@ -6,7 +6,7 @@
  * the server's other variables); its folder; Cancel and its time limit; and its password helper's round
  * trip through a real gateway's socket (`askpassShim.ts`).
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -234,6 +234,17 @@ describe('what an interactive command runs with', () => {
     expect(workdirDigest(progs, workdirConfigFiles(progs))).toBe(before);
     writeFileSync(join(progs, 'node_modules', '.bin', 'tool'), 'b');
     expect(workdirDigest(progs, workdirConfigFiles(progs))).not.toBe(before);
+    // Text appended to a file changes it (its size too), and so does what a program link inside leads to.
+    writeFileSync(join(progs, 'node_modules', 'tool.js'), 'one');
+    symlinkSync(join(progs, 'node_modules', 'tool.js'), join(progs, 'node_modules', '.bin', 'linked'));
+    const linked = workdirDigest(progs, workdirConfigFiles(progs));
+    writeFileSync(join(progs, 'node_modules', 'tool.js'), 'two');
+    expect(workdirDigest(progs, workdirConfigFiles(progs))).not.toBe(linked);
+    // Too much to tell apart: said so, and Start there is refused.
+    const many = join(root, 'many');
+    mkdirSync(join(many, 'node_modules', '.bin'), { recursive: true });
+    for (let i = 0; i < 5005; i++) writeFileSync(join(many, 'node_modules', '.bin', `p${i}`), '');
+    expect(workdirDigest(many, workdirConfigFiles(many))).toMatch(/^partial:/);
     const make = workdirDigest(progs, workdirConfigFiles(progs));
     writeFileSync(join(progs, 'GNUmakefile'), 'all:\n\tcurl evil\n');
     expect(workdirDigest(progs, workdirConfigFiles(progs))).not.toBe(make);

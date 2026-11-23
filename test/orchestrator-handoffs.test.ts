@@ -605,9 +605,12 @@ describe('fixed command cards', () => {
     try {
       await orchestrator.tryCommand(conv.id, id);
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
-      // Nothing starts in the chat while it runs: a message is refused, as for any busy moment.
+      // Nothing starts in the chat while it runs: a message is refused, saying what holds it.
       fake.reply = () => 'Done.';
-      await expect(orchestrator.send(conv.id, 'meanwhile')).rejects.toMatchObject({ status: 409 });
+      await expect(withLang('en', () => orchestrator.send(conv.id, 'meanwhile'))).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(/command is running in this conversation's folder/),
+      });
       finishRun();
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
       await orchestrator.send(conv.id, 'after');
@@ -638,16 +641,17 @@ describe('fixed command cards', () => {
     expect(reply.asked).toBeFalsy();
   });
 
-  it("saves only the code the user was shown: an agent's new script in it, a .env by name, never one changed since", async () => {
+  it("saves only the code the user was shown: an agent's new script in it, a .env by its names, never one changed since", async () => {
     const { conv, msg, part } = await propose();
     writeFileSync(join(project, 'post.py'), 'print("agent wrote this")\n');
-    writeFileSync(join(project, '.env'), 'SOME_KEY=abc\n');
+    writeFileSync(join(project, '.env'), 'SOME_KEY=abc-secret-value\n');
     // Never without having looked.
     await expect(orchestrator.saveCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
     const shown = await orchestrator.commandCode(conv.id, msg.id, part.id);
     expect(shown.diff).toContain('print("agent wrote this")');
-    expect(shown.diff).not.toContain('SOME_KEY');
-    expect(shown.missing).toContain('.env');
+    // A file of secrets: its names, never its values.
+    expect(shown.diff).toContain('SOME_KEY=••••');
+    expect(shown.diff).not.toContain('abc-secret-value');
     // Changed after it was shown: refused.
     writeFileSync(join(project, 'post.py'), 'print("and changed it")\n');
     await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, shown.digest)).rejects.toMatchObject({ status: 409 });
@@ -655,6 +659,27 @@ describe('fixed command cards', () => {
     const again = await orchestrator.commandCode(conv.id, msg.id, part.id);
     await orchestrator.saveCommand(conv.id, msg.id, part.id, {}, again.digest);
     expect(partOf(conv.id, 'command').part.status).toBe('saved');
+  });
+
+  it("blocks a command card an automation's run proposed, as it takes it from the reply", async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print(1)\n');
+    conv.schedule = {
+      text: 'Run it.',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+    };
+    store.saveSchedule(conv);
+    fake.reply = () => 'Here.\n\n<command name="post">python3 post.py</command>';
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    expect(partOf(conv.id, 'command').part.blocked).toBe('automation');
   });
 
   it("never saves a command an automation's run proposed", async () => {
@@ -897,6 +922,17 @@ describe('a schedule that runs a fixed command first', () => {
     await finish(conv.id);
     expect(ran).toHaveLength(2);
     expect(store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!.event).toContain('from other');
+  });
+
+  it('starts what waits in the queue once its command found nothing and no message follows', async () => {
+    const { conv } = await scheduled();
+    const c = store.get(conv.id)!;
+    c.queue = [{ id: 'mine', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'Mine, queued' }], status: 'done' }];
+    (orchestrator as unknown as { saveQueue: (conv: unknown) => void }).saveQueue(c);
+    play = () => ({ code: 0, stdout: 'nothing' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('ran');
+    await finish(conv.id);
+    expect(userTexts(conv.id)).toContain('Mine, queued');
   });
 
   it('does not run while the conversation waits for the user', async () => {

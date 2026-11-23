@@ -187,6 +187,7 @@ const zhTW = {
     namedInTemp: (path: string) => `指令提到的 ${path} 在暫存資料夾裡，agent 可以在那裡寫入，所以無法鎖定它：請把它放進工作目錄。`,
     cwdOutside: (cwd: string) => `${cwd} 不在工作目錄裡，或在已安裝套件的資料夾裡，那裡的程式碼不會被鎖定。`,
     folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
+    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束再送出。',
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
       run
@@ -206,7 +207,8 @@ const zhTW = {
     interactiveAutomation: '這個指令是在自動任務的執行中提議的，所以不能從這張卡片啟動。還需要的話，請在聊天裡請 agent 再提議一次。',
     interactiveWindows: '原生 Windows 上還不能從卡片執行指令。',
     interactiveTooMany: (n: number) => `同時最多只能執行 ${n} 個這樣的指令，請等其他的結束。`,
-    interactiveConfigChanged: '工作目錄裡出現了卡片沒列出的設定檔。請先看過卡片上更新的清單，再啟動一次。',
+    interactiveConfigChanged: '卡片列出之後，工作目錄裡有東西改過或多了出來。請先看過卡片上更新的清單，再啟動一次。',
+    interactiveTooMuch: '工作目錄裡的設定和安裝的程式太多，無法確認它們從卡片列出後沒有改過：請在它自己的空資料夾裡執行。',
     interactiveNotStarted: (why: string) => `無法啟動：${why}`,
     interactiveHidden: '這個指令含有看不見的字元或控制字元，卡片顯示的不一定是實際會執行的內容，所以不會執行。',
     interactiveNotRunning: '這個指令已經沒有在執行了。',
@@ -1589,6 +1591,7 @@ const en: ServerMessages = {
       `${path}, which the command names, is in a temp folder, where agents can write, so it cannot be pinned: put it in the working directory.`,
     cwdOutside: (cwd) => `${cwd} is not in the working directory, or is in a folder of installed packages, whose code is not pinned.`,
     folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
+    folderHeld: "A fixed or interactive command is running in this conversation's folder: send once it ends.",
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>
       run
@@ -1612,7 +1615,9 @@ const en: ServerMessages = {
     interactiveWindows: 'Commands cannot be run from a card on native Windows yet.',
     interactiveTooMany: (n) => `At most ${n} such commands run at once: wait until another one ends.`,
     interactiveConfigChanged:
-      'Configuration files the card did not list appeared in the working directory. Look at the updated list on the card, then start it again.',
+      'Something in the working directory changed or appeared since the card listed it. Look at the updated list on the card, then start it again.',
+    interactiveTooMuch:
+      'There is too much configuration and installed programs in the working directory to tell whether they changed since the card listed them: run it in its own empty folder.',
     interactiveNotStarted: (why) => `It could not start: ${why}`,
     interactiveHidden: 'This command holds invisible or control characters, so the card may not show what would run: it is not run.',
     interactiveNotRunning: 'This command is not running any more.',

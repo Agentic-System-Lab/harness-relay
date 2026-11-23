@@ -1390,7 +1390,6 @@ export class Store {
     conv.schedule = schedule;
   }
 
-  /** Persist the conversation's schedule (none: delete it). */
   /** The conversations whose schedule runs this fixed command first (`schedules.command`). */
   schedulesWithCommand(commandId: string): string[] {
     return (this.db.prepare('SELECT conversation_id FROM schedules WHERE command = ?').all(commandId) as { conversation_id: string }[]).map(
@@ -1398,6 +1397,7 @@ export class Store {
     );
   }
 
+  /** Persist the conversation's schedule (none: delete it). */
   saveSchedule(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
     const s = conv.schedule;
