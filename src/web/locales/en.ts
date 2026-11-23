@@ -2704,6 +2704,8 @@ export const en: Messages = {
     folder: 'Source folder',
     start: 'Start preview',
     serverHint: 'Stopping or rebuilding this preview clears its temporary backend data.',
+    partial:
+      'This folder could not be copied whole (too large, or a folder in it unreadable), so the preview has only the page and the files it names: an address a script puts together may not load.',
     dockerTitle: 'Set up Docker',
     dockerMissing: 'This app needs Docker on the computer running Relay. Install Docker there to continue the preview.',
     dockerUnavailable: 'The preview will open when Relay can use a local Docker engine running Linux containers.',
@@ -2752,6 +2754,8 @@ export const en: Messages = {
     update: 'Publish update…',
     title: 'Publish to the cloud',
     intro: 'Publish the files this preview tried to your own Render account. Anyone with its address can open it.',
+    partial:
+      'This preview has only the page and the files it names (its folder could not be copied whole), and only these go online: an address a script puts together may not load.',
     loading: 'Checking what to publish…',
     setupNeeded: 'Set these up first:',
     setup: {

@@ -24,7 +24,18 @@ import { useDialog } from './useDialog';
  * Publishing a running preview to the user's own Render and Neon accounts: what it would create and
  * the app's variables, confirmed as public, then its steps until it is live (`publish/` on the server).
  */
-export function PublishDialog({ convId, sessionId, onClose }: { convId: string; sessionId: string; onClose: () => void }) {
+export function PublishDialog({
+  convId,
+  sessionId,
+  partial,
+  onClose,
+}: {
+  convId: string;
+  sessionId: string;
+  /** The preview has only its page's own files (`AppPreviewSession.partial`): what goes online too. */
+  partial?: boolean;
+  onClose: () => void;
+}) {
   const t = useT();
   const p = t.publish;
   const dialog = useRef<HTMLDivElement>(null);
@@ -116,6 +127,11 @@ export function PublishDialog({ convId, sessionId, onClose }: { convId: string; 
           </button>
         </header>
         <p className="muted small">{p.intro}</p>
+        {partial && (
+          <p className="warn-line small publish-partial" role="note">
+            {p.partial}
+          </p>
+        )}
         {!plan && !error && <p role="status">{p.loading}</p>}
         {plan && !started && (
           <>

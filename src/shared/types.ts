@@ -1104,6 +1104,11 @@ export interface AppPreviewSession {
    * says how it goes; its page opens once the app serves one (a `page` event).
    */
   terminal?: boolean;
+  /**
+   * A static page whose folder could not be copied whole (too large, or a folder in it unreadable):
+   * it has only the page and the files it names, so an address a script puts together may not load.
+   */
+  partial?: boolean;
 }
 
 /** The files a container preview starts from, in the order a folder is looked at: compose first, then a Dockerfile. */

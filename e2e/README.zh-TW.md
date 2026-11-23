@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 54 個 spec 檔、640 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 54 個 spec 檔、641 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -53,7 +53,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [使用者自己執行的指令](#使用者自己執行的指令) | [`interactive.spec.ts`](specs/interactive.spec.ts) | 3 | [使用者說明 → 你自己執行的指令](../docs/user-guide.zh-TW.md#你自己執行的指令)、[架構 → 互動指令](../docs/architecture.zh-TW.md#互動指令) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 24 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 修改檔案](../docs/architecture.zh-TW.md#修改檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 20 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 21 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
@@ -337,6 +337,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 驗證內容 |
 | --- | --- | --- |
 | 從「檔案」試用靜態網站 | Claude Code | 資料夾會直接開啟並載入 JavaScript 模組，全程不需設定 Docker。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
+| 大到無法整個複製的工作目錄最上層的網頁 | Claude Code | 旁邊的資料夾有 4,097 個檔案時，在工作目錄最上層按 **Preview this folder**，會開啟它的 `index.html` 並帶著它引用的樣式表（標題是紅色），面板說明只帶了網頁和它引用的檔案。 |
 | 平行成員回覆中的同名檔案 | Claude Code、Codex | 手機上，團隊寫出的網頁不會自動打開，改由卡片提供。每個連結可繼續下載，預覽則開啟該成員自己的版本。手機寬度下可操作整個面板。 |
 | 團隊做出的應用程式自動打開 | Claude Code | 還沒有應用程式時，頂端的 **預覽** 停用並說明原因。假 CLI 在編輯模式寫出 `site/index.html`：這一輪結束後面板自動打開並開始預覽，訊息框保留焦點，**預覽** 呈按下狀態。來源與按鈕收成一列，顯示資料夾與 agent，可展開與收起。回覆後的卡片提供這個應用程式。**新分頁** 在自己的分頁開啟網頁，與 Relay 的頁面切斷關係，可以自己重新整理。**預覽** 會隱藏面板，再按一次顯示同一次執行；關閉後可從卡片重新開始。重新載入後不會自動打開，按 **預覽** 才開啟；下一個問題送出後卡片收起。 |
 | 應用程式只自動打開一次，也不會蓋過其他預覽 | Claude Code | 從「檔案」開著預覽時，團隊寫出的網頁只出現在卡片裡，面板保留使用者的網頁。另一個應用程式會自動打開；關閉後，下一輪修改同一個資料夾時不會再打開，改由卡片提供。 |

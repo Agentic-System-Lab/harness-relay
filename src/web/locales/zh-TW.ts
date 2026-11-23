@@ -2698,6 +2698,7 @@ export const zhTW = {
     folder: '來源資料夾',
     start: '開始預覽',
     serverHint: '停止或重建預覽會清除這次執行產生的後端資料。',
+    partial: '這個資料夾無法整個複製（太大，或有讀不到的資料夾），所以只帶了網頁和它引用到的檔案：程式自己組出來的路徑可能載不到。',
     dockerTitle: '設定 Docker',
     dockerMissing: '這個應用程式需要 Docker。請在執行 Relay 的電腦上安裝 Docker，完成後會繼續預覽。',
     dockerUnavailable: '待 Relay 可以連上本機的 Docker 引擎並執行 Linux 容器後，預覽就會開啟。',
@@ -2746,6 +2747,7 @@ export const zhTW = {
     update: '發布更新…',
     title: '發布到雲端',
     intro: '把這次預覽確認過的檔案發布到你自己的 Render 帳號。任何拿到網址的人都能開啟它。',
+    partial: '這次預覽只帶了網頁和它引用到的檔案（資料夾無法整個複製），發布的也只有這些：程式自己組出來的路徑可能載不到。',
     loading: '正在檢查要發布什麼…',
     setupNeeded: '還需要先完成這些設定：',
     setup: {
