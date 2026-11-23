@@ -173,8 +173,13 @@ const browser = new BrowserService({
   // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
-  // Where a hand-over's window opens (`browser_hand_over`): beside the desktop app, or on this computer when it can show one.
-  windowAt: () => handoverWindowAt({ desktop: Boolean(parent), platform: process.platform, env: process.env, macGui: macGuiSession }),
+  // Where a hand-over's window opens (`browser_hand_over`), and a browser for the user alone's: beside the
+  // desktop app, or on this computer when it can show one (anywhere, headless, for the end-to-end tests).
+  windowAt: () =>
+    CONFIG.headlessWindows
+      ? 'server'
+      : handoverWindowAt({ desktop: Boolean(parent), platform: process.platform, env: process.env, macGui: macGuiSession }),
+  windowHeadless: CONFIG.headlessWindows,
 });
 gateway.register([
   outboxTool((id) => outbox.list(id)),

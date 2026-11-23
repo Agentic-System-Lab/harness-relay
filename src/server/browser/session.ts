@@ -524,11 +524,18 @@ export function launchEnv(
  * on the computer Harness Relay runs on; everything through its proxy all the same, this computer's
  * addresses too, and no UDP of WebRTC's own around it. It opens the blank page: a page is opened over
  * the debugging pipe once the gate holds every request (`launch()`).
+ *
+ * The debugging pipe makes Chromium tell every page it is automated (`navigator.webdriver`), which is
+ * true of the agents' browser. With `person` (a person drives it: a hand-over's window, a browser for the
+ * user alone) it does not: a page that sees it (reCAPTCHA, a site's sign-in) may keep refusing whoever
+ * answers its challenges.
  */
 export function launchArgs(o: {
   profile: string;
   proxyPort: number;
   window?: boolean;
+  /** A person drives it, never an agent: pages are not told it is automated. */
+  person?: boolean;
   platform?: NodeJS.Platform;
   /** The server runs as root (a container, say), where Chromium's own sandbox cannot start. */
   root?: boolean;
@@ -536,6 +543,7 @@ export function launchArgs(o: {
   const platform = o.platform ?? process.platform;
   return [
     ...(o.window ? [] : ['--headless=new']),
+    ...(o.person ? ['--disable-blink-features=AutomationControlled'] : []),
     '--remote-debugging-pipe',
     `--user-data-dir=${o.profile}`,
     '--no-first-run',
@@ -1162,6 +1170,7 @@ export class BrowserService {
       profile,
       proxyPort: this.proxy.port,
       window: o.window && !this.o.windowHeadless,
+      person: Boolean(o.window || o.owner),
       root: process.getuid?.() === 0,
     });
     const exited = runProcess({
@@ -2151,17 +2160,24 @@ export class BrowserService {
   /**
    * Opens a browser for the user alone (B2, for a page that shows a secret): a Chromium of Harness Relay's
    * own with a throwaway profile (`browser/user/<id>`, never a conversation's), shown as a screencast
-   * through the hand-over's panel and routes. No agent drives or reads it: no gateway call reaches it, as
-   * it is in none of the conversations' sessions, and what it opens is never granted to a chat's browser.
-   * Every connection goes through the proxy and its checks; nobody is asked about a host
-   * (`ownerVerdict()`). At `url` when given (the card's address, which the user chose to open). It closes,
-   * and its profile goes, when the user closes it, after `HANDOVER_LIMITS.useMinutes`, when the
-   * conversation is deleted, or at shutdown (a stopped server's are removed at the next start); then
-   * `onEnd`. Returns its id.
+   * through the hand-over's panel and routes, or with `window` in a window on the computer Harness Relay
+   * runs on, where this computer can show one (`userWindowAt()`; else `UserBrowserError('window')`). No
+   * agent drives or reads it: no gateway call reaches it, as it is in none of the conversations' sessions,
+   * and what it opens is never granted to a chat's browser. Pages are not told it is automated (`person`
+   * in `launchArgs()`). Every connection goes through the proxy and its checks; nobody is asked about a
+   * host (`ownerVerdict()`). At `url` when given (the card's address, which the user chose to open). It
+   * closes, and its profile goes, when the user closes it (its window too), after
+   * `HANDOVER_LIMITS.useMinutes`, when the conversation is deleted, or at shutdown (a stopped server's are
+   * removed at the next start); then `onEnd`. Returns its id.
    */
-  async openForUser(convId: string, o: { url?: string; nearbyConfirmed?: boolean; onEnd?: () => void } = {}): Promise<string> {
+  async openForUser(
+    convId: string,
+    o: { url?: string; nearbyConfirmed?: boolean; window?: boolean; onEnd?: () => void } = {},
+  ): Promise<string> {
     const missing = this.unavailable();
     if (missing) throw new UserBrowserError('unavailable', missing);
+    if (o.window && !this.userWindowAt()) throw new UserBrowserError('window', 'this computer shows no window');
+    const mode: HandoverMode = o.window ? 'window' : 'screencast';
     const max = this.o.userBrowsersMax ?? USER_BROWSERS_MAX;
     // Its place taken before anything waits, so that two opened at once cannot both pass the limit.
     if (this.forUser.size + this.opening >= max) throw new UserBrowserError('busy', `at most ${max} at once`);
@@ -2171,11 +2187,11 @@ export class BrowserService {
     let profile: string;
     try {
       const typed = o.url ? await this.userAddress(o.url, o.nearbyConfirmed) : undefined;
-      ticket = this.handovers.create(convId, ['screencast']);
-      ticket.mode = 'screencast';
+      ticket = this.handovers.create(convId, [mode]);
+      ticket.mode = mode;
       ticket.status = 'active';
       profile = join(this.userProfiles(), ticket.id);
-      s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user' }, () => false);
+      s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user', window: mode === 'window' }, () => false);
       if (typed && o.url) s.typed = typedAt(typed, o.url);
     } catch (err) {
       this.opening--;
@@ -2192,7 +2208,8 @@ export class BrowserService {
       try {
         if (o.url) void s.send('Page.navigate', { url: o.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
         // No turn to end it: the user, its time limit, the conversation's deletion (`endAll()`) or shutdown.
-        await this.screencast(s, t, new AbortController().signal, this.handoverMs.use);
+        if (mode === 'window') await this.userWindow(s, t, this.handoverMs.use);
+        else await this.screencast(s, t, new AbortController().signal, this.handoverMs.use);
       } catch {
         /* it ends all the same */
       } finally {
@@ -2276,12 +2293,46 @@ export class BrowserService {
     if (typed) await this.leaveFor(u.s, typed, url);
     u.s.typed = typed && typedAt(typed, url);
     void u.s.send('Page.navigate', { url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+    // A window: in front, where the user looks for the page.
+    if (u.ticket.mode === 'window') void u.s.send('Page.bringToFront').catch(() => undefined);
   }
 
   /** Whether it is open, and not closing (just after Close, the card opens another). */
   userBrowserOpen(convId: string, id: string): boolean {
     const u = this.forUser.get(id);
     return u?.convId === convId && u.ticket.status === 'active';
+  }
+
+  /** How it shows: in a window, or as a screencast in the chat; undefined once it is gone. */
+  userBrowserMode(convId: string, id: string): HandoverMode | undefined {
+    const u = this.forUser.get(id);
+    return u?.convId === convId ? u.ticket.mode : undefined;
+  }
+
+  /** Where a browser for the user alone can open in a window (a hand-over's too), or undefined where this computer shows none. */
+  userWindowAt(): HandoverWindowAt | undefined {
+    return this.o.windowAt?.();
+  }
+
+  /**
+   * A browser for the user alone in its window: until the user closes the window (or Close on the card),
+   * or the time runs out (`ms`). It keeps to one tab (a tab the user opens is closed, `adopt()`), and is
+   * brought to the front. No agent reads it, so a page of the browser's own or a file the user opens there
+   * is theirs alone, as in their own browser (the hand-over's window keeps its tab to the web instead, for
+   * the agents that read it after). What the user selects there is read as in the screencast (`selectionOf()`).
+   */
+  private async userWindow(s: BrowserSession, ticket: HandoverTicket, ms: number): Promise<HandoverWake> {
+    const closed = (p: Record<string, unknown>) => {
+      if (p.sessionId === s.sessionId) ticket.wake({ action: 'closed' });
+    };
+    s.cdp.on('Target.detachedFromTarget', closed);
+    void s.exited.then(() => ticket.wake({ action: 'closed' }));
+    try {
+      await s.send('Page.bringToFront').catch(() => undefined);
+      return await ticket.wait(ms, new AbortController().signal);
+    } finally {
+      s.cdp.off('Target.detachedFromTarget', closed);
+    }
   }
 
   /**

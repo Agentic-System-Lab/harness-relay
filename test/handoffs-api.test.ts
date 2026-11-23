@@ -190,11 +190,16 @@ describe('secrets and fixed commands API', () => {
       openForUser: async (convId) => (opened.push(convId), 'ub-1'),
       navigateForUser: async () => undefined,
       userBrowserOpen: (_c, id) => id === 'ub-1',
+      userBrowserMode: (_c, id) => (id === 'ub-1' ? 'screencast' : undefined),
+      userWindowAt: () => undefined,
       selectionOf: async () => ' tok-selected-on-page ',
       closeForUser: async () => undefined,
     };
     const path = `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`;
     expect((await send('POST', `${path}/browser`, { name: 5 })).status).toBe(400);
+    expect((await send('POST', `${path}/browser`, { name: 'TOKEN', window: 'yes' })).status).toBe(400);
+    // No window where this computer shows none: the card offers the screencast only.
+    expect(await (await app.request('/api/handovers/window', { headers: HOST })).json()).toEqual({ windowAt: null });
     // An address on this computer or the local network: refused until confirmed, with a code the card tells apart.
     const stub = orchestrator.userBrowsers!;
     orchestrator.userBrowsers = {
@@ -209,7 +214,7 @@ describe('secrets and fixed commands API', () => {
     expect(await refused.json()).toMatchObject({ code: 'nearby', error: expect.stringContaining('http://127.0.0.1:3000/token') });
     const res = await send('POST', `${path}/browser`, { name: 'TOKEN', confirm: true });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ handoverId: 'ub-1' });
+    expect(await res.json()).toEqual({ handoverId: 'ub-1', mode: 'screencast' });
     expect(opened).toEqual([conv.id]);
     expect((await send('POST', `${path}/selection`, { name: 'TOKEN' })).status).toBe(400);
     expect((await send('POST', `${path}/selection`, { handoverId: 'ub-9', name: 'TOKEN' })).status).toBe(404);
@@ -221,6 +226,33 @@ describe('secrets and fixed commands API', () => {
     expect(conversation).toContain('"from":"page"');
     expect(conversation).not.toContain('tok-selected-on-page');
     expect((await send('POST', `${path}/browser`, {})).status).toBe(409);
+  });
+
+  it("opens a secrets card's browser for the user alone in a window where this computer shows one", async () => {
+    const { conv, partId } = chatAsking();
+    const asked: { window?: boolean }[] = [];
+    orchestrator.userBrowsers = {
+      openForUser: async (_c, o = {}) => {
+        asked.push({ window: o.window });
+        if (o.window) throw new UserBrowserError('window', 'this computer shows no window');
+        return 'ub-2';
+      },
+      navigateForUser: async () => undefined,
+      userBrowserOpen: () => false,
+      userBrowserMode: () => undefined,
+      userWindowAt: () => 'server',
+      selectionOf: async () => '',
+      closeForUser: async () => undefined,
+    };
+    expect(await (await app.request('/api/handovers/window', { headers: HOST })).json()).toEqual({ windowAt: 'server' });
+    const path = `/api/conversations/${conv.id}/messages/m2/secrets/${partId}`;
+    // The window could not open after all (the server's session changed): said so, the screencast offered instead.
+    const refused = await send('POST', `${path}/browser`, { name: 'TOKEN', window: true });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/cannot show a window.*show it in the chat instead/);
+    const shown = await send('POST', `${path}/browser`, { name: 'TOKEN' });
+    expect(await shown.json()).toEqual({ handoverId: 'ub-2', mode: 'screencast' });
+    expect(asked).toEqual([{ window: true }, { window: undefined }]);
   });
 });
 

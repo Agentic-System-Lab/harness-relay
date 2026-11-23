@@ -25,6 +25,7 @@ import type {
   MessageChanges,
   MessagePart,
   MemoryPartNote,
+  HandoverMode,
   HandoverPart,
   OutboxItem,
   ProgressStatus,
@@ -1524,6 +1525,7 @@ export class Orchestrator {
       if (err.why === 'gone') return new HttpError(404, t().handoffs.browserGone);
       if (err.why === 'refused') return new HttpError(409, t().handoffs.browserRefused);
       if (err.why === 'nearby') return new HttpError(409, t().handoffs.browserNearby(err.message), 'nearby');
+      if (err.why === 'window') return new HttpError(409, t().handoffs.noWindow);
       return new HttpError(409, t().handoffs.noBrowser);
     }
     return new HttpError(409, (err as Error).message);
@@ -1531,8 +1533,9 @@ export class Orchestrator {
 
   /**
    * Opens a browser for the user alone for a secrets card that waits (B2 of the proposal), at the address
-   * an ask named (`name`'s `url`), else a blank page; one per card, so the same one comes back while it is
-   * open. Returns its id, for the screencast's panel and routes.
+   * an ask named (`name`'s `url`), else a blank page, as a screencast in the chat or with `window` in a
+   * window on this computer; one per card, so the same one comes back while it is open, however it shows.
+   * Returns its id, for the hand-over's routes, and how it shows.
    */
   async openSecretsBrowser(
     convId: string,
@@ -1541,7 +1544,8 @@ export class Orchestrator {
     name?: string,
     /** The user confirmed an address that leads to this computer or the local network, having seen it whole. */
     nearbyConfirmed = false,
-  ): Promise<{ handoverId: string }> {
+    window = false,
+  ): Promise<{ handoverId: string; mode: HandoverMode }> {
     const { conv, part } = this.handoffCard(convId, messageId, partId, 'secrets');
     if (!part.asks.some((a) => a.status === 'waiting')) throw new HttpError(409, t().handoffs.cardDecided);
     const ask = name === undefined ? undefined : part.asks.find((a) => a.name === name && a.status === 'waiting');
@@ -1561,22 +1565,23 @@ export class Orchestrator {
           });
           this.secretBrowserAsks.set(key, ask.name);
         }
-        return { handoverId: open };
+        return { handoverId: open, mode: browsers.userBrowserMode(conv.id, open) ?? 'screencast' };
       }
       if (this.secretBrowsers.get(key) === pending) this.secretBrowsers.delete(key);
       // Another call opened one meanwhile: that one.
       const again = this.secretBrowsers.get(key);
-      if (again)
-        return {
-          handoverId: await again.catch((err: unknown) => {
-            throw this.userBrowserError(err);
-          }),
-        };
+      if (again) {
+        const id = await again.catch((err: unknown) => {
+          throw this.userBrowserError(err);
+        });
+        return { handoverId: id, mode: browsers.userBrowserMode(conv.id, id) ?? 'screencast' };
+      }
     }
     // One at a time for a card: a second open while this one starts gets the same one.
     const opening: Promise<string> = browsers.openForUser(conv.id, {
       ...(ask?.url ? { url: ask.url } : {}),
       nearbyConfirmed,
+      ...(window ? { window } : {}),
       onEnd: () => {
         if (this.secretBrowsers.get(key) === opening) this.secretBrowsers.delete(key);
       },
@@ -1584,7 +1589,7 @@ export class Orchestrator {
     this.secretBrowsers.set(key, opening);
     this.secretBrowserAsks.set(key, ask?.name);
     try {
-      return { handoverId: await opening };
+      return { handoverId: await opening, mode: window ? 'window' : 'screencast' };
     } catch (err) {
       if (this.secretBrowsers.get(key) === opening) this.secretBrowsers.delete(key);
       throw this.userBrowserError(err);

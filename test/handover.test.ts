@@ -93,6 +93,15 @@ describe("the window's browser", () => {
     expect(launchArgs({ profile: '/p', proxyPort: 1, platform: 'linux' })).not.toContain('--ozone-platform-hint=auto');
   });
 
+  it('tells pages it is automated only when an agent may drive it', () => {
+    const flag = '--disable-blink-features=AutomationControlled';
+    expect(launchArgs({ profile: '/p', proxyPort: 1 })).not.toContain(flag);
+    expect(launchArgs({ profile: '/p', proxyPort: 1, window: true })).not.toContain(flag);
+    const person = launchArgs({ profile: '/p', proxyPort: 1, person: true });
+    expect(person).toContain(flag);
+    expect(person.filter((a) => a !== flag)).toEqual(launchArgs({ profile: '/p', proxyPort: 1 }));
+  });
+
   it("gets the display of the server's session for a window, and nothing more of its environment", () => {
     const server = {
       PATH: '/usr/bin',
@@ -365,6 +374,17 @@ describe("a hand-over's ticket", () => {
     expect(seen.map((e) => (e.type === 'frame' ? `frame ${e.data}` : e.type))).toEqual(['location', 'frame new', 'notice', 'ended']);
     expect(inputs).toEqual([[{ type: 'text', text: 'a' }]]);
     expect(await all.input('c1', t.id, [{ type: 'text', text: 'a' }])).toBe('missing');
+
+    // A window (a browser for the user alone in one): watched only to hear that it ended; no input.
+    const w = all.create('c1', ['window']);
+    w.mode = 'window';
+    expect(all.watch('c1', w.id, () => undefined)).toBe('state');
+    w.status = 'active';
+    const told: string[] = [];
+    expect(typeof all.watch('c1', w.id, (e) => told.push(e.type))).toBe('function');
+    expect(await all.input('c1', w.id, [{ type: 'text', text: 'a' }])).toBe('state');
+    all.remove(w);
+    expect(told).toEqual(['ended']);
   });
 });
 

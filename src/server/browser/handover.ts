@@ -217,11 +217,14 @@ export class Handovers {
     return undefined;
   }
 
-  /** A watcher of a screencast going on (`HandoverTicket.watch()`). */
+  /**
+   * A watcher of a screencast going on (`HandoverTicket.watch()`), or of a window, which is told only
+   * that it ended (a browser for the user alone's card, whose window the user may close).
+   */
   watch(convId: string, id: string, fn: (e: HandoverScreenEvent) => void): (() => void) | HandoverRefusal {
     const t = this.get(convId, id);
     if (!t) return 'missing';
-    if (t.mode !== 'screencast' || (t.status !== 'active' && t.status !== 'starting')) return 'state';
+    if (!t.mode || (t.status !== 'active' && t.status !== 'starting')) return 'state';
     return t.watch(fn);
   }
 
@@ -499,12 +502,13 @@ export function ownerVerdict(o: {
 
 /**
  * Why a browser for the user alone could not open, or is gone: no browser to start, too many open, an
- * address no browser of Harness Relay's opens (its own ports, a metadata address), or it closed.
+ * address no browser of Harness Relay's opens (its own ports, a metadata address), a window asked for
+ * where this computer shows none, or it closed.
  */
 export class UserBrowserError extends Error {
   constructor(
     /** `nearby`: the address leads to this computer or the local network, and the user has not confirmed it. */
-    readonly why: 'unavailable' | 'busy' | 'refused' | 'nearby' | 'gone',
+    readonly why: 'unavailable' | 'busy' | 'refused' | 'nearby' | 'window' | 'gone',
     message: string,
   ) {
     super(message);
@@ -515,14 +519,19 @@ export class UserBrowserError extends Error {
 export interface UserBrowsers {
   /**
    * Opens one for conversation `convId`, at `url` if given (one that leads to this computer or the local
-   * network only once the user confirmed it, `nearbyConfirmed`: else `UserBrowserError('nearby')`);
+   * network only once the user confirmed it, `nearbyConfirmed`: else `UserBrowserError('nearby')`), in a
+   * window on this computer with `window` (where `userWindowAt()` names one), else as a screencast;
    * `onEnd` once it closed. Returns its id.
    */
-  openForUser(convId: string, o?: { url?: string; nearbyConfirmed?: boolean; onEnd?: () => void }): Promise<string>;
+  openForUser(convId: string, o?: { url?: string; nearbyConfirmed?: boolean; window?: boolean; onEnd?: () => void }): Promise<string>;
   /** Takes one that is open to `url`, as `openForUser()` would open it there. */
   navigateForUser(convId: string, id: string, url: string, o?: { nearbyConfirmed?: boolean }): Promise<void>;
   /** Whether it is open still. */
   userBrowserOpen(convId: string, id: string): boolean;
+  /** How it shows (in a window, or as a screencast); undefined once it is gone. */
+  userBrowserMode(convId: string, id: string): HandoverMode | undefined;
+  /** Where one can open in a window, or undefined where this computer shows none. */
+  userWindowAt(): HandoverWindowAt | undefined;
   /** The text the user selected on its page (in a field too), or a focused field's whole value; '' for none. */
   selectionOf(convId: string, id: string): Promise<string>;
   /** Closes it, and its profile goes. */

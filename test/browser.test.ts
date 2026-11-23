@@ -1050,6 +1050,78 @@ describe.skipIf(!chromium)('the browser itself', () => {
     slow(60_000),
   );
 
+  it(
+    'opens a browser for the user alone in a window where this computer shows one (headless here), tells no page it is automated, and ends when the user closes the window',
+    async () => {
+      type Session = {
+        targetId: string;
+        send: <T>(m: string, p?: Record<string, unknown>) => Promise<T>;
+        cdp: { send: (m: string, p: Record<string, unknown>) => Promise<unknown> };
+      };
+      const webdriver = async (s: Session) =>
+        (await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
+          .result.value;
+      // The agents' browser says it is automated, as it is.
+      await browser.open(ctx({ convId: 'conv-webdriver', permission: 'full' }), `http://127.0.0.1:${port}/`);
+      const agents = await (browser as unknown as { sessions: Map<string, Promise<Session>> }).sessions.get('conv-webdriver')!;
+      expect(await webdriver(agents)).toBe(true);
+      await browser.close('conv-webdriver', true);
+      // No window where this computer shows none.
+      expect(browser.userWindowAt()).toBeUndefined();
+      await expect(browser.openForUser('conv-alone-window', { window: true })).rejects.toMatchObject({ why: 'window' });
+
+      const win = new BrowserService({
+        dataDir: join(root, 'data-window'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        windowAt: () => 'server',
+        windowHeadless: true,
+      });
+      try {
+        expect(win.userWindowAt()).toBe('server');
+        const ended: string[] = [];
+        const id = await win.openForUser('conv-alone-window', {
+          url: `http://127.0.0.1:${port}/token`,
+          nearbyConfirmed: true,
+          window: true,
+          onEnd: () => ended.push('ended'),
+        });
+        expect(win.userBrowserMode('conv-alone-window', id)).toBe('window');
+        expect(win.userBrowserMode('another', id)).toBeUndefined();
+        const told: string[] = [];
+        expect(typeof win.handovers.watch('conv-alone-window', id, (e) => told.push(e.type))).toBe('function');
+        // Nothing to send it as a screencast: the user works in the window.
+        expect(await win.handovers.input('conv-alone-window', id, [{ type: 'text', text: 'a' }])).toBe('state');
+        const s = (win as unknown as { forUser: Map<string, { s: Session }> }).forUser.get(id)!.s;
+        await vi.waitFor(
+          async () =>
+            expect(
+              await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'location.pathname', returnByValue: true }),
+            ).toMatchObject({ result: { value: '/token' } }),
+          {
+            timeout: slow(20_000),
+          },
+        );
+        // A person drives it: no page is told it is automated.
+        expect(await webdriver(s)).toBe(false);
+        // What the user selects in the window is read as in the screencast.
+        await s.send('Runtime.evaluate', {
+          expression: `getSelection().selectAllChildren(document.querySelector('p'))`,
+        });
+        expect((await win.selectionOf('conv-alone-window', id)).trim()).toBe('tok-from-page-1234');
+        // The user closes the window: it ends, and its profile goes.
+        await s.cdp.send('Target.closeTarget', { targetId: s.targetId });
+        await vi.waitFor(() => expect(ended).toEqual(['ended']), { timeout: slow(20_000) });
+        expect(told).toEqual(['ended']);
+        expect(win.userBrowserOpen('conv-alone-window', id)).toBe(false);
+        expect(existsSync(join(root, 'data-window', 'browser', 'user', id))).toBe(false);
+      } finally {
+        await win.closeAll();
+      }
+    },
+    slow(60_000),
+  );
+
   describe('a browser for the user alone, against pages that reach elsewhere', () => {
     /** What the name `rebind.test` leads to now (looked up afresh each time). */
     let answer = ['127.0.0.1'];
