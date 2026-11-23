@@ -25,6 +25,7 @@ import { settingsHref } from '../route';
 import {
   activityCounts,
   enterSends,
+  foldedDetail,
   isPathDetail,
   isSubagent,
   isTeamResult,
@@ -587,19 +588,42 @@ function ApprovalCard({
           : t.approval.expired;
     // The lead agent's reason it approved it ("Approve for me").
     const why = status === 'allowed' && part.review?.status === 'approved' && part.review.reason ? part.review.reason : '';
+    const said = (
+      <span className="approval-outcome">
+        {outcome}
+        {why ? t.approval.withNote(why) : ''}
+        {part.note ? t.approval.withNote(part.note) : ''}
+      </span>
+    );
+    const mark = (
+      <span className="approval-mark" aria-hidden>
+        {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
+      </span>
+    );
+    // A long command: its first line beside the answer, click it to read all of it.
+    const fold = part.detail ? foldedDetail(part.detail) : undefined;
+    if (fold) {
+      return (
+        <details className={`approval-done approval-fold ${status}`}>
+          <summary>
+            {mark}
+            <span className="approval-text">
+              <code className="approval-head-line">{fold.head}</code>
+              {fold.more > 0 && <span className="approval-more">{t.approval.moreLines(fold.more)}</span>}
+              {said}
+            </span>
+          </summary>
+          <pre className="approval-full">{part.detail}</pre>
+        </details>
+      );
+    }
     return (
       <div className={`approval-done ${status}`}>
-        <span className="approval-mark" aria-hidden>
-          {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
-        </span>
-        {/* One run of text, so a long command wraps under itself and the mark stays beside it. */}
+        {mark}
+        {/* One run of text, so a command that wraps goes under itself and the mark stays beside it. */}
         <span className="approval-text">
           <span className="approval-what">{part.detail ? <code>{part.detail}</code> : heading}</span>
-          <span className="approval-outcome">
-            {outcome}
-            {why ? t.approval.withNote(why) : ''}
-            {part.note ? t.approval.withNote(part.note) : ''}
-          </span>
+          {said}
         </span>
       </div>
     );

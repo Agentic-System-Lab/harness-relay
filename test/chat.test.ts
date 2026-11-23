@@ -37,6 +37,8 @@ import {
   teamTurns,
   thoughtTail,
   thoughtTitle,
+  foldedDetail,
+  FOLD_DETAIL_CHARS,
   restoredText,
   runningStep,
   subagentName,
@@ -649,6 +651,16 @@ describe("an agent's work between its words", () => {
     expect(thoughtTitle(t)).toBe('Examining the hash check');
     expect(thoughtTail(t)).toBe('the secrets load');
     expect(thoughtTitle('   ')).toBe('');
+  });
+
+  it("folds an answered request's command when it spans lines or is long, to its first line", () => {
+    expect(foldedDetail('npm test')).toBeUndefined();
+    expect(foldedDetail('x'.repeat(FOLD_DETAIL_CHARS))).toBeUndefined();
+    expect(foldedDetail('  \n')).toBeUndefined();
+    const long = `echo ${'y'.repeat(FOLD_DETAIL_CHARS)}`;
+    expect(foldedDetail(long)).toEqual({ head: long, more: 0 });
+    const heredoc = "\npython3 - <<'EOF'\r\nfrom pathlib import Path\n\np.write_text(s)\nEOF\n";
+    expect(foldedDetail(heredoc)).toEqual({ head: "python3 - <<'EOF'", more: 4 });
   });
 
   it('tells a path apart from the other details a tool row shows', () => {

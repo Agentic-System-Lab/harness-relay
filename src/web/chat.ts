@@ -572,6 +572,20 @@ export function isPathDetail(detail: string): boolean {
   return detail.includes('/') || /^(?:[A-Za-z]:\\|\\\\|\.{1,2}\\|~\\)/.test(detail);
 }
 
+/** Past this many characters on one line, an answered request's command is folded. */
+export const FOLD_DETAIL_CHARS = 160;
+
+/**
+ * What an answered request shows of a long command until it is opened: its first line that says
+ * something, and how many lines come after it. None for a command short enough to show as it is (one
+ * line of at most `FOLD_DETAIL_CHARS` characters).
+ */
+export function foldedDetail(detail: string): { head: string; more: number } | undefined {
+  const lines = detail.trim().split('\n');
+  if (lines.length === 1 && lines[0].length <= FOLD_DETAIL_CHARS) return undefined;
+  return { head: lines[0].trim(), more: lines.length - 1 };
+}
+
 /** A line of thinking as a one-line preview: bold and heading marks taken out. */
 function plainLine(line: string): string {
   return line
