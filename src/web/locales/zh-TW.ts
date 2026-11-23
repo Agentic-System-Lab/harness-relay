@@ -3344,6 +3344,42 @@ export const zhTW = {
       laterHint: '之後隨時可以到「設定 → 沙箱」安裝。',
     },
   },
+  agentEnv: {
+    title: '環境變數',
+    summaryWithheld: (n: number) => `（${n} 個金鑰沒有傳給它）`,
+    hint: (cli: string) =>
+      `啟動 Harness Relay 的環境（shell 裡 export 的變數、Codespaces secrets）會傳給 ${cli}，但別家模型供應商的金鑰只會傳給它自己的 CLI，免得 agent 執行的指令和 MCP server 拿到不屬於它的金鑰。這裡只列名稱，從不顯示值。GitHub 的 token、雲端（AWS_*）的憑證和網址類的變數（例如 OPENAI_BASE_URL）照樣會傳。`,
+    codexHint: 'Codex 也會拿到它的 config.toml 替模型供應商指定的金鑰（env_key）。',
+    signIn: (cli: string, names: string) => `${cli} 的預設帳號會用啟動環境裡的 ${names} 登入，優先於它資料夾裡保存的登入。`,
+    signInMany: '（CLI 會用它最先讀到的那一個。）',
+    signInNone: '預設帳號沒有用啟動環境裡的變數登入。',
+    withheld: '有設定、但不會傳給它的金鑰：',
+    withheldNone: '沒有別家的金鑰被擋下。',
+    pass: '仍然傳給它的變數：',
+    passNone: '沒有。',
+    passOn: '傳給它',
+    passOnLabel: (name: string) => `把 ${name} 傳給它`,
+    stopPassing: (name: string) => `不再傳 ${name}`,
+    addLabel: '要傳給它的變數名稱',
+    add: '加入',
+    passHint:
+      '只有 agent 真的需要時才加，例如專案的測試要呼叫 OpenAI。加了之後，它執行的每個指令和 MCP server 都讀得到這個金鑰。這份清單適用於這個 CLI 的每個帳號；其他帳號仍然拿不到啟動環境裡它自己的登入變數。',
+    errors: {
+      name: '變數名稱只能用英文字母、數字和底線，而且不能以數字開頭。',
+      twice: '這個變數已經在清單裡了。',
+      full: (max: number) => `每個 CLI 最多 ${max} 個。`,
+    },
+    sep: '、',
+    notice: {
+      title: '別家的金鑰不再傳給每個 CLI',
+      body: '從這個版本起，啟動 Harness Relay 的環境裡別家模型供應商的金鑰，只會傳給它自己的 CLI。下面這些現在沒有傳出去：',
+      item: (cli: string, names: string) => `${cli}：${names}`,
+      hint: '如果某個 agent 需要其中一個（例如專案的測試要呼叫 OpenAI），可以到「設定與登入」那個 CLI 的卡片，在「環境變數」把它加回去。這個提示只會出現一次。',
+      open: '開啟設定',
+      ok: '知道了',
+    },
+  },
+
   update: {
     title: '有新版本可以更新',
     body: (version: string, current: string) => `Harness Relay ${version} 已經推出（你目前用的是 ${current}）。`,

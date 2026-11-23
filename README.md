@@ -120,6 +120,7 @@ Agents can change your files and run commands, so Harness Relay keeps them withi
 - **Places agents cannot reach**: below full access, your browsers' folders and Harness Relay's database; and edit mode is refused in a folder that holds Harness Relay itself, your home folder or a CLI's own folder. ([What agents may not read or write](docs/sandboxing.md#what-agents-may-not-read-or-write))
 - **Only your browsers**: the server binds to `127.0.0.1`, rejects cross-site requests and takes only browsers you signed in. Share it only with your tailnet, through `tailscale serve`. ([Architecture → Security](docs/architecture.md#security), [Use it from your phone → Security](docs/remote-access.md#security))
 - **Keys in your credential store**: API keys and MCP servers' secret values go to the macOS Keychain, Windows Credential Manager or the Secret Service on Linux; on a system without one, into the database, encrypted. ([API keys](docs/user-guide.md#api-keys-optional))
+- **Each CLI only its own model keys**: a model provider's key in the environment Harness Relay was started with goes only to that provider's CLI, unless you pass it on from the CLI's card. ([Environment variables](docs/user-guide.md#environment-variables))
 
 ## Scripts
 

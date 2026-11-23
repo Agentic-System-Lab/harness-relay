@@ -49,11 +49,13 @@ export const API_BACKEND_HOST: Record<ApiBackend, string> = {
  * model provider's key, a sign-in, or another address for one: taken out of the open agents'
  * environment, which gets only the run's own backend (`BackendRun.env`). The well-known model APIs'
  * keys and base URLs; what else the shell holds (`PATH`, `HOME`, `GITHUB_TOKEN`, `AWS_*`, an SSH agent)
- * still reaches the agent, as it does the other CLIs.
+ * still reaches the agent, as it does the other CLIs. Those CLIs lose the keys among these that are
+ * not their own (`MODEL_KEY_VARS` in `agentEnv.ts`), but not the addresses.
  */
 export const INHERITED_BACKEND_VARS = [
-  // The three backends of Settings.
+  // The three backends of Settings (and Codex's own key for OpenAI's).
   'OPENAI_API_KEY',
+  'CODEX_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_ORG_ID',

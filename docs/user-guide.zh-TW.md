@@ -215,6 +215,19 @@ CLI 完成後，面板會變成綠色的 **登入成功 ✓**。若出了問題�
 
 Claude Code、Grok、Cursor、Antigravity 與 Muse Code 的金鑰，以及 Copilot 的 token，由 Harness Relay 存放在系統的金鑰儲存區，名稱為 `harness-relay`（[桌面 app](#桌面-app) 則是 `harness-relay-desktop`）：macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 Secret Service（GNOME Keyring、KWallet）。卡片上會寫出存放位置。在沒有這類儲存區的系統（例如沒有桌面環境的 Linux 伺服器）上，金鑰會改存在資料庫，並以 Harness Relay 為此產生、存在 `data/secrets.key`（[桌面 app](#桌面-app) 則在它自己的資料夾）的金鑰加密，這個檔案只有你的帳號能讀取（設定 `RELAY_SECRETS_KEY_FILE` 可以把這把金鑰放在別處，例如 systemd credential；可用 `openssl rand -base64 32` 產生）。只拿到資料庫、沒有這個檔案，就得不到任何金鑰；這個檔案遺失的話，金鑰得重新設定。若完全不想存在磁碟上，可以不填這個欄位，改在啟動 Harness Relay 前設定環境變數 `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `CURSOR_API_KEY` / `GEMINI_API_KEY` / `COPILOT_GITHUB_TOKEN` / `META_API_KEY`。如果你在 macOS 上使用開源 agent，請不要這樣做：在那裡，它們執行的指令讀得到上層每個程序啟動時的環境變數，包括 Harness Relay 的伺服器與啟動它的 shell（見[檔案權限](#對話規則)）。舊版以原文存在資料庫裡的金鑰，會在伺服器下次啟動時搬進金鑰儲存區，或改為加密。macOS 可能會詢問是否允許 `node` 使用這把金鑰（例如更新 Node.js 之後），請選 **永遠允許**。
 
+### 環境變數
+
+Harness Relay 會把啟動它的環境（shell 裡 export 的變數、codespace 的 secrets）傳給它啟動的每個 CLI，CLI 再傳給它執行的每個指令和 MCP server。其中別家模型供應商的金鑰，只會傳給那家自己的 CLI：Claude Code 拿不到你的 `OPENAI_API_KEY`，Codex 拿不到你的 `ANTHROPIC_API_KEY`，`HF_TOKEN` 和 `MISTRAL_API_KEY` 則哪個 CLI 都拿不到，所以 agent 執行的指令讀不到不屬於它那個 CLI 的金鑰。在這之前每個 CLI 都拿得到全部：更新之後，agent 需要哪一個，就再把它傳過去。
+
+- **每個 CLI 保留的**：它自己的登入與金鑰。Claude Code 是 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`CLAUDE_CODE_OAUTH_TOKEN` 與 `AWS_BEARER_TOKEN_BEDROCK`；Codex 是 `CODEX_API_KEY`、`OPENAI_API_KEY`，以及它的 `config.toml` 替模型供應商指定的金鑰（`env_key`）；Grok 是 `XAI_API_KEY`；Cursor 是 `CURSOR_API_KEY` 與 `CURSOR_AUTH_TOKEN`；Antigravity 是 `GEMINI_API_KEY` 與 `GOOGLE_API_KEY`；Copilot 是 `COPILOT_GITHUB_TOKEN` 與它自己的模型供應商的金鑰（`COPILOT_PROVIDER_API_KEY`、`COPILOT_PROVIDER_BEARER_TOKEN`）；Muse Code 是 `META_API_KEY`。
+- **每個 CLI 照樣拿到的**：所有不是模型供應商金鑰的東西。GitHub 的 token（`GH_TOKEN`、`GITHUB_TOKEN`）、雲端的憑證（`AWS_*`）、你的 SSH agent、`PATH`，以及網址類的變數，例如 `OPENAI_BASE_URL`、`ANTHROPIC_BASE_URL` 或 `OLLAMA_HOST`。只有常見模型供應商的金鑰會被擋下。
+- **查看**：每個 CLI 的卡片都有 **環境變數**。它會說明預設帳號用啟動環境裡它自己的哪個登入變數登入（這些變數優先於它資料夾裡保存的登入，所以這才是你的 agent 實際使用的帳號），以及哪些金鑰沒有傳給它。只列名稱，從不顯示值。
+- **把金鑰傳過去**：按金鑰旁的 **傳給它**，或輸入變數名稱後按 **加入**。之後這個 CLI 的執行（它的每個帳號）都會拿到它（它的[其他帳號](#多個帳號)仍然拿不到啟動環境裡它自己的登入變數），它們啟動的每個指令和 MCP server 也拿得到。按 **×** 就不再傳。每個 CLI 最多 32 個名稱。
+- **更新之後**：有已安裝的 CLI 拿不到某個金鑰時，第一次開啟 **新對話** 會跳出提示列出它們，只出現一次，並附上前往設定的連結。
+- 開源 agent 不受影響：它們本來就拿不到啟動環境裡的金鑰，只拿到[模型連線](#模型連線)裡這次執行自己的那一把。
+
+要再傳過去的例子：專案的測試會呼叫 OpenAI 時，把 `OPENAI_API_KEY` 傳給 Claude Code；有腳本要從 Hugging Face 下載需要授權的模型時，把 `HF_TOKEN` 傳給執行它的 CLI；你在 CLI 自己的設定裡加的 MCP server 從環境讀金鑰時（例如 `PERPLEXITY_API_KEY`），把那個金鑰傳過去（更好的做法是把這個 server 加進[工具庫](#工具庫mcp-伺服器skill-與記憶)，它會保管金鑰，而且只交給那個 server）。指令因為缺金鑰而失敗時，不會說金鑰是被擋下的，agent 可能會往別的方向找問題：卡片上會寫每個 CLI 拿不到哪些。
+
 <a id="開源-agent-與模型來源"></a>
 <a id="開源-agent-與自定義模型"></a>
 <a id="開源-agent-的-api-key-與端點"></a>

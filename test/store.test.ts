@@ -1765,27 +1765,17 @@ describe('SettingsStore accounts', () => {
             .map((k) => [k, env[k]])
             .filter(([, v]) => v !== undefined),
         );
-      // The default accounts keep what the server was started with.
-      expect(pick(s.env('claude'))).toEqual(inherited);
+      // The default accounts keep the credentials the server was started with that are their own
+      // (another provider's keys are withheld from every account: test/agent-env.test.ts).
+      expect(pick(s.env('claude'))).toEqual({
+        ANTHROPIC_API_KEY: 'sk-ant-shell',
+        ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
+        CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
+      });
+      expect(pick(s.env('codex'))).toEqual({ CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell' });
       // The others: nothing that would sign them in as someone else, only their own key.
       const others = (['claude', 'codex', 'grok'] as const).map((p) => [p, pick(s.env(p, ids[p]))]);
-      expect(Object.fromEntries(others)).toEqual({
-        claude: { CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-shell' },
-        codex: {
-          ANTHROPIC_API_KEY: 'sk-ant-shell',
-          ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
-          CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
-          XAI_API_KEY: 'xai-shell',
-        },
-        grok: {
-          ANTHROPIC_API_KEY: 'sk-ant-shell',
-          ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
-          CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
-          CODEX_API_KEY: 'codex-shell',
-          OPENAI_API_KEY: 'sk-openai-shell',
-          XAI_API_KEY: 'xai-own-key',
-        },
-      });
+      expect(Object.fromEntries(others)).toEqual({ claude: {}, codex: {}, grok: { XAI_API_KEY: 'xai-own-key' } });
     } finally {
       vi.unstubAllEnvs();
     }

@@ -1065,6 +1065,8 @@ export function createApp({
   app.put('/api/settings/providers/:provider', async (c) => {
     const p = provider(c);
     const b = validateProviderUpdate(await body<unknown>(c));
+    // An open agent gets no key of the server's environment to pass on (only its run's backend's).
+    if (b.passEnv !== undefined && isOpenProvider(p)) throw new HttpError(400, t().passEnvOpenAgent(PROVIDER_LABEL[p]));
     if (b.apiKey !== undefined && b.apiKey !== null && p === 'codex') {
       // Codex keeps its own credentials.
       await providers.codexApiKeyLogin(b.apiKey);

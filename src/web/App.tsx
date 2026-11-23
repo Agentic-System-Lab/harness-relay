@@ -6,7 +6,9 @@ import type {
   GitRequirement,
   InboxSummary,
   ProviderModels,
+  Provider,
   ProviderStatus,
+  SettingsView,
   UpdateStatus,
 } from '../shared/types';
 import { GIT_INSTALL_EVENT, SIGNED_OUT_EVENT, api } from './api';
@@ -43,6 +45,7 @@ import { EMPTY_INBOX, readOnView, sameSummary } from './inbox';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
+import { readNoticeSeen, showNotice, withheldByCli, writeNoticeSeen } from './agentEnv';
 import { useSandboxSetup } from './useSandboxSetup';
 import {
   AFTER_UPDATE_MS,
@@ -63,6 +66,7 @@ import { pendingTour } from './tour';
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
+const WithheldEnvDialog = lazyPart(() => import('./components/WithheldEnvDialog').then((m) => m.WithheldEnvDialog));
 const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
 type SeenMap = Record<string, number>;
@@ -527,6 +531,61 @@ function RelayApp() {
       setSandboxOpen(true);
   }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
 
+  // The keys of the server's environment some CLI is no longer given, said once in this browser as
+  // New chat opens (src/web/agentEnv.ts), after the sandboxes' dialog; Settings keeps them.
+  const [envSeen, setEnvSeen] = useState(readNoticeSeen);
+  const [envView, setEnvView] = useState<SettingsView>();
+  const [envOpen, setEnvOpen] = useState(false);
+  const installedCli = (p: Provider) => providers.some((s) => s.provider === p && s.installed);
+  useEffect(() => {
+    if (route.page !== 'new' || envSeen || envView) return;
+    let live = true;
+    api.getSettings().then(
+      (v) => live && setEnvView(v),
+      () => {
+        /* asked again the next time New chat opens */
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [route.page, envSeen, envView]);
+  useEffect(() => {
+    if (
+      route.page === 'new' &&
+      !envOpen &&
+      !sandboxOpen &&
+      !askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed) &&
+      !tourOpen &&
+      !offer &&
+      dialogs === 0 &&
+      !typing &&
+      !held &&
+      showNotice(envView, envSeen, installedCli)
+    )
+      setEnvOpen(true);
+  }, [
+    route.page,
+    envView,
+    envSeen,
+    envOpen,
+    sandboxOpen,
+    sandbox.view,
+    sandboxAsked,
+    sandboxClosed,
+    tourOpen,
+    offer,
+    dialogs,
+    typing,
+    held,
+    providers,
+  ]);
+  const closeEnv = () => {
+    writeNoticeSeen();
+    setEnvSeen(true);
+    setEnvOpen(false);
+  };
+
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
@@ -672,6 +731,11 @@ function RelayApp() {
               setSandboxOpen(false);
             }}
           />
+        </Deferred>
+      )}
+      {envOpen && envView && (
+        <Deferred onClose={closeEnv}>
+          <WithheldEnvDialog items={withheldByCli(envView, installedCli)} onClose={closeEnv} />
         </Deferred>
       )}
       {offer && update?.available && (

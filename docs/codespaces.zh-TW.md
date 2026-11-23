@@ -62,7 +62,7 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型連線**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。和每個模型供應商的金鑰一樣，它們都只會傳給自己的 CLI（見[使用者說明 → 環境變數](user-guide.zh-TW.md#環境變數)）。這個 repo 的其他 Codespaces secret（例如 `NPM_TOKEN`）會以環境變數傳給每個 CLI，也就傳給 agent 在那裡執行的每個指令，不論權限為何（Codespaces 存放它們的檔案 agent 讀不到，但變數讀得到）：只給 codespace agent 可以用的 secret。開源 agent 只用「**設定 → 模型連線**」裡設定的 key。
 
 ## 在你自己的電腦上
 

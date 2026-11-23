@@ -120,6 +120,7 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 - **agent 碰不到的地方**：完全存取以外，碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；在含有 Harness Relay 本身、你的家目錄或某個 CLI 自己資料夾的目錄中，不能使用可編輯模式。（[agent 不能讀寫的地方](docs/sandboxing.zh-TW.md#agent-不能讀寫的地方)）
 - **只接受你的瀏覽器**：伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器。只透過 `tailscale serve` 分享到你的 tailnet。（[架構 → 安全性](docs/architecture.zh-TW.md#安全性)、[用手機連線 → 安全性](docs/remote-access.zh-TW.md#安全性)）
 - **金鑰存在系統的金鑰儲存區**：API key 與 MCP 伺服器的機密值存在 macOS 鑰匙圈、Windows 認證管理員或 Linux 的 Secret Service；沒有這類儲存區的系統，才加密後存在資料庫。（[API key](docs/user-guide.zh-TW.md#api-key選用)）
+- **每個 CLI 只拿到自己的模型金鑰**：啟動 Harness Relay 的環境裡模型供應商的金鑰，只會傳給那家的 CLI，除非你在那個 CLI 的卡片上把它傳過去。（[環境變數](docs/user-guide.zh-TW.md#環境變數)）
 
 ## 指令
 

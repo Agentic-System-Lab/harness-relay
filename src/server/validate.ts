@@ -82,6 +82,7 @@ import {
 } from '../shared/types';
 import { filePattern, mailFolder, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
+import { MAX_PASS_ENV, passEnvList } from './agentEnv';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 import { apiPort } from './ports';
@@ -415,6 +416,13 @@ export function validateProviderUpdate(input: unknown): ProviderSettingsUpdate {
   if (u.sandboxTerminal !== undefined) {
     if (typeof u.sandboxTerminal !== 'boolean') bad(t().invalidField('sandboxTerminal'));
     out.sandboxTerminal = u.sandboxTerminal;
+  }
+  if (u.passEnv !== undefined) {
+    const list = passEnvList(u.passEnv);
+    if (!list) bad(t().invalidField('passEnv'));
+    if ('bad' in list) bad(t().badEnvName(list.bad));
+    if ('tooMany' in list) bad(t().tooManyEnvNames(MAX_PASS_ENV));
+    out.passEnv = list.names;
   }
   return out;
 }

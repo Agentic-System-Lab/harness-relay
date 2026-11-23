@@ -1068,6 +1068,42 @@ describe('settings', () => {
     expect((await account({ defaultModel: '', defaultEffort: '', nativeOff: [], nativeItems: {}, nativeOn: [] })).status).toBe(200);
   });
 
+  it("names another provider's keys a CLI is not given, never their values, and passes on those the user lists", async () => {
+    for (const k of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'XAI_API_KEY', 'HF_TOKEN', 'GEMINI_API_KEY', 'MISTRAL_API_KEY']) vi.stubEnv(k, '');
+    vi.stubEnv('OPENAI_API_KEY', 'sk-openai-value-in-the-shell');
+    vi.stubEnv('HF_TOKEN', 'hf-value-in-the-shell');
+    try {
+      const claude = (body: unknown) => app.request('/api/settings/providers/claude', json('PUT', body));
+      const envOf = (v: SettingsView, p: string) => v.providers.find((x) => x.provider === p)!.environment;
+      const read = await (await app.request('/api/settings', { headers: HOST })).text();
+      expect(read).not.toMatch(/value-in-the-shell/);
+      const view = JSON.parse(read) as SettingsView;
+      expect(envOf(view, 'claude')!.withheld).toEqual(expect.arrayContaining(['OPENAI_API_KEY', 'HF_TOKEN']));
+      expect(envOf(view, 'codex')!.withheld).not.toContain('OPENAI_API_KEY');
+      expect(envOf(view, 'opencode')).toBeUndefined();
+
+      for (const bad of ['OPENAI_API_KEY', ['1BAD'], ['A B'], [7], null, Array.from({ length: 33 }, (_, i) => `V${i}`)]) {
+        expect((await claude({ passEnv: bad })).status, JSON.stringify(bad)).toBe(400);
+      }
+      const refused = await claude({ passEnv: ['A-B'] });
+      expect(((await refused.json()) as { error: string }).error).toMatch(/A-B/);
+      // An open agent has nothing of the server's to pass on.
+      expect((await app.request('/api/settings/providers/opencode', json('PUT', { passEnv: ['HF_TOKEN'] }))).status).toBe(400);
+
+      const passed = await claude({ passEnv: [' HF_TOKEN ', 'HF_TOKEN', 'NOT_SET'] });
+      expect(passed.status).toBe(200);
+      const after = (await passed.json()) as SettingsView;
+      expect(envOf(after, 'claude')!.pass).toEqual(['HF_TOKEN', 'NOT_SET']);
+      expect(envOf(after, 'claude')!.withheld).toContain('OPENAI_API_KEY');
+      expect(envOf(after, 'claude')!.withheld).not.toContain('HF_TOKEN');
+      // Another CLI still does not get it (what each run is given: test/agent-env.test.ts).
+      expect(envOf(after, 'grok')!.withheld).toContain('HF_TOKEN');
+      expect(envOf((await (await claude({ passEnv: [] })).json()) as SettingsView, 'claude')!.withheld).toContain('HF_TOKEN');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("sets the CLIs' own folder: created when missing, never the home folder itself", async () => {
     const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
     const home = join(project, 'relay-agents');

@@ -10062,6 +10062,41 @@ a.share-action {
   margin-left: auto;
 }
 
+/* The notice New chat shows once when some CLI is not given a key of the server's environment. */
+.withheld-env-list {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.withheld-env-open {
+  text-decoration: none;
+}
+
+/* Settings → a CLI's card → Environment variables: each variable's name, with what to do with it. */
+.env-names {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.env-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 4px 2px 8px;
+}
+
+.env-name code {
+  overflow-wrap: anywhere;
+}
+
 /* The notification inbox (the bell beside the sidebar's collapse button): the team's notifications,
    the newest first, each a link to its chat. */
 .modal.inbox-dialog {

@@ -372,6 +372,7 @@
             <li><b>Muse Code</b>：Meta API key。</li>
           </ul>
           <p>Harness Relay 把其他金鑰存在系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 keyring），畫面上只會顯示遮蔽過的內容。</p>
+          <p>你在啟動 Harness Relay 的 shell 裡 export 的金鑰，只會傳給它自己的 CLI：Claude Code 拿不到你的 <code>OPENAI_API_KEY</code>，<code>HF_TOKEN</code> 則哪個 CLI 都拿不到。agent 需要時（例如專案的測試要呼叫 OpenAI），到那個 CLI 卡片的<b>環境變數</b>把它傳過去，那裡也會列出它拿不到的金鑰。</p>
         </section>
 
         <section id="open-agents" aria-labelledby="open-agents-title">

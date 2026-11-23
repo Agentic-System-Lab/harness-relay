@@ -39,6 +39,7 @@ const DIRECTIVES = {
   mermaid: 'answer with a Mermaid diagram (a ```mermaid code block)',
   widecode: 'answer with a code block of one line far wider than a phone, which scrolls sideways',
   memory: "say the tool library's memory notes its briefing holds",
+  env: 'say whether each variable named (`=NAME,OTHER`) is set in its environment, never its value',
   remember:
     'end the reply with a <remember> block saving what the user said (without the directives) as a long-term memory note for every conversation',
   recall: 'say the long-term memory notes its turn was given: the pinned ones its briefing loads and those its prompt recalls',
@@ -429,6 +430,10 @@ function plan(prompt, turn) {
     text += notes.length ? ` My long-term memory: ${notes.map((n) => `“${n}”`).join(', ')}.` : ' I have no long-term memory notes.';
   }
   if (d.skills) text += readSkills(turn);
+  if (typeof d.env === 'string') {
+    const names = d.env.split(',').filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+    text += ` My environment: ${names.map((k) => `${k} is ${process.env[k] ? 'set' : 'not set'}`).join(', ')}.`;
+  }
   if (d.long) text += Array.from({ length: 40 }, (_, i) => `\n\nPadding paragraph ${i + 1} of a long reply.`).join('');
   if (d.markdown) {
     text +=
