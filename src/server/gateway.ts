@@ -8,6 +8,7 @@ import {
   OPEN_PROVIDERS,
   type ApprovalAnswer,
   type GatewayTier,
+  type HandoverPart,
   type OutboxItem,
   type OutboxPreview,
   type Lang,
@@ -62,6 +63,12 @@ export interface GatewayContext {
   /** Puts a `send` call in the outbox, for the user to send; returns the item (an equal one waiting is returned instead). */
   toOutbox?: (item: Pick<OutboxItem, 'tool' | 'title' | 'preview'> & { args: Record<string, unknown> }) => OutboxItem;
   /**
+   * Shows the card of a hand-over of the chat's browser in the reply (`browser_hand_over`), and keeps it
+   * up to date as the hand-over goes; the conversation waits for the user meanwhile. Undefined where nobody
+   * may be asked (as `ask`, and in a run nobody may be watching).
+   */
+  handoverCard?: (part: HandoverPart) => { update(change: Partial<HandoverPart>): void };
+  /**
    * Counts tokens a tool spent itself for the turn (RLM's sub-model, `llm_query()`), which go into the
    * turn's reply with the CLI's own (`withSubModelTokens()` in `runCode.ts`).
    */
@@ -92,9 +99,10 @@ export interface GatewayTool {
   prepare?(args: Record<string, unknown>, ctx: GatewayContext): PreparedOutboxCall | Promise<PreparedOutboxCall>;
   /**
    * `read` and `act`: what the call does now. A `scoped` tool is given `scope`: the turn's other tools,
-   * which it may call as the turn would.
+   * which it may call as the turn would. `gone`: whether the CLI stopped waiting for the call (its
+   * connection closed, or it cancelled the call: its own time limit), for a call that waits for the user.
    */
-  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope): Promise<GatewayResult>;
+  run?(args: Record<string, unknown>, ctx: GatewayContext, scope?: GatewayScope, gone?: () => boolean): Promise<GatewayResult>;
   /**
    * It calls the turn's other tools (`run_code`, `runCode.ts`), through the `GatewayScope` its `run` is
    * given. Never one of the tools in a scope, so it cannot call itself or another such tool.
@@ -105,6 +113,11 @@ export interface GatewayTool {
    * is neither listed nor called. Undefined: always.
    */
   offered?(): boolean;
+  /**
+   * Only the agent may call it, never code through a scoped tool (`run_code`): it hands something to the
+   * user (`browser_hand_over`), whose time no limit of the code's should count.
+   */
+  direct?: boolean;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem, recordProgress?: (result: string) => void): Promise<string>;
   /**
@@ -190,6 +203,14 @@ interface Grant {
   shimFile?: string;
   /** A connection showed its token already (`claimOnce`): no other may. */
   claimed?: boolean;
+  /**
+   * Over HTTP: the JSON-RPC ids of the calls going on (`inflight`), and of those of them the CLI gave up
+   * (MCP's `notifications/cancelled`), so that a call still waiting for the user (a hand-over of the browser)
+   * ends with it. A cancellation for no call going on is dropped, and each goes with its call, so a later
+   * call with the same id (another session on the turn's token) is not taken for it.
+   */
+  inflight?: Set<string>;
+  cancelled?: Set<string>;
 }
 
 /** What a CLI's hook program prints, and the code it exits with (`hookShim.ts`). */
@@ -212,6 +233,22 @@ export interface HookProgram {
   socketDir?: string;
 }
 export type HookProgramMode = 'file' | 'inline';
+
+/**
+ * What answers an interactive command's password helper (`askpassShim.ts`): the line the user typed
+ * for its prompt, or undefined when they refused (or the session is over).
+ */
+export type AskpassHandler = (prompt: string) => Promise<string | undefined>;
+
+/** An interactive command's password helper's grant (`ToolGateway.askpassGrant()`). */
+export interface AskpassGrant {
+  /** Its token, for the file the helper reads it from. */
+  token: string;
+  /** The gateway's socket, and the Node.js to run the helper with. */
+  socketPath: string;
+  node: string;
+  revoke: () => void;
+}
 
 /** A turn's hook grant: its handler, and its program's token file and copy. */
 interface HookGrant {
@@ -280,7 +317,8 @@ function workingFolder(): string | undefined {
 type Request =
   | { id: number; method: 'list' }
   | { id: number; method: 'call'; name?: unknown; arguments?: unknown }
-  | { id: number; method: 'hook'; when?: unknown; payload?: unknown };
+  | { id: number; method: 'hook'; when?: unknown; payload?: unknown }
+  | { id: number; method: 'askpass'; prompt?: unknown };
 
 /** How long a connection may take to show its token. */
 const TOKEN_WAIT_MS = 10_000;
@@ -308,6 +346,8 @@ export class ToolGateway {
   private readonly grants = new Map<string, Grant>();
   /** The turns' hook programs' grants, by token: each program connects once per call, and the token stays. */
   private readonly hookGrants = new Map<string, HookGrant>();
+  /** The interactive commands' password helpers' grants, by token: one a session, for each of its prompts. */
+  private readonly askGrants = new Map<string, AskpassHandler>();
   private readonly tools = new Map<string, GatewayTool>();
   readonly socketPath: string;
   /**
@@ -450,6 +490,7 @@ export class ToolGateway {
     this.httpAt = undefined;
     for (const token of [...this.grants.keys()]) this.revoke(token);
     for (const token of [...this.hookGrants.keys()]) this.revokeHook(token);
+    this.askGrants.clear();
     for (const sock of this.sockets) sock.destroy();
     if (http) {
       http.closeAllConnections();
@@ -577,6 +618,21 @@ export class ToolGateway {
     return { program: { bin: node, args: [shimFile, this.socketPath, tokenFile] }, revoke };
   }
 
+  /**
+   * A grant for one interactive command's password helper (`askpassShim.ts`, `src/server/interactive.ts`):
+   * a token for that session alone, serving each run of the helper (one connection, one prompt each)
+   * until `revoke`, its prompts answered by `ask`. Its program and token's file are the session's own
+   * to write. Undefined when it cannot be given now (not listening, no Node.js to start it with).
+   */
+  askpassGrant(ask: AskpassHandler): AskpassGrant | undefined {
+    const node = this.node();
+    if (!this.server || !node || this.platform === 'win32') return undefined;
+    const token = randomBytes(32).toString('base64url');
+    const lang = currentLang();
+    this.askGrants.set(token, (prompt) => withLang(lang, () => ask(prompt)));
+    return { token, socketPath: this.socketPath, node, revoke: () => void this.askGrants.delete(token) };
+  }
+
   private revokeHook(token: string): void {
     const grant = this.hookGrants.get(token);
     if (!grant) return;
@@ -603,9 +659,16 @@ export class ToolGateway {
     let buffer = '';
     let grant: Grant | undefined;
     let hookToken: string | undefined;
+    let askToken: string | undefined;
     let hookAsked = false;
     let authed = false;
     let taken = false;
+    /**
+     * The calls going on, and those of them the CLI gave up, as the program passes MCP's
+     * `notifications/cancelled` on (`cancel`): kept only for a call going on, and until it ends.
+     */
+    const inflight = new Set<number>();
+    const cancelled = new Set<number>();
     const reply = (msg: unknown) => {
       if (!sock.destroyed) sock.write(JSON.stringify(msg) + '\n');
     };
@@ -647,6 +710,8 @@ export class ToolGateway {
           if (grant?.http) grant = undefined;
           // A hook program's: its token serves each call's own connection.
           if (!grant && typeof token === 'string' && this.hookGrants.has(token)) hookToken = token;
+          // An interactive command's password helper's: one prompt on each connection, as a hook's call.
+          if (!grant && !hookToken && typeof token === 'string' && this.askGrants.has(token)) askToken = token;
           authed = true;
           clearTimeout(hello);
           if (grant && this.claimOnce) {
@@ -659,7 +724,7 @@ export class ToolGateway {
               if (grant.tokenFile) rmSync(grant.tokenFile, { force: true });
             }
           }
-          if (grant || hookToken) {
+          if (grant || hookToken || askToken) {
             this.pending.delete(sock);
             if (this.sockets.size - this.pending.size > MAX_CONNECTIONS) return sock.destroy();
           } else {
@@ -669,8 +734,33 @@ export class ToolGateway {
           }
           continue;
         }
+        // The CLI gave up a call (its own time limit): a call still waiting for the user ends.
+        const cancel = msg as { method?: unknown; target?: unknown };
+        if (grant && cancel?.method === 'cancel' && typeof cancel.target === 'number') {
+          if (inflight.has(cancel.target)) cancelled.add(cancel.target);
+          continue;
+        }
         const req = msg as Request;
         if (typeof req?.id !== 'number') continue;
+        if (askToken) {
+          if (hookAsked) return;
+          hookAsked = true;
+          // Looked up again: a session that ended takes its helper with it.
+          const ask = this.askGrants.get(askToken);
+          const finish = (message: unknown) => {
+            reply(message);
+            sock.end();
+          };
+          if (!ask || req.method !== 'askpass' || typeof req.prompt !== 'string') {
+            finish({ id: req.id, error: ask ? 'Unknown request' : 'This command is over: Harness Relay asks nothing for it any more' });
+            continue;
+          }
+          void ask(req.prompt).then(
+            (line) => finish(line === undefined ? { id: req.id, error: 'Refused' } : { id: req.id, result: { line } }),
+            (err: Error) => finish({ id: req.id, error: err.message }),
+          );
+          continue;
+        }
         if (hookToken) {
           // Each invocation makes one call on its own connection.
           if (hookAsked) return;
@@ -702,10 +792,16 @@ export class ToolGateway {
           });
           return void sock.end();
         }
-        void this.handle(live, req, () => sock.destroyed).then(
-          (result) => reply({ id: req.id, result }),
-          (err: Error) => reply({ id: req.id, error: err.message }),
-        );
+        inflight.add(req.id);
+        void this.handle(live, req, () => sock.destroyed || cancelled.has(req.id))
+          .then(
+            (result) => reply({ id: req.id, result }),
+            (err: Error) => reply({ id: req.id, error: err.message }),
+          )
+          .finally(() => {
+            inflight.delete(req.id);
+            cancelled.delete(req.id);
+          });
       }
     });
   }
@@ -742,7 +838,7 @@ export class ToolGateway {
    * as the turn's own (`call()`), its approval card saying that code asked; nothing once the turn is over.
    */
   private scopeOf(grant: Grant, gone?: () => boolean): GatewayScope {
-    const tools = this.toolsFor(grant).filter((t) => !t.scoped);
+    const tools = this.toolsFor(grant).filter((t) => !t.scoped && !t.direct);
     return {
       tools,
       gone: () => Boolean(gone?.()),
@@ -850,6 +946,12 @@ export class ToolGateway {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
       return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
     const { id, method, params } = raw as { id?: unknown; method?: unknown; params?: Record<string, unknown> };
+    // The client gave up a call (its own time limit): a call still waiting for the user ends with it.
+    if (method === 'notifications/cancelled' && params && (typeof params.requestId === 'string' || typeof params.requestId === 'number')) {
+      const key = JSON.stringify(params.requestId);
+      if (grant.inflight?.has(key)) (grant.cancelled ??= new Set()).add(key);
+      return undefined;
+    }
     // A notification, or the client's answer to something: nothing to say.
     if (id === undefined || id === null || typeof method !== 'string') return undefined;
     const ok = (result: unknown) => ({ jsonrpc: '2.0', id, result });
@@ -871,7 +973,15 @@ export class ToolGateway {
       if (method === 'tools/list') return ok(await this.handle(grant, { id: 0, method: 'list' }));
       if (method === 'tools/call') {
         const args = params?.arguments;
-        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }, gone));
+        const key = JSON.stringify(id);
+        const callGone = () => Boolean(gone?.()) || Boolean(grant.cancelled?.has(key));
+        (grant.inflight ??= new Set()).add(key);
+        try {
+          return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }, callGone));
+        } finally {
+          grant.inflight.delete(key);
+          grant.cancelled?.delete(key);
+        }
       }
     } catch (err) {
       return ok({ content: [{ type: 'text', text: (err as Error).message }], isError: true });
@@ -950,7 +1060,7 @@ export class ToolGateway {
     }
     if (ctx.signal.aborted) return { text: 'The turn ended.', isError: true };
     try {
-      return await tool.run!(args, ctx, o.scope);
+      return await tool.run!(args, ctx, o.scope, gone);
     } catch (err) {
       return { text: `${tool.name} failed: ${(err as Error).message}`, isError: true };
     }

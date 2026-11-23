@@ -7,19 +7,22 @@ import { approvalKeys } from '../approvals';
 import { CONFIG } from '../config';
 import { t, withLang } from '../i18n';
 import { attachmentsDir } from '../attachments';
-import type { GatewayContext } from '../gateway';
+import { dataLine, type GatewayContext } from '../gateway';
 import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
 import { relayBrowserDir } from '../protect';
 import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
+import { HANDOVER_LIMITS, type HandoverInput, type HandoverMode, type HandoverWindowAt } from '../../shared/types';
 import { CdpConnection } from './cdp';
+import { HANDOVER_UNASKED, Handovers, cardUrl, handoverOutcome, inputCalls, type HandoverTicket, type HandoverWake } from './handover';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
 /*
  * The browser tools' browser: a Chromium (or Chrome, or Edge) of Harness Relay's own, one per
- * conversation, started through `process.ts` so it is tracked and killed on shutdown, headless, with a
- * profile of its own in the data folder (`browser/<conversation>`, removed with the conversation),
- * never the user's. It is driven over its debugging pipe (`cdp.ts`): no port is opened.
+ * conversation, started through `process.ts` so it is tracked and killed on shutdown, headless (but for a
+ * hand-over's window, `handover.ts`: the same arguments without `--headless=new`), with a profile of its
+ * own in the data folder (`browser/<conversation>`, removed with the conversation), never the user's. It
+ * is driven over its debugging pipe (`cdp.ts`): no port is opened.
  *
  * What it may open: only http and https (and the blank page), never Harness Relay's own ports on this
  * computer nor the link-local and cloud metadata addresses, also by a host name that leads to one (its
@@ -292,6 +295,15 @@ export interface BrowserServiceOptions {
   answerMs?: number;
   /** A host name's addresses (tests give their own; else the system's lookup). */
   lookUp?: (host: string) => Promise<string[]>;
+  /** Where a hand-over's window opens, or undefined when this computer cannot show one (`handoverWindowAt()`). */
+  windowAt?: () => HandoverWindowAt | undefined;
+  /** How long the user has to start a hand-over, then to hand it back (`HANDOVER_LIMITS`; tests give shorter ones). */
+  handoverMs?: { start: number; use: number };
+  /**
+   * Tests only: a hand-over's window started headless, with the window's rules (its own tabs closed, the
+   * browser's own pages sent back), so that they run where no window may open.
+   */
+  windowHeadless?: boolean;
 }
 
 /** One conversation's browser. */
@@ -324,8 +336,6 @@ class BrowserSession {
   readonly refused = new Set<string>();
   /** Windows the page opened during the current call, closed: their addresses, when known. */
   popups: string[] = [];
-  /** The calls in turn: each starts once the one before it ended. */
-  queue: Promise<unknown> = Promise.resolve();
   /** The world the latest snapshot ran in, which holds its elements; gone once the page changes. */
   refsWorld?: number;
   /** The number the next snapshot's first element gets. */
@@ -334,6 +344,17 @@ class BrowserSession {
   refs = new Map<number, PageRef>();
   /** The conversation it is the browser of. */
   convId = '';
+  /** It runs with a window, for a hand-over (`handover.ts`): a tab the user opens is closed too. */
+  windowed = false;
+  /** Its window shows on a screen (not a test's headless one): a page's alerts and questions are the person's to answer there. */
+  visible = false;
+  /** It was stopped (or its process ended): nothing starts its idle time again. */
+  stopped = false;
+  /** During a hand-over's screencast: told of a window the page opened (closed), and of a page refused. */
+  onPopup?: (url: string) => void;
+  onRefused?: (r: Refusal) => void;
+  /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
+  resume?: string;
 
   constructor(
     readonly cdp: CdpConnection,
@@ -352,7 +373,7 @@ class BrowserSession {
   /** Starts counting the idle time again (`idleMs`), unless something holds the browser. */
   touch(): void {
     clearTimeout(this.timer);
-    if (this.holds > 0) return;
+    if (this.holds > 0 || this.stopped) return;
     this.timer = setTimeout(() => this.stop(), this.idleMs);
     this.timer.unref();
   }
@@ -418,19 +439,165 @@ export function browserEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * folder of the user's own browser, which Harness Relay's must never write in. On macOS and Windows
  * they go in the profile already.
  */
-export function launchEnv(env: NodeJS.ProcessEnv, profile: string, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+export function launchEnv(
+  env: NodeJS.ProcessEnv,
+  profile: string,
+  platform: NodeJS.Platform = process.platform,
+  o: { window?: boolean } = {},
+): NodeJS.ProcessEnv {
   const out = browserEnv(env);
   if (platform === 'win32' || platform === 'darwin') return out;
-  return { ...out, XDG_CONFIG_HOME: join(profile, 'config'), XDG_CACHE_HOME: join(profile, 'cache') };
+  // A window (a hand-over, `handover.ts`) needs the display the server's session has, and nothing more of it.
+  const display = o.window
+    ? Object.fromEntries(['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY'].flatMap((k) => (env[k] ? [[k, env[k]]] : [])))
+    : {};
+  return { ...out, ...display, XDG_CONFIG_HOME: join(profile, 'config'), XDG_CACHE_HOME: join(profile, 'cache') };
 }
 
 /**
- * The profile's preferences with Chromium's page preloading off (`network_prediction_options` 2,
- * "never"): no prefetch or prerender, which speculation rules and `<link rel=prefetch>` ask of the
- * browser itself, outside the page. They would go through the proxy all the same; this makes no
- * request at all.
+ * What a conversation's browser starts with: the arguments it always has, and with `window` (a
+ * hand-over, `handover.ts`) the same but `--headless=new`, so that the same profile opens in a window
+ * on the computer Harness Relay runs on; everything through its proxy all the same, this computer's
+ * addresses too, and no UDP of WebRTC's own around it. It opens the blank page: a page is opened over
+ * the debugging pipe once the gate holds every request (`launch()`).
+ *
+ * The debugging pipe makes Chromium tell every page it is automated (`navigator.webdriver`), which is
+ * true of the agents' browser. With `person` (a person drives it: a hand-over's window) it does not: a
+ * page that sees it (reCAPTCHA, a site's sign-in) may keep refusing whoever answers its challenges.
  */
-function noPreloading(profile: string): void {
+export function launchArgs(o: {
+  profile: string;
+  proxyPort: number;
+  window?: boolean;
+  /** A person drives it, never an agent: pages are not told it is automated. */
+  person?: boolean;
+  platform?: NodeJS.Platform;
+  /** The server runs as root (a container, say), where Chromium's own sandbox cannot start. */
+  root?: boolean;
+}): string[] {
+  const platform = o.platform ?? process.platform;
+  return [
+    ...(o.window ? [] : ['--headless=new']),
+    ...(o.person ? ['--disable-blink-features=AutomationControlled'] : []),
+    '--remote-debugging-pipe',
+    `--user-data-dir=${o.profile}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-component-update',
+    '--disable-default-apps',
+    '--disable-sync',
+    '--mute-audio',
+    '--password-store=basic',
+    '--use-mock-keychain',
+    '--window-size=1280,900',
+    `--proxy-server=http://127.0.0.1:${o.proxyPort}`,
+    '--proxy-bypass-list=<-loopback>',
+    '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+    ...(platform === 'linux' && o.root ? ['--no-sandbox'] : []),
+    // A window on Linux: on Wayland where the session has it, else on X11.
+    ...(o.window && platform === 'linux' ? ['--ozone-platform-hint=auto'] : []),
+    'about:blank',
+  ];
+}
+
+/**
+ * The site permissions a page could ask for (Chromium's content settings, as its profile's preferences
+ * name them): blocked by default in every browser of Harness Relay's, and whatever a site was allowed (in
+ * a hand-over's window, through its page info) taken back each time the browser starts, so that a grant the
+ * user gave there never reaches the agents' headless browser. The clipboard's is reading it; writing (a
+ * page's Copy button) stays as Chromium has it.
+ */
+export const BLOCKED_SITE_PERMISSIONS = [
+  'geolocation',
+  'notifications',
+  'media_stream_camera',
+  'media_stream_mic',
+  'midi_sysex',
+  'clipboard',
+  'sensors',
+  'usb_guard',
+  'serial_guard',
+  'hid_guard',
+  'bluetooth_guard',
+  'bluetooth_scanning',
+  'file_system_write_guard',
+  'idle_detection',
+  'window_placement',
+  'local_fonts',
+  'protocol_handlers',
+  'payment_handler',
+  'automatic_downloads',
+  'vr',
+  'ar',
+  'keyboard_lock',
+  'pointer_lock',
+  'captured_surface_control',
+] as const;
+
+/**
+ * The same permissions as Chromium's DevTools protocol names them (`Browser.setPermission`): denied for
+ * every site of a browser of Harness Relay's as it starts, whatever its profile says.
+ */
+export const DENIED_PERMISSIONS = [
+  'geolocation',
+  'notifications',
+  'camera',
+  'microphone',
+  'midi',
+  'clipboard-read',
+  'accelerometer',
+  'gyroscope',
+  'magnetometer',
+  'ambient-light-sensor',
+  'idle-detection',
+  'window-management',
+  'local-fonts',
+  'display-capture',
+  'keyboard-lock',
+  'pointer-lock',
+] as const;
+
+/**
+ * The profile's preferences: Chromium's page preloading off (`network_prediction_options` 2, "never"):
+ * no prefetch or prerender, which speculation rules and `<link rel=prefetch>` ask of the browser itself,
+ * outside the page (they would go through the proxy all the same; this makes no request at all). The site
+ * permissions blocked, and those a site was given taken back (`BLOCKED_SITE_PERMISSIONS`). And for a
+ * hand-over's window (`handover.ts`), where the user types into pages: no password manager or autofill
+ * keeping what they type in the profile, no signing in to the browser itself, and no search suggestions
+ * sending what is typed in the address bar.
+ */
+export function profilePrefs(prefs: Record<string, unknown>): Record<string, unknown> {
+  const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  const profile = obj(prefs.profile);
+  const settings = obj(profile.content_settings);
+  const exceptions = obj(settings.exceptions);
+  return {
+    ...prefs,
+    net: { ...obj(prefs.net), network_prediction_options: 2 },
+    credentials_enable_service: false,
+    credentials_enable_autosignin: false,
+    profile: {
+      ...profile,
+      password_manager_enabled: false,
+      default_content_setting_values: {
+        ...obj(profile.default_content_setting_values),
+        ...Object.fromEntries(BLOCKED_SITE_PERMISSIONS.map((k) => [k, 2])),
+      },
+      content_settings: {
+        ...settings,
+        exceptions: { ...exceptions, ...Object.fromEntries(BLOCKED_SITE_PERMISSIONS.map((k) => [k, {}])) },
+      },
+    },
+    autofill: { ...obj(prefs.autofill), profile_enabled: false, credit_card_enabled: false },
+    signin: { ...obj(prefs.signin), allowed: false },
+    search: { ...obj(prefs.search), suggest_enabled: false },
+  };
+}
+
+/** Writes the profile's preferences (`profilePrefs()`), keeping the rest of what the browser wrote there. */
+function writePrefs(profile: string): void {
   const file = join(profile, 'Default', 'Preferences');
   let prefs: Record<string, unknown> = {};
   try {
@@ -439,10 +606,39 @@ function noPreloading(profile: string): void {
   } catch {
     /* none yet */
   }
-  const net = prefs.net && typeof prefs.net === 'object' ? (prefs.net as Record<string, unknown>) : {};
-  prefs.net = { ...net, network_prediction_options: 2 };
   mkdirSync(join(profile, 'Default'), { recursive: true, mode: 0o700 });
-  writeFileSync(file, JSON.stringify(prefs), { mode: 0o600 });
+  writeFileSync(file, JSON.stringify(profilePrefs(prefs)), { mode: 0o600 });
+}
+
+/**
+ * What a conversation's browser carries from one start to the next during a hand-over (into its window,
+ * and out of it again), in memory only: the hosts it opened, its cookies (a restart loses the session's,
+ * which a sign-in often sets), and the page it was on.
+ */
+interface Carry {
+  granted: Map<string, { asked: boolean; nearby: boolean }>;
+  cookies?: Record<string, unknown>[];
+  url?: string;
+}
+
+/** Cookies as `Storage.getCookies` gives them, as `Storage.setCookies` takes them. */
+export function cookieParams(list: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  return list
+    .filter((c) => typeof c.name === 'string' && typeof c.value === 'string' && typeof c.domain === 'string')
+    .map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: typeof c.path === 'string' ? c.path : '/',
+      secure: c.secure === true,
+      httpOnly: c.httpOnly === true,
+      ...(typeof c.sameSite === 'string' ? { sameSite: c.sameSite } : {}),
+      ...(c.session !== true && typeof c.expires === 'number' && c.expires > 0 ? { expires: c.expires } : {}),
+      ...(typeof c.priority === 'string' ? { priority: c.priority } : {}),
+      ...(typeof c.sourceScheme === 'string' ? { sourceScheme: c.sourceScheme } : {}),
+      ...(typeof c.sourcePort === 'number' ? { sourcePort: c.sourcePort } : {}),
+      ...(c.partitionKey && typeof c.partitionKey === 'object' ? { partitionKey: c.partitionKey } : {}),
+    }));
 }
 
 /**
@@ -543,6 +739,61 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
   }
 }
 
+/** How soon a hand-over's window that is gone never reached the user (no display it could open on, say). */
+const WINDOW_QUICK_EXIT_MS = 5000;
+
+/** Whether `url` is the address `asked` names: the same, or its https form (Chromium upgrading it). */
+function sameAddress(url: string, asked: string): boolean {
+  try {
+    const a = new URL(url);
+    const b = new URL(asked);
+    const scheme = a.protocol === b.protocol || (a.protocol === 'https:' && b.protocol === 'http:');
+    return scheme && a.hostname === b.hostname && a.port === b.port && a.pathname === b.pathname && a.search === b.search;
+  } catch {
+    return false;
+  }
+}
+
+/** The address of the tab's page now ('' when it cannot be told). */
+async function pageUrl(s: BrowserSession): Promise<string> {
+  const h = await s.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
+  return h?.entries[h.currentIndex]?.url ?? '';
+}
+
+/** `url` when it is a web page's (http or https), the only kind a browser opened again goes back to. */
+const webUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : undefined);
+
+/** The note the user wrote to the agent, trimmed and cut to `HANDOVER_LIMITS.noteMax`; none for an empty one. */
+const clipNote = (note?: string) => (note?.trim() ? note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined);
+
+/** Every cookie of the browser's profile, or undefined when it cannot say (it is closing). */
+async function cookiesOf(s: BrowserSession): Promise<Record<string, unknown>[] | undefined> {
+  const r = await s.cdp.send<{ cookies?: unknown }>('Storage.getCookies', {}, undefined, 5000).catch(() => undefined);
+  return Array.isArray(r?.cookies) ? (r.cookies as Record<string, unknown>[]) : undefined;
+}
+
+/** Sets cookies a hand-over carried over: all at once, else one by one, leaving out one the browser refuses. */
+async function setCookies(cdp: CdpConnection, cookies: readonly Record<string, unknown>[]): Promise<void> {
+  const params = cookieParams(cookies);
+  if (!params.length) return;
+  const all = await cdp.send('Storage.setCookies', { cookies: params }, undefined, 5000).then(
+    () => true,
+    () => false,
+  );
+  if (!all) for (const c of params) await cdp.send('Storage.setCookies', { cookies: [c] }, undefined, 5000).catch(() => undefined);
+}
+
+/** The screencast panel's Back, Forward and Reload, in the tab. */
+async function history(s: BrowserSession, to: 'back' | 'forward' | 'reload'): Promise<void> {
+  if (to === 'reload') return void (await s.send('Page.reload').catch(() => undefined));
+  const h = await s
+    .send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory')
+    .catch(() => undefined);
+  const entry = h?.entries[h.currentIndex + (to === 'back' ? -1 : 1)];
+  if (!entry) return;
+  await s.send('Page.navigateToHistoryEntry', { entryId: entry.id }).catch(() => undefined);
+}
+
 export class BrowserService {
   private readonly sessions = new Map<string, Promise<BrowserSession>>();
   /** Each conversation's latest snapshot's elements, for the questions about clicking and typing (asked before the call runs). */
@@ -554,10 +805,21 @@ export class BrowserService {
   private readonly proxy = new BrowserProxy((password, host, port, secure) => this.route(password, host, port, secure));
   /** Host names' addresses, looked up again after a minute. */
   private readonly addressCache = new Map<string, { at: number; addresses: Promise<string[]> }>();
+  /**
+   * Each conversation's calls in turn: each starts once the one before it ended, whichever browser it then
+   * finds (a hand-over's window closes the one before it, and opens another).
+   */
+  private readonly queues = new Map<string, Promise<unknown>>();
+  /** What a conversation's next browser starts with (`Carry`), while a hand-over moves it into a window or out of one. */
+  private readonly carried = new Map<string, Carry>();
+  /** The hand-overs going on, which the routes reach. */
+  readonly handovers = new Handovers();
+  private readonly handoverMs: { start: number; use: number };
 
   constructor(private o: BrowserServiceOptions) {
     this.idleMs = o.idleMs ?? 10 * 60_000;
     this.answerMs = o.answerMs ?? PAGE_ANSWER_MS;
+    this.handoverMs = o.handoverMs ?? { start: HANDOVER_LIMITS.startMinutes * 60_000, use: HANDOVER_LIMITS.useMinutes * 60_000 };
     // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
     mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
   }
@@ -595,85 +857,90 @@ export class BrowserService {
     return join(relayBrowserDir(this.o.dataDir), convId.replace(/[^A-Za-z0-9_-]/g, '_'));
   }
 
-  /** The conversation's browser, started when it has none. */
-  private session(convId: string): Promise<BrowserSession> {
+  /** The conversation's browser, started when it has none (with `window`, in a window: a hand-over's). */
+  private session(convId: string, o: { window?: boolean } = {}): Promise<BrowserSession> {
     let s = this.sessions.get(convId);
     if (!s) {
-      s = this.launch(convId);
-      this.sessions.set(convId, s);
-      s.catch(() => this.sessions.delete(convId));
+      const started: Promise<BrowserSession> = this.launch(convId, o, () => this.sessions.get(convId) === started);
+      s = started;
+      this.sessions.set(convId, started);
+      started.catch(() => {
+        if (this.sessions.get(convId) === started) this.sessions.delete(convId);
+      });
     }
     return s;
   }
 
-  private async launch(convId: string): Promise<BrowserSession> {
+  /**
+   * Starts a conversation's browser, with what a hand-over carries into it (`carried`). `mine`: whether it
+   * is still the conversation's (a hand-over's window replaced it, say), so that it ending takes nothing
+   * of the one after it.
+   */
+  private async launch(convId: string, o: { window?: boolean }, mine: () => boolean): Promise<BrowserSession> {
     const bin = this.o.executable();
     if (!bin) throw new Error(this.unavailable());
+    const carry = this.carried.get(convId);
+    this.carried.delete(convId);
     const profile = this.profile(convId);
     mkdirSync(profile, { recursive: true, mode: 0o700 });
-    noPreloading(profile);
+    writePrefs(profile);
     await this.proxy.start();
     const password = this.proxy.issue();
     const abort = new AbortController();
     let pipes: { write: Duplex; read: Duplex } | undefined;
-    const args = [
-      '--headless=new',
-      '--remote-debugging-pipe',
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-extensions',
-      '--disable-background-networking',
-      '--disable-component-update',
-      '--disable-default-apps',
-      '--disable-sync',
-      '--mute-audio',
-      '--password-store=basic',
-      '--use-mock-keychain',
-      '--window-size=1280,900',
-      // Everything through the proxy, this computer's addresses too, and no UDP of WebRTC's own around it.
-      `--proxy-server=http://127.0.0.1:${this.proxy.port}`,
-      '--proxy-bypass-list=<-loopback>',
-      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-      // Chromium's own sandbox cannot start as root (a container, say).
-      ...(process.platform === 'linux' && process.getuid?.() === 0 ? ['--no-sandbox'] : []),
-      'about:blank',
-    ];
+    const args = launchArgs({
+      profile,
+      proxyPort: this.proxy.port,
+      window: o.window && !this.o.windowHeadless,
+      person: Boolean(o.window),
+      root: process.getuid?.() === 0,
+    });
     const exited = runProcess({
       bin,
       args,
-      env: launchEnv(process.env, profile),
+      env: launchEnv(process.env, profile, process.platform, { window: o.window }),
+      // A hand-over's window shows on Windows (a child starts hidden there, and its windows with it).
+      showWindow: Boolean(o.window && !this.o.windowHeadless),
       signal: abort.signal,
       pipes: (write, read) => (pipes = { write, read }),
     });
     if (!pipes) {
       abort.abort();
+      if (carry) this.carried.set(convId, carry);
       throw new Error('The browser could not be started');
     }
     const cdp = new CdpConnection(pipes.write, pipes.read);
-    const stop = () => {
-      this.sessions.delete(convId);
-      this.latestRefs.delete(convId);
-      this.byPassword.delete(password);
-      this.proxy.forget(password);
-      cdp.close();
-      abort.abort();
-    };
+    let session: BrowserSession | undefined;
     const gone = () => {
-      this.sessions.delete(convId);
-      this.latestRefs.delete(convId);
+      if (session) session.stopped = true;
+      if (mine()) {
+        this.sessions.delete(convId);
+        this.latestRefs.delete(convId);
+      }
       this.byPassword.delete(password);
       this.proxy.forget(password);
       cdp.close();
+    };
+    const stop = () => {
+      gone();
+      abort.abort();
     };
     void exited.then(gone, gone);
     try {
+      // A browser that never answers (one that cannot start here) fails the call now, not after each of the
+      // calls below has had its own time.
+      await cdp.send('Browser.getVersion');
       await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }).catch(() => undefined);
+      // No site gets a device, the location, notifications or the clipboard's contents, whatever its profile says.
+      for (const name of DENIED_PERMISSIONS)
+        await cdp.send('Browser.setPermission', { permission: { name }, setting: 'denied' }).catch(() => undefined);
+      // What a hand-over carried over: the cookies (the session's, which a restart loses, among them).
+      if (carry?.cookies?.length) await setCookies(cdp, carry.cookies);
       const { targetInfos } = await cdp.send<{ targetInfos: { targetId: string; type: string }[] }>('Target.getTargets');
       let targetId = targetInfos.find((t) => t.type === 'page')?.targetId;
       targetId ??= (await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' })).targetId;
       const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
-      const session = new BrowserSession(
+      session = new BrowserSession(
         cdp,
         sessionId,
         targetId,
@@ -683,45 +950,62 @@ export class BrowserService {
       );
       session.proxyPassword = password;
       session.convId = convId;
-      this.byPassword.set(password, session);
-      session.gated.add(sessionId);
+      session.windowed = Boolean(o.window);
+      session.visible = Boolean(o.window && !this.o.windowHeadless);
+      // A window a turn's end cut short: the next call opens again the page it was on (`with()`).
+      if (carry?.url) session.resume = carry.url;
+      for (const [key, g] of carry?.granted ?? []) session.granted.set(key, g);
+      const s = session;
+      this.byPassword.set(password, s);
+      s.gated.add(sessionId);
       cdp.on('Fetch.requestPaused', (p: Record<string, unknown>, sid?: string) => {
-        if (sid && session.refused.has(sid))
+        if (sid && s.refused.has(sid))
           return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
-        if (!sid || !session.gated.has(sid)) return;
-        void this.gate(session, p, sid).catch(() => undefined);
+        if (!sid || !s.gated.has(sid)) return;
+        // A request the gate could not decide is refused, never left waiting (its page would never load).
+        void this.gate(s, p, sid).catch(() =>
+          cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined),
+        );
       });
       // The proxy asks each browser to prove itself: only this one's own password, never a site's.
       cdp.on('Fetch.authRequired', (p: Record<string, unknown>, sid?: string) => {
-        if (!sid || (!session.gated.has(sid) && !session.refused.has(sid))) return;
-        const proxy = (p.authChallenge as { source?: string } | undefined)?.source === 'Proxy' && !session.refused.has(sid);
+        if (!sid || (!s.gated.has(sid) && !s.refused.has(sid))) return;
+        const proxy = (p.authChallenge as { source?: string } | undefined)?.source === 'Proxy' && !s.refused.has(sid);
         const authChallengeResponse = proxy
           ? { response: 'ProvideCredentials', username: PROXY_USER, password }
           : { response: 'CancelAuth' };
         void cdp.send('Fetch.continueWithAuth', { requestId: p.requestId, authChallengeResponse }, sid).catch(() => undefined);
       });
-      cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(session, p));
+      cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(s, p));
       cdp.on('Target.detachedFromTarget', (p: Record<string, unknown>) => {
-        session.gated.delete(String(p.sessionId));
-        session.refused.delete(String(p.sessionId));
+        s.gated.delete(String(p.sessionId));
+        s.refused.delete(String(p.sessionId));
       });
-      await session.send('Page.enable');
-      await session.send('Runtime.enable');
-      await session.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => undefined);
-      const tree = await session.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree');
-      session.mainFrame = tree.frameTree.frame.id;
-      cdp.on('Page.javascriptDialogOpening', (_p, sid) => {
-        if (sid === sessionId) void session.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
+      await s.send('Page.enable');
+      await s.send('Runtime.enable');
+      await s.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => undefined);
+      const tree = await s.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree');
+      s.mainFrame = tree.frameTree.frame.id;
+      // A page's dialogs are refused: a page waiting on one would hold the agents up. In a window a person
+      // uses, a "Leave site?" never keeps them from closing it or leaving the page (they chose to), and where
+      // Chromium shows a page's alerts and questions in the window, they answer those themselves.
+      cdp.on('Page.javascriptDialogOpening', (p: Record<string, unknown>, sid?: string) => {
+        if (sid !== sessionId) return;
+        if (s.windowed && p.type === 'beforeunload')
+          return void s.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined);
+        if (s.visible && p.hasBrowserHandler === true) return;
+        void s.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
       });
-      await session.send('Fetch.enable', FETCH_ALL);
+      await s.send('Fetch.enable', FETCH_ALL);
       // The tab's frames in processes of their own and its workers: each held before it starts, gated, then let go.
-      await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
+      await s.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
       // The browser's other targets: a window the page opens (closed), a service or shared worker (gated).
       await cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
-      session.touch();
-      return session;
+      s.touch();
+      return s;
     } catch (err) {
       stop();
+      if (carry) this.carried.set(convId, carry);
       throw err;
     }
   }
@@ -753,9 +1037,9 @@ export class BrowserService {
   }
 
   /**
-   * Where the proxy may connect a browser's connection to `host`:`port`: refused unless
-   * `requestVerdict()` lets it go, else to the addresses it was checked with (this computer's for a
-   * loopback name), the same ones the gate's check used.
+   * Where the proxy may connect a browser's connection to `host`:`port` (`secure`: a CONNECT tunnel):
+   * refused unless `requestVerdict()` lets it go, else to the addresses it was checked with (this
+   * computer's for a loopback name), the same ones the gate's check used.
    */
   private async route(password: string, host: string, port: number, secure: boolean): Promise<ProxyRoute> {
     const s = this.byPassword.get(password);
@@ -767,7 +1051,8 @@ export class BrowserService {
     const rules = await this.rules(s, url);
     if (requestVerdict(url, rules) !== 'allow') return { refused: `${url} is not reached from Harness Relay's browser` };
     const addresses = isIP(name) ? [name] : isLoopbackHost(name) ? ['127.0.0.1', '::1'] : [...(rules.addresses ?? [])];
-    return addresses.length ? { addresses } : { refused: `${name} has no address` };
+    if (!addresses.length) return { refused: `${name} has no address` };
+    return { addresses };
   }
 
   /** What `navigationVerdict()` needs to know of a request in this conversation's browser. */
@@ -821,6 +1106,8 @@ export class BrowserService {
       s.granted.set(key, { asked: s.current?.permission !== 'full' || Boolean(s.granted.get(key)?.asked), nearby });
       s.callGranted.set(key, { nearby });
     }
+    // A hand-over's screencast says so in its panel.
+    if (!allow && s.denied?.url === url) s.onRefused?.(s.denied);
     await go(allow);
   }
 
@@ -836,10 +1123,17 @@ export class BrowserService {
     const send = (method: string, params: Record<string, unknown> = {}) => s.cdp.send(method, params, sid).catch(() => undefined);
     const waiting = p.waitingForDebugger === true;
     if (!sid) return;
+    // In a hand-over's window, a tab the user opens (Chromium's new tab page, its settings, history or
+    // downloads, a window of another profile) is no part of the browser's own: closed, as a page's window
+    // is. Its own UI (`*.top-chrome`) and DevTools stay.
+    const usersTab =
+      s.windowed &&
+      (info.type === 'page' || info.type === 'tab') &&
+      /^(chrome|chrome-untrusted):\/\//i.test(info.url ?? '') &&
+      !/^chrome(-untrusted)?:\/\/[^/]*\.top-chrome\//i.test(info.url ?? '');
     if (
       info.targetId === s.targetId ||
-      info.type === 'browser_ui' ||
-      /^(chrome|chrome-extension|chrome-untrusted|devtools):/i.test(info.url ?? '')
+      (!usersTab && (info.type === 'browser_ui' || /^(chrome|chrome-extension|chrome-untrusted|devtools):/i.test(info.url ?? '')))
     ) {
       if (waiting) await send('Runtime.runIfWaitingForDebugger');
       void s.cdp.send('Target.detachFromTarget', { sessionId: sid }).catch(() => undefined);
@@ -847,7 +1141,11 @@ export class BrowserService {
     }
     if (info.type === 'page' || info.type === 'tab' || info.type === 'background_page') {
       // A page prerendered for the tab is no window the page opened: closed all the same, unmentioned.
-      if (info.subtype !== 'prerender') s.popups.push(info.url && info.url !== 'about:blank' ? info.url : '');
+      if (info.subtype !== 'prerender') {
+        const url = info.url && info.url !== 'about:blank' && !usersTab ? info.url : '';
+        s.popups.push(url);
+        s.onPopup?.(url);
+      }
       // A script's window.open() waits for its window to start: it starts, refusing whatever it asks
       // for, and is closed then.
       s.refused.add(sid);
@@ -866,10 +1164,13 @@ export class BrowserService {
    * Runs `fn` on the conversation's browser, as the call `ctx` (whom to ask about a new host), once
    * the calls before it ended: the agents of a conversation share its one tab.
    */
-  private async with<T>(ctx: GatewayContext, fn: (s: BrowserSession) => Promise<T>): Promise<T> {
-    const s = await this.session(ctx.convId);
-    const turn = s.queue.then(async () => {
+  private async with<T>(ctx: GatewayContext, fn: (s: BrowserSession) => Promise<T>, o: { navigates?: boolean } = {}): Promise<T> {
+    const before = this.queues.get(ctx.convId) ?? Promise.resolve();
+    const turn = before.then(async () => {
       if (ctx.signal.aborted) throw new Error('The turn ended');
+      const s = await this.session(ctx.convId);
+      const resume = s.resume;
+      s.resume = undefined;
       s.current = ctx;
       s.call = { asking: 0 };
       s.denied = undefined;
@@ -878,13 +1179,27 @@ export class BrowserService {
       // Held for the whole call, also while the user is asked about a host (as long as the turn lasts).
       s.hold();
       try {
+        // The page a hand-over's window was on, opened again as this call (its hosts, its questions), unless the call opens another.
+        if (resume && !o.navigates) {
+          await this.goTo(s, ctx, resume).catch(() => undefined);
+          // A page it was refused there is no note of this call's.
+          s.denied = undefined;
+          s.popups = [];
+        }
         return await fn(s);
       } finally {
         s.current = undefined;
         s.release();
       }
     });
-    s.queue = turn.catch(() => undefined);
+    const tail = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.queues.set(ctx.convId, tail);
+    void tail.then(() => {
+      if (this.queues.get(ctx.convId) === tail) this.queues.delete(ctx.convId);
+    });
     return turn;
   }
 
@@ -1011,7 +1326,8 @@ export class BrowserService {
     }
   }
 
-  async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
+  /** Refuses a page that is never opened (another scheme, Harness Relay's own ports, a metadata address) before any call waits for the browser. */
+  private async refuseBlocked(url: string): Promise<void> {
     const verdict = navigationVerdict(url, {
       relayPorts: this.ownPorts(),
       own: this.o.own?.() ?? [],
@@ -1019,26 +1335,40 @@ export class BrowserService {
       addresses: await this.addresses(url),
     });
     if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
-    return this.with(ctx, async (s) => {
-      // The answer comes once the page is let through, which may wait for the user's answer (as long as
-      // the turn lasts), and its server answers (`answerMs`).
-      const r = await untilAnswered(
-        s,
-        ctx.signal,
-        this.answerMs,
-        url,
-        s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs),
-      );
-      if (r.errorText) {
-        const denied = s.denied;
-        await this.backFromRefused(s);
-        throw new Error(denied ? refusalText(denied) : `${url} did not open: ${r.errorText}`);
-      }
-      // No loader: the same page, at another anchor, which loads nothing.
-      if (r.loaderId) await this.settle(s, 20_000);
-      else await new Promise((done) => setTimeout(done, 200));
-      return this.withNotes(s, await this.read(s));
-    });
+  }
+
+  /**
+   * Opens `url` in the tab, as the call `ctx`: the answer comes once the page is let through, which may
+   * wait for the user's answer (as long as the turn lasts), and its server answers (`answerMs`).
+   */
+  private async goTo(s: BrowserSession, ctx: GatewayContext, url: string): Promise<void> {
+    const r = await untilAnswered(
+      s,
+      ctx.signal,
+      this.answerMs,
+      url,
+      s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs),
+    );
+    if (r.errorText) {
+      const denied = s.denied;
+      await this.backFromRefused(s);
+      throw new Error(denied ? refusalText(denied) : `${url} did not open: ${r.errorText}`);
+    }
+    // No loader: the same page, at another anchor, which loads nothing.
+    if (r.loaderId) await this.settle(s, 20_000);
+    else await new Promise((done) => setTimeout(done, 200));
+  }
+
+  async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
+    await this.refuseBlocked(url);
+    return this.with(
+      ctx,
+      async (s) => {
+        await this.goTo(s, ctx, url);
+        return this.withNotes(s, await this.read(s));
+      },
+      { navigates: true },
+    );
   }
 
   async snapshot(ctx: GatewayContext): Promise<PageSnapshot> {
@@ -1144,8 +1474,365 @@ export class BrowserService {
     });
   }
 
+  /**
+   * Hands the open page to the user (`browser_hand_over`; with `url`, that page is opened first), as the
+   * call `ctx`, which waits meanwhile, and so do the conversation's other browser calls (its queue). The
+   * card in the reply (`ctx.handoverCard`) says why (`reason`, the agent's words), where the window would
+   * open, and that what the user signs in to stays in this chat's browser; the user starts it in a window
+   * or as a screencast, or declines. Returns only how it ended and the user's note (`handoverOutcome()`).
+   * Refused where nobody can be asked: a run nobody watches, a conversation that refuses requests.
+   */
+  async handOver(
+    ctx: GatewayContext,
+    reason: string,
+    url?: string,
+    /** Whether the CLI stopped waiting for the call (its own time limit): the hand-over ends then too. */
+    gone?: () => boolean,
+  ): Promise<{ text: string; isError?: boolean }> {
+    const card = ctx.handoverCard;
+    if (!card || ctx.unattended || !ctx.ask) return { text: HANDOVER_UNASKED, isError: true };
+    if (url) await this.refuseBlocked(url);
+    const limits = this.handoverMs;
+    return this.with(ctx, async (s) => {
+      // The browser the call ends with, when a window replaced the one it began with: the call's to let go,
+      // before the call ends and the next one finds it.
+      let live: BrowserSession | undefined;
+      try {
+        if (url) await this.goTo(s, ctx, url);
+        const at = this.o.windowAt?.();
+        const modes: HandoverMode[] = at ? ['window', 'screencast'] : ['screencast'];
+        const ticket = this.handovers.create(ctx.convId, modes);
+        const page = cardUrl(await pageUrl(s));
+        const shown = card({
+          type: 'handover',
+          id: ticket.id,
+          reason: dataLine(reason).trim().slice(0, 1000),
+          ...(page ? { url: page } : {}),
+          modes,
+          ...(at ? { windowAt: at } : {}),
+          status: 'pending',
+          deadline: Date.now() + limits.start,
+        });
+        const minutes = { start: Math.round(limits.start / 60_000), use: Math.round(limits.use / 60_000) };
+        try {
+          const answer = await ticket.wait(limits.start, ctx.signal, gone);
+          if (answer.action !== 'start') {
+            const note = answer.action === 'cancel' ? clipNote(answer.note) : undefined;
+            shown.update(
+              answer.action === 'cancel'
+                ? { status: 'declined', ...(note ? { note } : {}), deadline: undefined }
+                : {
+                    status: 'expired',
+                    ended: answer.action === 'turn' ? 'turn' : answer.action === 'gone' ? 'gone' : 'timeout',
+                    deadline: undefined,
+                  },
+            );
+            if (answer.action === 'turn') throw new Error('The turn ended');
+            return handoverOutcome({
+              end: answer.action === 'cancel' ? { ...answer, note } : answer,
+              started: false,
+              page: 'kept',
+              minutes,
+            });
+          }
+          ticket.status = 'active';
+          shown.update({ status: 'active', mode: answer.mode, deadline: Date.now() + limits.use });
+          let end: HandoverWake;
+          let where: 'kept' | 'reopened' | 'closed' = 'kept';
+          try {
+            if (answer.mode === 'screencast') end = await this.screencast(s, ticket, ctx.signal, limits.use, gone);
+            else {
+              const r = await this.inWindow(s, ticket, ctx, limits.use, gone);
+              end = r.end;
+              where = r.page;
+              live = r.session;
+            }
+          } catch (err) {
+            // The browser could not be shown (its screencast would not start, say): the card says so.
+            end = { action: 'failed', error: (err as Error).message };
+          }
+          // The browser ended under the screencast: the page is gone with it (one whose screencast would not
+          // start is still open, as the user left it).
+          if (end.action === 'failed' && answer.mode === 'screencast' && s.stopped) where = 'closed';
+          const note = end.action === 'done' || end.action === 'cancel' ? clipNote(end.note) : undefined;
+          shown.update({
+            status: end.action === 'done' || end.action === 'closed' ? 'done' : end.action === 'cancel' ? 'cancelled' : 'expired',
+            ...(note ? { note } : {}),
+            ...(end.action === 'timeout' || end.action === 'turn' || end.action === 'gone' || end.action === 'failed'
+              ? { ended: end.action }
+              : {}),
+            deadline: undefined,
+          });
+          if (end.action === 'turn') throw new Error('The turn ended');
+          return handoverOutcome({
+            end: end.action === 'done' || end.action === 'cancel' ? { ...end, note } : end,
+            started: true,
+            page: where,
+            minutes,
+          });
+        } finally {
+          this.handovers.remove(ticket);
+        }
+      } finally {
+        if (live && live !== s) {
+          live.current = undefined;
+          live.release();
+        }
+      }
+    });
+  }
+
+  /**
+   * The screencast (`Page.startScreencast`): each frame to the panel's watchers (acknowledged at once:
+   * a watcher that falls behind gets the latest only), with the page's address, the windows it opened and
+   * the pages refused; the user's input into the tab, laid out to the panel's size, until they hand it
+   * back, cancel, the time runs out (`ms`) or the turn ends. Then the page is as the user left it, at the
+   * size the agents' calls have.
+   */
+  private async screencast(
+    s: BrowserSession,
+    ticket: HandoverTicket,
+    signal: AbortSignal,
+    ms: number,
+    gone?: () => boolean,
+  ): Promise<HandoverWake> {
+    let frame = { width: 1280, height: 900 };
+    let size: { width: number; height: number; scale: number } | undefined;
+    const start = () =>
+      s.send('Page.startScreencast', {
+        format: 'jpeg',
+        quality: 70,
+        everyNthFrame: 1,
+        ...(size ? { maxWidth: Math.round(size.width * size.scale), maxHeight: Math.round(size.height * size.scale) } : {}),
+      });
+    const location = () => void this.location(s, ticket);
+    const handlers: [string, (p: Record<string, unknown>, sid?: string) => void][] = [
+      [
+        'Page.screencastFrame',
+        (p, sid) => {
+          if (sid !== s.sessionId) return;
+          void s.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => undefined);
+          const m = (p.metadata ?? {}) as { deviceWidth?: number; deviceHeight?: number };
+          if (m.deviceWidth && m.deviceHeight) frame = { width: m.deviceWidth, height: m.deviceHeight };
+          ticket.emit({ type: 'frame', data: String(p.data ?? ''), width: Math.round(frame.width), height: Math.round(frame.height) });
+        },
+      ],
+      ['Page.frameNavigated', (p, sid) => sid === s.sessionId && !(p.frame as { parentId?: string } | undefined)?.parentId && location()],
+      ['Page.navigatedWithinDocument', (p, sid) => sid === s.sessionId && p.frameId === s.mainFrame && location()],
+      // Again once the page is there: the history a page's commit is told with may not have caught up yet.
+      ['Page.domContentEventFired', (_p, sid) => sid === s.sessionId && location()],
+      ['Page.frameStoppedLoading', (p, sid) => sid === s.sessionId && p.frameId === s.mainFrame && location()],
+    ];
+    for (const [event, on] of handlers) s.cdp.on(event, on);
+    s.onPopup = (url) => ticket.emit({ type: 'notice', kind: 'popup', ...(url ? { url } : {}) });
+    s.onRefused = (r) => ticket.emit({ type: 'notice', kind: 'refused', url: r.url });
+    // One event after another, as the user did them.
+    let inputs = Promise.resolve();
+    /** The hand-over is over: what still waits of the user's input reaches the page no more (the next call has it). */
+    let over = false;
+    ticket.screen = {
+      input: (events) =>
+        (inputs = inputs.then(async () => {
+          for (const e of events) {
+            if (over) return;
+            if (e.type === 'viewport') {
+              size = { width: e.width, height: e.height, scale: Math.min(e.scale ?? 1, 2) };
+              await s
+                .send('Emulation.setDeviceMetricsOverride', {
+                  width: e.width,
+                  height: e.height,
+                  deviceScaleFactor: size.scale,
+                  mobile: false,
+                })
+                .catch(() => undefined);
+              await s.send('Page.stopScreencast').catch(() => undefined);
+              await start().catch(() => undefined);
+            } else if (e.type === 'navigate') await this.openAsked(s, ticket, e);
+            else if (e.type === 'history') await history(s, e.to);
+            else for (const c of inputCalls(e, frame)) await s.send(c.method, c.params).catch(() => undefined);
+          }
+        })),
+    };
+    void s.exited.then(() => ticket.wake({ action: 'failed', error: 'the browser closed' }));
+    try {
+      await start();
+      await this.location(s, ticket);
+      return await ticket.wait(ms, signal, gone);
+    } finally {
+      ticket.screen = undefined;
+      over = true;
+      s.onPopup = undefined;
+      s.onRefused = undefined;
+      for (const [event, on] of handlers) s.cdp.off(event, on);
+      // What the user did last reaches the page, unless it takes long (a browser that stopped answering).
+      await Promise.race([inputs.catch(() => undefined), new Promise((r) => setTimeout(r, 5000).unref())]);
+      await s.send('Page.stopScreencast').catch(() => undefined);
+      if (size) await s.send('Emulation.clearDeviceMetricsOverride').catch(() => undefined);
+    }
+  }
+
+  /**
+   * An address the user gave the tab (the screencast panel's address bar, or "Open it here" on a window
+   * the page opened, also from a window's card), opened as the gate allows it; refused, the panel or card
+   * is told.
+   */
+  private async openAsked(s: BrowserSession, ticket: HandoverTicket, e: Extract<HandoverInput, { type: 'navigate' }>): Promise<void> {
+    // As the agents' own pages are: never another scheme, Harness Relay or a metadata address;
+    // a host the chat's browser has not opened asks (below full access), the gate's question.
+    try {
+      await this.refuseBlocked(e.url);
+      // The very address refused a moment before, its error page perhaps still committing on a slow
+      // computer: that load stops first, or it would swallow this one (Chromium sends no request
+      // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
+      // Swallowed all the same (a busy Windows), it is sent once more when no request for it came.
+      const again = s.denied?.url === e.url;
+      if (again) await s.send('Page.stopLoading').catch(() => undefined);
+      const requested = again
+        ? s.cdp.waitFor('Fetch.requestPaused', 3000, s.sessionId, (p) => {
+            const url = (p.request as { url?: unknown } | undefined)?.url;
+            return typeof url === 'string' && sameAddress(url, e.url);
+          })
+        : undefined;
+      void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+      if (requested && !(await requested)) void s.send('Page.navigate', { url: e.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
+    } catch {
+      ticket.emit({ type: 'notice', kind: 'refused', url: e.url });
+    }
+  }
+
+  /** Tells the screencast's watchers where the page is, and whether it can go back or forward (when that changed). */
+  private async location(s: BrowserSession, ticket: HandoverTicket): Promise<void> {
+    const h = await s.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
+    const here = h?.entries[h.currentIndex];
+    if (!h || !here) return;
+    const at = { url: here.url, back: h.currentIndex > 0, forward: h.currentIndex < h.entries.length - 1 };
+    const last = ticket.location;
+    if (last && last.url === at.url && last.back === at.back && last.forward === at.forward) return;
+    ticket.emit({ type: 'location', ...at });
+  }
+
+  /**
+   * The hand-over in a window: the headless browser closes and the same profile opens in a window on the
+   * computer Harness Relay runs on, with the same proxy, gate and rules (`launchArgs()` without
+   * `--headless=new`), its cookies and the hosts it opened carried over (`carried`), at the page it was
+   * on. Until the user hands it back, closes the window, cancels, the time runs out (`ms`) or the turn
+   * ends; a page of the browser's own (its settings, flags, history) or the computer's files is not kept
+   * open in the tab (it goes back to the page before), and a tab the user opens is closed (`adopt()`).
+   * Then the window closes, and the browser opens again without one at the page the window was on, with
+   * what the user signed in to; once the turn has ended, at the next call instead.
+   */
+  private async inWindow(
+    s: BrowserSession,
+    ticket: HandoverTicket,
+    ctx: GatewayContext,
+    ms: number,
+    gone?: () => boolean,
+  ): Promise<{ end: HandoverWake; page: 'kept' | 'reopened' | 'closed'; session: BrowserSession | undefined }> {
+    const convId = ctx.convId;
+    const callGranted = new Map(s.callGranted);
+    let lastWeb = webUrl(await pageUrl(s));
+    let cookies = await cookiesOf(s);
+    this.carried.set(convId, { granted: new Map(s.granted), cookies, url: lastWeb });
+    await this.shut(convId);
+    let w: BrowserSession;
+    try {
+      w = await this.session(convId, { window: true });
+    } catch (err) {
+      return { end: { action: 'failed', error: (err as Error).message }, page: 'closed', session: undefined };
+    }
+    w.current = ctx;
+    for (const [k, g] of callGranted) w.callGranted.set(k, g);
+    w.hold();
+    // A window that is gone within seconds never reached the user (no display it could open on, say): not handed back.
+    const openedAt = Date.now();
+    const closed = (): HandoverWake =>
+      Date.now() - openedAt < WINDOW_QUICK_EXIT_MS
+        ? { action: 'failed', error: 'the window closed as soon as it opened' }
+        : { action: 'closed' };
+    const handlers: [string, (p: Record<string, unknown>, sid?: string) => void][] = [
+      [
+        // The tab closed: the user closed the window (or the browser).
+        'Target.detachedFromTarget',
+        (p) => p.sessionId === w.sessionId && ticket.wake(closed()),
+      ],
+      [
+        'Page.frameNavigated',
+        (p, sid) => {
+          const f = p.frame as { parentId?: string; url?: string; urlFragment?: string; unreachableUrl?: string } | undefined;
+          if (sid !== w.sessionId || !f || f.parentId) return;
+          const u = `${f.url ?? ''}${f.urlFragment ?? ''}`;
+          if (/^https?:/i.test(u)) return void (lastWeb = u);
+          if (u === 'about:blank') return;
+          // The error page of a web page refused or not reached stays; one of a file the gate refused goes back too.
+          if (/^chrome-error:/i.test(u) && (!f.unreachableUrl || /^https?:/i.test(f.unreachableUrl))) return;
+          void w.send('Page.navigate', { url: lastWeb ?? 'about:blank' }).catch(() => undefined);
+        },
+      ],
+      [
+        'Page.loadEventFired',
+        (_p, sid) => {
+          if (sid === w.sessionId) void cookiesOf(w).then((c) => (cookies = c ?? cookies));
+        },
+      ],
+    ];
+    for (const [event, on] of handlers) w.cdp.on(event, on);
+    void w.exited.then(() => ticket.wake(closed()));
+    // What the user signs in to, now and then: the window may close before it is asked once more.
+    const keep = setInterval(() => void cookiesOf(w).then((c) => (cookies = c ?? cookies)), 5000);
+    keep.unref();
+    let end: HandoverWake;
+    try {
+      if (lastWeb) void w.send('Page.navigate', { url: lastWeb }, CONFIG.turnTimeoutMs).catch(() => undefined);
+      await w.send('Page.bringToFront').catch(() => undefined);
+      end = await ticket.wait(ms, ctx.signal, gone);
+    } finally {
+      clearInterval(keep);
+      for (const [event, on] of handlers) w.cdp.off(event, on);
+    }
+    cookies = (await cookiesOf(w)) ?? cookies;
+    // Once the turn is over (or its caller gone), the next call opens it again, at the page the window was
+    // on (`resume`); until then, the call does.
+    const later = end.action === 'turn' || end.action === 'gone';
+    this.carried.set(convId, { granted: new Map(w.granted), cookies, ...(later && lastWeb ? { url: lastWeb } : {}) });
+    w.current = undefined;
+    w.release();
+    await this.shut(convId);
+    if (later) return { end, page: 'closed', session: undefined };
+    let h: BrowserSession;
+    try {
+      h = await this.session(convId);
+    } catch {
+      return { end, page: 'closed', session: undefined };
+    }
+    h.current = ctx;
+    for (const [k, g] of callGranted) h.callGranted.set(k, g);
+    h.hold();
+    if (!lastWeb) return { end, page: 'closed', session: h };
+    try {
+      await this.goTo(h, ctx, lastWeb);
+      return { end, page: 'reopened', session: h };
+    } catch {
+      return { end, page: 'closed', session: h };
+    }
+  }
+
+  /** Closes the conversation's browser as Chromium closes itself (its cookies and preferences written), then waits for it to end. */
+  private async shut(convId: string): Promise<void> {
+    const s = await this.sessions.get(convId)?.catch(() => undefined);
+    if (s && !s.stopped) {
+      // It ends before it would answer: its end is what to wait for.
+      void s.cdp.send('Browser.close', {}, undefined, 5000).catch(() => undefined);
+      await Promise.race([s.exited, new Promise((r) => setTimeout(r, 5000).unref())]);
+    }
+    await this.close(convId);
+  }
+
   /** Close the conversation's browser (it went idle, or the conversation is deleted: then its profile goes too). */
   async close(convId: string, removeProfile = false): Promise<void> {
+    if (removeProfile) {
+      this.handovers.endAll(convId);
+      this.carried.delete(convId);
+    }
     const s = this.sessions.get(convId);
     this.sessions.delete(convId);
     this.latestRefs.delete(convId);

@@ -1,0 +1,138 @@
+/* Editing and uploading in the Files panel (components/FileEditing.tsx), beside styles.css's file browser. */
+
+.file-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The preview's label gives way first, should the column be narrower still. */
+.file-actions .folder-preview-button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* New file and Upload: icons, as round as the preview button is tall. */
+.file-actions .file-action-icon {
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 4px 9px;
+}
+
+.file-actions .small-button,
+.file-editor-bar .small-button,
+.preview-actions .file-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-new {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.file-new input {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-write-errors {
+  display: block;
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Files dragged over the list: the folder on screen takes them. */
+.file-pane {
+  position: relative;
+}
+
+.file-pane.dropping::after {
+  content: attr(data-drop);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--info);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 2px dashed var(--info);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.file-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.file-editor-bar > span {
+  margin-right: auto;
+}
+
+.file-editor-problem {
+  align-items: center;
+}
+
+.file-editor-problem-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-editor-problem-actions .small-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-editor-text {
+  flex: 1;
+  min-height: 160px;
+  width: 100%;
+  resize: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 4;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.file-editor-text[wrap='off'] {
+  overflow-x: auto;
+  white-space: pre;
+}
+
+@media (pointer: coarse) {
+  .file-actions .small-button,
+  .file-editor-bar .small-button,
+  .file-new .small-button {
+    min-height: 36px;
+  }
+
+  /* A phone's own keyboard, its text: large enough to read without zooming. */
+  .file-editor-text {
+    font-size: 14px;
+  }
+}

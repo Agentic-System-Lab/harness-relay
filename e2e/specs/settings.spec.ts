@@ -321,6 +321,7 @@ test.describe('settings', () => {
       'Agent sessions',
       'Shares',
       'Publishing',
+      'Secrets and commands',
       'Browsers',
       'Connect your phone',
       'Tour',

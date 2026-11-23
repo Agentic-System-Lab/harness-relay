@@ -70,6 +70,12 @@ export interface ServerConfig extends ServerLimits {
   renderApiUrl?: string;
   neonApiUrl?: string;
   publishGitDir?: string;
+  /**
+   * A stand-in, in the end-to-end tests only, for a computer that shows windows (`RELAY_HEADLESS_WINDOWS=on`):
+   * a hand-over's window can open wherever the server runs, and opens
+   * headless, so that a test runs them without a display. false = where this computer can show one, for real.
+   */
+  headlessWindows: boolean;
 }
 
 /**
@@ -230,6 +236,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     renderApiUrl: local('RELAY_RENDER_API_URL'),
     neonApiUrl: local('RELAY_NEON_API_URL'),
     publishGitDir: folder('RELAY_PUBLISH_GIT_DIR'),
+    headlessWindows: onOff('RELAY_HEADLESS_WINDOWS'),
   };
   return { config, problems };
 }

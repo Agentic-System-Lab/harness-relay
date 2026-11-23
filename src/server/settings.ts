@@ -41,6 +41,7 @@ import { t } from './i18n';
 import { devRunVars } from './ports';
 import { maskSecret, type SecretStore } from './secrets';
 import { PublishStore } from './publish/store';
+import { HandoffStore } from './handoffs';
 import { ToolLibrary } from './tools';
 import { SlackPosting } from './connectors/slack';
 import { ConnectorStore } from './connectors/accounts';
@@ -293,6 +294,8 @@ export class SettingsStore {
   readonly slackPosting: SlackPosting;
   /** Settings → Publish to the cloud: the Render and Neon keys and the apps published from previews. */
   readonly publish: PublishStore;
+  /** The working directories' secrets (values in the credential store) and fixed commands. */
+  readonly handoffs: HandoffStore;
   /** Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far. */
   readonly oauth: OAuthService;
   /** The tool library HTTP MCP servers' own sign-ins (MCP's authorization), through the same sign-ins. */
@@ -306,6 +309,7 @@ export class SettingsStore {
   ) {
     this.slackPosting = new SlackPosting(keyring);
     this.publish = new PublishStore(db, keyring);
+    this.handoffs = new HandoffStore(db, keyring);
     const empty = (): ProviderSettings => ({
       bin: '',
       apiKey: '',

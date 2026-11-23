@@ -463,10 +463,13 @@ describe('the docs', () => {
         [zh ? '郵件與行事曆' : 'Mail and calendar', ['mail', 'calendar']],
         [zh ? '團隊通訊' : 'Team messaging', ['microsoft-teams', 'slack']],
         [zh ? '文件與筆記' : 'Documents and notes', ['google-drive', 'notion', 'heptabase', 'obsidian']],
-        [zh ? '開發與瀏覽' : 'Development and browsing', ['github', 'browser-mail-calendar']],
+        [zh ? '開發與瀏覽' : 'Development and browsing', ['github']],
       ] as const) {
         for (const member of members) expect(parents(member)).toEqual([common, group]);
       }
+      // The browser's overview and taking it over, in a branch of their own, as the MCP servers' are.
+      for (const id of ['browser-mail-calendar', 'browser-hand-over'])
+        expect(parents(id)).toEqual([common, zh ? '開發與瀏覽' : 'Development and browsing', zh ? '瀏覽器' : 'Browser']);
       for (const id of ['mcp-servers', 'skills', 'memory', 'hooks', 'default-team-checks'])
         expect(parents(id)[0]).toBe(zh ? '工具庫' : 'Tool library');
       for (const id of ['outbox', 'per-member', 'own-setup', 'labs']) expect(parents(id)[0]).toBe(zh ? '延伸主題' : 'Related topics');

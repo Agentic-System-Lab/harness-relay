@@ -8,6 +8,7 @@ import {
   type CalendarAccountView,
   type ConversationSchedule,
   type ConversationSettings,
+  type FixedCommand,
   type MailAccountView,
   type ScheduleTrigger,
 } from '../../shared/types';
@@ -51,6 +52,7 @@ export function ScheduleForm({
   creation,
   children,
   disabled,
+  commands,
   convId,
   onDrafting,
 }: {
@@ -66,6 +68,8 @@ export function ScheduleForm({
   creation?: { withHook: boolean; onHook: (on: boolean) => void; apps: DraftAppSelection };
   children?: ReactNode;
   disabled?: boolean;
+  /** The fixed commands of the conversation's working directory, which it may run first (the drawer only). */
+  commands?: FixedCommand[];
   /** The conversation whose schedule it is (the drawer's): the lead agent drafts for its team. None: a new automation. */
   convId?: string;
   /** Told while the lead agent drafts the schedule: the form holds still, and cannot be saved meanwhile. */
@@ -78,6 +82,8 @@ export function ScheduleForm({
   const messageId = useId();
   const goalId = useId();
   const goalHintId = useId();
+  const commandId = useId();
+  const commandHintId = useId();
   const whenId = useId();
   const kindsRow = useRef<HTMLDivElement>(null);
   useEffect(() => revealChosen(kindsRow.current), [draft.kind]);
@@ -281,6 +287,28 @@ export function ScheduleForm({
           )}
           {warning && <span className="small warn-text">{warning}</span>}
         </div>
+
+        {commands && commands.length > 0 && draft.kind !== 'event' && (
+          <div className="field">
+            <label htmlFor={commandId}>{t.schedule.command}</label>
+            <select
+              id={commandId}
+              aria-describedby={commandHintId}
+              value={draft.command}
+              onChange={(e) => onEdit({ command: e.target.value })}
+            >
+              <option value="">{t.schedule.noCommand}</option>
+              {commands.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.run}
+                </option>
+              ))}
+            </select>
+            <span className="small muted" id={commandHintId}>
+              {t.schedule.commandHint}
+            </span>
+          </div>
+        )}
 
         <div className="field">
           <label htmlFor={goalId}>{t.schedule.goal}</label>

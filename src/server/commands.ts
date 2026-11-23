@@ -27,6 +27,8 @@ const MAX_DEPTH = 32;
 /** A heredoc's delimiter, and the index in `parts` of the command it belongs to once that ends. */
 interface Heredoc {
   word: string;
+  /** The delimiter as written (`'EOF'`, `$'EOF'`, `EOF`). */
+  raw: string;
   strip: boolean;
   /** Unquoted delimiter: the shell expands the body, running its `$( )` and backticks. */
   expands: boolean;
@@ -37,6 +39,12 @@ interface Body {
   part: number;
   text: string;
   expands: boolean;
+  /** Its delimiter as written. */
+  raw: string;
+  /** Where the body and its delimiter line stand in `source`, the text scanned when it was found. */
+  source: string;
+  from: number;
+  to: number;
 }
 /** What `scan` notes besides the commands: heredoc bodies, and whether output goes into another command. */
 interface Scanned {
@@ -119,8 +127,12 @@ function scan(
     } else if (ch === '<' && line[i + 1] === '<') {
       // Heredoc: remember its delimiter; the body starts on the next line and is not commands.
       const m = /^<<(-?)\s*([^\s;|&<>()]+)/.exec(line.slice(i));
+      // Blanks are only spaces and tabs to a shell: with a carriage return, a form feed, a vertical tab or a
+      // no-break space in the line, where a delimiter or its line ends is not this reading's (it could end a
+      // body early, and a line the shell runs be read as text). Unreadable: keyed by the whole line.
+      if (m && /[^\S \t\n]/.test(line)) throw new Error('a heredoc in a line with whitespace a shell reads otherwise');
       if (m) {
-        const h = { word: m[2]!.replace(/['"\\]/g, ''), strip: m[1] === '-', expands: !/['"\\]/.test(m[2]!), part: -1 };
+        const h = { word: m[2]!.replace(/['"\\]/g, ''), raw: m[2]!, strip: m[1] === '-', expands: !/['"\\]/.test(m[2]!), part: -1 };
         heredocs.push(h);
         own.push(h);
         cur += ' ';
@@ -145,7 +157,13 @@ function scan(
           j = nl < 0 ? line.length : nl + 1;
           if ((h.strip ? text.replace(/^\t+/, '') : text) === h.word) {
             found = true;
-            read.push({ part: h.part, text: line.slice(from, at), expands: h.expands });
+            const body = line.slice(from, at);
+            // A line that ends in `\` joins the next one where the shell reads the body that way, and could make
+            // the delimiter elsewhere than here (`EO\` and `F`): in a body whose delimiter is not quoted, and in any
+            // body inside a substitution, where macOS's bash 3.2 joins them though it is quoted. Unreadable.
+            const nested = depth > 0 || inSubst || /\$\(|`|[<>]\(/.test(line);
+            if ((h.expands || nested) && /\\(\n|$)/.test(body)) throw new Error('a heredoc body whose lines the shell may join');
+            read.push({ part: h.part, text: body, expands: h.expands, raw: h.raw, source: line, from, to: j });
             break;
           }
         }
@@ -566,6 +584,62 @@ export function parseShellSyntax(line: string): SimpleCommand[] {
   return read(line, 0, true, line);
 }
 
+/**
+ * Programs that may run what a heredoc gives them as command lines, themselves or through what they
+ * start: a heredoc given to a command with any of these among its words is kept by `withoutHeredocBodies`.
+ */
+const RUNS_LINES = new Set([
+  ...SHELLS,
+  ...Object.keys(WRAPPERS),
+  ...Object.keys(PRIVILEGED),
+  'ssh',
+  'su',
+  'eval',
+  'source',
+  '.',
+  'docker',
+  'podman',
+  'kubectl',
+  'script',
+]);
+
+/** A delimiter `scan` reads as the shell does: a plain name, bare or quoted whole (not `$'EOF'`, `$(…)`, `E"O"F`). */
+const PLAIN_DELIMITER = /^(['"]?)[A-Za-z_][A-Za-z0-9_]*\1$/;
+
+/**
+ * The command line without the heredocs' bodies and delimiter lines that are text, as `scan` finds them
+ * (the lines after `cat > notes.md <<'EOF'` or `python3 - <<'EOF'` up to `EOF` are not command lines).
+ * Only where `scan` is sure to end each body where the shell does: a body given to a command that may
+ * run it as command lines (a shell, `ssh`, `sudo`…: RUNS_LINES), one whose delimiter is not a plain name
+ * (PLAIN_DELIMITER), one whose delimiter is not quoted with a line ending in `\` (which the shell may join
+ * into the delimiter; a quoted one's body keeps it as text, a Python line continuation, at the top of the
+ * line, where `scan` refuses one inside a substitution or with whitespace a shell reads otherwise), and
+ * every one in a line with a `${` (where a `<<` may be no heredoc at all, `${x/<<EOF/}`) are kept.
+ * Unchanged when there is none, and when the line cannot be read. What it keeps only makes the first
+ * reading's keys stricter.
+ */
+export function withoutHeredocBodies(line: string): string {
+  if (line.includes('${')) return line;
+  const notes: Scanned = { bodies: [], piped: false };
+  const parts: string[] = [];
+  try {
+    scan(line, 0, false, parts, 0, notes);
+  } catch {
+    return line;
+  }
+  // A backslash that ends a line joins it to the next only in a body whose delimiter is not quoted
+  // (`<<EOF`): there `EO\` and `F` could end it elsewhere than the reader does. Quoted (`<<'EOF'`), it is
+  // the text's own, as in a Python line continuation.
+  if (notes.bodies.some((b) => !PLAIN_DELIMITER.test(b.raw) || (!/^['"]/.test(b.raw) && /\\\r?(\n|$)/.test(b.text)))) return line;
+  const runsLines = (part: string | undefined) =>
+    part === undefined || part.split(/\s+/).some((w) => RUNS_LINES.has(basename(w.replace(/^['"]|['"]$/g, ''))));
+  // Bodies in `line` itself (not in a backtick substitution's text), from the last back.
+  const spans = notes.bodies.filter((b) => b.source === line && !runsLines(parts[b.part])).sort((a, b) => b.from - a.from);
+  let out = line;
+  for (const b of spans) out = out.slice(0, b.from) + out.slice(b.to);
+  return out;
+}
+
 /** Every simple command in a command line, as program + arguments. */
 export function simpleCommands(line: string): string[][] {
   return parseCommandLine(line).map((c) => [...c.privileged, ...c.args]);
@@ -632,8 +706,6 @@ function publishes(cmd: SimpleCommand): boolean {
  * nothing to run (`for ((i=0;i<${#a[@]};i++))`, `[[ ${#a[@]} -eq 0 ]]`) is only keyed, never published.
  */
 
-/** A command substitution `$( )` (not arithmetic `$(( ))`) or a backtick: it runs when the word expands. */
-const SUBST = /\$\((?!\()|`/;
 /** Builtins that evaluate an array subscript or arithmetic argument, reached through variables too. */
 const EVAL_BUILTINS = new Set(['declare', 'typeset', 'export', 'local', 'readonly', 'read', 'mapfile', 'readarray', 'let', 'unset']);
 /** `[[ a -eq b ]]`, `-v name`: both sides are evaluated (unlike `-d`, `-f`, `==`). */

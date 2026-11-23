@@ -802,6 +802,19 @@ describe('approvals', () => {
       .at(-1)!
       .parts.find((p) => p.type === 'text');
 
+  it('marks a line kept as one exact command, whose "always allow" allows no program in it by name', async () => {
+    const conv = solo();
+    const line = 'env -i PATH="$PATH" python3 -m tool --dry-run; rm .env';
+    fake.inTurn = async (_name, o) => void (await o.requestApproval?.({ kind: 'command', detail: line, reason: 'Dry run' }));
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
+    const pending = pendingApproval(conv)!;
+    expect(pending).toMatchObject({ ruleLabel: line, ruleExact: true });
+    orchestrator.answerApproval(conv.id, pending.id, { allow: true, always: true });
+    await finish(conv.id);
+    expect(conv.allowRules).toEqual([{ kind: 'command', key: line }]);
+  });
+
   it('asks the user, waits, and remembers "always allow" for the conversation', async () => {
     const conv = solo();
     await orchestrator.send(conv.id, 'please install');
@@ -1521,12 +1534,52 @@ describe('agents asking the user', () => {
     fake.asking = new Set(['Alice']);
     await orchestrator.send(conv.id, 'question');
     await finish(conv.id);
-    expect(conv.pause).toMatchObject({ mode: 'relay', askers: ['a'], rest: [], hopsLeft: 4 });
+    expect(conv.pause).toEqual({ mode: 'relay', askers: ['a'], rest: [], participants: [], round: 1, rounds: 1 });
     await orchestrator.send(conv.id, 'ANSWER: A');
     await finish(conv.id);
     expect(said(conv)).toEqual(['question', '@Alice', 'ANSWER: A', '@Alice']);
     expect(calls.at(-1)!.prompt).toContain('You asked the user a question');
     expect(calls.at(-1)!.prompt).toContain('Mention a teammate to hand off');
+  });
+
+  it('in relay mode, keep the handoff of a reply that also asks, for after the answer', async () => {
+    const conv = conversation({ mode: 'relay', permission: 'read-only', maxHops: 5 });
+    // Alice hands off to Bob and gives the user steps (here a question) in the same reply.
+    fake.reply = (name, prompt) => (name === 'Alice' && !prompt.includes('ANSWER:') ? '@Bob please review.\n\n[ASK_USER]' : undefined);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice']); // Bob waits for the answer too
+    expect(conv.pause).toMatchObject({ mode: 'relay', askers: ['a'], rest: [{ agentId: 'b', handedBy: 'Alice' }] });
+    expect(new Store(db).get(conv.id)!.pause).toEqual(conv.pause);
+
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', 'ANSWER: A', '@Alice', '@Bob']);
+    expect(calls.at(-1)!.name).toBe('Bob');
+    expect(calls.at(-1)!.prompt).toContain('@Alice handed the floor to you.');
+  });
+
+  it('in relay mode, let Continue hand off to whom the asking reply named', async () => {
+    const conv = conversation({ mode: 'relay', permission: 'read-only', maxHops: 5 });
+    fake.reply = (name) => (name === 'Alice' ? '@Bob over to you.\n\n[ASK_USER]' : undefined);
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(said(conv)).toEqual(['question', '@Alice', '@Bob']);
+    expect(conv.pause).toBeUndefined();
+  });
+
+  it('in relay mode, count the handoffs afresh once the user answered', async () => {
+    const conv = conversation({ mode: 'relay', permission: 'read-only', maxHops: 2 });
+    // Alice and Bob hand to each other; Alice asks the user on her first turn only.
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes('ANSWER:') ? '@Bob' : '@Bob first\n\n[ASK_USER]') : '@Alice');
+    await orchestrator.send(conv.id, 'question');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    // Two hops after the answer, as for a new message: Alice, then Bob; then the limit's note.
+    expect(said(conv)).toEqual(['question', '@Alice', 'ANSWER: A', '@Alice', '@Bob', 'note']);
   });
 
   it('are answered by editing the question that led to them', async () => {

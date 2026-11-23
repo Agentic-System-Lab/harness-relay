@@ -37,6 +37,8 @@ import {
   teamTurns,
   thoughtTail,
   thoughtTitle,
+  foldedDetail,
+  FOLD_DETAIL_CHARS,
   restoredText,
   runningStep,
   subagentName,
@@ -649,6 +651,19 @@ describe("an agent's work between its words", () => {
     expect(thoughtTitle(t)).toBe('Examining the hash check');
     expect(thoughtTail(t)).toBe('the secrets load');
     expect(thoughtTitle('   ')).toBe('');
+  });
+
+  it("folds a long answered request's command to its first line and how many lines follow", () => {
+    expect(foldedDetail('npm test')).toBeUndefined();
+    expect(foldedDetail('  \n')).toBeUndefined();
+    // Up to the limit, as it is: on one line, or a few short ones (space around it not counted).
+    expect(foldedDetail(`\n  ${'x'.repeat(FOLD_DETAIL_CHARS)}\n`)).toBeUndefined();
+    expect(foldedDetail('git add -A && \\\ngit commit -m x')).toBeUndefined();
+    const long = `echo ${'y'.repeat(FOLD_DETAIL_CHARS)}`;
+    expect(foldedDetail(long)).toEqual({ head: long, more: 0 });
+    const body = `p.write_text(${JSON.stringify('z'.repeat(FOLD_DETAIL_CHARS))})`;
+    const heredoc = `\npython3 - <<'EOF'\r\nfrom pathlib import Path\n\n${body}\nEOF\n`;
+    expect(foldedDetail(heredoc)).toEqual({ head: "python3 - <<'EOF'", more: 4 });
   });
 
   it('tells a path apart from the other details a tool row shows', () => {

@@ -56,6 +56,29 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   expect(dockerRequests).toEqual([]);
 });
 
+test('a page at the top of a working directory too large to copy whole opens with the files it names, and says so', async ({
+  page,
+  relay,
+}) => {
+  mkdirSync(join(relay.workDir, 'many'));
+  for (let i = 0; i < 4097; i++) writeFileSync(join(relay.workDir, 'many', `n${i}.txt`), '');
+  writeFileSync(
+    join(relay.workDir, 'index.html'),
+    '<!doctype html><title>Top</title><link rel="stylesheet" href="style.css"><h1>Top page</h1>',
+  );
+  writeFileSync(join(relay.workDir, 'style.css'), 'h1 { color: rgb(255, 0, 0) }');
+  await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+  await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+  await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
+  const panel = page.getByLabel('App preview', { exact: true });
+  const heading = panel.frameLocator('iframe').getByRole('heading');
+  await expect(heading).toHaveText('Top page');
+  await expect(heading).toHaveCSS('color', 'rgb(255, 0, 0)'); // its stylesheet came along
+  await expect(panel.locator('.app-preview-partial')).toHaveText(
+    'This folder could not be copied whole (too large, or a folder in it unreadable), so the preview has only the page and the files it names: an address a script puts together may not load.',
+  );
+});
+
 test('a reply opens the author’s own file in parallel and the preview fits a phone', async ({ page, relay }) => {
   await openTeamChat(
     page,
