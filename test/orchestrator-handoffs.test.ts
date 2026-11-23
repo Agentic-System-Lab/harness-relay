@@ -1017,6 +1017,22 @@ describe.skipIf(process.platform === 'win32')('interactive command cards', () =>
     expect(partOf(conv.id, 'interactive').part.session!.output.trim()).toBe(orchestrator.handoffFolder(conv));
   });
 
+  it('refuses to start in the working directory once a program it lists changed, as an agent planting one would', async () => {
+    mkdirSync(join(project, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(project, 'node_modules', '.bin', 'vercel'), '#!/bin/sh\necho real\n', { mode: 0o755 });
+    const { conv, msg, part } = await propose('<interactive workdir="yes">pwd</interactive>');
+    expect(part.configFiles).toContain('node_modules');
+    // Planted after the card listed it: same names, other content.
+    writeFileSync(join(project, 'node_modules', '.bin', 'vercel'), '#!/bin/sh\necho planted\n', { mode: 0o755 });
+    await expect(orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: part.configFiles })).rejects.toMatchObject({
+      status: 409,
+    });
+    // Shown again (the card's digest is now of what is there): Start goes.
+    const listed = partOf(conv.id, 'interactive').part.configFiles;
+    await orchestrator.startInteractive(conv.id, msg.id, part.id, { workdir: true, seen: listed });
+    await vi.waitFor(() => expect(partOf(conv.id, 'interactive').part.session?.state).toBe('exited'), { timeout: slow(5000) });
+  });
+
   it("does not run, telling the team, and is never started from a card an automation's run proposed", async () => {
     const { conv, msg, part } = await propose('<interactive>npm login</interactive>');
     await orchestrator.dismissInteractive(conv.id, msg.id, part.id);

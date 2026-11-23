@@ -1,6 +1,21 @@
 import type { ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  readSync,
+  writeFileSync,
+} from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { INTERACTIVE_LIMITS, type InteractiveSession } from '../shared/types';
 import { maskValues } from '../shared/handoffs';
@@ -53,7 +68,7 @@ const EXIT_GRACE_MS = 500;
  * git's and the cloud CLIs' folders.
  */
 const CONFIG_NAMES =
-  /^(?:\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmfile\.cjs|\.?bunfig\.toml|package\.json|\.env(?:\..+)?|\.envrc|\.netrc|\.pypirc|pip\.conf|pyproject\.toml|setup\.cfg|\.python-version|\.node-version|\.nvmrc|\.ruby-version|\.tool-versions|\.?mise\.toml|\.gitconfig|Gemfile|\.bundle|\.cargo|\.config|\.ssh|\.docker|\.aws|\.kube|\.firebaserc|firebase\.json|\.gcloudignore|\.terraformrc)$/i;
+  /^(?:\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmfile\.cjs|\.?bunfig\.toml|package\.json|\.env(?:\..+)?|\.envrc|\.netrc|\.pypirc|pip\.conf|pyproject\.toml|setup\.cfg|\.python-version|\.node-version|\.nvmrc|\.ruby-version|\.tool-versions|\.?mise\.toml|\.gitconfig|Gemfile|\.bundle|\.cargo|\.config|\.ssh|\.docker|\.aws|\.kube|\.firebaserc|firebase\.json|\.gcloudignore|\.terraformrc|node_modules|\.venv|venv|[Mm]akefile|GNUmakefile|[Jj]ustfile|\.justfile|Rakefile|Taskfile\.ya?ml|deno\.jsonc?|Cargo\.toml|go\.mod)$/i;
 
 /** The most files the card lists (and Start compares with what it listed). */
 const CONFIG_FILES_MAX = 100;
@@ -124,6 +139,77 @@ export function workdirConfigFiles(dir: string): string[] {
     }
   }
   return [...new Set(found)].sort().slice(0, CONFIG_FILES_MAX);
+}
+
+/** Most bytes `workdirDigest()` reads of one listed file, and of all of them. */
+const DIGEST_LIMITS = { file: 1024 * 1024, total: 32 * 1024 * 1024, entries: 2000 };
+
+/**
+ * What the files `workdirConfigFiles()` listed hold now, in a few characters: each file's content, and for
+ * a folder (`node_modules`, `.venv`, `venv`, `.cargo`…) its names, and those of the programs it installs
+ * (`.bin`, `bin`, `Scripts`) with what each leads to. Start in the working directory is refused when this
+ * changed since the card listed them, not only when another file appeared. Never follows a link out.
+ */
+export function workdirDigest(dir: string, files: readonly string[]): string {
+  const hash = createHash('sha256');
+  let total = 0;
+  let entries = 0;
+  const file = (abs: string) => {
+    let fd: number | undefined;
+    try {
+      fd = openSync(abs, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+      if (!fstatSync(fd).isFile()) return hash.update('\0not a file');
+      const buf = Buffer.alloc(Math.min(DIGEST_LIMITS.file, Math.max(0, DIGEST_LIMITS.total - total)));
+      const n = buf.length ? readSync(fd, buf, 0, buf.length, 0) : 0;
+      total += n;
+      hash.update(buf.subarray(0, n));
+    } catch {
+      hash.update('\0unreadable');
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  };
+  const folder = (abs: string, depth: number) => {
+    let names: string[];
+    try {
+      names = readdirSync(abs).sort();
+    } catch {
+      return void hash.update('\0unreadable');
+    }
+    for (const name of names) {
+      if (++entries > DIGEST_LIMITS.entries) return void hash.update('\0more');
+      const at = join(abs, name);
+      hash.update(`\0${name}`);
+      try {
+        const st = lstatSync(at);
+        if (st.isSymbolicLink()) hash.update(`->${readlinkSync(at)}`);
+        else if (st.isDirectory() && depth > 0) folder(at, depth - 1);
+        else if (st.isFile() && depth === 0) file(at);
+      } catch {
+        hash.update('\0gone');
+      }
+    }
+  };
+  for (const f of files) {
+    hash.update(`\0\0${f}`);
+    if (f.startsWith('core.hooksPath')) continue;
+    const abs = join(dir, f);
+    let st;
+    try {
+      st = lstatSync(abs);
+    } catch {
+      hash.update('\0gone');
+      continue;
+    }
+    if (st.isSymbolicLink()) hash.update(`->${readlinkSync(abs)}`);
+    else if (st.isFile()) file(abs);
+    else if (st.isDirectory()) {
+      folder(abs, 0);
+      // The programs it installs, which a command run there may start (npx, make, a venv's python…).
+      for (const bin of ['.bin', 'bin', 'Scripts']) if (existsSync(join(abs, bin))) folder(join(abs, bin), 0);
+    }
+  }
+  return hash.digest('hex').slice(0, 32);
 }
 
 /** Where its password helper is, for its environment. */

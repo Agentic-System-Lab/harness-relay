@@ -2577,6 +2577,8 @@ export type MessagePart =
        * which agents can write: the card lists them, and starting there is refused when others appeared since.
        */
       configFiles: string[];
+      /** What those files held when the card listed them (`workdirDigest()`): Start there is refused once it changed. */
+      configDigest?: string;
       /** It cannot be started from this card: proposed in an automation's run, or on native Windows. */
       blocked?: 'automation' | 'windows';
       status: 'proposed' | 'started' | 'dismissed';

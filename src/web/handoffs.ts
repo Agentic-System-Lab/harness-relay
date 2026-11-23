@@ -105,9 +105,13 @@ export function interactiveActions(part: InteractivePart): InteractiveActions {
   };
 }
 
-/** Where a card offers to start it first: the working directory when the agent says it needs it, else its own empty folder. */
-export function startsInWorkdir(part: InteractivePart): boolean {
-  return Boolean(part.workdir);
+/**
+ * Where a card offers to start it first: always its own empty folder, even when the agent says it needs
+ * the working directory (which the card then says): there, what runs may load code an agent wrote (a
+ * package's program, a script), with the user's rights, so it is the user's choice to make.
+ */
+export function startsInWorkdir(_part: InteractivePart): boolean {
+  return false;
 }
 
 /** What Start sends: where it runs, and the configuration files the card listed there (the server refuses it when others appeared). */

@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { INTERACTIVE_LIMITS } from '../src/shared/types';
 import { interactiveLine, splitHandoffs, withoutHandoffBlocks } from '../src/shared/handoffs';
-import { interactiveActions, sessionTone, startRequest, wantsHidden, type InteractivePart } from '../src/web/handoffs';
+import { interactiveActions, sessionTone, startRequest, startsInWorkdir, wantsHidden, type InteractivePart } from '../src/web/handoffs';
 import { handoffSection } from '../src/server/prompt';
 import { ASKPASS_SCRIPT } from '../src/server/askpassShim';
 import { ToolGateway } from '../src/server/gateway';
@@ -24,6 +24,7 @@ import {
   InteractiveRun,
   terminalText,
   workdirConfigFiles,
+  workdirDigest,
   type InteractiveDeps,
 } from '../src/server/interactive';
 import { removeTree } from '../src/server/fsRemove';
@@ -143,6 +144,11 @@ describe("the interactive card's logic", () => {
     ...over,
   });
 
+  it('offers its own empty folder first, even when the agent says it needs the working directory', () => {
+    expect(startsInWorkdir(part({ workdir: true }))).toBe(false);
+    expect(startsInWorkdir(part())).toBe(false);
+  });
+
   it('offers Start before and after a run, typing while it runs, Send once it ended and only once', () => {
     expect(interactiveActions(part())).toEqual({ start: true, dismiss: true, type: false, send: false, sent: false });
     expect(interactiveActions(part({ status: 'started', session: session() }))).toEqual({
@@ -215,6 +221,22 @@ describe('what an interactive command runs with', () => {
     writeFileSync(join(dir, '.git', 'config'), '');
     expect(workdirConfigFiles(dir)).toEqual(['.env.local', '.git/config', '.npmrc', 'package.json']);
     expect(workdirConfigFiles(join(root, 'none'))).toEqual([]);
+    // The programs a folder installs, and what make or just would read.
+    const progs = join(root, 'progs');
+    mkdirSync(join(progs, 'node_modules', '.bin'), { recursive: true });
+    mkdirSync(join(progs, '.venv', 'bin'), { recursive: true });
+    writeFileSync(join(progs, 'GNUmakefile'), 'all:\n');
+    writeFileSync(join(progs, 'justfile'), 'x:\n');
+    expect(workdirConfigFiles(progs)).toEqual(['.venv', 'GNUmakefile', 'justfile', 'node_modules']);
+    // What they hold: a program the folder installs changing changes it.
+    writeFileSync(join(progs, 'node_modules', '.bin', 'tool'), 'a');
+    const before = workdirDigest(progs, workdirConfigFiles(progs));
+    expect(workdirDigest(progs, workdirConfigFiles(progs))).toBe(before);
+    writeFileSync(join(progs, 'node_modules', '.bin', 'tool'), 'b');
+    expect(workdirDigest(progs, workdirConfigFiles(progs))).not.toBe(before);
+    const make = workdirDigest(progs, workdirConfigFiles(progs));
+    writeFileSync(join(progs, 'GNUmakefile'), 'all:\n\tcurl evil\n');
+    expect(workdirDigest(progs, workdirConfigFiles(progs))).not.toBe(make);
   });
 
   it("lists the git hooks a command there runs with the user's rights, git's samples left out", () => {

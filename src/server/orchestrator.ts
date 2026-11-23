@@ -110,7 +110,7 @@ import {
   type FixedCommandDeps,
 } from './fixedCommands';
 import type { CommandPin } from './handoffs';
-import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, type InteractiveDeps } from './interactive';
+import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, workdirDigest, type InteractiveDeps } from './interactive';
 import { splitSchedule } from '../shared/scheduleProposal';
 import type { Hub } from './hub';
 import {
@@ -1284,6 +1284,7 @@ export class Orchestrator {
     const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
     for (const b of blocks) {
       if (b.kind !== 'interactive' || interactive >= INTERACTIVE_LIMITS.perReply) continue;
+      const configFiles = workdirConfigFiles(folder);
       msg.parts.push({
         type: 'interactive',
         id: randomUUID(),
@@ -1291,7 +1292,8 @@ export class Orchestrator {
         run: b.run,
         ...(b.reason ? { reason: b.reason } : {}),
         ...(b.workdir ? { workdir: true } : {}),
-        configFiles: workdirConfigFiles(folder),
+        configFiles,
+        configDigest: workdirDigest(folder, configFiles),
         ...(blocked ? { blocked } : {}),
         status: 'proposed',
       });
@@ -1819,9 +1821,13 @@ export class Orchestrator {
     let workdir: string | undefined;
     if (o.workdir) {
       if (!existsSync(part.folder)) throw new HttpError(409, t().checksCommandNoFolder(part.folder));
+      // Another file, or one of those listed changed since the card listed them (an agent writing a script
+      // or a package's program there): listed again, and Start refused until the user has seen it.
       const now = workdirConfigFiles(part.folder);
-      if (now.some((f) => !(o.seen ?? []).includes(f))) {
+      const digest = workdirDigest(part.folder, now);
+      if (now.some((f) => !(o.seen ?? []).includes(f)) || (part.configDigest !== undefined && digest !== part.configDigest)) {
         part.configFiles = now;
+        part.configDigest = digest;
         this.saveCard(conv, msg);
         throw new HttpError(409, t().handoffs.interactiveConfigChanged);
       }

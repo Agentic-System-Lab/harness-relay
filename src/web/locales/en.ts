@@ -1218,8 +1218,10 @@ export const en: Messages = {
       ownFolder: 'An empty folder of its own',
       workdir: (folder) => `The working directory (${folder})`,
       agentWantsWorkdir: 'The agent says it needs to run in the working directory.',
-      configFiles: 'Run there, a program may load these configuration files, which agents can change:',
-      noConfigFiles: 'None of the usual configuration files are in the working directory.',
+      configFiles:
+        'Run there, a program may load these, which agents can change: configuration, scripts and the programs the folder installs. Start it there only for a command that needs this folder:',
+      noConfigFiles:
+        'None of the usual configuration files or installed programs are there, but what runs in this folder can still load code an agent wrote (a script, a module). Start it there only for a command that needs this folder.',
       rights:
         "It runs with your rights on this computer, outside every agent's sandbox. What a sign-in saves goes where the program keeps it, usually your home folder (~/.config/gcloud, ~/.npmrc), which agents below full access can read. The team sees its output only if you send it.",
       noTerminal: 'It has no terminal: a full-screen program, or one that prompts only in a terminal, cannot be answered here.',
