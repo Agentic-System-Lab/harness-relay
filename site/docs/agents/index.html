@@ -395,6 +395,11 @@
             Harness Relay keeps the other keys in your system's credential store (the macOS Keychain, Windows Credential Manager, or your
             keyring on Linux), and only ever shows them masked.
           </p>
+          <p>
+            A key you export in the shell that starts Harness Relay goes only to its own CLI: Claude Code does not get your
+            <code>OPENAI_API_KEY</code>, and no CLI gets <code>HF_TOKEN</code>. When an agent needs one, say because the project's
+            tests call OpenAI, pass it on under <b>Environment variables</b> on that CLI's card, which lists the keys it is not given.
+          </p>
         </section>
 
         <section id="open-agents" aria-labelledby="open-agents-title">

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 54 個 spec 檔、643 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、645 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -25,7 +25,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡（Antigravity 的預設帳號改拿測試自己的替身 Gemini API key，放在 `GEMINI_API_KEY`，這是它在 Harness Relay 唯一的登入方式），git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型連線**），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。伺服器列出這兩個模型，另外提供只能按 ID 查到的 `unlisted-model`，並收下在沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
-- **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`，或給伺服器更多環境變數（`serverEnv`）。
+- **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），「CLI 拿不到的金鑰」提示已看過（所以 spec 的 `serverEnv` 裡有金鑰時，新對話也不會提），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`、`envNotice: true`，或給伺服器更多環境變數（`serverEnv`）。
 - **假的 CLI**（[`fake-cli/`](fake-cli/)），十二個 CLI 各一個。測試的伺服器裝了 Claude Code、Codex 與 Grok，以及測試要用的 CLI（每個 CLI 各一的測試裝它自己，兩個團隊的測試裝它那一隊的，其他的用 [`support/clis.ts`](support/clis.ts) 的 `withClis()`）：其餘的在那裡都未安裝，因為每次開啟頁面時，伺服器會向每個已安裝的 CLI 詢問版本、登入、模型與它自己會載入的東西，每個大約啟動六次。它們說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
 - **假的 `gh`**（[`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)），用於分享、問題回報的截圖，以及等 GitHub 的自動任務：它把 gist 存在測試自己的資料夾（`fake-github/`），從不送到 GitHub，並列出測試寫在那裡的 pull request 與執行（`fake-github/repos/<owner>/<name>/pulls.json`、`runs.json`）；`E2E_FAKE_SIGNED_OUT=gh` 會讓它處於未登入狀態，直到測試核准它自己的登入（`auth login --web`）。Linux 上還有假的選擇資料夾視窗（`zenity`）。AgentsView 則是 [`specs/sessions.spec.ts`](specs/sessions.spec.ts) 裡的一個小 HTTP 伺服器，因為 Harness Relay 只會送請求給它。
 - **假的 PowerShell**（[`fake-cli/fake-pwsh.cjs`](fake-cli/fake-pwsh.cjs)）在每個 Teams 測試自己的程序和資料夾內模擬 Graph 裝置登入、讀取頻道與發文。
@@ -79,6 +79,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
+| [伺服器環境變數裡的金鑰](#伺服器環境變數裡的金鑰) | [`agent-env.spec.ts`](specs/agent-env.spec.ts) | 2 | [使用者說明 → 環境變數](../docs/user-guide.zh-TW.md#環境變數)、[架構 → 安全性](../docs/architecture.zh-TW.md#安全性) |
 | [方案用量](#方案用量) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [使用者說明 → 方案用量](../docs/user-guide.zh-TW.md#方案用量)、[架構 → Provider](../docs/architecture.zh-TW.md#provider狀態登入與模型) |
 | [各 CLI 自己載入的內容，以及 Grok 的信任](#各-cli-自己載入的內容以及-grok-的信任) | [`native.spec.ts`](specs/native.spec.ts) | 6 | [使用者說明 → 各 CLI 自己載入的內容](../docs/user-guide.zh-TW.md#各-cli-自己載入的內容)、[Subagent 與 workflow](../docs/user-guide.zh-TW.md#subagent-與-workflow)、[架構 → 各 CLI 自己載入的內容](../docs/architecture.zh-TW.md#各-cli-自己載入的內容) |
 | [Agent 的 session 與 AgentsView](#agent-的-session-與-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [使用者說明 → Agent 的 session](../docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)、[架構 → Agent 的家目錄與 AgentsView](../docs/architecture.zh-TW.md#agent-的家目錄與-agentsview) |
@@ -718,6 +719,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在 Harness Relay 以外登出的 CLI，重新打開設定時會顯示出來 | Claude Code | 在它的家目錄登出（就像在終端機執行 `claude auth logout`），而伺服器的快取仍說已登入。重新打開時，設定再檢查一次，app 則拿到快取的回答，這個回答被擋到（`page.route`）設定自己的回答之後：最後才到也不會勝出，狀態顯示**未登入**。 |
 | 有對話正在執行時不能移除帳號 | Claude Code | 回答慢慢進行時，**移除**說有對話正在執行，什麼都不變；停止對話後就能移除。 |
 
+## 伺服器環境變數裡的金鑰
+
+[`agent-env.spec.ts`](specs/agent-env.spec.ts)：啟動 Harness Relay 的環境裡別家模型供應商的金鑰，只會傳給那家自己的 CLI；**設定 → 各 CLI 的卡片 → 環境變數**列出它拿不到的金鑰，也能把它們傳過去。伺服器啟動時帶著 `HF_TOKEN` 與 `MISTRAL_API_KEY`，它們不屬於任何 CLI。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 新對話說一次每個已安裝的 CLI 拿不到哪些金鑰，只列名稱，並帶到它的卡片 | Claude Code、Codex、Grok | 設定 `envNotice: true` 時，新對話會開一個提示，為每個已安裝的 CLI 列出它拿不到的金鑰（沒有未安裝的 CLI，也沒有值）；**開啟設定** 關掉提示並打開 Claude Code 的卡片，它的 **環境變數** 說有兩個金鑰沒傳給它。再開新對話、重新載入後，都不再出現。 |
+| 從 CLI 的卡片傳過去的金鑰，只有那個 CLI 的執行拿得到 | Claude Code、Grok | fake 會說每個變數有沒有設定（`e2e:env`）：一開始兩個都沒有。在 Claude Code 的卡片按 `HF_TOKEN` 旁的 **傳給它**，它就移到要傳過去的清單（摘要改說有一個金鑰沒傳給它），不是名稱的輸入在送出前就被頁面擋下，打進去的名稱（前後有空白）按 Enter 就加入並清空輸入框，再按 **×** 拿掉；伺服器只為 Claude Code 保存這份清單。在同一個對話裡，Claude Code 的下一次執行拿到 `HF_TOKEN`，仍然沒有 `MISTRAL_API_KEY`，Grok 則兩個都沒有。 |
+
 ## 方案用量
 
 [`usage.spec.ts`](specs/usage.spec.ts)：**設定 → 每個 CLI 的卡片 → 帳號的方案用量**，涵蓋有自己登入的七個 CLI。每個替身都像它的 CLI 一樣不送 prompt 回報方案用量（Claude Code 的 `get_usage`、Codex 的 `account/rateLimits/read`、Grok 的 `_x.ai/billing`、`muse usage --json`、Copilot headless 伺服器的 `account.getQuota`、Cursor 從 `about --format json` 取得的方案）：預設的登入（e2e@example.com）已用 42%，其他帳號 7%，並記下每次詢問與它的家目錄。只用 Gemini API key 執行的 Antigravity 沒有方案，也從不詢問 agy。
@@ -902,6 +912,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 新增的帳號各自登出 | ✓ | ✓ | ✓ | —（只用 key） | —（只用 key） | ✓（透過 ACP） | —（只用 key） |
 | 帳號的 API key 只交給那個帳號 | ✓ | ✓（透過 `codex login`） | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 伺服器自己的 API key 只交給預設帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 伺服器環境變數裡別家的金鑰會擋下，也能從卡片傳過去 | ✓（傳過去，檢查它的執行） | ✓（列在提示裡） | ✓（擋下，檢查它的執行） | — | — | — | — |
 | 移除新增的帳號 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CLI 啟動前先詢問專案自己的設定 | — | — | — | — | ✓ | ✓（它專案的 hook） | — |
 | 在 Windows 上透過 `.cmd` 啟動器啟動 | — | — | — | ✓（它自己的） | — | — | ✓（它自己的） |
@@ -966,6 +977,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
+- **伺服器環境變數裡的金鑰，每個 CLI 拿到哪些的大部分。** 端對端測試列出 Claude Code、Codex 與 Grok 被擋下的金鑰，檢查 Claude Code 與 Grok 的執行，並把一個金鑰傳給 Claude Code（沒有檢查 Codex 的執行）。離線測試（`test/agent-env.test.ts`）涵蓋：七個有登入的 CLI 各自保留自己的金鑰、Codex 保留它的 `config.toml` 指定的、開源 agent 維持原樣、預設以外的帳號、GitHub 與雲端的 token 和網址類的變數從不擋下，以及清單在重新啟動後仍保留。
 - **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（它以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。

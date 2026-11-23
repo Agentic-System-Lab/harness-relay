@@ -28,12 +28,14 @@ import {
   type Provider,
   type ProviderAccountUpdate,
   type ProviderAccountView,
+  type ProviderEnvView,
   type ProviderSettingsUpdate,
   type SettingsView,
   type VoiceLanguage,
   type VoiceModelId,
 } from '../shared/types';
 import type { RunBackends } from './agents/types';
+import { codexHomeFor, codexHomeKeys, envSignIn, passEnvList, withheldEnv } from './agentEnv';
 import { INHERITED_BACKEND_VARS, ModelBackendStore, backendEnv } from './backends';
 import { CONFIG, type ServerConfig } from './config';
 import { transaction, type Database } from './db';
@@ -295,6 +297,8 @@ export class SettingsStore {
   private keysLeftInDb = new Set<string>();
   /** Each CLI's accounts besides its default one, in the order they were added. */
   private accountList: Record<Provider, AccountSettings[]>;
+  /** The other providers' keys the user passes on to each CLI's runs all the same (`passEnv()`). */
+  private passEnvLists: Partial<Record<Provider, string[]>> = {};
   /** MCP servers, skills and memory for the agents. */
   readonly tools: ToolLibrary;
   /** The mail accounts and calendars Harness Relay's mail and calendar tools use. */
@@ -400,6 +404,7 @@ export class SettingsStore {
     const extra = parseJson(this.appSetting('default_extra_cwds') ?? '[]');
     this.extraCwds = Array.isArray(extra) ? extra.filter((d): d is string => typeof d === 'string' && d.length > 0) : [];
     this.agentHomeDir = this.appSetting('agent_home') ?? '';
+    this.loadPassEnv();
     this.rememberOpenAgentRoot();
     this.agentsView = this.appSetting('agentsview_url') ?? '';
     this.agentsViewLinkValue = this.appSetting('agentsview_link') ?? '';
@@ -488,6 +493,59 @@ export class SettingsStore {
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(key, value);
+  }
+
+  /** The pass-through lists (`app_settings` key `pass_env`, `{ [provider]: names }`), each checked again as it is read. */
+  private loadPassEnv(): void {
+    const saved = parseJson(this.appSetting('pass_env') ?? '{}');
+    if (!saved || typeof saved !== 'object') return;
+    for (const p of PROVIDERS) {
+      if (isOpenProvider(p)) continue;
+      const list = passEnvList((saved as Record<string, unknown>)[p]);
+      if (list && 'names' in list && list.names.length) this.passEnvLists[p] = list.names;
+    }
+  }
+
+  /**
+   * The variables the user passes on to a CLI's runs although they are another model provider's keys
+   * (Settings → its card → Environment variables), for every one of its accounts; none for an open agent.
+   */
+  passEnv(p: Provider): string[] {
+    return [...(this.passEnvLists[p] ?? [])];
+  }
+
+  /** Saved first, then kept in memory, so that a write that fails leaves both as they were. */
+  private setPassEnv(p: Provider, names: string[]): void {
+    const next = { ...this.passEnvLists };
+    if (names.length) next[p] = [...names];
+    else delete next[p];
+    this.saveAppSetting('pass_env', JSON.stringify(next));
+    this.passEnvLists = next;
+  }
+
+  /**
+   * The other model providers' keys of the server's environment that a CLI's runs as `account` are
+   * not given (`withheldEnv()`): for Codex, those its account's `config.toml` names are its own.
+   */
+  withheldEnv(p: Provider, account?: string): string[] {
+    if (isOpenProvider(p)) return [];
+    const codexKeys = p === 'codex' ? codexHomeKeys(codexHomeFor(this.accountHome(p, account))) : [];
+    return withheldEnv(p, process.env, { pass: this.passEnv(p), codexKeys });
+  }
+
+  /**
+   * The variable of the server's environment the CLI's default account signs in with (`envSignIn()`):
+   * the first one set in the CLI's order, unless the API key Settings keeps for it comes first.
+   */
+  signInEnv(p: Provider): string | undefined {
+    return envSignIn(p, process.env, this.hasStoredApiKey(p) ? API_KEY_ENV[p] : undefined);
+  }
+
+  /** Settings' view of a CLI's environment variables (names only); undefined for an open agent. */
+  private envView(p: Provider): ProviderEnvView | undefined {
+    if (isOpenProvider(p)) return undefined;
+    const signIn = this.signInEnv(p);
+    return { ...(signIn ? { signIn } : {}), withheld: this.withheldEnv(p), pass: this.passEnv(p) };
   }
 
   /** Folder of the CLIs' own homes when Harness Relay runs them; empty = each CLI's usual home. */
@@ -937,7 +995,10 @@ export class SettingsStore {
     if (u.apiKey !== undefined && API_KEY_ENV[p]) s.apiKey = this.storeKey(p, '', u.apiKey);
     if (u.bin !== undefined) s.bin = u.bin.trim();
     if (u.sandboxTerminal !== undefined) s.sandboxTerminal = SANDBOX_TERMINAL_SUPPORT.includes(p) && u.sandboxTerminal;
-    this.saveProvider(p);
+    transaction(this.db, () => {
+      this.saveProvider(p);
+      if (u.passEnv !== undefined && !isOpenProvider(p)) this.setPassEnv(p, u.passEnv);
+    });
   }
 
   view(): SettingsView {
@@ -952,6 +1013,7 @@ export class SettingsStore {
       ...(this.checksDefault ? { checksDefault: this.checksDefault } : {}),
       providers: PROVIDERS.map((p) => {
         const accounts = this.accountViews(p);
+        const environment = this.envView(p);
         return {
           provider: p,
           bin: this.providers[p].bin,
@@ -959,6 +1021,7 @@ export class SettingsStore {
           apiKeyStorage: accounts[0]!.apiKeyStorage,
           accounts,
           sandboxTerminal: this.providers[p].sandboxTerminal,
+          ...(environment ? { environment } : {}),
         };
       }),
     };
@@ -986,7 +1049,8 @@ export class SettingsStore {
 
   /**
    * Environment for a spawned CLI: the server's env, minus nesting markers and the ports `npm run dev`
-   * set for itself (`devRunVars()`), plus stored API keys.
+   * set for itself (`devRunVars()`) and other model providers' keys (`withheldEnv()`: a CLI keeps its
+   * own, and those the user passes on to it), plus stored API keys.
    * With an agent home set, the CLI's home variable points into it, replacing any the server was
    * started with, so the CLI's sign-in, settings and sessions are Harness Relay's own.
    *
@@ -1012,6 +1076,10 @@ export class SettingsStore {
       return env;
     }
     const id = this.resolveAccount(p, account);
+    // Windows' variable names are the same in any letter case; the copy keeps the spelling they had.
+    const withheld = new Set(this.withheldEnv(p, id));
+    const name = (k: string) => (process.platform === 'win32' ? k.toUpperCase() : k);
+    for (const k of Object.keys(env)) if (withheld.has(name(k))) delete env[k];
     const keyVar = API_KEY_ENV[p];
     const key = this.apiKey(p, id);
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];

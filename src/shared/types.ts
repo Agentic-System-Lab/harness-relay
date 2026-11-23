@@ -3780,6 +3780,28 @@ export interface ProviderSettingsView {
    * `SANDBOX_TERMINAL_SUPPORT`; false for the others.
    */
   sandboxTerminal: boolean;
+  /** Which variables of the server's environment this CLI's runs sign in with or are not given; absent for an open agent. */
+  environment?: ProviderEnvView;
+}
+
+/**
+ * Settings → a CLI's card → Environment variables: names only, never a value. The server copies the
+ * environment it was started with into each CLI it starts, but another model provider's keys
+ * (`MODEL_KEY_VARS` in `src/server/agentEnv.ts`) only to the CLI they belong to, or to a CLI the user
+ * passes them on to.
+ */
+export interface ProviderEnvView {
+  /**
+   * The variable of the server's environment the CLI's default account signs in with, ahead of the
+   * sign-in kept in its home: the first one set in the order the CLI reads them (Claude Code's cloud
+   * providers, then `ANTHROPIC_AUTH_TOKEN`…); absent when there is none, or when an API key saved in
+   * Settings comes first.
+   */
+  signIn?: string;
+  /** Other model providers' keys set in the server's environment that this CLI's runs are not given. */
+  withheld: string[];
+  /** The names the user passes on to this CLI's runs all the same (whether or not they are set now). */
+  pass: string[];
 }
 
 /**
@@ -3958,6 +3980,11 @@ export interface ProviderSettingsUpdate {
   apiKey?: string | null;
   /** Ignored for a CLI not in `SANDBOX_TERMINAL_SUPPORT`. */
   sandboxTerminal?: boolean;
+  /**
+   * The whole list of variables passed on to this CLI's runs although they are another provider's keys
+   * (`ProviderEnvView.pass`), replacing the current one; refused for an open agent.
+   */
+  passEnv?: string[];
 }
 
 // --- Model backends: what the open agents run their models on --------------------------------

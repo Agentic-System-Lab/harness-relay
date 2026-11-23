@@ -53,6 +53,7 @@ import {
 } from '../route';
 import { hasNativePanel, hasSubagents } from '../native';
 import { CliFeatures } from './CliFeatures';
+import { AgentEnvSettings } from './AgentEnvSettings';
 import { assistantReadiness, statusBeforeInstall } from '../clis';
 import { useCliInstalls } from '../useCliInstalls';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
@@ -788,6 +789,8 @@ function ProviderCard({
           {accounts.length >= maxAccounts && <p className="muted small">{t.accounts.limit(maxAccounts)}</p>}
         </div>
       </details>
+
+      {settings?.environment && <AgentEnvSettings provider={provider} view={settings.environment} onSettings={onSettings} />}
 
       <details className="sub">
         <summary>

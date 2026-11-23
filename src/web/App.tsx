@@ -6,7 +6,9 @@ import type {
   GitRequirement,
   InboxSummary,
   ProviderModels,
+  Provider,
   ProviderStatus,
+  SettingsView,
   UpdateStatus,
 } from '../shared/types';
 import { GIT_INSTALL_EVENT, SIGNED_OUT_EVENT, api } from './api';
@@ -43,6 +45,7 @@ import { EMPTY_INBOX, readOnView, sameSummary } from './inbox';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
+import { readNoticeSeen, showNotice, withheldByCli, writeNoticeSeen } from './agentEnv';
 import { useSandboxSetup } from './useSandboxSetup';
 import {
   AFTER_UPDATE_MS,
@@ -63,6 +66,7 @@ import { pendingTour } from './tour';
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
+const WithheldEnvDialog = lazyPart(() => import('./components/WithheldEnvDialog').then((m) => m.WithheldEnvDialog));
 const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
 type SeenMap = Record<string, number>;
@@ -512,11 +516,14 @@ function RelayApp() {
   const [sandboxClosed, setSandboxClosed] = useState(false);
   const sandbox = useSandboxSetup(route.page === 'new' && !sandboxAsked && !sandboxClosed);
   const [sandboxOpen, setSandboxOpen] = useState(false);
+  /** What the notice of the keys a CLI is not given lists while it is open (below), taken as it opens. */
+  const [envItems, setEnvItems] = useState<{ provider: Provider; names: string[] }[]>();
   useEffect(() => {
     // Not over the tour, another dialog, or what the user is typing or recording (it would take their keys).
     if (
       route.page === 'new' &&
       !sandboxOpen &&
+      !envItems &&
       !tourOpen &&
       !offer &&
       dialogs === 0 &&
@@ -525,7 +532,66 @@ function RelayApp() {
       askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)
     )
       setSandboxOpen(true);
-  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
+  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, envItems, tourOpen, offer, dialogs, typing, held]);
+
+  // The keys of the server's environment some CLI is not given, said once in this browser as New chat
+  // opens (src/web/agentEnv.ts), after the sandboxes' dialog and never beside it; Settings keeps them.
+  const [envSeen, setEnvSeen] = useState(readNoticeSeen);
+  const [envView, setEnvView] = useState<SettingsView>();
+  const installedCli = (p: Provider) => providers.some((s) => s.provider === p && s.installed);
+  // Asked again each time New chat opens while the notice is still to be seen: Settings may have changed it.
+  useEffect(() => {
+    if (route.page !== 'new' || envSeen) return;
+    let live = true;
+    api.getSettings().then(
+      (v) => live && setEnvView(v),
+      () => {
+        /* asked again the next time New chat opens */
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [route.page, envSeen]);
+  // While this browser has not answered the sandboxes' question, wait for what they need: it goes first.
+  const sandboxSettled = sandboxAsked || sandboxClosed || sandbox.view !== undefined;
+  useEffect(() => {
+    if (
+      route.page === 'new' &&
+      !envItems &&
+      !sandboxOpen &&
+      sandboxSettled &&
+      !askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed) &&
+      !tourOpen &&
+      !offer &&
+      dialogs === 0 &&
+      !typing &&
+      !held &&
+      showNotice(envView, envSeen, installedCli)
+    )
+      setEnvItems(withheldByCli(envView, installedCli));
+  }, [
+    route.page,
+    envView,
+    envSeen,
+    envItems,
+    sandboxOpen,
+    sandboxSettled,
+    sandbox.view,
+    sandboxAsked,
+    sandboxClosed,
+    tourOpen,
+    offer,
+    dialogs,
+    typing,
+    held,
+    providers,
+  ]);
+  const closeEnv = () => {
+    writeNoticeSeen();
+    setEnvSeen(true);
+    setEnvItems(undefined);
+  };
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -672,6 +738,11 @@ function RelayApp() {
               setSandboxOpen(false);
             }}
           />
+        </Deferred>
+      )}
+      {envItems && (
+        <Deferred onClose={closeEnv}>
+          <WithheldEnvDialog items={envItems} onClose={closeEnv} />
         </Deferred>
       )}
       {offer && update?.available && (
