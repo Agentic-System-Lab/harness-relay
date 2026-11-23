@@ -241,19 +241,19 @@ type BriefingTools = Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> & {
    * and whether the user keeps agents' new notes before agents get them (`MemorySettings.review`).
    */
   longTerm?: { pinned: MemoryNote[]; review: boolean };
-  /** The working directory's secrets (names only) and fixed commands (`HandoffStore`). */
-  handoffs?: { secrets: string[]; commands: Pick<FixedCommand, 'name' | 'run' | 'hosts' | 'secrets' | 'cwd'>[] };
 };
 
+/** A working directory's secrets (names only) and fixed commands (`HandoffStore`), as a turn prompt tells them. */
+export type HandoffsNow = { secrets: string[]; commands: Pick<FixedCommand, 'name' | 'run' | 'hosts' | 'secrets' | 'cwd'>[] };
+
 /**
- * How agents ask for what only the user can give (a secret) and have Harness Relay run a script with it
- * (a fixed command): the blocks of `src/shared/handoffs.ts`, and what this working directory has.
+ * What the working directory has of secrets (their names) and fixed commands now, for a turn prompt ('' when
+ * it has none). Given in the turn prompt when it changed since the member's session last heard it, never in
+ * the briefing: the user saving a secret or a command must not change every later turn's system prompt,
+ * which would start the CLI's prompt cache over (Claude Code's whole conversation written to it again).
  */
-export function handoffSection(
-  h: BriefingTools['handoffs'] = { secrets: [], commands: [] },
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const have = [
+export function handoffsNow(h: HandoffsNow): string {
+  return [
     h.secrets.length ? `Secrets kept for this working directory (their values are never shown to you): ${h.secrets.join(', ')}.` : '',
     h.commands.length
       ? `Fixed commands saved for it:\n<fixed_commands>\n${h.commands
@@ -263,14 +263,33 @@ export function handoffSection(
           )
           .join('\n')}\n</fixed_commands>`
       : '',
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** The turn prompt's section of what `handoffsNow()` says ('' for none: the working directory has nothing left). */
+function handoffsTurnSection(now: string | undefined): string {
+  if (now === undefined) return '';
+  return `\n\nThe working directory's secrets and fixed commands, as they are now (they changed since you last heard, or this is your first turn):\n${
+    now || 'No secrets are kept and no fixed commands are saved for this working directory now.'
+  }`;
+}
+
+/**
+ * How agents ask for what only the user can give (a secret) and have Harness Relay run a script with it
+ * (a fixed command): the blocks of `src/shared/handoffs.ts`. What this working directory has comes in the
+ * turn prompts (`handoffsNow()`), so that this text never changes in a conversation.
+ */
+export function handoffSection(platform: NodeJS.Platform = process.platform): string {
   const windows = platform === 'win32';
   return `\n\n# Secrets and fixed commands
 When the work needs a secret (an API token, an app secret, a password) or a script that uses one, never ask for it in the chat, never ask the user to type it in a terminal or paste it into a file, and never write one yourself.${windows ? '' : ' Nor ask the user to run commands in a terminal to set things up: run them yourself, or use these blocks.'} Instead, put these blocks in your reply, each on lines of its own and never inside code; Harness Relay takes them out and shows the user a card, and leaves out the blocks past each one's limit per reply:${windows ? ' (Harness Relay runs on native Windows here, where fixed commands and interactive commands do not run yet: ask for secrets only for later, and give the user steps instead.)' : ''}
-- \`<secret name="NAME" label="What it is">why you need it</secret>\`: asks the user for a secret (NAME in capital letters, digits and _; at most ${HANDOFF_LIMITS.secretsPerReply} in a reply). The team waits for their answer, as for ${ASK_TOKEN}. The value is kept for this working directory and never shown to you or the chat; only a fixed command that names it gets it. When you know the page where the user gets it (a token generator, an app's keys page), add url="https://…" with it: the card links to it, for the user to open in their own browser and paste the value on the card.
-- \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule; at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first, and the others in a later reply. A later proposal of the same name replaces one the user has not saved yet. The user saves and tries it; you cannot run it yourself. Trying it from its card gives it what the user types in the card's input box on its standard input (nothing when they type nothing): for a command that reads its standard input, tell the user what to type there. Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration in the folder) changes, until the user approves the change. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A fixed command gets its secrets from that file only, never from a file in the working directory such as a .env: agents can read the working directory, and a command's output is masked only for the secrets Harness Relay keeps. If the user already put a secret in such a file, do not read it nor build a command around it: ask for it with a <secret> block, and once it is saved, suggest the user delete that file. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you only when the user sends it.
+- \`<secret name="NAME" label="What it is">why you need it</secret>\`: asks the user for a secret (NAME in capital letters, digits and _; at most ${HANDOFF_LIMITS.secretsPerReply} in a reply). The team waits for their answer, as for ${ASK_TOKEN}. The value is kept for this working directory and never shown to you or the chat; only a fixed command that names it gets it. When you know the page where the user gets it (a token generator, an app's keys page), add url="https://…" with it: the card links to it, for the user to open in their own browser and paste the value on the card. Ask only for what must stay secret (a token, a password, an app secret): an account's id or a user name is not one, so put it in the command line or a file in the working directory instead, where a run's output shows it unmasked and a wrong one can be told.
+- \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule; at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first, and the others in a later reply. A later proposal of the same name replaces one the user has not saved yet. The user saves and tries it; you cannot run it yourself. Ask in the same reply for each secret it names that is not kept yet (a <secret> block each), so that the user gives them before trying it. Trying it from its card gives it what the user types in the card's input box on its standard input (nothing when they type nothing): for a command that reads its standard input, add input="…" with what to type for a first try (the box starts with it; the user can change it). Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration in the folder) changes, until the user approves the change. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A fixed command gets its secrets from that file only, never from a file in the working directory such as a .env: agents can read the working directory, and a command's output is masked only for the secrets Harness Relay keeps. If the user already put a secret in such a file, do not read it nor build a command around it: ask for it with a <secret> block, and once it is saved, suggest the user delete that file. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you only when the user sends it.
 - \`<command-run name="post">what it reads on its standard input</command-run>\`: puts one run of a saved fixed command in the outbox (to post or send something); it runs only when the user clicks Send.
-- \`<interactive reason="why">gcloud auth login --no-launch-browser</interactive>\`: asks the user to run, themselves, a command only they can complete (at most ${INTERACTIVE_LIMITS.perReply} in a reply): a sign-in that shows a link or a device code (\`gcloud auth login --no-launch-browser\`, \`npm login\`), or a password prompt (\`sudo -A …\`; ssh and git ask through Harness Relay's password helper). The team waits, as for ${ASK_TOKEN}. The user starts it from a card, with their own rights and outside every sandbox, in an empty folder of its own; add workdir="yes" when it must run in the working directory (\`git push\`). It has no terminal, so a full-screen program or one that insists on a terminal cannot be answered. You see its output only if the user sends it to the team. Never use it for a secret (that is \`<secret>\`), nor for a command you can run yourself.${have.length ? `\n${have.join('\n')}` : ''}`;
+- \`<interactive reason="why">gcloud auth login --no-launch-browser</interactive>\`: asks the user to run, themselves, a command only they can complete (at most ${INTERACTIVE_LIMITS.perReply} in a reply): a sign-in that shows a link or a device code (\`gcloud auth login --no-launch-browser\`, \`npm login\`), or a password prompt (\`sudo -A …\`; ssh and git ask through Harness Relay's password helper). The team waits, as for ${ASK_TOKEN}. The user starts it from a card, with their own rights and outside every sandbox, in an empty folder of its own; add workdir="yes" when it must run in the working directory (\`git push\`). It has no terminal, so a full-screen program or one that insists on a terminal cannot be answered. You see its output only if the user sends it to the team. Never use it for a secret (that is \`<secret>\`), nor for a command you can run yourself.
+Each turn prompt says which secrets and fixed commands this working directory has whenever that changed.`;
 }
 
 /**
@@ -539,7 +558,7 @@ ${team}
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
 # Workspace
-${workspaceRules(conv, ws, agent.provider)}${handoffSection(tools.handoffs)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems), settings.cwd)}`;
+${workspaceRules(conv, ws, agent.provider)}${handoffSection()}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems), settings.cwd)}`;
 }
 
 /**
@@ -724,6 +743,11 @@ export interface TurnInfo {
   answered?: boolean;
   /** What Harness Relay noted about this agent's last reply, for it (a notice's `forAgent`). */
   notes?: string[];
+  /**
+   * The working directory's secrets and fixed commands (`handoffsNow()`), when they changed since this
+   * member's session last heard them ('' when it has none left); undefined when they did not.
+   */
+  handoffs?: string;
 }
 
 export function buildTurnPrompt(
@@ -761,7 +785,7 @@ export function buildTurnPrompt(
     if (turn.round > 1) cue += ` Reply with ${PASS_TOKEN} if you have nothing new to add.`;
   }
   const notes = turn.notes?.length ? `\n\n${turn.notes.map((n) => `Note from Harness Relay: ${n}`).join('\n')}` : '';
-  return `${header}${chat}${recalledSection(recalled)}${notes}\n\n${cue}`;
+  return `${header}${chat}${recalledSection(recalled)}${handoffsTurnSection(turn.handoffs)}${notes}\n\n${cue}`;
 }
 
 /**
@@ -778,6 +802,25 @@ export function notesForAgent(
   if (!last || seen.has(`notice:${last.id}`)) return { notes: [] };
   const notes = last.parts.flatMap((p) => (p.type === 'notice' && p.forAgent ? [p.forAgent] : []));
   return notes.length ? { id: last.id, notes } : { notes: [] };
+}
+
+/**
+ * How the outbox items this agent asked for ended since its session last heard (sent, failed, discarded:
+ * each outbox card's `forAgent`, given once, as `outbox:<id>` in `seen`, which the caller then adds), from
+ * every reply of its, so that an item the user answers after the agent replied again is told all the same.
+ */
+export function outboxNotes(conv: Conversation, agentId: string, seen: ReadonlySet<string>): { ids: string[]; notes: string[] } {
+  const ids: string[] = [];
+  const notes: string[] = [];
+  for (const m of conv.messages) {
+    if (m.author.kind !== 'agent' || m.author.agentId !== agentId) continue;
+    for (const p of m.parts) {
+      if (p.type !== 'outbox' || !p.forAgent || seen.has(`outbox:${p.id}`)) continue;
+      ids.push(p.id);
+      notes.push(`what you put in the outbox, "${p.title}", ended: ${p.forAgent}`);
+    }
+  }
+  return { ids, notes };
 }
 
 /**

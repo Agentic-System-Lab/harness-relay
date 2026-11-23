@@ -615,7 +615,10 @@ export function withoutHeredocBodies(line: string): string {
   } catch {
     return line;
   }
-  if (notes.bodies.some((b) => !PLAIN_DELIMITER.test(b.raw) || /\\\r?(\n|$)/.test(b.text))) return line;
+  // A backslash that ends a line joins it to the next only in a body whose delimiter is not quoted
+  // (`<<EOF`): there `EO\` and `F` could end it elsewhere than the reader does. Quoted (`<<'EOF'`), it is
+  // the text's own, as in a Python line continuation.
+  if (notes.bodies.some((b) => !PLAIN_DELIMITER.test(b.raw) || (!/^['"]/.test(b.raw) && /\\\r?(\n|$)/.test(b.text)))) return line;
   const runsLines = (part: string | undefined) =>
     part === undefined || part.split(/\s+/).some((w) => RUNS_LINES.has(basename(w.replace(/^['"]|['"]$/g, ''))));
   // Bodies in `line` itself (not in a backtick substitution's text), from the last back.
@@ -691,8 +694,6 @@ function publishes(cmd: SimpleCommand): boolean {
  * nothing to run (`for ((i=0;i<${#a[@]};i++))`, `[[ ${#a[@]} -eq 0 ]]`) is only keyed, never published.
  */
 
-/** A command substitution `$( )` (not arithmetic `$(( ))`) or a backtick: it runs when the word expands. */
-const SUBST = /\$\((?!\()|`/;
 /** Builtins that evaluate an array subscript or arithmetic argument, reached through variables too. */
 const EVAL_BUILTINS = new Set(['declare', 'typeset', 'export', 'local', 'readonly', 'read', 'mapfile', 'readarray', 'let', 'unset']);
 /** `[[ a -eq b ]]`, `-v name`: both sides are evaluated (unlike `-d`, `-f`, `==`). */

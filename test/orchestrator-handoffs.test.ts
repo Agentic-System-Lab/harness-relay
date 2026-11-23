@@ -151,10 +151,25 @@ describe('secrets cards', () => {
     expect(answer).toContain('TOKEN');
     expect(answer).toContain('APP_SECRET');
     expect(answer).not.toContain('tok-123456');
-    // The value is in no prompt, no briefing and no message; the names are in the next briefing.
+    // The value is in no prompt, no briefing and no message; the names are in the next turn's prompt, once.
     const later = calls.at(-1)!;
     expect(later.prompt + later.systemPrompt).not.toContain('tok-123456');
-    expect(later.systemPrompt).toContain('Secrets kept for this working directory (their values are never shown to you): TOKEN.');
+    expect(later.prompt).toContain('Secrets kept for this working directory (their values are never shown to you): TOKEN.');
+    // The briefing stays as it was, so that saving a secret never starts the CLI's prompt cache over.
+    const first = calls.find((c) => c.name === 'Alice')!;
+    expect(later.systemPrompt).toBe(first.systemPrompt);
+    expect(later.systemPrompt).not.toContain('Secrets kept for');
+    await orchestrator.send(conv.id, 'And now?');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).not.toContain('Secrets kept for');
+    // Changed again (one removed, a command saved): told again, as it is now.
+    settings.handoffs.deleteSecret(folder, 'TOKEN');
+    await orchestrator.send(conv.id, 'Removed it');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).toContain('No secrets are kept and no fixed commands are saved for this working directory now.');
+    await orchestrator.send(conv.id, 'Again');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).not.toContain('secrets and fixed commands, as they are now');
     expect(JSON.stringify(store.get(conv.id))).not.toContain('tok-123456');
     await expect(orchestrator.answerSecrets(conv.id, msg.id, part.id, { decline: true })).rejects.toMatchObject({ status: 409 });
   });
@@ -391,7 +406,10 @@ describe('fixed command cards', () => {
     writeFileSync(join(project, 'post.py'), 'print("agent wrote this")\n');
     writeFileSync(join(project, '.env'), 'SOME_KEY=abc-secret-value\n');
     // Never without having looked.
-    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({
+      status: 409,
+      message: /Read the code it would run first/,
+    });
     const shown = await orchestrator.commandCode(conv.id, msg.id, part.id);
     expect(shown.diff).toContain('print("agent wrote this")');
     // A file of secrets: its names, never its values.
@@ -399,7 +417,11 @@ describe('fixed command cards', () => {
     expect(shown.diff).not.toContain('abc-secret-value');
     // Changed after it was shown: refused.
     writeFileSync(join(project, 'post.py'), 'print("and changed it")\n');
-    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, shown.digest)).rejects.toMatchObject({ status: 409 });
+    // Changed between the read and Save (opened or not): not saved, and Save can simply be clicked again.
+    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, shown.digest)).rejects.toMatchObject({
+      status: 409,
+      message: /changed while it was being saved/,
+    });
     expect(partOf(conv.id, 'command').part.status).toBe('proposed');
     const again = await orchestrator.commandCode(conv.id, msg.id, part.id);
     await orchestrator.saveCommand(conv.id, msg.id, part.id, {}, again.digest);
@@ -488,6 +510,51 @@ describe('fixed command cards', () => {
     const sent = await orchestrator.answerOutbox(conv.id, item.id, 'send');
     expect(sent.status).toBe('sent');
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
+  });
+
+  it('keeps what a command suggests typing for Try it on its card, never in the command it saves', async () => {
+    const conv = conversation({ mode: 'relay' });
+    fake.reply = () => 'Try it.\n\n<command name="post" input="流程測試">python3 post.py --stdin</command>';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const { msg, part } = partOf(conv.id, 'command');
+    expect(part.input).toBe('流程測試');
+    expect(part.proposal).toEqual({ name: 'post', run: 'python3 post.py --stdin', hosts: [], secrets: [] });
+    const saved = await saveSeen(conv.id, msg.id, part.id);
+    expect(saved).not.toHaveProperty('input');
+  });
+
+  it('says in the chat that a run from the outbox ran and how, with its output, and tells the agent that asked, once', async () => {
+    const { conv, msg, part } = await propose();
+    await saveSeen(conv.id, msg.id, part.id);
+    fake.reply = () => 'Ready.\n\n<command-run name="post">Hi</command-run>';
+    await orchestrator.send(conv.id, 'post it');
+    await finish(conv.id);
+    const item = agentMessages(store.get(conv.id)!)
+      .at(-1)!
+      .parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox')!;
+    // As in a real chat: the API refused the user id the command was given.
+    play = () => ({ code: 1, stdout: "Object with ID '123' does not exist" });
+    expect((await orchestrator.answerOutbox(conv.id, item.id, 'send')).status).toBe('failed');
+    const note = store.get(conv.id)!.messages.at(-1)!;
+    expect(note.author.kind).toBe('system');
+    // In the user's language (this server's default here), never "not sent": it ran.
+    expect(textOf(note)).toMatch(/^已執行固定指令「post」一次：失敗（結束碼 1）。\n\n輸出（密鑰已遮蔽）：\n```\n/);
+    expect(textOf(note)).toContain("Object with ID '123' does not exist");
+    expect(textOf(note)).not.toContain('沒有送出');
+    // The agent hears it at its next turn, though the chat's note is not given to agents, and only once.
+    fake.reply = () => 'Looking into it.';
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    const told = calls.at(-1)!.prompt;
+    // In English, as prompts are (the item's title is the user's language's).
+    expect(told).toMatch(
+      /Note from Harness Relay: what you put in the outbox, ".*post.*", ended: Ran the fixed command "post" once: failed \(exit code 1\)\./,
+    );
+    expect(told).toContain("Object with ID '123' does not exist");
+    await orchestrator.send(conv.id, 'And?');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).not.toContain('what you put in the outbox');
   });
 
   it('refuses Send while a run writes in its folder, the item left waiting for another click', async () => {

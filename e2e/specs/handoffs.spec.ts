@@ -100,8 +100,10 @@ test.describe('secrets and fixed commands', () => {
     await card.getByRole('button', { name: 'Hide the code' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');
-    // What the user types for this run is what it reads on its standard input.
-    await card.getByLabel('Input for this run (optional)').fill('hello from Try it');
+    // The box starts with what the agent suggested typing; what the user types instead is what it reads.
+    const input = card.getByLabel('Input for this run (optional)');
+    await expect(input).toHaveValue('hello from the agent');
+    await input.fill('hello from Try it');
     await card.getByRole('button', { name: 'Try it' }).click();
     const result = card.getByRole('status');
     await expect(result).toContainText('Done', { timeout: 60_000 });
@@ -119,6 +121,10 @@ test.describe('secrets and fixed commands', () => {
     await expect(outbox).toContainText('hello from the outbox');
     await outbox.getByRole('button', { name: 'Send' }).click();
     await expect(outbox).toContainText('done (exit code 0)', { timeout: 60_000 });
+    // The chat's note says it ran, and shows its output, secrets masked (never "not sent").
+    const note = page.locator('.msg-system').filter({ hasText: 'Ran the fixed command "e2e-check" once: done (exit code 0).' });
+    await expect(note).toContainText('input: hello from the outbox');
+    await expect(note).toContainText('E2E_TOKEN=••••');
     await settled(relay, id);
     await expect(page.locator('body')).not.toContainText(VALUE);
   });

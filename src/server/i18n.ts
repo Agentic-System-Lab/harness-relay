@@ -42,6 +42,11 @@ function signInSettings(lang: Lang, use?: OAuthUse): string {
   return lang === 'en' ? `Settings → Apps and tools → Common apps → ${name}` : `設定 → App 與工具 → 常用 App → ${name}`;
 }
 
+/** `text` ending a sentence: with `stop` after it, unless it ends with one already (a reason's own). */
+function ended(text: string, stop: '。' | '.'): string {
+  return /[。.!?！？]$/.test(text) ? text : `${text}${stop}`;
+}
+
 /** A fence for `text` in a message: one backtick more than its longest run of them, three at least. */
 function fenced(text: string): string {
   const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
@@ -163,6 +168,8 @@ const zhTW = {
     leftOutCommands: (n: number, names: string[]) => `一則回覆最多提議 ${n} 個固定指令，所以這些沒有卡片：${names.join('、')}。`,
     leftOutInteractive: (n: number, more: number) => `一則回覆最多 ${n} 個要你自己執行的指令，所以另外 ${more} 個沒有卡片。`,
     outboxTitle: (name: string) => `執行一次固定指令「${name}」`,
+    outboxRunNote: (name: string, run: FixedCommandRun) =>
+      `${run.status === 'passed' || run.status === 'news' || run.status === 'failed' ? `已執行固定指令「${name}」一次：` : `固定指令「${name}」`}${ended(runLineZh(run), '。')}${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`,
     fieldCommand: '指令',
     fieldFolder: '資料夾',
     fieldHosts: '可連的主機',
@@ -172,7 +179,8 @@ const zhTW = {
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
     commandRunning: '這個固定指令正在執行，請等它結束。',
     changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
-    codeNotSeen: '先查看它要執行的程式碼，才能儲存。',
+    codeNotSeen: '要先讀取它要執行的程式碼，才能儲存。',
+    codeChangedSaving: '它的程式碼在儲存時又改過了，所以沒有儲存：請再按一次儲存。想先看看它現在要執行什麼，可以打開它的程式碼。',
     changingNow: '它的程式碼正在改變：請稍等一下再看一次。',
     commandBlocked: '這個固定指令是自動任務的執行提議的，沒有人看著那次執行，所以不能從這張卡片儲存。',
     linkOutside: (path: string) =>
@@ -189,11 +197,13 @@ const zhTW = {
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
       run
-        ? `我已儲存固定指令「${name}」並試跑了一次：${runLineZh(run)}。${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`
+        ? `我已儲存固定指令「${name}」並試跑了一次：${ended(runLineZh(run), '。')}${run.output ? `\n\n輸出（密鑰已遮蔽）：\n${fenced(run.output)}` : ''}`
         : `我已儲存固定指令「${name}」。`,
     secretsAnswer: (saved: string[], declined: string[]) =>
       [
-        saved.length ? `我已提供 ${saved.join('、')}，它存在這個工作目錄的憑證儲存區，只會交給列出它的固定指令。` : '',
+        saved.length
+          ? `我已提供 ${saved.join('、')}，${saved.length > 1 ? '它們存在這個工作目錄的憑證儲存區，只會交給列出它們' : '它存在這個工作目錄的憑證儲存區，只會交給列出它'}的固定指令。`
+          : '',
         declined.length ? `我現在不提供 ${declined.join('、')}。` : '',
       ]
         .filter(Boolean)
@@ -1564,6 +1574,8 @@ const en: ServerMessages = {
     leftOutCommands: (n, names) => `A reply may propose ${n} fixed commands at most, so these got no card: ${names.join(', ')}.`,
     leftOutInteractive: (n, more) => `A reply may give you ${n} commands to run yourself at most, so ${more} more got no card.`,
     outboxTitle: (name) => `Run the fixed command "${name}" once`,
+    outboxRunNote: (name, run) =>
+      `${run.status === 'passed' || run.status === 'news' || run.status === 'failed' ? `Ran the fixed command "${name}" once: ` : `The fixed command "${name}": `}${ended(runLineEn(run), '.')}${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`,
     fieldCommand: 'Command',
     fieldFolder: 'Folder',
     fieldHosts: 'Hosts it may reach',
@@ -1573,7 +1585,9 @@ const en: ServerMessages = {
     badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
     commandRunning: 'This fixed command is running; wait until it ends.',
     changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
-    codeNotSeen: 'Look at the code it would run first, then save it.',
+    codeNotSeen: 'Read the code it would run first, then save it.',
+    codeChangedSaving:
+      'Its code changed while it was being saved, so it was not saved: save it again. To see what it would run now, open its code.',
     changingNow: 'Its code is changing right now: look again in a moment.',
     commandBlocked: "An automation's run proposed this fixed command, which nobody watched, so it cannot be saved from this card.",
     linkOutside: (path) =>
@@ -1591,7 +1605,7 @@ const en: ServerMessages = {
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>
       run
-        ? `I saved the fixed command "${name}" and tried it once: ${runLineEn(run)}.${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`
+        ? `I saved the fixed command "${name}" and tried it once: ${ended(runLineEn(run), '.')}${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`
         : `I saved the fixed command "${name}".`,
     secretsAnswer: (saved, declined) =>
       [

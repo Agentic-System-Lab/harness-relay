@@ -1223,6 +1223,7 @@ export const zhTW = {
         git: () => 'git 設定或 hook',
       },
       codeNoText: '沒有可顯示的文字（例如二進位檔）。',
+      codeCut: '只顯示到這裡：檔案太長，後面的內容沒有顯示。',
       noCode: '從這個對話的 agent 開始工作以來，它的程式碼沒有改過：它執行的是那時的程式碼。',
       codeNotShown: (files: string) => `這裡沒有顯示（已刪除、不是文字、在資料夾外，或超過顯示的長度）：${files}`,
       blocked: '這是自動任務的執行提議的，沒有人看著那次執行：不能從這張卡片儲存。',

@@ -2503,7 +2503,20 @@ export type MessagePart =
   /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
   | { type: 'progress'; status: ProgressStatus; text: string }
   /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
-  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
+  | {
+      type: 'outbox';
+      id: string;
+      tool: string;
+      title: string;
+      preview: OutboxPreview;
+      status: OutboxStatus;
+      result?: string;
+      /**
+       * How it ended, for the agent that asked (in English): given in its next turn's prompt, once (as
+       * `outbox:<id>` in its `seen`); a fixed command's run with its output, secrets masked.
+       */
+      forAgent?: string;
+    }
   /** What the reply saved to long-term memory (its `<remember>` and `<forget>` blocks, taken out of its text). */
   | { type: 'memory'; notes: MemoryPartNote[] }
   /** A schedule the agent proposed (its `<schedule>` block, taken out of its text), for the user to create or dismiss. */
@@ -2562,6 +2575,8 @@ export type MessagePart =
       run?: FixedCommandRun;
       /** A saved command of the same name existed when it was proposed: saving replaces it. */
       replaces?: boolean;
+      /** What the agent suggests typing in Try it's input box (its block's `input`), which the box starts with. */
+      input?: string;
       /** Dismissed by Harness Relay, not the user: a later reply proposed a command of the same name, which is the one to save. */
       superseded?: boolean;
       /**
@@ -2682,6 +2697,22 @@ export interface CommandProposal {
   cwd?: string;
 }
 
+/**
+ * One file of the code a fixed command would run, or of what changed in it since it was saved, as the
+ * server shows it (`codeView()`, `pinDiff()` in `src/server/fixedCommands.ts`): its entry (a path in the
+ * folder, `named:` and a path for a script the command line names outside it, `git config <key>`, `git
+ * hook <name>`); `diff`, git's diff of it (a new, changed or removed file); `now`, its text as it is now;
+ * `names`, a file of secrets by its names alone; `git`, a git setting or hook as it is now. Its text,
+ * secrets masked; `cut` when it was too long to show all of it. Kept apart so that a file's own lines
+ * that read like a diff's or a header's never start another one where the card lists them.
+ */
+export interface CodeViewFile {
+  entry: string;
+  kind: 'diff' | 'now' | 'names' | 'git';
+  text: string;
+  cut?: boolean;
+}
+
 /** How one run of a fixed command went, as its card shows it. Its output has every secret it holds masked. */
 export interface FixedCommandRun {
   at: number;
@@ -2740,6 +2771,8 @@ export const HANDOFF_LIMITS = {
   commandSecrets: 10,
   /** What one run may take on its standard input (an outbox run), in bytes. */
   input: 16 * 1024,
+  /** Characters of the input a `<command>` block suggests for Try it (its `input`). */
+  sampleInput: 500,
   /** Minutes a run may take. */
   timeoutMin: 10,
   /** Characters of a run's output kept. */
@@ -4287,7 +4320,7 @@ export type ServerToDesktop =
 /** A hand-off block of a reply (`<secret>`, `<command>`, `<command-run>`, `<interactive>`), as `splitHandoffs()` reads it. */
 export type HandoffBlock =
   | { kind: 'secret'; name: string; label?: string; reason?: string; url?: string }
-  | ({ kind: 'command' } & CommandProposal)
+  | ({ kind: 'command'; input?: string } & CommandProposal)
   | { kind: 'command-run'; name: string; input: string }
   | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
 

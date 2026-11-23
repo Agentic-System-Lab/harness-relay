@@ -25,7 +25,6 @@ import type {
   MessageChanges,
   MessagePart,
   MemoryPartNote,
-  HandoverMode,
   HandoverPart,
   OutboxItem,
   ProgressStatus,
@@ -38,6 +37,7 @@ import type {
   TeamPreset,
   TeamRevision,
   CheckFinding,
+  CodeViewFile,
   CommandProposal,
   FixedCommand,
   FixedCommandRun,
@@ -156,7 +156,9 @@ import {
   buildBriefing,
   buildSteerPrompt,
   buildTurnPrompt,
+  handoffsNow,
   notesForAgent,
+  outboxNotes,
   isForwardable,
   isPass,
   parseMentions,
@@ -241,7 +243,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
-import { currentLang, isBranchTitle, isDefaultTitle, t } from './i18n';
+import { currentLang, isBranchTitle, isDefaultTitle, t, withLang } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
@@ -826,6 +828,9 @@ const interactiveKey = (convId: string, partId: string) => `${convId}\u0000${par
 /** A secrets card, by conversation and card (a branch copies the card's id). */
 const secretsCardKey = (convId: string, partId: string) => `${convId}\n${partId}`;
 
+/** How a member's `seen` keeps the version of the working directory's secrets and commands it heard last. */
+const HANDOFFS_SEEN = 'handoffs:';
+
 /** The name outbox items of fixed command runs are kept under (no gateway tool has it). */
 export const FIXED_COMMAND_TOOL = 'relay_fixed_command';
 
@@ -1244,24 +1249,34 @@ export class Orchestrator {
   }
 
   /** The card of an outbox item in its reply, as the item now is. */
-  private updateOutboxCard(item: OutboxItem): void {
+  private updateOutboxCard(item: OutboxItem, forAgent?: string): void {
     const conv = this.store.get(item.convId);
     const msg = conv?.messages.find((m) => m.id === item.messageId);
     const part = msg?.parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox' && p.id === item.id);
     if (!conv || !msg || !part) return;
     part.status = item.status;
     if (item.result !== undefined) part.result = item.result;
+    // How it ended, for the agent that asked: in its next turn (`outboxNotes()`).
+    if (item.status !== 'pending' && item.status !== 'sending') part.forAgent = forAgent ?? withLang('en', () => outboxAnswerText(item));
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
-  /** What a conversation's working directory has, for its agents' briefing: its secrets' names and its fixed commands. */
-  private handoffsForBriefing(conv: Conversation): { secrets: string[]; commands: FixedCommand[] } {
+  /**
+   * The working directory's secrets (names) and fixed commands for a member's turn prompt (`handoffsNow()`),
+   * when they are not what its session last heard (`seen`, as `handoffs:<digest>`): undefined when they are,
+   * or when there is nothing and it never heard of any. `text` is '' once all of them are gone.
+   */
+  private handoffsNow(conv: Conversation, seen: ReadonlySet<string>): { text: string; key: string } | undefined {
     const folder = this.handoffFolder(conv);
-    return {
+    const text = handoffsNow({
       secrets: this.settings.handoffs.secretNames(folder).map((s) => s.name),
       commands: this.settings.handoffs.commands(folder),
-    };
+    });
+    const key = `${HANDOFFS_SEEN}${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
+    if (seen.has(key)) return undefined;
+    if (!text && ![...seen].some((k) => k.startsWith(HANDOFFS_SEEN))) return undefined;
+    return { text, key };
   }
 
   /** The working directory a conversation's secrets and fixed commands are kept for: its first one, as a real path. */
@@ -1306,7 +1321,7 @@ export class Orchestrator {
         if (!left.commands.includes(b.name)) left.commands.push(b.name);
         continue;
       }
-      const { kind: _kind, ...proposal } = b;
+      const { kind: _kind, input, ...proposal } = b;
       // A saved command of the same name would be replaced (its schedules and outbox runs then run this one).
       // One an automation's run proposed is never saved from its card: nobody watched that run.
       msg.parts.push({
@@ -1316,6 +1331,7 @@ export class Orchestrator {
         proposal,
         status: 'proposed',
         ...(store.commandByName(folder, proposal.name) ? { replaces: true } : {}),
+        ...(input ? { input } : {}),
         // Nor on native Windows, where Harness Relay's own sandbox does not run: the card says so at once.
         ...(this.fixedCommandDeps.platform === 'win32'
           ? { blocked: 'windows' as const }
@@ -1502,16 +1518,17 @@ export class Orchestrator {
   }
 
   /**
-   * The code a proposed fixed command would run (`codeView()`), for the user to see before its first Save,
-   * which sends back its digest: Save pins that code, and no other. Refused while a run writes in its
-   * folder, and when the code changed while it was read.
+   * The code a proposed fixed command would run (`codeView()`), for the user to look at before its first Save
+   * if they want to, and its digest, which Save sends back (the card reads it itself when the code was not
+   * opened): Save pins that code, and no other. Refused while a run writes in its folder, and when the code
+   * changed while it was read.
    */
   async commandCode(
     convId: string,
     messageId: string,
     partId: string,
     edits: Partial<CommandProposal> = {},
-  ): Promise<{ diff: string; missing: string[]; digest: string }> {
+  ): Promise<{ diff: string; files: CodeViewFile[]; missing: string[]; digest: string }> {
     const { conv, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
     if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
@@ -1576,7 +1593,8 @@ export class Orchestrator {
 
   /**
    * The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as
-   * it is now, which must be the code `commandCode()` showed them (`digest`).
+   * it is now, which must be the code `commandCode()` read (`digest`): the code the user opened on its card,
+   * or, when they saved without opening it, read by the card at once. Code changed since is refused.
    */
   async saveCommand(
     convId: string,
@@ -1602,10 +1620,10 @@ export class Orchestrator {
     } catch (err) {
       throw new HttpError(409, (err as Error).message);
     }
-    // Pinned only as the user saw it (`commandCode()`'s digest): code changed since is refused.
+    // Pinned only as `commandCode()` read it (its digest): code changed since is refused.
     if (manifestDigest(pin.manifest) !== digest) {
       await dropPin(id, pin, old);
-      throw new HttpError(409, digest ? t().handoffs.changedAgain : t().handoffs.codeNotSeen);
+      throw new HttpError(409, digest ? t().handoffs.codeChangedSaving : t().handoffs.codeNotSeen);
     }
     const command = store.saveCommand(part.folder, id, proposal, pin);
     await dropPin(id, old, pin);
@@ -1687,16 +1705,19 @@ export class Orchestrator {
   }
 
   /** What changed in a fixed command's code since it was pinned: the files, and git's diff of them (its secrets masked). */
-  async commandDiff(convId: string, commandId: string): Promise<{ changed: string[]; diff: string; missing: string[]; digest: string }> {
+  async commandDiff(
+    convId: string,
+    commandId: string,
+  ): Promise<{ changed: string[]; diff: string; files: CodeViewFile[]; missing: string[]; digest: string }> {
     const { cmd } = this.ownCommand(convId, commandId);
     const pin = this.settings.handoffs.pin(cmd.id);
-    if (!pin) return { changed: [], diff: '', missing: [], digest: '' };
+    if (!pin) return { changed: [], diff: '', files: [], missing: [], digest: '' };
     if (this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
     // Masked whole before it is cut, so that no value's start shows at the cut.
     const values = Object.values(this.settings.handoffs.values(cmd.folder));
     const { now, view } = await this.steadyManifest(cmd.folder, commandFiles(cmd, cmd.folder), async (now) => {
       const changed = manifestChanges(pin.manifest, now);
-      const shown = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', missing: changed }));
+      const shown = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', files: [], missing: changed }));
       return { changed, ...shown };
     });
     // What Approve sends back: this code, the one this diff shows, and no later one.
@@ -2031,7 +2052,7 @@ export class Orchestrator {
   }
 
   /** What Send does for an outbox item of a fixed command's run: that run, once, with the item's input on its standard input. */
-  private fixedCommandSender(convId: string): { send: NonNullable<GatewayTool['send']> } {
+  private fixedCommandSender(convId: string, onRun?: (run: FixedCommandRun) => void): { send: NonNullable<GatewayTool['send']> } {
     return {
       send: async (args) => {
         const conv = this.store.get(convId);
@@ -2046,6 +2067,7 @@ export class Orchestrator {
         const run = await this.trackCommand(
           this.executeCommand(conv, cmd, 'outbox', { stdin: typeof args.input === 'string' ? args.input : '' }),
         );
+        onRun?.(run);
         const text = t().handoffs.runLine(run);
         if (run.status === 'passed' || run.status === 'news') return text;
         throw new Error(text);
@@ -2204,11 +2226,19 @@ export class Orchestrator {
       const cmd = this.settings.handoffs.command(String(this.outbox.argsOf(itemId)?.commandId ?? ''));
       if (cmd && this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
     }
+    // A fixed command's run, as it went: its note says it ran (never "not sent") and shows its output.
+    let ran: { name: string; run: FixedCommandRun } | undefined;
     const item = await this.outbox.answer(convId, itemId, action, (name) =>
-      name === FIXED_COMMAND_TOOL ? this.fixedCommandSender(convId) : this.gateway?.tool(name),
+      name === FIXED_COMMAND_TOOL
+        ? this.fixedCommandSender(convId, (run) => {
+            const cmd = this.settings.handoffs.command(String(this.outbox!.argsOf(itemId)?.commandId ?? ''));
+            ran = { name: cmd?.name ?? '', run };
+          })
+        : this.gateway?.tool(name),
     );
-    this.updateOutboxCard(item);
-    this.systemNote(conv, outboxAnswerText(item));
+    const noteOf = () => (ran ? t().handoffs.outboxRunNote(ran.name, ran.run) : outboxAnswerText(item));
+    this.updateOutboxCard(item, withLang('en', noteOf));
+    this.systemNote(conv, noteOf());
     this.emitStatus(conv.id);
     return item;
   }
@@ -6468,17 +6498,31 @@ export class Orchestrator {
       const recalled = this.memory.recall(conv, delta, seen);
       // What Harness Relay noted about its last reply (cards left out of it), told once.
       const noted = notesForAgent(conv, agent.id, msg.id, seen);
-      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, { ...info, notes: noted.notes }, recalled);
+      // How what it put in the outbox ended (sent, failed, discarded), told once.
+      const outcomes = outboxNotes(conv, agent.id, seen);
+      // The working directory's secrets and fixed commands, told when they changed since this session
+      // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
+      const handoffs = this.handoffsNow(conv, seen);
+      const prompt = buildTurnPrompt(
+        conv,
+        agent,
+        delta,
+        !state.sessionId,
+        { ...info, notes: [...noted.notes, ...outcomes.notes], ...(handoffs ? { handoffs: handoffs.text } : {}) },
+        recalled,
+      );
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
       state.seen = [
-        ...state.seen,
+        ...(handoffs ? state.seen.filter((k) => !k.startsWith(HANDOFFS_SEEN)) : state.seen),
         ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
         ...recalled.map((n) => memorySeenKey(n.id)),
         ...(noted.id ? [`notice:${noted.id}`] : []),
+        ...outcomes.ids.map((id) => `outbox:${id}`),
+        ...(handoffs ? [handoffs.key] : []),
       ];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
@@ -6565,7 +6609,6 @@ export class Orchestrator {
               ...tools,
               grantedGroups: relay ? tools.relayGroups : undefined,
               longTerm: this.memory.forBriefing(conv),
-              handoffs: this.handoffsForBriefing(conv),
             },
             nativeOff,
             nativeItems,

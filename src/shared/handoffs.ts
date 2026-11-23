@@ -214,7 +214,10 @@ function blockAt(text: string, pos: number): { block: HandoffBlock; end: number 
       secrets: list(attr(attrs, 'secrets')),
       cwd: attr(attrs, 'cwd'),
     });
-    return proposal ? { block: { kind: 'command', ...proposal }, end } : undefined;
+    if (!proposal) return undefined;
+    // What to type in Try it's box (the command reads its standard input): the card's box starts with it.
+    const input = attr(attrs, 'input')?.slice(0, HANDOFF_LIMITS.sampleInput);
+    return { block: { kind: 'command', ...proposal, ...(input && !hiddenCharacters(input) ? { input } : {}) }, end };
   }
   if (tag === 'interactive') {
     const run = interactiveLine(body);

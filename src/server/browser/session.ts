@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isIP, isIPv6 } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -52,18 +52,6 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  * while it led to the internet that now leads to this computer or the local network).
  */
 export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved' | 'mixed';
-
-/**
- * Removes a browser's throwaway profile once it exited: on Windows its helper processes may hold files a
- * moment longer, so it is tried again for a few seconds rather than left behind.
- */
-async function removeProfile(path: string): Promise<void> {
-  for (let i = 0; i < 20; i++) {
-    removeTree(path);
-    if (!existsSync(path)) return;
-    await new Promise((r) => setTimeout(r, 500).unref());
-  }
-}
 
 /**
  * Whether a host leads to this computer or the local network: a loopback name, one of this
@@ -307,8 +295,6 @@ export interface BrowserServiceOptions {
   answerMs?: number;
   /** A host name's addresses (tests give their own; else the system's lookup). */
   lookUp?: (host: string) => Promise<string[]>;
-  /** How long a host name's addresses are kept before they are looked up again (a minute; tests give a shorter time). */
-  addressMs?: number;
   /** Where a hand-over's window opens, or undefined when this computer cannot show one (`handoverWindowAt()`). */
   windowAt?: () => HandoverWindowAt | undefined;
   /** How long the user has to start a hand-over, then to hand it back (`HANDOVER_LIMITS`; tests give shorter ones). */
@@ -476,9 +462,8 @@ export function launchEnv(
  * the debugging pipe once the gate holds every request (`launch()`).
  *
  * The debugging pipe makes Chromium tell every page it is automated (`navigator.webdriver`), which is
- * true of the agents' browser. With `person` (a person drives it: a hand-over's window, a browser for the
- * user alone) it does not: a page that sees it (reCAPTCHA, a site's sign-in) may keep refusing whoever
- * answers its challenges.
+ * true of the agents' browser. With `person` (a person drives it: a hand-over's window) it does not: a
+ * page that sees it (reCAPTCHA, a site's sign-in) may keep refusing whoever answers its challenges.
  */
 export function launchArgs(o: {
   profile: string;
@@ -769,12 +754,6 @@ function sameAddress(url: string, asked: string): boolean {
   }
 }
 
-/** A tab's frames, as `Page.getFrameTree` gives them. */
-interface FrameTree {
-  frame: { id: string };
-  childFrames?: FrameTree[];
-}
-
 /** The address of the tab's page now ('' when it cannot be told). */
 async function pageUrl(s: BrowserSession): Promise<string> {
   const h = await s.send<{ currentIndex: number; entries: { url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
@@ -897,12 +876,12 @@ export class BrowserService {
    * is still the conversation's (a hand-over's window replaced it, say), so that it ending takes nothing
    * of the one after it.
    */
-  private async launch(convId: string, o: { window?: boolean; profile?: string }, mine: () => boolean): Promise<BrowserSession> {
+  private async launch(convId: string, o: { window?: boolean }, mine: () => boolean): Promise<BrowserSession> {
     const bin = this.o.executable();
     if (!bin) throw new Error(this.unavailable());
     const carry = this.carried.get(convId);
     this.carried.delete(convId);
-    const profile = o.profile ?? this.profile(convId);
+    const profile = this.profile(convId);
     mkdirSync(profile, { recursive: true, mode: 0o700 });
     writePrefs(profile);
     await this.proxy.start();
@@ -1044,7 +1023,7 @@ export class BrowserService {
     if (!host || isIP(host) || isLoopbackHost(host)) return Promise.resolve([]);
     const now = Date.now();
     const hit = this.addressCache.get(host);
-    if (hit && now - hit.at < (this.o.addressMs ?? 60_000)) return hit.addresses;
+    if (hit && now - hit.at < 60_000) return hit.addresses;
     const addresses = (this.o.lookUp ?? lookUp)(host).catch(() => []);
     this.addressCache.delete(host);
     this.addressCache.set(host, { at: now, addresses });

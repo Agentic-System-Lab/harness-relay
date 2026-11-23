@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CodeViewFile } from '../../shared/types';
 import { api } from '../api';
 import {
   codeFiles,
@@ -160,7 +161,7 @@ export function SecretsCard({
  * The code a proposed fixed command would run, a file a row: its name and what it is (new, changed, as it
  * is now, a git setting…), opened one at a time; the first, the script its command line runs, open.
  */
-function CodeFiles({ view }: { view: string }) {
+function CodeFiles({ view }: { view: readonly CodeViewFile[] }) {
   const c = useT().handoffs.command;
   const files = useMemo(() => codeFiles(view), [view]);
   return (
@@ -182,6 +183,7 @@ function CodeFiles({ view }: { view: string }) {
             ) : (
               <p className="muted small">{c.codeNoText}</p>
             )}
+            {f.cut && <p className="muted small">{c.codeCut}</p>}
           </details>
         </li>
       ))}
@@ -207,14 +209,15 @@ export function CommandCard({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => formOf(part.proposal));
   const [extra, setExtra] = useState('');
-  const [stdin, setStdin] = useState('');
+  // What the agent suggested typing there, if it did (the block's `input`).
+  const [stdin, setStdin] = useState(part.input ?? '');
   const [diff, setDiff] = useState<{ changed: string[]; diff: string; missing: string[]; digest: string } | null>(null);
   const actions = commandActions(part);
   const p = part.proposal;
   const run = part.run;
   const edited = editing ? proposalOf(form) : undefined;
   // The code it would run, which Save pins: shown first, for the command as it would be saved (its edits).
-  const [code, setCode] = useState<{ diff: string; missing: string[]; digest: string; of: string } | null>(null);
+  const [code, setCode] = useState<{ files: CodeViewFile[]; missing: string[]; digest: string; of: string } | null>(null);
   const codeOf = JSON.stringify(editing ? (edited ?? null) : p);
   const seen = code && code.of === codeOf ? code : null;
   const showCode = () =>
@@ -314,7 +317,7 @@ export function CommandCard({
           >
             {seen ? c.hideCode : c.showCode}
           </button>
-          {seen && (seen.diff ? <CodeFiles view={seen.diff} /> : <p className="muted small">{c.noCode}</p>)}
+          {seen && (seen.files.length ? <CodeFiles view={seen.files} /> : <p className="muted small">{c.noCode}</p>)}
           {seen && seen.missing.length > 0 && <p className="muted small">{c.codeNotShown(seen.missing.join(', '))}</p>}
         </div>
       )}

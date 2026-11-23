@@ -45,7 +45,7 @@ const DIRECTIVES = {
   secret: 'end the reply with a <secret> block asking the user for the secret named (`E2E_TOKEN` by default)',
   secreturl: "with `e2e:secret`, the page where the user gets it (the block's `url`), which the card links to for the user's own browser",
   command:
-    'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, and gets `E2E_TOKEN`',
+    'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, gets `E2E_TOKEN`, and suggests typing `hello from the agent` for Try it (its `input`)',
   commandrun:
     'end the reply with a <command-run> block putting one run of the fixed command named (`e2e-check` by default) in the outbox, with a line of input',
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
@@ -458,7 +458,7 @@ function plan(prompt, turn) {
   }
   if (d.command) {
     const name = typeof d.command === 'string' ? d.command : 'e2e-check';
-    text += `\n\n<command name="${name}" secrets="E2E_TOKEN">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
+    text += `\n\n<command name="${name}" secrets="E2E_TOKEN" input="hello from the agent">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
   }
   if (d.commandrun) {
     const name = typeof d.commandrun === 'string' ? d.commandrun : 'e2e-check';

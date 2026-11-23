@@ -11,11 +11,17 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { lstat, open, readdir, readFile, readlink, realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { lstat, open, readdir, readlink, realpath, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, SECRET_NAME_RE, type FixedCommand, type FixedCommandRun } from '../shared/types';
+import {
+  FIXED_COMMAND_NEWS,
+  HANDOFF_LIMITS,
+  SECRET_NAME_RE,
+  type CodeViewFile,
+  type FixedCommand,
+  type FixedCommandRun,
+} from '../shared/types';
 import { UNPINNED_TOP, maskEdges, maskValues, secretValueProblem } from '../shared/handoffs';
 import type { CompiledPattern } from '../shared/checks';
 import { AgentRunError } from './agents/types';
@@ -520,28 +526,42 @@ function secretsShape(text: string): string {
     .join('\n');
 }
 
+/** The line a piece with no diff starts with in the joined view (`CodeViewFile`'s kinds but `diff`). */
+function pieceHead(p: CodeViewFile): string {
+  if (p.entry.startsWith('git config ')) return `### ${p.entry}\n`;
+  return `### ${p.entry} (${p.kind === 'names' ? 'its names; values not shown' : 'as it is now'})\n`;
+}
+
 /**
  * The view of a fixed command's code (`pinDiff()`, `codeView()`), cut to at most `max` characters a
- * whole file at a time: those that do not fit are named in `missing`, never shown in part.
+ * whole file at a time: those that do not fit are named in `missing`, never shown in part; the first
+ * one alone, when it is longer than that, is cut (`cut`). Both as one text (`diff`, as git's diff and
+ * `### <entry> (…)` lines) and as its files apart (`files`), which the card lists: a script's own lines
+ * that look like those never start a file there.
  */
 function cutView(
-  pieces: readonly { entry: string; text: string }[],
+  pieces: readonly CodeViewFile[],
   values: readonly string[],
   max: number,
-): { diff: string; missing: string[] } {
+): { diff: string; files: CodeViewFile[]; missing: string[] } {
   const kept: string[] = [];
+  const files: CodeViewFile[] = [];
   const missing: string[] = [];
   let size = 0;
   for (const p of pieces) {
     const text = maskValues(p.text, values);
-    if (size + text.length > max && kept.length) {
+    const whole = p.kind === 'diff' ? text : `${pieceHead(p)}${text}`;
+    if (size + whole.length > max && kept.length) {
       missing.push(p.entry);
       continue;
     }
-    kept.push(text.length > max ? `${text.slice(0, max)}\n…` : text);
-    size += Math.min(text.length, max);
+    const cut = whole.length > max;
+    kept.push(cut ? `${whole.slice(0, max)}\n…` : whole);
+    const own = cut ? text.slice(0, Math.max(0, max - (whole.length - text.length))) : text;
+    files.push({ entry: p.entry, kind: p.kind, text: own, ...(cut ? { cut: true } : {}) });
+    size += Math.min(whole.length, max);
   }
-  return { diff: kept.join('\n'), missing };
+  return { diff: kept.join('\n'), files, missing };
 }
 
 /**
@@ -560,8 +580,8 @@ export async function pinDiff(
   values: readonly string[] = [],
   max = 60_000,
   first: readonly string[] = [],
-): Promise<{ diff: string; missing: string[] }> {
-  if (!changed.length) return { diff: '', missing: [] };
+): Promise<{ diff: string; files: CodeViewFile[]; missing: string[] }> {
+  if (!changed.length) return { diff: '', files: [], missing: [] };
   const order = [...new Set([...first.filter((e) => changed.includes(e)), ...changed])];
   const prefix = pin.root && folder !== pin.root ? `${relative(pin.root, folder).split(sep).join('/')}/` : '';
   // Repository paths of the changed files in the folder (a git setting, a hook, a file outside or of secrets has none).
@@ -582,12 +602,12 @@ export async function pinDiff(
   }
   const git = order.some((e) => e.startsWith('git ')) ? await repoGitState(folder).catch(() => undefined) : undefined;
   const within = [await realpath(folder).catch(() => folder), ...(pin.root ? [pin.root] : [])];
-  const pieces: { entry: string; text: string }[] = [];
+  const pieces: CodeViewFile[] = [];
   const missing: string[] = [];
   for (const entry of order) {
     const path = repoPath(entry);
     if (path && sections.has(path)) {
-      pieces.push({ entry, text: sections.get(path)! });
+      pieces.push({ entry, kind: 'diff', text: sections.get(path)! });
       continue;
     }
     if (entry.startsWith('git config ')) {
@@ -595,7 +615,8 @@ export async function pinDiff(
       const now = git?.settings.get(key);
       pieces.push({
         entry,
-        text: `### ${entry}\n${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key.split('.').pop()!) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
+        kind: 'git',
+        text: `${now ? now.map((v) => `${key} = ${HIDDEN_GIT_VALUE.test(key.split('.').pop()!) ? '(set; its value is not shown)' : v}`).join('\n') : '(not set now)'}\n`,
       });
       continue;
     }
@@ -613,11 +634,12 @@ export async function pinDiff(
     const text = secret ? secretsShape(now) : now;
     pieces.push({
       entry,
-      text: `### ${entry} (${secret ? 'its names; values not shown' : 'as it is now'})\n${text}${text.endsWith('\n') ? '' : '\n'}`,
+      kind: entry.includes('git hook ') ? 'git' : secret ? 'names' : 'now',
+      text: `${text}${text.endsWith('\n') ? '' : '\n'}`,
     });
   }
   const view = cutView(pieces, values, max);
-  return { diff: view.diff, missing: [...missing, ...view.missing] };
+  return { diff: view.diff, files: view.files, missing: [...missing, ...view.missing] };
 }
 
 /**
@@ -633,7 +655,7 @@ export async function codeView(
   manifest: Record<string, PinEntry>,
   values: readonly string[] = [],
   o: { base?: string; named?: readonly string[]; max?: number } = {},
-): Promise<{ diff: string; missing: string[] }> {
+): Promise<{ diff: string; files: CodeViewFile[]; missing: string[] }> {
   const max = o.max ?? 60_000;
   const entries = Object.keys(manifest);
   // The scripts the command line names, as the pin keys them: shown in full, first, whatever git says.
