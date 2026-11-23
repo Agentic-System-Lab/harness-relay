@@ -16,6 +16,7 @@ import type { FixedCommandDeps } from '../src/server/fixedCommands';
 import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
+import { Scheduler } from '../src/server/scheduler';
 import { Outbox } from '../src/server/outbox';
 import { defaultInteractiveDeps } from '../src/server/interactive';
 import {
@@ -1022,6 +1023,49 @@ describe('a schedule that only runs its fixed command (commandOnly)', () => {
     store.saveMeta(c);
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('ran');
     expect(ran).toHaveLength(2);
+  });
+
+  it("records its times through the scheduler: one note of its own (never the scheduler's too), and `noted`", async () => {
+    const { conv } = await commandOnly();
+    const T0 = Date.UTC(2026, 10, 24, 6);
+    let now = T0 + 3_600_000 + 1000;
+    const c = store.get(conv.id)!;
+    c.schedule = { ...c.schedule!, updatedAt: T0, nextRunAt: T0 + 3_600_000 };
+    store.saveSchedule(c);
+    const scheduler = new Scheduler(store, orchestrator, () => now);
+    play = () => ({ code: 10, stdout: 'posted joke 3' });
+    await scheduler.tick();
+    expect(store.get(conv.id)!.schedule).toMatchObject({ lastResult: 'noted', nextRunAt: T0 + 2 * 3_600_000 });
+    expect(store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system')).toHaveLength(1);
+    // A failure: its own note with the output, and no "could not run" note from the scheduler beside it.
+    play = () => ({ code: 1, stdout: 'token expired' });
+    now += 3_600_000;
+    await scheduler.tick();
+    const notes = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system');
+    expect(notes).toHaveLength(2);
+    expect(textOf(notes[1]!)).toContain('token expired');
+    expect(store.get(conv.id)!.schedule).toMatchObject({ lastResult: 'failed' });
+    // Its code changes: one note waiting for the approval, not one more at each time.
+    writeFileSync(join(project, 'post.py'), 'print("changed")\n');
+    for (let i = 0; i < 2; i++) {
+      now += 3_600_000;
+      await scheduler.tick();
+    }
+    const after = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system');
+    expect(after).toHaveLength(3);
+    expect(after[2]!.parts.some((p) => p.type === 'command-changed')).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('starts what waits in the queue once its run let go of the folder', async () => {
+    const { conv } = await commandOnly();
+    const c = store.get(conv.id)!;
+    c.queue = [{ id: 'mine', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'Mine, queued' }], status: 'done' }];
+    (orchestrator as unknown as { saveQueue: (conv: unknown) => void }).saveQueue(c);
+    play = () => ({ code: 10, stdout: 'posted' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('noted');
+    await finish(conv.id);
+    expect(userTexts(conv.id)).toContain('Mine, queued');
   });
 
   it('waits, as busy, while a run writes in its folder', async () => {

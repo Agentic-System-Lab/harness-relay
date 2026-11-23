@@ -15,7 +15,7 @@ import type { SecretStore } from '../src/server/secrets';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-handoffs-api-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -151,6 +151,18 @@ describe('secrets and fixed commands API', () => {
     const only = await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id, commandOnly: true });
     expect(only.status).toBe(200);
     expect(store.get(conv.id)!.schedule).toMatchObject({ command: id, commandOnly: true, enabled: true });
+    // It takes no webhook: neither made, nor called (one made before for the chat's earlier automation).
+    expect((await send('POST', `/api/conversations/${conv.id}/schedule/hook`, {})).status).toBe(409);
+    const c = store.get(conv.id)!;
+    store.setHook(c, hookHash('hook-token-1234'), Date.now());
+    const hook = await app.request(`/api/hooks/${conv.id}`, {
+      method: 'POST',
+      headers: { ...HOST, 'content-type': 'application/json', authorization: 'Bearer hook-token-1234' },
+      body: '{}',
+    });
+    expect(hook.status).toBe(409);
+    expect(((await hook.json()) as { error: string }).error).toMatch(/webhook/);
+    store.setHook(c, undefined, Date.now());
     // Removed in Settings: one that ran only it has nothing left, and is turned off.
     const second = settings.handoffs.commandId(root, 'second');
     settings.handoffs.saveCommand(root, second, { name: 'second', run: 'true', hosts: [], secrets: [] }, { manifest: {} });

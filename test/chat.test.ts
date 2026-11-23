@@ -31,6 +31,7 @@ import {
   scrollSpot,
   segments,
   notePieces,
+  savedCommandsKey,
   shownSegments,
   showsToEnd,
   teamChanges,
@@ -542,6 +543,24 @@ describe("an agent's work between its words", () => {
     ]);
     expect(segs.map((s) => s.kind)).toEqual(['activity', 'todo', 'activity', 'approval', 'activity']);
     expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
+  });
+
+  it("keys the commands the chat's cards saved, so that a proposed schedule reads them again once one is saved", () => {
+    const card = (status: 'proposed' | 'saved', commandId?: string) => ({
+      parts: [
+        {
+          type: 'command' as const,
+          id: 'k',
+          folder: '/w',
+          proposal: { name: 'post', run: 'true', hosts: [], secrets: [] },
+          status,
+          ...(commandId ? { commandId } : {}),
+        },
+      ],
+    });
+    expect(savedCommandsKey([card('proposed')])).toBe('');
+    expect(savedCommandsKey([card('saved', 'c1')])).toBe('c1:post');
+    expect(savedCommandsKey([{ parts: [{ type: 'text', text: 'hi' }] }])).toBe('');
   });
 
   it('shows the output a system note fences as a block, and a fence never closed as words', () => {

@@ -1722,6 +1722,8 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
+    // A new chat has no fixed command of its own yet, and its lead agent designs a team for the message.
+    if (update.command) throw new HttpError(400, t().invalidField('command'));
     const files = scheduleFileChanges(b.schedule);
     // A new automation names an account that is there, on or off.
     refuseMissingTrigger(update, true);
@@ -1953,6 +1955,7 @@ export function createApp({
   // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.
   const makeHook = (conv: Conversation): NewScheduleHook => {
     if (!conv.schedule) throw new HttpError(409, t().hookNeedsSchedule);
+    if (conv.schedule.commandOnly) throw new HttpError(409, t().hookCommandOnly);
     const token = randomBytes(32).toString('base64url');
     store.setHook(conv, hookHash(token), Date.now());
     orchestrator.emitConversation(conv);
@@ -1985,6 +1988,9 @@ export function createApp({
     if (!given || !stored || !sameHash(hookHash(given), stored)) throw new HttpError(404, t().hookNotFound);
     const conv = getConv(id);
     if (!conv.schedule) throw new HttpError(404, t().hookNotFound);
+    // One that only runs its fixed command never takes a webhook's call: its body would reach no one, and a
+    // program on this computer could run a command that posts, even while the automation is paused.
+    if (conv.schedule.commandOnly) throw new HttpError(409, t().hookCommandOnly);
     // Refused before it is read when it says it is larger, and read no further than the limit when it does not say.
     const tooLarge = () => new HttpError(413, t().hookBodyTooLarge(TRACKING_LIMITS.eventBytes / 1000));
     if (Number(c.req.header('content-length') ?? 0) > TRACKING_LIMITS.eventBytes) throw tooLarge();

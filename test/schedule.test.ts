@@ -902,8 +902,12 @@ describe("the lead agent's schedule in the form", () => {
     expect(found).toMatchObject({ command: 'c-2', commandOnly: true });
     expect(found).not.toHaveProperty('commandName');
     expect(toUpdate(found)).toMatchObject({ command: 'c-2', commandOnly: true, newChat: false });
-    // Not saved: none picked, and nothing runs only a command.
-    expect(withCommand(d, [{ id: 'c-1', name: 'check' }])).toMatchObject({ command: '', commandOnly: false });
+    // Not saved: still named, still only the command, and the form cannot save it as anything else.
+    const pending = withCommand(d, [{ id: 'c-1', name: 'check' }]);
+    expect(pending).toMatchObject({ command: '', commandName: 'post', commandOnly: true });
+    expect(draftProblems(pending, now, en)).toContain(en.schedule.commandNotSaved('post'));
+    // Saved since: found when the commands are read again.
+    expect(withCommand(pending, [{ id: 'c-2', name: 'post' }])).toMatchObject({ command: 'c-2', commandOnly: true });
     // A saved schedule's command that was removed meanwhile.
     expect(withCommand({ ...found }, [])).toMatchObject({ command: '', commandOnly: false });
     // Only its command: no goal goes with it.

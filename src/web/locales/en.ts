@@ -719,6 +719,8 @@ export const en: Messages = {
     commandNotSaved: (name) =>
       `The fixed command "${name}" the agent proposed is not saved yet: save it on its card first, then pick it here.`,
     goalCommandOnly: 'With only the fixed command running, no agent reports on a goal, so none can be tracked.',
+    hookCommandOnly:
+      'An automation that only runs its fixed command takes no webhook: nobody would read what it sends, and no other program should run a command that posts at any time.',
     queuedNow: 'The team is replying; it waits in the queue',
     remove: 'Delete automation',
     confirmRemove: 'Delete this automation?',

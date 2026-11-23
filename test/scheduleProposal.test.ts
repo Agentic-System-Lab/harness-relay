@@ -164,10 +164,10 @@ describe('making a proposed schedule', () => {
     expect(readProposal({ ...weekdays, commandOnly: true })).not.toHaveProperty('commandOnly');
     // A name that is not one: the block proposes nothing, so the agent's mistake shows.
     expect(readProposal({ ...weekdays, command: 'Bad Name!' })).toBeUndefined();
-    // An automation that waits for something never runs one.
+    // An automation that waits for something never runs one: the block proposes nothing, as the agent's mistake.
     expect(
       readProposal({ text: 't', repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.csv' }] }, command: 'post' }),
-    ).not.toHaveProperty('command');
+    ).toBeUndefined();
     // Made with the saved command's id; without it (not saved), with none.
     expect(proposalUpdate(p, 'UTC', 'cmd-9')).toMatchObject({ command: 'cmd-9', commandOnly: true });
     expect(proposalUpdate(p, 'UTC')).not.toHaveProperty('command');

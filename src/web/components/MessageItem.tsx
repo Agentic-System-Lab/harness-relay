@@ -375,6 +375,7 @@ function ScheduleCard({
   messageId,
   agentName,
   hasSchedule,
+  commandsKey,
   onEdit,
 }: {
   part: SchedulePart;
@@ -382,6 +383,7 @@ function ScheduleCard({
   messageId: string;
   agentName: string;
   hasSchedule: boolean;
+  commandsKey?: string;
   onEdit?: (messageId: string, proposal: ScheduleProposal) => void;
 }) {
   const { t, lang } = useI18n();
@@ -403,9 +405,10 @@ function ScheduleCard({
         : Promise.resolve(),
     [convId, named],
   );
+  // Again whenever a command card of the chat is saved: the command it names is often proposed in the same reply.
   useEffect(() => {
     if (waiting) void readSaved();
-  }, [waiting, readSaved]);
+  }, [waiting, readSaved, commandsKey]);
   const command = named ? saved?.find((c) => c.name === named) : undefined;
   const gaps = proposalGaps(
     p,
@@ -481,7 +484,13 @@ function ScheduleCard({
             {hasSchedule ? ` ${t.proposal.replaces}` : ''}
           </p>
           <div className="approval-actions">
-            <button type="button" className="primary small-button" disabled={busy || gaps.length > 0} onClick={() => answer('create')}>
+            {/* A command not saved yet (as far as this card read) leaves Create on: the server says whether it is. */}
+            <button
+              type="button"
+              className="primary small-button"
+              disabled={busy || gaps.some((g) => g !== 'command')}
+              onClick={() => answer('create')}
+            >
               {busy ? t.proposal.creating : t.proposal.create}
             </button>
             {onEdit && (
@@ -868,6 +877,11 @@ interface Props {
   onEditProposal?: (messageId: string, proposal: ScheduleProposal) => void;
   /** The conversation has a schedule already (a proposed one replaces it). */
   hasSchedule?: boolean;
+  /**
+   * The fixed commands the chat's cards saved, as a key that changes when one is saved or replaced
+   * (`savedCommandsKey()`): a proposed schedule naming one reads the folder's commands again then.
+   */
+  commandsKey?: string;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -1518,6 +1532,7 @@ export const MessageItem = memo(function MessageItem({
   onApplyAnyway,
   onEditProposal,
   hasSchedule,
+  commandsKey,
 }: Props) {
   const t = useT();
 
@@ -1612,6 +1627,7 @@ export const MessageItem = memo(function MessageItem({
       marks={marks}
       onEditProposal={onEditProposal}
       hasSchedule={hasSchedule}
+      commandsKey={commandsKey}
     />
   );
 });
@@ -1639,6 +1655,7 @@ function AgentMessage({
   marks,
   onEditProposal,
   hasSchedule,
+  commandsKey,
 }: Pick<
   Props,
   | 'msg'
@@ -1662,6 +1679,7 @@ function AgentMessage({
   | 'marks'
   | 'onEditProposal'
   | 'hasSchedule'
+  | 'commandsKey'
 >) {
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
@@ -1790,6 +1808,7 @@ function AgentMessage({
                   messageId={msg.id}
                   agentName={name}
                   hasSchedule={Boolean(hasSchedule)}
+                  commandsKey={commandsKey}
                   onEdit={onEditProposal}
                 />
               );

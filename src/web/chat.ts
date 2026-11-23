@@ -643,3 +643,14 @@ export function notePieces(text: string): { kind: 'text' | 'code'; text: string 
   flush();
   return out;
 }
+
+/**
+ * The fixed commands the chat's cards saved, as a key: it changes when a card saves (or replaces) one, so
+ * that a proposed schedule naming a command reads the folder's saved commands again.
+ */
+export function savedCommandsKey(messages: readonly { parts: readonly MessagePart[] }[]): string {
+  const saved: string[] = [];
+  for (const m of messages)
+    for (const p of m.parts) if (p.type === 'command' && p.status === 'saved') saved.push(`${p.commandId ?? ''}:${p.proposal.name}`);
+  return saved.join('|');
+}

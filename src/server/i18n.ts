@@ -1247,6 +1247,7 @@ const zhTW = {
   watchTooManyFiles: (max: number) => `符合樣式的檔案超過 ${max.toLocaleString('zh-TW')} 個：請把樣式縮小一點，例如寫出資料夾`,
   hookTooOften: (seconds: number) => `這個 webhook 每 ${seconds} 秒最多呼叫一次`,
   hookNeedsSchedule: '請先設定自動任務，再建立 webhook',
+  hookCommandOnly: '只執行固定指令的自動任務不接受 webhook：它的內容沒有人會讀，也不能讓別的程式在任何時間執行會發文的指令。',
   browserNotFound: (path: string) => `「${path}」不是檔案：請填瀏覽器執行檔的完整路徑`,
   hookGoalReached: '這個自動任務追蹤的目標已經達成；重新開啟它之後才能再呼叫',
   hookBodyTooLarge: (kb: number) => `webhook 的內容最多 ${kb} KB`,
@@ -2736,6 +2737,8 @@ const en: ServerMessages = {
   watchTooManyFiles: (max) => `More than ${max.toLocaleString('en-US')} files match the pattern: make it narrower, by naming a folder, say`,
   hookTooOften: (seconds) => `This webhook can be called at most once every ${seconds} seconds`,
   hookNeedsSchedule: 'Set up an automation before you add a webhook',
+  hookCommandOnly:
+    'An automation that only runs its fixed command takes no webhook: nobody would read what it sends, and no other program should run a command that posts at any time.',
   browserNotFound: (path) => `There is no file at "${path}": give the browser's executable, as a full path`,
   hookGoalReached: 'The goal this automation tracks is reached; turn it on again before calling it',
   hookBodyTooLarge: (kb) => `A webhook's body can be at most ${kb} KB`,

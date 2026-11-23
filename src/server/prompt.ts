@@ -279,7 +279,7 @@ const LAST_RESULT: Record<NonNullable<ConversationSchedule['lastResult']>, strin
   skipped: 'skipped',
   failed: 'failed',
   ran: 'its fixed command ran and found nothing new',
-  noted: 'its fixed command ran and found something, noted in the chat',
+  noted: 'its fixed command ran and found something, noted in the chat for the user',
 };
 
 /** A moment as an agent reads it: the date and time in the schedule's time zone. */
@@ -336,15 +336,17 @@ function repeatWords(s: ConversationSchedule): string {
 /**
  * This chat's automation (its schedule) as it is now, for a member's turn prompt: how it was set, by an
  * agent's proposal or by the user's own hand, whether it is on, when it runs, what it sends, the fixed
- * command it runs (`command`: its name, when it is still saved), its goal and how its last time went.
- * '' when the chat has none. Shown when it changed since the member's session last heard it.
+ * command it runs (`command`: its name, when it is still saved), its goal and how its last time went (not
+ * when, nor the reason in the user's language: the section is told again only when what it says changes,
+ * not after every time). '' when the chat has none. Shown when it changed since the member's session last
+ * heard it.
  */
 export function scheduleNow(s: ConversationSchedule | undefined, command?: string): string {
   if (!s) return '';
   const lines = [
-    `- ${s.enabled ? 'On' : 'Paused (it sends nothing until the user turns it on)'}: ${repeatWords(s)} (times in ${s.timeZone}).`,
+    `- ${s.enabled ? 'On' : 'Paused (its times send nothing until the user turns it on)'}: ${repeatWords(s)} (times in ${s.timeZone}).`,
     s.command && s.commandOnly
-      ? `- It only runs the fixed command "${command ?? '(removed)'}": nothing goes to the team and no agent runs; what the command finds (exit code ${FIXED_COMMAND_NEWS}) or how it fails is noted in the chat, with its output.`
+      ? `- It only runs the fixed command "${command ?? '(removed)'}": nothing goes to the team and no agent runs; what the command finds (exit code ${FIXED_COMMAND_NEWS}) or how it fails is noted in the chat for the user, with its output. Agents never get those notes: to know what a run did, read what the command keeps in the working directory (its state or log files).`
       : `- Its message to the team: ${JSON.stringify(s.text)}${s.newChat ? ', in a new chat each time' : ''}.`,
     ...(s.command && !s.commandOnly
       ? [
@@ -352,11 +354,7 @@ export function scheduleNow(s: ConversationSchedule | undefined, command?: strin
         ]
       : []),
     ...(s.goal ? [`- Its goal: ${JSON.stringify(s.goal)} (${s.tracking?.status ?? 'working'}).`] : []),
-    ...(s.lastRunAt !== undefined && s.lastResult
-      ? [
-          `- Last time, ${localTime(s.lastRunAt, s.timeZone)}: ${LAST_RESULT[s.lastResult]}${s.lastError ? ` (${s.lastError.replace(/\s+/g, ' ')})` : ''}.`,
-        ]
-      : []),
+    ...(s.lastResult ? [`- Its last time: ${LAST_RESULT[s.lastResult]}.`] : []),
   ];
   return lines.join('\n');
 }
@@ -505,7 +503,7 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
  */
 export function proposalRules(unattended: boolean): string {
   if (unattended) return '';
-  return `\n- When the user asks for something to be done for them again later, at set times (every morning, each Monday, once next Friday) or whenever something happens (a new mail, an event about to begin, a pull request opened, a CI run that failed, a file appearing), you can propose a schedule for this chat: write one block on lines of its own, not in a code block, <schedule>{"text": "the message the team gets each time", "repeat": {"kind": "weekly", "time": "09:00", "days": [1, 2, 3, 4, 5]}}</schedule>. "repeat" is {"kind": "daily", "time": "HH:MM"}, {"kind": "weekly", "time": "HH:MM", "days": [0-6, 0 = Sunday]}, {"kind": "interval", "hours": N}, {"kind": "once", "at": "YYYY-MM-DDTHH:MM"} or {"kind": "event", "triggers": [{"source": "mail", "from": "…", "subject": "…"}, {"source": "calendar", "minutes": 10, "title": "…"}, {"source": "github", "repo": "owner/name", "on": "pr" or "ci"}, {"source": "file", "pattern": "inbox/*.csv"}]}, in the user's local time. Add "goal" when the work has an end (the schedule then stops once it is met), and "newChat": true for a fresh chat each run. When each run is a saved fixed command's work (see "Secrets and fixed commands"), name it: "command": "its-name" has Harness Relay run it first each time, with no model and no Send, and the message goes to the team only when the command exits ${FIXED_COMMAND_NEWS} (something new) or fails; add "commandOnly": true when the team need not act on what it finds (posting on a schedule): then only the command runs and what it finds is noted in the chat, with no goal. The command must be saved before the user creates the schedule. The user sees it as a card and creates it or not: nothing is scheduled until then, so say that, and propose at most one, only when the user asked for work to be done later or again. A chat has one automation at most: creating yours replaces the one it has (your turn prompt says which, as it is now, also after the user changed it themselves), so never ask the user to delete or keep an older one, and never guess what it is.`;
+  return `\n- When the user asks for something to be done for them again later, at set times (every morning, each Monday, once next Friday) or whenever something happens (a new mail, an event about to begin, a pull request opened, a CI run that failed, a file appearing), you can propose a schedule for this chat: write one block on lines of its own, not in a code block, <schedule>{"text": "the message the team gets each time", "repeat": {"kind": "weekly", "time": "09:00", "days": [1, 2, 3, 4, 5]}}</schedule>. "repeat" is {"kind": "daily", "time": "HH:MM"}, {"kind": "weekly", "time": "HH:MM", "days": [0-6, 0 = Sunday]}, {"kind": "interval", "hours": N}, {"kind": "once", "at": "YYYY-MM-DDTHH:MM"} or {"kind": "event", "triggers": [{"source": "mail", "from": "…", "subject": "…"}, {"source": "calendar", "minutes": 10, "title": "…"}, {"source": "github", "repo": "owner/name", "on": "pr" or "ci"}, {"source": "file", "pattern": "inbox/*.csv"}]}, in the user's local time. Add "goal" when the work has an end (the schedule then stops once it is met), and "newChat": true for a fresh chat each run. When each run is a saved fixed command's work (see "Secrets and fixed commands"), name it: "command": "its-name" has Harness Relay run it first each time, with no model and no Send, and the message goes to the team only when the command exits ${FIXED_COMMAND_NEWS} (something new) or fails; add "commandOnly": true when the team need not act on what it finds (posting on a schedule): then only the command runs and what it finds is noted in the chat for the user (agents never get those notes), with no goal, no new chat and no webhook. "text" is still required (say what the command does), a command works only with set times (never "event", which refuses the block), and the command must be saved before the user creates the schedule. The user sees it as a card and creates it or not: nothing is scheduled until then, so say that, and propose at most one, only when the user asked for work to be done later or again. A chat has one automation at most: creating yours replaces the one it has (your turn prompt says which, as it is now, also after the user changed it themselves), so never ask the user to delete or keep an older one, and never guess what it is.`;
 }
 
 /**
@@ -647,7 +645,7 @@ ${team}
 - Each turn you receive the chat messages that are new to you, wrapped in <message> tags. Your entire reply is posted to the group verbatim.
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
-- If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled. When a reply ends waiting for the user to choose or confirm something before the team can go on, end it with ${ASK_TOKEN} too, so that their answer comes straight back to you.
+- If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled. When a reply ends waiting for the user to choose or confirm something before the team can go on, end it with ${ASK_TOKEN} too, so that their answer comes straight back to you; but not when what it waits for is a card's own answer (a schedule to create, a fixed command to save, a secret), which the card takes: ${ASK_TOKEN} would hold the chat, and a schedule's first time with it.
 - When the work needs something only the user can do outside this chat, and you cannot do it for them (sign in to a site, create an app or a key in a developer console, approve a payment, press a button on a device), end your reply with the steps in a block on lines of its own: <steps>, then one numbered step per line, in order ("1. Open [the app dashboard](https://example.com/apps) and click Create app."), then </steps>, as plain text: never in a code block or backticks, and the tags only for real steps (to mention them, call it a steps block). The user gets a box to tick for each step and answers with the steps they did, those they did not, where they got stuck and a note; the team waits for them as for ${ASK_TOKEN} (no need to add it), and once they answer you go on first. Use it only for such steps, never for questions (ask those with ${ASK_TOKEN}). Never ask the user for a password, token, API key or other secret, in a step or anywhere else in the chat, nor to paste one into it, put one in a file or type one in a terminal: ask for it with a <secret> block (see "Secrets and fixed commands").
 - Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${proposalRules(unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.

@@ -1777,7 +1777,7 @@ export class Orchestrator {
       const cmd = this.settings.handoffs.command(commandId);
       if (!conv || !cmd || cmd.folder !== this.handoffFolder(conv) || this.writingIn(convId, cmd.folder)) return;
       const changed = await this.commandChanges(cmd);
-      this.markCommandChanged(convId, commandId, changed.length ? changed : undefined);
+      this.markCommandChanged(convId, commandId, changed.length ? changed : undefined, 'holds');
     } catch (err) {
       console.warn('[orchestrator] could not check a fixed command for the outbox:', (err as Error).message);
     }
@@ -1789,9 +1789,16 @@ export class Orchestrator {
    * notes that a run did not happen (`command-changed`) and its cards whose last run did not, for the
    * same reason, say it is approved.
    */
-  private markCommandChanged(convId: string, commandId: string, changed: string[] | undefined): void {
+  private markCommandChanged(
+    convId: string,
+    commandId: string,
+    changed: string[] | undefined,
+    how: 'approved' | 'holds' = 'approved',
+  ): void {
     const conv = this.store.get(convId);
     if (!conv) return;
+    // Its pin found to hold without an approval (the code put back): only its runs in the outbox stop waiting.
+    const approved = !changed && how === 'approved';
     for (const msg of conv.messages) {
       let touched = false;
       for (const p of msg.parts) {
@@ -1800,10 +1807,10 @@ export class Orchestrator {
           if (changed?.length) p.command.changed = changed.slice(0, 50);
           else delete p.command.changed;
           if (JSON.stringify(p.command.changed ?? null) !== before) touched = true;
-        } else if (!changed && p.type === 'command-changed' && p.commandId === commandId && !p.approved) {
+        } else if (approved && p.type === 'command-changed' && p.commandId === commandId && !p.approved) {
           p.approved = true;
           touched = true;
-        } else if (!changed && p.type === 'command' && p.commandId === commandId && p.run?.status === 'changed') {
+        } else if (approved && p.type === 'command' && p.commandId === commandId && p.run?.status === 'changed') {
           delete p.run;
           touched = true;
         }
@@ -2341,16 +2348,19 @@ export class Orchestrator {
     if (pending?.tool === FIXED_COMMAND_TOOL && pending.convId === convId && pending.status === 'pending') {
       const cmd = this.settings.handoffs.command(String(this.outbox.argsOf(itemId)?.commandId ?? ''));
       if (cmd && this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+      // A run of it under way (its schedule's): Send can be clicked again once it ends.
+      if (cmd && this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
       // Its code changed since it was pinned: Send waits (the item stays) until the user approved it, which
-      // its card now offers, rather than failing the item and leaving the agent to put it there again.
-      if (cmd && cmd.folder === this.handoffFolder(conv) && !this.commandRuns.has(cmd.id)) {
-        const changed = await this.commandChanges(cmd);
-        if (changed.length) {
+      // its card now offers, rather than failing the item and leaving the agent to put it there again. A pin
+      // that cannot be read now is left to the run, which fails the item with the reason.
+      if (cmd && cmd.folder === this.handoffFolder(conv)) {
+        const changed = await this.commandChanges(cmd).catch(() => undefined);
+        if (changed?.length) {
           this.markCommandChanged(convId, cmd.id, changed);
           throw new HttpError(409, t().handoffs.approveFirst(cmd.name));
         }
-        // Its pin holds (approved elsewhere since): the cards that waited on it no longer do.
-        this.markCommandChanged(convId, cmd.id, undefined);
+        // Its pin holds (approved elsewhere since, or the code put back): its runs in the outbox no longer wait.
+        if (changed) this.markCommandChanged(convId, cmd.id, undefined, 'holds');
       }
     }
     // A fixed command's run, as it went: its note says it ran (never "not sent") and shows its output.
@@ -2764,7 +2774,8 @@ export class Orchestrator {
     if (!s) throw new HttpError(404, t().scheduleNotFound);
     // Not lost: sent (or counted as missed) when the server is back.
     if (this.closing) return { result: 'busy', reason: t().shuttingDown };
-    // Only its fixed command runs, never the team (a webhook's body, which only the team would read, is not used).
+    // Only its fixed command runs, never the team. A webhook's call, whose body only the team would read,
+    // is refused before it gets here (`POST /api/hooks/:id`).
     if (s.command && s.commandOnly) return this.runCommandOnly(conv, s);
     // The current team takes it (a schedule never has the lead agent design a team: nobody may be
     // there to confirm it), so there must be one.
@@ -2881,19 +2892,18 @@ export class Orchestrator {
   }
 
   /**
-   * A schedule's fixed command, run as its time came: nothing for the team (`ran`), a reason it could
-   * not (`failed`: gone, or its code changed and waits for the user's approval; `busy`: a run of it is
-   * under way), or the event its message takes: what it found, or how it failed, with its output masked.
-   */
-  /**
    * A schedule's fixed command did not run, its code having changed since it was pinned: the chat's note
-   * says so with the approval it waits for (a `command-changed` card), and the scheduler adds none.
+   * says so with the approval it waits for (a `command-changed` card), and the scheduler adds none. While
+   * the chat's latest message is such a note of this command still waiting, no other is written: an hourly
+   * automation leaves one note until the user approves, not one an hour.
    */
   private changedNote(conv: Conversation, cmd: FixedCommand, run: FixedCommandRun): ScheduledSend {
     const changed = run.changed?.length ? run.changed : ['.'];
-    this.systemNote(conv, t().handoffs.scheduleChangedNote(cmd.name), [
-      { type: 'command-changed', commandId: cmd.id, name: cmd.name, changed: changed.slice(0, 50) },
-    ]);
+    const waiting = conv.messages.at(-1)?.parts.some((p) => p.type === 'command-changed' && p.commandId === cmd.id && !p.approved);
+    if (!waiting)
+      this.systemNote(conv, t().handoffs.scheduleChangedNote(cmd.name), [
+        { type: 'command-changed', commandId: cmd.id, name: cmd.name, changed: changed.slice(0, 50) },
+      ]);
     return { result: 'failed', reason: t().handoffs.runLine(run), noted: true };
   }
 
@@ -2908,6 +2918,8 @@ export class Orchestrator {
     if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };
     if (this.commandRuns.has(cmd.id)) return { result: 'busy', reason: t().handoffs.commandRunning };
     if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
+    // A finding held for the team while it ran its command first is not the team's any more.
+    this.heldCommandEvents.delete(conv.id);
     const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
     // Its folder let go: what waits in the queue goes now, when nothing else holds the chat.
     this.queueAfterHold(conv.id);
@@ -2926,6 +2938,11 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * A schedule's fixed command, run as its time came: nothing for the team (`ran`), a reason it could
+   * not (`failed`: gone, or its code changed and waits for the user's approval; `busy`: a run of it is
+   * under way), or the event its message takes: what it found, or how it failed, with its output masked.
+   */
   private async runScheduledCommand(conv: Conversation, id: string): Promise<ScheduledSend | { event: string }> {
     const cmd = this.settings.handoffs.command(id);
     if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };

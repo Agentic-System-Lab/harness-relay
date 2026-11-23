@@ -184,7 +184,9 @@ describe('a schedule an agent proposes', () => {
     expect(plain).toContain('On: every day at 05:15 (times in Asia/Taipei).');
     expect(plain).toContain(`Its message to the team: "Post the joke that is due."`);
     expect(plain).toContain('Its goal: "All 14 posted" (working).');
-    expect(plain).toContain('Last time, 2026-11-24 05:15: its message was sent to the team.');
+    // How its last time went, not when: told again only when that changes, not after every time.
+    expect(plain).toContain('Its last time: its message was sent to the team.');
+    expect(plain).not.toContain('2026-11-24');
     const first = scheduleNow({ ...base, enabled: false, repeat: { kind: 'interval', hours: 1 }, command: 'c1' }, 'run-schedule');
     expect(first).toContain('Paused');
     expect(first).toContain('every hour');
@@ -192,7 +194,8 @@ describe('a schedule an agent proposes', () => {
     const only = scheduleNow({ ...base, command: 'c1', commandOnly: true, lastRunAt: 0, lastResult: 'noted' }, 'run-schedule');
     expect(only).toContain('It only runs the fixed command "run-schedule": nothing goes to the team');
     expect(only).not.toContain('Its message to the team');
-    expect(only).toContain('found something, noted in the chat');
+    expect(only).toContain('found something, noted in the chat for the user');
+    expect(only).toContain('Agents never get those notes');
   });
 
   it('is forwarded to teammates as data, with what the user did with it', () => {

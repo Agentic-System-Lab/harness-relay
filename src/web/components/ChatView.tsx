@@ -48,6 +48,7 @@ import {
   scrollSpot,
   showsToEnd,
   teamToEdit,
+  savedCommandsKey,
 } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
@@ -577,6 +578,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const messages = state.conv?.messages;
   const worktrees = state.conv?.worktrees;
   const applyStates = useMemo(() => findApplyStates(messages ?? [], worktrees ?? {}), [messages, worktrees]);
+  // A string, so that it changes only when a card saves a command: a proposed schedule reads the commands again then.
+  const commandsKey = useMemo(() => savedCommandsKey(messages ?? []), [messages]);
 
   // Stable while messages stream, so MessageItem (memoised) only re-renders the message that changed.
   const agents = state.conv?.agents;
@@ -1018,6 +1021,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onApplyAnyway={onApplyAnyway}
                 onEditProposal={onEditProposal}
                 hasSchedule={Boolean(conv.schedule)}
+                commandsKey={commandsKey}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared

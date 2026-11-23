@@ -266,14 +266,17 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
 
 /**
  * The form once the working directory's saved fixed commands are known: a command that is gone is left
- * out (`command` ''); the one a proposal named (`commandName`) is found by its name, or left for the
- * user to pick when it is not saved.
+ * out (`command` ''); the one a proposal named (`commandName`) is found by its name. One not saved yet
+ * stays named, with its `commandOnly`, and keeps the form from saving (`draftProblems()`) until it is
+ * saved or the user picks another (or none) in the form: never saved as a schedule that sends its
+ * message to the team each time instead.
  */
 export function withCommand(d: ScheduleDraft, saved: readonly { id: string; name: string }[]): ScheduleDraft {
   if (d.commandName !== undefined) {
-    const { commandName, ...rest } = d;
-    const found = saved.find((c) => c.name === commandName);
-    return found ? { ...rest, command: found.id } : { ...rest, command: '', commandOnly: false };
+    const found = saved.find((c) => c.name === d.commandName);
+    if (!found) return { ...d, command: '' };
+    const { commandName: _named, ...rest } = d;
+    return { ...rest, command: found.id };
   }
   return d.command && !saved.some((c) => c.id === d.command) ? { ...d, command: '', commandOnly: false } : d;
 }
@@ -295,6 +298,8 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
   if (!text) out.push(p.text);
   else if (text.length > SCHEDULE_LIMITS.maxText) out.push(p.tooLong(SCHEDULE_LIMITS.maxText));
   if (d.goal.trim().length > SCHEDULE_LIMITS.maxGoal) out.push(t.schedule.goalTooLong(SCHEDULE_LIMITS.maxGoal));
+  // The fixed command a proposal named, not saved yet: saved without it, the schedule would do something else.
+  if (d.commandName !== undefined) out.push(t.schedule.commandNotSaved(d.commandName));
   switch (d.kind) {
     case 'once': {
       const at = fromLocalInput(d.at);

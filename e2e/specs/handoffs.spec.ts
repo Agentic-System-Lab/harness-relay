@@ -177,7 +177,10 @@ test.describe('secrets and fixed commands', () => {
     await expect(page.locator('body')).not.toContainText(VALUE);
   });
 
-  test('a command whose runs publish asks before Try it, and a proposed schedule runs it alone, with no Send', async ({ page, relay }) => {
+  test('a command whose runs publish asks before Try it, and a schedule proposed with it runs it alone once it is saved, with no Send', async ({
+    page,
+    relay,
+  }) => {
     const sandbox = relaySandbox();
     test.skip(process.platform === 'win32', 'Fixed commands do not run on native Windows');
     if (!sandbox.ok && process.env.E2E_REQUIRE_RELAY_SANDBOX === '1')
@@ -187,8 +190,14 @@ test.describe('secrets and fixed commands', () => {
     test.skip(!sandbox.ok, `Harness Relay's own sandbox does not run here: ${sandbox.reason}`);
     const claude = cli('claude');
     const id = await chatWith(page, relay, claude);
-    await send(page, 'Make me a posting script e2e:secret e2e:command e2e:publishes');
+    // The command and the automation that runs it, in one reply: the automation's card waits for the command to be saved.
+    await send(page, 'Make me a posting script, and post every hour e2e:secret e2e:command e2e:publishes e2e:propose=command');
     await finishedReply(page, claude.name);
+    // The chat's only proposal (later replies come after it).
+    const proposal = page.getByRole('region', { name: /Proposed automation/ });
+    await expect(proposal).toContainText('e2e-check');
+    await expect(proposal).toContainText('runs alone each time, never the team');
+    await expect(proposal).toContainText('The fixed command "e2e-check" is not saved yet');
     await giveSecret(page);
     await settled(relay, id);
 
@@ -196,6 +205,9 @@ test.describe('secrets and fixed commands', () => {
     await expect(card).toContainText('This command publishes, posts or sends something');
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');
+    // Saved: the automation's card reads the commands again, and warns that it posts with no one asked.
+    await expect(proposal).not.toContainText('is not saved yet');
+    await expect(proposal).toContainText('without asking you again, and it publishes, posts or sends something');
     // Try it asks first; Cancel runs nothing.
     await card.getByRole('button', { name: 'Try it' }).click();
     await expect(card.getByRole('alert')).toContainText('Trying it really publishes, posts or sends');
@@ -206,13 +218,7 @@ test.describe('secrets and fixed commands', () => {
     await expect(card.getByRole('status')).toContainText('Done', { timeout: 60_000 });
     await settled(relay, id);
 
-    // The agent proposes an automation that only runs the saved command: the card says so, and that it
-    // runs with no one asked; once created, it is kept with the command's id.
-    await send(page, 'Post every hour without asking me e2e:propose=command');
-    const proposal = (await finishedReply(page, claude.name)).getByRole('region', { name: /Proposed automation/ });
-    await expect(proposal).toContainText('e2e-check');
-    await expect(proposal).toContainText('runs alone each time, never the team');
-    await expect(proposal).toContainText('without asking you again, and it publishes, posts or sends something');
+    // Created, the automation is kept with the command's id, and only runs it.
     await proposal.getByRole('button', { name: 'Create automation' }).click();
     await expect(proposal).toContainText('Automation created');
     const conv = await relay.api<{ schedule?: { command?: string; commandOnly?: boolean } }>(`/api/conversations/${id}`);

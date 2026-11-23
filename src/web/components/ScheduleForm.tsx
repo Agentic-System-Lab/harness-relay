@@ -302,7 +302,8 @@ export function ScheduleForm({
               id={commandId}
               aria-describedby={commandHintId}
               value={draft.command}
-              onChange={(e) => onEdit({ command: e.target.value })}
+              // Picking one (or none) is the user's choice over the command a proposal named and is not saved.
+              onChange={(e) => onEdit({ command: e.target.value, commandName: undefined })}
             >
               <option value="">{t.schedule.noCommand}</option>
               {commands.map((c) => (

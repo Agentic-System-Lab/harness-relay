@@ -206,7 +206,10 @@ export function readProposal(raw: unknown): ScheduleProposal | undefined {
   // A fixed command by its name (the schedule keeps its id once created), on the schedule's own times only.
   const named = typeof r.command === 'string' ? commandName(r.command) : undefined;
   if (r.command !== undefined && r.command !== null && r.command !== '' && !named) return undefined;
-  const command = repeat.kind !== 'event' ? named : undefined;
+  // Only on its own times: an automation that waits for something never runs one, so the block proposes
+  // nothing rather than a schedule that would not do what the agent said.
+  if (named && repeat.kind === 'event') return undefined;
+  const command = named;
   // Only the command, never the team: no goal (no agent says where it stands), nor a new chat each time.
   const commandOnly = Boolean(command) && r.commandOnly === true;
   const goal = typeof r.goal === 'string' && !commandOnly ? r.goal.trim().slice(0, SCHEDULE_LIMITS.maxGoal) : '';
