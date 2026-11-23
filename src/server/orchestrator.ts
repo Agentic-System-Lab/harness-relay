@@ -159,6 +159,7 @@ import {
   handoffsNow,
   notesForAgent,
   outboxNotes,
+  commandRunNotes,
   isForwardable,
   isPass,
   parseMentions,
@@ -1652,10 +1653,15 @@ export class Orchestrator {
    * last run from the card went (its output, its secrets masked).
    */
   async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
-    const { part } = this.handoffCard(convId, messageId, partId, 'command');
+    const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
     this.cardAnswerable(convId);
     const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
+    // Sent as the answer: the chat has it, so the agent's next turn does not tell it again (`commandRunNotes()`).
+    if (run) {
+      part.sharedAt = run.at;
+      this.saveCard(conv, msg);
+    }
     await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
   }
 
@@ -6498,8 +6504,10 @@ export class Orchestrator {
       const recalled = this.memory.recall(conv, delta, seen);
       // What Harness Relay noted about its last reply (cards left out of it), told once.
       const noted = notesForAgent(conv, agent.id, msg.id, seen);
-      // How what it put in the outbox ended (sent, failed, discarded), told once.
+      // How what it put in the outbox ended (sent, failed, discarded), and the runs the user tried from the
+      // cards of the commands it proposed, told once.
       const outcomes = outboxNotes(conv, agent.id, seen);
+      const tried = commandRunNotes(conv, agent.id, seen);
       // The working directory's secrets and fixed commands, told when they changed since this session
       // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
       const handoffs = this.handoffsNow(conv, seen);
@@ -6508,7 +6516,7 @@ export class Orchestrator {
         agent,
         delta,
         !state.sessionId,
-        { ...info, notes: [...noted.notes, ...outcomes.notes], ...(handoffs ? { handoffs: handoffs.text } : {}) },
+        { ...info, notes: [...noted.notes, ...outcomes.notes, ...tried.notes], ...(handoffs ? { handoffs: handoffs.text } : {}) },
         recalled,
       );
       const files = delta.flatMap((m) =>
@@ -6522,6 +6530,7 @@ export class Orchestrator {
         ...recalled.map((n) => memorySeenKey(n.id)),
         ...(noted.id ? [`notice:${noted.id}`] : []),
         ...outcomes.ids.map((id) => `outbox:${id}`),
+        ...tried.keys,
         ...(handoffs ? [handoffs.key] : []),
       ];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that

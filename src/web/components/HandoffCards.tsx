@@ -440,14 +440,17 @@ export function CommandCard({
                 {c.share}
               </button>
             )}
-            <button
-              type="button"
-              className="ghost small-button"
-              disabled={busy}
-              onClick={() => void call(() => api.commandCard(convId, messageId, part.id, 'continue'))}
-            >
-              {c.continue}
-            </button>
+            {/* One answer: the result once it ran (the agent hears every try at its next turn anyway), else that it is saved. */}
+            {!actions.share && (
+              <button
+                type="button"
+                className="ghost small-button"
+                disabled={busy}
+                onClick={() => void call(() => api.commandCard(convId, messageId, part.id, 'continue'))}
+              >
+                {c.continue}
+              </button>
+            )}
           </div>
         </div>
       )}

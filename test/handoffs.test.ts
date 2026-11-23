@@ -436,6 +436,11 @@ describe('the briefing on secrets and fixed commands', () => {
     expect(section).toContain("what the user types in the card's input box on its standard input");
     // What to type for a first try, given with the block: the card's box starts with it.
     expect(section).toContain('add input="…" with what to type for a first try');
+    // Never for a command whose Try it would publish: that waits for the outbox, once the user agreed.
+    expect(section).toContain('never for one whose run publishes, posts or sends something');
+    // A run the user tried reaches the agent: it never asks for one again.
+    expect(section).toContain('each run the user tries from the card of a command you proposed');
+    expect(section).toContain('Never ask the user to run again what they already ran.');
     // The secrets a command needs, asked for with it; and no account id kept as a secret, masked in every output.
     expect(section).toContain('Ask in the same reply for each secret it names that is not kept yet');
     expect(section).toContain("an account's id or a user name is not one");

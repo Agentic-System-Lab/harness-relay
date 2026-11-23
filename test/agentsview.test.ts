@@ -156,7 +156,8 @@ describe('the thread transcript', () => {
     expect(text).toContain('[Proposed the fixed command \\"post\\": `python3 post.py` — saved, last run passed]');
     expect(text).toContain('[Handed the browser to the user (in the chat): Sign in — handed back: \\"Done\\"]');
     expect(text).toContain('[Asked the user to run `gcloud auth login` themselves — started, exited]');
-    // The run's output stays on its card: it reaches the team only when the user sends it.
+    // The runs' output stays on their cards here (a fixed command's tried run reaches the agent that proposed
+    // it in its next turn's prompt; an interactive command's only when the user sends it).
     expect(text).not.toContain('posted with');
     expect(text).not.toContain('4815-1623');
   });

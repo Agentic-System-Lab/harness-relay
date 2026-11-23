@@ -2577,6 +2577,11 @@ export type MessagePart =
       replaces?: boolean;
       /** What the agent suggests typing in Try it's input box (its block's `input`), which the box starts with. */
       input?: string;
+      /**
+       * The run the user sent to the team as their answer (its `at`, Send the result to the team): the chat
+       * has it, so it is not told again (`commandRunNotes()`).
+       */
+      sharedAt?: number;
       /** Dismissed by Harness Relay, not the user: a later reply proposed a command of the same name, which is the one to save. */
       superseded?: boolean;
       /**

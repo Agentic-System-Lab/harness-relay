@@ -512,6 +512,41 @@ describe('fixed command cards', () => {
     expect(ran.at(-1)!.stdin).toBe('Hello, Threads!');
   });
 
+  it('tells the agent that proposed a command each run the user tried from its card, once, but one the user sent', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    play = () => ({ code: 0, stdout: 'id=4141 username=someone' });
+    await orchestrator.tryCommand(conv.id, id, { stdin: 'hi' });
+    await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
+    // The user answers another way (here a message): the agent hears the try all the same.
+    fake.reply = () => 'Good.';
+    await orchestrator.send(conv.id, 'Saved and tried');
+    await finish(conv.id);
+    const told = calls.at(-1)!.prompt;
+    expect(told).toContain('Note from Harness Relay: the user tried the fixed command "post" from its card: done (exit code 0).');
+    expect(told).toContain('id=4141 username=someone');
+    await orchestrator.send(conv.id, 'Next');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).not.toContain('the user tried the fixed command');
+    // Tried again: told again, as it went this time.
+    play = () => ({ code: 1, stdout: 'quota used up' });
+    await orchestrator.tryCommand(conv.id, id);
+    await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('failed'));
+    await orchestrator.send(conv.id, 'Again');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).toContain('from its card: failed (exit code 1).');
+    // Sent to the team as the user's answer: the chat has it, so no note too.
+    play = () => ({ code: 0, stdout: 'third run' });
+    await orchestrator.tryCommand(conv.id, id);
+    await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.output).toBe('third run'));
+    const card = partOf(conv.id, 'command');
+    await orchestrator.answerCommand(conv.id, card.msg.id, card.part.id, true);
+    await finish(conv.id);
+    const last = calls.at(-1)!.prompt;
+    expect(last).toContain('third run');
+    expect(last).not.toContain('the user tried the fixed command');
+  });
+
   it('keeps what a command suggests typing for Try it on its card, never in the command it saves', async () => {
     const conv = conversation({ mode: 'relay' });
     fake.reply = () => 'Try it.\n\n<command name="post" input="流程測試">python3 post.py --stdin</command>';

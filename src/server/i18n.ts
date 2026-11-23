@@ -137,6 +137,14 @@ function runLineEn(run: FixedCommandRun): string {
   }
 }
 
+/**
+ * A fixed command's run the user tried from its card, for the agent that proposed it (in English, as
+ * prompts are): how it went and its output, secrets masked (`commandRunNotes()` in `prompt.ts`).
+ */
+export function triedRunForAgent(name: string, run: FixedCommandRun): string {
+  return `the user tried the fixed command "${name}" from its card: ${ended(runLineEn(run), '.')}${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`;
+}
+
 const zhTW = {
   handoffs: {
     storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',

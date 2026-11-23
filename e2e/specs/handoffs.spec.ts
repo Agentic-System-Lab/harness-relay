@@ -100,6 +100,7 @@ test.describe('secrets and fixed commands', () => {
     await card.getByRole('button', { name: 'Hide the code' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');
+    await expect(card.getByRole('button', { name: 'Tell the team it is saved' })).toBeVisible();
     // The box starts with what the agent suggested typing; what the user types instead is what it reads.
     const input = card.getByLabel('Input for this run (optional)');
     await expect(input).toHaveValue('hello from the agent');
@@ -110,6 +111,8 @@ test.describe('secrets and fixed commands', () => {
     await expect(result).toContainText('E2E_TOKEN=••••');
     await expect(result).toContainText('input: hello from Try it');
     await expect(result).not.toContainText(VALUE);
+    // Once it ran, one answer: its result (the agent hears each try at its next turn anyway).
+    await expect(card.getByRole('button', { name: 'Tell the team it is saved' })).toHaveCount(0);
     await card.getByRole('button', { name: 'Send the result to the team' }).click();
     await expect(page.locator('.msg-user').last()).toContainText('E2E_TOKEN=••••');
     await settled(relay, id);
