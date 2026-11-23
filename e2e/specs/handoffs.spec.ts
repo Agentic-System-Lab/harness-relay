@@ -61,7 +61,13 @@ test.describe('secrets and fixed commands', () => {
 
   test('a proposed fixed command is saved, tried with its secret masked, shared, and run once from the outbox', async ({ page, relay }) => {
     const sandbox = relaySandbox();
-    test.skip(process.platform === 'win32' || !sandbox.ok, `Harness Relay's own sandbox does not run here: ${sandbox.reason}`);
+    test.skip(process.platform === 'win32', 'Fixed commands do not run on native Windows');
+    // Required (CI: E2E_REQUIRE_RELAY_SANDBOX=1): a sandbox that does not work fails it, as e2e/README.md says.
+    if (!sandbox.ok && process.env.E2E_REQUIRE_RELAY_SANDBOX === '1')
+      throw new Error(
+        `Harness Relay's own sandbox is required (E2E_REQUIRE_RELAY_SANDBOX=1), but it does not work here: ${sandbox.reason}`,
+      );
+    test.skip(!sandbox.ok, `Harness Relay's own sandbox does not run here: ${sandbox.reason}`);
     const claude = cli('claude');
     const id = await chatWith(page, relay, claude);
     await send(page, 'Make me a script e2e:secret e2e:command');

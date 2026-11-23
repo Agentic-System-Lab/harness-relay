@@ -135,6 +135,8 @@ function runLineEn(run: FixedCommandRun): string {
 const zhTW = {
   handoffs: {
     storage: '這台電腦沒有可用的憑證儲存區，無法保存密鑰。',
+    storeFailed: (why: string) =>
+      `無法在憑證儲存區保存或讀取密鑰：${why}。如果這台伺服器沒有桌面工作階段（例如透過 SSH 執行），可以用 RELAY_KEYRING=off 啟動，改把密鑰加密存在資料庫裡。`,
     badName: (name: string) => `「${name}」不是有效的密鑰名稱：只能用大寫英文字母、數字和底線，而且不能以數字開頭。`,
     badValue: (name: string, problem: 'empty' | 'short' | 'long' | 'lines') =>
       problem === 'empty'
@@ -1537,6 +1539,8 @@ export type ServerMessages = typeof zhTW;
 const en: ServerMessages = {
   handoffs: {
     storage: 'There is no credential store on this computer to keep secrets in.',
+    storeFailed: (why) =>
+      `The credential store could not keep or read the secret: ${why}. On a server with no desktop session (run over SSH, say), start it with RELAY_KEYRING=off to keep secrets encrypted in its database instead.`,
     badName: (name) => `"${name}" is not a valid secret name: capital letters, digits and underscores only, not starting with a digit.`,
     badValue: (name, problem) =>
       problem === 'empty'

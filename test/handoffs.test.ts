@@ -261,7 +261,12 @@ describe('the store of secrets and fixed commands', () => {
       if (++calls === 2) throw new Error('locked');
       set(k, v);
     };
-    expect(() => store.setSecrets('/w', { APP_SECRET: 'sec-789', NEW_ONE: 'new-value' })).toThrow();
+    // Said in the store's own words (a keyring locked over SSH), never as if there were no store.
+    withLang('en', () =>
+      expect(() => store.setSecrets('/w', { APP_SECRET: 'sec-789', NEW_ONE: 'new-value' })).toThrow(
+        /could not keep or read the secret: locked/,
+      ),
+    );
     (store as unknown as { secrets: SecretStore }).secrets.set = set;
     expect(store.values('/w')).toEqual({ APP_SECRET: 'sec-456' });
     expect(values.has(secretEntry('/w', 'NEW_ONE'))).toBe(false);

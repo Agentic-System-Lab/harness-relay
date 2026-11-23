@@ -40,6 +40,14 @@ interface Saved {
   pins: Record<string, CommandPin>;
 }
 
+/**
+ * The credential store refused (a keyring locked or with no one to unlock it, as over SSH on a Linux
+ * desktop): said with its own words, as an API key's save says it, never as if there were none.
+ */
+function storeFailed(err: unknown): HttpError {
+  return new HttpError(503, t().handoffs.storeFailed((err as Error)?.message ?? String(err)));
+}
+
 /** The credential store's entry of a folder's values: by a digest of its path, so the path is not in the store's names. */
 export function secretEntry(folder: string, name: string): string {
   return `handoffs.${createHash('sha256').update(folder).digest('hex').slice(0, 32)}.${name}`;
@@ -120,8 +128,8 @@ export class HandoffStore {
       let value: string | null;
       try {
         value = this.secrets.get(secretEntry(folder, name));
-      } catch {
-        throw new HttpError(503, t().handoffs.storage);
+      } catch (err) {
+        throw storeFailed(err);
       }
       if (value) out[name] = value;
     }
@@ -151,7 +159,7 @@ export class HandoffStore {
         this.secrets.set(secretEntry(folder, name), value.trim());
         done.push(name);
       }
-    } catch {
+    } catch (failure) {
       for (const name of done) {
         try {
           if (before[name] !== undefined) this.secrets.set(secretEntry(folder, name), before[name]!);
@@ -160,7 +168,7 @@ export class HandoffStore {
           /* the store failed again: the next set replaces it */
         }
       }
-      throw new HttpError(503, t().handoffs.storage);
+      throw storeFailed(failure);
     }
     const f = this.folder(folder, true);
     const now = Date.now();
@@ -173,8 +181,8 @@ export class HandoffStore {
     if (!f?.secrets[name]) throw new HttpError(404, t().handoffs.secretNotFound(name));
     try {
       this.secrets?.delete(secretEntry(folder, name));
-    } catch {
-      throw new HttpError(503, t().handoffs.storage);
+    } catch (err) {
+      throw storeFailed(err);
     }
     delete f.secrets[name];
     this.tidy(folder);
