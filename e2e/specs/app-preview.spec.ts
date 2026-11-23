@@ -63,7 +63,11 @@ test.describe("in the desktop app's window", () => {
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HarnessRelay/2026.11.23 Chrome/142.0.0.0 Electron/39.2.0 Safari/537.36',
   });
 
-  test('New tab opens the page in the default browser: its address itself, no blank page first', async ({ page, relay, browser }) => {
+  test('New tab hands the default browser the page’s address itself, with no blank page first, and it opens the page there', async ({
+    page,
+    relay,
+    browser,
+  }) => {
     mkdirSync(join(relay.workDir, 'site'));
     writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>In the default browser</h1>');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -186,8 +190,20 @@ test.describe('the app the team made', () => {
     const card = page.getByRole('region', { name: 'The app is ready to preview' });
     await expect(card).toContainText('site/index.html · @Claude');
     // New tab, beside the title: the page alone in a tab of its own, cut off from this one, and its own reload works.
-    const [tab] = await Promise.all([page.context().waitForEvent('page'), panel.getByRole('button', { name: 'New tab' }).click()]);
+    // In a browser, a blank tab opened on the click itself, before the server gives the address (one opened
+    // after it is a blocked pop-up in Safari): window.open() is watched, and still opens the tab.
+    const newTab = panel.getByRole('button', { name: 'New tab' });
+    await expect(newTab).toHaveAttribute('title', 'Open the page in a new tab, the whole window for it');
+    await page.evaluate(() => {
+      const open = window.open.bind(window);
+      const calls: unknown[][] = [];
+      Object.assign(window, { relayOpened: calls });
+      window.open = (...args: Parameters<typeof window.open>) => (calls.push(args), open(...args));
+    });
+    const [tab] = await Promise.all([page.context().waitForEvent('page'), newTab.click()]);
     await expect(tab.locator('body')).toContainText('Written by Claude');
+    const calls = await page.evaluate(() => (window as unknown as { relayOpened: unknown[][] }).relayOpened);
+    expect(calls.map((args) => args.slice(0, 2))).toEqual([['', '_blank']]);
     expect(await tab.evaluate(() => window.opener)).toBeNull();
     await tab.reload();
     await expect(tab.locator('body')).toContainText('Written by Claude');

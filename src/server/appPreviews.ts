@@ -275,8 +275,9 @@ export class AppPreviews {
   }
 
   /**
-   * A single-use address for the browser that started it to open its page in a tab of its own, good
-   * for a minute: the frame's ticket is spent, and a tab gets no cookie the frame was given.
+   * A single-use address, asked for by the browser that started it, to open its page in a tab of its own
+   * (from the desktop app's window, a tab of the default browser), good for a minute: the frame's ticket
+   * is spent, and a tab gets no cookie the frame was given.
    */
   tab(conversation: string, id: string, browser?: string): string {
     const s = this.sessions.get(id);
