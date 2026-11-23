@@ -188,8 +188,15 @@ describe("Antigravity's sign-in", () => {
       // The stand-in answers `agy models` as a Google sign-in agy keeps would: that is never asked.
       vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
       vi.stubEnv('GEMINI_API_KEY', '');
-      // Google Cloud's Application Default Credentials, which agy would take too: never passed on.
+      // Google Cloud's Application Default Credentials and an LLM gateway of agy's own, which agy would
+      // take too: never passed on, in any letter case.
       vi.stubEnv('AGY_ADC_AUTH', '1');
+      vi.stubEnv('agy_adc_auth', '1');
+      vi.stubEnv('AGY_LLM_GATEWAY_URL', 'https://gateway.example.invalid');
+      vi.stubEnv('AGY_LLM_GATEWAY_API_KEY', 'gw-key');
+      vi.stubEnv('AGY_ACP_ENABLE_GATEWAY_AUTH', '1');
+      // Not a sign-in of agy's: the agent's own commands keep it.
+      vi.stubEnv('AGY_CLI_THEME', 'dark');
       try {
         const settings = new SettingsStore(openDatabase(':memory:'));
         settings.update('antigravity', { bin });
@@ -238,7 +245,11 @@ describe("Antigravity's sign-in", () => {
         });
         expect(settings.env('antigravity').GEMINI_API_KEY).toBe('AIza-server');
         expect(settings.env('antigravity', team).GEMINI_API_KEY).toBe('AIza-team');
-        for (const account of ['', team]) expect(settings.env('antigravity', account).AGY_ADC_AUTH).toBeUndefined();
+        for (const account of ['', team]) {
+          const env = settings.env('antigravity', account);
+          expect(Object.keys(env).filter((k) => /^agy_(adc_auth|llm_gateway_|acp_enable_gateway_auth)/i.test(k))).toEqual([]);
+          expect(env.AGY_CLI_THEME).toBe('dark');
+        }
         // A key is billed by use: no plan, and agy is not asked for one.
         expect(await service.usage('antigravity', team, true)).toMatchObject({ limits: [], none: 'apiKey' });
         expect(await service.usage('antigravity', '', true)).toMatchObject({ limits: [], none: 'apiKey' });

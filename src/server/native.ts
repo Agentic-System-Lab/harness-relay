@@ -1537,7 +1537,8 @@ async function antigravityPlugins(
 ): Promise<{ data?: unknown; problem?: NativeProblem }> {
   const res = await runProcess({
     bin,
-    args: ['plugin', 'list', '--json'],
+    // On its Gemini API key too, never on a Google sign-in (the settings come before the subcommand).
+    args: [...ANTIGRAVITY_PROBE_SETTINGS, 'plugin', 'list', '--json'],
     cwd,
     env: antigravityProbeEnv(env),
     timeoutMs,

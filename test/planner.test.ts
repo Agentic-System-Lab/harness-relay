@@ -1660,48 +1660,42 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(memberAvailable(checked(copilot(false)), { provider: 'copilot' })).toBe(false);
   });
 
-  it("keeps a model whose own quota is used up while the account's credits pay for it, and says so", () => {
+  it("keeps a model whose own limit is used up while the account's usage credits pay for it, and says so", () => {
     const now = Date.now();
     const later = now + 86_400_000;
-    // As `parseCodexUsage` reads a named Codex quota for one model.
-    const spark = (paid: boolean): AccountUsage => ({
-      provider: 'codex',
+    // As `parseClaudeUsage` reads a model's own weekly limit used up, with usage credits (extra usage) on.
+    const opus = (paid: boolean): AccountUsage => ({
+      provider: 'claude',
       account: '',
       checkedAt: now,
       limits: [
-        {
-          span: 'fiveHour',
-          scope: 'Spark plan quota',
-          model: 'gpt-6.1-spark',
-          usedPercent: 100,
-          resetsAt: later,
-          ...(paid ? { paidPast: true as const } : {}),
-        },
+        { span: 'week', usedPercent: 40, resetsAt: later },
+        { span: 'week', scope: 'Opus', usedPercent: 100, resetsAt: later, ...(paid ? { paidPast: true as const } : {}) },
       ],
-      ...(paid ? { payer: 'credits' as const } : {}),
+      ...(paid ? { payer: 'usageCredits' as const } : {}),
     });
     const checked = (u: AccountUsage): PlannerContext => ({
       ...ctx,
-      available: ['codex'],
-      accounts: { codex: [''] },
+      available: ['claude'],
+      accounts: { claude: [''] },
       catalog: [
         {
-          provider: 'codex',
-          models: [{ id: 'gpt-6.1' }, { id: 'gpt-6.1-spark' }],
+          provider: 'claude',
+          models: [{ id: 'sonnet' }, { id: 'claude-opus-4-6' }],
           efforts: [],
-          defaultModel: 'gpt-6.1',
-          source: 'cli',
+          defaultModel: 'sonnet',
+          source: 'builtin',
         },
       ],
       staffing: { now, usage: [u] },
     });
-    expect(memberAvailable(checked(spark(false)), { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(false);
-    expect(memberAvailable(checked(spark(false)), { provider: 'codex', model: 'gpt-6.1' })).toBe(true);
-    expect(memberAvailable(checked(spark(true)), { provider: 'codex', model: 'gpt-6.1-spark' })).toBe(true);
+    expect(memberAvailable(checked(opus(false)), { provider: 'claude', model: 'claude-opus-4-6' })).toBe(false);
+    expect(memberAvailable(checked(opus(false)), { provider: 'claude', model: 'sonnet' })).toBe(true);
+    expect(memberAvailable(checked(opus(true)), { provider: 'claude', model: 'claude-opus-4-6' })).toBe(true);
     const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, cwd: '/work', permission: 'read-only' as const };
-    const lead = buildPlannerPrompt('q', settings, checked(spark(true)));
-    expect(lead).toContain('gpt-6.1-spark (plan limit reached');
-    expect(lead).toContain('Models marked "plan limit reached" run on paid credits, billed for each turn.');
+    const lead = buildPlannerPrompt('q', settings, checked(opus(true)));
+    expect(lead).toContain('claude-opus-4-6 (plan limit reached');
+    expect(lead).toContain('Models marked "plan limit reached" run on paid usage credits (extra usage), billed for each turn.');
   });
 
   it('keeps a Muse Code sign-in without a subscription allowance, billed by use as a key is, but not a signed-out one', () => {

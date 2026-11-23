@@ -441,6 +441,8 @@ describe('an account on a key its provider bills by use', () => {
   it('and Antigravity, which runs on a Gemini API key only, is never asked: without a key it is signed out', async () => {
     expect(await askUsage('antigravity', missing, {})).toEqual({ limits: [], none: 'signedOut' });
     expect(await askUsage('antigravity', missing, { GEMINI_API_KEY: '', AGY_ADC_AUTH: '1' })).toEqual({ limits: [], none: 'signedOut' });
+    // A key of blanks is none, as its status says.
+    expect(await askUsage('antigravity', missing, { GEMINI_API_KEY: '  ' })).toEqual({ limits: [], none: 'signedOut' });
   });
 
   it("but Codex is asked (its account/read says what it runs on), and Copilot's GitHub token belongs to the user's own plan", async () => {

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountUsage, Provider, UsageKind, UsageLimit, UsageNone, UsagePayer, UsageProblem, UsageSpan } from '../shared/types';
+import { antigravityHasKey } from './agents/antigravity';
 import { CLAUDE_PROBE_ARGS } from './agents/claude';
 import { copilotHome, copilotProbeEnv, prepareCopilotProbeHome } from './agents/copilot';
 import { grokNativeEnv } from './agents/grok';
@@ -661,7 +662,7 @@ export async function askUsage(p: Provider, bin: string, env: NodeJS.ProcessEnv,
       return CREDENTIAL_ENV.cursor.some((k) => env[k]) ? none('notReported') : askCursor(bin, env, signal);
     case 'antigravity':
       // On its Gemini API key only: no plan, and agy is never asked (it would answer for a Google sign-in).
-      return none(apiKey ? 'apiKey' : 'signedOut');
+      return none(antigravityHasKey(env) ? 'apiKey' : 'signedOut');
     case 'copilot':
       // A GitHub token belongs to the user's own Copilot plan: asked about too.
       return askCopilot(bin, env, signal);

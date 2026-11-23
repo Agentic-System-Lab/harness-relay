@@ -614,6 +614,9 @@ describe('NativeSetupService', () => {
     expect(probeCompleteness({ ...empty, problems: [{ kind: 'timeout' }] })).toBe('late');
     expect(probeCompleteness({ ...empty, problems: [{ kind: 'failed', detail: 'not found' }] })).toBe('failed');
     expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-answer', part: 'all' }] })).toBe('failed');
+    // Antigravity without a key is not asked: what its files list stands, and nothing at all means it could not be asked.
+    expect(probeCompleteness({ ...empty, problems: [{ kind: 'no-key' }] })).toBe('failed');
+    expect(probeCompleteness({ skills: [], mcpServers: [{ name: 'files' }], problems: [{ kind: 'no-key' }] })).toBe('incomplete');
     // Asking it again the way Harness Relay runs it is another matter: what it answered stands.
     expect(probeCompleteness({ ...some, problems: [{ kind: 'as-run', cause: { kind: 'timeout' } }] })).toBe('complete');
     expect(saidNothing({ ...empty, problems: [{ kind: 'no-answer', part: 'mcp' }] })).toBe(false);

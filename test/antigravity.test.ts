@@ -916,6 +916,10 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(starts.filter((l) => l.argv[0] === '-p').map((l) => l.argv.slice(1))).toEqual(
       expect.arrayContaining([['/skills', '--output-format', 'json', '--settings', settings]]),
     );
+    // Its plugins too, with the settings before the subcommand.
+    expect(starts.filter((l) => l.argv.includes('plugin')).map((l) => l.argv)).toEqual([
+      ['--settings', settings, 'plugin', 'list', '--json'],
+    ]);
     expect(starts.every((l) => l.env.HOME === r.home && l.env.SSH_CONNECTION)).toBe(true);
 
     // Without a key, agy is not asked at all (it would answer on a Google sign-in it keeps): what its

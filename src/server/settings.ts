@@ -164,11 +164,19 @@ export const OPEN_AGENT_ROOTS_ENV = 'HARNESS_RELAY_AGENT_HOMES_BEFORE';
 export const ANTIGRAVITY_HOME_ENV = 'HARNESS_RELAY_ANTIGRAVITY_HOME';
 
 /**
- * Antigravity's sign-ins besides a Gemini API key that agy takes from its environment: Application
- * Default Credentials (`AGY_ADC_AUTH`, Google Cloud's). Every Antigravity account runs on its Gemini API
- * key alone (`keyOnlyAccount`), so none of them reaches agy, the server's own included.
+ * Whether a variable gives agy a sign-in or a model route besides its Gemini API key: Google Cloud's
+ * Application Default Credentials (`AGY_ADC_AUTH`), or an LLM gateway of its own (`AGY_LLM_GATEWAY_*`:
+ * its address, key, headers and certificates; `AGY_ACP_ENABLE_GATEWAY_AUTH`). Tried with agy 1.5.14 on
+ * a stand-in Gemini API, with `modelProvider: "gemini"`: `AGY_ADC_AUTH` made it sign in with those
+ * credentials instead, and a gateway made it send the gateway's key there and list its models; neither
+ * `GOOGLE_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI` nor the `AGY_CDE_*` sign-ins changed the key or the API
+ * it used. Every Antigravity account runs on its Gemini API key alone (`keyOnlyAccount`), so none of
+ * these reaches agy, the server's own included. Named in any letter case (Windows ignores it).
  */
-export const ANTIGRAVITY_OTHER_SIGN_IN_ENV = ['AGY_ADC_AUTH'] as const;
+export function antigravityOtherSignIn(name: string): boolean {
+  const n = name.toUpperCase();
+  return n === 'AGY_ADC_AUTH' || n === 'AGY_ACP_ENABLE_GATEWAY_AUTH' || n.startsWith('AGY_LLM_GATEWAY_');
+}
 
 /**
  * Where a Muse Code account's home is: its config folder is `<home>/config/muse` and its data folder
@@ -1009,7 +1017,7 @@ export class SettingsStore {
     if (id) for (const k of CREDENTIAL_ENV[p]) delete env[k];
     if (keyVar && key) env[keyVar] = key;
     if (p === 'cursor' && (id || CREDENTIAL_ENV.cursor.some((k) => env[k]))) env[CURSOR_SHARED_SIGN_IN] = 'memory';
-    if (p === 'antigravity') for (const k of ANTIGRAVITY_OTHER_SIGN_IN_ENV) delete env[k];
+    if (p === 'antigravity') for (const k of Object.keys(env)) if (antigravityOtherSignIn(k)) delete env[k];
     if (p === 'muse' && id) env[MUSE_KEY_ONLY_ENV] = '1';
     const home = this.accountHome(p, id);
     if (home) {
