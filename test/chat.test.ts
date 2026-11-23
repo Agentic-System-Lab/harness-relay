@@ -653,13 +653,16 @@ describe("an agent's work between its words", () => {
     expect(thoughtTitle('   ')).toBe('');
   });
 
-  it("folds an answered request's command when it spans lines or is long, to its first line", () => {
+  it("folds a long answered request's command to its first line and how many lines follow", () => {
     expect(foldedDetail('npm test')).toBeUndefined();
-    expect(foldedDetail('x'.repeat(FOLD_DETAIL_CHARS))).toBeUndefined();
     expect(foldedDetail('  \n')).toBeUndefined();
+    // Up to the limit, as it is: on one line, or a few short ones (space around it not counted).
+    expect(foldedDetail(`\n  ${'x'.repeat(FOLD_DETAIL_CHARS)}\n`)).toBeUndefined();
+    expect(foldedDetail('git add -A && \\\ngit commit -m x')).toBeUndefined();
     const long = `echo ${'y'.repeat(FOLD_DETAIL_CHARS)}`;
     expect(foldedDetail(long)).toEqual({ head: long, more: 0 });
-    const heredoc = "\npython3 - <<'EOF'\r\nfrom pathlib import Path\n\np.write_text(s)\nEOF\n";
+    const body = `p.write_text(${JSON.stringify('z'.repeat(FOLD_DETAIL_CHARS))})`;
+    const heredoc = `\npython3 - <<'EOF'\r\nfrom pathlib import Path\n\n${body}\nEOF\n`;
     expect(foldedDetail(heredoc)).toEqual({ head: "python3 - <<'EOF'", more: 4 });
   });
 

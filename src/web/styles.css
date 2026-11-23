@@ -7605,6 +7605,12 @@ summary + .checks-editor-body {
   text-overflow: ellipsis;
 }
 
+/* A browser for the user alone: what it is and how to use it, all of it, on as many lines as it takes. */
+.handover-why.whole {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .handover-asks,
 .handover-notice {
   display: flex;

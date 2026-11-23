@@ -1426,7 +1426,7 @@ export const en: Messages = {
       show: 'Show your browser',
       hint: "A browser for you alone is Harness Relay's own browser, which no agent drives or reads, deleted with all it holds when you close it. It starts signed in to no site, so sign in there first when the page needs it. Select the value on the page (or tap the field that holds it) and choose Save selection as…: the value goes straight to this card, never through the chat. On the computer Harness Relay runs on, you can also open the page in your own browser and paste the value here.",
       title: 'A browser for you alone',
-      line: 'No agent drives or reads this browser, and it is deleted when you close it. It starts signed in to no site: sign in on the page first if the value needs it (a site may show an error rather than ask you to). Select the value on the page, then save it.',
+      line: 'Select the value on the page, then save it. This browser starts signed in to no site: sign in first if the page needs it (some sites show an error rather than ask you to). No agent drives or reads it, and it is deleted when you close it.',
       close: 'Close the browser',
       saveAs: (name) => `Save selection as ${name}`,
       saved: (name) => `Saved as ${name}`,

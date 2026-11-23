@@ -600,8 +600,9 @@ function ApprovalCard({
         {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
       </span>
     );
-    // A long command: its first line beside the answer, click it to read all of it.
-    const fold = part.detail ? foldedDetail(part.detail) : undefined;
+    // A long command: its first line beside the answer, click it to read all of it. Never the files a
+    // change names, whose names a cut at the end would hide (they wrap as they are).
+    const fold = part.detail && part.kind !== 'edit' ? foldedDetail(part.detail) : undefined;
     if (fold) {
       return (
         <details className={`approval-done approval-fold ${status}`}>

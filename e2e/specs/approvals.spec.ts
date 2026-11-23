@@ -171,6 +171,34 @@ test.describe('approvals', () => {
     await expect((await finishedReply(page, 'Claude')).locator('.approval-done')).toContainText('Declined');
   });
 
+  test('a long command, once answered, shows its first line, how many lines follow and the answer, and opens to all of it', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await send(page, 'Print a line e2e:approve=long');
+    const card = page.getByRole('region', { name: '@Claude wants to run a command' });
+    // Waiting, all of it shows.
+    await expect(card.locator('.approval-detail')).toContainText('sys.stdout.flush()');
+    await card.getByPlaceholder(/Tell it what to do instead/).fill('Use echo instead, and keep it to one line in this project');
+    await card.getByRole('button', { name: 'Decline' }).click();
+    const reply = await finishedReply(page, 'Claude');
+    const line = reply.locator('.approval-fold');
+    const summary = line.locator('summary');
+    await expect(line.locator('.approval-head-line')).toHaveText("python3 - <<'EOF'");
+    await expect(line.locator('.approval-more')).toHaveText('+5 lines');
+    await expect(line.locator('.approval-outcome')).toHaveText('Declined: Use echo instead, and keep it to one line in this project');
+    const full = line.locator('.approval-full');
+    await expect(full).toBeHidden();
+    await summary.click();
+    await expect(full).toBeVisible();
+    // The whole command, its line breaks kept.
+    expect(await full.evaluate((el) => el.textContent)).toMatch(/^python3 - <<'EOF'\n# e2e:approve=long: .*\nimport sys\n[\s\S]*\nEOF$/);
+    // From the keyboard too.
+    await summary.press('Enter');
+    await expect(full).toBeHidden();
+  });
+
   test('a chat that refuses automatically declines without asking', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { approvals: 'deny' });
     await send(page, 'Print a line e2e:approve');

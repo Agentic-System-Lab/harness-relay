@@ -342,6 +342,9 @@ describe('the briefing on secrets and fixed commands', () => {
     expect(section).toContain(`at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first`);
     expect(section).toContain('never from a file in the working directory such as a .env');
     expect(section).toContain("what the user types in the card's input box on its standard input");
+    // The browser for the user alone starts signed out: the block's text says when the page needs a sign-in.
+    expect(section).toContain('That browser starts signed in to no site');
+    expect(section).toContain("when the page needs a sign-in, say so in the block's text (why you need it)");
     expect(section).toContain('Nor ask the user to run commands in a terminal to set things up');
     // On native Windows the user gets steps instead, which may have commands in them.
     expect(handoffSection({ secrets: [], commands: [] }, 'win32')).not.toContain('Nor ask the user to run commands in a terminal');
