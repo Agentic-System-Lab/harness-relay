@@ -5,10 +5,12 @@ import { describe, expect, it } from 'vitest';
 import {
   ALWAYS,
   changedFiles,
+  e2eFor,
   everything,
   globRegExp,
   IGNORES,
   ignoredBy,
+  MAINTAINERS,
   needsOf,
   outputs,
   SCOPE_JOBS,
@@ -147,6 +149,42 @@ describe('needsOf', () => {
     expect(needs.windows).toEqual({ run: true, reason: '`test/a.test.ts` and 1 more' });
     expect(needs.e2e).toEqual({ run: false, reason: 'no file it depends on changed' });
     expect(needsOf(['desktop/src/main.ts']).desktop.reason).toBe('`desktop/src/main.ts`');
+  });
+});
+
+describe('e2eFor', () => {
+  const all = everything('a workflow_dispatch run tests everything');
+  const files = needsOf(['src/server/app.ts']);
+
+  it("skips the end-to-end tests for a maintainer's pull request, whatever it touches: the release candidate runs them", () => {
+    expect(MAINTAINERS).toEqual(['cyyeh']);
+    const mine = e2eFor(files, 'pull_request', 'cyyeh');
+    expect(mine.e2e).toEqual({ run: false, reason: 'a pull request by cyyeh: they run for the release candidate' });
+    // The other jobs still go by the files.
+    expect(mine.windows).toEqual(files.windows);
+    expect(mine.desktop).toEqual(files.desktop);
+    // GitHub's logins have no case; the rules themselves changing runs them for others only.
+    expect(e2eFor(files, 'pull_request', ' CyYeh ').e2e.run).toBe(false);
+    expect(e2eFor(needsOf(['scripts/ci-scope.ts']), 'pull_request', 'cyyeh').e2e.run).toBe(false);
+  });
+
+  it("runs them for anyone else's pull request as its files say", () => {
+    expect(e2eFor(files, 'pull_request', 'a-contributor')).toEqual(files);
+    expect(e2eFor(files, 'pull_request', 'dependabot[bot]')).toEqual(files);
+    expect(e2eFor(files, 'pull_request', 'cyyeh-fork')).toEqual(files);
+    expect(e2eFor(needsOf(['README.md']), 'pull_request', 'a-contributor').e2e.run).toBe(false);
+    // Without an author (none in the event), as the files say.
+    expect(e2eFor(files, 'pull_request', undefined)).toEqual(files);
+    expect(e2eFor(files, 'pull_request', '')).toEqual(files);
+  });
+
+  it("skips them for a push to main, runs them by hand and for the Release workflow's call", () => {
+    const push = e2eFor(everything('a push to main tests everything'), 'push', 'cyyeh');
+    expect(push.e2e).toEqual({ run: false, reason: 'a push to main: they run for a release candidate' });
+    expect(push.windows.run && push.desktop.run).toBe(true);
+    // A run by hand, and the Release workflow's call (its event, workflow_dispatch), whoever started it.
+    expect(e2eFor(all, 'workflow_dispatch', 'cyyeh')).toEqual(all);
+    expect(e2eFor(all, '', 'cyyeh')).toEqual(all);
   });
 });
 
@@ -371,6 +409,10 @@ describe('the rules and the repository', () => {
       const scopes = SCOPES.filter((s) => GATED[s].workflow === workflow);
       const changes = list.get('changes')!;
       expect(changes, workflow).toContain('run: node scripts/ci-scope.ts');
+      // The pull request's author, which the end-to-end tests go by, from the event, through the environment.
+      expect(changes, workflow).toContain(
+        '\n        env:\n          PR_AUTHOR: ${{ github.event.pull_request.user.login }}\n        run: node scripts/ci-scope.ts',
+      );
       for (const scope of scopes) expect(changes, scope).toContain(`\n      ${scope}: \${{ steps.scope.outputs.${scope} }}`);
       for (const [id, job] of list) {
         const conditions = job.match(/^ {4}if: .*$/gm) ?? [];
@@ -394,6 +436,29 @@ describe('the rules and the repository', () => {
         .split(/,\s*/);
       expect(needs, workflow).toEqual([...list.keys()].filter((id) => id !== 'passed'));
     }
+  });
+
+  it("runs the end-to-end tests for a pull request, the Release workflow's call and by hand, never for a push to main", () => {
+    const text = read(WORKFLOWS.e2e);
+    const on = text.slice(text.indexOf('\non:\n') + 5, text.indexOf('\npermissions:'));
+    expect(on.split('\n').filter((l) => /^ {2}\S/.test(l))).toEqual(['  pull_request:', '  workflow_call:', '  workflow_dispatch:']);
+    // The same inputs, called or by hand.
+    const inputs = (event: string) => {
+      const block = on
+        .slice(on.indexOf(`  ${event}:\n`))
+        .split('\n')
+        .slice(2);
+      const end = block.findIndex((l) => /^ {0,3}\S/.test(l));
+      return block.slice(0, end < 0 ? undefined : end).filter((l) => /^ {6}\w+:$/.test(l));
+    };
+    expect(inputs('workflow_call')).toEqual(['      browsers:', '      every_cli:']);
+    expect(inputs('workflow_dispatch')).toEqual(inputs('workflow_call'));
+    // A pull request's new push replaces its run; any other run is a group of its own, so that a run by
+    // hand never holds up or replaces the Release workflow's.
+    expect(text).toContain("  group: e2e-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n");
+    expect(text).toContain("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n");
+    // ci.yml still runs for a push to main.
+    expect(read(WORKFLOWS.ci)).toMatch(/\non:\n {2}pull_request:\n {2}push:\n {4}branches: \[main\]\n/);
   });
 
   it.skipIf(process.platform === 'win32')('passes the one check only when every job passed or was not needed', () => {
