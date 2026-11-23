@@ -1,7 +1,8 @@
 // A steps card's logic (components/StepsCard.tsx): what an agent asked the user to do outside
 // Harness Relay, each step ticked as they go, then their answer. Pure, so it can be tested.
 
-import { plainStep, type StepsPart } from '../shared/steps';
+import type { StepsPart } from '../shared/types';
+import { plainStep } from '../shared/steps';
 
 /**
  * Where a card stands: waiting for the user (they tick and answer), still waited for while the team

@@ -4268,3 +4268,27 @@ export type ServerToDesktop =
    * there: the app's menus and dialogs follow it.
    */
   | { type: 'lang'; lang: Lang };
+
+/** A hand-off block of a reply (`<secret>`, `<command>`, `<command-run>`, `<interactive>`), as `splitHandoffs()` reads it. */
+export type HandoffBlock =
+  | { kind: 'secret'; name: string; label?: string; reason?: string; url?: string }
+  | ({ kind: 'command' } & CommandProposal)
+  | { kind: 'command-run'; name: string; input: string }
+  | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
+
+/** A steps card (`<steps>`). */
+export type StepsPart = Extract<MessagePart, { type: 'steps' }>;
+
+/** The words of the user's answer, in their language (the server's `t().steps`). */
+export interface StepsWords {
+  /** Its first line: who gave the steps (`@name`), how many the user did of how many, and the step they are stuck at (from 1). */
+  summary: (o: { agent: string; done: number; total: number; stuckAt?: number }) => string;
+  done: string;
+  notDone: string;
+  stuck: string;
+  /** Before the user's note, with what separates it ("Note: "). */
+  note: string;
+}
+
+/** Why a name the user typed for a new file is not one (`fileNameProblem()` in `src/shared/fileNames.ts`). */
+export type FileNameProblem = 'empty' | 'separator' | 'dots' | 'control' | 'reserved' | 'git' | 'tooLong';

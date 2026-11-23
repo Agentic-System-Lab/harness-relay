@@ -1,4 +1,4 @@
-import { FIXED_COMMAND_NEWS, HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
+import { FIXED_COMMAND_NEWS, HOOK_PROVIDERS, PROVIDER_LABEL, type FileNameProblem } from '../../shared/types';
 import type {
   OAuthProviderId,
   OAuthUse,
@@ -25,7 +25,7 @@ import type {
   VoiceLanguage,
   VoiceModelId,
 } from '../../shared/types';
-import type { FileNameProblem } from '../../shared/fileNames';
+
 import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
@@ -718,6 +718,7 @@ export const zhTW = {
     runNowTitle: '現在就送出一次（不影響設定的時間）',
     runNowSaveFirst: '先儲存修改，才能立即執行',
     sentNow: '已送出',
+    ranNow: '固定指令執行了，沒有新的發現，所以沒有送出訊息。',
     queuedNow: '團隊回覆中，已排入等待',
     remove: '刪除自動任務',
     confirmRemove: '刪除這個自動任務？',

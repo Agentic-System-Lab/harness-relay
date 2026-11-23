@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { FileNameProblem } from '../shared/fileNames';
-import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
+
+import type { CliInstallBlock, OAuthUse, Permission, FileNameProblem } from '../shared/types';
 import { FIXED_COMMAND_NEWS, INTERACTIVE_LIMITS, LANGS, type FixedCommandRun, type InteractiveSession, type Lang } from '../shared/types';
 
 /*

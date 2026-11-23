@@ -1,4 +1,4 @@
-import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, type CommandProposal } from './types';
+import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, type CommandProposal, type HandoffBlock } from './types';
 
 /*
  * Steps only the user can take (docs/architecture.md, "Secrets and fixed commands"): blocks an agent
@@ -20,12 +20,6 @@ import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, ty
  * code (in a fence, or indented as code) and does not run across a fence. A block whose name or values
  * are not valid stays as text, so the agent's words are never lost. Pure, shared by the server and the UI.
  */
-
-export type HandoffBlock =
-  | { kind: 'secret'; name: string; label?: string; reason?: string; url?: string }
-  | ({ kind: 'command' } & CommandProposal)
-  | { kind: 'command-run'; name: string; input: string }
-  | { kind: 'interactive'; run: string; reason?: string; workdir?: boolean };
 
 const TAGS = ['secret', 'command-run', 'command', 'interactive'] as const;
 type Tag = (typeof TAGS)[number];
@@ -326,7 +320,14 @@ export function splitHandoffs(text: string): { text: string; blocks: HandoffBloc
  * ends, and one still being written (an opening tag that starts a line, with no end yet) is hidden from
  * there on, so the chat never shows a block half written.
  */
-export function withoutHandoffBlocks(text: string): string {
+export function withoutHandoffBlocks(text: string, o: { partial?: boolean } = {}): string {
+  // A tag still being typed at the very end (`<se`, `<comm`), while a reply streams: not shown for that moment.
+  if (o.partial !== false) {
+    const tail = /(?:^|\n)[ \t]{0,3}<([a-z-]{0,11})$/i.exec(text);
+    if (tail && ['secret', 'command-run', 'command', 'interactive'].some((tag) => tag.startsWith(tail[1]!.toLowerCase()))) {
+      return withoutHandoffBlocks(text.slice(0, tail.index).trimEnd(), o);
+    }
+  }
   if (!ANY.test(text)) return text;
   const done = splitHandoffs(text).text;
   const open = /(?:^|\n)[ \t]{0,3}<(?:secret|command-run|command|interactive)(?=[\s/>])/gi;

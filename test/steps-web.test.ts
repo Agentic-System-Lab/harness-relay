@@ -4,8 +4,8 @@
  * transcript and a shared page.
  */
 import { describe, expect, it } from 'vitest';
-import type { StepsPart } from '../src/shared/steps';
-import type { ChatMessage, Conversation } from '../src/shared/types';
+
+import type { ChatMessage, Conversation, StepsPart } from '../src/shared/types';
 import { segments } from '../src/web/chat';
 import { conversationMarkdown, messageText } from '../src/web/copy';
 import { en } from '../src/web/locales/en';

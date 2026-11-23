@@ -701,6 +701,7 @@ export const en: Messages = {
     runNowTitle: 'Send it now (its times stay as they are)',
     runNowSaveFirst: 'Save your changes before running it now',
     sentNow: 'Sent',
+    ranNow: 'Its fixed command ran and found nothing new, so nothing was sent.',
     queuedNow: 'The team is replying; it waits in the queue',
     remove: 'Delete automation',
     confirmRemove: 'Delete this automation?',

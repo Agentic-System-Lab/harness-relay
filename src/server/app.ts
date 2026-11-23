@@ -2041,7 +2041,8 @@ export function createApp({
       throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1), sent.result === 'failed' ? sent.code : undefined);
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
-    return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
+    // `ran`: its fixed command found nothing new, so nothing was sent.
+    return c.json({ ok: true, queued: sent.result === 'queued', ran: sent.result === 'ran', ...(chatId ? { chatId } : {}) }, 202);
   });
 
   app.delete('/api/conversations/:id', async (c) => {
@@ -2780,6 +2781,15 @@ export function createApp({
     const id = c.req.param('commandId');
     const { pin } = settings.handoffs.deleteCommand(id);
     await dropPin(id, pin);
+    // The schedules that ran it first run none now (their message alone), rather than failing at each time.
+    for (const convId of store.schedulesWithCommand(id)) {
+      const conv = store.get(convId);
+      if (!conv?.schedule || conv.schedule.command !== id) continue;
+      const { command: _gone, ...rest } = conv.schedule;
+      conv.schedule = rest;
+      store.saveSchedule(conv);
+      orchestrator.emitConversation(conv);
+    }
     return c.json({ ok: true });
   });
 

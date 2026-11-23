@@ -42,12 +42,14 @@ import type {
   FixedCommandRun,
   InteractiveSession,
   SecretAsk,
+  HandoffBlock,
+  StepsPart,
 } from '../shared/types';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS } from '../shared/types';
-import { checkProposal, interactiveLine, maskValues, splitHandoffs, type HandoffBlock } from '../shared/handoffs';
+import { checkProposal, interactiveLine, maskValues, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
 import { USER_BROWSERS_MAX, UserBrowserError, type UserBrowsers } from './browser/handover';
 import { askingReplies, splitAsk } from '../shared/ask';
-import { splitSteps, stepsAnswerText, stepsOfMessage, type StepsPart } from '../shared/steps';
+import { splitSteps, stepsAnswerText, stepsOfMessage, withoutStepsTail } from '../shared/steps';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
@@ -518,6 +520,8 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
     copy.parts = copy.parts.filter((p) => p.type !== 'outbox' || p.status !== 'pending');
     // A command the user runs from a card runs for its own conversation: the copy's card says it stopped.
     for (const p of copy.parts) {
+      // So does a fixed command's run from a card: it goes on for the conversation it was started in.
+      if (p.type === 'command' && p.run?.status === 'running') p.run = { ...p.run, status: 'error', reason: t().stoppedNote };
       if (p.type !== 'interactive' || p.session?.state !== 'running') continue;
       const { asking: _asking, ...session } = p.session;
       p.session = { ...session, state: 'stopped' };
@@ -956,6 +960,13 @@ export class Orchestrator {
   private commandWork = new Set<Promise<unknown>>();
   /** What a schedule's fixed command found while the team could not take its message: sent at the time's retry. */
   private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource; command: string }>();
+  /**
+   * The fixed commands, and the interactive commands in the working directory, running for each
+   * conversation: its folder is held meanwhile (`lockDirs()`), and the conversation is busy (`isBusy()`:
+   * nothing starts until they end), so that no run writes where they run, nor changes the code a command
+   * runs once pinned.
+   */
+  private folderHolds = new Map<string, number>();
   /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
   interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
   /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
@@ -1078,7 +1089,9 @@ export class Orchestrator {
 
   /** Running, or reserved by a request that will change it. */
   private isBusy(id: string): boolean {
-    return this.runs.has(id) || this.reserved.has(id) || this.deleting.has(id);
+    // A fixed command, or an interactive command in the working directory, holding the folder (`folderHolds`):
+    // nothing starts there until it ends (a message, Retry, Resend, Fix, a team confirmed, a schedule's time).
+    return this.runs.has(id) || this.reserved.has(id) || this.deleting.has(id) || this.folderHolds.has(id);
   }
 
   /** Reserve a conversation; the returned function releases it (once). */
@@ -1342,9 +1355,30 @@ export class Orchestrator {
     try {
       await this.send(convId, text);
     } catch (err) {
-      // The card's answer is kept; the message waits for the user to send it when it cannot go now.
       if (!(err instanceof HttpError)) throw err;
+      // Refused at the last moment (`cardAnswerable()` was asked before the card was decided): the answer
+      // waits in the queue, which goes once the conversation can take it, never lost.
+      const conv = this.store.get(convId);
+      try {
+        if (conv) this.enqueue(conv, text, undefined, {});
+      } catch {
+        /* the queue is full: the card says what was decided */
+      }
     }
+  }
+
+  /**
+   * Refuses, as `send()` would, the user's answer on a card while it could not be posted (the conversation
+   * held for a moment, its queue full): asked before the card is decided, so that it can be answered again.
+   */
+  private cardAnswerable(convId: string): void {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    if (this.queues(conv)) {
+      if ((conv.queue?.length ?? 0) >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
+      return;
+    }
+    this.getIdle(convId);
   }
 
   /**
@@ -1361,6 +1395,7 @@ export class Orchestrator {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
     const waiting = part.asks.filter((a) => a.status === 'waiting');
     if (!waiting.length) throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
     let saved: string[] = [];
     if (!answer.decline) {
       const values = Object.fromEntries(
@@ -1536,6 +1571,7 @@ export class Orchestrator {
   async dismissCommand(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.commandDismissed(part.proposal.name));
@@ -1548,6 +1584,7 @@ export class Orchestrator {
   async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
     const { part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
     const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
     await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
   }
@@ -1647,12 +1684,23 @@ export class Orchestrator {
     if (this.commandRuns.has(cmd.id)) return { at: Date.now(), source, status: 'error', reason: t().handoffs.commandRunning };
     const abort = new AbortController();
     this.commandRuns.set(cmd.id, abort);
+    let release: (() => void) | undefined;
     try {
-      // Not while a run may be writing in its folder: what it would run could change under it.
+      // Not while a run may be writing in its folder: what it would run could change under it. And its
+      // folder held while it runs, from the pin's check on, as a team check's commands hold theirs.
       if (conv && this.writingIn(conv.id, cmd.folder)) {
         const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
         record(run);
         return run;
+      }
+      if (conv) {
+        try {
+          release = this.holdFolder(conv, cmd.folder, { startQueue: source !== 'schedule' });
+        } catch {
+          const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
+          record(run);
+          return run;
+        }
       }
       const pin = store.pin(cmd.id);
       const changed = pin ? await pinChanges(cmd.folder, pin, commandFiles(cmd, cmd.folder)) : [];
@@ -1697,7 +1745,36 @@ export class Orchestrator {
       return run;
     } finally {
       this.commandRuns.delete(cmd.id);
+      release?.();
     }
+  }
+
+  /**
+   * Holds `folder` for a command of `conv`'s running (`folderHolds`): another conversation's run cannot
+   * take it, and this one is busy. Returns the release, which then starts what waits in the queue, but
+   * for a schedule's own run (`startQueue: false`), whose message goes next. Throws 409 when another
+   * conversation holds the folder.
+   */
+  private holdFolder(conv: Conversation, folder: string, o: { startQueue?: boolean } = {}): () => void {
+    // A lock this conversation had on it already (an action allowed in a read-only run) is left to it.
+    const had = this.dirLocks.get(folder) === conv.id && !this.folderHolds.has(conv.id);
+    this.lockDirs([folder], conv);
+    this.folderHolds.set(conv.id, (this.folderHolds.get(conv.id) ?? 0) + 1);
+    this.emitStatus(conv.id);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.folderHolds.get(conv.id) ?? 1) - 1;
+      if (left > 0) this.folderHolds.set(conv.id, left);
+      else {
+        this.folderHolds.delete(conv.id);
+        if (!had) this.unlockDirs([folder], conv.id);
+      }
+      this.emitStatus(conv.id);
+      const now = this.store.get(conv.id);
+      if (left <= 0 && o.startQueue !== false && now && !this.closing && !this.deleting.has(conv.id)) this.startQueued(now);
+    };
   }
 
   /** The command cards of a conversation for this fixed command show its run. */
@@ -1748,9 +1825,12 @@ export class Orchestrator {
         this.saveCard(conv, msg);
         throw new HttpError(409, t().handoffs.interactiveConfigChanged);
       }
+      // Held while it runs there, as a fixed command holds its folder: no run writes where the user's command works.
+      if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
       workdir = part.folder;
     }
     const masks = Object.values(this.settings.handoffs.values(part.folder));
+    const release = workdir ? this.holdFolder(conv, workdir) : undefined;
     const run: InteractiveRun = new InteractiveRun(
       {
         run: part.run,
@@ -1766,6 +1846,7 @@ export class Orchestrator {
           }
           this.interactiveChanged(key, true);
           this.interactive.delete(key);
+          release?.();
         },
       },
       { windows: t().handoffs.interactiveWindows, notStarted: (why) => t().handoffs.interactiveNotStarted(why) },
@@ -1850,6 +1931,7 @@ export class Orchestrator {
     if (!session || this.interactive.has(interactiveKey(convId, part.id)) || session.state === 'running')
       throw new HttpError(409, t().handoffs.interactiveNotEnded);
     if (session.sent) throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
     const values = Object.values(this.settings.handoffs.values(part.folder));
     const output = maskValues(session.output, values);
     part.session = { ...session, output, sent: true };
@@ -1861,6 +1943,7 @@ export class Orchestrator {
   async dismissInteractive(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    this.cardAnswerable(convId);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.interactiveDismissed(part.run));
@@ -2529,8 +2612,9 @@ export class Orchestrator {
       // A settings change or an apply holds the conversation for a moment.
       if (this.isBusy(convId)) return { result: 'busy', reason: t().scheduleConvBusy };
       // Another conversation writing in its folder holds nothing up: the team then works in its own worktree.
-      // An earlier scheduled message left waiting goes out now instead; a webhook's body still goes, in a message of its own.
-      const own = !waiting || opts.event !== undefined;
+      // An earlier scheduled message left waiting goes out now instead; a webhook's body, or what the schedule's
+      // fixed command found, still goes, in a message of its own.
+      const own = !waiting || opts.event !== undefined || found !== undefined;
       await this.startScheduledMessage(conv, conv.id, own ? s.text : '', {
         queue: true,
         scheduledQueueOnly: Boolean(checksHold(conv.messages)),
@@ -6501,6 +6585,16 @@ export class Orchestrator {
         console.warn('[orchestrator] could not record memory notes:', (memoryErr as Error).message);
       }
       takeSchedule(msg);
+      // Hand-off and steps blocks are acted on only in a reply that finished: one that failed or was
+      // stopped asks nothing, and they are taken out of it, never shown (nor given to teammates) as text.
+      for (let i = msg.parts.length - 1; i >= 0; i--) {
+        const part = msg.parts[i]!;
+        if (part.type !== 'text') continue;
+        const text = withoutStepsTail(splitSteps(withoutHandoffBlocks(part.text, { partial: false })).text);
+        if (text === part.text) continue;
+        if (text.trim()) part.text = text;
+        else msg.parts.splice(i, 1);
+      }
       // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
       const spent = err instanceof AgentRunError ? err.usage : undefined;
       msg.meta = {

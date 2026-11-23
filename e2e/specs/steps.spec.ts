@@ -1,6 +1,6 @@
 import { devices, type Locator, type Page } from '@playwright/test';
-import type { StepsPart } from '../../src/shared/steps';
-import type { Conversation } from '../../src/shared/types';
+
+import type { Conversation, StepsPart } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, openTeamChat, replies, send } from '../support/app';
 

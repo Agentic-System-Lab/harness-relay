@@ -1,8 +1,8 @@
 // The Files panel's editing and uploading, without the DOM: what can be edited, what a text box holds,
 // and what a pick or drop of files sends (paths relative to the browsed folder, with `/`).
 
-import { fileNameProblem, type FileNameProblem } from '../shared/fileNames';
-import { FILE_EDIT_LIMITS, type FileEntry, type FileListing, type FilePreview } from '../shared/types';
+import { fileNameProblem } from '../shared/fileNames';
+import { FILE_EDIT_LIMITS, type FileEntry, type FileListing, type FilePreview, type FileNameProblem } from '../shared/types';
 
 /** Whether the panel offers to edit this file: a root it may write in, and a whole text file the server gave a version. */
 export function canEdit(listing: Pick<FileListing, 'writable'> | null, preview: FilePreview | null): boolean {

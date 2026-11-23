@@ -160,6 +160,12 @@ describe('hand-off blocks in a reply', () => {
 
   it('masks every value, the longest first, and leaves values too short to mask safely', () => {
     expect(maskValues('token=abcd1234 and abcd1234xyz, key=ab', ['abcd1234', 'abcd1234xyz', 'ab'])).toBe('token=•••• and ••••, key=ab');
+    // A tag still being typed while a reply streams: not shown for that moment; once the reply is done, as it is.
+    expect(withoutHandoffBlocks('Next:\n<se')).toBe('Next:');
+    expect(withoutHandoffBlocks('Next:\n<comm')).toBe('Next:');
+    expect(withoutHandoffBlocks('Next:\n<')).toBe('Next:');
+    expect(withoutHandoffBlocks('a < b')).toBe('a < b');
+    expect(withoutHandoffBlocks('Next:\n<', { partial: false })).toBe('Next:\n<');
     // A value cut in two at the output's ends shows neither part.
     expect(maskEdges('…\nz-123456 then done', ['tok-xyz-123456'])).toBe('…\n•••• then done');
     // Output is kept from its end: only its start is ever cut, and text not cut is left as it is.

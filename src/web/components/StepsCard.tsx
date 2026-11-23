@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { StepsPart } from '../../shared/steps';
-import { STEPS_LIMITS } from '../../shared/types';
+
+import { STEPS_LIMITS, type StepsPart } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { answerBody, firstOpen, shownDone, stepMark, stepWords, stepsCardState, unsettled } from '../steps';

@@ -977,8 +977,17 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect(browser.userBrowserOpen('another', id)).toBe(false);
       const notices: string[] = [];
       const locations: string[] = [];
+      // What the proxy decided for each connection (on a failure, to tell where an opening was refused).
+      const routes: string[] = [];
+      const routed = browser as unknown as { route: (...a: unknown[]) => Promise<{ refused?: string }> };
+      const route = routed.route.bind(browser);
+      routed.route = async (...a: unknown[]) => {
+        const r = await route(...a);
+        routes.push(`${String(a[1])}:${String(a[2])}${a[3] ? ' tunnel' : ''} ${String(a[4] ?? '')} -> ${r.refused ? 'refused' : 'ok'}`);
+        return r;
+      };
       /** What the tab did, for a wait that fails. */
-      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12) });
+      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12), routes: routes.slice(-12) });
       let frames = 0;
       await vi.waitFor(() => {
         const watching = browser.handovers.watch('conv-alone', id, (e) => {

@@ -89,7 +89,12 @@ export function ScheduleDrawer({
   useEffect(() => {
     let live = true;
     api.conversationCommands(conv.id).then(
-      (list) => live && setCommands(list),
+      (list) => {
+        if (!live) return;
+        setCommands(list);
+        // A command removed meanwhile (in Settings): not one the form could save, nor show.
+        setDraft((d) => (d.command && !list.some((c) => c.id === d.command) ? { ...d, command: '' } : d));
+      },
       () => live && setCommands([]),
     );
     return () => {
@@ -151,8 +156,8 @@ export function ScheduleDrawer({
     setInfo('');
     setRanIn(undefined);
     try {
-      const { queued, chatId } = await api.runSchedule(conv.id);
-      setInfo(chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      const { queued, ran, chatId } = await api.runSchedule(conv.id);
+      setInfo(ran ? t.schedule.ranNow : chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
       setRanIn(chatId);
     } catch (e) {
       setError((e as Error).message);

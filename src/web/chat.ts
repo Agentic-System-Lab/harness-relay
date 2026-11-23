@@ -15,9 +15,10 @@ import type {
   TeamPlan,
   TeamRevision,
   MessageChanges,
+  StepsPart,
 } from '../shared/types';
 import { STEER_PROVIDERS, TEAM_WORKTREE } from '../shared/types';
-import type { StepsPart } from '../shared/steps';
+
 import { ApiError } from './api';
 import { limitsKey } from './memberLimits';
 import type { ApplyState } from './components/ChangesCard';

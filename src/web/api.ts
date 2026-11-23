@@ -446,7 +446,8 @@ export const api = {
   /** Have the lead agent design the team for the schedule's message (again). */
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
-  runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+  runSchedule: (id: string) =>
+    request<{ ok: true; queued: boolean; ran?: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** Check what an automation that starts when something happens waits for, now: the schedule as it is then. */
   checkSchedule: (id: string) => request<ConversationSchedule | null>('POST', `/api/conversations/${id}/schedule/check`, {}),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */

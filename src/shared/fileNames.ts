@@ -1,7 +1,7 @@
+import type { FileNameProblem } from './types';
 // The names the Files panel gives a new or uploaded file, checked alike by the server and the page.
 
 /** Why a name cannot be a file's name, as `fileNameProblem` tells it. */
-export type FileNameProblem = 'empty' | 'separator' | 'dots' | 'control' | 'reserved' | 'git' | 'tooLong';
 
 /** The most UTF-8 bytes a name may take: what macOS, Linux and Windows file systems all allow. */
 export const MAX_FILE_NAME_BYTES = 255;

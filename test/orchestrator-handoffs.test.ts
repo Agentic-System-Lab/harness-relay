@@ -558,6 +558,80 @@ describe('fixed command cards', () => {
     }
   });
 
+  it("refuses a card's answer while the conversation is held for a moment, leaving the card to answer again", async () => {
+    const { conv, msg, part } = await propose();
+    const reserved = (orchestrator as unknown as { reserved: Map<string, Promise<void>> }).reserved;
+    reserved.set(conv.id, Promise.resolve());
+    try {
+      await expect(orchestrator.dismissCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+      expect(partOf(conv.id, 'command').part.status).toBe('proposed');
+    } finally {
+      reserved.delete(conv.id);
+    }
+    await orchestrator.dismissCommand(conv.id, msg.id, part.id);
+    await finish(conv.id);
+    expect(partOf(conv.id, 'command').part.status).toBe('dismissed');
+    expect(userTexts(conv.id).at(-1)).toContain('post');
+  });
+
+  it('holds its folder while it runs: nothing starts in its chat meanwhile', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    let finishRun!: () => void;
+    const deps = orchestrator.fixedCommandDeps;
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      runProcess: (async () => {
+        await new Promise<void>((r) => (finishRun = r));
+        return {
+          code: 0,
+          signal: null,
+          stdout: '',
+          stdoutBytes: Buffer.alloc(0),
+          stdoutTruncated: false,
+          stdoutSize: 0,
+          stderr: '',
+          aborted: false,
+          timedOut: false,
+        };
+      }) as never,
+    };
+    try {
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      // Nothing starts in the chat while it runs: a message is refused, as for any busy moment.
+      fake.reply = () => 'Done.';
+      await expect(orchestrator.send(conv.id, 'meanwhile')).rejects.toMatchObject({ status: 409 });
+      finishRun();
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
+      await orchestrator.send(conv.id, 'after');
+      await finish(conv.id);
+      expect(userTexts(conv.id)).toContain('after');
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('takes no hand-off from a reply that failed, nor shows its blocks as text', async () => {
+    const conv = conversation({ mode: 'relay' });
+    fake.inTurn = async (_name, o) => {
+      o.onEvent({ type: 'text', text: 'Almost.\n\n<secret name="TOKEN">Needed</secret>\n\n<steps>\n1. Sign in\n</steps>' });
+    };
+    fake.fail = () => new Error('rate limited');
+    try {
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+    } finally {
+      fake.inTurn = undefined;
+      fake.fail = undefined;
+    }
+    const reply = agentMessages(store.get(conv.id)!)[0]!;
+    expect(reply.status).toBe('error');
+    expect(reply.parts.some((p) => p.type === 'secrets' || p.type === 'steps')).toBe(false);
+    expect(textOf(reply)).toBe('Almost.');
+    expect(reply.asked).toBeFalsy();
+  });
+
   it('dismisses a proposal, telling the team', async () => {
     const { conv, msg, part } = await propose();
     await orchestrator.dismissCommand(conv.id, msg.id, part.id);
@@ -795,6 +869,31 @@ describe('a schedule that runs a fixed command first', () => {
     store.saveMeta(c);
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('skipped');
     expect(ran).toHaveLength(0);
+  });
+
+  it('sends what its command found in a message of its own, though an earlier scheduled message waits in the queue', async () => {
+    const { conv } = await scheduled();
+    // An earlier time's message left in the queue (queued while the team replied, then the user pressed Stop).
+    const c = store.get(conv.id)!;
+    c.queue = [
+      {
+        id: 'earlier',
+        author: { kind: 'user' },
+        createdAt: 1,
+        parts: [{ type: 'text', text: 'An earlier time' }],
+        status: 'done',
+        scheduled: true,
+      },
+    ];
+    (orchestrator as unknown as { saveQueue: (conv: unknown) => void }).saveQueue(c);
+    play = () => ({ code: 10, stdout: '3 new items' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+    const events = store
+      .get(conv.id)!
+      .messages.filter((m) => m.author.kind === 'user')
+      .map((m) => m.event ?? '');
+    expect(events.some((e) => e.includes('3 new items'))).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import { findMentions, mentionsInMarkdown } from './mentions';
-import { STEPS_LIMITS, type ChatMessage, type MessagePart, type StepItem } from './types';
+import { STEPS_LIMITS, type ChatMessage, type MessagePart, type StepItem, type StepsPart, type StepsWords } from './types';
 
 /*
  * Steps only the user can take outside Harness Relay ("do this, then come back"): a sign-in, a
@@ -187,8 +187,6 @@ export function withoutStepsTail(text: string): string {
   return lines.slice(0, cut).join('\n').trimEnd();
 }
 
-export type StepsPart = Extract<MessagePart, { type: 'steps' }>;
-
 /** A message's steps card, when it has one. */
 export function stepsOfMessage(m: Pick<ChatMessage, 'parts'>): StepsPart | undefined {
   return m.parts.find((p): p is StepsPart => p.type === 'steps');
@@ -238,17 +236,6 @@ export function plainStep(text: string, max = 120): string {
     .replace(/\s+/g, ' ')
     .trim();
   return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
-}
-
-/** The words of the user's answer, in their language (the server's `t().steps`). */
-export interface StepsWords {
-  /** Its first line: who gave the steps (`@name`), how many the user did of how many, and the step they are stuck at (from 1). */
-  summary: (o: { agent: string; done: number; total: number; stuckAt?: number }) => string;
-  done: string;
-  notDone: string;
-  stuck: string;
-  /** Before the user's note, with what separates it ("Note: "). */
-  note: string;
 }
 
 /**

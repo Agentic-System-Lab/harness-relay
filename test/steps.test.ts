@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { askingReplies } from '../src/shared/ask';
 import { alertDetail } from '../src/shared/notify';
-import { splitSteps, stepsAnswerText, stepsBlock, stepsOfMessage, unmention, withoutStepsTail, type StepsWords } from '../src/shared/steps';
-import { STEPS_LIMITS, type ChatMessage } from '../src/shared/types';
+import { splitSteps, stepsAnswerText, stepsBlock, stepsOfMessage, unmention, withoutStepsTail } from '../src/shared/steps';
+import { STEPS_LIMITS, type ChatMessage, type StepsWords } from '../src/shared/types';
 
 const steps = (text: string) => splitSteps(text).steps;
 

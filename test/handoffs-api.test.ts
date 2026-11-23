@@ -149,6 +149,9 @@ describe('secrets and fixed commands API', () => {
     const saved = await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id });
     expect(saved.status).toBe(200);
     expect(store.get(conv.id)!.schedule!.command).toBe(id);
+    // Removed in Settings: the schedule runs none now, rather than failing at each time.
+    expect((await send('DELETE', `/api/handoffs/commands/${id}`)).status).toBe(200);
+    expect(store.get(conv.id)!.schedule!.command).toBeUndefined();
   });
 
   it('refuses an unknown card action, and extra words that are not text', async () => {
