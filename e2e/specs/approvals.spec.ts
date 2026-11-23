@@ -125,6 +125,11 @@ test.describe('approvals', () => {
     );
     await expect(card.locator('.approval-waiting')).toHaveText('Waiting for you');
     await expect(page.locator('.conv-item.active .conv-status')).toHaveText('Needs you');
+    // What it flags can be allowed once only: no rule would let the next one like it through unreviewed.
+    await expect(card.getByRole('button', { name: /Always allow/ })).toHaveCount(0);
+    await expect(card.locator('.approval-once')).toHaveText(
+      'What the lead agent finds potentially unsafe can be allowed this once only, never always in this chat.',
+    );
     await card.getByRole('button', { name: 'Allow', exact: true }).click();
     await expect(replies(page, 'Claude')).toHaveCount(2);
     const second = await finishedReply(page, 'Claude');

@@ -2478,6 +2478,8 @@ export type MessagePart =
       reason?: string;
       /** What "always allow in this conversation" would cover, e.g. "npm install". */
       ruleLabel?: string;
+      /** That rule is this exact command line only (it sets what decides what runs, `PATH=…`, say). */
+      ruleExact?: boolean;
       /** Allowing it runs the command outside the CLI's sandbox. */
       outsideSandbox?: boolean;
       /** Read-only is a boundary here: Harness Relay's sandbox keeps the agent from writing even when allowed. */
@@ -2533,9 +2535,10 @@ export type MessagePart =
     }
   /**
    * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
-   * library MCP server left out of it, its sign-in needing renewal.
+   * library MCP server left out of it, its sign-in needing renewal, cards left out of the reply.
+   * `forAgent`: what the agent is told about it on its next turn, in English (`TurnInfo.notes`).
    */
-  | { type: 'notice'; text: string }
+  | { type: 'notice'; text: string; forAgent?: string }
   /**
    * The secrets the reply asked the user for (its `<secret>` blocks, taken out of its text): their
    * names and why, never a value. `folder`: the working directory they are kept for.
@@ -2555,6 +2558,8 @@ export type MessagePart =
       run?: FixedCommandRun;
       /** A saved command of the same name existed when it was proposed: saving replaces it. */
       replaces?: boolean;
+      /** Dismissed by Harness Relay, not the user: a later reply proposed a command of the same name, which is the one to save. */
+      superseded?: boolean;
       /**
        * It cannot be saved from this card: an automation's run proposed it, which nobody watched; or it
        * was proposed on native Windows, where Harness Relay's own sandbox that runs it does not run.
@@ -3197,14 +3202,15 @@ export interface RunPause {
   mode: Mode;
   /** The agents that asked, by id. */
   askers: string[];
-  /** Who was still to speak after them: the rest of the round (roundtable), or the relay queue. */
+  /**
+   * Who was still to speak after them: the rest of the round (roundtable), or the relay queue with the
+   * teammates the asking reply handed to (they speak once the one that asked has answered).
+   */
   rest: { agentId: string; handedBy?: string }[];
   /** The run's participants by id: later rounds go on with them. */
   participants: string[];
   round: number;
   rounds: number;
-  /** Relay: handoffs left. */
-  hopsLeft?: number;
   /** The run that asked was one a schedule that tracks a goal started: the answer's run goes on with the goal. */
   tracked?: TrackedRun;
 }

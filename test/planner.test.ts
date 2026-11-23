@@ -343,6 +343,10 @@ describe('lead agent reply', () => {
     expect(buildRevisePrompt('x', draft, settings, ctx)).toContain(
       '- Write a new or rewritten role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.',
     );
+    // Secrets go on Harness Relay's cards, as the briefing says: a role never puts them in a file or a terminal.
+    for (const prompt of [buildPlannerPrompt('q', settings, ctx), buildRevisePrompt('x', draft, settings, ctx)]) {
+      expect(prompt).toContain("Never tell a member where the user's secrets go (a .env file, an environment variable, a config file)");
+    }
   });
 });
 

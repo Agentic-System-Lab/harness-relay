@@ -454,9 +454,11 @@ describe('fixed command cards', () => {
     await expect(saveSeen(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
 
     play = (env) => ({ code: 0, stdout: `used ${readFileSync(env.RELAY_SECRETS_FILE!, 'utf8').trim()}` });
-    await orchestrator.tryCommand(conv.id, saved.id, { extra: '--dry-run' });
+    await orchestrator.tryCommand(conv.id, saved.id, { extra: '--dry-run', stdin: 'Hello Threads' });
     await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
     expect(ran.at(-1)!.env.RELAY_CHECK_COMMAND).toBe('python3 post.py --quiet --dry-run');
+    // What the user typed for it is its standard input, this run only.
+    expect(ran.at(-1)!.stdin).toBe('Hello Threads');
     expect(partOf(conv.id, 'command').part.run!.output).toBe('used TOKEN=••••');
 
     await orchestrator.answerCommand(conv.id, msg.id, part.id, true);
@@ -766,6 +768,39 @@ describe('fixed command cards', () => {
     expect(ran).toHaveLength(1);
   });
 
+  it("says which blocks past a reply's limits got no card, to the user and once to the agent", async () => {
+    const conv = conversation({ mode: 'relay' });
+    const names = ['check', 'post', 'run-queue', 'refresh', 'exchange'];
+    const secrets = ['A', 'B', 'C', 'D', 'E', 'F'];
+    fake.reply = (name) =>
+      name === 'Alice' && calls.filter((c) => c.name === 'Alice').length === 1
+        ? `Save these.\n\n${names.map((n) => `<command name="${n}">python3 ${n}.py</command>`).join('\n')}\n${secrets
+            .map((n) => `<secret name="${n}">why</secret>`)
+            .join('\n')}`
+        : 'OK.';
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(msg.parts.filter((p) => p.type === 'command').map((p) => (p.type === 'command' ? p.proposal.name : ''))).toEqual(
+      names.slice(0, 3),
+    );
+    const notice = msg.parts.find((p): p is Extract<MessagePart, { type: 'notice' }> => p.type === 'notice')!;
+    expect(notice.text).toBe(
+      'A reply may ask for 5 secrets at most, so these got no card: F. A reply may propose 3 fixed commands at most, so these got no card: refresh, exchange.',
+    );
+    expect(notice.forAgent).toContain('at most 3 fixed commands (left out: refresh, exchange)');
+
+    // Alice hears of it on her next turn, and not again on the one after.
+    await orchestrator.send(conv.id, 'and now?');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'and then?');
+    await finish(conv.id);
+    const alice = calls
+      .filter((c) => c.name === 'Alice')
+      .map((c) => c.prompt.includes('Note from Harness Relay: Your last reply asked for more cards'));
+    expect(alice).toEqual([false, true, false]);
+  });
+
   it('marks the other proposals of a name once one is saved', async () => {
     const conv = conversation({ mode: 'relay' });
     writeFileSync(join(project, 'post.py'), 'print("v1")\n');
@@ -780,6 +815,48 @@ describe('fixed command cards', () => {
       .at(-1)!
       .parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
     expect(after[1]!.replaces).toBe(true);
+  });
+
+  it("dismisses an earlier reply's undecided proposal of a name a later reply proposes again", async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print("v1")\n');
+    let turn = 0;
+    fake.reply = (name) => {
+      if (name !== 'Alice') return undefined;
+      turn++;
+      return turn === 1
+        ? '<command name="check">python3 post.py --check</command>\n<command name="post">python3 post.py</command>'
+        : 'Use these instead.\n\n<command name="check">python3 post.py --whoami</command>';
+    };
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'I saved nothing yet');
+    await finish(conv.id);
+    const [first, second] = agentMessages(store.get(conv.id)!).map((m) =>
+      m.parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command'),
+    );
+    expect(first!.map((p) => [p.proposal.name, p.status, p.superseded])).toEqual([
+      ['check', 'dismissed', true],
+      ['post', 'proposed', undefined],
+    ]);
+    expect(second!.map((p) => [p.proposal.name, p.status])).toEqual([['check', 'proposed']]);
+    // The superseded card is decided: it cannot be saved any more.
+    await expect(saveSeen(conv.id, agentMessages(store.get(conv.id)!)[0]!.id, first![0]!.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('keeps both proposals of a name that two teammates make for the same message: the user picks one', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only' });
+    writeFileSync(join(project, 'post.py'), 'print("v1")\n');
+    fake.reply = (name) => `<command name="post">python3 post.py --by-${name.toLowerCase()}</command>`;
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const cards = agentMessages(store.get(conv.id)!).flatMap((m) =>
+      m.parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command'),
+    );
+    expect(cards.map((p) => [p.proposal.run, p.status])).toEqual([
+      ['python3 post.py --by-alice', 'proposed'],
+      ['python3 post.py --by-bob', 'proposed'],
+    ]);
   });
 
   it('refuses an outbox run once the command it was queued for changed its hosts or secrets', async () => {

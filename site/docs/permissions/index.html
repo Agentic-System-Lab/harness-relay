@@ -355,7 +355,9 @@
             <li><b>Allow</b>: just this once.</li>
             <li>
               <b>Always allow "…" in this chat</b>: this and later requests like it, for the rest of the conversation. For
-              a command, that means the same program and subcommand, such as <code>npm install</code>.
+              a command, that means the same program and subcommand, such as <code>npm install</code>. A command line that
+              changes what decides what runs (<code>PATH=…</code>, say) is allowed again only exactly as it is: <b>Always allow
+              this exact command in this chat</b>.
             </li>
             <li>
               <b>Decline</b>: you can first type what the agent should do instead. Some agents get your note and carry
@@ -371,7 +373,8 @@
             With <b>Approve for me</b>, the lead agent reviews each card first, reading your messages in the chat as what
             you want; the card says <b>Lead agent reviewing</b>, and you can answer it yourself meanwhile. What it
             approves goes ahead, the card saying <b>Approved for you by the lead agent</b> and why. What it finds
-            potentially unsafe, or could not review, waits for you with its reason. Pushing and publishing always wait
+            potentially unsafe, or could not review, waits for you with its reason; one it found potentially unsafe can then be
+            allowed this once only, never always. Pushing and publishing always wait
             for you. Each review takes a few seconds of the lead agent's model.
           </p>
         </section>
@@ -439,9 +442,10 @@
             <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
             <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
             <li>only with the code you looked at before saving it (<b>Show the code it runs</b>), and only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
-            <li>when you click <b>Try it</b>, <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
+            <li>when you click <b>Try it</b> (what you type in <b>Input for this run</b> is what it reads, such as the text of a post), <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
           </ul>
           <p>
+            A later proposal of the same name replaces a card you have not saved yet.
             <b>Settings → Secrets and commands</b> lists each working directory's secrets, by name only (<b>Replace</b> or <b>Remove</b> one), and its fixed commands with their last run.
             Fixed commands do not run on native Windows yet. A command you allow outside a sandbox, and every agent with full access, runs with your rights. <a href="../automations/">Automations</a>
           </p>

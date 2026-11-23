@@ -1,5 +1,13 @@
 import type { AllowRule, ApprovalKind } from '../shared/types';
-import { approvalKey, evaluationContext, parseCommandLine, parseShellSyntax, unwrapShell, type SimpleCommand } from './commands';
+import {
+  approvalKey,
+  evaluationContext,
+  parseCommandLine,
+  parseShellSyntax,
+  unwrapShell,
+  withoutHeredocBodies,
+  type SimpleCommand,
+} from './commands';
 
 /*
  * "Always allow in this conversation": an answer is remembered as rule keys, and later
@@ -58,9 +66,13 @@ export function splitChain(line: string): string[] {
   return out;
 }
 
-/** The first version's keys: whitespace-separated words of each command in a chain. */
+/**
+ * The first version's keys: whitespace-separated words of each command in a chain. A heredoc's lines
+ * are text given to a command, never commands (`from`, `EOF` as keys would make the line's "always
+ * allow" unreadable, and keep any such line from ever matching a rule).
+ */
 function legacyKeys(detail: string): string[] {
-  return splitChain(unwrapShell(detail)).map((segment) => {
+  return splitChain(withoutHeredocBodies(unwrapShell(detail))).map((segment) => {
     const words = segment.trim().split(/\s+/).filter(Boolean);
     while (words.length && /^\w+=/.test(words[0]!)) words.shift(); // FOO=bar cmd
     const program = words[0]?.split('/').pop();
@@ -68,6 +80,24 @@ function legacyKeys(detail: string): string[] {
     const sub = words[1];
     return WITH_SUBCOMMANDS.has(program) && sub && /^[a-z][\w:-]*$/i.test(sub) ? `${program} ${sub}` : program;
   });
+}
+
+/**
+ * Whether a command line's "always allow" covers that exact line only (`approvalKeys` gives it its text
+ * as its one key), not the programs in it by name: for the approval card to say so.
+ */
+export function exactLineRule(line: string): boolean {
+  return Boolean(line.trim()) && (evaluationContext(line) || wholeLineOnly(line));
+}
+
+/** Whether the full reading of `line` keys a command in it by the whole line (`exact`, or `dynamic` in it). */
+function wholeLineOnly(line: string): boolean {
+  const whole = line.trim();
+  try {
+    return parseShellSyntax(line).some((cmd) => (cmd.exact || cmd.dynamic) && cmd.text.trim() === whole);
+  } catch {
+    return false; // read elsewhere: an unreadable line is keyed by its exact text there
+  }
 }
 
 export function approvalKeys(kind: ApprovalKind, detail?: string, tool?: string): string[] {
@@ -82,6 +112,10 @@ export function approvalKeys(kind: ApprovalKind, detail?: string, tool?: string)
       // `(( x ))`, `declare 'a[$(…)]'`, `find -exec …`) gets only its exact text as a key, so an allowed
       // single program never carries the evaluation in. It only stops "always allow" from generalising.
       if (evaluationContext(line)) return [line.trim()].filter(Boolean);
+      // A line the full reading keys by its whole text (it sets what decides what runs, `PATH=… python3`,
+      // or runs a program only known when it runs) gets only that key, so that "always allow" for it
+      // never also allows each program in it by name (`rm`, `python3`): only this exact line again.
+      if (wholeLineOnly(line)) return [line.trim()];
       const keysOf = (readLine: (line: string) => SimpleCommand[]): string[] => {
         try {
           return readLine(line)
