@@ -562,9 +562,10 @@ export function InteractiveCard({
             <code className="handoff-run">{part.run}</code>
           </dd>
         </div>
+        {/* Where it runs now, or where it ran: the choice below is for the next run. */}
         {s && (
           <div>
-            <dt>{c.where}</dt>
+            <dt>{running ? c.where : c.whereRan}</dt>
             <dd>{s.inWorkdir ? c.workdir(part.folder) : c.ownFolder}</dd>
           </div>
         )}

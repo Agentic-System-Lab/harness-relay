@@ -1221,6 +1221,7 @@ export const en: Messages = {
         stopped: 'Stopped',
       },
       command: 'Command',
+      whereRan: 'Where it ran',
       where: 'Where it runs',
       ownFolder: 'An empty folder of its own',
       workdir: (folder) => `The working directory (${folder})`,

@@ -1239,6 +1239,7 @@ export const zhTW = {
         stopped: '已停止',
       },
       command: '指令',
+      whereRan: '上次執行位置',
       where: '執行位置',
       ownFolder: '它自己的空資料夾',
       workdir: (folder: string) => `工作目錄（${folder}）`,
