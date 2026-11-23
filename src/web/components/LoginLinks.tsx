@@ -5,9 +5,10 @@ import { useT } from '../i18n';
 
 /**
  * A running sign-in's steps, from what the CLI printed: the page to open, then the code to enter
- * there (a click copies it). Settings shows them for the CLIs' sign-ins, the share dialog for gh's.
+ * there (a click copies it). Settings shows them for the CLIs' sign-ins, the share dialog for gh's,
+ * an interactive command's card for its program's.
  */
-export function LoginLinks({ login }: { login: CliLoginView }) {
+export function LoginLinks({ login }: { login: Pick<CliLoginView, 'urls' | 'codes'> & { state: string } }) {
   const t = useT();
   const [copied, setCopied] = useState('');
   if (login.state !== 'running') return null;

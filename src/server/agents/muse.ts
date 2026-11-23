@@ -33,7 +33,7 @@ import { HOOK_WAIT, commandHookHandler, shellWords, type HookResult, type TurnHo
 import { t } from '../i18n';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
-import { patternPath, protectedReads, realPath } from '../protect';
+import { patternPath, agentProtectedReads, realPath } from '../protect';
 import { DATA_DIR, MUSE_HOME_ENV, MUSE_KEY_ONLY_ENV } from '../settings';
 import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
 import { agentConfigPath } from './antigravity';
@@ -1090,7 +1090,7 @@ const mountUsers = new Map<string, number>();
 /** The protected paths a run's profile denies, or why the run may not start. */
 function deniedPaths(o: RunOptions): string[] {
   if (o.permission === 'full') return [];
-  const paths = o.protectedPaths ?? protectedReads();
+  const paths = o.protectedPaths ?? agentProtectedReads();
   // Muse reads a `*`, `?` or `[` in a rule as a pattern: such a path cannot be denied as it is.
   const pattern = patternPath(paths);
   if (pattern) throw new AgentRunError(t().museProtectedPattern(pattern));

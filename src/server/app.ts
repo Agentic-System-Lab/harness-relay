@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel, mobileBrowserLabel } from '../shared/auth';
@@ -13,7 +14,9 @@ import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from '
 import { AppPreviews, isPreviewHost } from './appPreviews';
 import { appProblems, changedPreviewTarget, detectPreviewTarget, previewAddress, previewParent, previewTarget } from './previewTarget';
 import { AppPublisher } from './publish';
-import type { AppPreviewRequest, PreviewTerminalEvent, PublishRequest } from '../shared/types';
+import type { AppPreviewRequest, CommandProposal, PreviewTerminalEvent, PublishRequest } from '../shared/types';
+import { HANDOFF_LIMITS } from '../shared/types';
+import { dropPin } from './fixedCommands';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
@@ -30,7 +33,11 @@ import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
   PREVIEW_NOT_READY,
   DEFAULT_ACCOUNT,
+  FILE_EDIT_LIMITS,
   FILE_LIMITS,
+  FOLDER_BUSY,
+  type FileSaveRequest,
+  type FileUploadRequest,
   keyOnlyAccount,
   GROUP_LIMITS,
   LANGS,
@@ -51,6 +58,9 @@ import {
   PUSH_GONE,
   PUSH_TAKEN,
   type ApprovalAnswer,
+  HANDOVER_LIMITS,
+  type HandoverAnswer,
+  type HandoverScreenEvent,
   type CheckList,
   type Conversation,
   type ServerLimits,
@@ -76,6 +86,7 @@ import { freshTracking } from '../shared/tracking';
 import { hasRules } from '../shared/checks';
 import { gatewayNode, sandboxAvailable, servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
+import { Handovers, checkInputs, type HandoverRefusal } from './browser/handover';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
 import type { McpOAuth } from './oauth/mcp';
@@ -85,6 +96,7 @@ import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
 import { attachmentPath, decodeAttachments, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
+import { rootReadOnly, saveText, uploadFile } from './fileEdit';
 import { zipStream } from './zip';
 import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
@@ -235,6 +247,8 @@ export interface AppDeps {
   alerts?: AlertWatcher;
   /** Checks what an automation that starts when something happens waits for, on the user's Check now (`scheduler.ts`). */
   scheduler?: Pick<Scheduler, 'check'>;
+  /** The hand-overs of the chats' browsers going on (`browser/handover.ts`): the browser tools' own, else none. */
+  handovers?: Handovers;
   /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
   oauth?: OAuthService;
   /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
@@ -321,6 +335,20 @@ function sameHash(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** What the user changed on a proposed fixed command's card before saving it (checked again by the orchestrator). */
+function proposalEdits(value: unknown): Partial<CommandProposal> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const v = value as Record<string, unknown>;
+  const words = (x: unknown) => (Array.isArray(x) ? x.filter((w): w is string => typeof w === 'string') : undefined);
+  return {
+    ...(typeof v.name === 'string' ? { name: v.name } : {}),
+    ...(typeof v.run === 'string' ? { run: v.run } : {}),
+    ...(words(v.hosts) ? { hosts: words(v.hosts) } : {}),
+    ...(words(v.secrets) ? { secrets: words(v.secrets) } : {}),
+    ...(typeof v.cwd === 'string' ? { cwd: v.cwd } : {}),
+  };
+}
+
 export function createApp({
   auth,
   store,
@@ -356,6 +384,7 @@ export function createApp({
   oauth = settings.oauth,
   mcpOAuth = settings.mcpOAuth,
   previews = new AppPreviews('test'),
+  handovers = new Handovers(),
   publisher = new AppPublisher(settings.publish, { owner: 'test' }),
   labsUnavailable = async () => {
     if (process.platform === 'win32') return t().labsWindows;
@@ -1711,6 +1740,7 @@ export function createApp({
       agentState: {},
       worktrees: {},
     };
+    refuseForeignCommand(conv, update);
     const schedule: ConversationSchedule = { ...update, lang: currentLang(), updatedAt: now };
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
@@ -1843,6 +1873,7 @@ export function createApp({
     const update = validateSchedule(input, now);
     const files = scheduleFileChanges(input);
     refuseMissingTrigger(update);
+    refuseForeignCommand(conv, update);
     // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
     if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
@@ -1878,6 +1909,13 @@ export function createApp({
     store.setSchedule(conv, schedule, files.add, files.remove);
     orchestrator.emitConversation(conv);
     return scheduleForClient(schedule);
+  };
+
+  /** A schedule's fixed command is one saved for the conversation's own working directory. */
+  const refuseForeignCommand = (conv: Conversation, update: ScheduleUpdate) => {
+    if (!update.command) return;
+    const cmd = settings.handoffs.command(update.command);
+    if (!cmd || cmd.folder !== orchestrator.handoffFolder(conv)) throw new HttpError(400, t().handoffs.commandNotFound);
   };
 
   /**
@@ -2003,7 +2041,11 @@ export function createApp({
       throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1), sent.result === 'failed' ? sent.code : undefined);
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
-    return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
+    // `ran`: its fixed command found nothing new, so nothing was sent.
+    return c.json(
+      { ok: true, queued: sent.result === 'queued', ...(sent.result === 'ran' ? { ran: true } : {}), ...(chatId ? { chatId } : {}) },
+      202,
+    );
   });
 
   app.delete('/api/conversations/:id', async (c) => {
@@ -2441,7 +2483,18 @@ export function createApp({
     } catch {
       throw new HttpError(404, t().fileRootNotFound);
     }
-    return c.json({ roots, root, canonicalRoot, ...listFolder(canonicalRoot, path) });
+    const readOnly = rootReadOnly(
+      roots.find((r) => r.id === root)!,
+      agentFolderOptions(settings),
+    );
+    return c.json({
+      roots,
+      root,
+      canonicalRoot,
+      ...listFolder(canonicalRoot, path),
+      writable: !readOnly,
+      ...(readOnly ? { readOnly } : {}),
+    });
   });
 
   app.get('/api/conversations/:id/files/preview', (c) => {
@@ -2499,6 +2552,47 @@ export function createApp({
     return new Response(Readable.toWeb(Readable.from(zipStream(plan.entries))) as ReadableStream, { headers });
   });
 
+  // --- Changing files in the working directory (the Files panel) ---------------
+
+  /**
+   * The working directory a files write names (`root`: a `FileRoot.id`, `cwd` when absent), checked to
+   * take writes (`rootReadOnly`: never an agent's worktree) and that no run may be writing in it now
+   * (409 `FOLDER_BUSY`). The caller writes at once, without awaiting anything, so that no run can start
+   * writing there between this check and its write.
+   */
+  function writableRoot(convId: string, rootId: unknown): string {
+    if (rootId !== undefined && typeof rootId !== 'string') throw new HttpError(400, t().invalidField('root'));
+    const conv = getConv(convId);
+    const root = fileRoots(conv).find((r) => r.id === (rootId || 'cwd'));
+    if (!root) throw new HttpError(404, t().fileRootNotFound);
+    const readOnly = rootReadOnly(root, agentFolderOptions(settings));
+    if (readOnly) throw new HttpError(403, readOnly);
+    let real: string;
+    try {
+      real = realpathSync(root.path);
+    } catch {
+      throw new HttpError(404, t().fileRootNotFound);
+    }
+    if (orchestrator.writingIn(conv.id, real)) throw new HttpError(409, t().filesEdit.busy, FOLDER_BUSY);
+    return root.path;
+  }
+
+  /** A write's body may be at most `bytes` (413 before it is read in full); the routes' checks are exact. */
+  const writeLimit = (bytes: number) => bodyLimit({ maxSize: bytes, onError: (c) => c.json({ error: t().filesEdit.tooLarge }, 413) });
+
+  // A text file saved over the version the panel loaded (`version`), or made new (`version: null`).
+  // JSON escapes can make text up to six times longer (`\u0001`), hence the body's limit.
+  app.put('/api/conversations/:id/files/text', writeLimit(FILE_EDIT_LIMITS.maxEditBytes * 6 + 64 * 1024), async (c) => {
+    const b = await body<Partial<FileSaveRequest>>(c);
+    return c.json(saveText(writableRoot(c.req.param('id'), b.root), b.path, b.text, b.version));
+  });
+
+  // A file uploaded into a folder, base64 as attachments are: one a request, a file there replaced only with `replace`.
+  app.post('/api/conversations/:id/files/upload', writeLimit(Math.ceil(FILE_EDIT_LIMITS.maxUploadBytes / 3) * 4 + 64 * 1024), async (c) => {
+    const b = await body<Partial<FileUploadRequest>>(c);
+    return c.json(uploadFile(writableRoot(c.req.param('id'), b.root), b.dir ?? '', b.name, b.data, b.replace === true));
+  });
+
   /**
    * An image or video to show, or (`download`) any file to save, so that it can never run in this
    * origin: a download has no type the browser could render, and both are sandboxed.
@@ -2549,11 +2643,293 @@ export function createApp({
     return c.json(await orchestrator.answerOutbox(c.req.param('id'), c.req.param('itemId'), action));
   });
 
+  // Secrets and fixed commands (docs/architecture.md, "Secrets and fixed commands"). A secrets card's
+  // answer: the values go to the credential store for the card's working directory, and never back.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId', async (c) => {
+    const b = await body<{ values?: unknown; decline?: unknown }>(c);
+    const given = b.values && typeof b.values === 'object' && !Array.isArray(b.values) ? (b.values as Record<string, unknown>) : {};
+    const values = Object.fromEntries(Object.entries(given).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    await orchestrator.answerSecrets(
+      c.req.param('id'),
+      c.req.param('messageId'),
+      c.req.param('partId'),
+      b.decline === true ? { decline: true } : { values },
+    );
+    return c.json({ ok: true });
+  });
+
+  // A secrets card's browser for the user alone (for a page that shows a secret): opened at the address the
+  // ask `name` named, or blank; the same one while it is open (taken to that address). An address on this
+  // computer or the local network is a 409 (`code: 'nearby'`) until the user confirms it. Shown through the
+  // hand-over routes above.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/browser', async (c) => {
+    const b = await body<{ name?: unknown; confirm?: unknown }>(c);
+    if (b.name !== undefined && typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    // `confirm`: the user saw an address on this computer or the local network whole, and opens it all the same.
+    return c.json(
+      await orchestrator.openSecretsBrowser(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.name, b.confirm === true),
+    );
+  });
+
+  // Save selection as a secret: what the user selected on that browser's page, read and kept by the
+  // server for the card's folder under `name`; nothing of the value is in the answer.
+  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/selection', async (c) => {
+    const b = await body<{ handoverId?: unknown; name?: unknown }>(c);
+    if (typeof b.handoverId !== 'string' || typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    await orchestrator.saveSecretFromPage(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.handoverId, b.name);
+    return c.json({ ok: true });
+  });
+
+  // A proposed fixed command's card: save it (with the user's edits) or not, or tell the team about it.
+  app.post('/api/conversations/:id/messages/:messageId/commands/:partId', async (c) => {
+    const b = await body<{ action?: unknown; edits?: unknown; digest?: unknown }>(c);
+    const [id, messageId, partId] = [c.req.param('id'), c.req.param('messageId'), c.req.param('partId')];
+    if (b.digest !== undefined && (typeof b.digest !== 'string' || !/^[0-9a-f]{32}$/.test(b.digest))) {
+      throw new HttpError(400, t().invalidField('digest'));
+    }
+    switch (b.action) {
+      // The code it would run (`code`), whose digest Save sends back: Save pins that code alone.
+      case 'code':
+        return c.json(await orchestrator.commandCode(id, messageId, partId, proposalEdits(b.edits)));
+      case 'save':
+        return c.json(
+          await orchestrator.saveCommand(
+            id,
+            messageId,
+            partId,
+            proposalEdits(b.edits),
+            typeof b.digest === 'string' ? b.digest : undefined,
+          ),
+        );
+      case 'dismiss':
+        await orchestrator.dismissCommand(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'continue':
+      case 'share':
+        await orchestrator.answerCommand(id, messageId, partId, b.action === 'share');
+        return c.json({ ok: true });
+      default:
+        throw new HttpError(400, t().invalidField('action'));
+    }
+  });
+
+  // An interactive command's card (docs/architecture.md, "Interactive commands"): the user starts it
+  // (never an agent, nor an automation's run), types into it, answers its password helper, cancels it,
+  // sends its masked output to the team, or does not run it.
+  app.post('/api/conversations/:id/messages/:messageId/interactive/:partId', async (c) => {
+    const b = await body<{ action?: unknown; workdir?: unknown; seen?: unknown; text?: unknown; hidden?: unknown; askId?: unknown }>(c);
+    const [id, messageId, partId] = [c.req.param('id'), c.req.param('messageId'), c.req.param('partId')];
+    const text = () => {
+      if (typeof b.text !== 'string') throw new HttpError(400, t().invalidField('text'));
+      return b.text;
+    };
+    switch (b.action) {
+      case 'start': {
+        const seen = Array.isArray(b.seen) ? b.seen.filter((f): f is string => typeof f === 'string') : [];
+        return c.json(await orchestrator.startInteractive(id, messageId, partId, { workdir: b.workdir === true, seen }));
+      }
+      case 'input':
+        orchestrator.interactiveInput(id, messageId, partId, text(), b.hidden === true);
+        return c.json({ ok: true });
+      case 'answer':
+        if (typeof b.askId !== 'string') throw new HttpError(400, t().invalidField('askId'));
+        orchestrator.interactiveAnswer(id, messageId, partId, b.askId, b.text === undefined ? undefined : text());
+        return c.json({ ok: true });
+      case 'cancel':
+        orchestrator.cancelInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'send':
+        await orchestrator.sendInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      case 'dismiss':
+        await orchestrator.dismissInteractive(id, messageId, partId);
+        return c.json({ ok: true });
+      default:
+        throw new HttpError(400, t().invalidField('action'));
+    }
+  });
+
+  // Try a saved fixed command of this chat's working directory: in the background, its card follows it.
+  app.post('/api/conversations/:id/commands/:commandId/try', async (c) => {
+    const b = await body<{ extra?: unknown; approve?: unknown }>(c);
+    if (b.extra !== undefined && (typeof b.extra !== 'string' || b.extra.length > HANDOFF_LIMITS.commandLine)) {
+      throw new HttpError(400, t().invalidField('extra'));
+    }
+    // `approve`: the digest of the code whose diff the user saw (`GET …/diff`), which is pinned again first.
+    if (b.approve !== undefined && (typeof b.approve !== 'string' || !/^[0-9a-f]{32}$/.test(b.approve))) {
+      throw new HttpError(400, t().invalidField('approve'));
+    }
+    await orchestrator.tryCommand(c.req.param('id'), c.req.param('commandId'), {
+      ...(typeof b.extra === 'string' ? { extra: b.extra } : {}),
+      ...(typeof b.approve === 'string' ? { approve: b.approve } : {}),
+    });
+    return c.json({ ok: true }, 202);
+  });
+
+  // The fixed commands of this chat's working directory (the schedule's form offers them).
+  app.get('/api/conversations/:id/commands', (c) =>
+    c.json(settings.handoffs.commands(orchestrator.handoffFolder(getConv(c.req.param('id'))))),
+  );
+
+  // What changed in a fixed command's code since it was pinned, for its card.
+  app.get('/api/conversations/:id/commands/:commandId/diff', async (c) =>
+    c.json(await orchestrator.commandDiff(c.req.param('id'), c.req.param('commandId'))),
+  );
+
+  // Settings: every working directory's secrets (their names) and fixed commands; never a value.
+  app.get('/api/handoffs', (c) => c.json({ storage: settings.handoffs.storage, folders: settings.handoffs.folders() }));
+
+  // Settings: replace or remove one of a working directory's secrets, or remove a fixed command.
+  app.put('/api/handoffs/secrets', async (c) => {
+    const b = await body<{ folder?: unknown; name?: unknown; value?: unknown }>(c);
+    const folder = knownHandoffFolder(b.folder);
+    if (typeof b.name !== 'string' || typeof b.value !== 'string') throw new HttpError(400, t().invalidField('value'));
+    settings.handoffs.setSecrets(folder, { [b.name]: b.value });
+    return c.json({ ok: true });
+  });
+  app.post('/api/handoffs/secrets/delete', async (c) => {
+    const b = await body<{ folder?: unknown; name?: unknown }>(c);
+    const folder = knownHandoffFolder(b.folder);
+    if (typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
+    settings.handoffs.deleteSecret(folder, b.name);
+    return c.json({ ok: true });
+  });
+  app.delete('/api/handoffs/commands/:commandId', async (c) => {
+    const id = c.req.param('commandId');
+    const { pin } = settings.handoffs.deleteCommand(id);
+    await dropPin(id, pin);
+    orchestrator.forgetCommand(id);
+    // The schedules that ran it first run none now (their message alone), rather than failing at each time.
+    for (const convId of store.schedulesWithCommand(id)) {
+      const conv = store.get(convId);
+      if (!conv?.schedule || conv.schedule.command !== id) continue;
+      const { command: _gone, ...rest } = conv.schedule;
+      conv.schedule = rest;
+      store.saveSchedule(conv);
+      orchestrator.emitConversation(conv);
+    }
+    return c.json({ ok: true });
+  });
+
+  /** A folder Settings lists (one that has secrets or fixed commands): no other one is given secrets from there. */
+  function knownHandoffFolder(value: unknown): string {
+    if (typeof value !== 'string' || !settings.handoffs.folders().some((f) => f.folder === value)) {
+      throw new HttpError(404, t().invalidField('folder'));
+    }
+    return value;
+  }
+
+  // A hand-over of the chat's browser (`browser_hand_over`): why the user's answer, watcher or input was not taken.
+  const handoverRefused = (why: HandoverRefusal | undefined) => {
+    if (why === 'missing') throw new HttpError(404, t().handoverNotFound);
+    if (why === 'state') throw new HttpError(409, t().handoverNotNow);
+    if (why === 'mode') throw new HttpError(400, t().invalidField('mode'));
+  };
+
+  // The user's answer to a hand-over of the chat's browser: start it (in a window on the computer Harness
+  // Relay runs on, or as a screencast in the chat), decline it, hand it back, or cancel it; with a note
+  // to the agent. Only the first answer of each step counts.
+  app.post('/api/conversations/:id/handovers/:handoverId', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ action?: unknown; mode?: unknown; note?: unknown }>(c);
+    const note = typeof b.note === 'string' && b.note.trim() ? b.note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined;
+    let answer: HandoverAnswer;
+    if (b.action === 'start') {
+      if (b.mode !== 'window' && b.mode !== 'screencast') throw new HttpError(400, t().invalidField('mode'));
+      answer = { action: 'start', mode: b.mode };
+    } else if (b.action === 'done' || b.action === 'cancel') answer = { action: b.action, ...(note ? { note } : {}) };
+    else throw new HttpError(400, t().invalidField('action'));
+    handoverRefused(handovers.answer(conv.id, c.req.param('handoverId'), answer));
+    return c.json({ ok: true });
+  });
+
+  // A hand-over's screencast, as SSE, for any signed-in browser (read with fetch: its key in the header):
+  // the page's frames (the latest one only, for a browser that falls behind), where it is, the windows
+  // it opened and the pages refused, and that it ended.
+  app.get('/api/conversations/:id/handovers/:handoverId/screen', (c) => {
+    const conv = getConv(c.req.param('id'));
+    let frame: HandoverScreenEvent | undefined;
+    const queue: HandoverScreenEvent[] = [];
+    let ended = false;
+    let wake: (() => void) | undefined;
+    const watching = handovers.watch(conv.id, c.req.param('handoverId'), (e) => {
+      if (e.type === 'frame') frame = e;
+      else queue.push(e);
+      if (e.type === 'ended') ended = true;
+      wake?.();
+    });
+    if (typeof watching === 'string') handoverRefused(watching);
+    const unwatch = watching as () => void;
+    c.header('cache-control', 'no-store');
+    return streamSSE(c, async (stream) => {
+      stream.onAbort(() => {
+        unwatch();
+        wake?.();
+      });
+      while (!stream.aborted) {
+        while (!stream.aborted && (queue.length || (frame && !ended))) {
+          const next = queue.length ? queue.shift()! : frame!;
+          if (next === frame) frame = undefined;
+          await stream.writeSSE({ data: JSON.stringify(next) });
+        }
+        if (ended) break;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = undefined;
+        if (!stream.aborted && !queue.length && !frame && !ended) await stream.writeSSE({ event: 'ping', data: '' });
+      }
+      unwatch();
+    });
+  });
+
+  // What the user does in a hand-over's screencast panel (clicks, scrolls, keys, text, an address,
+  // Back and Forward, its size), in order: to the page, while they have it.
+  app.post('/api/conversations/:id/handovers/:handoverId/input', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ events?: unknown }>(c);
+    const events = checkInputs(b.events);
+    if (typeof events === 'string') throw new HttpError(400, t().invalidField('events'));
+    handoverRefused(await handovers.input(conv.id, c.req.param('handoverId'), events));
+    return c.json({ ok: true });
+  });
+
   // Answer an agent's request to do something its permission does not cover.
   app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {
     const b = await body<ApprovalAnswer>(c);
     orchestrator.answerApproval(c.req.param('id'), c.req.param('approvalId'), b);
     return c.json({ ok: true });
+  });
+
+  // A steps card (an agent's <steps> block), while the team waits for the user: tick a step as they go
+  // (or untick it), kept for every browser.
+  app.put('/api/conversations/:id/messages/:messageId/steps/:index', async (c) => {
+    const { done } = await body<{ done?: unknown }>(c);
+    if (typeof done !== 'boolean') throw new HttpError(400, t().invalidField('done'));
+    const index = Number(c.req.param('index'));
+    if (!Number.isSafeInteger(index) || index < 0) throw new HttpError(400, t().invalidField('index'));
+    orchestrator.tickStep(c.req.param('id'), c.req.param('messageId'), index, done);
+    return c.json({ ok: true });
+  });
+
+  // Answer it: the steps done (by index), the one the user is stuck at, a note. Their answer is posted as
+  // their message, and the team goes on as after an answer to a question: the agent that asked first.
+  app.post('/api/conversations/:id/messages/:messageId/steps/answer', async (c) => {
+    const b = await body<{ done?: unknown; stuckAt?: unknown; note?: unknown }>(c);
+    const index = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+    if (!Array.isArray(b.done) || !b.done.every(index)) throw new HttpError(400, t().invalidField('done'));
+    if (b.stuckAt !== undefined && !index(b.stuckAt)) throw new HttpError(400, t().invalidField('stuckAt'));
+    if (b.note !== undefined && typeof b.note !== 'string') throw new HttpError(400, t().invalidField('note'));
+    const { queued } = await orchestrator.answerSteps(c.req.param('id'), c.req.param('messageId'), {
+      done: [...new Set(b.done as number[])],
+      ...(b.stuckAt !== undefined ? { stuckAt: b.stuckAt as number } : {}),
+      ...(b.note !== undefined ? { note: b.note } : {}),
+    });
+    return c.json({ ok: true, queued }, 202);
   });
 
   // Let an agent answer again: its reply and everything after it are dropped.

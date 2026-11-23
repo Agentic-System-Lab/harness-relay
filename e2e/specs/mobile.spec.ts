@@ -615,6 +615,34 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  test('a row is added to a CSV file from Files by touch, and nothing scrolls sideways', async ({ page, relay }) => {
+    writeFileSync(
+      join(relay.workDir, 'queue.csv'),
+      'date,text,approved\n2026-11-23,A post that is long enough to go past the edge of a phone,yes\n',
+    );
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).tap();
+    const panel = page.getByRole('dialog', { name: 'Files' });
+    // The list offers a new file and uploads (a file picker on a phone).
+    await expect(panel.getByRole('button', { name: 'New file' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Upload files' })).toBeVisible();
+    await panel.getByTitle('queue.csv', { exact: true }).tap();
+    await panel.getByRole('button', { name: 'Edit', exact: true }).tap();
+    const box = panel.getByRole('textbox', { name: 'Contents of queue.csv' });
+    await box.fill(
+      'date,text,approved\n2026-11-23,A post that is long enough to go past the edge of a phone,yes\n2026-11-24,Added on the go,no\n',
+    );
+    const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(await sideways()).toBeLessThanOrEqual(1);
+    expect(await panel.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await panel.getByRole('button', { name: 'Save', exact: true }).tap();
+    await expect(box).toHaveCount(0);
+    expect(readFileSync(join(relay.workDir, 'queue.csv'), 'utf8')).toContain('2026-11-24,Added on the go,no\n');
+    await panel.getByRole('button', { name: 'Back to the list' }).tap();
+    await expect(panel.getByTitle('queue.csv', { exact: true })).toBeVisible();
+  });
+
   test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({
     page,
     relay,

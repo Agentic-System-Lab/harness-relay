@@ -288,7 +288,15 @@
                     <summary>Development and browsing</summary>
                     <ol>
                       <li><a href="#github">GitHub</a></li>
-                      <li><a href="#browser-mail-calendar">Browser</a></li>
+                      <li>
+                        <details>
+                          <summary>Browser</summary>
+                          <ol>
+                            <li><a href="#browser-mail-calendar" aria-label="Browser overview">Overview</a></li>
+                            <li><a href="#browser-hand-over">Take over the browser</a></li>
+                          </ol>
+                        </details>
+                      </li>
                     </ol>
                   </details>
                 </li>
@@ -577,6 +585,24 @@
               <a href="../../use-cases/#launch-copy">Read the competition, then write the launch</a>.
             </figcaption>
           </figure>
+          <h3 id="browser-hand-over">Take over the browser</h3>
+          <p>When a page needs you (a sign-in, a two-factor code, a CAPTCHA, a consent screen), the agent hands it to you
+              instead of asking for your password: a card in its reply says why and which page. Choose <b>Open in a window</b>
+              to use the same browser in a window on the computer Relay runs on (offered when that computer can show one; the
+              card says where it opens), or <b>Show it here</b> to see the page in the chat, from your phone too, where your
+              clicks, taps, scrolling and typing go back to it. Paste works into the page; copying from it does not. When you
+              are finished, choose <b>Done: hand it back</b> (or close the window), with a note to the agent if you like; the
+              agent hears only that, never what you typed. You have 15 minutes to start and 30 to hand it back.</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>What you sign in to stays usable by the agents in that chat's browser until the chat is deleted, and they can
+                  read whatever that account shows. Open a page that shows a key or token in your own browser, or in the
+                  <a href="../permissions/#secrets">browser for you alone</a> a secrets card opens, instead. It is the
+                  same browser with the same rules: one tab, no downloads, a new site asks first below full access, and no
+                  passwords saved. An automation nobody watches cannot hand the browser over.</p>
+            </div>
+          </div>
         </section>
 
         <section id="library" aria-labelledby="library-title">

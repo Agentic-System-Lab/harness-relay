@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   constants,
   existsSync,
   fstatSync,
+  lstatSync,
   openSync,
   readSync,
   readdirSync,
@@ -13,6 +15,7 @@ import {
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import {
+  FILE_EDIT_LIMITS,
   FILE_LIMITS,
   TEAM_WORKTREE,
   cwdsOf,
@@ -71,7 +74,7 @@ function inRepo(root: string, cwd: string): boolean {
 }
 
 /** `path` relative to `root` with `/`, or undefined when it is not inside it ('' = the root itself). */
-function within(root: string, path: string): string | undefined {
+export function within(root: string, path: string): string | undefined {
   const rel = relative(root, path);
   if (rel === '') return '';
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
@@ -83,7 +86,7 @@ function within(root: string, path: string): string | undefined {
  * `.GIT/config` opens `.git/config`, and `realpathSync` keeps the case it was asked with. Windows also
  * drops a trailing dot or space, so `.git.` opens `.git` there.
  */
-const isGit = (name: string) => name.toLowerCase().replace(/[. ]+$/, '') === '.git';
+export const isGit = (name: string) => name.toLowerCase().replace(/[. ]+$/, '') === '.git';
 
 const hidden = (rel: string) => rel.split('/').some(isGit);
 
@@ -91,7 +94,7 @@ const hidden = (rel: string) => rel.split('/').some(isGit);
  * On Windows a short name (`GIT~1`) opens `.git` as well, and `realpathSync` keeps it: the system's own
  * real path spells it out. Whether that path is outside `realRoot`, or in `.git`.
  */
-function hiddenNatively(realRoot: string, real: string): boolean {
+export function hiddenNatively(realRoot: string, real: string): boolean {
   if (process.platform !== 'win32') return false;
   try {
     const rel = within(realpathSync.native(realRoot), realpathSync.native(real));
@@ -111,7 +114,7 @@ function withheldHere(real: string, locked = withheldFileKeys()): boolean {
 }
 
 /** A path as the client asked for it, tidied up ('' = the root); a link in it is not followed here. */
-function askedPath(rel: string): string {
+export function askedPath(rel: string): string {
   const p = posix.normalize(rel.replace(/\\/g, '/').replace(/^\/+/, '') || '.').replace(/\/+$/, '');
   return p === '.' ? '' : p;
 }
@@ -182,9 +185,44 @@ export function listFolder(root: string, rel: string): { path: string; entries: 
   return { path: askedPath(rel), entries, truncated };
 }
 
-/** What the UI shows for a file: its text (the beginning of a long one), or that it is an image, a video or binary. */
+/**
+ * What the UI shows for a file: its text (the beginning of a long one), or that it is an image, a video
+ * or binary. A file reached through a link has no `version`: the Files panel edits none (fileEdit.ts).
+ */
 export function previewFile(root: string, rel: string): FilePreview {
-  return readPreview(resolveInRoot(root, rel).real, askedPath(rel));
+  const preview = readPreview(resolveInRoot(root, rel).real, askedPath(rel));
+  if (preview.version && linkOnPath(root, rel)) delete preview.version;
+  return preview;
+}
+
+/** Whether a part of `rel` inside `root` is a link (or cannot be told), the root itself aside. */
+function linkOnPath(root: string, rel: string): boolean {
+  try {
+    let at = realpathSync(root);
+    for (const part of askedPath(rel).split('/').filter(Boolean)) {
+      at = join(at, part);
+      if (lstatSync(at).isSymbolicLink()) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/** A file's version, as the Files panel compares it before a save: a hash of its bytes. */
+export function fileVersion(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/** Whether a whole file's bytes are text the Files panel can edit: valid UTF-8, without NUL. */
+export function editableText(bytes: Uint8Array): boolean {
+  if (bytes.length > FILE_EDIT_LIMITS.maxEditBytes || bytes.includes(0)) return false;
+  try {
+    new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -225,7 +263,9 @@ export function readPreview(real: string, path: string, notFound = t().fileNotFo
   let text = new TextDecoder('utf-8').decode(buf);
   const truncated = size > length;
   if (truncated) text = text.replace(/�+$/, ''); // a character cut in half at the end
-  return { ...base, kind: 'text', text, ...(truncated ? { truncated: true } : {}) };
+  // The version of the very bytes shown, so that a save compares it with the file as it was read.
+  const version = !truncated && editableText(buf) ? fileVersion(buf) : undefined;
+  return { ...base, kind: 'text', text, ...(truncated ? { truncated: true } : {}), ...(version ? { version } : {}) };
 }
 
 /** The real path of a file inside `root`, for downloading it; 404 for a folder or anything outside. */

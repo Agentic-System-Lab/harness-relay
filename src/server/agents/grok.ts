@@ -24,7 +24,7 @@ import { endpointEffort, PROVIDER_LABEL, type NativeOnPart, type NativePart, typ
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
-import { commandPaths, patternPath, protectedReads, realPath, relayTmpDir } from '../protect';
+import { commandPaths, patternPath, agentProtectedReads, realPath, relayTmpDir } from '../protect';
 import { JsonRpcConnection, RpcError, acpContentText as contentText, acpMcpServers, acpPrompt, answerPermission } from './acp';
 import {
   AgentRunError,
@@ -1396,7 +1396,7 @@ export const grokRunner: AgentRunner = {
     };
     try {
       if (isRelayProfile(sandbox)) {
-        const deny = o.protectedPaths ?? protectedReads();
+        const deny = o.protectedPaths ?? agentProtectedReads();
         // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
         const pattern = patternPath(deny);
         if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
