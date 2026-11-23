@@ -96,6 +96,11 @@ test.describe('secrets and fixed commands', () => {
     await expect(script).toContainText('As it is now');
     await expect(script.locator('details')).toHaveAttribute('open', '');
     await expect(script).toContainText('print("e2e helper")');
+    // The code changes while it is open: Save refuses, and the view shows it as it is now, which Save pins next.
+    writeFileSync(join(relay.workDir, 'helper.py'), 'print("e2e helper, changed")\n');
+    await card.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(card.locator('.error-line')).toContainText('Its code changed after it was read');
+    await expect(script).toContainText('print("e2e helper, changed")');
     // Save without the code open: it pins the code as it is then.
     await card.getByRole('button', { name: 'Hide the code' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
@@ -128,6 +133,20 @@ test.describe('secrets and fixed commands', () => {
     const note = page.locator('.msg-system').filter({ hasText: 'Ran the fixed command "e2e-check" once: done (exit code 0).' });
     await expect(note).toContainText('input: hello from the outbox');
     await expect(note).toContainText('E2E_TOKEN=••••');
+    await settled(relay, id);
+
+    // Its code changes after it was saved: it does not run, and the changes are listed a file a row, a
+    // line of the file that reads like another file's header staying in it; approving runs it.
+    writeFileSync(join(relay.workDir, 'helper.py'), 'print("e2e helper, changed")\n### other.py (as it is now)\nprint("still helper")\n');
+    await card.getByRole('button', { name: 'Try it' }).click();
+    await expect(card).toContainText('Its code changed', { timeout: 60_000 });
+    await card.getByRole('button', { name: 'Show the changes' }).click();
+    const changed = card.locator('.handoff-code-files > li');
+    await expect(changed.filter({ hasText: 'helper.py' })).toContainText('### other.py (as it is now)');
+    await expect(changed.filter({ hasText: 'helper.py' })).toContainText('print("still helper")');
+    await expect(changed.locator('summary').filter({ hasText: 'other.py' })).toHaveCount(0);
+    await card.getByRole('button', { name: 'Approve the changes and run' }).click();
+    await expect(card.getByRole('status')).toContainText('Done', { timeout: 60_000 });
     await settled(relay, id);
     await expect(page.locator('body')).not.toContainText(VALUE);
   });

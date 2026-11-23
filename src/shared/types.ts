@@ -3278,7 +3278,10 @@ export interface AgentSessionState {
    * latest, or in another home, starts a fresh session.
    */
   byCli?: Partial<Record<Provider, { permission: Permission; home?: string; mustEmpty?: boolean }>>;
-  /** Ids of chat messages this agent has already been shown. */
+  /**
+   * What this agent's session has heard: the ids of the chat messages it was shown, and keys of the rest
+   * (`memory:<id>`, `notice:<id>`, `outbox:<id>`, `command-run:<commandId>:<at>`, `handoffs:<digest>`).
+   */
   seen: string[];
 }
 

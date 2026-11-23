@@ -71,10 +71,6 @@
   margin: 0;
   padding-left: 18px;
 }
-.handoff-diff {
-  max-height: 22rem;
-  white-space: pre;
-}
 /* The code a proposed command would run: its button, a gap, then the note or the files. */
 .handoff-code {
   display: flex;

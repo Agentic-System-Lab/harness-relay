@@ -138,11 +138,15 @@ function runLineEn(run: FixedCommandRun): string {
 }
 
 /**
- * A fixed command's run the user tried from its card, for the agent that proposed it (in English, as
- * prompts are): how it went and its output, secrets masked (`commandRunNotes()` in `prompt.ts`).
+ * How a fixed command's run went, for an agent (in English, as prompts are): one the user tried from its
+ * card (`commandRunNotes()` in `prompt.ts`), or one the outbox sent (`answerOutbox()`). Its output goes
+ * after it as data (`outputForAgent()` in `prompt.ts`).
  */
-export function triedRunForAgent(name: string, run: FixedCommandRun): string {
-  return `the user tried the fixed command "${name}" from its card: ${ended(runLineEn(run), '.')}${run.output ? `\n\nIts output (secrets masked):\n${fenced(run.output)}` : ''}`;
+export function runForAgent(name: string, run: FixedCommandRun, how: 'tried' | 'outbox'): string {
+  const line = ended(runLineEn(run), '.');
+  return how === 'tried'
+    ? `the user tried the fixed command "${name}" from its card: ${line}`
+    : `Ran the fixed command "${name}" once: ${line}`;
 }
 
 const zhTW = {
@@ -188,7 +192,7 @@ const zhTW = {
     commandRunning: '這個固定指令正在執行，請等它結束。',
     changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
     codeNotSeen: '要先讀取它要執行的程式碼，才能儲存。',
-    codeChangedSaving: '它的程式碼在儲存時又改過了，所以沒有儲存：請再按一次儲存。想先看看它現在要執行什麼，可以打開它的程式碼。',
+    codeChangedSaving: '讀取之後它的程式碼又改過了，所以沒有儲存：請再按一次儲存。程式碼打開著的話，卡片上已經換成現在的內容，可以先看看。',
     changingNow: '它的程式碼正在改變：請稍等一下再看一次。',
     commandBlocked: '這個固定指令是自動任務的執行提議的，沒有人看著那次執行，所以不能從這張卡片儲存。',
     linkOutside: (path: string) =>
@@ -1595,7 +1599,7 @@ const en: ServerMessages = {
     changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
     codeNotSeen: 'Read the code it would run first, then save it.',
     codeChangedSaving:
-      'Its code changed while it was being saved, so it was not saved: save it again. To see what it would run now, open its code.',
+      'Its code changed after it was read, so it was not saved: save it again. If its code is open on the card, it now shows it as it is: look at it first if you like.',
     changingNow: 'Its code is changing right now: look again in a moment.',
     commandBlocked: "An automation's run proposed this fixed command, which nobody watched, so it cannot be saved from this card.",
     linkOutside: (path) =>

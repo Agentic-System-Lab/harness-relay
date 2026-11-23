@@ -567,6 +567,11 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
       lines: [{ text: '### lib.py (as it is now)' }, { text: 'rm -rf ~' }],
     });
     expect(files.map((f) => f.title).sort()).toEqual(view.files.map((f) => f.entry).sort());
+    // Each file's own text masked too, as the joined text is: the card shows these.
+    writeFileSync(join(dir, 'leak.sh'), 'echo tok-in-script-7781\n');
+    const masked = await codeView(dir, await pinManifest(dir), ['tok-in-script-7781'], { base, named: [join(dir, 'leak.sh')] });
+    expect(masked.files.find((f) => f.entry === 'leak.sh')!.text).toContain('echo ••••');
+    expect(JSON.stringify(masked.files)).not.toContain('tok-in-script-7781');
   });
 
   it("splits a real code view into the card's files: the script first, a change, a new file, secrets by name, a hook", async () => {

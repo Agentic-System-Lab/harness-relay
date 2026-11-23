@@ -127,6 +127,10 @@ function scan(
     } else if (ch === '<' && line[i + 1] === '<') {
       // Heredoc: remember its delimiter; the body starts on the next line and is not commands.
       const m = /^<<(-?)\s*([^\s;|&<>()]+)/.exec(line.slice(i));
+      // Blanks are only spaces and tabs to a shell: with a carriage return, a form feed, a vertical tab or a
+      // no-break space in the line, where a delimiter or its line ends is not this reading's (it could end a
+      // body early, and a line the shell runs be read as text). Unreadable: keyed by the whole line.
+      if (m && /[^\S \t\n]/.test(line)) throw new Error('a heredoc in a line with whitespace a shell reads otherwise');
       if (m) {
         const h = { word: m[2]!.replace(/['"\\]/g, ''), raw: m[2]!, strip: m[1] === '-', expands: !/['"\\]/.test(m[2]!), part: -1 };
         heredocs.push(h);
@@ -153,7 +157,13 @@ function scan(
           j = nl < 0 ? line.length : nl + 1;
           if ((h.strip ? text.replace(/^\t+/, '') : text) === h.word) {
             found = true;
-            read.push({ part: h.part, text: line.slice(from, at), expands: h.expands, raw: h.raw, source: line, from, to: j });
+            const body = line.slice(from, at);
+            // A line that ends in `\` joins the next one where the shell reads the body that way, and could make
+            // the delimiter elsewhere than here (`EO\` and `F`): in a body whose delimiter is not quoted, and in any
+            // body inside a substitution, where macOS's bash 3.2 joins them though it is quoted. Unreadable.
+            const nested = depth > 0 || inSubst || /\$\(|`|[<>]\(/.test(line);
+            if ((h.expands || nested) && /\\(\n|$)/.test(body)) throw new Error('a heredoc body whose lines the shell may join');
+            read.push({ part: h.part, text: body, expands: h.expands, raw: h.raw, source: line, from, to: j });
             break;
           }
         }
@@ -601,7 +611,9 @@ const PLAIN_DELIMITER = /^(['"]?)[A-Za-z_][A-Za-z0-9_]*\1$/;
  * (the lines after `cat > notes.md <<'EOF'` or `python3 - <<'EOF'` up to `EOF` are not command lines).
  * Only where `scan` is sure to end each body where the shell does: a body given to a command that may
  * run it as command lines (a shell, `ssh`, `sudo`…: RUNS_LINES), one whose delimiter is not a plain name
- * (PLAIN_DELIMITER), one with a line ending in `\` (which the shell may join into the delimiter), and
+ * (PLAIN_DELIMITER), one whose delimiter is not quoted with a line ending in `\` (which the shell may join
+ * into the delimiter; a quoted one's body keeps it as text, a Python line continuation, at the top of the
+ * line, where `scan` refuses one inside a substitution or with whitespace a shell reads otherwise), and
  * every one in a line with a `${` (where a `<<` may be no heredoc at all, `${x/<<EOF/}`) are kept.
  * Unchanged when there is none, and when the line cannot be read. What it keeps only makes the first
  * reading's keys stricter.

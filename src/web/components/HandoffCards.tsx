@@ -211,7 +211,7 @@ export function CommandCard({
   const [extra, setExtra] = useState('');
   // What the agent suggested typing there, if it did (the block's `input`).
   const [stdin, setStdin] = useState(part.input ?? '');
-  const [diff, setDiff] = useState<{ changed: string[]; diff: string; missing: string[]; digest: string } | null>(null);
+  const [diff, setDiff] = useState<{ changed: string[]; files: CodeViewFile[]; missing: string[]; digest: string } | null>(null);
   const actions = commandActions(part);
   const p = part.proposal;
   const run = part.run;
@@ -230,7 +230,14 @@ export function CommandCard({
   const save = () =>
     call(async () => {
       const digest = seen?.digest ?? (await api.commandCode(convId, messageId, part.id, editing ? edited : undefined)).digest;
-      await api.commandCard(convId, messageId, part.id, 'save', editing ? edited : undefined, digest);
+      try {
+        await api.commandCard(convId, messageId, part.id, 'save', editing ? edited : undefined, digest);
+      } catch (err) {
+        // Refused (its code changed since it was read): an open view shows the code as it is now, whose
+        // digest the next Save sends, rather than the one refused again at each click.
+        if (seen) setCode({ ...(await api.commandCode(convId, messageId, part.id, editing ? edited : undefined)), of: codeOf });
+        throw err;
+      }
       setEditing(false);
     });
   // Approve sends the digest of the code whose diff the user looked at: a later change is refused.
@@ -343,9 +350,11 @@ export function CommandCard({
               <button type="button" className="ghost small-button" disabled={busy} onClick={toggleDiff}>
                 {diff ? c.hideDiff : c.showDiff}
               </button>
-              {diff &&
-                (diff.diff ? <pre className="outbox-body handoff-diff">{diff.diff}</pre> : <p className="muted small">{c.noDiff}</p>)}
-              {diff && diff.diff && diff.missing.length > 0 && <p className="muted small">{c.someNoDiff(diff.missing.join(', '))}</p>}
+              {/* Its files apart, as the server sends them: a file's own lines never pass for another file. */}
+              {diff && (diff.files.length ? <CodeFiles view={diff.files} /> : <p className="muted small">{c.noDiff}</p>)}
+              {diff && diff.files.length > 0 && diff.missing.length > 0 && (
+                <p className="muted small">{c.someNoDiff(diff.missing.join(', '))}</p>
+              )}
             </>
           )}
           {run.output && (

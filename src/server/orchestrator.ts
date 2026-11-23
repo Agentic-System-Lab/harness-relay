@@ -160,6 +160,7 @@ import {
   notesForAgent,
   outboxNotes,
   commandRunNotes,
+  outputForAgent,
   isForwardable,
   isPass,
   parseMentions,
@@ -244,7 +245,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
-import { currentLang, isBranchTitle, isDefaultTitle, t, withLang } from './i18n';
+import { currentLang, isBranchTitle, isDefaultTitle, runForAgent, t, withLang } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
@@ -1445,18 +1446,23 @@ export class Orchestrator {
   }
 
   /** Posts the user's answer to a card as their message, which the team takes as the answer to its question. */
-  private async answerCard(convId: string, text: string): Promise<void> {
+  /** Posts a card's answer as the user's message, or queues it; false when neither could be (the queue was full). */
+  private async answerCard(convId: string, text: string): Promise<boolean> {
     try {
       await this.send(convId, text);
+      return true;
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       // Refused at the last moment (`cardAnswerable()` was asked before the card was decided): the answer
       // waits in the queue, which goes once the conversation can take it, never lost.
       const conv = this.store.get(convId);
       try {
-        if (conv) this.enqueue(conv, text, undefined, {});
+        if (!conv) return false;
+        this.enqueue(conv, text, undefined, {});
+        return true;
       } catch {
         /* the queue is full: the card says what was decided */
+        return false;
       }
     }
   }
@@ -1658,11 +1664,16 @@ export class Orchestrator {
     this.cardAnswerable(convId);
     const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
     // Sent as the answer: the chat has it, so the agent's next turn does not tell it again (`commandRunNotes()`).
+    // Marked before it is sent (the turn it starts reads it), and not, should it go nowhere.
     if (run) {
       part.sharedAt = run.at;
       this.saveCard(conv, msg);
     }
-    await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
+    const posted = await this.answerCard(convId, t().handoffs.commandAnswer(part.proposal.name, run));
+    if (run && !posted && part.sharedAt === run.at) {
+      delete part.sharedAt;
+      this.saveCard(conv, msg);
+    }
   }
 
   /** A saved command of this conversation's working directory. */
@@ -2242,9 +2253,11 @@ export class Orchestrator {
           })
         : this.gateway?.tool(name),
     );
-    const noteOf = () => (ran ? t().handoffs.outboxRunNote(ran.name, ran.run) : outboxAnswerText(item));
-    this.updateOutboxCard(item, withLang('en', noteOf));
-    this.systemNote(conv, noteOf());
+    this.updateOutboxCard(
+      item,
+      ran ? `${runForAgent(ran.name, ran.run, 'outbox')}${outputForAgent(ran.run.output)}` : withLang('en', () => outboxAnswerText(item)),
+    );
+    this.systemNote(conv, ran ? t().handoffs.outboxRunNote(ran.name, ran.run) : outboxAnswerText(item));
     this.emitStatus(conv.id);
     return item;
   }
