@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Permission } from '../../shared/types';
 import { t } from '../i18n';
 import { converse, runProcess, runSync, tail } from '../process';
-import { agentProtectedReads, realPath } from '../protect';
+import { protectedReads, realPath } from '../protect';
 import { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } from '../settings';
 import {
   JsonRpcConnection,
@@ -1034,7 +1034,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
   let prompts: AntigravityPrompts | undefined;
   const stop = new AbortController();
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
-  const protectedPaths = o.permission === 'full' ? [] : (o.protectedPaths ?? agentProtectedReads());
+  const protectedPaths = o.permission === 'full' ? [] : (o.protectedPaths ?? protectedReads());
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createAntigravityUpdateHandler(o.onEvent);

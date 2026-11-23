@@ -35,8 +35,6 @@ import {
 } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { checksHold, latestChecks } from '../../shared/checks';
-import { askingReplies } from '../../shared/ask';
-import { stepsOfMessage } from '../../shared/steps';
 import {
   afterStreamError,
   applyStates as findApplyStates,
@@ -723,17 +721,12 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   // Approval requests still waiting for an answer (only while the agent's turn is running), but those
-  // the lead agent still reviews ("Approve for me"): they wait for nobody yet. And the browser handed to
-  // the user (`browser_hand_over`), waiting for them to take it over.
+  // the lead agent still reviews ("Approve for me"): they wait for nobody yet.
   const pending = conv.messages.flatMap((m) =>
     m.status === 'streaming'
-      ? m.parts.flatMap((p) =>
-          p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing'
-            ? [{ anchor: `approval-${p.id}`, agent: m.agentName ?? 'agent', handover: false }]
-            : p.type === 'handover' && p.status === 'pending'
-              ? [{ anchor: `handover-${p.id}`, agent: m.agentName ?? 'agent', handover: true }]
-              : [],
-        )
+      ? m.parts
+          .filter((p) => p.type === 'approval' && p.status === 'pending' && p.review?.status !== 'reviewing')
+          .map((p) => ({ id: (p as { id: string }).id, agent: m.agentName ?? 'agent' }))
       : [],
   );
   const hasUserMessage = conv.messages.some((m) => m.author.kind === 'user');
@@ -754,11 +747,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
-  const questions = running ? [] : askingReplies(conv.messages, conv.pause);
-  // Still waited for while the team replies to another card's answer: answered once that is over.
-  const answerLaterIds = new Set(running ? askingReplies(conv.messages, conv.pause).map((m) => m.id) : []);
-  // Each of them gave the user steps to take (a steps card), and asked nothing else.
-  const stepsOnly = questions.length > 0 && questions.every((m) => stepsOfMessage(m));
+  const questions = conv.pause && !running ? conv.messages.filter((m, i) => m.asked && i > lastUser) : [];
   // The team has answered, and made or pointed at an app since the user last wrote.
   const readyCard = !running && ready !== undefined && ready.index > lastUser;
   // The team checks' card says it already, with its own Fix, when they check the app preview.
@@ -766,19 +755,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const previewShown = appPreview !== null && !previewHidden;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
-  /** The agents besides this reply's that wait for an answer too ('' when none). */
-  const othersWaiting = (id: string) =>
-    questions
-      .filter((m) => m.id !== id)
-      .map((m) => `@${m.agentName ?? 'agent'}`)
-      .join(t.common.listSeparator);
 
   // An earlier card is history as soon as the next question or design arrives.
   const lastDesignOrQuestion = conv.messages.findLast((m) => m.plan || m.author.kind === 'user');
   const fallback = lastDesignOrQuestion?.plan;
   let fallbackStatus: string | undefined;
   if (fallback?.status === 'ready' && fallback.source === 'fallback' && !fallback.awaitingConfirmation && !fallback.declinedAt) {
-    if (pending.length) fallbackStatus = pending.every((p) => p.handover) ? t.browserHandover.banner : t.sidebar.waiting;
+    if (pending.length) fallbackStatus = t.sidebar.waiting;
     else if (questions.length) fallbackStatus = t.chat.asking(askers);
     else if (reviewing) fallbackStatus = t.review.reviewing(leadText);
     else if (running) fallbackStatus = t.plan.teamWorking;
@@ -1001,8 +984,6 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onApproval={connected ? onApproval : undefined}
                 onRetry={onRetry}
                 waitingAnswer={askIds.has(m.id)}
-                othersWaiting={askIds.has(m.id) ? othersWaiting(m.id) : undefined}
-                answerLater={answerLaterIds.has(m.id)}
                 onSkipQuestion={onSkipQuestion}
                 onShare={onShare}
                 onBranch={onBranch}
@@ -1091,11 +1072,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             onClick={() => {
               // Stop following first: another agent's output would pull the list back down mid-scroll.
               stopFollowing();
-              document.getElementById(pending[0]!.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              document.getElementById(`approval-${pending[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
           >
-            ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} ·{' '}
-            {pending.every((p) => p.handover) ? t.browserHandover.banner : t.approval.waiting}
+            ⏸ {pending.map((p) => `@${p.agent}`).join(t.common.listSeparator)} · {t.approval.waiting}
           </button>
         )}
         {questions.length > 0 && pending.length === 0 && (
@@ -1107,7 +1087,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               document.getElementById(`ask-${questions[0]!.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
           >
-            {stepsOnly ? `☑ ${t.stepCard.banner(askers)}` : `❓ ${t.chat.asking(askers)}`}
+            ❓ {t.chat.asking(askers)}
           </button>
         )}
         {error && (

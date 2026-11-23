@@ -12,7 +12,6 @@ import {
 } from '../shared/types';
 import { mentionsInMarkdown, unknownMentions } from '../shared/mentions';
 import type { TeamChange } from './chat';
-import { stepsMarkdown } from './steps';
 import type { Messages } from './i18n';
 
 /** An opening or closing code fence: up to 3 spaces, then 3+ backticks or tildes. */
@@ -44,11 +43,9 @@ function tidy(text: string): string {
   return text.replace(/^(?:[ \t]*\r?\n)+/, '').trimEnd();
 }
 
-/** A message's text as Markdown, steps given to the user as a task list. Tool activity is left out. */
+/** A message's text as Markdown. Tool activity is left out. */
 export function messageText(m: ChatMessage): string {
-  const texts = m.parts
-    .flatMap((p) => (p.type === 'text' ? [tidy(p.text)] : p.type === 'steps' && p.items.length ? [stepsMarkdown(p)] : []))
-    .filter(Boolean);
+  const texts = m.parts.flatMap((p) => (p.type === 'text' ? [tidy(p.text)] : [])).filter(Boolean);
   // Each part is shown as a block of its own: a code block one leaves open must not run into the next.
   return texts.map((text, i) => (i < texts.length - 1 ? closeFences(text) : text)).join('\n\n');
 }

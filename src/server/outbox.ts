@@ -113,17 +113,6 @@ export class Outbox {
     return this.pending.get(convId) ?? 0;
   }
 
-  /** An item's arguments as its tool was called with them (never for the client: they may hold more than its preview). */
-  argsOf(id: string): Record<string, unknown> | undefined {
-    const r = this.db.prepare('SELECT args FROM outbox WHERE id = ?').get(id) as { args: string } | undefined;
-    if (!r) return undefined;
-    try {
-      return JSON.parse(r.args) as Record<string, unknown>;
-    } catch {
-      return undefined;
-    }
-  }
-
   get(id: string): OutboxItem | undefined {
     const r = this.db.prepare('SELECT * FROM outbox WHERE id = ?').get(id) as OutboxRow | undefined;
     return r && toItem(r);
@@ -196,7 +185,7 @@ export class Outbox {
     convId: string,
     id: string,
     action: 'send' | 'discard',
-    tool: (name: string) => Pick<GatewayTool, 'send'> | undefined,
+    tool: (name: string) => GatewayTool | undefined,
   ): Promise<OutboxItem> {
     const row = this.db.prepare('SELECT * FROM outbox WHERE id = ? AND conversation_id = ?').get(id, convId) as OutboxRow | undefined;
     if (!row) throw new HttpError(404, t().outboxNotFound);

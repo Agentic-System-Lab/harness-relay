@@ -118,22 +118,6 @@ describe('what a shared page holds', () => {
     }
   });
 
-  it('leaves out the secrets, fixed command, interactive command and hand-over cards, whatever they hold', () => {
-    const dir = join(__dirname, '../src/web/components');
-    for (const file of ['HandoffCards.tsx', 'HandoverCard.tsx']) {
-      const source = readFileSync(join(dir, file), 'utf8');
-      const sections = [...source.matchAll(/<section className=\{?[`"']([^`"']*)/g)].map((m) => m[1]!);
-      expect(sections.length, file).toBeGreaterThan(0);
-      // Each card's own box is one a shared page drops: its names, proposals, runs and notes stay in the app.
-      for (const cls of sections)
-        expect(
-          SHARE_DROP.some((d) => cls.split(/\s+/).includes(d.slice(1))),
-          `${file}: ${cls}`,
-        ).toBe(true);
-    }
-    expect(SHARE_DROP).toContain('.approval-done');
-  });
-
   it('keeps only links that go somewhere outside the app', () => {
     expect(linkKept('https://example.com/a')).toBe(true);
     expect(linkKept('mailto:me@example.com')).toBe(true);

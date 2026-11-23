@@ -63,11 +63,6 @@ try {
 // The server: one request at a time is enough for a CLI, but answers are matched by id anyway.
 let next = 1;
 const waiting = new Map();
-// The CLI's id of each call going on, and the server's: a call the CLI gives up (MCP's
-// notifications/cancelled, its own time limit) is said to the server, so that one waiting for the user ends.
-const calls = new Map();
-// The calls the CLI gave up: answered no more (MCP: a request cancelled gets no response).
-const dropped = new Set();
 let buffer = '';
 let open = false;
 const queued = [];
@@ -104,18 +99,13 @@ const gone = () => {
 sock.on('error', gone);
 sock.on('close', gone);
 
-function ask(method, params, cliId) {
+function ask(method, params) {
   return new Promise((resolve) => {
     if (sock.destroyed) return resolve({ error: 'Harness Relay is not reachable' });
     const id = next++;
     const line = JSON.stringify({ id, method, ...params }) + '\\n';
     if (line.length > ${GATEWAY_MAX_CALL}) return resolve({ error: 'The call is too large' });
-    const key = cliId === undefined ? undefined : JSON.stringify(cliId);
-    if (key !== undefined) calls.set(key, id);
-    waiting.set(id, (msg) => {
-      if (key !== undefined && calls.get(key) === id) calls.delete(key);
-      resolve(msg);
-    });
+    waiting.set(id, resolve);
     if (open) sock.write(line);
     else queued.push(line);
   });
@@ -124,14 +114,6 @@ function ask(method, params, cliId) {
 async function handle(msg) {
   if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return fail(null, -32600, 'Invalid Request');
   const { id, method, params } = msg;
-  if (method === 'notifications/cancelled') {
-    const key = JSON.stringify(params && params.requestId);
-    const target = calls.get(key);
-    if (target === undefined) return;
-    dropped.add(key);
-    if (open) sock.write(JSON.stringify({ method: 'cancel', target }) + '\\n');
-    return;
-  }
   if (id === undefined || id === null) return; // a notification: nothing to answer
   if (method === 'initialize') {
     const asked = params && params.protocolVersion;
@@ -151,8 +133,7 @@ async function handle(msg) {
     return r.error ? fail(id, -32603, r.error) : send({ jsonrpc: '2.0', id, result: { tools: r.result.tools } });
   }
   if (method === 'tools/call') {
-    const r = await ask('call', { name: params && params.name, arguments: (params && params.arguments) || {} }, id);
-    if (dropped.delete(JSON.stringify(id))) return;
+    const r = await ask('call', { name: params && params.name, arguments: (params && params.arguments) || {} });
     if (r.error) return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: r.error }], isError: true } });
     return send({ jsonrpc: '2.0', id, result: r.result });
   }

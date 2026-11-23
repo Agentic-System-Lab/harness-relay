@@ -1,6 +1,6 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { truncatedNote } from '../shared/diff';
 import type { FileChange } from '../shared/types';
 import { HttpError } from './errors';
@@ -60,9 +60,6 @@ const MAX_NESTED = 8;
  * `git add` runs `git status` in, each with its own config (the `-c` settings reach it); an agent
  * can write theirs, and in a worktree make one where a submodule's folder is empty.
  */
-/** Most of a repository's config Harness Relay reads, for its guards and a fixed command's pin. */
-const GIT_CONFIG_BYTES = 16 * 1024 * 1024;
-
 export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nested = false, depth = 0, bin?: string): Promise<string[]> {
   const r = await captureGit(
     ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.|^core\\.worktree$'],
@@ -70,16 +67,12 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nest
     {
       cwd,
       timeoutMs: 30_000,
-      // All of it, from its start: a config padded past the limit must not hide a driver at its start.
-      maxCapture: GIT_CONFIG_BYTES,
-      keepStart: true,
     },
     bin,
   );
-  // 1: none found. Anything else (a git too old for --show-scope, a config it cannot read), or more than
-  // it could read: refuse, rather than run the command without knowing what the repository would have it run.
+  // 1: none found. Anything else (a git too old for --show-scope, a config it cannot read): refuse,
+  // rather than run the command without knowing what the repository would have it run.
   if (r.code !== 0 && r.code !== 1) throw new GitError(t().gitFailed('config', tail(r.stderr || r.stdout, 500)));
-  if (r.stdoutTruncated) throw new GitError(t().outputTooLarge('config'));
   const out: string[] = [];
   const seen = new Set<string>();
   let workTree = false;
@@ -470,122 +463,6 @@ export async function diffText(root: string, base: string, head: string, folder?
   const r = await git(root, ['diff', '--no-color', '--no-renames', ...prefix, base, head], { maxCapture: MAX_DIFF_BYTES, keepStart: true });
   if (!r.stdoutTruncated) return r.stdout;
   return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
-}
-
-/**
- * Git's diff of some files alone between two commits (paths from the repository's top, taken as they
- * are: no glob), with git's own prefixes; '' for none. Cut at `MAX_DIFF_BYTES` as `diffText()` is.
- */
-export async function diffPaths(root: string, base: string, head: string, paths: readonly string[]): Promise<string> {
-  if (!paths.length) return '';
-  const r = await git(
-    root,
-    [
-      'diff',
-      '--no-color',
-      '--no-renames',
-      // As text, a file git calls binary too (a NUL in a comment, `-diff` in .gitattributes): a script still shows.
-      '--text',
-      '--src-prefix',
-      'a/',
-      '--dst-prefix',
-      'b/',
-      base,
-      head,
-      '--',
-      ...paths.map((p) => `:(literal)${p}`),
-    ],
-    { maxCapture: MAX_DIFF_BYTES, keepStart: true },
-  );
-  if (!r.stdoutTruncated) return r.stdout;
-  return `${r.stdout}\n\n${truncatedNote(Math.round(r.stdoutSize / 1024))}\n`;
-}
-
-/**
- * What git itself reads for a repository: the settings of its own config (the local and worktree scopes,
- * with the files they include, each key's values in order), and the folder its hooks run from
- * (`core.hooksPath` from any scope, else the repository's `hooks`). For a fixed command's pin, which
- * pins what a command running git there would have git run. Undefined outside a repository.
- */
-export async function repoGitState(
-  dir: string,
-): Promise<{ settings: Map<string, string[]>; hooksDir: string; includes: string[] } | undefined> {
-  if (!existsSync(dir)) return undefined;
-  // Not in a repository: nothing. Any other failure throws: a pin must never take "unreadable" for "none".
-  const top = await git(dir, ['rev-parse', '--show-toplevel'], { allowFail: true, env: { LC_ALL: 'C', LANGUAGE: '' } });
-  if (top.code !== 0) {
-    if (/not a git repository/i.test(top.stderr)) return undefined;
-    throw new GitError(t().gitFailed('rev-parse', tail(top.stderr || top.stdout, 500)));
-  }
-  const root = realpathSync(out(top));
-  // Read whole, or refused: a config padded past the limit would hide what follows.
-  const list = await git(root, ['config', '--list', '--includes', '--show-origin', '--show-scope', '-z'], {
-    maxCapture: GIT_CONFIG_BYTES,
-    keepStart: true,
-    complete: true,
-  });
-  const settings = new Map<string, string[]>();
-  const includes: string[] = [];
-  let hooksPath: string | undefined;
-  const parts = list.stdout.split('\0');
-  // `<scope>\0<origin>\0<key>\n<value>\0` for each: three fields and the empty one after the last.
-  if (list.stdout && parts.length % 3 !== 1) throw new GitError(t().gitFailed('config', 'unexpected output'));
-  for (let i = 0; i + 2 < parts.length; i += 3) {
-    const scope = parts[i]!;
-    const origin = parts[i + 1]!;
-    const entry = parts[i + 2]!;
-    const at = entry.indexOf('\n');
-    const key = (at === -1 ? entry : entry.slice(0, at)).toLowerCase();
-    const value = at === -1 ? '' : entry.slice(at + 1);
-    // Harness Relay's own `-c` settings are the command's, never the repository's.
-    if (scope === 'command') continue;
-    if (key === 'core.hookspath') hooksPath = value;
-    if (scope !== 'local' && scope !== 'worktree') continue;
-    settings.set(key, [...(settings.get(key) ?? []), value]);
-    // A file it includes, whether or not its condition holds now (an `includeIf` on a branch may later).
-    if (key === 'include.path' || (key.startsWith('includeif.') && key.endsWith('.path'))) {
-      const from = origin.startsWith('file:') ? dirname(resolve(root, origin.slice(5))) : root;
-      includes.push(value.startsWith('~/') ? join(homedir(), value.slice(2)) : resolve(from, value));
-    }
-  }
-  const common = (await git(root, ['rev-parse', '--git-common-dir'], { allowFail: true })).stdout.trim();
-  const hooksDir = hooksPath
-    ? hooksPath.startsWith('~/')
-      ? join(homedir(), hooksPath.slice(2))
-      : resolve(root, hooksPath)
-    : join(resolve(root, common || '.git'), 'hooks');
-  return { settings, hooksDir, includes };
-}
-
-/**
- * What a fixed command's first Save compares its code with: the repository's HEAD commit, or its empty
- * tree when it has none yet (every file is new then).
- */
-export async function committedBase(root: string): Promise<string> {
-  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { allowFail: true });
-  if (head.code === 0 && out(head)) return out(head);
-  return out(await git(root, ['mktree'], { stdin: '' }));
-}
-
-/** Of `paths` (from the repository's top), those that differ between `base` and `head`. */
-export async function changedPaths(root: string, base: string, head: string, paths: readonly string[]): Promise<string[]> {
-  if (!paths.length) return [];
-  const r = await git(root, ['diff', '--name-only', '--no-renames', '-z', base, head, '--', ...paths.map((p) => `:(literal)${p}`)], {
-    maxCapture: MAX_DIFF_BYTES,
-    keepStart: true,
-    complete: true,
-  });
-  return r.stdout.split('\0').filter(Boolean);
-}
-
-/** The paths (from the repository's top) of every file `commit` holds. */
-export async function treePaths(root: string, commit: string): Promise<Set<string>> {
-  const r = await git(root, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', commit], {
-    maxCapture: MAX_DIFF_BYTES,
-    keepStart: true,
-    complete: true,
-  });
-  return new Set(r.stdout.split('\0').filter(Boolean));
 }
 
 /** Create (or recreate) a worktree on `branch` starting at `base`. */

@@ -578,11 +578,6 @@ export function AppPreview({
                     : p.loading}
           </p>
         )}
-        {session?.partial && (
-          <p className="muted small app-preview-partial" role="note">
-            {p.partial}
-          </p>
-        )}
         {failure && (
           <pre className="error-line app-preview-error" role="alert">
             {failure}
@@ -655,7 +650,7 @@ export function AppPreview({
       </aside>
       {publishing && session && (
         <Deferred onClose={() => setPublishing(false)}>
-          <PublishDialog convId={convId} sessionId={session.id} partial={session.partial} onClose={() => setPublishing(false)} />
+          <PublishDialog convId={convId} sessionId={session.id} onClose={() => setPublishing(false)} />
         </Deferred>
       )}
       {setupOpen && docker && (

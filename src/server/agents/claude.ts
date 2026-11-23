@@ -37,7 +37,7 @@ import {
   type SteerTurn,
 } from './types';
 import { t } from '../i18n';
-import { overlaps, patternPath, agentProtectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
+import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { HOOK_WAIT, type HookCall, type TurnHooks } from '../hooks';
 import { guardGlobs, guardedNow, type WriteGuard } from '../writeGuard';
 
@@ -1651,7 +1651,7 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
     : given;
   const pluginIds = await pluginIdsForRun(o);
   const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
-  const protectedPaths = o.protectedPaths ?? agentProtectedReads();
+  const protectedPaths = o.protectedPaths ?? protectedReads();
   if (claudeSandboxSettings(o.permission)) {
     // Paths a sandbox would read as patterns, and the user's own settings opening them again, would
     // leave them unprotected: the run does not start.

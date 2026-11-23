@@ -157,29 +157,6 @@ export function PinIcon({ size, upright = false }: { size?: number; upright?: bo
   );
 }
 
-/** A secret an agent asks the user for: a key. */
-export function KeyIcon({ size }: { size?: number }) {
-  return (
-    <Svg size={size}>
-      <circle cx="8" cy="15" r="4" />
-      <path d="M10.9 12.1 19 4" />
-      <path d="M16 7l2.5 2.5" />
-      <path d="M13.5 9.5 16 12" />
-    </Svg>
-  );
-}
-
-/** A fixed command Harness Relay runs: a terminal's prompt. */
-export function CommandIcon({ size }: { size?: number }) {
-  return (
-    <Svg size={size}>
-      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-      <path d="m7 10 3 2.5L7 15" />
-      <path d="M12.5 15H17" />
-    </Svg>
-  );
-}
-
 /** Long-term memory: a bookmark, a note kept for later. */
 export function MemoryIcon({ size }: { size?: number }) {
   return (
@@ -287,18 +264,6 @@ export function CheckIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>
       <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </Svg>
-  );
-}
-
-/** A list with a tick: steps for the user to take. */
-export function StepsIcon({ size }: { size?: number }) {
-  return (
-    <Svg size={size}>
-      <path d="m3.5 6.5 1.5 1.5 3-3" />
-      <path d="M11 6.5h9.5M11 12h9.5M11 17.5h9.5" />
-      <rect x="3.5" y="10" width="4" height="4" rx="1" />
-      <rect x="3.5" y="15.5" width="4" height="4" rx="1" />
     </Svg>
   );
 }

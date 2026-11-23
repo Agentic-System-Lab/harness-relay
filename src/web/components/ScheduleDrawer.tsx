@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pendingPlan, permissionLevel, type Conversation, type FixedCommand } from '../../shared/types';
+import { pendingPlan, permissionLevel, type Conversation } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
@@ -84,23 +84,6 @@ export function ScheduleDrawer({
   /** A saved schedule without a team, in a chat whose lead agent may design one for it now. */
   const mayDesign = Boolean(saved) && !teamReady && !waitingPlan && !running && Boolean(conv.settings.autoTeam);
   const [designing, setDesigning] = useState(false);
-  // The working directory's fixed commands, which the schedule may run first.
-  const [commands, setCommands] = useState<FixedCommand[]>();
-  useEffect(() => {
-    let live = true;
-    api.conversationCommands(conv.id).then(
-      (list) => {
-        if (!live) return;
-        setCommands(list);
-        // A command removed meanwhile (in Settings): not one the form could save, nor show.
-        setDraft((d) => (d.command && !list.some((c) => c.id === d.command) ? { ...d, command: '' } : d));
-      },
-      () => live && setCommands([]),
-    );
-    return () => {
-      live = false;
-    };
-  }, [conv.id]);
 
   const design = async () => {
     setDesigning(true);
@@ -156,8 +139,8 @@ export function ScheduleDrawer({
     setInfo('');
     setRanIn(undefined);
     try {
-      const { queued, ran, chatId } = await api.runSchedule(conv.id);
-      setInfo(ran ? t.schedule.ranNow : chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      const { queued, chatId } = await api.runSchedule(conv.id);
+      setInfo(chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
       setRanIn(chatId);
     } catch (e) {
       setError((e as Error).message);
@@ -303,7 +286,6 @@ export function ScheduleDrawer({
             team={teamNames}
             convId={conv.id}
             onDrafting={setDrafting}
-            commands={commands}
           />
 
           <div className="field">

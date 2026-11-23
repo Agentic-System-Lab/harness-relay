@@ -45,10 +45,8 @@ async function callHttpTool(spec, tool, args, timeoutMs) {
   }
 }
 
-// browser_open can spend 20 seconds waiting for page load after starting Chromium and the gateway shim;
-// browser_hand_over waits for the test's user to take the page over and hand it back.
-const TIMEOUT_MS = { browser_open: 40_000, browser_hand_over: 180_000 };
-function callMcpTool(spec, tool, args, timeoutMs = TIMEOUT_MS[tool] || 20_000) {
+// browser_open can spend 20 seconds waiting for page load after starting Chromium and the gateway shim.
+function callMcpTool(spec, tool, args, timeoutMs = tool === 'browser_open' ? 40_000 : 20_000) {
   if (spec.url) return callHttpTool(spec, tool, args, timeoutMs);
   return new Promise((resolve) => {
     const child = spawn(spec.command, spec.args || [], { env: { ...process.env, ...(spec.env || {}) }, stdio: ['pipe', 'pipe', 'ignore'] });

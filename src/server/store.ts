@@ -43,11 +43,6 @@ import type {
   MemoryAuthor,
   MemoryNote,
   MemoryPartNote,
-  SecretAsk,
-  FixedCommandRun,
-  StepItem,
-  StepsAnswer,
-  InteractiveSession,
   SearchResult,
   SharedPage,
 } from '../shared/types';
@@ -215,7 +210,6 @@ interface ScheduleRow {
   tracking: string | null;
   hook: string | null;
   watch: string | null;
-  command: string | null;
 }
 
 interface ChangeRow {
@@ -328,9 +322,6 @@ function toolData(json: string | null): ToolData {
   return out;
 }
 
-/** A steps card's words, one step a line: its `text` column, which search reads. */
-const stepsSearchText = (items: readonly StepItem[]) => items.map((i) => i.text).join('\n');
-
 /** A tool part's `data` column (`toolData()` reads it back), or null when it has none of it. */
 function toolDataJson(p: Extract<MessagePart, { type: 'tool' }>): string | null {
   const data: ToolData = {
@@ -370,59 +361,9 @@ function toPart(r: PartRow): MessagePart {
       };
     case 'notice':
       return { type: 'notice', text: r.text ?? '' };
-    case 'secrets': {
-      const d = parseJson<{ id?: unknown; folder?: unknown; asks?: unknown }>(r.data, {});
-      return {
-        type: 'secrets',
-        id: typeof d.id === 'string' ? d.id : '',
-        folder: typeof d.folder === 'string' ? d.folder : '',
-        asks: Array.isArray(d.asks) ? (d.asks as SecretAsk[]) : [],
-      };
-    }
-    case 'command':
-      return {
-        type: 'command',
-        ...parseJson(r.data, {
-          id: '',
-          folder: '',
-          proposal: { name: '', run: '', hosts: [], secrets: [] },
-          status: 'dismissed' as const,
-        }),
-      };
-    case 'handover':
-      return {
-        type: 'handover',
-        ...parseJson(r.data, { id: '', reason: '', modes: ['screencast' as const], status: 'expired' as const }),
-      };
-    case 'interactive': {
-      const d = parseJson<Record<string, unknown>>(r.data, {});
-      const status = d.status === 'proposed' || d.status === 'started' ? d.status : 'dismissed';
-      return {
-        type: 'interactive',
-        id: typeof d.id === 'string' ? d.id : '',
-        folder: typeof d.folder === 'string' ? d.folder : '',
-        run: typeof d.run === 'string' ? d.run : '',
-        ...(typeof d.reason === 'string' ? { reason: d.reason } : {}),
-        ...(d.workdir === true ? { workdir: true } : {}),
-        configFiles: Array.isArray(d.configFiles) ? d.configFiles.filter((f): f is string => typeof f === 'string') : [],
-        ...(d.blocked === 'automation' || d.blocked === 'windows' ? { blocked: d.blocked } : {}),
-        status,
-        ...(d.session && typeof d.session === 'object' ? { session: d.session as InteractiveSession } : {}),
-      };
-    }
     case 'memory': {
       const notes = parseJson<{ notes?: unknown }>(r.data, {}).notes;
       return { type: 'memory', notes: Array.isArray(notes) ? (notes as MemoryPartNote[]) : [] };
-    }
-    case 'steps': {
-      const data = parseJson<{ items?: unknown; answer?: unknown }>(r.data, {});
-      const items = Array.isArray(data.items)
-        ? data.items.flatMap((i: { text?: unknown; done?: unknown }) =>
-            typeof i?.text === 'string' ? [{ text: i.text, ...(i.done === true ? { done: true } : {}) }] : [],
-          )
-        : [];
-      const answer = data.answer && typeof data.answer === 'object' ? (data.answer as StepsAnswer) : undefined;
-      return { type: 'steps', items, ...(answer ? { answer } : {}) };
     }
     case 'schedule': {
       const d = parseJson<{ proposal?: unknown; status?: unknown }>(r.data, {});
@@ -457,18 +398,11 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
     case 'progress':
       return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
-    // The steps' words in `text` too, which search reads.
-    case 'steps':
-      return [stepsSearchText(p.items), null, null, null, null, null, null, JSON.stringify({ items: p.items, answer: p.answer })];
     case 'approval':
     case 'attachment':
     case 'memory':
     case 'schedule':
-    case 'outbox':
-    case 'secrets':
-    case 'command':
-    case 'handover':
-    case 'interactive': {
+    case 'outbox': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }
@@ -574,7 +508,6 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.goal && tracking ? { tracking } : {}),
     ...(hook ? { hook } : {}),
     ...(watches ? { watches } : {}),
-    ...(r.command ? { command: r.command } : {}),
   };
 }
 
@@ -905,27 +838,20 @@ export class Store {
 
   constructor(private db: Database) {
     // A previous server process died mid-turn: its replies are aborted, an approval they still waited
-    // on can no longer be answered (expired, as when a run is stopped), nor a hand-over of the browser
-    // taken or handed back, and a tool call they still showed running ended without a result (as a
-    // stopped run closes it). Also in replies an older server already marked aborted.
+    // on can no longer be answered (expired, as when a run is stopped), and a tool call they still
+    // showed running ended without a result (as a stopped run closes it). Also in replies an older
+    // server already marked aborted.
     transaction(db, () => {
       const waiting = db
         .prepare(
-          `SELECT p.message_id, p.idx, p.type, p.data FROM message_parts p JOIN messages m ON m.id = p.message_id
-           WHERE m.status = 'streaming' AND p.type IN ('approval', 'handover')`,
+          `SELECT p.message_id, p.idx, p.data FROM message_parts p JOIN messages m ON m.id = p.message_id
+           WHERE m.status = 'streaming' AND p.type = 'approval'`,
         )
-        .all() as { message_id: string; idx: number; type: string; data: string | null }[];
+        .all() as { message_id: string; idx: number; data: string | null }[];
       const expire = db.prepare('UPDATE message_parts SET data = ? WHERE message_id = ? AND idx = ?');
       for (const r of waiting) {
         const data = parseJson<Record<string, unknown>>(r.data, {});
-        if (data.status === 'pending' || (r.type === 'handover' && data.status === 'active')) {
-          const { deadline: _deadline, ...rest } = data;
-          expire.run(
-            JSON.stringify({ ...rest, status: 'expired', ...(r.type === 'handover' ? { ended: 'turn' } : {}) }),
-            r.message_id,
-            r.idx,
-          );
-        }
+        if (data.status === 'pending') expire.run(JSON.stringify({ ...data, status: 'expired' }), r.message_id, r.idx);
       }
       db.prepare(
         `UPDATE message_parts SET tool_status = 'error' WHERE type = 'tool' AND tool_status = 'running'
@@ -945,25 +871,6 @@ export class Store {
           o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted, notRun: 'interrupted' as const } : o,
         );
         settle.run(JSON.stringify({ ...c, outcomes, status: overallStatus(outcomes) }), r.id);
-      }
-      // A command the user ran from its card stopped with that server: its card can start it again.
-      const interactive = db
-        .prepare(`SELECT message_id, idx, data FROM message_parts WHERE type = 'interactive' AND data LIKE '%"state":"running"%'`)
-        .all() as { message_id: string; idx: number; data: string | null }[];
-      for (const r of interactive) {
-        const data = parseJson<{ session?: Partial<InteractiveSession> } & Record<string, unknown>>(r.data, {});
-        if (data.session?.state !== 'running') continue;
-        const { asking: _asking, ...session } = data.session;
-        expire.run(JSON.stringify({ ...data, session: { ...session, state: 'stopped' } }), r.message_id, r.idx);
-      }
-      // A fixed command's run the server stopped during never finishes: its card can try it again.
-      const commands = db
-        .prepare(`SELECT message_id, idx, data FROM message_parts WHERE type = 'command' AND data LIKE '%"status":"running"%'`)
-        .all() as { message_id: string; idx: number; data: string | null }[];
-      for (const r of commands) {
-        const data = parseJson<{ run?: Partial<FixedCommandRun> } & Record<string, unknown>>(r.data, {});
-        if (data.run?.status !== 'running') continue;
-        expire.run(JSON.stringify({ ...data, run: { ...data.run, status: 'error', reason: t().stoppedNote } }), r.message_id, r.idx);
       }
     });
   }
@@ -1390,13 +1297,6 @@ export class Store {
     conv.schedule = schedule;
   }
 
-  /** The conversations whose schedule runs this fixed command first (`schedules.command`). */
-  schedulesWithCommand(commandId: string): string[] {
-    return (this.db.prepare('SELECT conversation_id FROM schedules WHERE command = ?').all(commandId) as { conversation_id: string }[]).map(
-      (r) => r.conversation_id,
-    );
-  }
-
   /** Persist the conversation's schedule (none: delete it). */
   saveSchedule(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
@@ -1408,14 +1308,14 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
-                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch, command)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
            missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
            next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
            last_error = excluded.last_error, last_chat_id = excluded.last_chat_id, goal = excluded.goal,
-           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch, command = excluded.command`,
+           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch`,
       )
       .run(
         conv.id,
@@ -1437,7 +1337,6 @@ export class Store {
         s.goal && s.tracking ? JSON.stringify(s.tracking) : null,
         s.hook ? JSON.stringify(s.hook) : null,
         s.repeat.kind === 'event' && s.watches?.length ? JSON.stringify(s.watches) : null,
-        nul(s.command),
       );
     // A schedule without a webhook has no token either.
     if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);
@@ -2015,7 +1914,7 @@ export class Store {
     const hits = this.db
       .prepare(
         `SELECT m.conversation_id, m.id AS message_id, p.text FROM message_parts p JOIN messages m ON m.id = p.message_id
-         WHERE p.type IN ('text', 'steps') AND m.author_kind IN ('user', 'agent') AND (${like.map(() => "p.text LIKE ? ESCAPE '\\'").join(' OR ')})
+         WHERE p.type = 'text' AND m.author_kind IN ('user', 'agent') AND (${like.map(() => "p.text LIKE ? ESCAPE '\\'").join(' OR ')})
          ORDER BY m.conversation_id, m.seq, p.idx`,
       )
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];

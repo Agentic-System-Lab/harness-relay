@@ -16,7 +16,6 @@ const limits = { items: 4096, depth: 32, fileBytes: 16 * MiB, totalBytes: 64 * M
 const missing = () => new HttpError(404, t().fileNotFound);
 const changed = () => new HttpError(409, t().previewSnapshotChanged);
 const tooLarge = () => new HttpError(413, t().previewSnapshotLimit);
-const pageTooLarge = () => new HttpError(413, t().previewPageLimit);
 
 // Reject Windows devices, alternate data streams, short-name aliases and trimmed names on every host.
 // Names from both the browser and directory entries will also be used inside a Linux container.
@@ -93,8 +92,6 @@ const readFlags = constants.O_RDONLY | constants.O_NONBLOCK | (process.platform 
 /** Only the owner's executable bit needs to cross into the unprivileged Linux container. */
 class PreviewSnapshot extends Map<string, Buffer> {
   readonly executables = new Set<string>();
-  /** A static page's own files only, not its whole folder (`previewSnapshot()`): the panel says so. */
-  partial = false;
 }
 
 /**
@@ -195,69 +192,6 @@ export function previewPrivatePath(
     privatePaths.some((base) => inside(base, path)) || (inside(dataRoot, path) && !allowedTrees.some((tree) => inside(tree, path)));
 }
 
-/** Files a static page names other files from: followed when its folder is too large to copy whole. */
-/** The names a page's references may queue (those not there count too), and a directory's listing at most. */
-const QUEUE_LIMIT = limits.items * 4;
-const LISTING_LIMIT = 65_536;
-const REFERENCING = /\.(?:html?|css|m?js|svg)$/i;
-const SCHEME = /^[a-z][a-z\d+.-]*:/i;
-
-/**
- * The relative addresses a page, stylesheet, script or SVG names (best effort, in the order they
- * appear): quoted values (attributes, `url("…")`, string literals in scripts, template literals with
- * nothing to fill in), each candidate of a `srcset`, unquoted `url(…)` and unquoted `src=`/`href=`
- * values, with `&amp;` read as `&`. Absolute URLs, fragments, `data:` and the like are left out; what
- * is not a file of the preview is dropped when it is resolved. Every pattern runs in linear time on
- * any text (a file of it is the agents' to write): no part of one can match across another's start.
- */
-export function pageReferences(text: string): string[] {
-  const out: string[] = [];
-  const add = (raw: string | undefined) => {
-    const value = raw?.replaceAll('&amp;', '&').trim();
-    if (!value || value.length > 1024 || value.startsWith('#') || value.startsWith('//') || SCHEME.test(value)) return;
-    if (/[<>{}`\\$\n]/.test(value)) return;
-    out.push(value);
-  };
-  const quoted = (value: string) => {
-    add(value); // as it is, spaces and all (`my photo.png`)
-    // A srcset: "a.png 1x, b.png 2x", or one candidate, "hero@2x.png 2x".
-    if (/\s/.test(value)) for (const part of value.split(',')) add(part.trim().split(/\s+/)[0]);
-  };
-  for (const m of text.matchAll(/(["'])([^"'\n<>]{1,2048})\1/g)) quoted(m[2]!);
-  for (const m of text.matchAll(/`([^`$\\\n<>]{1,2048})`/g)) quoted(m[1]!);
-  for (const m of text.matchAll(/url\(\s*([^()'"\s]+)\s*\)/gi)) add(m[1]);
-  for (const m of text.matchAll(/\b(?:src|href|poster|data)\s*=\s*([^\s"'>]+)/gi)) add(m[1]);
-  return out;
-}
-
-/**
- * Where `ref`, named in the file at `from` (both relative to the preview's folder), is in the preview,
- * as the server answers it (`/x` from the folder's top, `dir/` as `dir/index.html`); undefined for an
- * address outside the folder or that is no public file of a preview.
- */
-export function resolvePageReference(from: string, ref: string): string | undefined {
-  const clean = ref.split(/[?#]/)[0]!;
-  const names = ref.startsWith('/') ? [] : from.split('/').slice(0, -1);
-  for (const raw of clean.split('/')) {
-    let name: string;
-    try {
-      name = decodeURIComponent(raw);
-    } catch {
-      return undefined;
-    }
-    // One name, as the server reads each part of an address (`a%2Fb` is no `a/b` there).
-    if (/[\\/]/.test(name)) return undefined;
-    if (!name || name === '.') continue;
-    if (name === '..') {
-      if (!names.length) return undefined;
-      names.pop();
-    } else names.push(name);
-  }
-  if (clean.endsWith('/') || !names.length) names.push('index.html');
-  const path = names.join('/');
-  return names.length <= limits.depth && isPreviewAsset(path) ? path : undefined;
-}
-
 /** Only folders that may be copied into a preview may be inspected during project detection. */
 export function previewFolderParts(folder: string): string[] {
   const parts = !folder || folder === '.' ? [] : folder.split('/');
@@ -265,20 +199,12 @@ export function previewFolderParts(folder: string): string[] {
   return parts;
 }
 
-/**
- * The files a preview gets, taken from `folder` under `root` as they are now: the whole folder (what
- * each mode may use of it, within `limits`). For a static page (`entry`, in that folder) whose folder
- * is too large to copy whole, such as a working directory's top with a page written there, only the
- * page and the files it names, followed through the pages, stylesheets, scripts and SVGs among them
- * (`pageReferences()`), each checked as the whole copy checks it, within the same limits.
- */
 export async function previewSnapshot(
   root: string,
   folder: string,
   mode: 'static' | 'build' | 'server' | 'container',
   signal?: AbortSignal,
   isPrivate = previewPrivatePath(),
-  entry?: string,
 ): Promise<PreviewSnapshot> {
   signal?.throwIfAborted();
   const parts = previewFolderParts(folder);
@@ -347,132 +273,13 @@ export async function previewSnapshot(
     }
     if (!sameVersion(before, await lstat(dir, { bigint: true })) || relative(dir, await realpath(dir))) throw changed();
   };
-  /** A directory as the walk checks it: not private, a directory, at its real path. Kept to check again at the end. */
-  const seenDirs = new Map<string, BigIntStats>();
-  const checkDir = async (dir: string) => {
-    if (seenDirs.has(dir)) return;
-    if (isPrivate(dir)) throw missing();
-    const before = await lstat(dir, { bigint: true });
-    if (!before.isDirectory() || relative(dir, await realpath(dir))) throw missing();
-    seenDirs.set(dir, before);
-  };
-  /**
-   * The names in a directory, as the walk would read them: a name a page wrote is taken only as one of
-   * these exactly, so that a folder on a file system that ignores case (`DATA` for `data`) is never
-   * reached under a name the private paths do not know. Undefined for one too large to list.
-   */
-  const listings = new Map<string, Set<string> | undefined>();
-  const listed = async (dir: string, name: string) => {
-    if (!listings.has(dir)) {
-      let names: Set<string> | undefined = new Set();
-      for await (const item of await opendir(dir)) {
-        signal?.throwIfAborted();
-        if (names.size >= LISTING_LIMIT) {
-          names = undefined;
-          break;
-        }
-        names.add(item.name);
-      }
-      listings.set(dir, names);
-    }
-    return listings.get(dir)?.has(name) ?? false;
-  };
-
-  /** The page and what it names, in the order found; a name that is not there is skipped. */
-  const closure = async (top: string, page: string) => {
-    if (page.includes('/') || !isPreviewAsset(page)) throw missing();
-    for (let i = 0; i <= parts.length; i++) await checkDir(join(top, ...parts.slice(0, i)));
-    const base = join(top, ...parts);
-    const queue = [page];
-    const queued = new Set(queue);
-    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-      signal?.throwIfAborted();
-      const names = next.split('/');
-      let dir = base;
-      let found = true;
-      for (const [i, name] of names.entries()) {
-        try {
-          if (!(await listed(dir, name))) throw missing();
-          dir = join(dir, name);
-          if (i < names.length - 1) await checkDir(dir);
-        } catch {
-          // Not there, private, or not a plain directory (a link): nothing of it is copied.
-          found = false;
-          break;
-        }
-      }
-      const path = join(base, ...names);
-      const stat = found ? await lstat(path, { bigint: true }).catch(() => undefined) : undefined;
-      if (!stat?.isFile()) {
-        if (next === page) throw missing();
-        continue;
-      }
-      if (++items > limits.items) throw pageTooLarge();
-      try {
-        await readFile(path, next, stat);
-      } catch (error) {
-        throw error instanceof HttpError && error.status === 413 ? pageTooLarge() : error;
-      }
-      const data = output.get(next);
-      if (!data || !REFERENCING.test(next)) continue;
-      // A script's addresses may be its own (`import './x.js'`) or the page's (`fetch('img/a.png')`): both are tried.
-      const froms = /\.m?js$/i.test(next) && next !== page ? [next, page] : [next];
-      for (const ref of pageReferences(data.toString('utf8'))) {
-        for (const from of froms) {
-          const target = resolvePageReference(from, ref);
-          if (!target || queued.has(target)) continue;
-          // Names that are not there count too: looking for them is work.
-          if (queued.size >= QUEUE_LIMIT) throw pageTooLarge();
-          queued.add(target);
-          queue.push(target);
-        }
-      }
-    }
-    for (const [dir, before] of seenDirs) {
-      if (!sameVersion(before, await lstat(dir, { bigint: true })) || relative(dir, await realpath(dir))) throw changed();
-    }
-  };
-
-  const rootStat = async () => {
-    const stat = await lstat(root, { bigint: true });
-    if (!stat.isDirectory()) throw missing();
+  try {
+    const before = await lstat(root, { bigint: true });
+    if (!before.isDirectory()) throw missing();
     // previewTarget handed us the already canonical root. A different real path now would
     // silently retarget the whole copy, even if its last component still looks like a directory.
     if (!isAbsolute(root) || relative(root, await realpath(root))) throw missing();
-    return stat;
-  };
-  try {
-    let before = await rootStat();
-    const afresh = async () => {
-      output.clear();
-      output.executables.clear();
-      items = 0;
-      total = 0;
-      before = await rootStat();
-    };
-    try {
-      await walk(root, '', 0, 0);
-    } catch (error) {
-      // A static page whose folder cannot be copied whole (too large, a folder in it unreadable, or
-      // changing twice running): the page and what it names, from the start, and the panel says so.
-      if (!(mode === 'static' && entry)) throw error;
-      signal?.throwIfAborted();
-      let whole = false;
-      // One that changed meanwhile (a turn still writing there) is copied whole once more first.
-      if (error instanceof HttpError && error.status === 409) {
-        await afresh();
-        whole = await walk(root, '', 0, 0).then(
-          () => true,
-          () => false,
-        );
-        signal?.throwIfAborted();
-      }
-      if (!whole) {
-        await afresh();
-        await closure(root, entry);
-        output.partial = true;
-      }
-    }
+    await walk(root, '', 0, 0);
     if (!sameVersion(before, await lstat(root, { bigint: true })) || relative(root, await realpath(root))) throw changed();
     signal?.throwIfAborted();
     return output;

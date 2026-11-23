@@ -6,7 +6,7 @@
     <title>權限與核准 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：agent 不必問就能做什麼、核准、沙箱、提供密鑰或自己執行指令，以及檢視與套用 agent 的修改。"
+      content="Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="權限與核准 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯、替我核准或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，用卡片提供密鑰給 Harness Relay 自己執行的腳本，並在保留之前檢視每則回覆的修改。"
+      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯、替我核准或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，並在保留之前檢視每則回覆的修改。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/",
         "name": "權限與核准 · Harness Relay 文件",
-        "description": "Harness Relay 文件：agent 不必問就能做什麼、核准、沙箱、提供密鑰或自己執行指令，以及檢視與套用 agent 的修改。",
+        "description": "Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -239,8 +239,6 @@
           <li><a href="#approvals">核准卡片</a></li>
           <li><a href="#sandboxes">沙箱做了什麼</a></li>
           <li><a href="#outbox">待送出匣</a></li>
-          <li><a href="#secrets">密鑰與固定指令</a></li>
-          <li><a href="#your-commands">你自己執行的指令</a></li>
           <li>
             <details>
               <summary>檢視與套用修改</summary>
@@ -329,7 +327,7 @@
           <ul>
             <li><b>允許</b>：只允許這一次。</li>
             <li>
-              <b>本對話都允許「…」</b>：這次以及之後類似的請求，在這個對話裡都直接允許。指令的話，指的是同一個程式與子指令，例如 <code>npm install</code>。改了決定執行什麼的東西（例如 <code>PATH=…</code>）的一行指令，之後只有一字不差時才會再允許：<b>本對話都允許這一行指令（一字不差時）</b>。
+              <b>本對話都允許「…」</b>：這次以及之後類似的請求，在這個對話裡都直接允許。指令的話，指的是同一個程式與子指令，例如 <code>npm install</code>。
             </li>
             <li>
               <b>拒絕</b>：可以先寫下 agent 該改做什麼。有些 agent 會收到你的說明並繼續；其他的只知道你拒絕了，或會直接結束這一回合，這時請在下一則訊息說明要怎麼做。
@@ -339,7 +337,7 @@
             卡片等待時，輸入框上方會有一列提示指向它，側邊欄把對話標為<b>等你核准</b>，瀏覽器分頁標題也會顯示有幾個對話在等你。按<b>停止</b>會拒絕所有還在等待的請求。
           </p>
           <p>
-            選<b>替我核准</b>時，每張卡片會先交給首席 agent 審查，它把你在對話中寫的訊息當成你要的事；卡片顯示<b>首席 agent 審查中</b>，這時你也可以自己先回答。它核准的動作會直接執行，卡片顯示<b>首席 agent 已替你核准</b>與理由；它認為可能不安全或無法審查的，會附上原因等你決定；它認為可能不安全的，你只能允許這一次，不能永遠允許。推送與發佈一律等你決定。每次審查會花幾秒鐘，用的是首席 agent 的模型。
+            選<b>替我核准</b>時，每張卡片會先交給首席 agent 審查，它把你在對話中寫的訊息當成你要的事；卡片顯示<b>首席 agent 審查中</b>，這時你也可以自己先回答。它核准的動作會直接執行，卡片顯示<b>首席 agent 已替你核准</b>與理由；它認為可能不安全或無法審查的，會附上原因等你決定。推送與發佈一律等你決定。每次審查會花幾秒鐘，用的是首席 agent 的模型。
           </p>
         </section>
 
@@ -380,54 +378,6 @@
           <p>
             在你決定之前，這個對話會標為<b>等你核准</b>，你也會收到通知，和核准一樣；agent 不會停下來等，所以你可以晚點再送出。<a href="../tools/">工具：瀏覽器、郵件與行事曆</a>
           </p>
-        </section>
-
-        <section id="secrets" aria-labelledby="secrets-title">
-          <h2 id="secrets-title">密鑰與固定指令</h2>
-          <p>
-            agent 從不請你把密鑰（API 權杖、App Secret、密碼）貼在聊天裡、在終端機輸入，或放進檔案。它們用卡片來要：卡片上遮蔽的輸入框會把值存進這台電腦的金鑰儲存區，給那個工作目錄用。團隊只會知道你提供了哪些密鑰，從不知道值，任何 agent 的沙箱都讀不到它們。Harness Relay 從不需要你帳號本身的密碼。
-          </p>
-          <p>
-            值在網頁上時（權杖產生器），按卡片上的<b>開一個只給你的瀏覽器</b>：沒有任何 agent 操作或讀取它，關閉時就刪除，它顯示在對話中，所以用手機也可以。選取網頁上的值，按<b>把選取的文字存成</b>它的名稱：值會直接存進卡片，不會經過聊天。在執行 Harness Relay 的電腦上，你也可以用自己的瀏覽器開那個網頁，再把值貼上。
-          </p>
-          <p>需要密鑰、或要定時執行的腳本，會以<b>固定指令</b>卡片出現：列出指令、能連的主機和它拿到的密鑰。執行它的是 Harness Relay，不是 agent：</p>
-          <ul>
-            <li>不論權限，一律在它自己的沙箱裡執行：只能寫入工作目錄，只能連上列出的主機；</li>
-            <li>密鑰放在只有它讀得到的檔案裡，輸出裡的每個密鑰都換成 <b>••••</b>；</li>
-            <li>只執行你儲存前看過的程式碼（<b>查看它要執行的程式碼</b>），而且只在資料夾裡的程式碼和你儲存時一樣時才執行：agent 一改腳本，卡片就會把差異給你看，你核准後才會再執行；</li>
-            <li>在你按<b>試跑</b>（你在<b>這次給它的輸入</b>裡打的內容就是它讀到的，例如貼文的文字）、在待送出匣卡片上按<b>送出</b>，或到了自動任務的時間（<b>先執行固定指令</b>）時執行；結束碼 0 時什麼都不送，也不呼叫任何模型。</li>
-          </ul>
-          <p>
-            後面又提議同一個名稱時，會取代你還沒儲存的卡片。
-            <b>設定 → 密鑰與固定指令</b>會依工作目錄列出密鑰（只列名稱，可以<b>取代</b>或<b>刪除</b>）和固定指令（附上次執行的結果）。
-            原生 Windows 上還不能執行固定指令。你允許在沙箱外執行的指令，以及完全存取時的每個 agent，都以你的權限執行。<a href="../automations/">自動任務</a>
-          </p>
-        </section>
-
-        <section id="your-commands" aria-labelledby="your-commands-title">
-          <h2 id="your-commands-title">你自己執行的指令</h2>
-          <p>
-            有些步驟只有你能在命令列上完成：會顯示連結或代碼的登入（<code>gcloud auth login --no-launch-browser</code>、<code>npm login</code>），或要你輸入密碼的提示（<code>sudo -A</code>）。agent
-            沒辦法替它們執行的指令輸入內容，所以 agent 會請你自己執行：它的回覆會出現一張<b>請你自己執行一個指令</b>卡片，列出指令和原因，團隊會等你。
-          </p>
-          <ul>
-            <li>
-              <b>啟動</b>會用你在這台電腦上的權限執行它，不在任何 agent 的沙箱裡，預設在它自己的空資料夾裡；你也可以選擇在工作目錄裡執行（這時卡片會列出程式可能載入的設定檔、git hook 和安裝的程式，agent 改得到它們，其中有東西改過就不會啟動）。你按下之前什麼都不會執行，自動化執行時提議的卡片也不能啟動。
-            </li>
-            <li>
-              執行時，卡片會顯示它的輸出，並挑出要開的網頁和要輸入的代碼。輸入一行後按 Enter 送出；勾選<b>隱藏我輸入的內容</b>時，卡片上不會顯示，程式把它印出來時也會遮蔽。<code>sudo -A</code>、ssh 和 git
-              會透過 Harness Relay 的密碼小幫手在卡片上詢問。<b>取消執行</b>會停止它，執行超過 15 分鐘也會自動停止。
-            </li>
-            <li><b>把輸出送給團隊</b>會把它怎麼結束和遮蔽後的輸出當成你的回答貼出。在那之前 agent 完全看不到它。</li>
-          </ul>
-          <div class="doc-note">
-            <svg aria-hidden="true"><use href="#i-shield" /></svg>
-            <div>
-              <p>
-                登入時存下的資料會放在程式自己存放的地方，通常是你的家目錄，權限低於完全存取的 agent 也讀得到。它沒有終端機，所以全螢幕的程式無法回應；原生 Windows 上也還不能執行。
-              </p>
-            </div>
-          </div>
         </section>
 
         <section id="changes" aria-labelledby="changes-title">

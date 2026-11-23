@@ -38,8 +38,6 @@ interface Session {
   /** What it was started from, and its snapshot's digest: publishing takes the same files again. */
   target: PreviewTarget;
   digest?: string;
-  /** Its static page's own files only (`PreviewSnapshot.partial`). */
-  partial?: boolean;
   /** Its page has answered (a container's, once its port opened; the others once they started). */
   pageSeen: boolean;
   unsubscribe?: () => void;
@@ -169,16 +167,8 @@ export class AppPreviews {
     session.pending = (async () => {
       const lifetime = session.controller.signal;
       // A workspace member installs and runs from its workspace root's copy, lockfile included.
-      const files = await previewSnapshot(
-        target.root,
-        target.npmRoot ?? target.folder,
-        target.mode,
-        lifetime,
-        target.isPrivate,
-        target.entry,
-      );
+      const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, lifetime, target.isPrivate);
       session.digest = previewDigest(files, files.executables);
-      session.partial = files.partial;
       lifetime.throwIfAborted();
       if (target.mode === 'static') {
         if (!files.has(target.entry)) throw new HttpError(404, t().previewTarget);
@@ -221,7 +211,6 @@ export class AppPreviews {
         url: new URL(OPEN + session.ticket, address).href,
         origin: address.origin,
         ...(session.service?.terminal ? { terminal: true } : {}),
-        ...(session.partial ? { partial: true } : {}),
       };
     } catch (err) {
       await this.stop(conversation, id);
@@ -304,7 +293,7 @@ export class AppPreviews {
     if (!s.pageSeen) throw new HttpError(409, t().publish.notReady);
     s.idle = this.now() + IDLE;
     const { target } = s;
-    const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, signal, target.isPrivate, target.entry);
+    const files = await previewSnapshot(target.root, target.npmRoot ?? target.folder, target.mode, signal, target.isPrivate);
     if (previewDigest(files, files.executables) !== s.digest) throw new HttpError(409, t().publish.changed, PUBLISH_CHANGED);
     return {
       conversationId: conversation,
