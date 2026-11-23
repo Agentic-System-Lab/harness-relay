@@ -614,3 +614,32 @@ export function thoughtTail(text: string): string {
       .pop() ?? '';
   return plainLine(line);
 }
+
+/**
+ * A system note's text in pieces: its words, and the output it fences (a fixed command's run, its
+ * secrets masked: a line of three or more backticks, the output, the same line again), which the
+ * chat shows as a block rather than as backticks in a line. A fence never closed stays words.
+ */
+export function notePieces(text: string): { kind: 'text' | 'code'; text: string }[] {
+  const out: { kind: 'text' | 'code'; text: string }[] = [];
+  const lines = text.split('\n');
+  let words: string[] = [];
+  const flush = () => {
+    const t = words.join('\n').trim();
+    if (t) out.push({ kind: 'text', text: t });
+    words = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const mark = /^(`{3,})$/.exec(lines[i]!)?.[1];
+    const close = mark ? lines.indexOf(mark, i + 1) : -1;
+    if (!mark || close < 0) {
+      words.push(lines[i]!);
+      continue;
+    }
+    flush();
+    out.push({ kind: 'code', text: lines.slice(i + 1, close).join('\n') });
+    i = close;
+  }
+  flush();
+  return out;
+}

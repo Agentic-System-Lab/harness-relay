@@ -3251,7 +3251,8 @@ a.branch-source:hover {
   gap: 8px;
 }
 
-.msg-system.with-card > .outbox-card {
+.msg-system.with-card > .outbox-card,
+.msg-system.with-card > .msg-system-output {
   align-self: stretch;
   max-width: 760px;
   width: 100%;

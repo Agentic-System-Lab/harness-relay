@@ -30,6 +30,7 @@ import {
   revisionOutcome,
   scrollSpot,
   segments,
+  notePieces,
   shownSegments,
   showsToEnd,
   teamChanges,
@@ -541,6 +542,20 @@ describe("an agent's work between its words", () => {
     ]);
     expect(segs.map((s) => s.kind)).toEqual(['activity', 'todo', 'activity', 'approval', 'activity']);
     expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
+  });
+
+  it('shows the output a system note fences as a block, and a fence never closed as words', () => {
+    expect(notePieces('Ran the fixed command "post" once: done.\n\nIts output (secrets masked):\n```\nposted joke 2\n```')).toEqual([
+      { kind: 'text', text: 'Ran the fixed command "post" once: done.\n\nIts output (secrets masked):' },
+      { kind: 'code', text: 'posted joke 2' },
+    ]);
+    // More backticks than the output has, as the server writes them; the output's own ``` stays in it.
+    expect(notePieces('Output:\n````\na\n```\nb\n````')).toEqual([
+      { kind: 'text', text: 'Output:' },
+      { kind: 'code', text: 'a\n```\nb' },
+    ]);
+    expect(notePieces('A note.\n```\nnot closed')).toEqual([{ kind: 'text', text: 'A note.\n```\nnot closed' }]);
+    expect(notePieces('Just words.')).toEqual([{ kind: 'text', text: 'Just words.' }]);
   });
 
   it("shows a note's card of a fixed command whose code changed, not one a server could not read again", () => {

@@ -32,6 +32,7 @@ import {
   isSubagent,
   isTeamResult,
   isTouchScreen,
+  notePieces,
   resultOwner,
   runningStep,
   segments,
@@ -1560,9 +1561,24 @@ export const MessageItem = memo(function MessageItem({
     const changed = msg.parts.filter(
       (p): p is Extract<MessagePart, { type: 'command-changed' }> => p.type === 'command-changed' && Boolean(p.commandId),
     );
+    // A fixed command's output it fences shows as a block, not as backticks in the note's line.
+    const pieces = notePieces(msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join(''));
+    const block = pieces.some((p) => p.kind === 'code');
     return (
-      <div className={changed.length ? 'msg-system with-card' : 'msg-system'}>
-        <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
+      <div className={changed.length || block ? 'msg-system with-card' : 'msg-system'}>
+        {block ? (
+          pieces.map((p, i) =>
+            p.kind === 'code' ? (
+              <pre key={i} className="outbox-body msg-system-output">
+                {p.text}
+              </pre>
+            ) : (
+              <span key={i}>{p.text}</span>
+            ),
+          )
+        ) : (
+          <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
+        )}
         {changed.map((p, i) => (
           <CommandChangedCard key={`${p.commandId}-${i}`} part={p} convId={convId} />
         ))}
