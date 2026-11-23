@@ -13,8 +13,9 @@
  * git tag is the version itself. A version must be today's date: a fix on a later day is that day's
  * release. A release candidate comes before the release it is a candidate of, and is for the day's
  * next release only, the release itself or its next patch. A release needs one: it is made only once
- * a release candidate of it is out (published on GitHub), as the end-to-end tests run for a release
- * candidate only (the Release workflow runs them before it publishes one).
+ * its newest release candidate is out (published on GitHub), as the end-to-end tests run for a
+ * release candidate only (the Release workflow runs them before it publishes one), and a newer one
+ * whose run failed must not be passed over for an older one that passed.
  *
  * Usage:
  *   tsx scripts/release.ts next                       today's next release and release candidate
@@ -26,9 +27,9 @@
  * started). `--own-tag` (the workflow's) takes the version's tag, when GitHub has no release of it,
  * as the one the Release workflow made at a run's start, not as a version that is out: that run's,
  * or one's that failed after it (asked of GitHub through `gh api`, in the repository
- * GITHUB_REPOSITORY names, else origin's). With `--remote`, a release's candidates' tags are asked
- * about the same way: one counts only once GitHub has a release of it (a run that failed after it
- * tagged one published none); without it, a candidate's tag here counts. `check` also says which
+ * GITHUB_REPOSITORY names, else origin's). With `--remote`, a release's newest candidate's tag is
+ * asked about the same way: it counts only once GitHub has a release of it (a run that failed after
+ * it tagged the commit published none); without it, its tag here counts. `check` also says which
  * version the release's notes start from (previousVersion()), and which release candidate a release
  * comes after. In GitHub Actions, it refuses a run on another branch than main, warns when a release
  * is made on another commit than that candidate's tag (with `--remote`: the end-to-end tests ran on
@@ -246,9 +247,9 @@ export interface ReleaseCheck {
    */
   ownTag?: boolean;
   /**
-   * Of a release's candidates' tags, those GitHub has no release of (`--remote`): a run of it failed or
-   * was stopped after it tagged the commit, so it is not a release candidate that is out. Without
-   * this, each candidate's tag counts as one that is out.
+   * Of a release's candidates' tags, those GitHub has no release of (`--remote`: its newest, the one
+   * that counts): a run of it failed or was stopped after it tagged the commit, so it is not a release
+   * candidate that is out. Without this, each candidate's tag counts as one that is out.
    */
   unreleased?: readonly string[];
 }
@@ -263,14 +264,14 @@ export type CheckResult =
       semver: string;
       /** The version its notes start from (previousVersion()); none when there is no earlier one. */
       previous: string | undefined;
-      /** For a release, the newest release candidate of it that is out; none for a release candidate. */
+      /** For a release, its newest release candidate, which is out; none for a release candidate. */
       candidate: string | undefined;
     }
   | { ok: false; errors: string[] };
 
-/** Why a release needs a release candidate of it first, at the end of the error that says it has none. */
+/** Why a release needs its newest release candidate out first, at the end of the errors that say it is not. */
 const CANDIDATE_FIRST =
-  'A release is made only once a release candidate of it is out: the end-to-end tests run for a release candidate only, before it is published.';
+  'A release is made only once its newest release candidate is out: the end-to-end tests run for a release candidate only, before it is published.';
 
 /** Everything wrong with releasing `version` now; nothing when it may be released. */
 export function checkRelease(c: ReleaseCheck): CheckResult {
@@ -312,18 +313,17 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
           : `${v.version} skips a number: patches count up by one, so the next is ${expected}.`,
       );
     } else if (!v.rc) {
-      // The next release, as the rules go: it still needs a release candidate of it that is out.
-      const candidates = candidatesOf(tags, v).map((t) => t.version);
-      candidate = candidates.find((t) => !c.unreleased?.includes(t));
+      // The next release, as the rules go: it still needs its newest release candidate out. Not an
+      // older one: a newer one whose run failed (its end-to-end tests, say) tested what main is now.
+      const newest = candidatesOf(tags, v)[0]?.version;
       const next = nextVersion(tags, v.date, true);
-      if (!candidate && !candidates.length) {
+      if (!newest) {
         errors.push(`${v.version} has no release candidate yet: release ${next} first, then ${v.version}. ${CANDIDATE_FIRST}`);
-      } else if (!candidate) {
-        const list = candidates.join(', ');
+      } else if (c.unreleased?.includes(newest)) {
         errors.push(
-          `${v.version} has no release candidate out yet: ${list} ${candidates.length === 1 ? 'has its tag' : 'have their tags'} on GitHub without a release (a run that failed or was stopped). Release ${candidates[0]} again or ${next}, then ${v.version}. ${CANDIDATE_FIRST}`,
+          `${v.version}'s newest release candidate, ${newest}, has its tag on GitHub without a release (a run that failed or was stopped, its end-to-end tests perhaps). Release ${newest} again or ${next}, then ${v.version}. ${CANDIDATE_FIRST}`,
         );
-      }
+      } else candidate = newest;
     }
   }
   if (errors.length) return { ok: false, errors };
@@ -745,8 +745,12 @@ async function main(argv: string[]): Promise<number> {
     console.log(`  release candidate  ${nextVersion(tags, today, true)}`);
     console.log(`  release            ${release}`);
     const parsed = parseVersion(release);
-    if (parsed.ok && !candidatesOf(tags, parsed.value).length)
-      console.log(`  ${release} needs a release candidate of it out first: ${nextVersion(tags, today, true)}.`);
+    const newest = parsed.ok ? candidatesOf(tags, parsed.value)[0]?.version : undefined;
+    console.log(
+      newest
+        ? `  ${release} needs its newest release candidate, ${newest}, out first (published, not only tagged).`
+        : `  ${release} needs a release candidate of it out first: ${nextVersion(tags, today, true)}.`,
+    );
     return 0;
   }
   if ((command !== 'check' && command !== 'notes') || rest.length === 0 || rest[0]!.startsWith('--')) {
@@ -797,14 +801,15 @@ async function main(argv: string[]): Promise<number> {
   const inActions = process.env.GITHUB_ACTIONS === 'true';
   const fail = (e: string) => console.error(inActions ? `::error title=Release version::${actionsData(e)}` : `✗ ${e}`);
   const asked = parseVersion(rest[0]!);
-  // GitHub's releases: whether the version's tag is the Release workflow's own (--own-tag), and which of
-  // a release's candidates' tags are of release candidates that are out (--remote), newest first, up to
-  // the first that is.
-  const askOwn = flag('--own-tag') && asked.ok && tags.includes(asked.value.version);
-  const candidates = flag('--remote') && asked.ok && !asked.value.rc ? candidatesOf(tags, asked.value).map((t) => t.version) : [];
+  // GitHub's releases: whether the version's tag is the Release workflow's own (--own-tag), and whether
+  // a release's newest candidate is out (--remote). Only for today's version: another day's is refused
+  // whatever GitHub says, and GitHub failing must not hide why.
+  const ofToday = asked.ok && asked.value.date === today;
+  const askOwn = flag('--own-tag') && ofToday && asked.ok && tags.includes(asked.value.version);
+  const newest = flag('--remote') && ofToday && asked.ok && !asked.value.rc ? candidatesOf(tags, asked.value)[0]?.version : undefined;
   let ownTag = false;
   const unreleased: string[] = [];
-  if (askOwn || candidates.length) {
+  if (askOwn || newest) {
     const repo = githubRepo();
     if (!repo) {
       fail('origin is not a GitHub repository: set GITHUB_REPOSITORY to owner/name.');
@@ -819,10 +824,7 @@ async function main(argv: string[]): Promise<number> {
     };
     try {
       if (askOwn && asked.ok) ownTag = !(await released(asked.value.version));
-      for (const tag of candidates) {
-        if (await released(tag)) break;
-        unreleased.push(tag);
-      }
+      if (newest && !(await released(newest))) unreleased.push(newest);
     } catch (e) {
       fail((e as Error).message);
       return 1;

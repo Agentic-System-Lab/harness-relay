@@ -1,7 +1,9 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { pathToFileURL } from 'node:url';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
   ALWAYS,
   changedFiles,
@@ -19,6 +21,7 @@ import {
   type Git,
   type Scope,
 } from '../scripts/ci-scope';
+import { slow } from './timeouts';
 
 const ROOT = resolve(__dirname, '..');
 const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
@@ -186,6 +189,61 @@ describe('e2eFor', () => {
     expect(e2eFor(all, 'workflow_dispatch', 'cyyeh')).toEqual(all);
     expect(e2eFor(all, '', 'cyyeh')).toEqual(all);
   });
+});
+
+describe('the script in GitHub Actions', () => {
+  // A pull request's merge commit, as GitHub checks it out: main, and a branch that changed the server.
+  const dir = mkdtempSync(join(tmpdir(), 'relay-ci-scope-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  writeFileSync(join(dir, 'README.md'), 'start\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'start');
+  git('checkout', '-q', '-b', 'change');
+  mkdirSync(join(dir, 'src', 'server'), { recursive: true });
+  writeFileSync(join(dir, 'src', 'server', 'app.ts'), 'export {};\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'change');
+  git('checkout', '-q', 'main');
+  git('merge', '-q', '--no-ff', '-m', 'merge', 'change');
+
+  // tsx from this repository: the script runs in another one.
+  const tsx = pathToFileURL(resolve(ROOT, 'node_modules/tsx/dist/loader.mjs')).href;
+  // Untracked: the change is the merge commit against its first parent.
+  const output = join(dir, 'github-output');
+  /** What the script writes to $GITHUB_OUTPUT for this event and pull request author. */
+  const outputsFor = (event: string, author: string) => {
+    writeFileSync(output, '');
+    const r = spawnSync(process.execPath, ['--import', tsx, join(ROOT, 'scripts', 'ci-scope.ts')], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GITHUB_ACTIONS: 'true',
+        GITHUB_EVENT_NAME: event,
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: '',
+        PR_AUTHOR: author,
+      },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    return readFileSync(output, 'utf8');
+  };
+
+  it(
+    "skips the end-to-end tests for a maintainer's pull request and a push to main, by PR_AUTHOR and the event",
+    () => {
+      expect(outputsFor('pull_request', 'cyyeh')).toBe('windows=true\ndesktop=true\ne2e=false\n');
+      expect(outputsFor('pull_request', 'a-contributor')).toBe('windows=true\ndesktop=true\ne2e=true\n');
+      expect(outputsFor('pull_request', '')).toBe('windows=true\ndesktop=true\ne2e=true\n');
+      expect(outputsFor('push', '')).toBe('windows=true\ndesktop=true\ne2e=false\n');
+      // A run by hand, and the Release workflow's call (its event), whoever started it.
+      expect(outputsFor('workflow_dispatch', 'cyyeh')).toBe('windows=true\ndesktop=true\ne2e=true\n');
+    },
+    slow(20_000),
+  );
 });
 
 /** A git that answers from a table of commands, and throws for any other. */
@@ -418,7 +476,9 @@ describe('the rules and the repository', () => {
         const conditions = job.match(/^ {4}if: .*$/gm) ?? [];
         const scope = scopes.find((s) => GATED[s].job === id);
         if (scope) {
-          expect(conditions, id).toEqual([`    if: needs.changes.outputs.${scope} != 'false'`]);
+          // The end-to-end tests go by the script for a pull request only: the Release workflow's call always runs them.
+          const gate = `needs.changes.outputs.${scope} != 'false'`;
+          expect(conditions, id).toEqual([`    if: ${scope === 'e2e' ? `github.event_name != 'pull_request' || ${gate}` : gate}`]);
           expect(job, id).toMatch(/^ {4}needs: changes$/m);
           const name = job.match(/^ {4}name: (.*)$/m)?.[1] ?? '';
           expect(name === SCOPE_JOBS[scope] || name.startsWith(`${SCOPE_JOBS[scope]} (`), `${id}: ${name}`).toBe(true);

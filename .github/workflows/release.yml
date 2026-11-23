@@ -10,7 +10,7 @@ name: Release
 # UPDATES_READ_TOKEN secret, when that is set (for a private one), which must not be the write token
 # and is checked to read them before the release is published. A release candidate is published as a
 # pre-release, and only once the end-to-end tests (e2e.yml, called beside the builds) passed on its
-# commit; they run for no release, which is made only once a release candidate of it is out (the
+# commit; they run for no release, which is made only once its newest release candidate is out (the
 # version's check, scripts/release.ts). Its notes list every commit that came into main since the
 # version before (scripts/release.ts notes), pushed to main or merged from a pull request. When the
 # website has a download mirror (MIRROR in site/assets/downloads.js), a release's installers go there
@@ -383,7 +383,7 @@ jobs:
 
   # The end-to-end tests (e2e.yml, as for a pull request: every system, in halves), for a release
   # candidate only, beside the builds: it is published only once they pass. A release runs none, as it
-  # is made only once a release candidate of it is out (the version job's check), which passed them.
+  # is made only once its newest release candidate is out (the version job's check), which passed them.
   # No secret is passed on: the tests run npm's packages.
   e2e:
     name: End-to-end tests
