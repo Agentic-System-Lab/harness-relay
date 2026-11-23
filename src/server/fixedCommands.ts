@@ -22,7 +22,7 @@ import {
   type FixedCommand,
   type FixedCommandRun,
 } from '../shared/types';
-import { UNPINNED_TOP, maskEdges, maskValues, secretValueProblem } from '../shared/handoffs';
+import { UNPINNED_ANY, UNPINNED_TOP, maskEdges, maskValues, secretValueProblem, unpinnedFolders } from '../shared/handoffs';
 import type { CompiledPattern } from '../shared/checks';
 import { AgentRunError } from './agents/types';
 import { CONFIG_FILE, checkEnv, commandCwd, keptOutput, namedFiles, sandboxDenial } from './checkCommands';
@@ -267,7 +267,8 @@ function withheld(abs: string, keys: ReadonlySet<string>): boolean {
  *   installed packages is kept by its target, as those folders are not pinned);
  * - the files its command line names (`named`, full paths), wherever they are, hashed through links;
  * - git's configuration and hooks, which a command that runs git runs.
- * It passes over `.git` and, at the top only, the folders of installed packages (`UNPINNED_TOP`).
+ * It passes over `.git` and the folders of installed packages and build output, at the top (`UNPINNED_TOP`)
+ * and below it (`UNPINNED_ANY`: `todo-app/node_modules`, but not a `target` or `__pycache__` below the top).
  */
 export async function pinManifest(folder: string, named: readonly string[] = []): Promise<Record<string, PinEntry>> {
   const out: Record<string, PinEntry> = {};
@@ -307,7 +308,7 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
     if (base === undefined) return 'out';
     const parts = relative(base, found).split(sep).filter(Boolean);
     if (parts.some((x) => x.toLowerCase() === '.git')) return 'out';
-    return parts.length && UNPINNED_TOP.includes(parts[0]!) ? 'packages' : 'in';
+    return unpinnedFolders(parts.slice(0, -1)) || unpinnedFolders(parts) ? 'packages' : 'in';
   };
   const link = async (rel: string, abs: string): Promise<PinEntry> => {
     const target = await readlink(abs).catch(() => '');
@@ -335,8 +336,9 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
       const childAbs = join(abs, name);
       const st = await lstat(childAbs).catch(() => undefined);
       if (!st) continue;
-      // A top folder of packages is not pinned, a link to one elsewhere neither (but by its target).
-      const packages = top && UNPINNED_TOP.includes(name);
+      // A folder of packages is not pinned (at the top, or below it but `target` and `__pycache__`), a link to one neither
+      // (but by its target).
+      const packages = (top && UNPINNED_TOP.includes(name)) || UNPINNED_ANY.includes(name);
       if (st.isSymbolicLink())
         add(childRel, packages ? { kind: 'link', target: await readlink(childAbs).catch(() => '') } : await link(childRel, childAbs));
       else if (st.isDirectory()) {
@@ -430,7 +432,15 @@ export function manifestDigest(manifest: Record<string, PinEntry>): string {
 /** What changed between two pins' manifests, by path, in path order. */
 export function manifestChanges(before: Record<string, PinEntry>, after: Record<string, PinEntry>): string[] {
   const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
-  return paths.filter((p) => JSON.stringify(before[p]) !== JSON.stringify(after[p]));
+  // A file of a folder of packages below the top that an older pin took (`todo-app/node_modules/…`) is no
+  // longer pinned: gone from it, it is no change.
+  return paths.filter((p) => JSON.stringify(before[p]) !== JSON.stringify(after[p]) && !(p in before && !(p in after) && packagesFile(p)));
+}
+
+/** Whether a pin's entry is a file in a folder of packages it passes over (`unpinnedFolders()`); never a named file, a git setting or hook. */
+function packagesFile(entry: string): boolean {
+  if (entry.startsWith('named:') || entry.includes('git config ') || entry.includes('git hook ')) return false;
+  return unpinnedFolders(entry.split('/').slice(0, -1));
 }
 
 /** A command's code now: the manifest of its folder, and a snapshot of its repository to show a diff from. */
@@ -643,20 +653,47 @@ export async function pinDiff(
 }
 
 /**
+ * Whether an entry of a command's pin is the command's own, to show (`codeView()`): a script it names,
+ * a git setting or hook, a file outside the folder; a file in the folder of a script it names inside the
+ * folder, or below it; a file directly in a folder above one (`package.json`, `pyproject.toml`, `.env`:
+ * what it runs with). A command that names no script inside the folder: its own folder (`cwd`, its top when
+ * none) and below, and the files above it. `scriptDirs`: those folders, relative, '' for the top.
+ */
+export function ownEntry(entry: string, scriptDirs: readonly string[]): boolean {
+  if (entry.startsWith('named:') || entry.includes('git config ') || entry.includes('git hook ') || entry.endsWith('/.git')) return true;
+  const dir = entry.includes('/') ? entry.slice(0, entry.lastIndexOf('/')) : '';
+  return scriptDirs.some((d) => d === '' || entry.startsWith(`${d}/`) || dir === '' || d === dir || d.startsWith(`${dir}/`));
+}
+
+/**
  * What a proposed fixed command would run, for the user to see before its first Save pins it (`manifest`,
  * its pin's): the scripts its command line names, in full; of the other files it pins, those that changed
  * since `base` (the state before the conversation's agents first changed files there, `commandCode()`;
  * else the last commit), commits an agent made included, as git's diff, and those git ignores as they are
  * now; its git settings, hooks and the files its command line names outside the repository, as they are
  * now; files of secrets by their names alone (`pinDiff()`). Values masked; cut a whole file at a time.
+ * Only what is the command's own (`ownEntry()`): the folders of the scripts it names, and the files of the
+ * folders above them (the configuration they run with); else its own folder (`cwd`). The rest it pins
+ * too (another project in the working directory) is named in `elsewhere`, never listed.
  */
 export async function codeView(
   folder: string,
   manifest: Record<string, PinEntry>,
   values: readonly string[] = [],
-  o: { base?: string; named?: readonly string[]; max?: number } = {},
-): Promise<{ diff: string; files: CodeViewFile[]; missing: string[] }> {
+  o: { base?: string; named?: readonly string[]; cwd?: string; max?: number } = {},
+): Promise<{ diff: string; files: CodeViewFile[]; missing: string[]; elsewhere: string[] }> {
   const max = o.max ?? 60_000;
+  // The folders whose code is the command's: its scripts' inside the folder, else its own.
+  const scriptDirs = [
+    ...new Set(
+      (o.named ?? []).flatMap((abs) => {
+        if (!inside(abs, folder)) return [];
+        const rel = relative(folder, abs).split(sep).join('/');
+        return [rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''];
+      }),
+    ),
+  ];
+  const own = (e: string) => ownEntry(e, scriptDirs.length ? scriptDirs : [(o.cwd ?? '').replace(/^\.\/?|\/$/g, '')]);
   const entries = Object.keys(manifest);
   // The scripts the command line names, as the pin keys them: shown in full, first, whatever git says.
   const named = new Set(
@@ -668,7 +705,11 @@ export async function codeView(
   const outside = (e: string) =>
     e.startsWith('git ') || e.includes(': git ') || e.endsWith('/.git') || (e.startsWith('named:') && isAbsolute(e.slice(6)));
   const root = await repoRoot(folder).catch(() => null);
-  if (!root) return pinDiff(folder, { manifest: {} }, entries, values, max, [...named]);
+  if (!root)
+    return {
+      ...(await pinDiff(folder, { manifest: {} }, entries.filter(own), values, max, [...named])),
+      elsewhere: entries.filter((e) => !own(e)),
+    };
   const base = o.base ?? (await committedBase(root));
   const { commit } = await snapshot(root);
   const prefix = folder === root ? '' : `${relative(root, folder).split(sep).join('/')}/`;
@@ -678,7 +719,10 @@ export async function codeView(
   const tracked = await treePaths(root, commit);
   const shown = entries.filter((e) => named.has(e) || outside(e) || !tracked.has(repoPath(e)) || changed.has(repoPath(e)));
   // A named script with no change has no diff: shown as it is now (`pinDiff()`'s pieces of the rest).
-  return pinDiff(folder, { manifest: {}, root, commit: base }, shown, values, max, [...named]);
+  return {
+    ...(await pinDiff(folder, { manifest: {}, root, commit: base }, shown.filter(own), values, max, [...named])),
+    elsewhere: shown.filter((e) => !own(e)),
+  };
 }
 
 /** What `runFixedCommand` needs (swapped in tests). */
@@ -764,7 +808,7 @@ export function readBack(file: string): Record<string, string> {
   }
 }
 
-/** Whether a command's folder `cwd` is, as the system finds it, inside `folder` and outside its top folders of packages and `.git`. */
+/** Whether a command's folder `cwd` is, as the system finds it, inside `folder` and outside its folders of packages and `.git`. */
 export function pinnedCwd(folder: string, cwd: string): boolean {
   let real: string;
   let base: string;
@@ -779,7 +823,7 @@ export function pinnedCwd(folder: string, cwd: string): boolean {
     .split(sep)
     .filter(Boolean)
     .map((x) => x.toLowerCase());
-  return !parts.includes('.git') && !(parts.length && UNPINNED_TOP.includes(parts[0]!));
+  return !parts.includes('.git') && !unpinnedFolders(parts);
 }
 
 /** Runs a fixed command once and says how it went (never throws for the command or the sandbox). */

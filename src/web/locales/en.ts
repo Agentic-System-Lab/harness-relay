@@ -1205,6 +1205,8 @@ export const en: Messages = {
       },
       codeNoText: 'No text to show (a binary file, say).',
       codeCut: 'Shown up to here: the file is too long to show the rest.',
+      codeElsewhere: (count, folders) =>
+        `${count} more files elsewhere in the working directory (${folders}) changed or are new: pinned too, but not where this command's scripts are, so not listed here.`,
       noCode: 'Nothing changed in its code since the agents of this chat began: it runs the code as it was then.',
       codeNotShown: (files: string) => `Not shown here (gone, not text, outside the folder, or past the length shown): ${files}`,
       blocked: "An automation's run proposed it, which nobody watched: it cannot be saved from this card.",

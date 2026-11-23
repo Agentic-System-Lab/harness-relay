@@ -584,7 +584,7 @@ export const api = {
     ),
   /** The code a proposed fixed command would run, and its digest, which Save sends back. */
   commandCode: (id: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) =>
-    request<{ diff: string; files: CodeViewFile[]; missing: string[]; digest: string }>(
+    request<{ diff: string; files: CodeViewFile[]; missing: string[]; elsewhere: string[]; digest: string }>(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
       { action: 'code', ...(edits ? { edits } : {}) },

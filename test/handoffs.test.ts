@@ -18,8 +18,19 @@ import {
   splitHandoffs,
   withoutHandoffBlocks,
 } from '../src/shared/handoffs';
-import { codeFiles, commandActions, filledValues, formOf, proposalOf, runTone, wordsOf, type CommandPart } from '../src/web/handoffs';
+import {
+  codeFiles,
+  commandActions,
+  elsewhereFolders,
+  filledValues,
+  formOf,
+  proposalOf,
+  runTone,
+  wordsOf,
+  type CommandPart,
+} from '../src/web/handoffs';
 import { openDatabase } from '../src/server/db';
+import { ownEntry } from '../src/server/fixedCommands';
 import { HandoffStore, secretEntry } from '../src/server/handoffs';
 import type { SecretStore } from '../src/server/secrets';
 import { t, withLang } from '../src/server/i18n';
@@ -158,7 +169,11 @@ describe('hand-off blocks in a reply', () => {
     expect(hiddenCharacters('plain line')).toBe(false);
     // Not from inside a folder of installed packages, whose code is not pinned.
     expect(checkProposal({ name: 'post', run: 'x', cwd: 'node_modules/pkg' })).toBeUndefined();
-    expect(checkProposal({ name: 'post', run: 'x', cwd: 'lib/node_modules' })).toMatchObject({ cwd: 'lib/node_modules' });
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'app/node_modules/pkg' })).toBeUndefined();
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'app/.venv' })).toBeUndefined();
+    // Below the top, `target` and `__pycache__` are the code's own folders, pinned: a command may run there.
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'lib/target' })).toMatchObject({ cwd: 'lib/target' });
+    expect(checkProposal({ name: 'post', run: 'x', cwd: 'target' })).toBeUndefined();
     expect(checkProposal({ name: 'post', run: '  ', hosts: [] })).toBeUndefined();
     expect(checkProposal({ name: 'post', run: 'x', hosts: Array.from({ length: 11 }, (_, i) => `h${i}.com`) })).toBeUndefined();
     expect(checkProposal({ name: 'post', run: 'x', hosts: ['a.com', 'A.com'], secrets: ['k', 'K'] })).toEqual({
@@ -538,5 +553,27 @@ describe('what an agent hears of the runs and outbox items it asked for', () => 
     }
     expect(withLang('zh-TW', () => t().handoffs.secretsAnswer(['A', 'B'], []))).toContain('它們存在');
     expect(withLang('zh-TW', () => t().handoffs.secretsAnswer(['A'], []))).toContain('它存在');
+  });
+});
+
+describe("what of a command's code its card shows", () => {
+  it('takes as its own the folders of its scripts and below, the files above them, git settings and named files', () => {
+    const own = (e: string) => ownEntry(e, ['threads-poster']);
+    for (const e of [
+      'threads-poster/x.py',
+      'threads-poster/tests/t.py',
+      'package.json',
+      'named:/opt/x.sh',
+      'git config core.hooksPath',
+      'todo-app: git hook pre-commit',
+    ])
+      expect(own(e), e).toBe(true);
+    for (const e of ['todo-app/src/app.js', 'todo-app/package.json', 'threads-poster-old/x.py']) expect(own(e), e).toBe(false);
+    // A script at the top, or the top as its folder: all of it.
+    expect(ownEntry('todo-app/src/app.js', [''])).toBe(true);
+    // A deeper script: the files of each folder above it, not their other folders.
+    expect(ownEntry('apps/package.json', ['apps/poster'])).toBe(true);
+    expect(ownEntry('apps/todo/package.json', ['apps/poster'])).toBe(false);
+    expect(elsewhereFolders(['todo-app/src/app.js', 'todo-app/package.json', 'notes.py'])).toEqual(['todo-app', '.']);
   });
 });

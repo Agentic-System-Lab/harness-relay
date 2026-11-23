@@ -340,12 +340,19 @@ describe("a fixed command's pin", () => {
     symlinkSync(join(dir, 'elsewhere', 'evil'), join(dir, 'json'));
     expect(await pinChanges(dir, again)).toContain('json');
     const third = await takePin(dir, 'c2');
-    // `target` and `node_modules` are passed over at the top only.
+    // Folders of packages are passed over at the top, and below it too (a project in a subfolder has its own);
+    // `target` and `__pycache__` at the top only: below it they may be the code's own.
     mkdirSync(join(dir, 'lib', 'target'), { recursive: true });
     writeFileSync(join(dir, 'lib', 'target', 'x.py'), 'x = 1\n');
+    mkdirSync(join(dir, 'lib', '__pycache__'), { recursive: true });
+    writeFileSync(join(dir, 'lib', '__pycache__', 'x.cpython-312.pyc'), 'planted');
     mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true });
     writeFileSync(join(dir, 'node_modules', 'pkg', 'index.js'), '1\n');
-    expect(await pinChanges(dir, third)).toEqual(['lib/target/x.py']);
+    for (const pkgs of ['node_modules', '.venv', 'venv', '.next', '.turbo']) {
+      mkdirSync(join(dir, 'app', pkgs, 'pkg'), { recursive: true });
+      writeFileSync(join(dir, 'app', pkgs, 'pkg', 'index.js'), '1\n');
+    }
+    expect(await pinChanges(dir, third)).toEqual(['lib/__pycache__/x.cpython-312.pyc', 'lib/target/x.py']);
   });
 
   it('gives the same digest for the same code, another once it changes', async () => {
@@ -543,6 +550,47 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     expect(long.files[0]!.text.length).toBeLessThanOrEqual(600);
     expect(codeFiles(long.files)[0]).toMatchObject({ title: 'big.py', kind: 'new', cut: true });
     expect(long.diff).toMatch(/\n…$/);
+  });
+
+  it("lists in the code view only what is the command's own, names the rest, and pins no subfolder's packages", async () => {
+    const dir = folder();
+    await ensureRepo(dir);
+    writeFileSync(join(dir, 'README.md'), 'hi\n');
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
+    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // Two projects in one working directory, as the agents left them: a script's, and another with its packages.
+    for (const d of ['threads-poster/tests', 'todo-app/src', 'todo-app/node_modules/mime/.bin'])
+      mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, 'threads-poster', 'threads_poster.py'), 'print("post")\n');
+    writeFileSync(join(dir, 'threads-poster', 'tests', 'test_poster.py'), 'assert True\n');
+    writeFileSync(join(dir, 'package.json'), '{}\n');
+    writeFileSync(join(dir, 'todo-app', 'package.json'), '{}\n');
+    writeFileSync(join(dir, 'todo-app', 'src', 'app.js'), 'run()\n');
+    writeFileSync(join(dir, 'todo-app', 'node_modules', 'mime', 'index.js'), 'module.exports = 1\n');
+    writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+    const script = join(dir, 'threads-poster', 'threads_poster.py');
+    const manifest = await pinManifest(dir, [script]);
+    expect(Object.keys(manifest).filter((k) => k.includes('node_modules'))).toEqual([]);
+    // Its own: its script's folder and below, and the files of the folders above it.
+    const view = await codeView(dir, manifest, [], { base, named: [script] });
+    expect(view.files.map((f) => f.entry).sort()).toEqual([
+      'package.json',
+      'threads-poster/tests/test_poster.py',
+      'threads-poster/threads_poster.py',
+    ]);
+    expect(view.elsewhere.sort()).toEqual(['todo-app/package.json', 'todo-app/src/app.js']);
+    // A command that names no script: its own folder.
+    const byCwd = await codeView(dir, manifest, [], { base, cwd: 'todo-app' });
+    expect(byCwd.files.map((f) => f.entry).sort()).toEqual(['package.json', 'todo-app/package.json', 'todo-app/src/app.js']);
+    expect(byCwd.elsewhere.sort()).toEqual(['threads-poster/tests/test_poster.py', 'threads-poster/threads_poster.py']);
+    // At the top: everything.
+    expect((await codeView(dir, manifest, [], { base })).elsewhere).toEqual([]);
+    // An older pin that took a subfolder's packages: their files gone from it are no change; another file is.
+    const file = { kind: 'file' as const, size: 2, hash: 'h' };
+    expect(manifestChanges({ ...manifest, 'todo-app/node_modules/mime/index.js': file }, manifest)).toEqual([]);
+    expect(manifestChanges({ ...manifest, 'todo-app/src/gone.js': file }, manifest)).toEqual(['todo-app/src/gone.js']);
+    expect(manifestChanges({ ...manifest, 'lib/target/x.py': file }, manifest)).toEqual(['lib/target/x.py']);
   });
 
   it("keeps a script's own header-like lines in its file: the card's files are the server's, not read back from text", async () => {

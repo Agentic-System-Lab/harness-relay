@@ -1224,6 +1224,8 @@ export const zhTW = {
       },
       codeNoText: '沒有可顯示的文字（例如二進位檔）。',
       codeCut: '只顯示到這裡：檔案太長，後面的內容沒有顯示。',
+      codeElsewhere: (count: number, folders: string) =>
+        `工作目錄裡其他地方（${folders}）還有 ${count} 個檔案改過或是新的：一樣鎖定，但不在這個指令的腳本所在之處，這裡不列出。`,
       noCode: '從這個對話的 agent 開始工作以來，它的程式碼沒有改過：它執行的是那時的程式碼。',
       codeNotShown: (files: string) => `這裡沒有顯示（已刪除、不是文字、在資料夾外，或超過顯示的長度）：${files}`,
       blocked: '這是自動任務的執行提議的，沒有人看著那次執行：不能從這張卡片儲存。',

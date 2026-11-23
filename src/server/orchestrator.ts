@@ -1535,7 +1535,7 @@ export class Orchestrator {
     messageId: string,
     partId: string,
     edits: Partial<CommandProposal> = {},
-  ): Promise<{ diff: string; files: CodeViewFile[]; missing: string[]; digest: string }> {
+  ): Promise<{ diff: string; files: CodeViewFile[]; missing: string[]; elsewhere: string[]; digest: string }> {
     const { conv, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
     if (part.blocked) throw new HttpError(409, part.blocked === 'windows' ? t().handoffs.windows : t().handoffs.commandBlocked);
@@ -1549,7 +1549,7 @@ export class Orchestrator {
     const base = root ? this.firstBase(conv, root) : undefined;
     const manifest = await this.steadyManifest(part.folder, named, async (now) => {
       const values = Object.values(this.settings.handoffs.values(part.folder));
-      return codeView(part.folder, now, values, { named, ...(base ? { base } : {}) });
+      return codeView(part.folder, now, values, { named, ...(proposal.cwd ? { cwd: proposal.cwd } : {}), ...(base ? { base } : {}) });
     });
     return { ...manifest.view, digest: manifestDigest(manifest.now) };
   }

@@ -147,7 +147,7 @@ export function checkProposal(p: {
   if (hosts.length > HANDOFF_LIMITS.hosts || secrets.length > HANDOFF_LIMITS.commandSecrets) return undefined;
   const cwd = commandFolder(p.cwd);
   // Not inside a folder of installed packages, whose code the pin passes over.
-  if (cwd === undefined || UNPINNED_TOP.includes(cwd.split('/')[0]!.toLowerCase())) return undefined;
+  if (cwd === undefined || unpinnedFolders(cwd.split('/').map((f) => f.toLowerCase()))) return undefined;
   return {
     name,
     run,
@@ -367,6 +367,19 @@ export function secretValueProblem(value: string): 'empty' | 'short' | 'long' | 
  * snapshots do; a command may not run from inside one, where its code would not be pinned.
  */
 export const UNPINNED_TOP = ['node_modules', '.venv', 'venv', '__pycache__', '.next', '.turbo', 'target'];
+
+/**
+ * The folders of installed packages and build caches a fixed command's pin passes over below the top too, as at
+ * the top (a project in a subfolder has its own `node_modules`). Not `target` nor `__pycache__` there: below the
+ * top a `target` folder may be a module of the code itself, and a `.pyc` whose header matches its source's time
+ * and size runs instead of the source.
+ */
+export const UNPINNED_ANY = ['node_modules', '.venv', 'venv', '.next', '.turbo'];
+
+/** Whether folders (a path's, from the command's folder down, each name as given) lead into one the pin passes over. */
+export function unpinnedFolders(folders: readonly string[]): boolean {
+  return (folders.length > 0 && UNPINNED_TOP.includes(folders[0]!)) || folders.some((f) => UNPINNED_ANY.includes(f));
+}
 
 /**
  * Output kept from its end (`keptOutput()`'s `…` line first, or `cut` when its start was dropped before):

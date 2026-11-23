@@ -4,6 +4,7 @@ import { api } from '../api';
 import {
   codeFiles,
   commandActions,
+  elsewhereFolders,
   filledValues,
   formOf,
   interactiveActions,
@@ -217,7 +218,9 @@ export function CommandCard({
   const run = part.run;
   const edited = editing ? proposalOf(form) : undefined;
   // The code it would run, which Save pins: shown first, for the command as it would be saved (its edits).
-  const [code, setCode] = useState<{ files: CodeViewFile[]; missing: string[]; digest: string; of: string } | null>(null);
+  const [code, setCode] = useState<{ files: CodeViewFile[]; missing: string[]; elsewhere: string[]; digest: string; of: string } | null>(
+    null,
+  );
   const codeOf = JSON.stringify(editing ? (edited ?? null) : p);
   const seen = code && code.of === codeOf ? code : null;
   const showCode = () =>
@@ -326,6 +329,9 @@ export function CommandCard({
           </button>
           {seen && (seen.files.length ? <CodeFiles view={seen.files} /> : <p className="muted small">{c.noCode}</p>)}
           {seen && seen.missing.length > 0 && <p className="muted small">{c.codeNotShown(seen.missing.join(', '))}</p>}
+          {seen && seen.elsewhere.length > 0 && (
+            <p className="muted small">{c.codeElsewhere(seen.elsewhere.length, elsewhereFolders(seen.elsewhere).join(', '))}</p>
+          )}
         </div>
       )}
       {run && tone && (

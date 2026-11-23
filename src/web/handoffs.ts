@@ -63,6 +63,14 @@ export function codeFiles(view: readonly CodeViewFile[]): CodeFile[] {
   });
 }
 
+/**
+ * The folders of the files a command pins that are not its own (`codeView()`'s `elsewhere`), as the card names
+ * them: each one's top folder, once, in order ('.' for a file at the top).
+ */
+export function elsewhereFolders(entries: readonly string[]): string[] {
+  return [...new Set(entries.map((e) => (e.includes('/') ? e.slice(0, e.indexOf('/')) : '.')))];
+}
+
 /** A list the user typed: words separated by commas or spaces, each once. */
 export function wordsOf(text: string): string[] {
   return [...new Set(text.split(/[\s,，、]+/).filter(Boolean))];
