@@ -2679,11 +2679,25 @@ export function createApp({
 
   // A proposed fixed command's card: save it (with the user's edits) or not, or tell the team about it.
   app.post('/api/conversations/:id/messages/:messageId/commands/:partId', async (c) => {
-    const b = await body<{ action?: unknown; edits?: unknown }>(c);
+    const b = await body<{ action?: unknown; edits?: unknown; digest?: unknown }>(c);
     const [id, messageId, partId] = [c.req.param('id'), c.req.param('messageId'), c.req.param('partId')];
+    if (b.digest !== undefined && (typeof b.digest !== 'string' || !/^[0-9a-f]{32}$/.test(b.digest))) {
+      throw new HttpError(400, t().invalidField('digest'));
+    }
     switch (b.action) {
+      // The code it would run (`code`), whose digest Save sends back: Save pins that code alone.
+      case 'code':
+        return c.json(await orchestrator.commandCode(id, messageId, partId, proposalEdits(b.edits)));
       case 'save':
-        return c.json(await orchestrator.saveCommand(id, messageId, partId, proposalEdits(b.edits)));
+        return c.json(
+          await orchestrator.saveCommand(
+            id,
+            messageId,
+            partId,
+            proposalEdits(b.edits),
+            typeof b.digest === 'string' ? b.digest : undefined,
+          ),
+        );
       case 'dismiss':
         await orchestrator.dismissCommand(id, messageId, partId);
         return c.json({ ok: true });

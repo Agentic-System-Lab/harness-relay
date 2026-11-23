@@ -588,11 +588,19 @@ export const api = {
     partId: string,
     action: 'save' | 'dismiss' | 'continue' | 'share',
     edits?: Partial<CommandProposal>,
+    digest?: string,
   ) =>
     request<FixedCommand | { ok: true }>(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
-      { action, ...(edits ? { edits } : {}) },
+      { action, ...(edits ? { edits } : {}), ...(digest ? { digest } : {}) },
+    ),
+  /** The code a proposed fixed command would run, and its digest, which Save sends back. */
+  commandCode: (id: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) =>
+    request<{ diff: string; missing: string[]; digest: string }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/commands/${encodeURIComponent(partId)}`,
+      { action: 'code', ...(edits ? { edits } : {}) },
     ),
   /** An interactive command's card: start it, type a line into it, answer its password helper, cancel it, send its output to the team, or not run it. */
   interactiveCard: (

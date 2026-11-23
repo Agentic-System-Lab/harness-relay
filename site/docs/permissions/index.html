@@ -438,7 +438,7 @@
           <ul>
             <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
             <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
-            <li>only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
+            <li>only with the code you looked at before saving it (<b>Show the code it runs</b>), and only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
             <li>when you click <b>Try it</b>, <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
           </ul>
           <p>
@@ -457,7 +457,8 @@
           <ul>
             <li>
               <b>Start</b> runs it with your rights on this computer, outside every agent's sandbox, in an empty folder of its own, or in the
-              working directory if you choose it there (the card then lists the configuration files a program may load and the git hooks it may run, which agents can change).
+              working directory if you choose it there (the card then lists the configuration files, git hooks and installed programs it may load, which agents can change, and
+              does not start once one of them changed).
               Nothing runs until you click it, and a card an automation's run proposed cannot be started.
             </li>
             <li>

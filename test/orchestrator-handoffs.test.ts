@@ -10,7 +10,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MessagePart } from '../src/shared/types';
+import type { CommandProposal, MessagePart } from '../src/shared/types';
 import { HandoffStore } from '../src/server/handoffs';
 import type { FixedCommandDeps } from '../src/server/fixedCommands';
 import type { SecretStore } from '../src/server/secrets';
@@ -97,6 +97,12 @@ beforeEach(() => {
 const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
   const msg = agentMessages(store.get(convId)!).find((m) => m.parts.some((p) => p.type === type))!;
   return { msg, part: msg.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type)! };
+};
+
+/** Saves a proposed command as the user does: having looked at the code it runs (`commandCode()`), whose digest Save sends. */
+const saveSeen = async (convId: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) => {
+  const { digest } = await orchestrator.commandCode(convId, messageId, partId, edits);
+  return orchestrator.saveCommand(convId, messageId, partId, edits, digest);
 };
 
 const userTexts = (convId: string) =>
@@ -442,10 +448,10 @@ describe('fixed command cards', () => {
     const { conv, msg, part } = await propose();
     expect(msg.asked).toBe(true);
     expect(part).toMatchObject({ status: 'proposed', proposal: { name: 'post', run: 'python3 post.py', hosts: ['graph.threads.net'] } });
-    const saved = await orchestrator.saveCommand(conv.id, msg.id, part.id, { run: 'python3 post.py --quiet' });
+    const saved = await saveSeen(conv.id, msg.id, part.id, { run: 'python3 post.py --quiet' });
     expect(saved).toMatchObject({ name: 'post', run: 'python3 post.py --quiet', folder: orchestrator.handoffFolder(conv) });
     expect(settings.handoffs.pin(saved.id)!.manifest).toHaveProperty(['post.py']);
-    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    await expect(saveSeen(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
 
     play = (env) => ({ code: 0, stdout: `used ${readFileSync(env.RELAY_SECRETS_FILE!, 'utf8').trim()}` });
     await orchestrator.tryCommand(conv.id, saved.id, { extra: '--dry-run' });
@@ -462,7 +468,7 @@ describe('fixed command cards', () => {
 
   it('does not run once its code changed, until the user approves the change; its data may change', async () => {
     const { conv, msg, part } = await propose();
-    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
     writeFileSync(join(project, 'queue.csv'), 'id,text\n1,hi\n');
     await orchestrator.tryCommand(conv.id, id);
     await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
@@ -489,7 +495,7 @@ describe('fixed command cards', () => {
 
   it('does not run while a run may be writing in its folder', async () => {
     const { conv, msg, part } = await propose();
-    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
     const locks = (orchestrator as unknown as { dirLocks: Map<string, string> }).dirLocks;
     locks.set(orchestrator.handoffFolder(conv), 'another-conversation');
     try {
@@ -505,7 +511,7 @@ describe('fixed command cards', () => {
   it('marks a proposal that would replace a saved command of the same name', async () => {
     const { conv, msg, part } = await propose();
     expect(part.replaces).toBeUndefined();
-    await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    await saveSeen(conv.id, msg.id, part.id);
     fake.reply = () => 'Another.\n\n<command name="post" hosts="evil.example">python3 other.py</command>';
     await orchestrator.send(conv.id, 'again');
     await finish(conv.id);
@@ -515,7 +521,7 @@ describe('fixed command cards', () => {
 
   it('stops its runs at shutdown', async () => {
     const { conv, msg, part } = await propose();
-    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
     let aborted = false;
     const deps = orchestrator.fixedCommandDeps;
     orchestrator.fixedCommandDeps = {
@@ -576,7 +582,7 @@ describe('fixed command cards', () => {
 
   it('holds its folder while it runs: nothing starts in its chat meanwhile', async () => {
     const { conv, msg, part } = await propose();
-    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
     let finishRun!: () => void;
     const deps = orchestrator.fixedCommandDeps;
     orchestrator.fixedCommandDeps = {
@@ -632,6 +638,37 @@ describe('fixed command cards', () => {
     expect(reply.asked).toBeFalsy();
   });
 
+  it("saves only the code the user was shown: an agent's new script in it, a .env by name, never one changed since", async () => {
+    const { conv, msg, part } = await propose();
+    writeFileSync(join(project, 'post.py'), 'print("agent wrote this")\n');
+    writeFileSync(join(project, '.env'), 'SOME_KEY=abc\n');
+    // Never without having looked.
+    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    const shown = await orchestrator.commandCode(conv.id, msg.id, part.id);
+    expect(shown.diff).toContain('print("agent wrote this")');
+    expect(shown.diff).not.toContain('SOME_KEY');
+    expect(shown.missing).toContain('.env');
+    // Changed after it was shown: refused.
+    writeFileSync(join(project, 'post.py'), 'print("and changed it")\n');
+    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, shown.digest)).rejects.toMatchObject({ status: 409 });
+    expect(partOf(conv.id, 'command').part.status).toBe('proposed');
+    const again = await orchestrator.commandCode(conv.id, msg.id, part.id);
+    await orchestrator.saveCommand(conv.id, msg.id, part.id, {}, again.digest);
+    expect(partOf(conv.id, 'command').part.status).toBe('saved');
+  });
+
+  it("never saves a command an automation's run proposed", async () => {
+    const conv = conversation({ mode: 'relay' });
+    fake.reply = () => 'Here.\n\n<command name="post">python3 post.py</command>';
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const { msg, part } = partOf(conv.id, 'command');
+    // As the orchestrator takes a block from an automation's run.
+    part.blocked = 'automation';
+    await expect(orchestrator.commandCode(conv.id, msg.id, part.id)).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.saveCommand(conv.id, msg.id, part.id, {}, '0'.repeat(32))).rejects.toMatchObject({ status: 409 });
+  });
+
   it('dismisses a proposal, telling the team', async () => {
     const { conv, msg, part } = await propose();
     await orchestrator.dismissCommand(conv.id, msg.id, part.id);
@@ -643,7 +680,7 @@ describe('fixed command cards', () => {
 
   it("refuses another chat's command", async () => {
     const { conv, msg, part } = await propose();
-    const { id } = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
     const other = conversation({ mode: 'relay', cwd: join(project, 'elsewhere') });
     mkdirSync(join(project, 'elsewhere'), { recursive: true });
     await expect(orchestrator.tryCommand(other.id, id)).rejects.toMatchObject({ status: 404 });
@@ -651,7 +688,7 @@ describe('fixed command cards', () => {
 
   it('puts one run of a saved command in the outbox, which Send runs with its input', async () => {
     const { conv, msg, part } = await propose();
-    await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    await saveSeen(conv.id, msg.id, part.id);
     fake.reply = () =>
       'Ready to post.\n\n<command-run name="post">\nHello, Threads!\n</command-run>\n<command-run name="nope">x</command-run>';
     await orchestrator.send(conv.id, 'post it');
@@ -668,7 +705,7 @@ describe('fixed command cards', () => {
 
   it('refuses Send while a run writes in its folder, the item left waiting for another click', async () => {
     const { conv, msg, part } = await propose();
-    await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    await saveSeen(conv.id, msg.id, part.id);
     fake.reply = () => 'Ready.\n\n<command-run name="post">Hi</command-run>';
     await orchestrator.send(conv.id, 'post it');
     await finish(conv.id);
@@ -696,7 +733,7 @@ describe('fixed command cards', () => {
     const msg = agentMessages(store.get(conv.id)!).at(-1)!;
     const cards = msg.parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
     expect(cards).toHaveLength(2);
-    await orchestrator.saveCommand(conv.id, msg.id, cards[0]!.id);
+    await saveSeen(conv.id, msg.id, cards[0]!.id);
     const after = agentMessages(store.get(conv.id)!)
       .at(-1)!
       .parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
@@ -705,7 +742,7 @@ describe('fixed command cards', () => {
 
   it('refuses an outbox run once the command it was queued for changed its hosts or secrets', async () => {
     const { conv, msg, part } = await propose();
-    const saved = await orchestrator.saveCommand(conv.id, msg.id, part.id);
+    const saved = await saveSeen(conv.id, msg.id, part.id);
     fake.reply = () => 'Ready.\n\n<command-run name="post">Hi</command-run>';
     await orchestrator.send(conv.id, 'post it');
     await finish(conv.id);

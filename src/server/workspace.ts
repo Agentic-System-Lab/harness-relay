@@ -555,6 +555,37 @@ export async function repoGitState(
   return { settings, hooksDir, includes };
 }
 
+/**
+ * What a fixed command's first Save compares its code with: the repository's HEAD commit, or its empty
+ * tree when it has none yet (every file is new then).
+ */
+export async function committedBase(root: string): Promise<string> {
+  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { allowFail: true });
+  if (head.code === 0 && out(head)) return out(head);
+  return out(await git(root, ['mktree'], { stdin: '' }));
+}
+
+/** Of `paths` (from the repository's top), those that differ between `base` and `head`. */
+export async function changedPaths(root: string, base: string, head: string, paths: readonly string[]): Promise<string[]> {
+  if (!paths.length) return [];
+  const r = await git(root, ['diff', '--name-only', '--no-renames', '-z', base, head, '--', ...paths.map((p) => `:(literal)${p}`)], {
+    maxCapture: MAX_DIFF_BYTES,
+    keepStart: true,
+    complete: true,
+  });
+  return r.stdout.split('\0').filter(Boolean);
+}
+
+/** The paths (from the repository's top) of every file `commit` holds. */
+export async function treePaths(root: string, commit: string): Promise<Set<string>> {
+  const r = await git(root, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', commit], {
+    maxCapture: MAX_DIFF_BYTES,
+    keepStart: true,
+    complete: true,
+  });
+  return new Set(r.stdout.split('\0').filter(Boolean));
+}
+
 /** Create (or recreate) a worktree on `branch` starting at `base`. */
 export async function createWorktree(root: string, path: string, branch: string, base: string): Promise<void> {
   if (existsSync(path)) await removeWorktree(root, path);

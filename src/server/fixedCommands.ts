@@ -33,7 +33,18 @@ import {
   type RelaySandboxRunDirs,
   type SandboxAvailability,
 } from './relaySandbox';
-import { diffPaths, dropKeptCommits, forgetCommits, keepCommits, repoGitState, repoRoot, snapshot } from './workspace';
+import {
+  changedPaths,
+  committedBase,
+  diffPaths,
+  dropKeptCommits,
+  forgetCommits,
+  keepCommits,
+  repoGitState,
+  repoRoot,
+  snapshot,
+  treePaths,
+} from './workspace';
 
 /*
  * Fixed commands (docs/architecture.md, "Secrets and fixed commands"): a command line the user saved
@@ -93,6 +104,20 @@ const CODE_ENDINGS = [
   'dll',
   'jar',
   'class',
+  // Sources a command may build and run (`go run`, `cargo run`, `make`).
+  'go',
+  'rs',
+  'c',
+  'h',
+  'cc',
+  'cpp',
+  'hpp',
+  'java',
+  'kt',
+  'kts',
+  'swift',
+  'cs',
+  'mk',
 ];
 
 /**
@@ -105,7 +130,7 @@ export const PIN_PATTERN: CompiledPattern = {
   source: '(fixed command code)',
   base: '',
   regex: new RegExp(
-    `(?:^|/)(?:[^/]*\\.(?:${CODE_ENDINGS.join('|')})|${CONFIG_FILE.source.slice(1, -1)}|package\\.json|requirements[^/]*\\.txt|Pipfile(?:\\.lock)?|poetry\\.lock|uv\\.lock|Gemfile(?:\\.lock)?|\\.env[^/]*|\\.python-version|\\.tool-versions)$`,
+    `(?:^|/)(?:[^/]*\\.(?:${CODE_ENDINGS.join('|')})|${CONFIG_FILE.source.slice(1, -1)}|package\\.json|requirements[^/]*\\.txt|Pipfile(?:\\.lock)?|poetry\\.lock|uv\\.lock|Gemfile(?:\\.lock)?|\\.env[^/]*|\\.python-version|\\.tool-versions|package-lock\\.json|npm-shrinkwrap\\.json|yarn\\.lock|pnpm-lock\\.yaml|bun\\.lockb?|deno\\.jsonc?|[Mm]akefile|GNUmakefile|[Jj]ustfile|\\.justfile|Rakefile|Taskfile\\.ya?ml|Cargo\\.(?:toml|lock)|go\\.(?:mod|sum)|\\.cargo/config(?:\\.toml)?|build\\.gradle(?:\\.kts)?|settings\\.gradle(?:\\.kts)?|pom\\.xml|CMakeLists\\.txt)$`,
     'i',
   ),
 };
@@ -134,6 +159,15 @@ async function hashFile(abs: string): Promise<string> {
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Whether a file with no ending sits beside a file of code of its name (`lib/helper` beside
+ * `lib/helper.js`): what `require('./lib/helper')` loads first, so it is pinned with it.
+ */
+function shadows(name: string, names: readonly string[]): boolean {
+  if (name.includes('.')) return false;
+  return names.some((n) => n.startsWith(`${name}.`) && PIN_PATTERN.regex.test(n));
 }
 
 /** `p` as the system finds its deepest folder that is there, the rest as it is written. */
@@ -301,7 +335,7 @@ export async function pinManifest(folder: string, named: readonly string[] = [])
         add(childRel, packages ? { kind: 'link', target: await readlink(childAbs).catch(() => '') } : await link(childRel, childAbs));
       else if (st.isDirectory()) {
         if (!packages) await visit(childRel, childAbs, false);
-      } else if (st.isFile() && (PIN_PATTERN.regex.test(childRel) || (st.mode & 0o111) !== 0)) {
+      } else if (st.isFile() && (PIN_PATTERN.regex.test(childRel) || (st.mode & 0o111) !== 0 || shadows(name, names))) {
         add(childRel, { kind: 'file', size: st.size, hash: await hashed(childAbs, st.size) });
       }
     }
@@ -467,6 +501,9 @@ async function textNow(abs: string, max: number, within: readonly string[]): Pro
  * repository or ignored), what it is now. `values` are masked before it is cut to at most `max`
  * characters. `missing`: the changes it shows nothing of (gone, or not text).
  */
+/** Whether a pin's entry is a `.env` file, which holds secrets of the user's own. */
+const dotEnvEntry = (e: string) => /(?:^|\/)\.env[^/]*$/.test(e.replace(/^named:/, ''));
+
 export async function pinDiff(
   folder: string,
   pin: CommandPin,
@@ -475,6 +512,9 @@ export async function pinDiff(
   max = 60_000,
 ): Promise<{ diff: string; missing: string[] }> {
   if (!changed.length) return { diff: '', missing: [] };
+  // A `.env` file holds secrets of the user's own: named, never shown (`missing`).
+  const secretFiles = changed.filter(dotEnvEntry);
+  changed = changed.filter((e) => !dotEnvEntry(e));
   const prefix = pin.root && folder !== pin.root ? `${relative(pin.root, folder).split(sep).join('/')}/` : '';
   // Repository paths of the changed files in the folder (a git setting, a hook or a file outside has none).
   const repoPath = (entry: string) => {
@@ -517,7 +557,45 @@ export async function pinDiff(
     else extra.push(`### ${entry} (as it is now)\n${text}${text.endsWith('\n') ? '' : '\n'}`);
   }
   const text = maskValues([full, ...extra].filter(Boolean).join('\n'), values);
-  return { diff: text.length > max ? `${text.slice(0, max)}\n…` : text, missing };
+  return { diff: text.length > max ? `${text.slice(0, max)}\n…` : text, missing: [...missing, ...secretFiles] };
+}
+
+/**
+ * What a proposed fixed command would run, for the user to see before its first Save pins it (`manifest`,
+ * its pin's): of the files it pins, those git has not committed as they are (new, or changed since the
+ * last commit) as git's diff from that commit, and those git ignores as they are now; its git settings,
+ * hooks and the files its command line names outside the repository, as they are now (`pinDiff()`, which
+ * names `.env` files, holding secrets, without showing them). Values masked before it is cut.
+ */
+export async function codeView(
+  folder: string,
+  manifest: Record<string, PinEntry>,
+  values: readonly string[] = [],
+  max = 60_000,
+): Promise<{ diff: string; missing: string[] }> {
+  const entries = Object.keys(manifest);
+  const outside = (e: string) =>
+    e.startsWith('git ') || e.includes(': git ') || e.endsWith('/.git') || (e.startsWith('named:') && isAbsolute(e.slice(6)));
+  const root = await repoRoot(folder).catch(() => null);
+  const shown: string[] = [];
+  if (!root) {
+    // No repository: every file as it is now.
+    for (const e of entries) shown.push(e);
+    return pinDiff(folder, { manifest: {} }, shown, values, max);
+  }
+  const base = await committedBase(root);
+  const { commit } = await snapshot(root);
+  const prefix = folder === root ? '' : `${relative(root, folder).split(sep).join('/')}/`;
+  const repoPath = (e: string) => `${prefix}${e.replace(/^named:/, '')}`;
+  const inRepo = entries.filter((e) => !outside(e));
+  const changed = new Set(await changedPaths(root, base, commit, inRepo.map(repoPath)));
+  const tracked = await treePaths(root, commit);
+  for (const e of entries) {
+    if (outside(e)) shown.push(e);
+    else if (!tracked.has(repoPath(e))) shown.push(e);
+    else if (changed.has(repoPath(e))) shown.push(e);
+  }
+  return pinDiff(folder, { manifest: {}, root, commit: base }, shown, values, max);
 }
 
 /** What `runFixedCommand` needs (swapped in tests). */
@@ -725,7 +803,7 @@ export async function runFixedCommand(
     if (res.code === 127) return { run: { ...base, status: 'error', reason: t().checksCommandNotFound }, written };
     const denial = sandboxDenial(res.stdout, deps.platform);
     const reason = refused.length
-      ? t().handoffs.hostsRefused(refused.join(', '))
+      ? maskValues(t().handoffs.hostsRefused(refused.join(', ')), masks)
       : denial === 'network'
         ? t().handoffs.networkRefused
         : denial

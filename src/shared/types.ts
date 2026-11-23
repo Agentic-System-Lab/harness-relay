@@ -2555,6 +2555,8 @@ export type MessagePart =
       run?: FixedCommandRun;
       /** A saved command of the same name existed when it was proposed: saving replaces it. */
       replaces?: boolean;
+      /** It cannot be saved from this card: an automation's run proposed it, which nobody watched. */
+      blocked?: 'automation';
     }
   /**
    * A command the reply asks the user to run themselves (its `<interactive>` block, taken out of its

@@ -99,6 +99,7 @@ import { splitMemory, type MemoryOp } from '../shared/memory';
 import {
   defaultFixedCommandDeps,
   dropPin,
+  codeView,
   commandFiles,
   manifestChanges,
   manifestDigest,
@@ -108,6 +109,7 @@ import {
   runFixedCommand,
   takePin,
   type FixedCommandDeps,
+  type PinEntry,
 } from './fixedCommands';
 import type { CommandPin } from './handoffs';
 import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, workdirDigest, type InteractiveDeps } from './interactive';
@@ -1269,6 +1271,7 @@ export class Orchestrator {
       if (b.kind !== 'command' || proposed >= HANDOFF_LIMITS.commandsPerReply) continue;
       const { kind: _kind, ...proposal } = b;
       // A saved command of the same name would be replaced (its schedules and outbox runs then run this one).
+      // One an automation's run proposed is never saved from its card: nobody watched that run.
       msg.parts.push({
         type: 'command',
         id: randomUUID(),
@@ -1276,6 +1279,7 @@ export class Orchestrator {
         proposal,
         status: 'proposed',
         ...(store.commandByName(folder, proposal.name) ? { replaces: true } : {}),
+        ...(o.automation ? { blocked: 'automation' as const } : {}),
       });
       proposed++;
     }
@@ -1542,20 +1546,83 @@ export class Orchestrator {
   }
 
   /** The user saves a proposed fixed command (as it is, or with their edits), pinned to its folder's code as it is now. */
-  async saveCommand(convId: string, messageId: string, partId: string, edits: Partial<CommandProposal> = {}): Promise<FixedCommand> {
+  /**
+   * The code a proposed fixed command would run (`codeView()`), for the user to see before its first Save,
+   * which sends back its digest: Save pins that code, and no other. Refused while a run writes in its
+   * folder, and when the code changed while it was read.
+   */
+  async commandCode(
+    convId: string,
+    messageId: string,
+    partId: string,
+    edits: Partial<CommandProposal> = {},
+  ): Promise<{ diff: string; missing: string[]; digest: string }> {
+    const { part } = this.handoffCard(convId, messageId, partId, 'command');
+    if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    if (part.blocked) throw new HttpError(409, t().handoffs.commandBlocked);
+    const proposal = checkProposal({ ...part.proposal, ...edits });
+    if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
+    if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    const named = commandFiles(proposal, part.folder);
+    const manifest = await this.steadyManifest(part.folder, named, async (now) => {
+      const values = Object.values(this.settings.handoffs.values(part.folder));
+      return codeView(part.folder, now, values);
+    });
+    return { ...manifest.view, digest: manifestDigest(manifest.now) };
+  }
+
+  /**
+   * A folder's pin manifest, and what `read` makes of it, only when the code did not change meanwhile (else
+   * 409): what the user is shown is the code the digest is of.
+   */
+  private async steadyManifest<T>(
+    folder: string,
+    named: readonly string[],
+    read: (now: Record<string, PinEntry>) => Promise<T>,
+  ): Promise<{ now: Record<string, PinEntry>; view: T }> {
+    let now: Record<string, PinEntry>;
+    let view: T;
+    let after: Record<string, PinEntry>;
+    try {
+      now = await pinManifest(folder, named);
+      view = await read(now);
+      after = await pinManifest(folder, named);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(409, (err as Error).message);
+    }
+    if (manifestDigest(after) !== manifestDigest(now)) throw new HttpError(409, t().handoffs.changingNow);
+    return { now, view };
+  }
+
+  async saveCommand(
+    convId: string,
+    messageId: string,
+    partId: string,
+    edits: Partial<CommandProposal> = {},
+    digest?: string,
+  ): Promise<FixedCommand> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
+    if (part.blocked) throw new HttpError(409, t().handoffs.commandBlocked);
     const proposal = checkProposal({ ...part.proposal, ...edits });
     if (!proposal) throw new HttpError(400, t().handoffs.badCommand);
     const store = this.settings.handoffs;
     const id = store.commandId(part.folder, proposal.name);
     if (this.commandRuns.has(id)) throw new HttpError(409, t().handoffs.commandRunning);
+    const refused = this.writeRefusal(part.folder);
+    if (refused) throw new HttpError(409, refused);
     const old = store.pin(id);
     let pin: CommandPin;
     try {
       pin = await takePin(part.folder, id, commandFiles(proposal, part.folder));
     } catch (err) {
       throw new HttpError(409, (err as Error).message);
+    }
+    // Pinned only as the user saw it (`commandCode()`'s digest): code changed since is refused.
+    if (manifestDigest(pin.manifest) !== digest) {
+      await dropPin(id, pin, old);
+      throw new HttpError(409, digest ? t().handoffs.changedAgain : t().handoffs.codeNotSeen);
     }
     const command = store.saveCommand(part.folder, id, proposal, pin);
     await dropPin(id, old, pin);
@@ -1639,18 +1706,16 @@ export class Orchestrator {
     const { cmd } = this.ownCommand(convId, commandId);
     const pin = this.settings.handoffs.pin(cmd.id);
     if (!pin) return { changed: [], diff: '', missing: [], digest: '' };
-    let now: Awaited<ReturnType<typeof pinManifest>>;
-    try {
-      now = await pinManifest(cmd.folder, commandFiles(cmd, cmd.folder));
-    } catch (err) {
-      throw new HttpError(409, (err as Error).message);
-    }
-    const changed = manifestChanges(pin.manifest, now);
+    if (this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
     // Masked whole before it is cut, so that no value's start shows at the cut.
     const values = Object.values(this.settings.handoffs.values(cmd.folder));
-    const { diff, missing } = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', missing: changed }));
+    const { now, view } = await this.steadyManifest(cmd.folder, commandFiles(cmd, cmd.folder), async (now) => {
+      const changed = manifestChanges(pin.manifest, now);
+      const shown = await pinDiff(cmd.folder, pin, changed, values).catch(() => ({ diff: '', missing: changed }));
+      return { changed, ...shown };
+    });
     // What Approve sends back: this code, the one this diff shows, and no later one.
-    return { changed, diff, missing, digest: manifestDigest(now) };
+    return { ...view, digest: manifestDigest(now) };
   }
 
   /** Marks the proposed cards of a chat that name a command saved now: saving one of them would replace it. */
@@ -1692,6 +1757,12 @@ export class Orchestrator {
       // folder held while it runs, from the pin's check on, as a team check's commands hold theirs.
       if (conv && this.writingIn(conv.id, cmd.folder)) {
         const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: t().handoffs.folderBusy };
+        record(run);
+        return run;
+      }
+      const refused = this.writeRefusal(cmd.folder);
+      if (refused) {
+        const run: FixedCommandRun = { at: Date.now(), source, status: 'error', reason: refused };
         record(run);
         return run;
       }
@@ -1779,6 +1850,15 @@ export class Orchestrator {
     };
   }
 
+  /**
+   * Why a command may not write in `folder`, which a fixed command's runs, or an interactive command run in
+   * the working directory, do whatever the conversation's permission: one that holds Harness Relay or what
+   * decides how the agents run, where edit mode is refused too (`relayFolderRefusal()`).
+   */
+  private writeRefusal(folder: string): string | undefined {
+    return relayFolderRefusal({ permission: 'edit', cwd: folder }, agentFolderOptions(this.settings));
+  }
+
   /** The command cards of a conversation for this fixed command show its run. */
   private updateCommandCards(convId: string, commandId: string, run: FixedCommandRun): void {
     const conv = this.store.get(convId);
@@ -1833,6 +1913,8 @@ export class Orchestrator {
       }
       // Held while it runs there, as a fixed command holds its folder: no run writes where the user's command works.
       if (this.writingIn(convId, part.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+      const refused = this.writeRefusal(part.folder);
+      if (refused) throw new HttpError(409, refused);
       workdir = part.folder;
     }
     const masks = Object.values(this.settings.handoffs.values(part.folder));

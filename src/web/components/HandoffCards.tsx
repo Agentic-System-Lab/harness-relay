@@ -239,9 +239,19 @@ export function CommandCard({
   const p = part.proposal;
   const run = part.run;
   const edited = editing ? proposalOf(form) : undefined;
+  // The code it would run, which Save pins: shown first, for the command as it would be saved (its edits).
+  const [code, setCode] = useState<{ diff: string; missing: string[]; digest: string; of: string } | null>(null);
+  const codeOf = JSON.stringify(editing ? (edited ?? null) : p);
+  const seen = code && code.of === codeOf ? code : null;
+  const showCode = () =>
+    seen
+      ? setCode(null)
+      : void call(async () =>
+          setCode({ ...(await api.commandCode(convId, messageId, part.id, editing ? edited : undefined)), of: codeOf }),
+        );
   const save = () =>
     call(async () => {
-      await api.commandCard(convId, messageId, part.id, 'save', editing ? edited : undefined);
+      await api.commandCard(convId, messageId, part.id, 'save', editing ? edited : undefined, seen?.digest);
       setEditing(false);
     });
   // Approve sends the digest of the code whose diff the user looked at: a later change is refused.
@@ -311,7 +321,24 @@ export function CommandCard({
         </dl>
       )}
       {actions.decide && part.replaces && <p className="warn-line small">{c.replaces}</p>}
+      {actions.decide && part.blocked && <p className="warn-line small">{c.blocked}</p>}
       {actions.decide && <p className="muted small">{c.hint}</p>}
+      {actions.decide && !part.blocked && (
+        <div className="handoff-code">
+          <button
+            type="button"
+            className="ghost small-button"
+            disabled={busy || (editing && !edited)}
+            onClick={showCode}
+            aria-expanded={Boolean(seen)}
+          >
+            {seen ? c.hideCode : c.showCode}
+          </button>
+          {!seen && <p className="muted small">{c.codeHint}</p>}
+          {seen && (seen.diff ? <pre className="outbox-body handoff-diff">{seen.diff}</pre> : <p className="muted small">{c.noCode}</p>)}
+          {seen && seen.missing.length > 0 && <p className="muted small">{c.codeNotShown(seen.missing.join(', '))}</p>}
+        </div>
+      )}
       {run && tone && (
         <div className={`handoff-run-result handoff-${tone.tone}`} role="status">
           <div>
@@ -352,7 +379,13 @@ export function CommandCard({
         <div className="approval-actions">
           {editing ? (
             <>
-              <button type="button" className="primary small-button" disabled={busy || !edited} onClick={() => void save()}>
+              <button
+                type="button"
+                className="primary small-button"
+                disabled={busy || !edited || !seen}
+                title={seen ? undefined : c.codeHint}
+                onClick={() => void save()}
+              >
                 {c.save}
               </button>
               <button
@@ -369,12 +402,22 @@ export function CommandCard({
             </>
           ) : (
             <>
-              <button type="button" className="primary small-button" disabled={busy} onClick={() => void save()}>
-                {c.save}
-              </button>
-              <button type="button" className="ghost small-button" disabled={busy} onClick={() => setEditing(true)}>
-                {c.edit}
-              </button>
+              {!part.blocked && (
+                <>
+                  <button
+                    type="button"
+                    className="primary small-button"
+                    disabled={busy || !seen}
+                    title={seen ? undefined : c.codeHint}
+                    onClick={() => void save()}
+                  >
+                    {c.save}
+                  </button>
+                  <button type="button" className="ghost small-button" disabled={busy} onClick={() => setEditing(true)}>
+                    {c.edit}
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="ghost small-button"

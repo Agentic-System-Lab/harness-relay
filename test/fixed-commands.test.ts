@@ -490,6 +490,19 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     }
   });
 
+  it('pins a file with no ending beside code of its name, and what make or a build reads', async () => {
+    const dir = folder();
+    mkdirSync(join(dir, 'lib'));
+    writeFileSync(join(dir, 'lib', 'helper.js'), 'module.exports = 1\n');
+    writeFileSync(join(dir, 'lib', 'helper'), 'module.exports = 2\n');
+    writeFileSync(join(dir, 'LICENSE'), 'text\n');
+    writeFileSync(join(dir, 'GNUmakefile'), 'all:\n');
+    writeFileSync(join(dir, 'main.go'), 'package main\n');
+    const keys = Object.keys(await pinManifest(dir));
+    expect(keys).toEqual(expect.arrayContaining(['lib/helper', 'lib/helper.js', 'GNUmakefile', 'main.go']));
+    expect(keys).not.toContain('LICENSE');
+  });
+
   it('pins the script after an interpreter and its options', () => {
     const dir = folder();
     mkdirSync(join(dir, 'bin'));
