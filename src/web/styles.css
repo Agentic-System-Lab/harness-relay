@@ -7605,12 +7605,6 @@ summary + .checks-editor-body {
   text-overflow: ellipsis;
 }
 
-/* A browser for the user alone: what it is and how to use it, all of it, on as many lines as it takes. */
-.handover-why.whole {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 .handover-asks,
 .handover-notice {
   display: flex;
@@ -7688,60 +7682,9 @@ summary + .checks-editor-body {
   flex: 1 1 200px;
 }
 
-/* A browser for the user alone: Save selection as one of the secrets card's asks. */
-.handover-save {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.handover-saved {
-  color: var(--ok);
-}
-
 .handoff-where {
   margin: 2px 0;
   overflow-wrap: anywhere;
-}
-
-.handoff-nearby {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 4px 0;
-}
-
-.handoff-browser {
-  align-self: flex-start;
-  margin: 4px 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-
-/* A secret's ways to open its page: in a window on the computer Harness Relay runs on (where it can), or in the chat. */
-.handoff-browsers {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 8px;
-  min-width: 0;
-}
-
-/* The card's browser open in a window there: what to do, Save selection and Close. */
-.handoff-window {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  min-width: 0;
-}
-
-.handoff-window p {
-  margin: 0;
 }
 
 @media (max-width: 640px) {

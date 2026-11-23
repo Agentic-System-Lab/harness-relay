@@ -56,20 +56,12 @@ describe('where a point of the screencast lands on the page', () => {
 });
 
 describe("what the panel's address bar opens", () => {
-  it('counts as typed only an address the user changed, not one the page put there (a page it was refused)', () => {
-    expect(addressEntry('localhost:3000', 'https://example.com/')).toEqual({ url: 'http://localhost:3000/', typed: true });
-    // After a refused redirect the bar shows the refused address: Enter on it is not the user's.
-    expect(addressEntry('http://192.168.1.20/admin', 'http://192.168.1.20/admin')).toEqual({
-      url: 'http://192.168.1.20/admin',
-      typed: false,
-    });
-    expect(addressEntry('http://192.168.1.20/admin?x=1', 'http://192.168.1.20/admin')).toEqual({
-      url: 'http://192.168.1.20/admin?x=1',
-      typed: true,
-    });
-    expect(addressEntry('file:///etc/hosts', '')).toEqual({ refused: true });
-    expect(addressEntry('javascript:alert(1)', '')).toEqual({ refused: true });
-    expect(addressEntry('  ', 'https://example.com/')).toBeUndefined();
+  it('opens http and https addresses only', () => {
+    expect(addressEntry('localhost:3000')).toEqual({ url: 'http://localhost:3000/' });
+    expect(addressEntry('http://192.168.1.20/admin?x=1')).toEqual({ url: 'http://192.168.1.20/admin?x=1' });
+    expect(addressEntry('file:///etc/hosts')).toEqual({ refused: true });
+    expect(addressEntry('javascript:alert(1)')).toEqual({ refused: true });
+    expect(addressEntry('  ')).toBeUndefined();
   });
 
   it('an address with its scheme as it is; this computer and the local network over http, the rest over https', () => {

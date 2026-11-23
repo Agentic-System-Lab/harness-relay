@@ -72,7 +72,7 @@ export interface ServerConfig extends ServerLimits {
   publishGitDir?: string;
   /**
    * A stand-in, in the end-to-end tests only, for a computer that shows windows (`RELAY_HEADLESS_WINDOWS=on`):
-   * a hand-over's window and a browser for the user alone's can open wherever the server runs, and open
+   * a hand-over's window can open wherever the server runs, and opens
    * headless, so that a test runs them without a display. false = where this computer can show one, for real.
    */
   headlessWindows: boolean;

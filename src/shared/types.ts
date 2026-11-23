@@ -2400,8 +2400,7 @@ export type HandoverInput =
       command?: 'selectAll' | 'undo' | 'redo';
     }
   | { type: 'text'; text: string }
-  /** `typed`: the user typed it in the panel's address bar (not a page's address offered to them). */
-  | { type: 'navigate'; url: string; typed?: boolean }
+  | { type: 'navigate'; url: string }
   | { type: 'history'; to: 'back' | 'forward' | 'reload' }
   | { type: 'viewport'; width: number; height: number; scale?: number };
 
@@ -2667,12 +2666,10 @@ export interface SecretAsk {
   /** The folder had a value for this name already when it was asked: saving replaces it. */
   had?: boolean;
   /**
-   * The page where the user gets it (a token generator), which the agent named (`url` on the block):
-   * the card offers to open it in a browser for the user alone (`src/server/browser/handover.ts`).
+   * The page where the user gets it (a token generator), which the agent named (`url` on the block): the
+   * card links to it, for the user to open in their own browser and paste the value on the card.
    */
   url?: string;
-  /** It was saved from that browser's page (Save selection), not typed on the card. */
-  from?: 'page';
 }
 
 /** What a `<command>` block proposes: a command line for the working directory, the hosts it reaches and the secrets it gets. */
@@ -2731,7 +2728,7 @@ export const HANDOFF_LIMITS = {
   label: 80,
   reason: 500,
   secretValue: 16 * 1024,
-  /** Characters of the address a `<secret>` block names, for a browser for the user alone. */
+  /** Characters of the address a `<secret>` block names (the card's link to it). */
   secretUrl: 2000,
   /** Fixed commands a working directory may keep, and a reply may propose. */
   commandsPerFolder: 20,

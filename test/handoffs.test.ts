@@ -18,7 +18,7 @@ import {
   splitHandoffs,
   withoutHandoffBlocks,
 } from '../src/shared/handoffs';
-import { commandActions, filledValues, formOf, proposalOf, runTone, wordsOf, type CommandPart } from '../src/web/handoffs';
+import { codeFiles, commandActions, filledValues, formOf, proposalOf, runTone, wordsOf, type CommandPart } from '../src/web/handoffs';
 import { hostOf } from '../src/web/handover';
 import { openDatabase } from '../src/server/db';
 import { HandoffStore, secretEntry } from '../src/server/handoffs';
@@ -225,6 +225,55 @@ describe("the cards' logic", () => {
   });
 });
 
+describe("a fixed command's code, as its card lists it", () => {
+  it('lists each file once: removed, binary, outside the folder, a git setting, a cut file; nothing for no code', () => {
+    const view = [
+      'diff --git a/old.sh b/old.sh',
+      'deleted file mode 100644',
+      'index 1111111..0000000',
+      '--- a/old.sh',
+      '+++ /dev/null',
+      '@@ -1 +0,0 @@',
+      '-echo old',
+      '',
+      'diff --git a/logo.png b/logo.png',
+      'index 2222222..3333333 100644',
+      'Binary files a/logo.png and b/logo.png differ',
+      '',
+      '### named:/opt/tools/sync.py (as it is now)',
+      'print(1)',
+      '…',
+      '',
+      '### git config core.hooksPath',
+      'core.hooksPath = .githooks',
+      '',
+    ].join('\n');
+    expect(codeFiles(view)).toEqual([
+      {
+        title: 'old.sh',
+        kind: 'removed',
+        added: 0,
+        deleted: 1,
+        lines: [
+          { text: '@@ -1 +0,0 @@', cls: 'd-hunk' },
+          { text: '-echo old', cls: 'd-del' },
+        ],
+      },
+      { title: 'logo.png', kind: 'changed', lines: [] },
+      {
+        title: '/opt/tools/sync.py',
+        kind: 'now',
+        lines: [
+          { text: 'print(1)', cls: '' },
+          { text: '…', cls: '' },
+        ],
+      },
+      { title: 'git config core.hooksPath', kind: 'git', lines: [{ text: 'core.hooksPath = .githooks', cls: '' }] },
+    ]);
+    expect(codeFiles('')).toEqual([]);
+  });
+});
+
 describe('the store of secrets and fixed commands', () => {
   const make = (withKeyring = true) => {
     const db = openDatabase(':memory:');
@@ -342,9 +391,9 @@ describe('the briefing on secrets and fixed commands', () => {
     expect(section).toContain(`at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first`);
     expect(section).toContain('never from a file in the working directory such as a .env');
     expect(section).toContain("what the user types in the card's input box on its standard input");
-    // The browser for the user alone starts signed out: the block's text says when the page needs a sign-in.
-    expect(section).toContain('That browser starts signed in to no site');
-    expect(section).toContain("when the page needs a sign-in, say so in the block's text (why you need it)");
+    // The page where the user gets a secret is the card's link, for their own browser.
+    expect(section).toContain('the card links to it, for the user to open in their own browser and paste the value on the card');
+    expect(section).not.toContain('for the user alone');
     expect(section).toContain('Nor ask the user to run commands in a terminal to set things up');
     // On native Windows the user gets steps instead, which may have commands in them.
     expect(handoffSection({ secrets: [], commands: [] }, 'win32')).not.toContain('Nor ask the user to run commands in a terminal');

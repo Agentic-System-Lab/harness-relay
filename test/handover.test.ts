@@ -17,19 +17,8 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-handover-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const {
-  Handovers,
-  HANDOVER_UNASKED,
-  SELECTION_SCRIPT,
-  USER_BROWSERS_MAX,
-  cardUrl,
-  checkInputs,
-  handoverOutcome,
-  handoverWindowAt,
-  inputCalls,
-  keyCodeOf,
-  ownerVerdict,
-} = await import('../src/server/browser/handover');
+const { Handovers, HANDOVER_UNASKED, cardUrl, checkInputs, handoverOutcome, handoverWindowAt, inputCalls, keyCodeOf } =
+  await import('../src/server/browser/handover');
 const { BLOCKED_SITE_PERMISSIONS, BrowserService, cookieParams, launchArgs, launchEnv, profilePrefs } =
   await import('../src/server/browser/session');
 const { browserTools } = await import('../src/server/browser/tools');
@@ -207,13 +196,6 @@ describe("the screencast panel's input", () => {
     const checked = checkInputs(events);
     expect(Array.isArray(checked) && checked.length).toBe(8);
     expect((checked as HandoverInput[])[5]).toEqual({ type: 'navigate', url: 'https://example.com/a%20b' });
-    // An address the user typed in the panel's address bar says so; any other value is not that.
-    expect(checkInputs([{ type: 'navigate', url: 'http://127.0.0.1:3000/', typed: true }])).toEqual([
-      { type: 'navigate', url: 'http://127.0.0.1:3000/', typed: true },
-    ]);
-    expect(checkInputs([{ type: 'navigate', url: 'http://127.0.0.1:3000/', typed: 'yes' }])).toEqual([
-      { type: 'navigate', url: 'http://127.0.0.1:3000/' },
-    ]);
   });
 
   it('refuses what is out of range or of a kind it does not know', () => {
@@ -374,62 +356,6 @@ describe("a hand-over's ticket", () => {
     expect(seen.map((e) => (e.type === 'frame' ? `frame ${e.data}` : e.type))).toEqual(['location', 'frame new', 'notice', 'ended']);
     expect(inputs).toEqual([[{ type: 'text', text: 'a' }]]);
     expect(await all.input('c1', t.id, [{ type: 'text', text: 'a' }])).toBe('missing');
-
-    // A window (a browser for the user alone in one): watched only to hear that it ended; no input.
-    const w = all.create('c1', ['window']);
-    w.mode = 'window';
-    expect(all.watch('c1', w.id, () => undefined)).toBe('state');
-    w.status = 'active';
-    const told: string[] = [];
-    expect(typeof all.watch('c1', w.id, (e) => told.push(e.type))).toBe('function');
-    expect(await all.input('c1', w.id, [{ type: 'text', text: 'a' }])).toBe('state');
-    all.remove(w);
-    expect(told).toEqual(['ended']);
-  });
-});
-
-describe('a browser for the user alone', () => {
-  it("asks nobody: the internet, yes; here, only its own page's host, or the address the user typed for that one opening", () => {
-    const device = { key: '192.168.1.20:8080', nearby: true, addresses: [] };
-    expect(ownerVerdict({ nearby: false, key: 'example.com' })).toBe('allow');
-    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', typed: device })).toBe('allow');
-    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: device })).toBe('allow');
-    // A page elsewhere reaching a device on the network (a link, a form, a script), whoever opened it before.
-    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: { key: 'evil.example', nearby: false, addresses: [] } })).toBe(
-      'unasked',
-    );
-    expect(ownerVerdict({ nearby: true, key: '192.168.1.20:8080', top: device, typed: undefined })).toBe('allow');
-    expect(ownerVerdict({ nearby: true, key: '192.168.1.21', top: device, typed: device })).toBe('unasked');
-    expect(ownerVerdict({ nearby: true })).toBe('unasked');
-  });
-
-  it('keeps a name to where it led when the user opened it: a public page whose name comes to lead here, or elsewhere here, is refused', () => {
-    // Opened while it led to the internet, its name leads to the router now (DNS rebinding): its own requests, and a page it opens, refused.
-    const rebinding = { key: 'rebind.example', nearby: false, addresses: ['93.184.215.14'] };
-    expect(ownerVerdict({ nearby: false, key: 'rebind.example', addresses: ['93.184.215.14'], top: rebinding })).toBe('allow');
-    expect(ownerVerdict({ nearby: true, key: 'rebind.example', addresses: ['192.168.1.1'], top: rebinding })).toBe('moved');
-    // Typed while it led to the internet: no more than the page shown.
-    expect(ownerVerdict({ nearby: true, key: 'rebind.example', addresses: ['192.168.1.1'], typed: rebinding })).toBe('moved');
-    // Opened here as the user's, by its name: to the addresses it had then, not another device here.
-    const router = { key: 'router.lan', nearby: true, addresses: ['192.168.1.1'] };
-    expect(ownerVerdict({ nearby: true, key: 'router.lan', addresses: ['192.168.1.1'], top: router })).toBe('allow');
-    expect(ownerVerdict({ nearby: true, key: 'router.lan', addresses: ['192.168.1.30'], top: router })).toBe('moved');
-    expect(
-      ownerVerdict({
-        nearby: true,
-        key: 'router.lan',
-        addresses: ['192.168.1.30'],
-        top: router,
-        typed: { ...router, addresses: ['192.168.1.30'] },
-      }),
-    ).toBe('allow');
-  });
-
-  it('reads the selection in a field, else on the page, else a focused field but a password', () => {
-    // The script itself runs in a real Chromium (test/browser.test.ts); here, what it never reads.
-    expect(SELECTION_SCRIPT).toContain("field.type !== 'password'");
-    expect(SELECTION_SCRIPT).toContain('getSelection()');
-    expect(USER_BROWSERS_MAX).toBeGreaterThan(0);
   });
 });
 

@@ -36,6 +36,7 @@ import type { RelaySandboxSpec } from '../src/server/relaySandbox';
 import { ensureRepo } from '../src/server/workspace';
 import { relaySandboxDirs } from '../src/server/protect';
 import { relaySandboxHostRoot, relaySandboxRoot } from '../src/server/relaySandbox';
+import { codeFiles } from '../src/web/handoffs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-fixed-')));
 afterAll(() => removeTree(root, { restore: true }));
@@ -535,6 +536,40 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     const cut = await codeView(dir, await pinManifest(dir), [], { base, named: [join(dir, 'post.py')], max: 2000 });
     expect(cut.diff).toContain('print("agent")');
     expect(cut.missing).toContain('a-vendor.js');
+  });
+
+  it("splits a real code view into the card's files: the script first, a change, a new file, secrets by name, a hook", async () => {
+    const dir = folder();
+    await ensureRepo(dir);
+    writeFileSync(join(dir, 'post.py'), 'print("before")\n');
+    writeFileSync(join(dir, 'lib.py'), 'x = 1\ny = 2\n');
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
+    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // What the agents did since: a change, a new file, a file of secrets, a hook.
+    // Of another length: a change of the same size within the second it was committed can escape git's index.
+    writeFileSync(join(dir, 'lib.py'), 'x = 1\ny = 300\n');
+    writeFileSync(join(dir, 'helper.py'), 'def go():\n    return 1\n');
+    writeFileSync(join(dir, '.env'), 'TOKEN=tok-in-env-5512\n');
+    writeFileSync(join(dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\necho hook\n', { mode: 0o755 });
+    const view = await codeView(dir, await pinManifest(dir), [], { base, named: [join(dir, 'post.py')] });
+    const files = codeFiles(view.diff);
+    expect(files[0]).toMatchObject({ title: 'post.py', kind: 'now', lines: [{ text: 'print("before")', cls: '' }] });
+    expect(files.find((f) => f.title === 'lib.py')).toMatchObject({ kind: 'changed', added: 1, deleted: 1 });
+    expect(files.find((f) => f.title === 'lib.py')!.lines.map((l) => l.cls)).toEqual(['d-hunk', '', 'd-del', 'd-add']);
+    expect(files.find((f) => f.title === 'helper.py')).toMatchObject({
+      kind: 'new',
+      lines: [
+        { text: 'def go():', cls: '' },
+        { text: '    return 1', cls: '' },
+      ],
+    });
+    const env = files.find((f) => f.title === '.env');
+    expect(env?.kind).toBe('names');
+    expect(JSON.stringify(env)).not.toContain('tok-in-env-5512');
+    expect(files.find((f) => f.title === 'git hook pre-commit')).toMatchObject({ kind: 'git' });
+    // Every piece of the view is a file of the card: nothing left over, nothing named twice.
+    expect(new Set(files.map((f) => f.title)).size).toBe(files.length);
   });
 
   it('pins a file with no ending beside a file of its name, code or not', async () => {

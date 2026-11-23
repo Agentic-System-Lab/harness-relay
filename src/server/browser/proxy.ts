@@ -16,34 +16,8 @@ import { connect, type Socket } from 'node:net';
  * `Fetch.authRequired`); a connection without one gets a 407 and nothing else.
  */
 
-/**
- * Where a connection may go: the addresses to try, in order, or why it may not. With `socket`, a
- * WebSocket's handshake sent in the clear (ws://, in a tunnel or as it is) goes only when this allows the
- * origin of the page that opened it, read before anything reaches the server (`tunnelOpening()`); a
- * tunnel's TLS (https's, wss's) is not read.
- */
-export type ProxyRoute = { addresses: string[]; socket?: (origin: string | undefined) => boolean } | { refused: string };
-
-/** The most of a tunnel's first bytes read for a WebSocket's handshake (`ProxyRoute`'s `socket`). */
-const HANDSHAKE_MAX = 16 * 1024;
-
-/**
- * What a tunnel's first bytes say: TLS (`tls`), or an HTTP request's head, whether it opens a WebSocket and
- * the origin it gives (one `Origin` header, or none), or not enough yet (`more`). A head longer than
- * `HANDSHAKE_MAX` is a socket's with no origin.
- */
-export function tunnelOpening(head: Buffer): { kind: 'tls' } | { kind: 'http'; socket: boolean; origin?: string } | { kind: 'more' } {
-  if (!head.length) return { kind: 'more' };
-  if (head[0] === 0x16) return { kind: 'tls' };
-  const end = head.indexOf('\r\n\r\n');
-  if (end < 0) return head.length >= HANDSHAKE_MAX ? { kind: 'http', socket: true } : { kind: 'more' };
-  const lines = head.subarray(0, end).toString('latin1').split('\r\n').slice(1);
-  const values = (name: string) =>
-    lines.flatMap((l) => (l.slice(0, l.indexOf(':')).trim().toLowerCase() === name ? [l.slice(l.indexOf(':') + 1).trim()] : []));
-  const socket = values('upgrade').some((v) => /(^|,)\s*websocket\s*(,|$)/i.test(v));
-  const origins = values('origin');
-  return { kind: 'http', socket, ...(origins.length === 1 ? { origin: origins[0] } : {}) };
-}
+/** Where a connection may go: the addresses to try, in order, or why it may not. */
+export type ProxyRoute = { addresses: string[] } | { refused: string };
 
 /** The user name every browser gives; its password says which conversation's browser it is. */
 export const PROXY_USER = 'relay';
@@ -103,11 +77,8 @@ export class BrowserProxy {
   port = 0;
 
   constructor(
-    /**
-     * Where a connection of the browser with `password` to `host`:`port` may go (`secure`: a CONNECT tunnel;
-     * `request`: an http request's address, which a ws:// upgrade sent as it is never gives).
-     */
-    private route: (password: string, host: string, port: number, secure: boolean, request?: string) => Promise<ProxyRoute>,
+    /** Where a connection of the browser with `password` to `host`:`port` may go (`secure`: a CONNECT tunnel). */
+    private route: (password: string, host: string, port: number, secure: boolean) => Promise<ProxyRoute>,
   ) {}
 
   /** A password for one browser, until `forget()`. */
@@ -176,7 +147,7 @@ export class BrowserProxy {
     }
     if (url.protocol !== 'http:') return void res.writeHead(400).end();
     const port = Number(url.port || 80);
-    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false, url.href).catch((err: Error) => ({
+    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({
       refused: err.message,
     }));
     if ('refused' in route) return void res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(route.refused);
@@ -215,7 +186,6 @@ export class BrowserProxy {
       return void client.end(
         `HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nX-Refused: ${route.refused.replace(/[\r\n]/g, ' ').slice(0, 300)}\r\n\r\n`,
       );
-    if (route.socket) return void this.checkedTunnel(client, head, route.addresses, target.port, route.socket);
     let up: Socket;
     try {
       up = await connectFirst(route.addresses, target.port);
@@ -231,56 +201,6 @@ export class BrowserProxy {
     if (head.length) up.write(head);
     up.pipe(client);
     client.pipe(up);
-  }
-
-  /**
-   * A tunnel whose first bytes are read before it connects (`ProxyRoute`'s `socket`): a WebSocket's
-   * handshake sent in the clear goes only from an origin `socket` allows, else nothing reaches the server.
-   */
-  private checkedTunnel(
-    client: Socket,
-    head: Buffer,
-    addresses: readonly string[],
-    port: number,
-    socket: (origin: string | undefined) => boolean,
-  ): void {
-    client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    let first = head;
-    let decided = false;
-    // A browser speaks first in a tunnel (TLS's hello, or a request): one that says nothing is ended.
-    const quiet = setTimeout(() => client.destroy(), 30_000);
-    quiet.unref?.();
-    client.once('close', () => clearTimeout(quiet));
-    const check = () => {
-      if (decided) return;
-      const opening = tunnelOpening(first);
-      if (opening.kind === 'more') return;
-      decided = true;
-      clearTimeout(quiet);
-      client.off('data', more);
-      client.pause();
-      if (opening.kind === 'http' && opening.socket && !socket(opening.origin)) return void client.destroy();
-      connectFirst(addresses, port).then(
-        (up) => {
-          if (client.destroyed) return void up.destroy();
-          this.sockets.add(up);
-          up.on('close', () => (this.sockets.delete(up), client.destroy()));
-          up.on('error', () => client.destroy());
-          client.on('close', () => up.destroy());
-          up.write(first);
-          up.pipe(client);
-          client.pipe(up);
-          client.resume();
-        },
-        () => client.destroy(),
-      );
-    };
-    const more = (chunk: Buffer) => {
-      first = Buffer.concat([first, chunk]);
-      check();
-    };
-    client.on('data', more);
-    check();
   }
 
   /** A ws:// upgrade sent to the proxy as it is (not through CONNECT): passed on the same way. */
@@ -300,8 +220,7 @@ export class BrowserProxy {
     const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({
       refused: err.message,
     }));
-    if ('refused' in route || (route.socket && !route.socket(req.headers.origin)))
-      return void client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
+    if ('refused' in route) return void client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
     let up: Socket;
     try {
       up = await connectFirst(route.addresses, port);

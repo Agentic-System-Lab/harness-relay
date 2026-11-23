@@ -432,18 +432,15 @@
             working directory. The team is told which secrets you gave, never their values, and no agent's sandbox can read them. Harness Relay never needs the password of your own accounts.
           </p>
           <p>
-            When the value is on a web page (a token generator), choose <b>Open a browser for you alone</b> on the card: a browser
-            that no agent drives or reads, deleted when you close it, shown in the chat, so it works from your phone too. It starts
-            signed in to no site: sign in there first if the page needs it (some sites, Meta's developer pages among them, show a
-            signed-out visitor an error page instead of asking). Where the computer Harness Relay runs on can show a window, the card also offers to open
-            it in a window there: the best way for a page that asks you to sign in or solve a CAPTCHA. Select the value on the page and choose <b>Save selection as</b> its name: it goes straight to the card, never through the chat. On
-            the computer Harness Relay runs on, you can also open the page in your own browser and paste the value.
+            When the value is on a web page (a token generator), the agent can name it: the card shows it as a link, which
+            opens in a new tab of your own browser, where you are signed in already. Copy the value there and paste it on the
+            card. The page never opens in the agents' browser.
           </p>
           <p>A script that needs a secret, or should run on a schedule, comes as a <b>fixed command</b> card: the command line, the hosts it may reach and the secrets it gets. Harness Relay, not an agent, runs it:</p>
           <ul>
             <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
             <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
-            <li>only with the code you looked at before saving it (<b>Show the code it runs</b>), and only while the code in its folder is as you saved it: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
+            <li>only with the code as it was when you saved it (<b>Show the code it runs</b> shows it first, a file a row), and only while the code in its folder stays so: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
             <li>when you click <b>Try it</b> (what you type in <b>Input for this run</b> is what it reads, such as the text of a post), <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
           </ul>
           <p>

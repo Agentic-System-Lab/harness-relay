@@ -1152,6 +1152,7 @@ export const en: Messages = {
       save: 'Save',
       decline: "Don't give",
       status: { waiting: 'Waiting for you', saved: 'Saved', declined: 'Not given' },
+      where: 'Where to get it (open it in your own browser):',
     },
     command: {
       label: (agent) => `A fixed command @${agent} proposes`,
@@ -1194,8 +1195,15 @@ export const en: Messages = {
       hideDiff: 'Hide the changes',
       showCode: 'Show the code it runs',
       hideCode: 'Hide the code',
-      codeHint:
-        'Saving pins the code it runs as it is now: look at it first (the scripts it runs, what the agents of this chat changed, its git settings and hooks).',
+      codeKind: {
+        new: () => 'New file',
+        changed: (added, deleted) => (added === undefined ? 'Changed' : `Changed +${added} −${deleted ?? 0}`),
+        removed: () => 'Removed',
+        now: () => 'As it is now',
+        names: () => 'Names only, values hidden',
+        git: () => 'Git setting or hook',
+      },
+      codeNoText: 'No text to show (a binary file, say).',
       noCode: 'Nothing changed in its code since the agents of this chat began: it runs the code as it was then.',
       codeNotShown: (files: string) => `Not shown here (gone, not text, outside the folder, or past the length shown): ${files}`,
       blocked: "An automation's run proposed it, which nobody watched: it cannot be saved from this card.",
@@ -1419,30 +1427,6 @@ export const en: Messages = {
       asking: 'The page asks to open a site it has not opened yet. Decide first:',
       clipboard: 'The clipboard does not cross over: you can paste text into the page, but not copy from it.',
       onlyWeb: 'Only http and https pages open here.',
-    },
-    alone: {
-      open: 'Open a browser for you alone',
-      openAt: (host) => `Open ${host} in a browser for you alone`,
-      openWindow: 'Open a browser for you alone in a window',
-      openWindowAt: (host) => `Open ${host} in a window`,
-      windowServer:
-        'In a window, it opens on the computer Harness Relay runs on: the best way for a page that asks you to sign in or solve a CAPTCHA. From another device, use the other button: the page shows in this chat.',
-      windowDesktop:
-        'In a window, it opens beside the Harness Relay app, on the computer it runs on: the best way for a page that asks you to sign in or solve a CAPTCHA. From another device, use the other button: the page shows in this chat.',
-      inWindow:
-        'It is open in a window on the computer Harness Relay runs on. Select the value there, then save it here; closing the window closes the browser.',
-      show: 'Show your browser',
-      hint: "A browser for you alone is Harness Relay's own browser, which no agent drives or reads, deleted with all it holds when you close it. It starts signed in to no site, so sign in there first when the page needs it. Select the value on the page (or tap the field that holds it) and choose Save selection as…: the value goes straight to this card, never through the chat. On the computer Harness Relay runs on, you can also open the page in your own browser and paste the value here.",
-      title: 'A browser for you alone',
-      line: 'Select the value on the page, then save it. This browser starts signed in to no site: sign in first if the page needs it (some sites show an error rather than ask you to). No agent drives or reads it, and it is deleted when you close it.',
-      close: 'Close the browser',
-      saveAs: (name) => `Save selection as ${name}`,
-      saved: (name) => `Saved as ${name}`,
-      select: 'Drag to select',
-      selectHint: 'On a touch screen, a drag selects text instead of scrolling',
-      fromPage: 'Saved from the page',
-      where: 'Where to get it:',
-      openAnyway: 'Open it all the same',
     },
   },
 

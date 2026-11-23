@@ -75,6 +75,46 @@
   max-height: 22rem;
   white-space: pre;
 }
+/* The code a proposed command would run: its button, a gap, then the note or the files. */
+.handoff-code {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.handoff-code > p {
+  margin: 0;
+}
+.handoff-code-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+.handoff-code-files summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+/* Long lines wrap, as the outbox's boxes do (a phone), each line's colour across its whole width. */
+.outbox-body.handoff-code-text {
+  margin: 4px 0 2px;
+  max-height: 22rem;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.handoff-code-text .d-add {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.handoff-code-text .d-del {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.handoff-code-text .d-hunk {
+  color: var(--muted);
+}
 .handoff-folder legend code {
   overflow-wrap: anywhere;
 }

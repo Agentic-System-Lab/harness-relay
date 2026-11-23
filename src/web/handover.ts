@@ -155,12 +155,10 @@ export function nextBatch(queue: readonly HandoverInput[]): { batch: HandoverInp
 }
 
 /**
- * What Enter in the panel's address bar sends: the address (`addressOf()`), `typed` only when the user
- * changed what the bar showed of the page (`shown`, the latest address the page went to: after a page
- * refused there, it shows that address, which Enter must not open as one the user typed); or `refused`
- * for another scheme than http and https, which the panel says it does not open.
+ * What Enter in the panel's address bar sends: the address (`addressOf()`), or `refused` for another
+ * scheme than http and https, which the panel says it does not open.
  */
-export function addressEntry(text: string, shown: string): { url: string; typed: boolean } | { refused: true } | undefined {
+export function addressEntry(text: string): { url: string } | { refused: true } | undefined {
   const url = addressOf(text);
   if (!url) return undefined;
   let parsed: URL;
@@ -170,14 +168,7 @@ export function addressEntry(text: string, shown: string): { url: string; typed:
     return { refused: true };
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { refused: true };
-  const same = (() => {
-    try {
-      return new URL(shown).href === parsed.href;
-    } catch {
-      return false;
-    }
-  })();
-  return { url: parsed.href, typed: !same };
+  return { url: parsed.href };
 }
 
 /** How far a finger may move, in pixels, and how long it may stay down, for a touch to be a tap (a click) rather than a scroll. */

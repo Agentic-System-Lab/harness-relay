@@ -2658,41 +2658,6 @@ export function createApp({
     return c.json({ ok: true });
   });
 
-  // A secrets card's browser for the user alone (for a page that shows a secret): opened at the address the
-  // ask `name` named, or blank, as a screencast in the chat or (`window: true`) in a window on this computer;
-  // the same one while it is open (taken to that address), however it shows. An address on this computer or
-  // the local network is a 409 (`code: 'nearby'`) until the user confirms it. Shown through the hand-over
-  // routes above (a window's only to hear that it closed).
-  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/browser', async (c) => {
-    const b = await body<{ name?: unknown; confirm?: unknown; window?: unknown }>(c);
-    if (b.name !== undefined && typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
-    if (b.window !== undefined && typeof b.window !== 'boolean') throw new HttpError(400, t().invalidField('window'));
-    // `confirm`: the user saw an address on this computer or the local network whole, and opens it all the same.
-    return c.json(
-      await orchestrator.openSecretsBrowser(
-        c.req.param('id'),
-        c.req.param('messageId'),
-        c.req.param('partId'),
-        b.name,
-        b.confirm === true,
-        b.window === true,
-      ),
-    );
-  });
-
-  // Where a browser for the user alone can open in a window (beside the desktop app, or on the computer
-  // the server runs on), or nothing where this computer shows none: the card offers a window only then.
-  app.get('/api/handovers/window', (c) => c.json({ windowAt: orchestrator.userBrowsers?.userWindowAt() ?? null }));
-
-  // Save selection as a secret: what the user selected on that browser's page, read and kept by the
-  // server for the card's folder under `name`; nothing of the value is in the answer.
-  app.post('/api/conversations/:id/messages/:messageId/secrets/:partId/selection', async (c) => {
-    const b = await body<{ handoverId?: unknown; name?: unknown }>(c);
-    if (typeof b.handoverId !== 'string' || typeof b.name !== 'string') throw new HttpError(400, t().invalidField('name'));
-    await orchestrator.saveSecretFromPage(c.req.param('id'), c.req.param('messageId'), c.req.param('partId'), b.handoverId, b.name);
-    return c.json({ ok: true });
-  });
-
   // A proposed fixed command's card: save it (with the user's edits) or not, or tell the team about it.
   app.post('/api/conversations/:id/messages/:messageId/commands/:partId', async (c) => {
     const b = await body<{ action?: unknown; edits?: unknown; digest?: unknown }>(c);

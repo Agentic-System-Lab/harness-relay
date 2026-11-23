@@ -14,20 +14,7 @@ import { relayBrowserDir } from '../protect';
 import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
 import { HANDOVER_LIMITS, type HandoverInput, type HandoverMode, type HandoverWindowAt } from '../../shared/types';
 import { CdpConnection } from './cdp';
-import {
-  HANDOVER_UNASKED,
-  Handovers,
-  SELECTION_SCRIPT,
-  USER_BROWSERS_MAX,
-  UserBrowserError,
-  cardUrl,
-  handoverOutcome,
-  inputCalls,
-  ownerVerdict,
-  type HandoverTicket,
-  type OwnerPage,
-  type HandoverWake,
-} from './handover';
+import { HANDOVER_UNASKED, Handovers, cardUrl, handoverOutcome, inputCalls, type HandoverTicket, type HandoverWake } from './handover';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
 /*
@@ -326,8 +313,6 @@ export interface BrowserServiceOptions {
   windowAt?: () => HandoverWindowAt | undefined;
   /** How long the user has to start a hand-over, then to hand it back (`HANDOVER_LIMITS`; tests give shorter ones). */
   handoverMs?: { start: number; use: number };
-  /** How many browsers for the user alone may be open at once (`USER_BROWSERS_MAX`; tests give fewer). */
-  userBrowsersMax?: number;
   /**
    * Tests only: a hand-over's window started headless, with the window's rules (its own tabs closed, the
    * browser's own pages sent back), so that they run where no window may open.
@@ -382,43 +367,6 @@ class BrowserSession {
   /** During a hand-over's screencast: told of a window the page opened (closed), and of a page refused. */
   onPopup?: (url: string) => void;
   onRefused?: (r: Refusal) => void;
-  /**
-   * A browser for the user alone (`openForUser()`): no agent drives or reads it, and nobody is asked
-   * about its hosts (`ownerVerdict()`).
-   */
-  owner?: 'user';
-  /**
-   * Of a browser for the user alone (`ownerVerdict()`): the page the user typed in its address bar (or the
-   * card's they confirmed, or one of theirs Back or Forward goes to), for opening that page alone (cleared
-   * once the tab shows it); the page its tab shows; and the pages the gate let its tab open, by the address
-   * each was let through at (its last redirect's), which the tab is about to show (`top` once it does).
-   * Each as the user opened it: where it led then.
-   */
-  typed?: TypedPage;
-  top?: OwnerPage;
-  readonly openings = new Map<string, OwnerPage>();
-  /**
-   * The addresses of the openings the gate refused lately, whose error pages are still to commit: such a
-   * commit, late on a slow computer, is that refusal's, and takes neither what the user typed since nor
-   * the opening the gate let through since at the same address (`refusedCommit()`).
-   */
-  readonly refusedOpenings: { at: string; until: number }[] = [];
-  /** Back or Forward going to a page of the user's (`entries`): the page it shows, should the browser restore it from memory. */
-  restoring?: OwnerPage;
-  /**
-   * The pages its tab showed, by their history entry's id: Back and Forward open one of them here as the
-   * user opened it (`typed`), never an address a page was refused, which its history keeps too.
-   */
-  readonly entries = new Map<number, OwnerPage>();
-  /** The address of the page its tab shows (`top`), without its fragment. */
-  shown?: string;
-  /**
-   * The tunnel of an https page the gate let its tab open as the user typed it (`typed`), by its origin,
-   * once and for a moment at most (`until`): at the proxy every other tunnel is checked as a page's own
-   * request is (a WebSocket the page still shown opens meanwhile, which the gate never sees). An http
-   * page's request is told by its own address (`openings`).
-   */
-  pass?: { tunnel: string; until: number };
   /** The page to open again before the next call (a hand-over's window a turn's end cut short), as that call. */
   resume?: string;
 
@@ -809,199 +757,16 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
 /** How soon a hand-over's window that is gone never reached the user (no display it could open on, say). */
 const WINDOW_QUICK_EXIT_MS = 5000;
 
-/**
- * Why a request of a browser for the user alone does not go (`ownerVerdict()`), or undefined when it does:
- * never what no browser of Harness Relay's opens, and to this computer or the local network only to the
- * host of its tab's page, or (`typed`: the opening of a page in its tab that the user typed, `typedFor()`)
- * the one they typed, each while its name leads where it led when the user opened it.
- */
-function ownerRefusal(
-  s: BrowserSession,
-  url: string,
-  rules: Parameters<typeof navigationVerdict>[1],
-  typed?: OwnerPage,
-): Refusal['why'] | undefined {
-  if (/^(data|blob):/i.test(url) || url === 'about:blank' || url === 'about:srcdoc') return undefined;
-  const verdict = navigationVerdict(url, { ...rules, allowed: new Set(), nearby: new Set() });
-  if (verdict === 'block') return 'blocked';
-  if (verdict === 'mixed') return 'mixed';
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    return 'blocked';
-  }
-  const nearby = leadsNearby(host, rules.addresses ?? [], rules.own ?? []);
-  const key = approvalKeys('fetch', url)[0];
-  const why = ownerVerdict({ nearby, key, addresses: rules.addresses ?? [], top: s.top, ...(typed ? { typed } : {}) });
-  return why === 'allow' ? undefined : why;
-}
-
-/**
- * What the user typed, as a browser for the user alone opens it (`typed`): the page (`OwnerPage`), the
- * address they typed (`url`), and the gate's id for the last request it let through for it (`request`),
- * whose redirects are its own, and that request's address (`last`).
- */
-type TypedPage = OwnerPage & { url: string; request?: string; last?: string };
-
-/** How long a refused opening's error page may take to commit, and be told for that refusal's. */
-const REFUSED_COMMIT_MS = 10_000;
-
-/** Notes a main-frame opening the gate refused at `url` (`refusedOpenings`). */
-function noteRefused(s: BrowserSession, url: string): void {
-  const now = Date.now();
-  const kept = s.refusedOpenings.filter((r) => r.until > now).slice(-19);
-  s.refusedOpenings.splice(0, s.refusedOpenings.length, ...kept, { at: addressOf(url), until: now + REFUSED_COMMIT_MS });
-}
-
-/** Whether an error page committing at `at` is that of an opening the gate refused (taken off the list then). */
-function refusedCommit(s: BrowserSession, at: string): boolean {
-  const now = Date.now();
-  const i = s.refusedOpenings.findIndex((r) => r.at === at && r.until > now);
-  if (i === -1) return false;
-  s.refusedOpenings.splice(i, 1);
-  return true;
-}
-
-/** `page` as the user typed it at `url`. */
-const typedAt = (page: OwnerPage, url: string): TypedPage => ({
-  key: page.key,
-  nearby: page.nearby,
-  addresses: page.addresses,
-  url: noFragment(new URL(url).href),
-});
-
-/** Whether `url` is the address `typed` names: the same, or its https form (Chromium upgrading it). */
-function sameAddress(url: string, typed: string): boolean {
+/** Whether `url` is the address `asked` names: the same, or its https form (Chromium upgrading it). */
+function sameAddress(url: string, asked: string): boolean {
   try {
     const a = new URL(url);
-    const b = new URL(typed);
+    const b = new URL(asked);
     const scheme = a.protocol === b.protocol || (a.protocol === 'https:' && b.protocol === 'http:');
     return scheme && a.hostname === b.hostname && a.port === b.port && a.pathname === b.pathname && a.search === b.search;
   } catch {
     return false;
   }
-}
-
-/**
- * Whether the main frame's request the gate paused (`p`) is the opening the user typed: a redirect of the
- * last request it let through for it, or a GET of the very address they typed. Not another page's request
- * to that host, a link or a script's (`location = …`) while the page they typed loads, or once it never
- * showed (a 204, a download).
- */
-function typedFor(typed: TypedPage | undefined, url: string, p: Record<string, unknown>): TypedPage | undefined {
-  if (!typed) return undefined;
-  if (typeof p.redirectedRequestId === 'string') return p.redirectedRequestId === typed.request ? typed : undefined;
-  const method = (p.request as { method?: unknown } | undefined)?.method;
-  return (method === undefined || method === 'GET') && sameAddress(url, typed.url) ? typed : undefined;
-}
-
-/** How long the connection of a page a browser for the user alone opens as typed may take to reach the proxy (`pass`). */
-const PASS_MS = 30_000;
-
-/** `url` without its fragment, as a request and the history give it. */
-const noFragment = (url: string) => url.replace(/#.*$/s, '');
-
-/** `url` as the gate and the commits compare addresses: parsed again, without its fragment. */
-function addressOf(url: string): string {
-  try {
-    return noFragment(new URL(url).href);
-  } catch {
-    return noFragment(url);
-  }
-}
-
-/**
- * A page the gate lets a browser for the user alone's tab open: kept as the user opened it, by its address
- * (`openings`, the tab's `top` once it shows it). Here, as the page shown's own (its host, as that page was
- * opened) or as the one the user typed; and then, when only what they typed lets it go, its connection at
- * the proxy (`pass`).
- */
-function noteOpening(
-  s: BrowserSession,
-  url: string,
-  rules: Parameters<typeof navigationVerdict>[1],
-  request: string,
-  typed?: TypedPage,
-): void {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return;
-  }
-  const key = approvalKeys('fetch', url)[0];
-  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !key) return;
-  const addresses = [...(rules.addresses ?? [])];
-  const at = addressOf(u.href);
-  const open = (page: OwnerPage) => {
-    s.openings.delete(at);
-    s.openings.set(at, page);
-    if (s.openings.size > 20) s.openings.delete(s.openings.keys().next().value!);
-  };
-  if (!leadsNearby(u.hostname, addresses, rules.own ?? [])) return open({ key, nearby: false, addresses });
-  if (s.top && ownerVerdict({ nearby: true, key, addresses, top: s.top }) === 'allow') return open(s.top);
-  if (!typed) return;
-  open({ key: typed.key, nearby: typed.nearby, addresses: typed.addresses });
-  typed.request = request;
-  typed.last = at;
-  if (u.protocol === 'https:') s.pass = { tunnel: u.origin, until: Date.now() + PASS_MS };
-}
-
-/**
- * Whether the proxy connects a browser for the user alone's connection (`tunnel`: a CONNECT, which https,
- * wss and ws use; `request`: an http request's address): as a request of its tab's page (`ownerRefusal()`,
- * not as a page being opened: a WebSocket, which the gate never sees, opened by the page still shown while
- * another loads), or as the connection of a page the gate let its tab open: an http one's request at its
- * own address (`openings`, until the tab shows it; the gate decided it, whatever page the tab shows by the
- * time it connects), an https one the user typed by its tunnel, once (`pass`).
- */
-function ownerRoutes(
-  s: BrowserSession,
-  url: string,
-  rules: Parameters<typeof navigationVerdict>[1],
-  tunnel: boolean,
-  request?: string,
-): boolean {
-  if (!ownerRefusal(s, url, rules)) return true;
-  if (request !== undefined) {
-    // The gate sees each http request, and a socket never comes this way; its name still where it led.
-    const page = s.openings.get(addressOf(request));
-    return Boolean(page) && !ownerRefusal(s, url, rules, page);
-  }
-  const pass = s.pass;
-  if (!tunnel || !pass || pass.until < Date.now() || pass.tunnel !== new URL(url).origin || ownerRefusal(s, url, rules, s.typed))
-    return false;
-  s.pass = undefined;
-  return true;
-}
-
-/**
- * Whether a WebSocket of a browser for the user alone to `url`, here, goes when its handshake comes: from the
- * page its tab shows then (its `origin`), to that page's own host as it was opened (`ownerRefusal()`).
- */
-function ownerSocket(s: BrowserSession, url: string, rules: Parameters<typeof navigationVerdict>[1], origin?: string): boolean {
-  const from = origin && /^https?:\/\//i.test(origin) ? approvalKeys('fetch', origin)[0] : undefined;
-  return Boolean(from) && from === s.top?.key && !ownerRefusal(s, url, rules);
-}
-
-/**
- * Keeps which history entry the tab's page is (`entries`), for Back and Forward: the entry whose address
- * is the page's own (`shown`), never another the history gives while it has not caught up yet (an
- * address a page was refused, say).
- */
-async function noteEntry(s: BrowserSession): Promise<void> {
-  const top = s.top;
-  const shown = s.shown;
-  if (s.owner !== 'user' || !top || !shown) return;
-  const h = await s
-    .send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory')
-    .catch(() => undefined);
-  const here = h?.entries[h.currentIndex];
-  if (!here || s.top !== top || s.shown !== shown || noFragment(here.url) !== shown) return;
-  s.entries.delete(here.id);
-  s.entries.set(here.id, top);
-  if (s.entries.size > 200) s.entries.delete(s.entries.keys().next().value!);
 }
 
 /** A tab's frames, as `Page.getFrameTree` gives them. */
@@ -1047,14 +812,6 @@ async function history(s: BrowserSession, to: 'back' | 'forward' | 'reload'): Pr
     .catch(() => undefined);
   const entry = h?.entries[h.currentIndex + (to === 'back' ? -1 : 1)];
   if (!entry) return;
-  // In a browser for the user alone, Back and Forward are the user's: a page of theirs there opens again as
-  // they opened it (`entries`), as if typed; an address a page was refused, which the history keeps too, does
-  // not (nor does Reload, on its error page: it is the tab's own page's request, and that page has no host).
-  if (s.owner === 'user') {
-    const page = s.entries.get(entry.id);
-    s.typed = page?.nearby ? typedAt(page, entry.url) : undefined;
-    s.restoring = page;
-  }
   await s.send('Page.navigateToHistoryEntry', { entryId: entry.id }).catch(() => undefined);
 }
 
@@ -1066,7 +823,7 @@ export class BrowserService {
   private readonly byPassword = new Map<string, BrowserSession>();
   private readonly idleMs: number;
   private readonly answerMs: number;
-  private readonly proxy = new BrowserProxy((password, host, port, secure, request) => this.route(password, host, port, secure, request));
+  private readonly proxy = new BrowserProxy((password, host, port, secure) => this.route(password, host, port, secure));
   /** Host names' addresses, looked up again after a minute. */
   private readonly addressCache = new Map<string, { at: number; addresses: Promise<string[]> }>();
   /**
@@ -1078,10 +835,6 @@ export class BrowserService {
   private readonly carried = new Map<string, Carry>();
   /** The hand-overs going on, which the routes reach. */
   readonly handovers = new Handovers();
-  /** The browsers for the user alone, by their id (their hand-over's): in none of the conversations' sessions. */
-  private readonly forUser = new Map<string, { convId: string; s: BrowserSession; ticket: HandoverTicket; ended: Promise<void> }>();
-  /** Browsers for the user alone being started: their places are taken at once, so that two at a time cannot pass the limit. */
-  private opening = 0;
   private readonly handoverMs: { start: number; use: number };
 
   constructor(private o: BrowserServiceOptions) {
@@ -1090,13 +843,6 @@ export class BrowserService {
     this.handoverMs = o.handoverMs ?? { start: HANDOVER_LIMITS.startMinutes * 60_000, use: HANDOVER_LIMITS.useMinutes * 60_000 };
     // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
     mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
-    // The browsers for the user alone a stopped server left (none runs yet): their profiles go.
-    removeTree(this.userProfiles());
-  }
-
-  /** Where the browsers for the user alone keep their throwaway profiles: none of a conversation's. */
-  private userProfiles(): string {
-    return join(relayBrowserDir(this.o.dataDir), 'user');
   }
 
   /**
@@ -1151,16 +897,11 @@ export class BrowserService {
    * is still the conversation's (a hand-over's window replaced it, say), so that it ending takes nothing
    * of the one after it.
    */
-  private async launch(
-    convId: string,
-    o: { window?: boolean; profile?: string; owner?: 'user' },
-    mine: () => boolean,
-  ): Promise<BrowserSession> {
+  private async launch(convId: string, o: { window?: boolean; profile?: string }, mine: () => boolean): Promise<BrowserSession> {
     const bin = this.o.executable();
     if (!bin) throw new Error(this.unavailable());
-    // A browser for the user alone carries nothing of the conversation's, and keeps its own profile.
-    const carry = o.owner ? undefined : this.carried.get(convId);
-    if (!o.owner) this.carried.delete(convId);
+    const carry = this.carried.get(convId);
+    this.carried.delete(convId);
     const profile = o.profile ?? this.profile(convId);
     mkdirSync(profile, { recursive: true, mode: 0o700 });
     writePrefs(profile);
@@ -1172,7 +913,7 @@ export class BrowserService {
       profile,
       proxyPort: this.proxy.port,
       window: o.window && !this.o.windowHeadless,
-      person: Boolean(o.window || o.owner),
+      person: Boolean(o.window),
       root: process.getuid?.() === 0,
     });
     const exited = runProcess({
@@ -1232,7 +973,6 @@ export class BrowserService {
       session.convId = convId;
       session.windowed = Boolean(o.window);
       session.visible = Boolean(o.window && !this.o.windowHeadless);
-      if (o.owner) session.owner = o.owner;
       // A window a turn's end cut short: the next call opens again the page it was on (`with()`).
       if (carry?.url) session.resume = carry.url;
       for (const [key, g] of carry?.granted ?? []) session.granted.set(key, g);
@@ -1258,54 +998,6 @@ export class BrowserService {
         void cdp.send('Fetch.continueWithAuth', { requestId: p.requestId, authChallengeResponse }, sid).catch(() => undefined);
       });
       cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(s, p));
-      // The page its tab shows (a browser for the user alone's requests here go only to its host), as the
-      // user opened it (`opening`, or a page of theirs Back restored from memory), else as a page that led to
-      // the internet; and the opening the user typed done with. Not the tab's first, blank page, which may
-      // come after the opening was asked for.
-      cdp.on('Page.frameNavigated', (p: Record<string, unknown>, sid?: string) => {
-        const frame = p.frame as { parentId?: string; url?: string; unreachableUrl?: string } | undefined;
-        if (sid !== sessionId || !frame || frame.parentId) return;
-        const url = frame.url ?? '';
-        if (url === 'about:blank') return void ((s.top = undefined), (s.shown = undefined));
-        // What this commit is of: a page, or the error page of an address that did not open. Only the
-        // opening the user typed ends what they typed: on a slow computer the page before (or the error
-        // page of one refused before) may commit once they typed another, which still opens.
-        const failed = typeof frame.unreachableUrl === 'string' ? addressOf(frame.unreachableUrl) : undefined;
-        const at = failed ?? addressOf(url);
-        // The error page of an opening the gate refused (committing late, once the user typed that same
-        // address and the gate let it through): that refusal's, which ends nothing of the user's opening.
-        const refused = failed !== undefined && refusedCommit(s, failed);
-        if (!refused && s.typed?.last === at) s.typed = s.pass = undefined;
-        const key = failed === undefined && /^https?:/i.test(url) ? approvalKeys('fetch', url)[0] : undefined;
-        // The page let through at this address, else (an address put another way) the latest of its host's.
-        const opening = refused ? undefined : (s.openings.get(at) ?? [...s.openings.values()].reverse().find((o) => o.key === key));
-        if (!refused) s.openings.delete(at);
-        const restoring = s.restoring;
-        s.restoring = undefined;
-        s.top = !key
-          ? undefined
-          : opening?.key === key
-            ? opening
-            : restoring?.key === key
-              ? restoring
-              : { key, nearby: false, addresses: [] };
-        s.shown = key ? noFragment(url) : undefined;
-        void noteEntry(s);
-      });
-      // Which history entry it is, once the history has caught up (`noteEntry()`); a page's own new address
-      // (`history.pushState()`) an entry too.
-      cdp.on('Page.navigatedWithinDocument', (p: Record<string, unknown>, sid?: string) => {
-        if (sid !== sessionId || p.frameId !== s.mainFrame || !s.top) return;
-        const url = String(p.url ?? '');
-        if (approvalKeys('fetch', url)[0] === s.top.key) s.shown = noFragment(url);
-        void noteEntry(s);
-      });
-      cdp.on('Page.domContentEventFired', (_p: Record<string, unknown>, sid?: string) => {
-        if (sid === sessionId) void noteEntry(s);
-      });
-      cdp.on('Page.frameStoppedLoading', (p: Record<string, unknown>, sid?: string) => {
-        if (sid === sessionId && p.frameId === s.mainFrame) void noteEntry(s);
-      });
       cdp.on('Target.detachedFromTarget', (p: Record<string, unknown>) => {
         s.gated.delete(String(p.sessionId));
         s.refused.delete(String(p.sessionId));
@@ -1366,12 +1058,11 @@ export class BrowserService {
   }
 
   /**
-   * Where the proxy may connect a browser's connection to `host`:`port` (`secure`: a CONNECT tunnel;
-   * `request`: an http request's address): refused unless `requestVerdict()` lets it go (in a browser for
-   * the user alone, `ownerRoutes()`), else to the addresses it was checked with (this computer's for a
-   * loopback name), the same ones the gate's check used.
+   * Where the proxy may connect a browser's connection to `host`:`port` (`secure`: a CONNECT tunnel):
+   * refused unless `requestVerdict()` lets it go, else to the addresses it was checked with (this
+   * computer's for a loopback name), the same ones the gate's check used.
    */
-  private async route(password: string, host: string, port: number, secure: boolean, request?: string): Promise<ProxyRoute> {
+  private async route(password: string, host: string, port: number, secure: boolean): Promise<ProxyRoute> {
     const s = this.byPassword.get(password);
     if (!s) return { refused: 'not a browser of this server' };
     const name = host.replace(/^\[|\]$/g, '');
@@ -1379,15 +1070,9 @@ export class BrowserService {
     // A tunnel on port 80 is a ws:// socket's; any other, https's or wss's: keyed as the page's own address is.
     const url = `${secure && port !== 80 ? 'https' : 'http'}://${bracketed}:${port}/`;
     const rules = await this.rules(s, url);
-    // A browser for the user alone: here only to its own page's host, or once for the page the user is opening (`ownerRoutes()`).
-    const refused = s.owner === 'user' ? !ownerRoutes(s, url, rules, secure, request) : requestVerdict(url, rules) !== 'allow';
-    if (refused) return { refused: `${url} is not reached from Harness Relay's browser` };
+    if (requestVerdict(url, rules) !== 'allow') return { refused: `${url} is not reached from Harness Relay's browser` };
     const addresses = isIP(name) ? [name] : isLoopbackHost(name) ? ['127.0.0.1', '::1'] : [...(rules.addresses ?? [])];
     if (!addresses.length) return { refused: `${name} has no address` };
-    // A browser for the user alone's WebSocket here: only its tab's page's own, by the origin its handshake
-    // gives, when it gets there (not one the page before it opened, connecting once another page is shown).
-    if (s.owner === 'user' && leadsNearby(name, rules.addresses ?? [], rules.own ?? []))
-      return { addresses, socket: (origin) => ownerSocket(s, url, rules, origin) };
     return { addresses };
   }
 
@@ -1409,19 +1094,6 @@ export class BrowserService {
         : s.cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sid)
       ).catch(() => undefined);
     const rules = await this.rules(s, url);
-    // A browser for the user alone: nobody asked, and a request here only to the host of its own page (`ownerVerdict()`).
-    if (s.owner === 'user') {
-      const main = isMainDocument(s, p, sid);
-      const typed = main ? typedFor(s.typed, url, p) : undefined;
-      const why = ownerRefusal(s, url, rules, typed);
-      if (main && why) {
-        s.denied = { url, why };
-        noteRefused(s, url);
-        s.onRefused?.(s.denied);
-      }
-      if (main && !why) noteOpening(s, url, rules, requestId, typed);
-      return void (await go(!why));
-    }
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
     const verdict = navigationVerdict(url, rules);
     let allow = verdict === 'allow';
@@ -2030,15 +1702,6 @@ export class BrowserService {
     // a host the chat's browser has not opened asks (below full access), the gate's question.
     try {
       await this.refuseBlocked(e.url);
-      // In a browser for the user alone, an address they typed may be on this computer or the local
-      // network, while it leads where it did when they typed it; one a page offered (a window it
-      // opened: "Open it here") may not, nor what they typed before.
-      if (s.owner === 'user') {
-        const page = e.typed ? await this.ownerPage(e.url) : undefined;
-        s.typed = undefined;
-        if (page) await this.leaveFor(s, page, e.url);
-        s.typed = page && typedAt(page, e.url);
-      }
       // The very address refused a moment before, its error page perhaps still committing on a slow
       // computer: that load stops first, or it would swallow this one (Chromium sends no request
       // for an address it is still failing to open). Never otherwise: the page shown keeps loading.
@@ -2174,251 +1837,6 @@ export class BrowserService {
     }
   }
 
-  /**
-   * Opens a browser for the user alone (B2, for a page that shows a secret): a Chromium of Harness Relay's
-   * own with a throwaway profile (`browser/user/<id>`, never a conversation's), shown as a screencast
-   * through the hand-over's panel and routes, or with `window` in a window on the computer Harness Relay
-   * runs on, where this computer can show one (`userWindowAt()`; else `UserBrowserError('window')`). No
-   * agent drives or reads it: no gateway call reaches it, as it is in none of the conversations' sessions,
-   * and what it opens is never granted to a chat's browser. Pages are not told it is automated (`person`
-   * in `launchArgs()`). Every connection goes through the proxy and its checks; nobody is asked about a
-   * host (`ownerVerdict()`). At `url` when given (the card's address, which the user chose to open). It
-   * closes, and its profile goes, when the user closes it (its window too), after
-   * `HANDOVER_LIMITS.useMinutes`, when the conversation is deleted, or at shutdown (a stopped server's are
-   * removed at the next start); then `onEnd`. Returns its id.
-   */
-  async openForUser(
-    convId: string,
-    o: { url?: string; nearbyConfirmed?: boolean; window?: boolean; onEnd?: () => void } = {},
-  ): Promise<string> {
-    const missing = this.unavailable();
-    if (missing) throw new UserBrowserError('unavailable', missing);
-    if (o.window && !this.userWindowAt()) throw new UserBrowserError('window', 'this computer shows no window');
-    const mode: HandoverMode = o.window ? 'window' : 'screencast';
-    const max = this.o.userBrowsersMax ?? USER_BROWSERS_MAX;
-    // Its place taken before anything waits, so that two opened at once cannot both pass the limit.
-    if (this.forUser.size + this.opening >= max) throw new UserBrowserError('busy', `at most ${max} at once`);
-    this.opening++;
-    let ticket: HandoverTicket | undefined;
-    let s: BrowserSession;
-    let profile: string;
-    try {
-      const typed = o.url ? await this.userAddress(o.url, o.nearbyConfirmed) : undefined;
-      ticket = this.handovers.create(convId, [mode]);
-      ticket.mode = mode;
-      ticket.status = 'active';
-      profile = join(this.userProfiles(), ticket.id);
-      s = await this.launch(`user:${ticket.id}`, { profile, owner: 'user', window: mode === 'window' }, () => false);
-      if (typed && o.url) s.typed = typedAt(typed, o.url);
-    } catch (err) {
-      this.opening--;
-      if (ticket) {
-        this.handovers.remove(ticket);
-        removeTree(join(this.userProfiles(), ticket.id));
-      }
-      throw err;
-    }
-    // No idle time: it closes when the user closes it, or at its time limit.
-    s.hold();
-    const t = ticket;
-    const ended = (async () => {
-      try {
-        if (o.url) void s.send('Page.navigate', { url: o.url }, CONFIG.turnTimeoutMs).catch(() => undefined);
-        // No turn to end it: the user, its time limit, the conversation's deletion (`endAll()`) or shutdown.
-        if (mode === 'window') await this.userWindow(s, t, this.handoverMs.use);
-        else await this.screencast(s, t, new AbortController().signal, this.handoverMs.use);
-      } catch {
-        /* it ends all the same */
-      } finally {
-        this.forUser.delete(t.id);
-        this.handovers.remove(t);
-        s.release();
-        s.stop();
-        await Promise.race([s.exited, new Promise((r) => setTimeout(r, 10_000).unref())]);
-        await removeProfile(profile);
-        o.onEnd?.();
-      }
-    })();
-    this.forUser.set(t.id, { convId, s, ticket: t, ended });
-    this.opening--;
-    return t.id;
-  }
-
-  /**
-   * An address a browser for the user alone is opened at (a secrets card's): never one no browser of
-   * Harness Relay's opens; one that leads to this computer or the local network only once the user
-   * confirmed it, having seen it whole (`UserBrowserError('nearby')` until then), and then as if typed
-   * (`typed`, which `ownerVerdict()` takes). Returns that page, or undefined for one on the internet.
-   */
-  private async userAddress(url: string, confirmed?: boolean): Promise<OwnerPage | undefined> {
-    await this.refuseBlocked(url).catch((err: Error) => {
-      throw new UserBrowserError('refused', err.message);
-    });
-    const page = await this.ownerPage(url);
-    if (!page?.nearby) return undefined;
-    if (!confirmed) throw new UserBrowserError('nearby', url);
-    return page;
-  }
-
-  /**
-   * Before a browser for the user alone opens an https page here as typed, whose connection the proxy lets
-   * through once by its origin alone (`pass`): the tab shows the blank page first, so that no page still
-   * shown can take that connection with a wss:// socket of its own (TLS, which the proxy does not read).
-   * An http one's connection is told by its own address, and a ws:// socket by its handshake's origin.
-   */
-  private async leaveFor(s: BrowserSession, page: OwnerPage, url: string): Promise<void> {
-    if (!page.nearby || !/^https:/i.test(url) || (await pageUrl(s)) === 'about:blank') return;
-    const blank = s.cdp.waitFor('Page.frameNavigated', 5000, s.sessionId, (p) => {
-      const frame = p.frame as { parentId?: string; url?: string } | undefined;
-      return !frame?.parentId && frame?.url === 'about:blank';
-    });
-    await s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
-    await blank;
-  }
-
-  /** `url`'s page as the user opens it now (`OwnerPage`): where it leads, by the addresses its name has. */
-  private async ownerPage(url: string): Promise<OwnerPage | undefined> {
-    const key = approvalKeys('fetch', url)[0];
-    let host: string;
-    try {
-      host = new URL(url).hostname;
-    } catch {
-      return undefined;
-    }
-    if (!key || !/^https?:/i.test(url)) return undefined;
-    const addresses = await this.addresses(url);
-    return { key, nearby: leadsNearby(host, addresses, this.o.own?.() ?? []), addresses };
-  }
-
-  /** Whether `url` leads to this computer or the local network (its host, or the addresses its name has). */
-  async leadsHere(url: string): Promise<boolean> {
-    let host: string;
-    try {
-      host = new URL(url).hostname;
-    } catch {
-      return false;
-    }
-    return leadsNearby(host, await this.addresses(url), this.o.own?.() ?? []);
-  }
-
-  async navigateForUser(convId: string, id: string, url: string, o: { nearbyConfirmed?: boolean } = {}): Promise<void> {
-    const u = this.forUser.get(id);
-    if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
-    const typed = await this.userAddress(url, o.nearbyConfirmed);
-    // Another site: what the user typed before opens nothing more.
-    u.s.typed = undefined;
-    if (typed) await this.leaveFor(u.s, typed, url);
-    u.s.typed = typed && typedAt(typed, url);
-    void u.s.send('Page.navigate', { url }, CONFIG.turnTimeoutMs).catch(() => undefined);
-    // A window: in front, where the user looks for the page.
-    if (u.ticket.mode === 'window') void u.s.send('Page.bringToFront').catch(() => undefined);
-  }
-
-  /** Whether it is open, and not closing (just after Close, the card opens another). */
-  userBrowserOpen(convId: string, id: string): boolean {
-    const u = this.forUser.get(id);
-    return u?.convId === convId && u.ticket.status === 'active';
-  }
-
-  /** How it shows: in a window, or as a screencast in the chat; undefined once it is gone. */
-  userBrowserMode(convId: string, id: string): HandoverMode | undefined {
-    const u = this.forUser.get(id);
-    return u?.convId === convId ? u.ticket.mode : undefined;
-  }
-
-  /** Where a browser for the user alone can open in a window (a hand-over's too), or undefined where this computer shows none. */
-  userWindowAt(): HandoverWindowAt | undefined {
-    return this.o.windowAt?.();
-  }
-
-  /**
-   * A browser for the user alone in its window: until the user closes the window (or Close on the card),
-   * or the time runs out (`ms`). It keeps to one tab (a tab the user opens is closed, `adopt()`), and is
-   * brought to the front. A page of the browser's own (its settings, flags, inspect) is not kept open: the
-   * tab opens again the last web page it showed, as the user opened it (as Back does, `history()`), or the
-   * blank page. The card is told of a window the page opened (closed) and of a page
-   * refused, and its "Open it here" opens the first in the tab (`openAsked()`, the only input taken: the
-   * user works in the window itself). What the user selects there is read as in the screencast (`selectionOf()`).
-   */
-  private async userWindow(s: BrowserSession, ticket: HandoverTicket, ms: number): Promise<HandoverWake> {
-    const closed = (p: Record<string, unknown>) => {
-      if (p.sessionId === s.sessionId) ticket.wake({ action: 'closed' });
-    };
-    // The last web page its tab showed, as the user opened it (`top`, which the session's own handler,
-    // registered first, has just set): what a page of the browser's own goes back to, whatever Chromium's
-    // history kept of it (one Chromium keeps no entry before such a page).
-    let last: { url: string; top?: OwnerPage } | undefined;
-    const own = (p: Record<string, unknown>, sid?: string) => {
-      const f = p.frame as { parentId?: string; url?: string } | undefined;
-      if (sid !== s.sessionId || !f || f.parentId) return;
-      const url = f.url ?? '';
-      if (/^https?:/i.test(url)) return void (last = { url, ...(s.top ? { top: s.top } : {}) });
-      if (!/^(chrome|chrome-untrusted|devtools):/i.test(url)) return;
-      if (!last) return void s.send('Page.navigate', { url: 'about:blank' }).catch(() => undefined);
-      // Opened again as Back would (`history()`): a page of the user's here as they opened it.
-      s.typed = last.top?.nearby ? typedAt(last.top, last.url) : undefined;
-      s.restoring = last.top;
-      void s.send('Page.navigate', { url: last.url }).catch(() => undefined);
-    };
-    s.cdp.on('Target.detachedFromTarget', closed);
-    s.cdp.on('Page.frameNavigated', own);
-    s.onPopup = (url) => ticket.emit({ type: 'notice', kind: 'popup', ...(url ? { url } : {}) });
-    s.onRefused = (r) => ticket.emit({ type: 'notice', kind: 'refused', url: r.url });
-    let inputs = Promise.resolve();
-    ticket.screen = {
-      input: (events) =>
-        (inputs = inputs.then(async () => {
-          for (const e of events) if (e.type === 'navigate') await this.openAsked(s, ticket, { ...e, typed: false });
-        })),
-    };
-    void s.exited.then(() => ticket.wake({ action: 'closed' }));
-    try {
-      await s.send('Page.bringToFront').catch(() => undefined);
-      return await ticket.wait(ms, new AbortController().signal);
-    } finally {
-      ticket.screen = undefined;
-      s.onPopup = undefined;
-      s.onRefused = undefined;
-      s.cdp.off('Target.detachedFromTarget', closed);
-      s.cdp.off('Page.frameNavigated', own);
-    }
-  }
-
-  /**
-   * What the user selected on the page of their browser `id` (`SELECTION_SCRIPT`, in the main frame, then
-   * in the frames of the same process), read over the debugging pipe in a world of our own, which the
-   * page's script cannot see; '' for nothing. Kept in the server: the caller stores it and sends none of it on.
-   */
-  async selectionOf(convId: string, id: string): Promise<string> {
-    const u = this.forUser.get(id);
-    if (!u || u.convId !== convId) throw new UserBrowserError('gone', 'it closed');
-    const tree = await u.s.send<{ frameTree: FrameTree }>('Page.getFrameTree').catch(() => undefined);
-    const frames: string[] = [];
-    const walk = (t: FrameTree | undefined) => {
-      if (!t) return;
-      frames.push(t.frame.id);
-      for (const c of t.childFrames ?? []) walk(c);
-    };
-    walk(tree?.frameTree);
-    for (const frameId of frames.length ? frames : [u.s.mainFrame]) {
-      const world = await u.s
-        .send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId, worldName: 'harness-relay-selection' })
-        .catch(() => undefined);
-      if (!world) continue;
-      const text = await u.s.evaluateIn<unknown>(world.executionContextId, SELECTION_SCRIPT).catch(() => '');
-      if (typeof text === 'string' && text.trim()) return text;
-    }
-    return '';
-  }
-
-  async closeForUser(convId: string, id: string): Promise<void> {
-    const u = this.forUser.get(id);
-    if (!u || u.convId !== convId) return;
-    if (u.ticket.status === 'active') u.ticket.status = 'ending';
-    u.ticket.wake({ action: 'done' });
-    await u.ended;
-  }
-
   /** Closes the conversation's browser as Chromium closes itself (its cookies and preferences written), then waits for it to end. */
   private async shut(convId: string): Promise<void> {
     const s = await this.sessions.get(convId)?.catch(() => undefined);
@@ -2450,7 +1868,6 @@ export class BrowserService {
 
   closeAll(): void {
     for (const id of [...this.sessions.keys()]) void this.close(id);
-    for (const u of this.forUser.values()) u.ticket.wake({ action: 'turn' });
     this.proxy.stop();
   }
 }

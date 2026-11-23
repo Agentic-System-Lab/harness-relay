@@ -173,8 +173,8 @@ const browser = new BrowserService({
   // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
-  // Where a hand-over's window opens (`browser_hand_over`), and a browser for the user alone's: beside the
-  // desktop app, or on this computer when it can show one (anywhere, headless, for the end-to-end tests).
+  // Where a hand-over's window opens (`browser_hand_over`): beside the desktop app, or on this computer when
+  // it can show one (anywhere, headless, for the end-to-end tests).
   windowAt: () =>
     CONFIG.headlessWindows
       ? 'server'
@@ -221,8 +221,6 @@ if (process.platform !== 'win32') {
   ]);
 }
 orchestrator.onDelete = (id) => void browser.close(id, true);
-// The browsers for the user alone a secrets card opens (for a page that shows a secret).
-orchestrator.userBrowsers = browser;
 orchestrator.gateway = gateway;
 // The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.
 orchestrator.interactiveDeps = {

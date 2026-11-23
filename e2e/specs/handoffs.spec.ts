@@ -1,4 +1,6 @@
 import type { Page } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { FolderHandoffs } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { finishedReply, replies, send, settled } from '../support/app';
@@ -31,16 +33,21 @@ test.describe('secrets and fixed commands', () => {
   test('a secret asked for in a reply is given on its card, never shown again, and listed by name in Settings', async ({ page, relay }) => {
     const claude = cli('claude');
     const id = await chatWith(page, relay, claude);
-    await send(page, 'Set up posting e2e:secret');
+    await send(page, 'Set up posting e2e:secret e2e:secreturl=https://developers.example.com/tokens');
     const reply = await finishedReply(page, claude.name);
     await expect(reply.locator('.markdown')).not.toContainText('<secret');
     const card = secretsCard(page);
     await expect(card).toContainText('E2E_TOKEN');
     await expect(card).toContainText('The fake needs it for the e2e check.');
+    // The page the agent named: a link for the user's own browser, opened in a new tab.
+    await expect(card).toContainText('Where to get it (open it in your own browser):');
+    const where = card.getByRole('link', { name: 'https://developers.example.com/tokens' });
+    await expect(where).toHaveAttribute('target', '_blank');
+    await expect(where).toHaveAttribute('rel', 'noopener noreferrer');
     // The value is masked while it is typed, unless the user shows it.
     const field = card.getByLabel(/E2E_TOKEN/);
     await expect(field).toHaveAttribute('type', 'password');
-    await card.getByRole('button', { name: 'Show' }).click();
+    await card.getByRole('button', { name: 'Show', exact: true }).click();
     await expect(field).toHaveAttribute('type', 'text');
     await giveSecret(page);
     await settled(relay, id);
@@ -72,6 +79,8 @@ test.describe('secrets and fixed commands', () => {
       );
     test.skip(!sandbox.ok, `Harness Relay's own sandbox does not run here: ${sandbox.reason}`);
     const claude = cli('claude');
+    // A script of the folder's, which the command's code view shows.
+    writeFileSync(join(relay.workDir, 'helper.py'), 'print("e2e helper")\n');
     const id = await chatWith(page, relay, claude);
     await send(page, 'Make me a script e2e:secret e2e:command');
     await finishedReply(page, claude.name);
@@ -81,8 +90,14 @@ test.describe('secrets and fixed commands', () => {
     const card = commandCard(page);
     await expect(card).toContainText('Fixed command "e2e-check"');
     await expect(card).toContainText('No network');
-    // Save pins the code it runs: it is looked at first.
+    // Its code, a file a row, the first open: what Save pins, there to look at.
     await card.getByRole('button', { name: 'Show the code it runs' }).click();
+    const script = card.locator('.handoff-code-files > li').filter({ hasText: 'helper.py' });
+    await expect(script).toContainText('As it is now');
+    await expect(script.locator('details')).toHaveAttribute('open', '');
+    await expect(script).toContainText('print("e2e helper")');
+    // Save without the code open: it pins the code as it is then.
+    await card.getByRole('button', { name: 'Hide the code' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');
     // What the user types for this run is what it reads on its standard input.

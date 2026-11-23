@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 54 個 spec 檔、644 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 54 個 spec 檔、643 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -64,7 +64,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
-| [接手瀏覽器](#接手瀏覽器) | [`handover.spec.ts`](specs/handover.spec.ts) | 5 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[架構 → Harness Relay 自己的工具](../docs/architecture.zh-TW.md#工具庫) |
+| [接手瀏覽器](#接手瀏覽器) | [`handover.spec.ts`](specs/handover.spec.ts) | 4 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[架構 → Harness Relay 自己的工具](../docs/architecture.zh-TW.md#工具庫) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
@@ -435,8 +435,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查什麼 |
 | --- | --- | --- |
-| 回覆要的密鑰在卡片上提供，之後不再顯示，並在設定頁依名稱列出 | Claude Code | 回覆裡沒有 `<secret` 標籤，而是一張 **Secrets @Claude asks for** 卡片，列出 `E2E_TOKEN` 和 agent 的理由；按 **Show** 之前輸入框都是密碼欄位；**Save** 後標成 **Saved**，並把「I gave E2E_TOKEN…」當作使用者的回答送出；值不在頁面上，也不在伺服器送出的對話裡，`GET /api/handoffs` 只列出名稱，**設定 → 密鑰與固定指令**也列出它，按 **Remove** 就刪除。 |
-| 提議的固定指令儲存、帶著輸入試跑且密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Show the code it runs**（儲存鎖定的是看過的程式碼）、**Save**，在 **Input for this run** 打一行，再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值，也顯示它從標準輸入讀到的那一行；**Send the result to the team** 把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
+| 回覆要的密鑰在卡片上提供，之後不再顯示，並在設定頁依名稱列出 | Claude Code | 回覆裡沒有 `<secret` 標籤，而是一張 **Secrets @Claude asks for** 卡片，列出 `E2E_TOKEN` 和 agent 的理由，以及 agent 指出的網頁（`e2e:secreturl`），在 **Where to get it (open it in your own browser):** 之下以連結顯示，會在新分頁開啟；按 **Show** 之前輸入框都是密碼欄位；**Save** 後標成 **Saved**，並把「I gave E2E_TOKEN…」當作使用者的回答送出；值不在頁面上，也不在伺服器送出的對話裡，`GET /api/handoffs` 只列出名稱，**設定 → 密鑰與固定指令**也列出它，按 **Remove** 就刪除。 |
+| 提議的固定指令儲存、帶著輸入試跑且密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Show the code it runs** 一個檔案一列地列出程式碼（資料夾的 `helper.py` 以目前的內容、預設打開），再按 **Hide the code**，然後在程式碼收起時按 **Save**（鎖定當時的程式碼），在 **Input for this run** 打一行，再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值，也顯示它從標準輸入讀到的那一行；**Send the result to the team** 把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
 
 ## 長期記憶
 
@@ -505,11 +505,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- |
 | 用滑鼠與按鍵透過畫面串流登入，附上給助理的話交回 | 卡片（agent 的原因、網頁、使用者登入的帳號會留在對話的瀏覽器中）、側邊欄的**需要你**；**在這裡顯示** 開啟面板，網址就是那個網頁；在畫面上點一下讓欄位取得焦點，在打字框打的按鍵和輸入法的文字會送到欄位，點按鈕送出（網頁的伺服器收到 `someone注音`），網址也跟著變；**先隱藏**、在卡片上寫給助理的話、**完成，交回給 agent**；回覆只說使用者交回了，附上那句話，絕不包含打的字；卡片顯示**已交回（在聊天中）**。 |
 | 婉拒 | 附上一句話按**不用了**：agent 會聽到，卡片顯示**已婉拒**，沒有送出任何東西。 |
-| 從網頁取得的密鑰 | 假 CLI 要求 `E2E_TOKEN`，並附上替身權杖網頁的網址（`e2e:secret e2e:secreturl=…`）；卡片以連結顯示完整網址；它的 **Open *主機* in a browser for you alone** 說明網址在這台電腦上，按 **Open it all the same** 之後才在那裡開啟面板；面板的說明完整顯示、會換行，寫著瀏覽器一開始沒有登入任何網站；在權杖上點三下選取它，**Save selection as E2E_TOKEN** 保存它：瀏覽器關閉，卡片顯示 **Saved from the page**，團隊收到名稱；網頁的文字、伺服器送出的對話與列出名稱的設定中都沒有那個權杖；瀏覽器的拋棄式設定檔也不在了。 |
-| 在視窗中從網頁取得的密鑰 | 設定 `RELAY_HEADLESS_WINDOWS=on`（代替能顯示視窗的電腦，視窗以無頭模式開啟）時，卡片說明視窗會開在哪裡，並把 **Open *主機* in a window** 排在 **Open *主機* in a browser for you alone** 前面（對話在 127.0.0.1）；確認這台電腦上的網址後，瀏覽器開在視窗中（`mode: 'window'`），沒有面板：卡片顯示它開在那裡，附上 **Save selection as E2E_TOKEN** 與 **Close the browser**。在那裡關閉時（透過 API 回答它的交接，和使用者關閉視窗時一樣），卡片會得知並移除那個區塊；再開一次後，按 **Close** 會關閉它並刪除設定檔；再開一次後，從卡片儲存權杖網頁自己選取的文字，卡片顯示 **Saved from the page**，視窗關閉，團隊收到名稱，網頁上沒有那個權杖。 |
+| 從視窗交回 | 設定 `RELAY_HEADLESS_WINDOWS=on`（代替能顯示視窗的電腦，視窗以無頭模式開啟）時，卡片說明視窗會開在哪裡，按 **Open in a window** 不會開面板：卡片說明瀏覽器開在那裡的視窗中；按 **Done: hand it back** 後，agent 拿回在沒有視窗的瀏覽器中重新開啟的網頁，卡片顯示 **Handed back (in a window)**。 |
 | 在手機上，中文介面 | 390 像素寬、繁體中文的觸控螢幕：面板佔滿螢幕，在畫面上點一下就是點擊，在打字框打的字會送到網頁，**完成，交回給 agent** 交回。 |
 
-這裡只會以無頭模式（`RELAY_HEADLESS_WINDOWS`）為只給使用者的瀏覽器開執行 Harness Relay 的電腦上的視窗；還沒有 spec 開交接的視窗：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流、只給使用者的瀏覽器與兩種視窗（無頭模式）則在 `test/browser.test.ts`。
+交接的視窗在這裡只以無頭模式開啟（`RELAY_HEADLESS_WINDOWS`），所以沒有人在裡面點擊：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流與視窗（無頭模式）則在 `test/browser.test.ts`。
 
 ## 用 OAuth 登入的帳號
 
@@ -881,7 +880,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
 | 工具庫 HTTP MCP 伺服器自己的登入（登入頁面在另一台主機時先經過確認）：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
 | 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正、無法預覽的應用程式自動交回，指令（完整權限，和在 Harness Relay 自己的沙箱裡），以及平行模式的結果在仍要套用前不套用 | ✓ | — | — | — | — | — | — |
-| 接手瀏覽器（`browser_hand_over`）：用滑鼠、按鍵與觸控操作畫面串流，以及婉拒；在只給使用者的瀏覽器中從網頁儲存密鑰，在對話中與在視窗中 | ✓ | — | — | — | — | — | — |
+| 接手瀏覽器（`browser_hand_over`）：用滑鼠、按鍵與觸控操作畫面串流、婉拒，以及從它的視窗（無頭模式）交回 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
@@ -967,7 +966,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（只給使用者的瀏覽器的視窗以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA，或在卡片上顯示網頁在那裡開的視窗的通知（伺服器的部分在 `test/browser.test.ts`）：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站；在只給使用者的瀏覽器中，也沒有測這裡另一個主機的網頁（會被拒絕）或欄位中的選取（兩者都在 `test/browser.test.ts`），以及手機上的**拖曳選取**。
+- **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（它以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令，以及從待送出匣送出一次執行：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值，以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。

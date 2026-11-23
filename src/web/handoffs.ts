@@ -1,5 +1,6 @@
 import type { CommandProposal, FixedCommandRun, MessagePart, SecretAsk } from '../shared/types';
 import { checkProposal } from '../shared/handoffs';
+import { diffLineClass, parseDiff } from './diff';
 
 /*
  * The secrets and fixed command cards' logic (`components/HandoffCards.tsx`), kept apart from React so
@@ -8,6 +9,66 @@ import { checkProposal } from '../shared/handoffs';
 
 export type SecretsPart = Extract<MessagePart, { type: 'secrets' }>;
 export type CommandPart = Extract<MessagePart, { type: 'command' }>;
+
+/**
+ * One file of the code a proposed fixed command would run (`codeFiles()`), as the card lists it: its name;
+ * what it is (a file the agents added, one they changed or removed, one shown as it is now, a file of
+ * secrets by its names, a git setting or hook); for a change, its lines added and removed; and its lines,
+ * each with the diff dialog's class (`d-add`, `d-del`, `d-hunk`, or none). A file added whole reads as
+ * itself, without the `+` before each line.
+ */
+export interface CodeFile {
+  title: string;
+  kind: 'new' | 'changed' | 'removed' | 'now' | 'names' | 'git';
+  added?: number;
+  deleted?: number;
+  lines: { text: string; cls: string }[];
+}
+
+/**
+ * The code view the server sends (`codeView()`: git's diff of each changed file, then `### <entry> (…)`
+ * pieces for what has no diff, the scripts as they are now, a file of secrets by its names, a git setting
+ * or hook) split into its files, in its order (the scripts the command line names first).
+ */
+export function codeFiles(view: string): CodeFile[] {
+  const chunks: string[][] = [];
+  for (const line of view.split('\n')) {
+    if (line.startsWith('diff --git ') || line.startsWith('### ') || !chunks.length) chunks.push([line]);
+    else chunks[chunks.length - 1]!.push(line);
+  }
+  const files: CodeFile[] = [];
+  for (const chunk of chunks) {
+    while (chunk.length > 1 && chunk[chunk.length - 1] === '') chunk.pop();
+    const head = chunk[0]!;
+    if (head.startsWith('diff --git ')) {
+      const file = parseDiff(chunk.join('\n')).files[0];
+      if (!file) continue;
+      const hunk = file.lines.findIndex((l) => l.startsWith('@@'));
+      const body = hunk < 0 ? [] : file.lines.slice(hunk);
+      const kind = file.status === 'A' ? 'new' : file.status === 'D' ? 'removed' : 'changed';
+      files.push({
+        title: file.path,
+        kind,
+        ...(file.added !== null ? { added: file.added } : {}),
+        ...(file.deleted !== null ? { deleted: file.deleted } : {}),
+        lines:
+          kind === 'new'
+            ? body.filter((l) => l.startsWith('+')).map((l) => ({ text: l.slice(1), cls: '' }))
+            : body.map((l) => ({ text: l, cls: diffLineClass(l, true) })),
+      });
+      continue;
+    }
+    if (!head.startsWith('### ')) continue;
+    const named = /^### (.*?)(?: \((as it is now|its names; values not shown)\))?$/.exec(head)!;
+    const entry = named[1]!.replace(/^named:/, '');
+    files.push({
+      title: entry,
+      kind: entry.startsWith('git ') ? 'git' : named[2] === 'its names; values not shown' ? 'names' : 'now',
+      lines: chunk.slice(1).map((text) => ({ text, cls: '' })),
+    });
+  }
+  return files;
+}
 
 /** A list the user typed: words separated by commas or spaces, each once. */
 export function wordsOf(text: string): string[] {

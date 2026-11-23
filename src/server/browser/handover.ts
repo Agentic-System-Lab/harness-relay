@@ -217,16 +217,11 @@ export class Handovers {
     return undefined;
   }
 
-  /**
-   * A watcher of a screencast going on (`HandoverTicket.watch()`), or of a window (a hand-over's, or a
-   * browser for the user alone's, whose card hears from it that the user closed the window): a window's
-   * stream has no frames or addresses, only that it ended, and for a browser for the user alone the
-   * windows its page opened (closed) and the pages refused.
-   */
+  /** A watcher of a screencast going on (`HandoverTicket.watch()`). */
   watch(convId: string, id: string, fn: (e: HandoverScreenEvent) => void): (() => void) | HandoverRefusal {
     const t = this.get(convId, id);
     if (!t) return 'missing';
-    if (!t.mode || (t.status !== 'active' && t.status !== 'starting')) return 'state';
+    if (t.mode !== 'screencast' || (t.status !== 'active' && t.status !== 'starting')) return 'state';
     return t.watch(fn);
   }
 
@@ -316,7 +311,7 @@ export function checkInputs(raw: unknown): HandoverInput[] | string {
           return 'an address is not valid';
         }
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https pages open';
-        out.push({ type: 'navigate', url: url.href, ...(e.typed === true ? { typed: true } : {}) });
+        out.push({ type: 'navigate', url: url.href });
         break;
       }
       case 'history':
@@ -446,123 +441,6 @@ export function inputCalls(e: HandoverInput, frame: { width: number; height: num
       return [];
   }
 }
-
-/*
- * A browser for the user alone (B2 of docs/proposals/user-handoffs.md), for a page that shows a secret (a
- * token generator): a Chromium of its own, with a throwaway profile, shown through the same screencast
- * panel and routes as a hand-over, which no agent drives or reads; the user selects the value on the page
- * and saves it to a secrets card (`selectionOf()`), the value never leaving the server but for the
- * screencast's picture.
- */
-
-/** The most browsers for the user alone at once, on this server: each is a Chromium of its own. */
-export const USER_BROWSERS_MAX = 3;
-
-/**
- * A page of a browser for the user alone (`ownerVerdict()`): its host and port (`key`, as `approvalKeys()`
- * keys a fetch), whether it led to this computer or the local network when the user opened it (`nearby`),
- * and the addresses its name had then (none for an address, or a name on this computer).
- */
-export interface OwnerPage {
-  key: string;
-  nearby: boolean;
-  addresses: readonly string[];
-}
-
-/**
- * Whether a request of a browser for the user alone goes (`key`: its host and port; `nearby`: it leads to
- * this computer or the local network, by the addresses its name has now). Nobody is asked: the user
- * navigates it themselves, and what it opens is never the agents' (its profile goes when it closes). One
- * to the internet goes. One here goes only:
- * - to the host of the page open in its tab (`top`: that page's own images, scripts, forms, sockets and
- *   links), when that page was itself opened here as the user's (`nearby`) and its name leads to none but
- *   the addresses it had then;
- * - or, to open a page in its tab, to the address the user typed in its address bar (or the card's own,
- *   which they confirmed, or a page of theirs Back or Forward goes to) for that one opening (`typed`, until
- *   the tab shows a page again), on the same terms.
- *
- * Never to a host a page elsewhere leads to or reaches by itself (a link, a redirect, a script's request,
- * a form a public page posts to a device on the network), however often the user opened it before
- * (`unasked`); nor, under the name of a page opened while it led to the internet, or elsewhere, here now
- * (`moved`: DNS rebinding, a public page whose name comes to lead to the user's router). Harness Relay's
- * own ports, link-local and metadata addresses never open, as in every browser of Harness Relay's
- * (`navigationVerdict()`).
- */
-export function ownerVerdict(o: {
-  nearby: boolean;
-  key?: string;
-  addresses?: readonly string[];
-  top?: OwnerPage;
-  typed?: OwnerPage;
-}): 'allow' | 'moved' | 'unasked' {
-  if (!o.nearby) return 'allow';
-  const same = [o.typed, o.top].filter((p): p is OwnerPage => Boolean(o.key) && p?.key === o.key);
-  if (!same.length) return 'unasked';
-  const now = o.addresses ?? [];
-  return same.some((p) => p.nearby && now.every((a) => p.addresses.includes(a))) ? 'allow' : 'moved';
-}
-
-/**
- * Why a browser for the user alone could not open, or is gone: no browser to start, too many open, an
- * address no browser of Harness Relay's opens (its own ports, a metadata address), a window asked for
- * where this computer shows none, or it closed.
- */
-export class UserBrowserError extends Error {
-  constructor(
-    /** `nearby`: the address leads to this computer or the local network, and the user has not confirmed it. */
-    readonly why: 'unavailable' | 'busy' | 'refused' | 'nearby' | 'window' | 'gone',
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-/** What the orchestrator reaches of the browsers for the user alone (`BrowserService`). */
-export interface UserBrowsers {
-  /**
-   * Opens one for conversation `convId`, at `url` if given (one that leads to this computer or the local
-   * network only once the user confirmed it, `nearbyConfirmed`: else `UserBrowserError('nearby')`), in a
-   * window on this computer with `window` (where `userWindowAt()` names one), else as a screencast;
-   * `onEnd` once it closed. Returns its id.
-   */
-  openForUser(convId: string, o?: { url?: string; nearbyConfirmed?: boolean; window?: boolean; onEnd?: () => void }): Promise<string>;
-  /** Takes one that is open to `url`, as `openForUser()` would open it there. */
-  navigateForUser(convId: string, id: string, url: string, o?: { nearbyConfirmed?: boolean }): Promise<void>;
-  /** Whether it is open still. */
-  userBrowserOpen(convId: string, id: string): boolean;
-  /** How it shows (in a window, or as a screencast); undefined once it is gone. */
-  userBrowserMode(convId: string, id: string): HandoverMode | undefined;
-  /** Where one can open in a window, or undefined where this computer shows none. */
-  userWindowAt(): HandoverWindowAt | undefined;
-  /** The text the user selected on its page (in a field too), or a focused field's whole value; '' for none. */
-  selectionOf(convId: string, id: string): Promise<string>;
-  /** Closes it, and its profile goes. */
-  closeForUser(convId: string, id: string): Promise<void>;
-}
-
-/**
- * Runs in a world of its own beside the page's (`Page.createIsolatedWorld`): the text the user selected,
- * in a field (an input or a text area, also in a shadow root: its own selection) or on the page; with
- * nothing selected, the whole value of the field that has the focus (a token shown in a read-only field,
- * which a tap on a phone focuses), but never a password field's: only a selection made in one. Read in
- * the server and kept there (`selectionOf()`), never sent to the page that shows the panel.
- */
-export const SELECTION_SCRIPT = `(() => {
-  let el = document.activeElement;
-  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-  const field = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? el : null;
-  if (field) {
-    try {
-      const a = field.selectionStart;
-      const b = field.selectionEnd;
-      if (typeof a === 'number' && typeof b === 'number' && b > a) return String(field.value).slice(a, b);
-    } catch (e) {}
-  }
-  const selected = String(getSelection() || '');
-  if (selected.trim()) return selected;
-  if (field && field.type !== 'hidden' && field.type !== 'password' && String(field.value).trim()) return String(field.value);
-  return '';
-})()`;
 
 /** What the agent is told when nobody can be asked to take over the browser. */
 export const HANDOVER_UNASKED =

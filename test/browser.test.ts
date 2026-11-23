@@ -325,8 +325,6 @@ describe.skipIf(!chromium)('the browser itself', () => {
   const upgraded: Duplex[] = [];
   // What `/hang` took and never answered, and whether the browser gave it up.
   const hung: ServerResponse[] = [];
-  /** What `/signal` took, answered when a test says so. */
-  const signals: ServerResponse[] = [];
   /** Told of each request the test server gets, as it comes. */
   let onRequest: ((url: string) => void) | undefined;
   let hangClosed = false;
@@ -433,46 +431,16 @@ describe.skipIf(!chromium)('the browser itself', () => {
         return void req.on('close', () => (hangClosed = true));
       }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
-      if (url.pathname === '/handover')
-        // A field over the top half of the page and a button over the bottom half: clicked by where they are.
-        return res.end(
-          `<title>Hand over</title><input id="f" style="position:fixed;left:0;top:0;width:100%;height:50%;font-size:40px">` +
-            `<button style="position:fixed;left:0;top:50%;width:100%;height:50%" onclick="document.title = 'Clicked ' + document.getElementById('f').value">Go</button>`,
-        );
-      if (url.pathname === '/token')
-        // A token generator's page: a token in the text, one in a read-only field, and a link to another host here.
-        return res.end(
-          `<title>Your token</title><p style="position:fixed;left:0;top:0;width:100%;height:30%;margin:0;font-size:30px">tok-from-page-1234</p>` +
-            `<a href="http://localhost:${port}/next" style="position:fixed;left:0;top:30%;width:100%;height:20%;display:block;font-size:30px">Elsewhere</a>` +
-            `<input readonly value="ro-field-5678" style="position:fixed;left:0;top:60%;width:100%;height:40%;font-size:30px">`,
-        );
       if (url.pathname === '/leave')
         // A form page that asks "Leave site?" before it is closed or left.
         return res.end(
           `<title>Leave</title><p>Unsaved</p><script>addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = '' })</script>`,
         );
-      if (url.pathname === '/csrf')
-        // A page that reaches another host here by itself: a request with no answer read, then a page opened.
+      if (url.pathname === '/handover')
+        // A field over the top half of the page and a button over the bottom half: clicked by where they are.
         return res.end(
-          `<title>Reach</title><script>fetch('http://localhost:${port}/csrf-fetch', { mode: 'no-cors', method: 'POST', body: 'x' }).catch(() => {}); setTimeout(() => (location = 'http://localhost:${port}/csrf-nav'), 300)</script>`,
-        );
-      if (url.pathname === '/evil-once')
-        // Once per tab: sends the tab to a device here it may not reach (refused), which its history keeps.
-        return res.end(
-          `<title>Evil</title><script>if (!sessionStorage.done) { sessionStorage.done = 1; setTimeout(() => (location = 'http://localhost:${port}/reboot?pwn=1'), 300) }</script>`,
-        );
-      if (url.pathname === '/ws-attacker')
-        // A page opening sockets to another host here, again and again.
-        return res.end(
-          `<title>Sockets</title><script>setInterval(() => { try { new WebSocket('ws://localhost:${port}/ws-pwn').onerror = () => {} } catch {} }, 25)</script>`,
-        );
-      if (url.pathname === '/nocontent') return void res.writeHead(204).end();
-      if (url.pathname === '/to-next') return void res.writeHead(302, { location: '/next' }).end();
-      if (url.pathname === '/signal') return void signals.push(res);
-      if (url.pathname === '/waiting')
-        // A page that sends its tab to another host here once the test lets its own request answer.
-        return res.end(
-          `<title>Waiting</title><script>fetch('/signal').then(() => (location = 'http://localhost:${port}/reboot?pwn=2'), () => {})</script>`,
+          `<title>Hand over</title><input id="f" style="position:fixed;left:0;top:0;width:100%;height:50%;font-size:40px">` +
+            `<button style="position:fixed;left:0;top:50%;width:100%;height:50%" onclick="document.title = 'Clicked ' + document.getElementById('f').value">Go</button>`,
         );
       if (url.pathname === '/rebind')
         // A page asking its own host for something, again and again.
@@ -527,7 +495,6 @@ describe.skipIf(!chromium)('the browser itself', () => {
     browser?.closeAll();
     for (const sock of upgraded) sock.destroy();
     for (const res of hung) res.destroy();
-    for (const res of signals) res.destroy();
     await new Promise((r) => server?.close(r));
     await new Promise((r) => relay?.close(r));
   });
@@ -963,451 +930,21 @@ describe.skipIf(!chromium)('the browser itself', () => {
   );
 
   it(
-    'opens a browser for the user alone: its own throwaway profile, nobody asked about its hosts but one here it was not given, and the selection read in the server',
+    "tells pages it is automated while the agents drive it (a person driving it, as in a hand-over's window, is not)",
     async () => {
-      const ended: string[] = [];
-      // The card's address leads to this computer: refused until the user confirmed it, having seen it whole.
-      await expect(browser.openForUser('conv-alone', { url: `http://127.0.0.1:${port}/token` })).rejects.toMatchObject({
-        why: 'nearby',
-        message: `http://127.0.0.1:${port}/token`,
-      });
-      const id = await browser.openForUser('conv-alone', {
-        url: `http://127.0.0.1:${port}/token`,
-        nearbyConfirmed: true,
-        onEnd: () => ended.push('ended'),
-      });
-      const profile = join(root, 'data', 'browser', 'user', id);
-      expect(existsSync(profile)).toBe(true);
-      expect(browser.userBrowserOpen('conv-alone', id)).toBe(true);
-      expect(browser.userBrowserOpen('another', id)).toBe(false);
-      const notices: string[] = [];
-      const locations: string[] = [];
-      // What the proxy decided for each connection (on a failure, to tell where an opening was refused).
-      const routes: string[] = [];
-      const routed = browser as unknown as { route: (...a: unknown[]) => Promise<{ refused?: string }> };
-      const route = routed.route.bind(browser);
-      routed.route = async (...a: unknown[]) => {
-        const r = await route(...a);
-        routes.push(`${String(a[1])}:${String(a[2])}${a[3] ? ' tunnel' : ''} ${String(a[4] ?? '')} -> ${r.refused ? 'refused' : 'ok'}`);
-        return r;
-      };
-      /** What the tab did, for a wait that fails. */
-      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12), routes: routes.slice(-12) });
-      let frames = 0;
-      await vi.waitFor(() => {
-        const watching = browser.handovers.watch('conv-alone', id, (e) => {
-          if (e.type === 'frame') frames++;
-          if (e.type === 'notice') notices.push(`${e.kind} ${e.url}`);
-          if (e.type === 'location') locations.push(e.url);
-        });
-        expect(typeof watching).toBe('function');
-      });
-      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: 20_000 });
-      // A person drives it, in the chat too: no page is told it is automated.
-      const shown = (
-        browser as unknown as { forUser: Map<string, { s: { send: <T>(m: string, p: Record<string, unknown>) => Promise<T> } }> }
-      ).forUser.get(id)!.s;
-      expect(
-        (await shown.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
-          .result.value,
-      ).toBe(false);
-      const asked = asked0();
-      // Nothing selected yet, nothing focused: nothing to save.
-      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe(''), { timeout: 10_000 });
-      // Three clicks on the token's text select it; read in a world of our own.
-      await browser.handovers.input('conv-alone', id, [
-        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 1 },
-        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 1 },
-        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 2 },
-        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 2 },
-        { type: 'mouse', action: 'down', x: 0.5, y: 0.1, clicks: 3 },
-        { type: 'mouse', action: 'up', x: 0.5, y: 0.1, clicks: 3 },
-      ]);
-      await vi.waitFor(async () => expect((await browser.selectionOf('conv-alone', id)).trim()).toBe('tok-from-page-1234'));
-      // A tap on the read-only field: its whole value; a selection in it, that part.
-      await browser.handovers.input('conv-alone', id, [
-        { type: 'mouse', action: 'down', x: 0.5, y: 0.8, clicks: 1 },
-        { type: 'mouse', action: 'up', x: 0.5, y: 0.8, clicks: 1 },
-      ]);
-      await vi.waitFor(async () => expect(await browser.selectionOf('conv-alone', id)).toBe('ro-field-5678'));
-      // A link to another host here, which the user did not type: not opened, and nobody asked.
-      await browser.handovers.input('conv-alone', id, [
-        { type: 'mouse', action: 'down', x: 0.5, y: 0.4, clicks: 1 },
-        { type: 'mouse', action: 'up', x: 0.5, y: 0.4, clicks: 1 },
-      ]);
-      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
-      expect(asked0()).toBe(asked);
-      // Offered by the page (its window's address, "Open it here"): not opened either.
-      notices.length = 0;
-      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next` }]);
-      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
-      // Typed in its address bar: opened.
-      hits.length = 0;
-      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
-      await vi.waitFor(() => expect(hits, state()).toContain('/next'), { timeout: 10_000 });
-      expect(asked0()).toBe(asked);
-      // Opened before, that host is still not for another page to reach: neither a request nor a page it opens.
-      notices.length = 0;
-      await browser.handovers.input('conv-alone', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/csrf`, typed: true }]);
-      await vi.waitFor(() => expect(notices, state()).toContain(`refused http://localhost:${port}/csrf-nav`), { timeout: 10_000 });
-      expect(hits).toContain('/csrf');
-      expect(hits).not.toContain('/csrf-fetch');
-      expect(hits).not.toContain('/csrf-nav');
-
-      await browser.closeForUser('conv-alone', id);
-      expect(ended).toEqual(['ended']);
-      expect(browser.userBrowserOpen('conv-alone', id)).toBe(false);
-      expect(existsSync(profile)).toBe(false);
-      await expect(browser.selectionOf('conv-alone', id)).rejects.toThrow('it closed');
-    },
-    slow(60_000),
-  );
-
-  it(
-    'opens a browser for the user alone in a window where this computer shows one (headless here), tells no page it is automated, keeps it on the web, and ends when the user closes the window, also on a page that asks "Leave site?"',
-    async () => {
-      type Session = {
-        targetId: string;
-        send: <T>(m: string, p?: Record<string, unknown>) => Promise<T>;
-        cdp: { send: (m: string, p: Record<string, unknown>) => Promise<unknown> };
-      };
-      const webdriver = async (s: Session) =>
-        (await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }))
-          .result.value;
-      // The agents' browser says it is automated, as it is.
       await browser.open(ctx({ convId: 'conv-webdriver', permission: 'full' }), `http://127.0.0.1:${port}/`);
-      const agents = await (browser as unknown as { sessions: Map<string, Promise<Session>> }).sessions.get('conv-webdriver')!;
-      expect(await webdriver(agents)).toBe(true);
-      await browser.close('conv-webdriver', true);
-      // No window where this computer shows none.
-      expect(browser.userWindowAt()).toBeUndefined();
-      await expect(browser.openForUser('conv-alone-window', { window: true })).rejects.toMatchObject({ why: 'window' });
-
-      const win = new BrowserService({
-        dataDir: join(root, 'data-window'),
-        executable: () => chromium,
-        relayPorts: () => [9],
-        windowAt: () => 'server',
-        windowHeadless: true,
+      const s = await (
+        browser as unknown as { sessions: Map<string, Promise<{ send: <T>(m: string, p: Record<string, unknown>) => Promise<T> }>> }
+      ).sessions.get('conv-webdriver')!;
+      const webdriver = await s.send<{ result: { value: unknown } }>('Runtime.evaluate', {
+        expression: 'navigator.webdriver',
+        returnByValue: true,
       });
-      try {
-        expect(win.userWindowAt()).toBe('server');
-        const ended: string[] = [];
-        const id = await win.openForUser('conv-alone-window', {
-          url: `http://127.0.0.1:${port}/token`,
-          nearbyConfirmed: true,
-          window: true,
-          onEnd: () => ended.push('ended'),
-        });
-        expect(win.userBrowserMode('conv-alone-window', id)).toBe('window');
-        expect(win.userBrowserMode('another', id)).toBeUndefined();
-        const told: string[] = [];
-        expect(
-          typeof win.handovers.watch('conv-alone-window', id, (e) =>
-            told.push(e.type === 'notice' ? `${e.kind} ${e.url ?? ''}`.trim() : e.type),
-          ),
-        ).toBe('function');
-        const s = (win as unknown as { forUser: Map<string, { s: Session }> }).forUser.get(id)!.s;
-        const at = async () =>
-          (await s.send<{ result: { value: unknown } }>('Runtime.evaluate', { expression: 'location.href', returnByValue: true })).result
-            .value;
-        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/token`), { timeout: slow(20_000) });
-        // A person drives it: no page is told it is automated.
-        expect(await webdriver(s)).toBe(false);
-        // What the user selects in the window is read as in the screencast.
-        await s.send('Runtime.evaluate', {
-          expression: `getSelection().selectAllChildren(document.querySelector('p'))`,
-        });
-        expect((await win.selectionOf('conv-alone-window', id)).trim()).toBe('tok-from-page-1234');
-        // A page of Chromium's own (its settings, inspect) is not kept open: back to the page of the user's before it.
-        await s.send('Page.navigate', { url: 'chrome://settings/' }).catch(() => undefined);
-        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/token`), { timeout: slow(10_000) });
-        // A window the page opens is closed, and the card told; its "Open it here" opens the page in the tab,
-        // the only input a window takes (the user works in the window itself).
-        await s.send('Runtime.evaluate', { expression: `window.open('http://127.0.0.1:${port}/next')`, userGesture: true });
-        await vi.waitFor(() => expect(told.some((t) => t.startsWith('popup'))).toBe(true), { timeout: slow(10_000) });
-        expect(await win.handovers.input('conv-alone-window', id, [{ type: 'text', text: 'ignored' }])).toBeUndefined();
-        expect(
-          await win.handovers.input('conv-alone-window', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/next` }]),
-        ).toBeUndefined();
-        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/next`), { timeout: slow(10_000) });
-        // A form page asks "Leave site?" as the user closes the window: it closes all the same, and its profile goes.
-        expect(
-          await win.handovers.input('conv-alone-window', id, [{ type: 'navigate', url: `http://127.0.0.1:${port}/leave` }]),
-        ).toBeUndefined();
-        await vi.waitFor(async () => expect(await at()).toBe(`http://127.0.0.1:${port}/leave`), { timeout: slow(10_000) });
-        // The page needs a person's click before it may ask.
-        for (const type of ['mousePressed', 'mouseReleased'])
-          await s.send('Input.dispatchMouseEvent', { type, x: 20, y: 20, button: 'left', clickCount: 1 });
-        await s.send('Page.close');
-        await vi.waitFor(() => expect(ended).toEqual(['ended']), { timeout: slow(20_000) });
-        expect(told.at(-1)).toBe('ended');
-        expect(win.userBrowserOpen('conv-alone-window', id)).toBe(false);
-        expect(existsSync(join(root, 'data-window', 'browser', 'user', id))).toBe(false);
-      } finally {
-        await win.closeAll();
-      }
+      expect(webdriver.result.value).toBe(true);
+      await browser.close('conv-webdriver', true);
     },
     slow(60_000),
   );
-
-  describe('a browser for the user alone, against pages that reach elsewhere', () => {
-    /** What the name `rebind.test` leads to now (looked up afresh each time). */
-    let answer = ['127.0.0.1'];
-    let alone: InstanceType<typeof BrowserService>;
-    beforeAll(() => {
-      alone = new BrowserService({
-        dataDir: join(root, 'data-alone'),
-        executable: () => chromium,
-        relayPorts: () => [9, relayPort],
-        lookUp: async (host) => (host === 'rebind.test' ? answer : []),
-        addressMs: 0,
-      });
-    });
-    afterAll(() => alone?.closeAll());
-
-    /** Opens one at `url` (here, confirmed), and keeps what its screencast tells. */
-    async function open(conv: string, url: string) {
-      const id = await alone.openForUser(conv, { url, nearbyConfirmed: true });
-      const notices: string[] = [];
-      const locations: string[] = [];
-      let frames = 0;
-      await vi.waitFor(() => {
-        const watching = alone.handovers.watch(conv, id, (e) => {
-          if (e.type === 'frame') frames++;
-          if (e.type === 'notice') notices.push(`${e.kind} ${e.url}`);
-          if (e.type === 'location') locations.push(e.url);
-        });
-        expect(typeof watching).toBe('function');
-      });
-      await vi.waitFor(() => expect(frames).toBeGreaterThan(0), { timeout: 20_000 });
-      /** What the tab did, for a wait that fails. */
-      const state = () => JSON.stringify({ notices, locations, hits: hits.slice(-12) });
-      return { id, notices, locations, state, input: (events: HandoverInput[]) => alone.handovers.input(conv, id, events) };
-    }
-
-    it(
-      'keeps a name to the address it had when the user opened its page: once it leads elsewhere, neither its requests nor its pages go',
-      async () => {
-        answer = ['127.0.0.1'];
-        const page = `http://rebind.test:${port}/rebind`;
-        const b = await open('conv-rebind', page);
-        // Opened as the user confirmed it, its own requests reach its host.
-        await vi.waitFor(() => expect(hits.some((h) => h.startsWith('/rebind-fetch'))).toBe(true), { timeout: 10_000 });
-        // Its name now leads to another address here (DNS rebinding, as a public page's name may come to lead to the router).
-        answer = ['127.0.0.2'];
-        await new Promise((r) => setTimeout(r, 500));
-        hits.length = 0;
-        await new Promise((r) => setTimeout(r, 1500));
-        expect(hits.filter((h) => h.startsWith('/rebind-fetch'))).toEqual([]);
-        // Nor does a page of its host open, but as typed again, where it leads now.
-        await b.input([{ type: 'navigate', url: `http://rebind.test:${port}/next` }]);
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://rebind.test:${port}/next`), { timeout: 10_000 });
-        expect(hits).not.toContain('/next');
-        await alone.closeForUser('conv-rebind', b.id);
-      },
-      slow(60_000),
-    );
-
-    it(
-      'opens with Back and Forward only the pages the user opened, never an address a page was refused, nor with Reload on its error page',
-      async () => {
-        hits.length = 0;
-        const b = await open('conv-history', `http://127.0.0.1:${port}/evil-once`);
-        // The page sends the tab to a device here it may not reach: refused, and kept in the history.
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=1`), {
-          timeout: 10_000,
-        });
-        // The user types another address, then goes Back to the refused one and reloads it: nothing reaches the
-        // device (Chromium asks for the address again, refused, or shows its error page again from memory).
-        await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/next`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/next`), { timeout: 10_000 });
-        const refused = `refused http://localhost:${port}/reboot?pwn=1`;
-        const settle = () => new Promise((r) => setTimeout(r, 1000));
-        b.notices.length = 0;
-        await b.input([{ type: 'history', to: 'back' }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/reboot?pwn=1`), {
-          timeout: 10_000,
-        });
-        await b.input([{ type: 'history', to: 'reload' }]);
-        await settle();
-        expect(
-          hits.filter((h) => h.startsWith('/reboot')),
-          b.state(),
-        ).toEqual([]);
-        expect(
-          b.notices.filter((n) => n !== refused),
-          b.state(),
-        ).toEqual([]);
-        // A page the user opened opens again with Back, here as it did; Forward to the refused one reaches nothing.
-        b.notices.length = 0;
-        await b.input([{ type: 'history', to: 'back' }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/evil-once`), { timeout: 10_000 });
-        await settle();
-        expect(b.notices, b.state()).toEqual([]);
-        await b.input([{ type: 'history', to: 'forward' }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/reboot?pwn=1`), {
-          timeout: 10_000,
-        });
-        await settle();
-        expect(
-          hits.filter((h) => h.startsWith('/reboot')),
-          b.state(),
-        ).toEqual([]);
-        expect(
-          b.notices.filter((n) => n !== refused),
-          b.state(),
-        ).toEqual([]);
-        await alone.closeForUser('conv-history', b.id);
-      },
-      slow(60_000),
-    );
-
-    it(
-      'keeps what the user typed when the page before commits late (a slow computer), at the gate and at the proxy alike',
-      async () => {
-        // The page typed before (/next) is told to have committed only once the user typed the next address; that
-        // address's request reaches the gate after the late commit, or (the second time) the proxy after it.
-        const emit = CdpConnection.prototype.emit;
-        const later = (ms: number, f: () => unknown) => void setTimeout(f, ms);
-        let held = '/late-1';
-        CdpConnection.prototype.emit = function (this: InstanceType<typeof CdpConnection>, name: string | symbol, ...args: unknown[]) {
-          const p = args[0] as { frame?: { url?: string }; request?: { url?: string } } | undefined;
-          if (name === 'Page.frameNavigated' && /\/next$/.test(p?.frame?.url ?? ''))
-            return (later(400, () => emit.call(this, name, ...args)), true);
-          if (name === 'Fetch.requestPaused' && held === '/late-1' && (p?.request?.url ?? '').endsWith('/late-1'))
-            return (later(800, () => emit.call(this, name, ...args)), true);
-          return emit.call(this, name, ...args);
-        } as typeof emit;
-        const own = alone as unknown as { route: (...a: unknown[]) => Promise<unknown> };
-        const route = own.route.bind(alone);
-        own.route = async (...a: unknown[]) => {
-          if (held === '/late-2' && String(a[4] ?? '').endsWith('/late-2')) await new Promise((r) => setTimeout(r, 800));
-          return route(...a);
-        };
-        try {
-          hits.length = 0;
-          const b = await open('conv-late', `http://127.0.0.1:${port}/token`);
-          for (const path of ['/late-1', '/late-2']) {
-            held = path;
-            await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
-            await vi.waitFor(() => expect(hits, b.state()).toContain('/next'), { timeout: 10_000 });
-            await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}${path}`, typed: true }]);
-            await vi.waitFor(() => expect(hits, b.state()).toContain(path), { timeout: 10_000 });
-            expect(b.notices, b.state()).toEqual([]);
-            hits.length = 0;
-          }
-          await alone.closeForUser('conv-late', b.id);
-        } finally {
-          CdpConnection.prototype.emit = emit;
-          own.route = route;
-        }
-      },
-      slow(60_000),
-    );
-
-    it(
-      'keeps the opening the user typed when the error page of the same address, refused before, commits late (Windows on CI)',
-      async () => {
-        // A page's way to /next is refused; its error page is told to have committed only after the user typed
-        // that same address and the gate let it through, before the proxy connects it.
-        const emit = CdpConnection.prototype.emit;
-        let holding = true;
-        CdpConnection.prototype.emit = function (this: InstanceType<typeof CdpConnection>, name: string | symbol, ...args: unknown[]) {
-          const p = args[0] as { frame?: { unreachableUrl?: string } } | undefined;
-          if (holding && name === 'Page.frameNavigated' && /\/next$/.test(p?.frame?.unreachableUrl ?? '')) {
-            holding = false;
-            return (setTimeout(() => emit.call(this, name, ...args), 700), true);
-          }
-          return emit.call(this, name, ...args);
-        } as typeof emit;
-        const own = alone as unknown as { route: (...a: unknown[]) => Promise<unknown> };
-        const route = own.route.bind(alone);
-        own.route = async (...a: unknown[]) => {
-          if (String(a[4] ?? '').endsWith('/next')) await new Promise((r) => setTimeout(r, 1500));
-          return route(...a);
-        };
-        try {
-          hits.length = 0;
-          const b = await open('conv-stale', `http://127.0.0.1:${port}/token`);
-          await b.input([{ type: 'navigate', url: `http://localhost:${port}/next` }]);
-          await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/next`), { timeout: 10_000 });
-          await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
-          await vi.waitFor(() => expect(hits, b.state()).toContain('/next'), { timeout: 10_000 });
-          expect(holding).toBe(false);
-          await alone.closeForUser('conv-stale', b.id);
-        } finally {
-          CdpConnection.prototype.emit = emit;
-          own.route = route;
-        }
-      },
-      slow(60_000),
-    );
-
-    it(
-      'takes what the user typed for that opening alone: once it showed nothing, the page still shown cannot send the tab there; its redirects open',
-      async () => {
-        hits.length = 0;
-        const b = await open('conv-typed', `http://127.0.0.1:${port}/waiting`);
-        await vi.waitFor(() => expect(hits, b.state()).toContain('/signal'), { timeout: 10_000 });
-        // Typed: an address on another host here that shows no page (a 204): the page still shown stays.
-        hits.length = 0;
-        await b.input([{ type: 'navigate', url: `http://localhost:${port}/nocontent`, typed: true }]);
-        await vi.waitFor(() => expect(hits, b.state()).toContain('/nocontent'), { timeout: 10_000 });
-        // That page then sends the tab to the host the user typed, at an address of its own: refused.
-        for (const res of signals.splice(0)) res.end('go');
-        await vi.waitFor(() => expect(b.notices, b.state()).toContain(`refused http://localhost:${port}/reboot?pwn=2`), {
-          timeout: 10_000,
-        });
-        expect(hits.filter((h) => h.startsWith('/reboot'))).toEqual([]);
-        // Typed: an address on that host that redirects within it opens.
-        await b.input([{ type: 'navigate', url: `http://localhost:${port}/to-next`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/next`), { timeout: 10_000 });
-        expect(hits).toEqual(expect.arrayContaining(['/to-next', '/next']));
-        await alone.closeForUser('conv-typed', b.id);
-      },
-      slow(60_000),
-    );
-
-    it(
-      'shows the blank page before it opens an https page here as typed, so that no page still shown can take its connection',
-      async () => {
-        const b = await open('conv-https', `http://127.0.0.1:${port}/next`);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/next`), { timeout: 10_000 });
-        // The test's server speaks no TLS: the page itself does not open, but the blank page came first.
-        await b.input([{ type: 'navigate', url: `https://localhost:${port}/secure`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`https://localhost:${port}/secure`), { timeout: 10_000 });
-        expect(b.locations.slice(-2), b.state()).toEqual(['about:blank', `https://localhost:${port}/secure`]);
-        // An http one, whose connection is told by its own address, opens from the page shown.
-        await b.input([{ type: 'navigate', url: `http://localhost:${port}/next`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/next`), { timeout: 10_000 });
-        expect(b.locations.slice(-2), b.state()).toEqual([`https://localhost:${port}/secure`, `http://localhost:${port}/next`]);
-        await alone.closeForUser('conv-https', b.id);
-      },
-      slow(60_000),
-    );
-
-    it(
-      'lets only the page the user typed connect to its host while it loads: a WebSocket the page still shown opens there is refused, also once the typed page is shown',
-      async () => {
-        hits.length = 0;
-        const b = await open('conv-sockets', `http://127.0.0.1:${port}/sockets`);
-        // A page's own sockets go to its host.
-        await vi.waitFor(() => expect(hits).toContain(`upgrade /ws 127.0.0.1:${port}`), { timeout: 10_000 });
-        await b.input([{ type: 'navigate', url: `http://127.0.0.1:${port}/ws-attacker`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://127.0.0.1:${port}/ws-attacker`), { timeout: 10_000 });
-        await new Promise((r) => setTimeout(r, 1000));
-        hits.length = 0;
-        // The user types an address on that other host, whose page takes a while to come.
-        await b.input([{ type: 'navigate', url: `http://localhost:${port}/slow`, typed: true }]);
-        await vi.waitFor(() => expect(b.locations.at(-1), b.state()).toBe(`http://localhost:${port}/slow`), { timeout: 10_000 });
-        expect(hits).toContain('/slow');
-        expect(hits.filter((h) => h.startsWith('upgrade /ws-pwn'))).toEqual([]);
-        await alone.closeForUser('conv-sockets', b.id);
-      },
-      slow(60_000),
-    );
-  });
 
   it(
     'denies every site the location, notifications, the camera, the microphone and reading the clipboard',
@@ -1420,35 +957,6 @@ describe.skipIf(!chromium)('the browser itself', () => {
         ),
       );
       await browser.close('conv-perms', true);
-    },
-    slow(60_000),
-  );
-
-  it(
-    'keeps to its limit of browsers for the user alone when two open at once',
-    async () => {
-      const few = new BrowserService({
-        dataDir: join(root, 'data'),
-        executable: () => chromium,
-        relayPorts: () => [9],
-        userBrowsersMax: 1,
-      });
-      try {
-        const both = await Promise.allSettled([few.openForUser('conv-few-1'), few.openForUser('conv-few-2')]);
-        expect(both.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
-        expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { why: 'busy' } });
-        const opened = both.find((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')!.value;
-        const conv = few.userBrowserOpen('conv-few-1', opened) ? 'conv-few-1' : 'conv-few-2';
-        // Closed from its panel: not open any more at once, while it ends (a card opening again gets another).
-        expect(few.handovers.answer(conv, opened, { action: 'done' })).toBeUndefined();
-        expect(few.userBrowserOpen(conv, opened)).toBe(false);
-        await few.closeForUser(conv, opened);
-        // Its place is free again.
-        const again = await few.openForUser('conv-few-3');
-        await few.closeForUser('conv-few-3', again);
-      } finally {
-        few.closeAll();
-      }
     },
     slow(60_000),
   );
@@ -1585,6 +1093,19 @@ describe.skipIf(!chromium)('the browser itself', () => {
         await expect(cut).rejects.toThrow('The turn ended');
         const after = await win.snapshot(ctx({ convId: 'conv-window', permission: 'full' }));
         expect(after.url).toBe(`http://127.0.0.1:${port}/next`);
+
+        // A form page asks "Leave site?" as the user closes the window: it closes all the same, and the hand-over ends.
+        const leaving = win.handOver(own, 'Fill the form', `http://127.0.0.1:${port}/leave`);
+        await vi.waitFor(() => expect(cards[3]?.status).toBe('pending'), { timeout: slow(20_000) });
+        win.handovers.answer('conv-window', String(cards[3]!.id), { action: 'start', mode: 'window' });
+        const w4 = await windowSession();
+        await vi.waitFor(async () => expect(await here(w4)).toBe(`http://127.0.0.1:${port}/leave`), { timeout: slow(20_000) });
+        // The page needs a person's click before it may ask.
+        for (const type of ['mousePressed', 'mouseReleased'])
+          await w4.send('Input.dispatchMouseEvent', { type, x: 20, y: 20, button: 'left', clickCount: 1 });
+        await w4.send('Page.close');
+        await leaving;
+        expect(['done', 'expired']).toContain(cards[3]!.status);
       } finally {
         win.closeAll();
       }

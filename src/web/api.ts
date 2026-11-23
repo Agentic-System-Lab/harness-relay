@@ -29,8 +29,6 @@ import type {
   ApprovalAnswer,
   AuthSessionView,
   HandoverAnswer,
-  HandoverMode,
-  HandoverWindowAt,
   HandoverInput,
   ChatMessage,
   CheckCommand,
@@ -490,26 +488,6 @@ export const api = {
   branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
-  /**
-   * Opens a browser for the user alone for a secrets card (at the address its ask `name` named), in the chat
-   * or (`window`) in a window on the computer Harness Relay runs on: its hand-over id, and how it shows (the
-   * card's open one, however it was asked for).
-   */
-  openSecretsBrowser: (id: string, messageId: string, partId: string, name?: string, o: { confirm?: boolean; window?: boolean } = {}) =>
-    request<{ handoverId: string; mode: HandoverMode }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/browser`,
-      { ...(name === undefined ? {} : { name }), ...(o.confirm ? { confirm: true } : {}), ...(o.window ? { window: true } : {}) },
-    ),
-  /** Where a browser for the user alone can open in a window (beside the desktop app, or on the computer the server runs on), or null. */
-  handoverWindow: () => request<{ windowAt: HandoverWindowAt | null }>('GET', '/api/handovers/window'),
-  /** Save selection as a secret: the server reads what is selected in that browser and keeps it under `name`. */
-  saveSecretSelection: (id: string, messageId: string, partId: string, handoverId: string, name: string) =>
-    request<{ ok: true }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/secrets/${encodeURIComponent(partId)}/selection`,
-      { handoverId, name },
-    ),
   /** The user's answer to a hand-over of the chat's browser: start it, decline it, hand it back or cancel it. */
   answerHandover: (id: string, handoverId: string, answer: HandoverAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}`, answer),
