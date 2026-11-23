@@ -5,6 +5,7 @@ import {
   NO_TERMINAL,
   CHAT_MIN_WIDTH,
   nextTerminalState,
+  openPreviewTab,
   PREVIEW_MIN_WIDTH,
   previewErrorDraft,
   previewFrameError,
@@ -17,6 +18,7 @@ import {
   type TerminalState,
 } from '../appPreview';
 import { useT } from '../i18n';
+import { isAppWindow } from '../update';
 import { Deferred, lazyPart } from './Deferred';
 import { useDialog } from './useDialog';
 import { PreviewDockerDialog } from './PreviewDockerDialog';
@@ -370,21 +372,21 @@ export function AppPreview({
     handle.addEventListener('pointercancel', end);
     handle.addEventListener('lostpointercapture', end);
   };
-  // A new tab for the page: opened within the click (one opened after waiting for the server is a
-  // blocked popup), cut off from this page, then sent to its single-use address.
+  // A new tab for the page at its single-use address, cut off from this page; in the desktop app's
+  // window, in the default browser (`openPreviewTab()`).
+  const appWindow = isAppWindow(navigator.userAgent);
   const openTab = async () => {
     if (!session) return;
-    const tab = window.open('', '_blank');
-    if (!tab) return setFailure(p.tabBlocked);
-    tab.opener = null;
-    try {
-      const { url } = await api.appPreviewTab(convId, session.id);
-      if (!safePreviewSession({ ...session, url }, location.origin)) throw new Error(p.invalid);
-      tab.location.replace(url);
-    } catch (error) {
-      tab.close();
-      setFailure((error as Error).message.slice(0, 4000));
-    }
+    const failed = await openPreviewTab({
+      appWindow,
+      open: (url, features) => window.open(url, '_blank', features),
+      address: async () => {
+        const { url } = await api.appPreviewTab(convId, session.id);
+        if (!safePreviewSession({ ...session, url }, location.origin)) throw new Error(p.invalid);
+        return url;
+      },
+    });
+    if (failed) setFailure(failed === 'blocked' ? p.tabBlocked : failed.message.slice(0, 4000));
   };
   return (
     <>
@@ -428,7 +430,12 @@ export function AppPreview({
         <header className="drawer-head">
           <h2>{p.title}</h2>
           {pageShown && (
-            <button type="button" className="ghost small-button app-preview-tab" title={p.openTabTitle} onClick={() => void openTab()}>
+            <button
+              type="button"
+              className="ghost small-button app-preview-tab"
+              title={appWindow ? p.openTabBrowserTitle : p.openTabTitle}
+              onClick={() => void openTab()}
+            >
               <ExternalIcon size={14} />
               {p.openTab}
             </button>

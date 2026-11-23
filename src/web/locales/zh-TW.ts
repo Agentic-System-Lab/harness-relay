@@ -2687,6 +2687,7 @@ export const zhTW = {
     waitsForYou: 'Relay 已幫你打開預覽。建置會執行專案的 Dockerfile 或 compose 檔，過程可以連上網路，所以要按「開始預覽」才會開始。',
     openTab: '新分頁',
     openTabTitle: '在新分頁開啟網頁，以整個視窗呈現',
+    openTabBrowserTitle: '在預設瀏覽器的新分頁開啟網頁，以整個視窗呈現',
     tabBlocked: '瀏覽器擋下了新分頁。請允許 Relay 開啟彈出式視窗後再試一次。',
     title: '應用程式預覽',
     open: '預覽應用程式',

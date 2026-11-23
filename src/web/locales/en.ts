@@ -2693,6 +2693,7 @@ export const en: Messages = {
       'Relay opened this for you. Its build runs the project’s Dockerfile or compose file, which can reach the network, so it starts when you choose Start preview.',
     openTab: 'New tab',
     openTabTitle: 'Open the page in a new tab, the whole window for it',
+    openTabBrowserTitle: 'Open the page in a new tab of your default browser, the whole window for it',
     tabBlocked: 'The browser blocked the new tab. Allow pop-ups for Relay, then try again.',
     title: 'App preview',
     open: 'Preview app',

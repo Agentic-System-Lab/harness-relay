@@ -12,6 +12,7 @@ import {
   linkedFiles,
   localPage,
   nextTerminalState,
+  openPreviewTab,
   opensByItself,
   previewSuggestion,
   previewWidth,
@@ -62,6 +63,78 @@ describe('app preview targets', () => {
       { ...valid, url: 'http://user:pass@example.localhost:5000/' },
     ])
       expect(safePreviewSession(session, parent)).toBe(false);
+  });
+});
+
+describe("the page's new tab", () => {
+  const address = 'http://p-' + 'a'.repeat(48) + '.localhost:8787/.relay-preview/open/' + 'b'.repeat(64);
+  /** `window.open()` as a browser answers it: a tab that records what is done with it, or null (`blocked`). */
+  function browser(blocked = false) {
+    const calls: { url: string; features?: string }[] = [];
+    const tab = {
+      opener: {} as unknown,
+      sent: [] as string[],
+      closed: false,
+      location: { replace: (url: string) => void tab.sent.push(url) },
+      close: () => void (tab.closed = true),
+    };
+    const open = (url: string, features?: string) => {
+      calls.push({ url, features });
+      return blocked ? null : tab;
+    };
+    return { calls, tab, open };
+  }
+
+  it('in a browser, opens a blank tab within the click, cuts it off, then sends it to the address', async () => {
+    const tabs = browser();
+    let answer!: (url: string) => void;
+    const outcome = openPreviewTab({ appWindow: false, open: tabs.open, address: () => new Promise((resolve) => (answer = resolve)) });
+    // Opened before the server answered: a tab opened after it would be a blocked popup.
+    expect(tabs.calls).toEqual([{ url: '', features: undefined }]);
+    expect(tabs.tab.opener).toBeNull();
+    answer(address);
+    expect(await outcome).toBeUndefined();
+    expect(tabs.tab.sent).toEqual([address]);
+    expect(tabs.tab.closed).toBe(false);
+  });
+
+  it('in a browser, says a blocked tab, and closes the tab when the address cannot be had', async () => {
+    let asked = 0;
+    const blocked = browser(true);
+    expect(await openPreviewTab({ appWindow: false, open: blocked.open, address: async () => (asked++, address) })).toBe('blocked');
+    expect(asked).toBe(0); // no single-use address spent on a tab that never opened
+    const failing = browser();
+    const error = await openPreviewTab({
+      appWindow: false,
+      open: failing.open,
+      address: () => Promise.reject(new Error('Preview not found')),
+    });
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('Preview not found');
+    expect(failing.tab.closed).toBe(true);
+  });
+
+  it("in the desktop app's window, opens the address itself once it is known, with no opener, and never says it was blocked", async () => {
+    // The app's guard refuses a blank page and opens the address in the default browser: open() answers null.
+    const app = browser(true);
+    let answer!: (url: string) => void;
+    const outcome = openPreviewTab({ appWindow: true, open: app.open, address: () => new Promise((resolve) => (answer = resolve)) });
+    expect(app.calls).toEqual([]); // no blank page first
+    answer(address);
+    expect(await outcome).toBeUndefined();
+    expect(app.calls).toEqual([{ url: address, features: 'noopener,noreferrer' }]);
+  });
+
+  it("in the desktop app's window, opens nothing when the address cannot be had, and says why", async () => {
+    const app = browser(true);
+    const error = await openPreviewTab({
+      appWindow: true,
+      open: app.open,
+      address: () => Promise.reject(new Error('Not a preview address')),
+    });
+    expect((error as Error).message).toBe('Not a preview address');
+    expect(app.calls).toEqual([]);
+    expect(await openPreviewTab({ appWindow: true, open: app.open, address: () => Promise.reject('gone') })).toEqual(new Error('gone'));
   });
 });
 

@@ -436,6 +436,18 @@ describe("the desktop app's decisions", () => {
       expect(opened).toEqual(['https://example.com/']);
     });
 
+    it("opens an app preview's own tab in the browser, and no blank page", () => {
+      const { contents, opened } = setup();
+      // The preview panel's New tab: its single-use address, on a host of its own, goes to the default
+      // browser. A blank page to send there later is refused (window.open() answers null), which is why
+      // the page opens the address itself in the app's window (src/web/appPreview.ts, openPreviewTab).
+      const tab = 'http://p-' + 'a'.repeat(48) + '.localhost:8787/.relay-preview/open/' + 'b'.repeat(64);
+      expect(contents.openHandler!({ url: tab })).toEqual({ action: 'deny' });
+      expect(contents.openHandler!({ url: 'about:blank' })).toEqual({ action: 'deny' });
+      expect(contents.openHandler!({ url: '' })).toEqual({ action: 'deny' });
+      expect(opened).toEqual([tab]);
+    });
+
     it('stops navigations and redirects away from the server, sending web pages to the browser', () => {
       const { contents, opened } = setup();
       expect(navigate(contents, 'will-navigate', 'http://127.0.0.1:8787/#/c/2')).toBe(false);

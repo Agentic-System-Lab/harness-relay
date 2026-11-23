@@ -56,6 +56,52 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   expect(dockerRequests).toEqual([]);
 });
 
+test.describe("in the desktop app's window", () => {
+  // Electron names itself in the user agent, as in the app's window (src/web/update.ts, isAppWindow).
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HarnessRelay/2026.11.23 Chrome/142.0.0.0 Electron/39.2.0 Safari/537.36',
+  });
+
+  test('New tab opens the page in the default browser: its address itself, no blank page first', async ({ page, relay, browser }) => {
+    mkdirSync(join(relay.workDir, 'site'));
+    writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>In the default browser</h1>');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    // The app's window refuses a blank page and opens a page off the server in the default browser, so
+    // window.open() answers null there whatever it opened (desktop/src/lifecycle.ts, guardContents).
+    await page.evaluate(() => {
+      const opened: string[][] = [];
+      Object.assign(window, { relayOpened: opened });
+      window.open = (...args: unknown[]) => (opened.push(args.map(String)), null);
+    });
+    const opened = () => page.evaluate(() => (window as unknown as { relayOpened: string[][] }).relayOpened);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const files = page.getByRole('dialog', { name: 'Files' });
+    await files.getByRole('button', { name: 'site', exact: true }).click();
+    await files.getByRole('button', { name: 'Preview this folder' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('In the default browser');
+    const button = panel.getByRole('button', { name: 'New tab' });
+    await expect(button).toHaveAttribute('title', 'Open the page in a new tab of your default browser, the whole window for it');
+    await button.click();
+    await expect.poll(opened).toHaveLength(1);
+    const [[url, target, features]] = (await opened()) as [[string, string, string]];
+    expect(new URL(url).pathname).toMatch(/^\/\.relay-preview\/open\/[0-9a-f]{64}$/);
+    expect([target, features]).toEqual(['_blank', 'noopener,noreferrer']);
+    // No blocked popup said: the null was the app's.
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    // The default browser has no sign-in of Relay's: the single-use address alone opens the page there.
+    const elsewhere = await browser.newContext();
+    try {
+      const tab = await elsewhere.newPage();
+      await tab.goto(url);
+      await expect(tab.getByRole('heading')).toHaveText('In the default browser');
+    } finally {
+      await elsewhere.close();
+    }
+  });
+});
+
 test('a page at the top of a working directory too large to copy whole opens with the files it names, and says so', async ({
   page,
   relay,
