@@ -89,7 +89,7 @@ import {
 } from './gateway';
 import { outboxAnswerText, type Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
-import { approvalKeys, isAllowed } from './approvals';
+import { approvalKeys, exactLineRule, isAllowed } from './approvals';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { AutoGrouper } from './grouping';
@@ -156,6 +156,7 @@ import {
   buildBriefing,
   buildSteerPrompt,
   buildTurnPrompt,
+  notesForAgent,
   isForwardable,
   isPass,
   parseMentions,
@@ -703,6 +704,33 @@ export function branchAfterCut(
 }
 
 /**
+ * The notice for the hand-off blocks a reply wrote past its limits (`HANDOFF_LIMITS`, `INTERACTIVE_LIMITS`),
+ * which got no card: for the user, and for the agent on its next turn. Undefined when none was left out.
+ */
+export function leftOutNotice(left: { secrets: string[]; commands: string[]; interactive: number }): MessagePart | undefined {
+  const parts: string[] = [];
+  const told: string[] = [];
+  if (left.secrets.length) {
+    parts.push(t().handoffs.leftOutSecrets(HANDOFF_LIMITS.secretsPerReply, left.secrets));
+    told.push(`at most ${HANDOFF_LIMITS.secretsPerReply} secrets (left out: ${left.secrets.join(', ')})`);
+  }
+  if (left.commands.length) {
+    parts.push(t().handoffs.leftOutCommands(HANDOFF_LIMITS.commandsPerReply, left.commands));
+    told.push(`at most ${HANDOFF_LIMITS.commandsPerReply} fixed commands (left out: ${left.commands.join(', ')})`);
+  }
+  if (left.interactive) {
+    parts.push(t().handoffs.leftOutInteractive(INTERACTIVE_LIMITS.perReply, left.interactive));
+    told.push(`at most ${INTERACTIVE_LIMITS.perReply} interactive commands (${left.interactive} left out)`);
+  }
+  if (!parts.length) return undefined;
+  return {
+    type: 'notice',
+    text: parts.join(' '),
+    forAgent: `Your last reply asked for more cards than a reply may: ${told.join('; ')}. The user got no card for those left out. If they are still needed, put them in this reply, and do not tell the user about cards they did not get.`,
+  };
+}
+
+/**
  * Where a branch from the reply at `index` waits for the user: a reply that asked the user something
  * keeps its question open there, whatever the user answered here since, so they can answer it another
  * way. Branched where this conversation waits now, the branch waits the same way. Otherwise the agent
@@ -718,9 +746,14 @@ export function branchPause(conv: Conversation, index: number): RunPause | undef
     const { tracked: _schedules, ...pause } = structuredClone(conv.pause);
     return pause;
   }
-  const { mode, rounds, maxHops } = conv.settings;
+  const { mode, rounds } = conv.settings;
   const askerId = reply.author.agentId;
-  if (mode === 'relay') return { mode, askers: [askerId], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: maxHops };
+  if (mode === 'relay') {
+    // The teammates its reply handed to speak once it has answered, as in the run.
+    const by = conv.agents.find((a) => a.id === askerId)?.name ?? reply.agentName;
+    const rest = parseMentions(textOf(reply), conv.agents, askerId).map((a) => ({ agentId: a.id, ...(by ? { handedBy: by } : {}) }));
+    return { mode, askers: [askerId], rest, participants: [], round: 1, rounds: 1 };
+  }
   const asked = conv.messages.slice(0, index).findLastIndex((m) => m.author.kind === 'user');
   const question = conv.messages[asked];
   const mentioned = question ? mentionsOf([question], conv.agents) : [];
@@ -1256,8 +1289,14 @@ export class Orchestrator {
     const folder = this.handoffFolder(conv);
     const store = this.settings.handoffs;
     const asks: SecretAsk[] = [];
+    // The blocks past a reply's limits: the user and, on its next turn, the agent are told which.
+    const left = { secrets: [] as string[], commands: [] as string[], interactive: 0 };
     for (const b of blocks) {
-      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name) || asks.length >= HANDOFF_LIMITS.secretsPerReply) continue;
+      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name)) continue;
+      if (asks.length >= HANDOFF_LIMITS.secretsPerReply) {
+        if (!left.secrets.includes(b.name)) left.secrets.push(b.name);
+        continue;
+      }
       asks.push({
         name: b.name,
         ...(b.label ? { label: b.label } : {}),
@@ -1269,8 +1308,13 @@ export class Orchestrator {
     }
     if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder, asks });
     let proposed = 0;
+    const renewed = new Set<string>();
     for (const b of blocks) {
-      if (b.kind !== 'command' || proposed >= HANDOFF_LIMITS.commandsPerReply) continue;
+      if (b.kind !== 'command') continue;
+      if (proposed >= HANDOFF_LIMITS.commandsPerReply) {
+        if (!left.commands.includes(b.name)) left.commands.push(b.name);
+        continue;
+      }
       const { kind: _kind, ...proposal } = b;
       // A saved command of the same name would be replaced (its schedules and outbox runs then run this one).
       // One an automation's run proposed is never saved from its card: nobody watched that run.
@@ -1288,13 +1332,19 @@ export class Orchestrator {
             ? { blocked: 'automation' as const }
             : {}),
       });
+      if (this.fixedCommandDeps.platform !== 'win32' && !o.automation) renewed.add(proposal.name);
       proposed++;
     }
+    if (renewed.size) this.supersedeProposals(conv, msg, folder, renewed);
     // Commands for the user to run themselves: never started from an automation's run, nor on native Windows.
     let interactive = 0;
     const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
     for (const b of blocks) {
-      if (b.kind !== 'interactive' || interactive >= INTERACTIVE_LIMITS.perReply) continue;
+      if (b.kind !== 'interactive') continue;
+      if (interactive >= INTERACTIVE_LIMITS.perReply) {
+        left.interactive++;
+        continue;
+      }
       const configFiles = workdirConfigFiles(folder);
       msg.parts.push({
         type: 'interactive',
@@ -1310,6 +1360,8 @@ export class Orchestrator {
       });
       interactive++;
     }
+    const leftOut = leftOutNotice(left);
+    if (leftOut) msg.parts.push(leftOut);
     for (const b of blocks) {
       if (b.kind !== 'command-run') continue;
       const cmd = store.commandByName(folder, b.name);
@@ -1341,6 +1393,27 @@ export class Orchestrator {
         msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
     }
     return asks.length > 0 || proposed > 0 || interactive > 0;
+  }
+
+  /**
+   * A reply proposed fixed commands named `names` for `folder`: the cards of replies before the user's
+   * latest message proposing one of those names, still undecided, are dismissed as superseded, so that
+   * the user saves the latest. Cards since that message stay (the same reply's, a parallel teammate's in
+   * the same round): the user picks one of them.
+   */
+  private supersedeProposals(conv: Conversation, msg: ChatMessage, folder: string, names: ReadonlySet<string>): void {
+    const at = conv.messages.findIndex((m) => m.id === msg.id);
+    const since = conv.messages.slice(0, at < 0 ? conv.messages.length : at).findLastIndex((m) => m.author.kind === 'user');
+    for (const m of conv.messages.slice(0, Math.max(since, 0))) {
+      let changed = false;
+      for (const part of m.parts) {
+        if (part.type !== 'command' || part.status !== 'proposed' || part.folder !== folder || !names.has(part.proposal.name)) continue;
+        part.status = 'dismissed';
+        part.superseded = true;
+        changed = true;
+      }
+      if (changed) this.saveCard(conv, m);
+    }
   }
 
   /** A secrets or command card of a reply. */
@@ -1706,7 +1779,7 @@ export class Orchestrator {
    * user saw what changed in its code and approves it, which pins it again first. `extra`: words added
    * to its command line for this run only.
    */
-  async tryCommand(convId: string, commandId: string, o: { extra?: string; approve?: string } = {}): Promise<void> {
+  async tryCommand(convId: string, commandId: string, o: { extra?: string; stdin?: string; approve?: string } = {}): Promise<void> {
     const { conv, cmd } = this.ownCommand(convId, commandId);
     if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
     if (o.approve) {
@@ -1725,7 +1798,9 @@ export class Orchestrator {
       this.settings.handoffs.repin(cmd.id, pin);
       await dropPin(cmd.id, old, pin);
     }
-    this.trackCommand(this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}) }));
+    this.trackCommand(
+      this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}), ...(o.stdin ? { stdin: o.stdin } : {}) }),
+    );
   }
 
   /** A fixed command's run, waited for at shutdown before the database closes. */
@@ -5904,14 +5979,17 @@ export class Orchestrator {
         this.deliverBefore(conv, run, [agent]);
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
         await run.checks?.checkpoint(agent.name);
+        if (spoke(msg)) {
+          for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
+            if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
+          }
+        }
+        // A reply that asks the user (a question, steps, a secret) and hands off too: the teammates it
+        // named wait with the rest of the queue, and speak once it has had the user's answer.
         if (msg.asked) {
           const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
-          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft }, run);
+          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1 }, run);
           return;
-        }
-        if (!spoke(msg)) continue;
-        for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
-          if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
         }
       }
       return;
@@ -6019,6 +6097,7 @@ export class Orchestrator {
    * changed mode starts afresh. Continue with nobody left to speak starts a fresh speaking order
    * but still completes the checks for the work before the pause. Only what the user wrote counts:
    * a scheduled message that waited in the queue is no answer, and its @mentions do not start afresh.
+   * In relay mode the handoffs count afresh from `maxHops`: the user stepped in, as a new message does.
    */
   private takePause(
     conv: Conversation,
@@ -6051,7 +6130,7 @@ export class Orchestrator {
           round: pause.round,
           rounds: pause.rounds,
           first: [{ agent: alone }],
-          hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+          hopsLeft: conv.settings.maxHops,
           answering: new Set([alone.id]),
           waiting: conv.pause,
         },
@@ -6072,7 +6151,8 @@ export class Orchestrator {
         round: pause.round,
         rounds: pause.rounds,
         first,
-        hopsLeft: pause.hopsLeft ?? conv.settings.maxHops,
+        // The user stepped in: the relay's handoffs count afresh, as for a new message.
+        hopsLeft: conv.settings.maxHops,
         answering: new Set(skip ? [] : askers.map((a) => a.id)),
       },
     };
@@ -6330,6 +6410,7 @@ export class Orchestrator {
               detail: req.detail,
               reason: req.reason,
               ruleLabel: keys.join(', ') || undefined,
+              ...(req.kind === 'command' && keys.length && exactLineRule(req.command ?? req.detail ?? '') ? { ruleExact: true } : {}),
               ...(req.outsideSandbox ? { outsideSandbox: true } : {}),
               ...(req.readOnlySandbox ? { readOnlySandbox: true } : {}),
               status: 'pending',
@@ -6412,7 +6493,9 @@ export class Orchestrator {
               this.emitStatus(conv.id);
               return { allow: false, note: UNATTENDED_REFUSAL };
             }
-            if (answer.allow && answer.always) {
+            // One the lead agent flagged is allowed this once only: a rule would let every request like it
+            // through from now on, unreviewed, which is what it warned about.
+            if (answer.allow && answer.always && part.review?.status !== 'flagged') {
               part.always = true;
               const rules = conv.allowRules ?? [];
               for (const key of keys) if (!isAllowed(rules, req.kind, [key])) rules.push({ kind: req.kind, key });
@@ -6507,13 +6590,20 @@ export class Orchestrator {
       );
       // Long-term memory's notes that match what was said, once per session (kept in `seen` with the messages).
       const recalled = this.memory.recall(conv, delta, seen);
-      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info, recalled);
+      // What Harness Relay noted about its last reply (cards left out of it), told once.
+      const noted = notesForAgent(conv, agent.id, msg.id, seen);
+      const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, { ...info, notes: noted.notes }, recalled);
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
-      state.seen = [...state.seen, ...delta.map((m) => m.id).filter((id) => !seen.has(id)), ...recalled.map((n) => memorySeenKey(n.id))];
+      state.seen = [
+        ...state.seen,
+        ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
+        ...recalled.map((n) => memorySeenKey(n.id)),
+        ...(noted.id ? [`notice:${noted.id}`] : []),
+      ];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
       // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.

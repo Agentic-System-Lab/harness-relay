@@ -59,7 +59,10 @@ test.describe('secrets and fixed commands', () => {
     await expect(settingsCard).toContainText('No working directory keeps secrets or fixed commands yet.');
   });
 
-  test('a proposed fixed command is saved, tried with its secret masked, shared, and run once from the outbox', async ({ page, relay }) => {
+  test('a proposed fixed command is saved, tried with its input and its secret masked, shared, and run once from the outbox', async ({
+    page,
+    relay,
+  }) => {
     const sandbox = relaySandbox();
     test.skip(process.platform === 'win32', 'Fixed commands do not run on native Windows');
     // Required (CI: E2E_REQUIRE_RELAY_SANDBOX=1): a sandbox that does not work fails it, as e2e/README.md says.
@@ -82,10 +85,13 @@ test.describe('secrets and fixed commands', () => {
     await card.getByRole('button', { name: 'Show the code it runs' }).click();
     await card.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(card).toContainText('Saved');
+    // What the user types for this run is what it reads on its standard input.
+    await card.getByLabel('Input for this run (optional)').fill('hello from Try it');
     await card.getByRole('button', { name: 'Try it' }).click();
     const result = card.getByRole('status');
     await expect(result).toContainText('Done', { timeout: 60_000 });
     await expect(result).toContainText('E2E_TOKEN=••••');
+    await expect(result).toContainText('input: hello from Try it');
     await expect(result).not.toContainText(VALUE);
     await card.getByRole('button', { name: 'Send the result to the team' }).click();
     await expect(page.locator('.msg-user').last()).toContainText('E2E_TOKEN=••••');

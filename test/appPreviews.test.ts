@@ -352,6 +352,7 @@ describe('publishing a running preview', () => {
     const service = new AppPreviews('relay', vi.fn());
     const target: PreviewTarget = { root, folder: 'site', entry: 'index.html', mode: 'static' };
     const s = await service.start('chat', target, address(), parent, new AbortController().signal, undefined, undefined, 'browser-1');
+    expect(s.partial).toBeUndefined();
     const source = await service.publishSource('chat', s.id, 'browser-1');
     expect(source).toMatchObject({ conversationId: 'chat', folder: site, mode: 'static', entry: 'index.html' });
     expect([...source.files.keys()]).toEqual(['index.html']);
@@ -361,6 +362,32 @@ describe('publishing a running preview', () => {
     await expect(service.publishSource('chat', s.id, 'browser-1')).rejects.toMatchObject({ status: 409, code: PUBLISH_CHANGED });
     await service.stop('chat', s.id);
     await expect(service.publishSource('chat', s.id, 'browser-1')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('opens and publishes a page written at the top of a folder too large to copy whole, with the files it names', async () => {
+    // A root of its own: the other tests copy all of `root`.
+    const own = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-preview-top-')));
+    const top = join(own, 'chats');
+    mkdirSync(join(top, 'many'), { recursive: true });
+    for (let i = 0; i < 4097; ++i) writeFileSync(join(top, 'many', `n${i}.txt`), '');
+    writeFileSync(join(top, 'slides.html'), '<link rel="stylesheet" href="slides.css"><h1>v1</h1>');
+    writeFileSync(join(top, 'slides.css'), 'h1 { color: red }');
+    const service = new AppPreviews('relay', vi.fn());
+    const target: PreviewTarget = { root: own, folder: 'chats', entry: 'slides.html', mode: 'static' };
+    try {
+      const s = await service.start('chat', target, address(), parent, new AbortController().signal, undefined, undefined, 'browser-1');
+      expect(s.partial).toBe(true); // the panel says only the page's own files came
+      const source = await service.publishSource('chat', s.id, 'browser-1');
+      expect([...source.files.keys()].sort()).toEqual(['slides.css', 'slides.html']);
+      // What the page does not use may change; what it uses may not.
+      writeFileSync(join(top, 'many', 'n0.txt'), 'changed');
+      await expect(service.publishSource('chat', s.id, 'browser-1')).resolves.toMatchObject({ entry: 'slides.html' });
+      writeFileSync(join(top, 'slides.css'), 'h1 { color: blue }');
+      await expect(service.publishSource('chat', s.id, 'browser-1')).rejects.toMatchObject({ status: 409, code: PUBLISH_CHANGED });
+      await service.stop('chat', s.id);
+    } finally {
+      rmSync(own, { force: true, recursive: true });
+    }
   });
 
   it("waits for a container's page, and gives a workspace member's folder inside its root", async () => {

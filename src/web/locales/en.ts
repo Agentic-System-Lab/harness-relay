@@ -1157,6 +1157,7 @@ export const en: Messages = {
       label: (agent) => `A fixed command @${agent} proposes`,
       title: (name) => `Fixed command "${name}"`,
       status: { proposed: 'Waiting for you', saved: 'Saved', dismissed: 'Not saved' },
+      superseded: 'Replaced by a later proposal of the same name',
       run: 'Command',
       folder: 'Runs in',
       hosts: 'Hosts it may reach',
@@ -1174,6 +1175,8 @@ export const en: Messages = {
       tryIt: 'Try it',
       extra: 'Added for this run',
       extraPlaceholder: 'such as --dry-run',
+      stdin: 'Input for this run (optional)',
+      stdinPlaceholder: 'What it reads on its standard input, such as the post to publish',
       running: 'Running…',
       result: {
         running: 'Running',
@@ -1338,6 +1341,8 @@ export const en: Messages = {
     allow: 'Allow',
     always: (rule) => `Always allow "${rule}" in this chat`,
     alwaysEdits: 'Always allow file changes in this chat',
+    alwaysExact: 'Always allow this exact command in this chat',
+    flaggedOnce: 'What the lead agent finds potentially unsafe can be allowed this once only, never always in this chat.',
     deny: 'Decline',
     notePlaceholder: 'Tell it what to do instead (optional, when declining)',
     outsideSandbox: 'If you allow it, this command runs outside the sandbox.',
@@ -2699,6 +2704,8 @@ export const en: Messages = {
     folder: 'Source folder',
     start: 'Start preview',
     serverHint: 'Stopping or rebuilding this preview clears its temporary backend data.',
+    partial:
+      'This folder could not be copied whole (too large, or a folder in it unreadable), so the preview has only the page and the files it names: an address a script puts together may not load.',
     dockerTitle: 'Set up Docker',
     dockerMissing: 'This app needs Docker on the computer running Relay. Install Docker there to continue the preview.',
     dockerUnavailable: 'The preview will open when Relay can use a local Docker engine running Linux containers.',
@@ -2747,6 +2754,8 @@ export const en: Messages = {
     update: 'Publish update…',
     title: 'Publish to the cloud',
     intro: 'Publish the files this preview tried to your own Render account. Anyone with its address can open it.',
+    partial:
+      'This preview has only the page and the files it names (its folder could not be copied whole), and only these go online: an address a script puts together may not load.',
     loading: 'Checking what to publish…',
     setupNeeded: 'Set these up first:',
     setup: {

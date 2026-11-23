@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 54 個 spec 檔、640 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 54 個 spec 檔、641 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -53,7 +53,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 41 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [使用者自己執行的指令](#使用者自己執行的指令) | [`interactive.spec.ts`](specs/interactive.spec.ts) | 3 | [使用者說明 → 你自己執行的指令](../docs/user-guide.zh-TW.md#你自己執行的指令)、[架構 → 互動指令](../docs/architecture.zh-TW.md#互動指令) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 24 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 修改檔案](../docs/architecture.zh-TW.md#修改檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 20 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
+| [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 21 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
@@ -300,7 +300,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 請求等待時停止團隊，指令不會執行 | Claude Code | 回答以「(stopped)」結束，請求被拒絕或沒有回答。 |
 | 完全存取時，指令直接執行，也能不詢問就寫到任何地方 | 各一 | 標題列警告**完全存取**（Full access）；指令執行，檔案寫到另一個資料夾，沒有卡片（在每個系統上都一樣：完全存取的 CLI 外面沒有沙箱）。 |
 | 自動拒絕的對話不詢問就拒絕 | Claude Code | 指令被拒絕，沒有卡片。 |
-| 在團隊設定選「替我核准」：首席 agent 放行一個指令，把它標記的那個留給使用者 | Claude Code | 在可編輯的對話中，於團隊設定選 **替我核准**：顯示它的說明，權限範圍以外的動作那個選項消失，標頭的標籤顯示 **替我核准**，對話存成可編輯加上 `approvals: "auto"`。假的首席 agent 核准第一個指令：它直接執行，沒有等待的卡片，那一行顯示 **首席 agent 已替你核准** 與理由。被要求標記第二個（`e2e:flag`）時，它把指令留給使用者：卡片附上首席 agent 的理由等待，側邊欄顯示 **等你核准**，按 **允許** 後執行。 |
+| 在團隊設定選「替我核准」：首席 agent 放行一個指令，把它標記的那個留給使用者 | Claude Code | 在可編輯的對話中，於團隊設定選 **替我核准**：顯示它的說明，權限範圍以外的動作那個選項消失，標頭的標籤顯示 **替我核准**，對話存成可編輯加上 `approvals: "auto"`。假的首席 agent 核准第一個指令：它直接執行，沒有等待的卡片，那一行顯示 **首席 agent 已替你核准** 與理由。被要求標記第二個（`e2e:flag`）時，它把指令留給使用者：卡片附上首席 agent 的理由等待，不提供 **本對話都允許**，並說明只能允許這一次，側邊欄顯示 **等你核准**，按 **允許** 後執行。 |
 | 「替我核准」：首席 agent 審查時不等任何人，使用者可以先回答；推送一律不送審 | Claude Code | 假的首席 agent 慢慢審查時（`e2e:slowapprove`），卡片顯示 **首席 agent 審查中**，並說明可以現在就決定，沒有提示列，也沒有 **等你核准**；按 **允許** 後指令執行，那一行顯示 **已允許**（使用者的回答）。`npm publish`（`e2e:approve=publish`）立即等使用者決定，卡片說明推送與發佈一律由使用者決定，並出現提示列；按 **拒絕** 後被拒絕。 |
 
 ## 使用者自己執行的指令
@@ -337,6 +337,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 驗證內容 |
 | --- | --- | --- |
 | 從「檔案」試用靜態網站 | Claude Code | 資料夾會直接開啟並載入 JavaScript 模組，全程不需設定 Docker。修改原始檔後重建可以看見新頁面。錯誤與原本的草稿一起保留，手機上可以回到仍在執行的預覽。停止後 frame 移除。 |
+| 大到無法整個複製的工作目錄最上層的網頁 | Claude Code | 旁邊的資料夾有 4,097 個檔案時，在工作目錄最上層按 **Preview this folder**，會開啟它的 `index.html` 並帶著它引用的樣式表（標題是紅色），面板說明只帶了網頁和它引用的檔案。 |
 | 平行成員回覆中的同名檔案 | Claude Code、Codex | 手機上，團隊寫出的網頁不會自動打開，改由卡片提供。每個連結可繼續下載，預覽則開啟該成員自己的版本。手機寬度下可操作整個面板。 |
 | 團隊做出的應用程式自動打開 | Claude Code | 還沒有應用程式時，頂端的 **預覽** 停用並說明原因。假 CLI 在編輯模式寫出 `site/index.html`：這一輪結束後面板自動打開並開始預覽，訊息框保留焦點，**預覽** 呈按下狀態。來源與按鈕收成一列，顯示資料夾與 agent，可展開與收起。回覆後的卡片提供這個應用程式。**新分頁** 在自己的分頁開啟網頁，與 Relay 的頁面切斷關係，可以自己重新整理。**預覽** 會隱藏面板，再按一次顯示同一次執行；關閉後可從卡片重新開始。重新載入後不會自動打開，按 **預覽** 才開啟；下一個問題送出後卡片收起。 |
 | 應用程式只自動打開一次，也不會蓋過其他預覽 | Claude Code | 從「檔案」開著預覽時，團隊寫出的網頁只出現在卡片裡，面板保留使用者的網頁。另一個應用程式會自動打開；關閉後，下一輪修改同一個資料夾時不會再打開，改由卡片提供。 |
@@ -434,7 +435,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查什麼 |
 | --- | --- | --- |
 | 回覆要的密鑰在卡片上提供，之後不再顯示，並在設定頁依名稱列出 | Claude Code | 回覆裡沒有 `<secret` 標籤，而是一張 **Secrets @Claude asks for** 卡片，列出 `E2E_TOKEN` 和 agent 的理由；按 **Show** 之前輸入框都是密碼欄位；**Save** 後標成 **Saved**，並把「I gave E2E_TOKEN…」當作使用者的回答送出；值不在頁面上，也不在伺服器送出的對話裡，`GET /api/handoffs` 只列出名稱，**設定 → 密鑰與固定指令**也列出它，按 **Remove** 就刪除。 |
-| 提議的固定指令儲存、試跑時密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Show the code it runs**（儲存鎖定的是看過的程式碼）、**Save**，再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值；**Send the result to the team** 把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
+| 提議的固定指令儲存、帶著輸入試跑且密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Show the code it runs**（儲存鎖定的是看過的程式碼）、**Save**，在 **Input for this run** 打一行，再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值，也顯示它從標準輸入讀到的那一行；**Send the result to the team** 把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
 
 ## 長期記憶
 

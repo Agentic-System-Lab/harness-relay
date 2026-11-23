@@ -2751,9 +2751,14 @@ export function createApp({
 
   // Try a saved fixed command of this chat's working directory: in the background, its card follows it.
   app.post('/api/conversations/:id/commands/:commandId/try', async (c) => {
-    const b = await body<{ extra?: unknown; approve?: unknown }>(c);
+    const b = await body<{ extra?: unknown; stdin?: unknown; approve?: unknown }>(c);
     if (b.extra !== undefined && (typeof b.extra !== 'string' || b.extra.length > HANDOFF_LIMITS.commandLine)) {
       throw new HttpError(400, t().invalidField('extra'));
+    }
+    // `stdin`: what the user typed for it to read on its standard input, this run only.
+    if (b.stdin !== undefined && typeof b.stdin !== 'string') throw new HttpError(400, t().invalidField('stdin'));
+    if (typeof b.stdin === 'string' && new TextEncoder().encode(b.stdin).length > HANDOFF_LIMITS.input) {
+      throw new HttpError(400, t().handoffs.inputTooLong(HANDOFF_LIMITS.input));
     }
     // `approve`: the digest of the code whose diff the user saw (`GET …/diff`), which is pinned again first.
     if (b.approve !== undefined && (typeof b.approve !== 'string' || !/^[0-9a-f]{32}$/.test(b.approve))) {
@@ -2761,6 +2766,7 @@ export function createApp({
     }
     await orchestrator.tryCommand(c.req.param('id'), c.req.param('commandId'), {
       ...(typeof b.extra === 'string' ? { extra: b.extra } : {}),
+      ...(typeof b.stdin === 'string' && b.stdin ? { stdin: b.stdin } : {}),
       ...(typeof b.approve === 'string' ? { approve: b.approve } : {}),
     });
     return c.json({ ok: true }, 202);

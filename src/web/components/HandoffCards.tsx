@@ -234,6 +234,7 @@ export function CommandCard({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => formOf(part.proposal));
   const [extra, setExtra] = useState('');
+  const [stdin, setStdin] = useState('');
   const [diff, setDiff] = useState<{ changed: string[]; diff: string; missing: string[]; digest: string } | null>(null);
   const actions = commandActions(part);
   const p = part.proposal;
@@ -257,7 +258,11 @@ export function CommandCard({
   // Approve sends the digest of the code whose diff the user looked at: a later change is refused.
   const tryIt = (approve?: string) =>
     call(async () => {
-      await api.tryCommand(convId, part.commandId!, { ...(extra.trim() ? { extra } : {}), ...(approve ? { approve } : {}) });
+      await api.tryCommand(convId, part.commandId!, {
+        ...(extra.trim() ? { extra } : {}),
+        ...(stdin ? { stdin } : {}),
+        ...(approve ? { approve } : {}),
+      });
       setDiff(null);
     });
   const toggleDiff = () => (diff ? setDiff(null) : void call(async () => setDiff(await api.commandDiff(convId, part.commandId!))));
@@ -280,7 +285,7 @@ export function CommandCard({
           <CommandIcon size={16} />
         </span>
         <strong>{c.title(p.name)}</strong>
-        <span className="approval-waiting">{c.status[part.status]}</span>
+        <span className="approval-waiting">{part.superseded ? c.superseded : c.status[part.status]}</span>
       </header>
       {editing ? (
         <div className="handoff-form">
@@ -436,6 +441,12 @@ export function CommandCard({
             <label className="field">
               <span>{c.extra}</span>
               <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder={c.extraPlaceholder} spellCheck={false} />
+            </label>
+          )}
+          {actions.tryIt && !actions.approve && (
+            <label className="field">
+              <span>{c.stdin}</span>
+              <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} placeholder={c.stdinPlaceholder} rows={2} />
             </label>
           )}
           <div className="approval-actions">

@@ -335,4 +335,15 @@ describe('the briefing on secrets and fixed commands', () => {
     expect(handoffSection(none, 'linux')).not.toContain('native Windows');
     expect(handoffSection({ secrets: ['TOKEN'], commands: [] }, 'darwin')).toContain('TOKEN');
   });
+
+  it('says how many blocks a reply may have, keeps secrets out of files like .env, and how Try it gives input', () => {
+    const section = handoffSection({ secrets: [], commands: [] }, 'darwin');
+    expect(section).toContain(`at most ${HANDOFF_LIMITS.secretsPerReply} in a reply`);
+    expect(section).toContain(`at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first`);
+    expect(section).toContain('never from a file in the working directory such as a .env');
+    expect(section).toContain("what the user types in the card's input box on its standard input");
+    expect(section).toContain('Nor ask the user to run commands in a terminal to set things up');
+    // On native Windows the user gets steps instead, which may have commands in them.
+    expect(handoffSection({ secrets: [], commands: [] }, 'win32')).not.toContain('Nor ask the user to run commands in a terminal');
+  });
 });

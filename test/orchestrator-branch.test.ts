@@ -527,7 +527,15 @@ describe('branching a conversation', () => {
       participants: [],
       round: 1,
       rounds: 1,
-      hopsLeft: 4,
+    });
+    // Relay: the teammates the asking reply handed to speak after it, as in the run.
+    const handing = {
+      ...reply('a', true),
+      parts: [{ type: 'text', text: `@${agents[1]!.name} please review.` }],
+    } as Conversation['messages'][number];
+    expect(branchPause(conv('relay', [question('go'), handing]), 1)).toMatchObject({
+      askers: ['a'],
+      rest: [{ agentId: agents[1]!.id, handedBy: agents[0]!.name }],
     });
     expect(branchPause(conv('relay', [question('go'), reply('a', false)]), 1)).toBeUndefined();
   });
