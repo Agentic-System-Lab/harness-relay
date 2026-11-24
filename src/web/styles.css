@@ -397,6 +397,19 @@ p {
   flex: none;
 }
 
+/* The plus's strokes stop 2.5px inside its 15px box, which the label's last character does not: drawn 2px
+   further out, what is seen of the two stands in the middle of the button, as the bolt and its label do. */
+.new-row .new-chat:not(.new-schedule) svg {
+  margin-inline-start: -2px;
+}
+
+/* The bolt reaches higher than the label's characters, and its slant leaves room on its left: half a pixel
+   down and one further out. */
+.new-row .new-schedule svg {
+  margin-inline-start: -1px;
+  translate: 0 0.5px;
+}
+
 .new-row .new-label {
   min-width: 0;
   overflow: hidden;
