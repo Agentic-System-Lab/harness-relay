@@ -55,6 +55,25 @@ export function CliInstall({
           {i.installedHere(view.dir)}
           {!shown.inUse && i.notInUse}
         </span>
+        {/* Too old (`tooOld`): removed, then installed again, current, in the same folder. */}
+        {shown.update && (
+          <button
+            className="primary small-button"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                async () => {
+                  await api.removeCli(provider);
+                  return api.installCli(provider);
+                },
+                undefined,
+                true,
+              )
+            }
+          >
+            {i.update(label)}
+          </button>
+        )}
         <button
           className="ghost small-button"
           disabled={busy}
@@ -62,6 +81,7 @@ export function CliInstall({
         >
           {i.remove}
         </button>
+        {shown.update && <p className="muted small">{i.updateHint}</p>}
         {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
       </div>
     );

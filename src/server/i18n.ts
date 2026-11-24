@@ -1497,6 +1497,10 @@ const zhTW = {
   cliInstallNone: (cli: string) => `目前沒有進行中的 ${cli} 安裝`,
   cliAlreadyInstalled: (cli: string) => `Harness Relay 已經安裝了 ${cli}。要重新安裝，請先移除它。`,
   cliNotInstalledHere: (cli: string) => `${cli} 不是透過 Harness Relay 安裝的，這裡沒有可以移除的東西。`,
+  cliKilledAtStart: (signal: string) =>
+    `它一啟動就被停止了（${signal}），什麼都還沒說，所以讀不到它的版本。macOS 會這樣停止它不再信任簽章的程式，例如 Codex 0.47 到 0.130：請更新它，或在這裡安裝新版。`,
+  cliTooOld: (cli: string, version: string, min: string) =>
+    `${cli} ${version} 太舊了：Harness Relay 需要 ${min} 以上的版本。請更新它，或到「設定 → ${cli}」安裝新版。`,
   cliRemoveBusy: (cli: string) => `有對話正在執行，或首席助理正在替對話分群或調整團隊。請等它們結束（或停止對話）再移除 ${cli}。`,
   cliInstallBlocked: (cli: string, block: CliInstallBlock) =>
     block === 'system'
@@ -2988,6 +2992,10 @@ const en: ServerMessages = {
   cliInstallNone: (cli) => `No install of ${cli} is running`,
   cliAlreadyInstalled: (cli) => `Harness Relay has installed ${cli} already. To install it again, remove it first.`,
   cliNotInstalledHere: (cli) => `${cli} was not installed by Harness Relay: there is nothing here to remove.`,
+  cliKilledAtStart: (signal) =>
+    `It was stopped as soon as it started (${signal}), before it said anything, so its version cannot be read. macOS stops a program whose signature it no longer trusts so, as with Codex 0.47 to 0.130: update it, or install a current one here.`,
+  cliTooOld: (cli, version, min) =>
+    `${cli} ${version} is too old: Harness Relay needs ${min} or later. Update it, or install a current one in Settings → ${cli}.`,
   cliRemoveBusy: (cli) =>
     `A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation) before removing ${cli}.`,
   cliInstallBlocked: (cli, block) =>

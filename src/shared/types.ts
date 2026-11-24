@@ -3496,9 +3496,15 @@ export interface ProviderAuth {
 
 export interface ProviderStatus {
   provider: Provider;
+  /** Found, and new enough to be started: a CLI that is too old (`tooOld`) is not, as one that is missing. */
   installed: boolean;
   bin: string;
   version?: string;
+  /**
+   * Found, but older than Harness Relay supports (`MIN_VERSIONS` in src/shared/cliVersions.ts): the
+   * oldest version it needs. Nothing else is asked of it, and no agent runs on it until it is updated.
+   */
+  tooOld?: string;
   /** The default account's sign-in (also `accounts[0]`). */
   auth: ProviderAuth;
   /** An API key is stored in Harness Relay for the default account and injected into this CLI's environment. */
@@ -3678,7 +3684,7 @@ export type UsageNone = 'apiKey' | 'signedOut' | 'noAllowance' | 'unlimited' | '
  * Why Harness Relay could not tell an account's usage, in its own words (the UI words it in its
  * language): the CLI took too long, gave no answer it could read, or was not found.
  */
-export type UsageProblem = 'timedOut' | 'noAnswer' | 'cliMissing';
+export type UsageProblem = 'timedOut' | 'noAnswer' | 'cliMissing' | 'cliTooOld';
 
 /** How much of an account's plan is used, as its CLI reports it (`GET /api/providers/:provider/usage`). */
 export interface AccountUsage {

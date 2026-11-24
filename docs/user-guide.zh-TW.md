@@ -28,25 +28,25 @@ npm start
 
 要登入的七個：
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`；以 2.1.322 驗證過）
-- [Codex CLI](https://github.com/openai/codex)（`codex`；以 0.167.0 驗證過）
-- [Grok CLI](https://github.com/xai-org/grok-build)（`grok`；以 1.0.77 驗證過）
-- [Cursor CLI](https://cursor.com/cli)（`cursor-agent`；以 2026.11.11-043ef28 驗證過）
-- [Antigravity CLI](https://antigravity.google/download)（`agy`；在 macOS、Linux 與 Windows 上以 1.5.6 驗證過），搭配 Gemini API key：Harness Relay 只用 API key 執行它，不會用你的 Google 登入（見[登入](#登入)）
-- [GitHub Copilot CLI](https://github.com/features/copilot/cli)（`copilot`，npm `@github/copilot`；在 macOS、Linux 與 Windows 上以 1.0.109 驗證過），用你的 GitHub 帳號或 GitHub token 登入。在 Linux 上，完全存取以外它的沙箱需要 bubblewrap、slirp4netns，以及 unprivileged user namespace 與 network namespace（見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)）。
-- [Muse Code](https://dev.meta.ai/products/muse-code/)（`muse`；在 macOS 與 Linux 上以 1.4.18 驗證過，Windows 上也驗證過），用你的 Meta 帳號或 Meta API key 登入
+- [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`；以 2.1.322 驗證過；需要 2.1.83 以上）
+- [Codex CLI](https://github.com/openai/codex)（`codex`；以 0.167.0 驗證過；需要 0.133.0 以上）
+- [Grok CLI](https://github.com/xai-org/grok-build)（`grok`；以 1.0.77 驗證過；需要 1.0.0 以上）
+- [Cursor CLI](https://cursor.com/cli)（`cursor-agent`；以 2026.11.11-043ef28 驗證過；需要 2026.05.15 以上）
+- [Antigravity CLI](https://antigravity.google/download)（`agy`；在 macOS、Linux 與 Windows 上以 1.5.6 驗證過；需要 1.5.0 以上），搭配 Gemini API key：Harness Relay 只用 API key 執行它，不會用你的 Google 登入（見[登入](#登入)）
+- [GitHub Copilot CLI](https://github.com/features/copilot/cli)（`copilot`，npm `@github/copilot`；在 macOS、Linux 與 Windows 上以 1.0.109 驗證過；需要 1.0.103 以上），用你的 GitHub 帳號或 GitHub token 登入。在 Linux 上，完全存取以外它的沙箱需要 bubblewrap、slirp4netns，以及 unprivileged user namespace 與 network namespace（見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)）。
+- [Muse Code](https://dev.meta.ai/products/muse-code/)（`muse`；在 macOS 與 Linux 上以 1.4.18 驗證過，Windows 上也驗證過；需要 1.4.18 以上），用你的 Meta 帳號或 Meta API key 登入
 
 Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh | bash` 安裝，在 Windows PowerShell 用 `irm https://dev.meta.ai/install.ps1 | iex`；它的安裝程式會透過你 shell 的設定檔把一個啟動器放上 `PATH`，啟動器會自己把 Muse 保持在最新版（在 Windows 上是 `muse.cmd`，Harness Relay 會啟動它指名的版本）。在 Windows 上，Muse Code 1.4.18 在 Harness Relay 裡完全存取以外的權限不執行任何指令，完成 Muse 自己的沙箱設定（`muse sandbox windows setup`）後也一樣：Harness Relay 驅動它的那個模式在那裡不用沙箱，所以它的指令會失敗，而不會在沙箱外執行；它的檔案工具能用，完全存取時也能執行指令。
 
 五個開源 agent，以及 Harness Relay 驗證過的版本（其他版本在轉接器依賴的地方可能不同）：
 
-| Agent | 安裝 | 驗證過的版本 |
-| --- | --- | --- |
-| [OpenCode](https://www.npmjs.com/package/opencode-ai)（`opencode`） | `npm install -g opencode-ai@1.19.5` | 1.19.5 |
-| [Goose](https://formulae.brew.sh/formula/block-goose-cli)（`goose`） | `brew install block-goose-cli` | 1.58.1 |
-| [Cline](https://www.npmjs.com/package/cline)（`cline`） | `npm install -g cline@3.0.74` | 3.0.74 |
-| [OpenHands](https://pypi.org/project/openhands/)（`openhands`） | `uv tool install openhands==1.16.0`（需要 [uv](https://docs.astral.sh/uv/)） | 1.16.0 |
-| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)（`pi`） | `npm install -g @earendil-works/pi-coding-agent@1.5.1`（需要 Node.js 22.19 以上） | 1.5.1 |
+| Agent | 安裝 | 驗證過的版本 | 至少需要 |
+| --- | --- | --- | --- |
+| [OpenCode](https://www.npmjs.com/package/opencode-ai)（`opencode`） | `npm install -g opencode-ai@1.19.5` | 1.19.5 | 1.4.8 |
+| [Goose](https://formulae.brew.sh/formula/block-goose-cli)（`goose`） | `brew install block-goose-cli` | 1.58.1 | 1.38.0 |
+| [Cline](https://www.npmjs.com/package/cline)（`cline`） | `npm install -g cline@3.0.74` | 3.0.74 | 3.0.0 |
+| [OpenHands](https://pypi.org/project/openhands/)（`openhands`） | `uv tool install openhands==1.16.0`（需要 [uv](https://docs.astral.sh/uv/)） | 1.16.0 | 1.12.0 |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)（`pi`） | `npm install -g @earendil-works/pi-coding-agent@1.5.1`（需要 Node.js 22.19 以上） | 1.5.1 | 1.0.4 |
 
 #### 從設定頁安裝 CLI
 
@@ -59,6 +59,14 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 找不到安裝需要的程式（開源 agent 需要的、隨 Node.js 一起安裝的 npm；`curl`；解開 Node.js 下載檔用的 `tar`（在 Windows 上是 System32 裡的那個）；`bash`，或在 Windows 上的 Git for Windows bash 或 Windows PowerShell）時，卡片會說明缺了什麼。在 Windows 上缺少 Git Bash 時，卡片會提供「**安裝 Git**」。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除，桌面 app 的更新也會等到沒有 CLI 正在安裝。會自行更新的 CLI（Claude Code、Cursor、Muse Code 的啟動器、Grok）照它官方更新程式的方式更新，可能寫到那個更新程式會寫的地方；在 Windows 上，Grok 會到你自己的 `%LOCALAPPDATA%` 找它安裝程式下載的那份 Git，而不是到資料夾裡找，所以請讓你的 `PATH` 上有 Git for Windows 給它用。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。Node.js 不會替你裝到 `PATH` 上：從原始碼執行時你已經有了（`npm start` 就是用它跑的），[桌面 app](#桌面-app) 則從你登入 shell 的 `PATH` 找它；沒有的話，只有上面說的、放在 CLI 資料夾裡的那一份。
 
 完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上，或設定頁裝的那一份）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。這些 Harness Relay 都能替你安裝：見[安裝沙箱需要的元件](#安裝沙箱需要的元件)。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
+
+#### 版本太舊的 CLI
+
+Harness Relay 啟動 CLI 時不給它終端機，而太舊的 CLI 會把它不認得的子指令當成 prompt：例如 Codex 0.27 沒有 `app-server`，會改開它的終端畫面，並以「Device not configured (os error 6)」失敗；Claude Code 2.1.40 以前的版本則會把 `auth status` 送給模型。所以比上面列出的最低版本還舊的 CLI，除了 `--version` 之外 Harness Relay 什麼都不會啟動：側邊欄與它的卡片顯示**版本太舊**、它的版本與需要的版本，不會登入、查用量或執行它，在它上面的回合也會在啟動前就失敗，並說明需要哪個版本。
+
+請在你安裝它的地方更新它（Homebrew、npm、它自己的更新程式），然後在設定頁按**重新檢查狀態**；或直接按它卡片上的**安裝 <CLI>**，在 Harness Relay 自己的資料夾另裝一份新版（[從設定頁安裝 CLI](#從設定頁安裝-cli)）：之後 Harness Relay 就用這一份，你自己安裝的那份維持原樣，在終端機照常使用，它的登入與設定也照舊。太舊的若正是 Harness Relay 自己安裝的那份，卡片上會有**更新**，它會移除那份，再在同一個資料夾裝上新版。
+
+在 macOS 上，Codex 0.47 到 0.130 一啟動就會被系統停止（它的簽章已不再被信任），連版本都說不出來：它的卡片會說明這件事，處理方式相同。
 
 #### 安裝沙箱需要的元件
 

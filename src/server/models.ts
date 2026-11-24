@@ -20,6 +20,7 @@ import { museConfigBase, museDataBase, MUSE_EFFORTS } from './agents/muse';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, converse, stripAnsi, tail } from './process';
+import { CliTooOldError, tooOld } from './cliVersion';
 import { t } from './i18n';
 
 /** Discovered once per CLI and cached; defaults from Relay settings are layered on at request time. */
@@ -469,8 +470,12 @@ export async function discoverModels(
   env: NodeJS.ProcessEnv,
   backends: ConfiguredBackends = { configured: [], endpoints: [] },
 ): Promise<DiscoveredModels> {
+  // Older than Harness Relay supports: not asked (it might take the question for a prompt), and the
+  // models it would offer are its built-in ones, with why.
+  const old = await tooOld(p, bin, isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env);
   if (isOpenProvider(p)) {
     try {
+      if (old) throw new CliTooOldError(p, old);
       return await discoverOpenModels(p, bin, env, backends);
     } catch (err) {
       return { provider: p, models: [], efforts: openAgents[p].efforts, source: 'builtin', error: (err as Error).message };
@@ -478,6 +483,7 @@ export async function discoverModels(
   }
   let own: DiscoveredModels;
   try {
+    if (old) throw new CliTooOldError(p, old);
     if (p === 'claude') own = discoverClaude(env);
     else if (p === 'codex') own = await discoverCodex(bin, env);
     else if (p === 'cursor') own = await discoverCursor(bin, env);

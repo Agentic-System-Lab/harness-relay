@@ -86,6 +86,6 @@ export function usageNoneText(u: Pick<AccountUsage, 'provider' | 'none' | 'limit
 /** What went wrong asking the CLI: its own words, else Harness Relay's (`problem`) in the UI's language; empty when nothing did. */
 export function usageProblemText(u: Pick<AccountUsage, 'provider' | 'error' | 'problem'>, t: Messages): string {
   if (u.error) return u.error;
-  if (u.problem === 'cliMissing') return t.usage.problem.cliMissing(PROVIDER_LABEL[u.provider]);
+  if (u.problem === 'cliMissing' || u.problem === 'cliTooOld') return t.usage.problem[u.problem](PROVIDER_LABEL[u.provider]);
   return u.problem ? t.usage.problem[u.problem] : '';
 }

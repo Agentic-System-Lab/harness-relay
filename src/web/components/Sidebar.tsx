@@ -192,13 +192,13 @@ export function Sidebar({
 
       <div className="sidebar-bottom" data-tour="settings">
         {(() => {
-          // The open agents only once installed: most people have only some of them.
-          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map(
-            (id) => {
-              const p = providers.find((x) => x.provider === id);
-              return { id, p, state: providerState(p) };
-            },
-          );
+          // The open agents only once installed (or found too old): most people have only some of them.
+          const shown = PROVIDERS.filter(
+            (id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && (x.installed || x.tooOld)),
+          ).map((id) => {
+            const p = providers.find((x) => x.provider === id);
+            return { id, p, state: providerState(p) };
+          });
           const { ready, total } = readyCount(shown.map((x) => x.state));
           const toggle = () => {
             writeHealthNames(!healthNames);
@@ -276,6 +276,7 @@ export function Sidebar({
 function healthTitle(p: ProviderStatus | undefined, t: Messages): string {
   const h = t.sidebar.health;
   if (!p) return h.checking;
+  if (p.tooOld) return h.tooOld;
   if (!p.installed) return h.notInstalled;
   if (isOpenProvider(p.provider)) return p.auth.loggedIn ? h.openReady : h.openNotReady;
   // The dot is the default account's; with more accounts, how many of them agents can run as.

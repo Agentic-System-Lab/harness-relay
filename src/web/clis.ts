@@ -14,19 +14,23 @@ import {
  *   cancelled, whose words and output are shown with it);
  * - `blocked`: why it cannot be installed here (a program its install needs, or this system);
  * - `running`: its install under way, with Cancel and the installer's output so far;
- * - `ours`: Harness Relay installed it, with Remove (`inUse`: the CLI's executable path is that program).
+ * - `ours`: Harness Relay installed it, with Remove (`inUse`: the CLI's executable path is that program;
+ *   `update`: that program is older than Harness Relay supports, `tooOld`, and Update installs it anew).
+ *
+ * A CLI that is too old is not `installed` (nothing runs on it): an Install button is offered, which
+ * installs a current one in Harness Relay's own folder and leaves the user's own copy as it is.
  */
 export type CliInstallShown =
   | { kind: 'none' }
   | { kind: 'offer'; retry: boolean }
   | { kind: 'blocked'; block: CliInstallBlock }
   | { kind: 'running' }
-  | { kind: 'ours'; inUse: boolean };
+  | { kind: 'ours'; inUse: boolean; update: boolean };
 
 export function cliInstallShown(status: ProviderStatus | undefined, view: CliInstallView | undefined): CliInstallShown {
   if (!status || !view) return { kind: 'none' };
   if (view.job?.state === 'running') return { kind: 'running' };
-  if (view.installed) return { kind: 'ours', inUse: view.installed.inUse };
+  if (view.installed) return { kind: 'ours', inUse: view.installed.inUse, update: view.installed.inUse && Boolean(status.tooOld) };
   if (status.installed) return { kind: 'none' };
   if (view.blocked) return { kind: 'blocked', block: view.blocked };
   const ended = view.job?.state;
@@ -43,12 +47,13 @@ export function statusBeforeInstall(status: ProviderStatus | undefined, view: Cl
 
 type AssistantReadiness =
   | { kind: 'ready'; account?: AccountStatus }
-  | { kind: 'checking' | 'signIn' | 'install' | 'backend' | 'requirements' | 'executable' | 'installing' | 'unknown' };
+  | { kind: 'checking' | 'signIn' | 'install' | 'update' | 'backend' | 'requirements' | 'executable' | 'installing' | 'unknown' };
 
 /** The setup step for the Settings overview. Only a confirmed sign-in or key can be advertised as ready. */
 export function assistantReadiness(status: ProviderStatus | undefined, install: CliInstallView | undefined): AssistantReadiness {
   if (install?.job?.state === 'running') return { kind: 'installing' };
   if (!status || statusBeforeInstall(status, install)) return { kind: 'checking' };
+  if (status.tooOld) return { kind: 'update' };
   if (!status.installed) {
     if (install?.installed || status.auth.detail) return { kind: 'executable' };
     return { kind: install?.blocked ? 'requirements' : 'install' };

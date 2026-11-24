@@ -43,6 +43,9 @@
  * Sessions are kept in the CLI's home (the test's own), and resuming one it never started fails, as
  * the real CLIs do. E2E_FAKE_SIGNED_OUT (a list of provider ids: `codex,grok`) makes those CLIs signed
  * out. Each home (an account's) also keeps its sign-in: signed in until signed out there.
+ * E2E_FAKE_TOO_OLD (provider ids too) makes those CLIs older than Harness Relay supports: `--version`
+ * says 0.0.1, and anything else fails as Codex 0.27 does without a terminal (it takes a subcommand it
+ * does not know for a prompt, and its terminal UI cannot start).
  *
  * E2E_FAKE_LOG names a file that gets a JSON line for each start (its arguments, its home, and
  * whether it got the API key a test expects), each session started or resumed and each prompt (with
@@ -78,5 +81,11 @@ if (!agent) {
 } else {
   self.use(agent, AGENTS);
   record({ args: self.args, home: self.home(), apiKey: agent.apiKey(process.env) });
-  agent.main(self.args);
+  const tooOld = (process.env.E2E_FAKE_TOO_OLD || '')
+    .split(',')
+    .map((c) => c.trim().toLowerCase())
+    .includes(self.cli());
+  if (!tooOld) agent.main(self.args);
+  else if (self.args.includes('--version')) process.stdout.write(`${agent.version.replace(/\d+(\.\d+)+/, '0.0.1')}\n`);
+  else process.stderr.write('Error: Device not configured (os error 6)\n', () => process.exit(1));
 }

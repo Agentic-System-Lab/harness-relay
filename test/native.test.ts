@@ -625,6 +625,7 @@ describe('NativeSetupService', () => {
 
   // A stand-in for `grok inspect --json` that counts its runs in its home and names its skill after the count.
   const COUNTING_GROK = `#!/bin/sh
+[ "$1" = "--version" ] && { echo "grok 99.0.0"; exit 0; }
 n=$(cat "$GROK_HOME/runs" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$GROK_HOME/runs"
 printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD" "$n"
 `;
@@ -906,7 +907,8 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { args?: string[] })
-      .filter((l) => l.args && l.args[0] !== 'plugin' && !l.args.includes('--setting-sources'));
+      // Its version apart (`tooOld()`).
+      .filter((l) => l.args && l.args[0] !== 'plugin' && l.args[0] !== '--version' && !l.args.includes('--setting-sources'));
     // Both asks, the second the way a run starts it.
     expect(starts).toHaveLength(2);
     expect(starts[1]!.args).toContain('--disable-slash-commands');
@@ -1107,7 +1109,8 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { args?: string[] })
-      .filter((l) => l.args && !l.args.includes('--setting-sources'));
+      // Its version apart (`tooOld()`).
+      .filter((l) => l.args && l.args[0] !== '--version' && !l.args.includes('--setting-sources'));
     expect(starts).toHaveLength(1);
   });
 

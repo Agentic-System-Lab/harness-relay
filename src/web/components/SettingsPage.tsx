@@ -584,7 +584,9 @@ function LeadCard({
           {/* Not installed: its card (the executable path). An open agent without a backend: API Key. Else: sign in. */}
           {!status.installed ? (
             <>
-              {t.settings.leadNotInstalled(PROVIDER_LABEL[lead.provider])}{' '}
+              {status.tooOld
+                ? t.settings.leadTooOld(PROVIDER_LABEL[lead.provider], status.tooOld)
+                : t.settings.leadNotInstalled(PROVIDER_LABEL[lead.provider])}{' '}
               <a href={settingsHref(lead.provider)} onClick={() => scrollToSection(lead.provider)}>
                 {t.settings.goCard(PROVIDER_LABEL[lead.provider])}
               </a>
@@ -627,11 +629,12 @@ function LeadCard({
 }
 
 function statusPill(
-  s: (Pick<ProviderStatus, 'installed' | 'auth' | 'usingStoredApiKey'> & { provider?: Provider }) | undefined,
+  s: (Pick<ProviderStatus, 'installed' | 'tooOld' | 'auth' | 'usingStoredApiKey'> & { provider?: Provider }) | undefined,
   t: Messages,
 ): { text: string; cls: string } {
   const p = t.settings.pill;
   if (!s) return { text: p.checking, cls: '' };
+  if (s.tooOld) return { text: p.tooOld, cls: 'warn' };
   if (!s.installed) return { text: p.notInstalled, cls: 'off' };
   // An open agent has no sign-in: it is ready once a model backend is set up (and its adapter is done).
   if (s.provider && isOpenProvider(s.provider))
@@ -640,6 +643,26 @@ function statusPill(
   if (s.auth.loggedIn) return { text: p.loggedIn, cls: 'ok' };
   if (s.auth.loggedIn === false) return { text: p.notLoggedIn, cls: 'warn' };
   return { text: p.unknown, cls: '' };
+}
+
+/**
+ * Why a CLI that is there cannot run: older than Harness Relay supports (`tooOld`), with the version it
+ * needs and how to get it (the buttons are `CliInstall`'s: Install for another copy, Update for one
+ * Harness Relay installed); or its program could not start (it cannot be run, or it was killed as it
+ * started), in the server's words. A CLI that is simply not found says nothing here (`CliInstall`).
+ */
+function CliProblemLine({ provider, status, install }: { provider: Provider; status?: ProviderStatus; install?: CliInstallView }) {
+  const t = useT();
+  if (status && !status.installed && !status.tooOld && status.auth.detail) return <p className="warn-line">{status.auth.detail}</p>;
+  if (!status?.tooOld) return null;
+  const label = PROVIDER_LABEL[provider];
+  return (
+    <p className="warn-line">
+      {t.settings.tooOld(label, status.version ?? '?', status.tooOld)}
+      {/* Install is offered only while Harness Relay has no copy of its own (with one, Update or Remove). */}
+      {!install?.installed && <> {t.settings.tooOldUpdate}</>}
+    </p>
+  );
 }
 
 /** What a CLI's card needs to install it, or remove what Harness Relay installed (`CliInstall`). */
@@ -738,9 +761,10 @@ function ProviderCard({
         {/* Each account says how it is signed in, in its own block; here only whether the CLI is there. */}
         {!status?.installed && <span className={`pill ${pill.cls}`}>{pill.text}</span>}
         {/* A CLI that is not installed is explained once, in the line below. */}
-        {status?.installed && status.version && <span className="muted small">v{status.version}</span>}
+        {(status?.installed || status?.tooOld) && status.version && <span className="muted small">v{status.version}</span>}
       </header>
 
+      <CliProblemLine provider={provider} status={status} install={install} />
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       {/* Once for the CLI: every account's members can run on the user's own endpoints. */}
@@ -760,6 +784,7 @@ function ProviderCard({
           account={a}
           status={status?.accounts.find((x) => x.id === (a?.id ?? '')) ?? (a?.id ? undefined : status?.accounts[0])}
           installed={Boolean(status?.installed)}
+          tooOld={status?.tooOld}
           methods={methods}
           multi={multi}
           catalog={catalogFor(catalog, provider, a?.id)}
@@ -832,6 +857,7 @@ function AccountBlock({
   account,
   status,
   installed,
+  tooOld,
   methods,
   multi,
   catalog,
@@ -844,6 +870,8 @@ function AccountBlock({
   account?: ProviderAccountView;
   status?: AccountStatus;
   installed: boolean;
+  /** The CLI is too old (the version it needs): its accounts say so, not that it is missing. */
+  tooOld?: string;
   methods: LoginMethod[];
   multi: boolean;
   /** The models of the CLI in this account's home, with its defaults. */
@@ -861,7 +889,7 @@ function AccountBlock({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const pill = statusPill(status && { installed, auth: status.auth, usingStoredApiKey: status.usingStoredApiKey }, t);
+  const pill = statusPill(status && { installed, tooOld, auth: status.auth, usingStoredApiKey: status.usingStoredApiKey }, t);
   const loggedIn = Boolean(status?.auth.loggedIn);
   const keyOnly = keyOnlyAccount(provider, id);
 
@@ -1249,6 +1277,7 @@ function OpenAgentCard({
         </span>
       </header>
 
+      <CliProblemLine provider={provider} status={status} install={install} />
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       <p className="muted small">

@@ -920,7 +920,8 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(starts.filter((l) => l.argv.includes('plugin')).map((l) => l.argv)).toEqual([
       ['--settings', settings, 'plugin', 'list', '--json'],
     ]);
-    expect(starts.every((l) => l.env.HOME === r.home && l.env.SSH_CONNECTION)).toBe(true);
+    // Its version apart, asked as its status asks it (`tooOld()`): it opens no sign-in.
+    expect(starts.filter((l) => l.argv[0] !== '--version').every((l) => l.env.HOME === r.home && l.env.SSH_CONNECTION)).toBe(true);
 
     // Without a key, agy is not asked at all (it would answer on a Google sign-in it keeps): what its
     // files say still shows, and the setup says why the rest is missing.

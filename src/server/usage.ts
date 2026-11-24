@@ -6,6 +6,7 @@ import { CLAUDE_PROBE_ARGS } from './agents/claude';
 import { copilotHome, copilotProbeEnv, prepareCopilotProbeHome } from './agents/copilot';
 import { grokNativeEnv } from './agents/grok';
 import { museProbeEnv } from './agents/muse';
+import { tooOld } from './cliVersion';
 import { converse, converseFramed, runProcess, stripAnsi, tail } from './process';
 import { relayTmpDir } from './protect';
 import { CREDENTIAL_ENV } from './settings';
@@ -644,6 +645,9 @@ async function askCursor(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSign
  * with its home and any key it runs on). `signal` stops the CLI (the account was removed, say).
  */
 export async function askUsage(p: Provider, bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<UsageAnswer> {
+  // Older than Harness Relay supports: not asked, as it might take the question for a prompt (Codex
+  // 0.27 has no `app-server`, opens its terminal UI and fails with "Device not configured").
+  if (await tooOld(p, bin, env)) return trouble('cliTooOld');
   const apiKey = (BILLED_KEY_ENV[p] ?? []).some((k) => env[k]);
   switch (p) {
     case 'claude':

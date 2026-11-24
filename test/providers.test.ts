@@ -42,15 +42,72 @@ describe("a CLI's status when it cannot run", () => {
   });
 });
 
+describe('a CLI older than Harness Relay supports', () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+  // Codex 0.27 has no `app-server`: without a terminal it takes it for a prompt, opens its terminal
+  // UI and fails ("Device not configured (os error 6)"); anything but `--version` fails so here.
+  const setup = (name: string) => {
+    const dir = join(root, name);
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'codex');
+    const log = join(dir, 'starts');
+    writeFileSync(
+      bin,
+      `#!/bin/sh\necho "$*" >> "${log}"\ncase "$1" in\n  --version) echo "codex-cli 0.27.0" ;;\n  *) echo "Error: Device not configured (os error 6)" >&2; exit 1 ;;\nesac\n`,
+      { mode: 0o755 },
+    );
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('codex', { bin });
+    settings.setAgentHome(join(dir, 'homes'));
+    const started = () => readFileSync(log, 'utf8').trim().split('\n');
+    return { settings, service: new ProviderService(settings), started };
+  };
+
+  posixIt('is not installed but says it is too old, with its version and the one it needs, and is asked nothing else', async () => {
+    const { service, started } = setup('too-old-status');
+    const { MIN_VERSIONS } = await import('../src/shared/cliVersions');
+    const status = await service.status('codex', true);
+    expect(status).toMatchObject({ installed: false, tooOld: MIN_VERSIONS.codex, version: '0.27.0', auth: { loggedIn: null } });
+    expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: null }, usingStoredApiKey: false }]);
+    // Not even `login status`.
+    expect(started()).toEqual(['--version']);
+  });
+
+  posixIt('is not installed, saying why, when it is killed as it starts (Codex 0.47 to 0.130 on macOS)', async () => {
+    const dir = join(root, 'killed-at-start');
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'codex');
+    writeFileSync(bin, '#!/bin/sh\nkill -9 $$\n', { mode: 0o755 });
+    const settings = new SettingsStore(openDatabase(':memory:'));
+    settings.update('codex', { bin });
+    const status = await new ProviderService(settings).status('codex', true);
+    expect(status).toMatchObject({ installed: false, auth: { loggedIn: null, detail: t().cliKilledAtStart('SIGKILL') } });
+    expect(status.tooOld).toBeUndefined();
+  });
+
+  posixIt('has no usage, models or sign-in asked of it, and says why', async () => {
+    const { service, started } = setup('too-old-asks');
+    const usage = await service.usage('codex', '', true);
+    expect(usage).toMatchObject({ limits: [], problem: 'cliTooOld' });
+    const models = await service.models('codex', true);
+    expect(models.source).toBe('builtin');
+    expect(models.error).toBe(t().cliTooOld('Codex', '0.27.0', (await import('../src/shared/cliVersions')).MIN_VERSIONS.codex!));
+    await expect(service.assertNewEnough('codex')).rejects.toMatchObject({ status: 409 });
+    await expect(service.logout('codex')).rejects.toMatchObject({ status: 409 });
+    await expect(service.codexApiKeyLogin('sk-test')).rejects.toMatchObject({ status: 409 });
+    expect(new Set(started())).toEqual(new Set(['--version']));
+  });
+});
+
 describe('a signed-out account', () => {
   // What each CLI prints when its home has no sign-in (tried with the real ones).
   const SIGNED_OUT: Record<'claude' | 'codex' | 'grok' | 'cursor' | 'muse', string> = {
     claude: `case "$1 $2" in
-  "--version ") echo "2.1.0 (Claude Code)" ;;
+  "--version ") echo "2.1.323 (Claude Code)" ;;
   "auth status") echo '{\n  "loggedIn": false,\n  "authMethod": "none",\n  "apiProvider": "firstParty",\n  "loginExpiresAt": null\n}'; exit 1 ;;
 esac`,
     codex: `case "$1 $2" in
-  "--version ") echo "codex-cli 0.80.0" ;;
+  "--version ") echo "codex-cli 0.167.0" ;;
   "login status") echo "Not logged in" >&2; exit 1 ;;
 esac`,
     grok: `case "$1" in
@@ -502,7 +559,7 @@ describe('accounts of a CLI', () => {
   const FAKE_CLAUDE = `#!/bin/sh
 home="$CLAUDE_CONFIG_DIR"
 case "$1 $2" in
-  "--version ") echo "2.1.0 (Claude Code)" ;;
+  "--version ") echo "2.1.323 (Claude Code)" ;;
   "auth status")
     if [ -f "$home/signed-in" ]; then printf '{"loggedIn": true, "email": "%s", "authMethod": "claude.ai"}\\n' "$(cat "$home/signed-in")"
     else echo '{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}'; fi ;;
@@ -565,7 +622,7 @@ esac
     writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'signed-in'), 'me@example.com');
 
     const status = await service.status('claude', true);
-    expect(status).toMatchObject({ installed: true, version: '2.1.0', auth: { loggedIn: true, account: 'me@example.com' } });
+    expect(status).toMatchObject({ installed: true, version: '2.1.323', auth: { loggedIn: true, account: 'me@example.com' } });
     expect(status.accounts).toEqual([
       { id: '', label: '', auth: { loggedIn: true, method: 'claude.ai', account: 'me@example.com' }, usingStoredApiKey: false },
       { id: work, label: 'Work', auth: { loggedIn: false }, usingStoredApiKey: false },
@@ -661,7 +718,9 @@ esac
   });
 
   // A stand-in for `grok models` that counts its runs in its home and names its model after the count.
+  // Its version is not a question about models, and not counted.
   const COUNTING_GROK = `#!/bin/sh
+[ "$1" = "--version" ] && { echo "grok 99.0.0"; exit 0; }
 n=$(cat "$GROK_HOME/runs" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$GROK_HOME/runs"
 echo "  - grok-run-$n"
 `;

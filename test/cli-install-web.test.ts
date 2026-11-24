@@ -61,13 +61,29 @@ describe('cliInstallShown', () => {
     expect(cliInstallShown(status({ installed: true }), view({ installed: ours, job: job('success') }))).toEqual({
       kind: 'ours',
       inUse: true,
+      update: false,
     });
     expect(cliInstallShown(status({ installed: true }), view({ installed: { ...ours, inUse: false } }))).toEqual({
       kind: 'ours',
       inUse: false,
+      update: false,
     });
     // Also when the path set instead is not found: it can still be removed.
-    expect(cliInstallShown(status(), view({ installed: { ...ours, inUse: false } }))).toEqual({ kind: 'ours', inUse: false });
+    expect(cliInstallShown(status(), view({ installed: { ...ours, inUse: false } }))).toEqual({
+      kind: 'ours',
+      inUse: false,
+      update: false,
+    });
+  });
+
+  it("offers a current copy for a CLI too old to run: installed beside the user's own, or updated when it is ours", () => {
+    const old = status({ tooOld: '0.100.0', version: '0.27.0' });
+    // The user's own copy (Homebrew's, npm's…): another one in Harness Relay's folder, the user's left as it is.
+    expect(cliInstallShown(old, view())).toEqual({ kind: 'offer', retry: false });
+    // The one Harness Relay installed and runs: Update installs it anew.
+    expect(cliInstallShown(old, view({ installed: ours }))).toEqual({ kind: 'ours', inUse: true, update: true });
+    // Ours, but another program is in use (that one is too old): not ours to update.
+    expect(cliInstallShown(old, view({ installed: { ...ours, inUse: false } }))).toEqual({ kind: 'ours', inUse: false, update: false });
   });
 });
 
@@ -92,6 +108,9 @@ describe('assistantReadiness', () => {
     expect(assistantReadiness(status(), view({ job: job('running') })).kind).toBe('installing');
     expect(assistantReadiness(status(), view()).kind).toBe('install');
     expect(assistantReadiness(status({ checkedAt: 300 }), view({ installed: ours })).kind).toBe('executable');
+    // Found, but too old to run: it needs an update, not an install.
+    expect(assistantReadiness(status({ tooOld: '0.100.0', version: '0.27.0' }), view()).kind).toBe('update');
+    expect(assistantReadiness(status({ tooOld: '0.100.0', checkedAt: 300 }), view({ installed: ours })).kind).toBe('update');
   });
 
   it('finds a confirmed sign-in or key on any account and keeps an unknown sign-in distinct', () => {

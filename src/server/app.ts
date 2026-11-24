@@ -1263,6 +1263,7 @@ export function createApp({
     const p = provider(c);
     const id = account(c, p);
     const b = await body<{ method?: string }>(c);
+    await providers.assertNewEnough(p, id);
     try {
       return c.json(providers.startLogin(p, b.method, id));
     } catch (err) {

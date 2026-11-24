@@ -28,25 +28,25 @@ You don't need them all: Harness Relay works with any of them. Install the ones 
 
 The seven you sign in to:
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`; checked with 2.1.322)
-- [Codex CLI](https://github.com/openai/codex) (`codex`; checked with 0.167.0)
-- [Grok CLI](https://github.com/xai-org/grok-build) (`grok`; checked with 1.0.77)
-- [Cursor CLI](https://cursor.com/cli) (`cursor-agent`; checked with 2026.11.11-043ef28)
-- [Antigravity CLI](https://antigravity.google/download) (`agy`; checked with 1.5.6 on macOS, Linux and Windows), with a Gemini API key: Harness Relay runs it on a key only, never on your Google sign-in (see [Signing in](#signing-in))
-- [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`copilot`, npm `@github/copilot`; checked with 1.0.109 on macOS, Linux and Windows), signed in with your GitHub account or a GitHub token. Below full access on Linux its sandbox needs bubblewrap, slirp4netns and unprivileged user and network namespaces (see [OS sandboxes by platform → Linux](sandboxing.md#linux)).
-- [Muse Code](https://dev.meta.ai/products/muse-code/) (`muse`; checked with 1.4.18 on macOS and Linux, and on Windows), signed in with your Meta account or a Meta API key
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`; checked with 2.1.322; needs 2.1.83 or later)
+- [Codex CLI](https://github.com/openai/codex) (`codex`; checked with 0.167.0; needs 0.133.0 or later)
+- [Grok CLI](https://github.com/xai-org/grok-build) (`grok`; checked with 1.0.77; needs 1.0.0 or later)
+- [Cursor CLI](https://cursor.com/cli) (`cursor-agent`; checked with 2026.11.11-043ef28; needs 2026.05.15 or later)
+- [Antigravity CLI](https://antigravity.google/download) (`agy`; checked with 1.5.6 on macOS, Linux and Windows; needs 1.5.0 or later), with a Gemini API key: Harness Relay runs it on a key only, never on your Google sign-in (see [Signing in](#signing-in))
+- [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`copilot`, npm `@github/copilot`; checked with 1.0.109 on macOS, Linux and Windows; needs 1.0.103 or later), signed in with your GitHub account or a GitHub token. Below full access on Linux its sandbox needs bubblewrap, slirp4netns and unprivileged user and network namespaces (see [OS sandboxes by platform → Linux](sandboxing.md#linux)).
+- [Muse Code](https://dev.meta.ai/products/muse-code/) (`muse`; checked with 1.4.18 on macOS and Linux, and on Windows; needs 1.4.18 or later), signed in with your Meta account or a Meta API key
 
 Muse Code installs with `curl -fsSL https://dev.meta.ai/install.sh | bash` on macOS and Linux, or `irm https://dev.meta.ai/install.ps1 | iex` in Windows PowerShell; its installer puts a launcher on your `PATH` through your shell's profile, and the launcher keeps Muse up to date by itself (on Windows it is `muse.cmd`, from which Harness Relay starts the version it names). On Windows, Muse Code 1.4.18 runs no command below full access in Harness Relay, also after Muse's own sandbox setup (`muse sandbox windows setup`): the mode Harness Relay drives it in uses no sandbox there, so its commands fail instead of running unsandboxed; its file tools work, and full access runs commands.
 
 The five open-source agents, with the versions Harness Relay was checked with (other versions may differ in what the adapters rely on):
 
-| Agent | Install | Checked with |
-| --- | --- | --- |
-| [OpenCode](https://www.npmjs.com/package/opencode-ai) (`opencode`) | `npm install -g opencode-ai@1.19.5` | 1.19.5 |
-| [Goose](https://formulae.brew.sh/formula/block-goose-cli) (`goose`) | `brew install block-goose-cli` | 1.58.1 |
-| [Cline](https://www.npmjs.com/package/cline) (`cline`) | `npm install -g cline@3.0.74` | 3.0.74 |
-| [OpenHands](https://pypi.org/project/openhands/) (`openhands`) | `uv tool install openhands==1.16.0` (needs [uv](https://docs.astral.sh/uv/)) | 1.16.0 |
-| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`pi`) | `npm install -g @earendil-works/pi-coding-agent@1.5.1` (needs Node.js 22.19 or later) | 1.5.1 |
+| Agent | Install | Checked with | Needs at least |
+| --- | --- | --- | --- |
+| [OpenCode](https://www.npmjs.com/package/opencode-ai) (`opencode`) | `npm install -g opencode-ai@1.19.5` | 1.19.5 | 1.4.8 |
+| [Goose](https://formulae.brew.sh/formula/block-goose-cli) (`goose`) | `brew install block-goose-cli` | 1.58.1 | 1.38.0 |
+| [Cline](https://www.npmjs.com/package/cline) (`cline`) | `npm install -g cline@3.0.74` | 3.0.74 | 3.0.0 |
+| [OpenHands](https://pypi.org/project/openhands/) (`openhands`) | `uv tool install openhands==1.16.0` (needs [uv](https://docs.astral.sh/uv/)) | 1.16.0 | 1.12.0 |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`pi`) | `npm install -g @earendil-works/pi-coding-agent@1.5.1` (needs Node.js 22.19 or later) | 1.5.1 | 1.0.4 |
 
 #### Installing a CLI from Settings
 
@@ -59,6 +59,14 @@ You can also install a CLI from its card under **Settings & sign-in**, each one 
 When a program the install needs is not found (npm, which comes with Node.js, for the open-source agents; `curl`; `tar`, for Node.js's build (on Windows the one in System32); `bash`, or on Windows Git for Windows' bash or Windows PowerShell), the card explains what is missing. On Windows, if Git Bash is missing, the card offers **Install Git**. A failed or cancelled install leaves nothing behind; a failed one's words and output stay on the card until you try again. Removing waits until no agent is at work, and the desktop app's updates wait until no CLI is being installed. A CLI that updates itself (Claude Code, Cursor, Muse Code's launcher, Grok) does so as its maker's updater does, which may write where that updater writes; on Windows, Grok looks for the copy of Git its installer downloads under your own `%LOCALAPPDATA%`, not in the folder, so have Git for Windows on your `PATH` for it. A [GitHub codespace](codespaces.md) has the seven CLIs that are not open source installed already; the open-source ones install there from Settings as anywhere else. Node.js is not installed for you on your `PATH`: from the source you have it already (`npm start` runs on it), and the [desktop app](#desktop-app) finds it on your login shell's `PATH`; without it, only the copy in a CLI's folder described above.
 
 Below full access they run in Harness Relay's own sandbox ([Open agents → The relay sandbox](open-agents.md#the-relay-sandbox)). It needs nothing extra on macOS (in the [desktop app](#desktop-app), Node.js 22.12 or later on your `PATH`, or the one Settings installs); on Linux install `bubblewrap`, `socat` and `ripgrep` (`sudo apt-get install bubblewrap socat ripgrep`), and on Ubuntu 23.10 or later add the AppArmor profile for `/usr/bin/bwrap` from [OS sandboxes by platform → On Linux](sandboxing.md#on-linux). Harness Relay can install all of this for you: see [Setting up the sandboxes](#setting-up-the-sandboxes). On native Windows they run only with full access (use WSL2 for a sandbox), and so does OpenCode on Linux (Harness Relay cannot watch its server there).
+
+#### A CLI that is too old
+
+Harness Relay starts its CLIs without a terminal, and a CLI too old takes a subcommand it does not know for a prompt: Codex 0.27, which has no `app-server`, opens its terminal UI instead and fails with "Device not configured (os error 6)", and Claude Code before 2.1.40 sends `auth status` to the model. So Harness Relay starts a CLI older than the oldest version listed above for nothing but its `--version`: the sidebar and its card say **Too old**, with its version and the one it needs; it is not signed in, asked about its usage nor run, and a turn on it fails before it starts, saying which version it needs.
+
+Update it where you installed it (Homebrew, npm, its own updater) and click **Check again** in Settings, or click **Install <CLI>** on its card for a separate, current copy in Harness Relay's own folder ([Installing a CLI from Settings](#installing-a-cli-from-settings)): Harness Relay then uses that one, while your own copy stays as it is for your terminal, with its sign-in and settings. When the copy that is too old is one Harness Relay installed, its card has **Update**, which removes it and installs a current one in the same folder.
+
+On macOS, Codex 0.47 to 0.130 are stopped by the system as soon as they start (their signature is no longer trusted), before they can say their version: its card says so, and the same steps apply.
 
 #### Setting up the sandboxes
 

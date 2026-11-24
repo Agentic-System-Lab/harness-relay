@@ -13,15 +13,16 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
+import { tooOldFor } from '../shared/cliVersions';
 import { antigravityHasKey } from './agents/antigravity';
 import { askCopilotModels, copilotHome, copilotLogout, copilotSignedInAs, copilotSignedOut } from './agents/copilot';
-import { openAgents } from './agents/index';
+import { openAgents, versionEnv } from './agents/index';
 import { museKeyOnly, museProbeEnv } from './agents/muse';
-import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
 import { HttpError } from './errors';
 import { discoverModels, type DiscoveredModels } from './models';
 import { CliLogin } from './login';
+import { cliVersion, parseVersion, tooOld, tooOldText } from './cliVersion';
 import { CommandNotFoundError, capture, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
@@ -31,11 +32,7 @@ import { WindowsScriptError } from './winLaunch';
 // ---------------------------------------------------------------------------
 // Status
 
-export function parseVersion(out: string): string | undefined {
-  const m = stripAnsi(out).match(/\d+\.\d+\.\d+[\w.-]*/);
-  // Not the sentence's full stop: Copilot prints "GitHub Copilot CLI 1.0.109."
-  return m?.[0].replace(/[.-]+$/, '');
-}
+export { parseVersion };
 
 function firstJsonObject(s: string): Record<string, any> | null {
   const start = s.indexOf('{');
@@ -301,8 +298,25 @@ export class ProviderService {
     });
     let status: ProviderStatus;
     try {
-      const v = await capture(bin, ['--version'], isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, { timeoutMs: 10_000 });
-      const version = parseVersion(v.stdout || v.stderr);
+      // Asked again: an update since the last check is told at once, and the runs' check (`tooOld()`) has it too.
+      const version = await cliVersion(bin, versionEnv(p, env), true);
+      // Older than Harness Relay supports: nothing else is asked, as it might take the question for a prompt.
+      const min = tooOldFor(p, version);
+      if (min) {
+        const accounts = ids.map((id) => account(id, { loggedIn: null }));
+        const first = accounts[0]!;
+        return {
+          provider: p,
+          installed: false,
+          tooOld: min,
+          bin,
+          version,
+          auth: first.auth,
+          usingStoredApiKey: first.usingStoredApiKey,
+          accounts,
+          checkedAt,
+        };
+      }
       // Each account signs in on its own, in its own home; an open agent has no sign-in (and no other account).
       const accounts = await Promise.all(
         ids.map(async (id) => {
@@ -371,6 +385,15 @@ export class ProviderService {
       const [label, description] = t().login[key]!;
       return { id, label, description };
     });
+  }
+
+  /**
+   * Refuses (409) when the CLI is older than Harness Relay supports (`tooOld()`): a sign-in or sign-out
+   * it does not know would be taken for a prompt.
+   */
+  async assertNewEnough(p: Provider, account = ''): Promise<void> {
+    const old = await tooOld(p, this.settings.bin(p), versionEnv(p, this.settings.env(p, account)));
+    if (old) throw new HttpError(409, tooOldText(p, old));
   }
 
   /** Signs an account in (empty `account`: the default one), with the CLI's own flow, in its home. */
@@ -450,6 +473,7 @@ export class ProviderService {
       this.invalidate(p);
       return '';
     }
+    await this.assertNewEnough(p);
     const bin = this.settings.bin(p);
     if (p === 'copilot') {
       try {
@@ -469,6 +493,7 @@ export class ProviderService {
 
   /** Codex stores API keys itself; the key is piped to `codex login --with-api-key` (in the account's home) and not kept here. */
   async codexApiKeyLogin(key: string, account = ''): Promise<string> {
+    await this.assertNewEnough('codex', account);
     const r = await capture(this.settings.bin('codex'), ['login', '--with-api-key'], this.settings.env('codex', account), {
       stdin: key.trim() + '\n',
       timeoutMs: 30_000,

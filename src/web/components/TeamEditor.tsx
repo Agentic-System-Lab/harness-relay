@@ -315,13 +315,15 @@ export function TeamEditor({
 
                   {state !== 'ok' && status && (
                     <p className="warn-line">
-                      {!status.installed
-                        ? t.team.cliMissing(PROVIDER_LABEL[a.provider])
-                        : isOpenProvider(a.provider)
-                          ? t.team.noBackend(PROVIDER_LABEL[a.provider])
-                          : multi && account
-                            ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
-                            : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
+                      {status.tooOld
+                        ? t.team.cliTooOld(PROVIDER_LABEL[a.provider], status.tooOld)
+                        : !status.installed
+                          ? t.team.cliMissing(PROVIDER_LABEL[a.provider])
+                          : isOpenProvider(a.provider)
+                            ? t.team.noBackend(PROVIDER_LABEL[a.provider])
+                            : multi && account
+                              ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
+                              : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
                       <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
                   )}
