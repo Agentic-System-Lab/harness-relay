@@ -263,7 +263,7 @@ describe('deleting a file or a folder', () => {
     expect(refusal(() => deletePath(project, 'notes')).status).toBe(404);
   });
 
-  it.skipIf(process.platform === 'win32')('removes a link as a link, never what it leads to, also in a folder it deletes', () => {
+  it('removes a link as a link, never what it leads to, also in a folder it deletes', () => {
     const outside = join(root, `outside-del-${n}`);
     mkdirSync(join(outside, 'kept'), { recursive: true });
     writeFileSync(join(outside, 'kept', 'file.txt'), 'kept');
@@ -303,6 +303,11 @@ describe('deleting a file or a folder', () => {
       expect(refusal(() => deletePath(project, path)).status, path).toBe(404);
     }
     expect(refusal(() => deletePath(project, 42)).status).toBe(400);
+    // On Windows `.git` is also reached by its short name, where the volume makes them.
+    if (process.platform === 'win32' && existsSync(join(project, 'GIT~1'))) {
+      expect(refusal(() => deletePath(project, 'GIT~1')).status).toBe(404);
+      expect(refusal(() => deletePath(project, 'git~1/config')).status).toBe(404);
+    }
     expect(existsSync(join(project, '.git', 'config'))).toBe(true);
     expect(existsSync(outside)).toBe(true);
     const locked = join(project, 'secrets.key');

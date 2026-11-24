@@ -7,6 +7,7 @@ import {
   fsyncSync,
   lstatSync,
   openSync,
+  readdirSync,
   readSync,
   realpathSync,
   renameSync,
@@ -322,6 +323,26 @@ export function uploadFile(root: string, dir: unknown, name: unknown, data: unkn
 }
 
 /**
+ * The name `name` (whose `lstat` is `st`) is listed under in `folder`: itself, but on Windows, where a
+ * name is also found in another letter case or by its short name (`GIT~1`), the one the folder lists
+ * for that file or folder (undefined when none is).
+ */
+function listedName(folder: string, name: string, st: BigIntStats): string | undefined {
+  if (process.platform !== 'win32') return name;
+  const names = readdirSync(folder);
+  const same = names.find((n) => n.toLowerCase() === name.toLowerCase());
+  if (same !== undefined) return same;
+  const key = fileKey(st);
+  return names.find((n) => {
+    try {
+      return fileKey(lstatSync(join(folder, n), { bigint: true })) === key;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
  * Deletes the file or folder `rel` names in `root`, never the root itself: the name itself, reached
  * through no link (a link is removed as a link, never what it leads to), not `.git` nor anything in it
  * (404, as browsing has it), not a file the server withholds (404), nothing Harness Relay protects nor a
@@ -341,7 +362,12 @@ export function deletePath(root: string, rel: unknown): FileDeleted {
   } catch {
     throw notFound();
   }
-  if (withheldFileKeys().has(fileKey(st)) || hiddenNatively(realRoot, full)) throw notFound();
+  // On Windows a short name (`GIT~1`) names `.git` too: the name it is listed under says. A link's own
+  // place is checked, never where it leads (`hiddenNatively()` would follow it).
+  const listed = listedName(folder.path, name, st);
+  if (!listed || isGit(listed) || withheldFileKeys().has(fileKey(st)) || (!st.isSymbolicLink() && hiddenNatively(realRoot, full))) {
+    throw notFound();
+  }
   const kind = st.isDirectory() ? 'dir' : 'file';
   // The place itself (a link's own, not where it leads) inside a protected one, or one inside it.
   const guarded = protectedTargets();
