@@ -229,7 +229,7 @@ describe('fixed command cards', () => {
     writeFileSync(join(project, 'post.py'), 'print("v1")\n');
     fake.reply = (name) =>
       name === 'Alice' && calls.filter((c) => c.name === 'Alice').length === 1
-        ? 'Save this.\n\n<command name="post" hosts="graph.threads.net" secrets="TOKEN">python3 post.py</command>'
+        ? 'Save this.\n\n<secret name="TOKEN">For posting.</secret>\n<command name="post" hosts="graph.threads.net" secrets="TOKEN">python3 post.py</command>'
         : 'OK.';
     await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
@@ -995,6 +995,195 @@ describe('fixed command cards', () => {
     const result = await orchestrator.answerOutbox(conv.id, item.id, 'send');
     expect(result.status).not.toBe('sent');
     expect(ran).toHaveLength(0);
+  });
+});
+
+describe('cards a reply leaves out', () => {
+  const SCRIPT = 'import os\nfor line in open(os.environ["RELAY_SECRETS_FILE"]):\n    pass\n';
+  const REPAIR = 'Harness Relay checked your reply';
+  /** Alice writes download.py, which reads its secrets as a fixed command's script does, in each of her turns. */
+  const writesScript = () => {
+    fake.during = (name, cwd) => {
+      if (name === 'Alice') writeFileSync(join(cwd, 'download.py'), SCRIPT);
+    };
+  };
+  const asksInWords = 'I wrote download.py: give the token and try the command.\n\n[ASK_USER]';
+  const blocks =
+    '<secret name="KAGGLE_API_TOKEN" label="Kaggle token" url="https://www.kaggle.com/settings">To download the data.</secret>\n' +
+    '<command name="download" hosts="www.kaggle.com" secrets="KAGGLE_API_TOKEN">python3 download.py</command>';
+  const alice = () => calls.filter((c) => c.name === 'Alice');
+  const notices = (m: { parts: MessagePart[] }) =>
+    m.parts.filter((p): p is Extract<MessagePart, { type: 'notice' }> => p.type === 'notice');
+
+  it('asks the agent once more, in the same reply, for the cards of a script it wrote that reads its secrets with no command', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.runUsage = { costUsd: 0.1, inputTokens: 10, outputTokens: 2 };
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? blocks : asksInWords) : undefined);
+    await withLang('en', () => orchestrator.send(conv.id, 'Do the Titanic competition'));
+    await finish(conv.id);
+
+    // The same session, asked with the repair prompt alone; Bob waits for the user with the team.
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Alice']);
+    const repair = alice()[1]!;
+    expect(repair.sessionId).toBe('session-Alice');
+    expect(repair.prompt.startsWith(REPAIR)).toBe(true);
+    expect(repair.prompt).toContain('- download.py, which you wrote in this turn, reads $RELAY_SECRETS_FILE, but no fixed command runs it');
+    expect(repair.prompt).not.toContain('Do the Titanic competition');
+
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(agentMessages(store.get(conv.id)!)).toHaveLength(1);
+    expect(textOf(msg)).toBe('I wrote download.py: give the token and try the command.');
+    expect(msg.asked).toBe(true);
+    expect(notices(msg).map((n) => n.text)).toEqual(['This reply left out a card it needs, so Harness Relay asked @Alice for it.']);
+    expect(partOf(conv.id, 'secrets').part.asks).toMatchObject([
+      { name: 'KAGGLE_API_TOKEN', label: 'Kaggle token', url: 'https://www.kaggle.com/settings', status: 'waiting' },
+    ]);
+    expect(partOf(conv.id, 'command').part.proposal).toMatchObject({
+      name: 'download',
+      run: 'python3 download.py',
+      secrets: ['KAGGLE_API_TOKEN'],
+    });
+    // What both runs spent, as the reply's.
+    expect(msg.meta).toMatchObject({ costUsd: 0.2, inputTokens: 20, outputTokens: 4 });
+    expect(msg.changes?.[0]?.files.map((f) => f.path)).toContain('download.py');
+
+    // Asked once only: her next turn, with the cards still waiting, is not asked again.
+    await orchestrator.send(conv.id, 'Where do I put the token?');
+    await finish(conv.id);
+    expect(alice().map((c) => c.prompt.startsWith(REPAIR))).toEqual([false, true, false]);
+  });
+
+  it('leaves the reply as it was when the agent says no card was missing', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? '[PASS]' : asksInWords) : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice()).toHaveLength(2);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(textOf(msg)).toBe('I wrote download.py: give the token and try the command.');
+    expect(msg.passed).toBe(false);
+    expect(msg.asked).toBe(true);
+    expect(msg.parts.map((p) => p.type)).not.toContain('notice');
+    expect(msg.parts.map((p) => p.type)).not.toContain('secrets');
+  });
+
+  it('says so, to the user and once to the agent, when the agent still gives no command for the script', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? 'Sorry, nothing to add.' : asksInWords) : undefined);
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(textOf(msg)).toContain('Sorry, nothing to add.');
+    const told = notices(msg);
+    expect(told.map((n) => n.text)).toEqual([
+      'This reply left out a card it needs, so Harness Relay asked @Alice for it.',
+      '@Alice wrote download.py to read the secrets Harness Relay keeps, but proposed no fixed command that runs it, so there is no card to save and try it with. Ask @Alice to propose that command.',
+    ]);
+    expect(told[1]!.forAgent).toContain("Your last reply's download.py reads $RELAY_SECRETS_FILE, but no fixed command runs it");
+
+    await orchestrator.send(conv.id, 'and?');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'and then?');
+    await finish(conv.id);
+    expect(
+      alice().map((c) => c.prompt.includes("Note from Harness Relay: Your last reply's download.py reads $RELAY_SECRETS_FILE")),
+    ).toEqual([false, false, true, false]);
+  });
+
+  it('asks for a secret a proposed command names itself when the agent does not, and the reply waits for it', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print(1)\n');
+    fake.reply = (name, prompt) =>
+      name === 'Alice'
+        ? prompt.includes(REPAIR)
+          ? '[PASS]'
+          : 'Save this.\n\n<command name="post" secrets="TOKEN,KEPT">python3 post.py</command>'
+        : undefined;
+    settings.handoffs.setSecrets(orchestrator.handoffFolder(conv), { KEPT: 'kept-value' });
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const repair = alice()[1]!;
+    expect(repair.prompt).toContain(
+      '- The fixed command "post" you proposed names the secret TOKEN, which is not kept and which no card asks for.',
+    );
+    expect(repair.prompt).not.toContain('KEPT');
+    const { msg, part } = partOf(conv.id, 'secrets');
+    expect(part.asks).toEqual([{ name: 'TOKEN', reason: 'The fixed command "post" needs it.', status: 'waiting' }]);
+    expect(msg.asked).toBe(true);
+    // The pass token excused no secret: the note that it was asked stays.
+    expect(notices(msg)).toHaveLength(1);
+  });
+
+  it('asks nothing more of a reply that left nothing out', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    // The script, its command and the secret it names, in one reply; a README telling of the file it reads.
+    fake.during = (name, cwd) => {
+      if (name !== 'Alice') return;
+      writeFileSync(join(cwd, 'download.py'), SCRIPT);
+      writeFileSync(join(cwd, 'README.md'), 'download.py reads $RELAY_SECRETS_FILE.\n');
+    };
+    fake.reply = (name) => (name === 'Alice' ? `Here.\n\n${blocks}` : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice()).toHaveLength(1);
+    expect(notices(agentMessages(store.get(conv.id)!).at(-1)!)).toEqual([]);
+
+    // Its command proposed earlier, waiting on its card, runs the script the next turn changes.
+    fake.during = (name, cwd) => {
+      if (name === 'Alice') writeFileSync(join(cwd, 'download.py'), `${SCRIPT}print("v2", os.environ["RELAY_SECRETS_FILE"])\n`);
+    };
+    fake.reply = (name) => (name === 'Alice' ? 'Changed it.' : undefined);
+    await orchestrator.send(conv.id, 'print more');
+    await finish(conv.id);
+    expect(alice()).toHaveLength(2);
+    expect(alice().every((c) => !c.prompt.startsWith(REPAIR))).toBe(true);
+  });
+
+  it("asks nothing more in an automation's run, nobody watching it: the note and the secret's card come at once", async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    conv.schedule = {
+      text: 'Fetch it.',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+    };
+    store.saveSchedule(conv);
+    fake.reply = (name) => (name === 'Alice' ? 'Wrote it.\n\n<command name="other" secrets="TOKEN">python3 other.py</command>' : undefined);
+    expect((await withLang('en', () => orchestrator.sendScheduled(conv.id))).result).toBe('sent');
+    await finish(conv.id);
+    expect(alice()).toHaveLength(1);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(notices(msg).map((n) => n.text)).toEqual([expect.stringContaining('@Alice wrote download.py to read the secrets')]);
+    expect(partOf(conv.id, 'secrets').part.asks).toMatchObject([{ name: 'TOKEN', status: 'waiting' }]);
+  });
+
+  it('keeps the reply as it was, with what is still missing, when the user stops the run that asks for the cards', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.inTurn = async (name, o) => {
+      if (name === 'Alice' && o.prompt.startsWith(REPAIR)) orchestrator.stop(conv.id);
+    };
+    fake.reply = (name) => (name === 'Alice' ? asksInWords : undefined);
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    expect(alice()).toHaveLength(2);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(msg.status).toBe('done');
+    expect(textOf(msg)).toBe('I wrote download.py: give the token and try the command.');
+    expect(notices(msg).map((n) => n.text)).toEqual([
+      'This reply left out a card it needs, so Harness Relay asked @Alice for it.',
+      expect.stringContaining('@Alice wrote download.py to read the secrets'),
+    ]);
   });
 });
 

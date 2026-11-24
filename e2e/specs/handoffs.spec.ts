@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { FolderHandoffs } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, replies, send, settled } from '../support/app';
-import { chatWith, cli, relaySandbox } from '../support/clis';
+import { CLIS, chatWith, cli, eachCli, relaySandbox } from '../support/clis';
 
 /*
  * Secrets and fixed commands (docs/architecture.md, "Secrets and fixed commands"): a reply's <secret>
@@ -15,7 +15,9 @@ import { chatWith, cli, relaySandbox } from '../support/clis';
  * Send runs with its input. Settings → Secrets and commands lists the names and removes them. Once its
  * code changes, a run waits for the user's approval (on its card, or on the run waiting in the outbox),
  * which runs nothing; a command whose runs publish something (`e2e:publishes`) asks before a try; and a
- * schedule an agent proposes may run a saved command alone (`e2e:propose=command`).
+ * schedule an agent proposes may run a saved command alone (`e2e:propose=command`). A reply that wrote a
+ * script reading $RELAY_SECRETS_FILE but told of its card in words only (`e2e:secretscript`) gets its
+ * cards in the same reply, Harness Relay asking its agent once more.
  */
 
 const VALUE = 'tok-e2e-9f8e7d6c';
@@ -67,6 +69,32 @@ test.describe('secrets and fixed commands', () => {
     page.once('dialog', (d) => void d.accept());
     await settingsCard.getByRole('button', { name: 'Remove' }).click();
     await expect(settingsCard).toContainText('No working directory keeps secrets or fixed commands yet.');
+  });
+
+  // Every CLI, as the check and the run that asks happen around any CLI's turn: in full access, where no
+  // CLI's own sandbox or rules stand between its write and the folder.
+  eachCli(CLIS, (c) => {
+    test(`${c.provider}: a reply that wrote a script for a fixed command but left out its cards gets them in the same reply`, async ({
+      page,
+      relay,
+    }) => {
+      const id = await chatWith(page, relay, c, { permission: 'full' });
+      await send(page, 'Fetch the data e2e:secretscript');
+      const reply = await finishedReply(page, c.name);
+      const conv = await settled(relay, id);
+      // The reply told of a card in words only: Harness Relay asked its agent for the blocks, in the same reply.
+      await expect(reply.locator('.markdown')).toContainText('I wrote fetch.sh: give the token on its card');
+      await expect(reply.locator('.msg-notice')).toHaveText([
+        `This reply left out a card it needs, so Harness Relay asked @${c.name} for it.`,
+      ]);
+      await expect(reply.getByRole('region', { name: `Secrets @${c.name} asks for` })).toContainText('E2E_TOKEN');
+      const command = reply.getByRole('region', { name: `A fixed command @${c.name} proposes` });
+      await expect(command).toContainText('Fixed command "e2e-fetch"');
+      await expect(command).toContainText('sh fetch.sh');
+      await expect(reply.locator('.markdown')).not.toContainText('<command');
+      expect(conv.messages.filter((m) => m.author.kind === 'agent')).toHaveLength(1);
+      expect(conv.messages.at(-1)?.asked).toBe(true);
+    });
   });
 
   test('a proposed fixed command is saved, tried with its input and its secret masked, shared, and run once from the outbox', async ({

@@ -593,8 +593,9 @@ describe('branching a conversation', () => {
     await orchestrator.send(conv.id, 'question');
     await vi.waitFor(() => expect(agentMessages(conv)[1]?.changes).toBeTruthy(), { timeout: 10_000, interval: 5 });
     release();
-    // Alice's reply is done, but her turn has not recorded her changes yet.
-    while (agentMessages(conv)[0]!.status !== 'done') await new Promise((r) => setImmediate(r));
+    // Alice's CLI has answered, but her turn has not recorded her changes yet (it does before her reply is
+    // done, which the check for the cards a reply left out reads; and again once a run that asked for them ends).
+    while (!textOf(agentMessages(conv)[0]!).includes('Alice done')) await new Promise((r) => setImmediate(r));
     expect(agentMessages(conv)[0]!.changes).toBeUndefined();
     await expect(orchestrator.branch(conv.id, agentMessages(conv)[1]!.id)).rejects.toMatchObject({ status: 409 });
     await finish(conv.id);

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、657 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、669 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -59,7 +59,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [密鑰與固定指令](#密鑰與固定指令) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 4 | [使用者說明 → 密鑰與固定指令](../docs/user-guide.zh-TW.md#密鑰與固定指令)、[架構 → 密鑰與固定指令](../docs/architecture.zh-TW.md#密鑰與固定指令) |
+| [密鑰與固定指令](#密鑰與固定指令) | [`handoffs.spec.ts`](specs/handoffs.spec.ts) | 16 | [使用者說明 → 密鑰與固定指令](../docs/user-guide.zh-TW.md#密鑰與固定指令)、[架構 → 密鑰與固定指令](../docs/architecture.zh-TW.md#密鑰與固定指令) |
 | [長期記憶](#長期記憶) | [`memory.spec.ts`](specs/memory.spec.ts) | 4 | [使用指南 → 長期記憶](../docs/user-guide.zh-TW.md#長期記憶)、[架構 → 長期記憶](../docs/architecture.zh-TW.md#長期記憶) |
 | [草稿中可用的 App](#草稿中可用的-app) | [`draft-apps.spec.ts`](specs/draft-apps.spec.ts) | 8 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
@@ -437,7 +437,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 密鑰與固定指令
 
-[`handoffs.spec.ts`](specs/handoffs.spec.ts)：只有使用者能交給 agent 的東西，以及 Harness Relay 帶著它執行的腳本。Claude Code 的 fake 在回覆最後加上 `<secret>` 區塊（`e2e:secret`）、提議 `e2e-check` 的 `<command>` 區塊，它會印出自己的密鑰檔和讀到的輸入（`e2e:command`），或是帶一行輸入、執行它一次的 `<command-run>` 區塊（`e2e:commandrun`）；`e2e:publishes` 把指令標成執行時會發布東西，`e2e:propose=command` 在回覆最後加上每小時只執行 `e2e-check` 的 `<schedule>` 區塊。
+[`handoffs.spec.ts`](specs/handoffs.spec.ts)：只有使用者能交給 agent 的東西，以及 Harness Relay 帶著它執行的腳本。Claude Code 的 fake 在回覆最後加上 `<secret>` 區塊（`e2e:secret`）、提議 `e2e-check` 的 `<command>` 區塊，它會印出自己的密鑰檔和讀到的輸入（`e2e:command`），或是帶一行輸入、執行它一次的 `<command-run>` 區塊（`e2e:commandrun`）；`e2e:publishes` 把指令標成執行時會發布東西，`e2e:propose=command` 在回覆最後加上每小時只執行 `e2e-check` 的 `<schedule>` 區塊。`e2e:secretscript` 讓 fake 寫出讀取 `$RELAY_SECRETS_FILE` 的 `fetch.sh`，回覆裡只用文字提到它的卡片、不寫區塊；同一則回覆被再問一次時（`handoffRepairPrompt()`），每個 fake 都回一個 `<secret>` 區塊，以及為每個被點名的腳本各回一個執行它的 `<command>` 區塊。
 
 | 情境 | CLI | 檢查什麼 |
 | --- | --- | --- |
@@ -445,6 +445,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 提議的固定指令儲存、帶著輸入試跑且密鑰已遮蔽、分享結果，並從待送出匣執行一次 | Claude Code | 提供密鑰後，**Fixed command "e2e-check"** 卡片顯示 **No network**；按 **Show the code it runs** 一個檔案一列地列出程式碼（資料夾的 `helper.py` 以目前的內容、預設打開）；程式碼打開時 `helper.py` 改了，**Save** 被拒絕（*Its code changed after it was read*），內容換成現在的樣子；再按 **Hide the code**，然後在程式碼收起時按 **Save**（鎖定當時的程式碼；卡片接著提供 **Tell the team it is saved**），**Input for this run** 一開始是 agent 建議的內容（`hello from the agent`），改打一行後再按 **Try it**：在 Harness Relay 自己的沙箱裡執行，結束時是 **Done**，輸出顯示 `E2E_TOKEN=••••` 而不是值，也顯示它從標準輸入讀到的那一行；卡片這時只提供 **Send the result to the team**，按下就把那段輸出送出；之後回覆裡的待送出匣卡片 **Run the fixed command "e2e-check" once** 顯示它的輸入，按 **Send** 就執行（*done (exit code 0)*），聊天裡的說明是 *Ran the fixed command "e2e-check" once: done (exit code 0).*，附上輸出，密鑰已遮蔽；`helper.py` 再改一次，裡面有一行 `### other.py (as it is now)`，**Try it** 顯示 *Its code changed*，**Show the changes** 一個檔案一列地列出 `helper.py`，那一行在它裡面（沒有 `other.py` 這一列），按 **Approve the changes** 不會執行（卡片不再顯示 *Its code changed*），再按 **Try it** 結束時是 **Done**；`helper.py` 又改一次，再把一次執行放進待送出匣（*Post again*）：它的卡片說程式碼在儲存或核准之後改過了，並列出 `helper.py`，按 **Send** 被拒絕（*look at the changes on this card and approve them*），項目仍是 **Waiting for you**，**Show the changes** 顯示新的那一行，**Approve the changes** 之後警告消失，再按 **Send** 就執行（*done (exit code 0)*）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
 | 執行時會發布東西的指令試跑前先確認，和它一起提議的自動任務在它儲存後只執行它、不必按送出 | Claude Code | 同一則回覆提議指令（`e2e:command e2e:publishes`）和只執行它的 **Proposed automation**（`e2e:propose=command`）：自動任務卡片指名 `e2e-check`，*runs alone each time, never the team*，並說它還沒儲存；指令卡片說它會發布、貼文或寄出東西，按 **Save** 後自動任務卡片會再讀一次指令（不再顯示還沒儲存），並提醒建立後到時間就會直接執行、不再詢問，而且會發布；按 **Try it** 會先詢問（*Trying it really publishes, posts or sends*），**Cancel** 不執行，**Yes, try it once** 才執行（**Done**）；按 **Create automation** 後顯示 **Automation created**，對話的排程保存指令的 id 和 `commandOnly`；之後資料夾裡多了一個腳本，**Run now** 不會執行它，聊天的說明會這樣寫，並列出檔案、**Show the changes** 和 **Approve the changes**，核准後顯示 *Approved: it runs at its next time*。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
 | 執行中的指令顯示何時會停止和目前為止的輸出（收起來，點開才展開），卡片上的 Stop 能結束它，以 0 結束的執行被擋下的主機會寫出來 | Claude Code | 指令儲存後，在 **Added for this run** 填 `&& sleep 120`，讓它印完之後繼續執行；按 **Try it**：卡片的結果顯示 **Running** 和 *If it is still running at …*，**Try it** 不見了，收起來的 **Output so far (N lines, secrets masked)** 點開前什麼都不顯示，點開後是 `E2E_TOKEN=••••` 和它讀到的那一行，從不顯示值；這段期間聊天也提供自己的 **Stop**，而且什麼都不送（placeholder 寫著 *Send once the fixed command ends, or Stop it*，**Send** 停用，按 Enter 草稿還在，這時輸入框下面那一行會說明原因，沒有錯誤），卡片也不提供 **Tell the team it is saved**；卡片上的 **Stop** 結束它（**Stopped**，不是 *Could not run*，保留輸出，不再有收起來的輸出），**Try it** 回來了，聊天的 **Stop** 也不見了，草稿還在，可以送出；再試跑一次，聊天的 **Stop** 一出現就按（可能在沙箱啟動指令之前），結果一樣是 **Stopped**，不會是沙箱的失敗；再用 `; curl … https://refused.example.com/ ; true` 試跑一次，結果是 **Done**（結束碼 0），卡片寫著 *The sandbox refused the hosts it tried to reach: refused.example.com*（沙箱的 proxy 擋下它：沒有任何東西離開這台電腦）。Harness Relay 自己的沙箱不能執行的地方（Windows）會略過。 |
+| 寫了固定指令用的腳本、回覆卻漏掉卡片時，同一則回覆會補上卡片 | 每個（完整權限） | `e2e:secretscript`：回覆保留原本的文字（*I wrote fetch.sh: give the token on its card…*），並多一則提示 *This reply left out a card it needs, so Harness Relay asked @… for it.*，以及同一個 session 補問那次執行給的 **Secrets @… asks for** 卡片（列出 `E2E_TOKEN`）和執行 `sh fetch.sh` 的 **Fixed command "e2e-fetch"** 卡片；看不到 `<command` 標籤，對話只有一則回覆，並等待使用者。 |
 
 ## 長期記憶
 
@@ -909,6 +910,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
 | 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 固定指令用的腳本、回覆卻漏掉卡片：再問 agent 一次，卡片出現在同一則回覆 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在卡片上提供密鑰，以及儲存固定指令、在 Harness Relay 自己的沙箱裡試跑、在執行中停止它，並從待送出匣執行 | ✓ | — | — | — | — | — | — |
 | 從卡片和待送出匣核准改過的指令；會發布的指令試跑前先確認；只執行指令的提議自動任務 | ✓ | — | — | — | — | — | — |
 | 回覆中給使用者的步驟：卡片被勾選並回覆，之後它先繼續 | ✓ | — | ✓（在它之後繼續） | — | — | — | — |
@@ -952,6 +954,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 透過 gateway 使用 Harness Relay 自己的工具，經由本機 HTTP：郵件在待送出匣等待 | ✓（macOS 上也在完全存取以下） | — | — | — | — |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在回覆中記下長期記憶、顯示成卡片，並提供給之後的對話 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 固定指令用的腳本、回覆卻漏掉卡片：再問 agent 一次，卡片出現在同一則回覆（完整權限） | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 附加的圖片 | ✓ | ✓ | —（只有路徑） | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | —（還不能） | —（只有離線測試） | —（還不能） | —（還不能） | —（只有離線測試） |
@@ -998,7 +1001,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（它以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
-- **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令、從待送出匣送出一次執行、從卡片和待送出匣核准改過的程式碼、確認會發布的指令的試跑、在卡片上停止執行中的指令（目前為止的輸出收起來），以及建立只執行指令的提議自動任務（自動任務到時間執行指令的部分，連同它的說明與核准，在離線測試裡）：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值、執行中回報的內容、以 0 結束的執行被擋下的主機（以及卡片上的警告），以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。
+- **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令、從待送出匣送出一次執行、從卡片和待送出匣核准改過的程式碼、確認會發布的指令的試跑、在卡片上停止執行中的指令（目前為止的輸出收起來），以及建立只執行指令的提議自動任務（自動任務到時間執行指令的部分，連同它的說明與核准，在離線測試裡）：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。只有回覆漏掉、再問 agent 一次補上的卡片，是用每個 CLI 在完整權限下測；補問後仍缺的部分（Harness Relay 自己的密鑰卡片、沒有指令的腳本的提示，以及只告訴 agent 一次）、pass 記號、補問那次執行被停止，以及不補問的自動化執行，由離線測試涵蓋（`test/orchestrator-handoffs.test.ts`），哪些檔案算這種腳本也是（`test/handoff-gaps.test.ts`）。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值、執行中回報的內容、以 0 結束的執行被擋下的主機（以及卡片上的警告），以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。
 - **步驟卡片的大部分。**端對端測試只用 Claude Code 的假 CLI 給步驟：區塊是伺服器讀取的純文字，所以每個 CLI 的回覆都以同樣的方式讀取。離線測試涵蓋：區塊的各種寫法與留作文字的情況（`test/steps.test.ts`）、平行與接力模式、只有步驟的回覆、旁邊的提問標記、重新啟動後的勾選與送不出去的回答（`test/orchestrator-steps.test.ts`）、路由拒絕的請求（`test/steps-api.test.ts`），以及分享頁面、複製與對話紀錄中的步驟（`test/steps-web.test.ts`）與 AgentsView 中的步驟（`test/agentsview.test.ts`）。
 - **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。
