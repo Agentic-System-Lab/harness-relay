@@ -16,7 +16,8 @@ interface Props {
   commandRunning?: boolean;
   /**
    * Something holds the chat's folder while no run goes (a fixed or interactive command, Files deleting):
-   * nothing is sent (Send, Enter and Continue), which the placeholder says; what is typed stays for later.
+   * nothing is sent (Send, Enter and Continue), which the placeholder and the line under the box say (the
+   * placeholder is the reason given); what is typed stays for later.
    */
   held?: boolean;
   canContinue: boolean;
@@ -287,7 +288,8 @@ export function Composer({
           </div>
         </div>
       </div>
-      <p className="composer-hint muted small">{hint}</p>
+      {/* Held: why nothing can be sent stays in sight once something is typed (the placeholder is gone then), also on a phone. */}
+      <p className={`composer-hint muted small${held ? ' held' : ''}`}>{held ? placeholder : hint}</p>
     </div>
   );
 }

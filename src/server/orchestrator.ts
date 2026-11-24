@@ -1104,8 +1104,8 @@ export class Orchestrator {
   /**
    * How many conversations have agents at work: a run (replying, designing a team, waiting for an
    * approval) or one being set up, the lead agent changing a team or sorting the conversation into a
-   * group, a branch being made, or a change being made to the conversation (`reserved`: a parallel
-   * reply applied to the working directory, a settings change). A team waiting for the user's answer
+   * group, a branch being made, a change being made to the conversation (`reserved`: a parallel
+   * reply applied to the working directory, a settings change), or a fixed command's run. A team waiting for the user's answer
    * or for its team to be confirmed has none. The desktop app waits until there are none before it
    * switches to a new version.
    */
@@ -1121,6 +1121,8 @@ export class Orchestrator {
       ...this.drafts.keys(),
       // The lead agent tidying the long-term memory, which no conversation owns.
       ...(this.memory.tidying ? ['memory'] : []),
+      // A fixed command's run (Try it, the outbox, a schedule): an update would stop it halfway, a post half sent.
+      ...[...this.commandRuns.entries()].map(([id, r]) => r.convId ?? `command:${id}`),
     ]).size;
   }
 
@@ -1172,7 +1174,7 @@ export class Orchestrator {
     if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
     // No team replies then: say what holds it (the composer sends nothing meanwhile, `folderHeld()`).
-    if (this.folderHeld(convId)) throw new HttpError(409, this.heldMessage(convId));
+    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, this.heldMessage(convId));
     if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
   }
 
@@ -3893,9 +3895,14 @@ export class Orchestrator {
   }
 
   stop(convId: string): void {
-    this.runs.get(convId)?.abort.abort();
-    this.checking.get(convId)?.abort();
-    // A fixed command's run its cards follow (`commandRunning()`): the chat's Stop is there even where
+    // The team's run first: a fixed command run meanwhile (an outbox Send, a Try it) is left to its own card,
+    // where Stop stops it; a command that publishes is not stopped halfway by a Stop meant for the team.
+    if (this.isRunning(convId)) {
+      this.runs.get(convId)?.abort.abort();
+      this.checking.get(convId)?.abort();
+      return;
+    }
+    // Else a fixed command's run its cards follow (`commandRunning()`): the chat's Stop is there even where
     // the chat has no card of it (a run of a command saved from another chat of the folder, or removed since).
     for (const r of this.commandRuns.values()) if (r.convId === convId) r.abort.abort();
   }
@@ -3907,12 +3914,13 @@ export class Orchestrator {
   }
 
   /**
-   * Whether something holds this conversation's folder while no run goes (a fixed or interactive command,
-   * the Files panel deleting): a message, Continue or a card's answer is refused (`heldMessage()`), so the
-   * composer sends nothing until it ends.
+   * Whether a message sent now is refused because something holds this conversation's folder (a fixed or
+   * interactive command, the Files panel deleting), not queued (`queues()`: a run going or being set up,
+   * team checks, a team waiting for confirmation): the composer sends nothing until it ends.
    */
   folderHeld(convId: string): boolean {
-    return this.folderHolds.has(convId) && !this.runs.has(convId);
+    const conv = this.store.get(convId);
+    return this.folderHolds.has(convId) && !(conv && this.queues(conv));
   }
 
   /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */

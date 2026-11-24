@@ -224,7 +224,7 @@ const zhTW = {
     namedInTemp: (path: string) => `指令提到的 ${path} 在暫存資料夾裡，agent 可以在那裡寫入，所以無法鎖定它：請把它放進工作目錄。`,
     cwdOutside: (cwd: string) => `${cwd} 不在工作目錄裡，或在已安裝套件的資料夾裡，那裡的程式碼不會被鎖定。`,
     folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
-    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束，或停止它（按「停止」，或在它的卡片上），再送出。',
+    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束，或停止它，再送出。',
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
       run
@@ -1664,8 +1664,7 @@ const en: ServerMessages = {
       `${path}, which the command names, is in a temp folder, where agents can write, so it cannot be pinned: put it in the working directory.`,
     cwdOutside: (cwd) => `${cwd} is not in the working directory, or is in a folder of installed packages, whose code is not pinned.`,
     folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
-    folderHeld:
-      "A fixed or interactive command is running in this conversation's folder: send once it ends, or stop it (Stop, or on its card).",
+    folderHeld: "A fixed or interactive command is running in this conversation's folder: send once it ends, or stop it.",
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>
       run

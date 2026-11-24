@@ -422,6 +422,72 @@ describe('what a fixed command run leaves behind', () => {
     }
   });
 
+  it('shows output faster than its buffers hold too: the newest lines, a report after they ended', async () => {
+    const dir = folder();
+    const s = stand(() => ({}));
+    const reports: string[] = [];
+    s.deps.progressMs = 1000;
+    // About 40 KB of lines between two reports, more than a buffer holds.
+    const burst = (k: number) => Buffer.from(Array.from({ length: 2000 }, (_, i) => `burst ${k} line ${i}\n`).join(''));
+    s.deps.runProcess = (async (p: { onStdout?: (chunk: Buffer) => void }) => {
+      for (let k = 1; k <= 4; k++) {
+        p.onStdout!(burst(k));
+        vi.advanceTimersByTime(1000);
+      }
+      return result({ code: 0 });
+    }) as never;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }, { onProgress: (p) => reports.push(p.output) }), s.deps);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Each report shows the burst before it, its end (8,000 characters), never nothing.
+    expect(reports.slice(1)).toHaveLength(3);
+    for (const [i, r] of reports.slice(1).entries()) {
+      expect(r.endsWith(`burst ${i + 1} line 1999`)).toBe(true);
+      expect(r.startsWith('…\n')).toBe(true);
+    }
+  });
+
+  it("masks only its own secrets' values from its file, also in lower case, and every one it wrote back, in its output once it ended", async () => {
+    const dir = folder();
+    const s = stand(() => ({}));
+    const reports: string[] = [];
+    s.deps.progressMs = 1000;
+    const long = 'z'.repeat(17_000);
+    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onStdout?: (chunk: Buffer) => void }) => {
+      const file = p.env.RELAY_SECRETS_FILE!;
+      // A renewed value, read at a report, then replaced: still masked once it ended.
+      writeFileSync(file, 'TOKEN=tok-first-renewed\nOTHER=not-a-secret\n');
+      vi.advanceTimersByTime(1000);
+      writeFileSync(file, `TOKEN=${long}\nOTHER=not-a-secret\n`);
+      p.onStdout!(Buffer.from('first tok-first-renewed\nother not-a-secret\nlower 403 tok-abcdef0123.example.com\n'));
+      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
+      return result({
+        code: 0,
+        stdout: `first tok-first-renewed\nother not-a-secret\nlower 403 tok-abcdef0123.example.com\nlong ${long}\n`,
+      });
+    }) as never;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let run: Awaited<ReturnType<typeof runFixedCommand>>['run'];
+    try {
+      ({ run } = await runFixedCommand(
+        command(dir),
+        'try',
+        input({ TOKEN: 'TOK-ABCDEF0123' }, { onProgress: (p) => reports.push(p.output) }),
+        s.deps,
+      ));
+    } finally {
+      vi.useRealTimers();
+    }
+    // Live: its own secret's values masked, in lower case too; what else the file holds is no secret.
+    expect(reports.at(-1)).toBe('first ••••\nother not-a-secret\nlower 403 ••••.example.com');
+    // Once it ended: also the value it wrote back first, and one too long to keep.
+    expect(run.output).toBe('first ••••\nother not-a-secret\nlower 403 ••••.example.com\nlong ••••');
+  });
+
   it('holds only the end of what it prints, also without line breaks, and masks a value that end cut at its start', async () => {
     const dir = folder();
     const token = `tok-${'x'.repeat(1000)}END1234`;

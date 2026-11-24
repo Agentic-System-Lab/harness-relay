@@ -572,6 +572,43 @@ describe('fixed command cards', () => {
     }
   });
 
+  it("leaves it to its card while the team's run goes, which the chat's Stop stops alone; counts it as work an update waits for; sends nothing only when a message would not queue", async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    const inner = orchestrator as unknown as { runs: Map<string, { abort: AbortController }>; checking: Map<string, AbortController> };
+    try {
+      const idle = orchestrator.busy();
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      // An update waits for it, as for agents at work.
+      expect(orchestrator.busy()).toBe(idle + 1);
+      expect(orchestrator.folderHeld(conv.id)).toBe(true);
+      // Team checks running by themselves: a message would queue, so the composer may send it.
+      inner.checking.set(conv.id, new AbortController());
+      expect(orchestrator.folderHeld(conv.id)).toBe(false);
+      inner.checking.delete(conv.id);
+      // A team's run going (an outbox Send or a Try it during a read-only turn): Stop is meant for it, not the command.
+      const team = { abort: new AbortController() };
+      inner.runs.set(conv.id, team);
+      try {
+        orchestrator.stop(conv.id);
+        expect(team.abort.signal.aborted).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+        expect(h.aborted).toBe(false);
+      } finally {
+        inner.runs.delete(conv.id);
+      }
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(h.aborted).toBe(true));
+      await vi.waitFor(() => expect(orchestrator.busy()).toBe(idle));
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
   it('stops a run of a command removed in Settings', async () => {
     const { conv, msg, part } = await propose();
     const { id } = await saveSeen(conv.id, msg.id, part.id);
@@ -603,6 +640,7 @@ describe('fixed command cards', () => {
         .find((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command')!;
       expect(copy.run).toMatchObject({ status: 'error', stopped: true });
       expect(copy.run?.endsAt).toBeUndefined();
+      expect(copy.run?.reason).toBeUndefined();
       expect(h.aborted).toBe(false);
       expect(partOf(conv.id, 'command').part.run?.status).toBe('running');
       orchestrator.stopCommand(conv.id, id);

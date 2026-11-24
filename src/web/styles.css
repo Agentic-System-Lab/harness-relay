@@ -5998,7 +5998,7 @@ details.sub summary {
     padding: 0 12px max(8px, env(safe-area-inset-bottom));
   }
 
-  .composer-hint {
+  .composer-hint:not(.held) {
     display: none;
   }
 
