@@ -71,6 +71,15 @@ describe('a picked folder', () => {
     expect(app!.files.map((f) => f.path)).toEqual(['package.json', 'src/main.ts', '.env.example']);
     expect(app!.size).toBe(6);
     expect(app!.leftOut).toEqual(['.git', 'node_modules', '.DS_Store']);
+    // Spelled as the disk will name them (spaces of any kind around, dots after, another letter case).
+    const [odd] = foldersOfPicked([
+      picked('odd/.git\u00a0./config'),
+      picked('odd/ .GIT/HEAD'),
+      picked('odd/Node_Modules\ufeff/x.js'),
+      picked('odd/keep.md'),
+    ]);
+    expect(odd!.files.map((f) => f.path)).toEqual(['keep.md']);
+    expect(odd!.leftOut).toEqual(['.git', 'node_modules']);
     expect(LEFT_OUT).toEqual(expect.arrayContaining(['.git', 'node_modules']));
   });
 

@@ -271,6 +271,8 @@ async function newAutomation(
   // New automation, beside New chat.
   await moveClick(page.getByRole('button', { name: T.sidebar.newSchedule, exact: true }), { after: 900 });
   await page.waitForSelector('.new-chat-page .schedule-form');
+  // Its team waits to be confirmed (a fresh browser's first one is taken without asking), set without the cursor.
+  await page.locator('.team-confirmation input[type="radio"]').first().check();
   await sleep(1200);
   await moveClick(page.locator('.schedule-form textarea').first(), { after: 250 });
   await typeSlow(o.message, 22);

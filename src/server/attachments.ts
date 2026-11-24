@@ -40,13 +40,25 @@ export function safeFileName(name: string): string {
 }
 
 /**
- * The name an attached file or folder is kept under (`AttachmentPart.name`): `safeFileName`'s, at most
- * 255 bytes in UTF-8 (`cutName`, its extension kept), and never a Windows device name. `attachmentPath`
- * puts `safeFileName` of it on disk, as it did before: kept names stay where they are.
+ * The name an attached file or folder is kept under (`AttachmentPart.name`): `safeFileName`'s, without
+ * the dots and spaces (any whitespace) a name ends in, at most 255 bytes in UTF-8 (`cutName`, its
+ * extension kept), never a Windows device name, and one `safeFileName` leaves as it is, so that what
+ * `attachmentPath` puts on disk is this very name (`safeFileName` itself stays as it was: names kept
+ * before stay where they are). Each step can only take characters away (or put `_` before a device
+ * name once), so a few rounds settle it.
  */
 function uploadName(name: string): string {
-  const safe = safeFileName(name);
-  return safeFileName(cutName(isWindowsDevice(safe) ? `_${safe}` : safe));
+  const step = (n: string) => {
+    const safe = safeFileName(n).replace(/[\s.]+$/u, '') || 'file';
+    return cutName(isWindowsDevice(safe) ? `_${safe}` : safe);
+  };
+  let current = step(name);
+  for (let round = 0; round < 10; round++) {
+    const next = step(current);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 /**
@@ -56,14 +68,23 @@ function uploadName(name: string): string {
  * leading dot stays (`.gitignore`), unlike an attached file's own name. Made safe again, it stays as it is.
  */
 function safeSegment(name: string): string {
-  const fit = (n: string) => cutName(n).replace(/[. ]+$/, '') || '_';
-  const safe = fit(name.replace(/[\u0000-\u001f\u007f<>:"|?*\\]/g, '_').trim());
+  // Without the whitespace around it (any: `trim()` takes a no-break space too) and the dots and
+  // whitespace it ends in, cut: what is left has none of them to lose, so made safe again it is the same.
+  const fit = (n: string) =>
+    cutName(n.trim())
+      .replace(/[\s.]+$/u, '')
+      .trim() || '_';
+  const safe = fit(name.replace(/[\u0000-\u001f\u007f<>:"|?*\\]/g, '_'));
   // Checked once its trailing dots and spaces are gone (`con .` is `con` on Windows).
   return isWindowsDevice(safe) ? fit(`_${safe}`) : safe;
 }
 
-/** Whether a name is git's own folder, in any letter case and with the dots and spaces Windows drops. */
-const isGitName = (name: string) => name.toLowerCase().replace(/[. ]+$/, '') === '.git';
+/** Whether a name is git's own folder, in any letter case, without the whitespace around it or the dots after it. */
+const isGitName = (name: string) =>
+  name
+    .trim()
+    .replace(/[\s.]+$/u, '')
+    .toLowerCase() === '.git';
 
 /** A path inside an attached folder made safe (`/` between its names, none of them empty), or undefined when it has none. */
 export function folderFilePath(path: string): string | undefined {
@@ -134,7 +155,7 @@ function decodeFolder(name: string, files: unknown, decode: (data: string, name:
     if (typeof f?.path !== 'string' || typeof f.data !== 'string') throw new HttpError(400, t().badAttachment);
     const path = folderFilePath(f.path);
     if (!path) throw new HttpError(400, t().badAttachment);
-    // As the disk will name it: spaces around `.git` are gone by then.
+    // As the disk will name it (made safe again, a path stays as it is).
     if (path.split('/').some(isGitName)) continue;
     out.push({ path, bytes: decode(f.data, `${name}/${path}`) });
   }
@@ -180,6 +201,8 @@ function writeFolder(root: string, folder: string, files: FolderFileData[]): voi
   for (const f of files) {
     const path = folderFilePath(f.path);
     if (!path) throw new HttpError(400, t().badAttachment);
+    // What is written is checked as written: never a file in a `.git` folder.
+    if (path.split('/').some(isGitName)) continue;
     const to = join(root, ...path.split('/'));
     try {
       mkdirSync(dirname(to), { recursive: true, mode: 0o700 });

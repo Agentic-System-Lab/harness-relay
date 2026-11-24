@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { cutName, isWindowsDevice, pathClash } from '../src/shared/fileNames';
 import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE } from '../src/shared/types';
@@ -17,6 +17,7 @@ const {
   folderFilePath,
   imageInputs,
   removeAttachments,
+  safeFileName,
   writeAttachments,
 } = await import('../src/server/attachments');
 const { HttpError } = await import('../src/server/errors');
@@ -88,16 +89,99 @@ describe('attached folders', () => {
     expect(pathClash(['x/y', 'X'])).toBe('X');
   });
 
+  it('makes a path and a name safe once and for all: made safe again, they stay as they are, and none is .git', () => {
+    // Names built from the characters that move: whitespace of every kind, dots, separators, `.git`, device names.
+    const bits = [
+      '.git',
+      '.GIT',
+      'git',
+      '.',
+      '..',
+      ' ',
+      '\u00a0',
+      '\ufeff',
+      '\u3000',
+      '\u2009',
+      ':',
+      '?',
+      'con',
+      'nul',
+      'a',
+      '長',
+      '/',
+      '\\',
+    ];
+    let seed = 7;
+    const pick = () => bits[(seed = (seed * 1103515245 + 12345) % 2147483648) % bits.length]!;
+    const gitOnDisk = (seg: string) =>
+      seg
+        .trim()
+        .replace(/[\s.]+$/u, '')
+        .toLowerCase() === '.git';
+    for (let i = 0; i < 5000; i++) {
+      const raw = Array.from({ length: 1 + (i % 9) }, pick).join('');
+      const path = folderFilePath(raw);
+      if (path !== undefined) expect(folderFilePath(path), JSON.stringify(raw)).toBe(path);
+      let dir: ReturnType<typeof decodeAttachments>[number] | undefined;
+      try {
+        [dir] = decodeAttachments(
+          folder(
+            [
+              { path: raw, data: '' },
+              { path: 'keep.md', data: '' },
+            ],
+            raw || 'x',
+          ),
+        );
+      } catch {
+        dir = undefined; // refused (two paths the disk takes for one): nothing written
+      }
+      if (dir) {
+        // The folder's own name: what is written is this name, never a dot first, never ending in a dot or space.
+        expect(safeFileName(dir.name), JSON.stringify(raw)).toBe(dir.name);
+        expect(dir.name, JSON.stringify(raw)).not.toMatch(/^\.|[\s.]$/u);
+        expect(isWindowsDevice(dir.name)).toBe(false);
+        for (const f of dir.files!) expect(f.path.split('/').some(gitOnDisk), JSON.stringify(raw)).toBe(false);
+      }
+    }
+    // The cases found: a no-break space, a BOM or an ideographic space before a dot.
+    for (const raw of [
+      '.git\u00a0./config',
+      '.git\ufeff./config',
+      '.git\u3000./config',
+      '.GIT\u2009../config',
+      'sub/.git\u00a0./hooks/x',
+    ]) {
+      const [dir] = decodeAttachments(
+        folder([
+          { path: raw, data: b64('x') },
+          { path: 'a.md', data: b64('a') },
+        ]),
+      );
+      expect(
+        dir!.files!.map((f) => f.path),
+        JSON.stringify(raw),
+      ).toEqual(['a.md']);
+    }
+    // A folder named so that its dots and spaces fall away to `.git`.
+    const [named] = decodeAttachments(folder([{ path: 'HEAD', data: b64('ref') }], ' . . .git'));
+    expect(named!.name).toBe('git');
+    const [part] = writeAttachments('conv-dotgit', [named!]);
+    expect(attachmentPath('conv-dotgit', part!).endsWith(`${part!.id}${sep}git`)).toBe(true);
+  });
+
   it('takes a Windows device name only as it ends up on disk, and never a name over 255 bytes for one', () => {
     // `con .` is `con` once its trailing dot and space are gone.
     expect(folderFilePath('con .')).toBe('_con');
     expect(folderFilePath(folderFilePath('con .')!)).toBe('_con');
     expect(folderFilePath('a/NUL. ')).toBe('a/_NUL');
     // Prefixed, a name already 255 bytes long is cut again, its extension kept.
-    const long = `nul.${'長'.repeat(100)}`;
+    // `_` put before it after the cut would have made it 256 bytes.
+    const long = `nul.ab${'長'.repeat(114)}`;
     const [file] = decodeAttachments([{ name: long, data: b64('x') }]);
     expect(Buffer.byteLength(file!.name)).toBeLessThanOrEqual(255);
     expect(file!.name.startsWith('_nul')).toBe(true);
+    expect(decodeAttachments([{ name: 'con .', data: b64('x') }])[0]!.name).toBe('_con');
     const seg = folderFilePath(long)!;
     expect(Buffer.byteLength(seg)).toBeLessThanOrEqual(255);
     expect(folderFilePath(seg)).toBe(seg);
@@ -128,6 +212,26 @@ describe('attached folders', () => {
       // Twenty names of 250 bytes: longer than macOS's (1,024) or Linux's (4,096) longest path.
       const deep = Array.from({ length: 20 }, (_, i) => `${String(i).padStart(2, '0')}${'d'.repeat(248)}`).join('/');
       expect(statusOf(() => checkFolderNames(decodeAttachments(folder([{ path: `${deep}/x.md`, data: b64('x') }]))))).toBe(400);
+      expect(readdirSync(join(root, 'data', 'attachments')).filter((n) => n.startsWith('check-'))).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    "checks an automation's paths as long as a run writes them: under an attachment's id and the folder's own name",
+    () => {
+      // A path that fits beside a short name but not where a run writes it (a conversation's and an
+      // attachment's ids, then a folder name of 200 bytes): the check must refuse it.
+      const max = process.platform === 'darwin' ? 1024 : 4096;
+      const base = Buffer.byteLength(join(root, 'data', 'attachments', 'x'.repeat(36), 'x'.repeat(36))) + 1;
+      const name = 'n'.repeat(200);
+      let rel = '';
+      while (base + 30 + Buffer.byteLength(rel) < max - 60)
+        rel += `${rel ? '/' : ''}${'s'.repeat(Math.min(250, max - 60 - base - 30 - Buffer.byteLength(rel) - 1))}`;
+      // Short enough beside a short folder name, too long under this one.
+      expect(base + 2 + Buffer.byteLength(rel) + 5).toBeLessThan(max);
+      expect(base + 1 + name.length + 1 + Buffer.byteLength(rel) + 5).toBeGreaterThan(max);
+      expect(statusOf(() => checkFolderNames(decodeAttachments(folder([{ path: `${rel}/x.md`, data: '' }], 'a'))))).toBeUndefined();
+      expect(statusOf(() => checkFolderNames(decodeAttachments(folder([{ path: `${rel}/x.md`, data: '' }], name))))).toBe(400);
       expect(readdirSync(join(root, 'data', 'attachments')).filter((n) => n.startsWith('check-'))).toEqual([]);
     },
   );

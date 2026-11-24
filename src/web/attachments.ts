@@ -20,7 +20,7 @@ export const LEFT_OUT = ['.git', '.hg', '.svn', 'node_modules', '.DS_Store', 'Th
 const leftOutAs = (name: string) => {
   const key = name
     .trim()
-    .replace(/[. ]+$/, '')
+    .replace(/[\s.]+$/u, '')
     .toLowerCase();
   return LEFT_OUT.find((n) => n.toLowerCase() === key);
 };
