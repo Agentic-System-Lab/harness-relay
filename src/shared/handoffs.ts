@@ -1,4 +1,12 @@
-import { COMMAND_NAME_RE, HANDOFF_LIMITS, INTERACTIVE_LIMITS, SECRET_NAME_RE, type CommandProposal, type HandoffBlock } from './types';
+import {
+  COMMAND_NAME_RE,
+  HANDOFF_LIMITS,
+  INTERACTIVE_LIMITS,
+  SECRET_NAME_RE,
+  type CommandProposal,
+  type FixedCommandRun,
+  type HandoffBlock,
+} from './types';
 
 /*
  * Steps only the user can take (docs/architecture.md, "Secrets and fixed commands"): blocks an agent
@@ -403,6 +411,14 @@ export function maskEdges(text: string, values: readonly string[], cut = false):
     }
   }
   return best ? `${text.slice(0, at)}••••${text.slice(at + best)}` : text;
+}
+
+/**
+ * The hosts the sandbox refused a fixed command's run that are worth saying beside how it went: all of
+ * them, but for a failure, whose reason names them already (`hostsRefused`).
+ */
+export function refusedHostsToTell(run: Pick<FixedCommandRun, 'status' | 'refusedHosts'>): string[] {
+  return run.status === 'failed' ? [] : (run.refusedHosts ?? []);
 }
 
 /**

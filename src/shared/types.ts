@@ -2771,10 +2771,23 @@ export interface FixedCommandRun {
   status: 'running' | 'passed' | 'news' | 'failed' | 'error' | 'changed';
   exitCode?: number | null;
   durationMs?: number;
+  /** What it printed (its end), secrets masked: while it runs, what it printed so far, a second behind at most. */
   output?: string;
   reason?: string;
   /** `changed`: the pinned files that changed, added or went since it was saved, relative to its folder. */
   changed?: string[];
+  /** `running`: when its time limit stops it (`HANDOFF_LIMITS.timeoutMin`), milliseconds since the epoch. */
+  endsAt?: number;
+  /**
+   * `error`: it was stopped (Stop on its card, its conversation deleted, the server stopping or stopped
+   * during it), not a failure of its own.
+   */
+  stopped?: boolean;
+  /**
+   * The hosts the sandbox refused it, not among its own (at most 20, secrets masked), whatever its exit
+   * code: a client that retries a refused connection, or gives up on it, may still end with 0.
+   */
+  refusedHosts?: string[];
 }
 
 /**
@@ -2823,6 +2836,8 @@ export const HANDOFF_LIMITS = {
   timeoutMin: 10,
   /** Characters of a run's output kept. */
   output: 8000,
+  /** Milliseconds between two updates of a running run's card (its output so far, the hosts refused it). */
+  progressMs: 1000,
   /** Pinned files a command's folder may have. */
   pinnedFiles: 5000,
 } as const;

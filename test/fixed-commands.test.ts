@@ -174,7 +174,7 @@ describe('a fixed command run', () => {
       input({ TOKEN: 'abcdef' }),
       stand(() => ({ code: null, aborted: true })).deps,
     );
-    expect(stopped.run.status).toBe('error');
+    expect(stopped.run).toMatchObject({ status: 'error', stopped: true });
   });
 
   it('gives an outbox run its input on its standard input, and a try its extra words on its command line', async () => {
@@ -282,6 +282,61 @@ describe('what a fixed command run leaves behind', () => {
     const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }), s.deps);
     expect(run.reason).toBeDefined();
     expect(run.reason).not.toContain('tok-0123456789');
+  });
+
+  it('keeps the hosts the sandbox refused a run that ended with 0, masked, and makes Python write its output as it goes', async () => {
+    const dir = folder();
+    const s = stand(() => ({ code: 0, stdout: 'Submitted' }), { refused: ['www.googleapis.com', 'tok-0123456789.example.com'] });
+    const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }), s.deps);
+    expect(run).toMatchObject({ status: 'passed', exitCode: 0, refusedHosts: ['www.googleapis.com', '••••.example.com'] });
+    expect(run.reason).toBeUndefined();
+    expect(s.seen.env!.PYTHONUNBUFFERED).toBe('1');
+    // None refused: no list at all.
+    const none = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }), stand(() => ({ code: 0 })).deps);
+    expect(none.run.refusedHosts).toBeUndefined();
+  });
+
+  it('reports while it runs what it printed so far and the hosts refused it, masked, only when they changed, and not once it ended', async () => {
+    const dir = folder();
+    const refused: string[] = [];
+    const s = stand(() => ({}), { refused });
+    const reports: { endsAt: number; output: string; refusedHosts: string[] }[] = [];
+    // Each change waits until a report showed it: one report a change, however slow the timers.
+    const shown = (what: (r: (typeof reports)[number]) => boolean) => vi.waitFor(() => expect(reports.some(what)).toBe(true));
+    s.deps.progressMs = 5;
+    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onLine?: (line: string) => void }) => {
+      await shown(() => true);
+      p.onLine!('starting with tok-0123456789');
+      await shown((r) => r.output !== '');
+      refused.push('www.googleapis.com');
+      await shown((r) => r.refusedHosts.length > 0);
+      // A value it renews: masked from the report after it wrote it back.
+      writeFileSync(p.env.RELAY_SECRETS_FILE!, 'TOKEN=tok-renewed-999\n');
+      p.onLine!('renewed tok-renewed-999');
+      await shown((r) => r.output.includes('renewed'));
+      // Nothing changed: no report.
+      await new Promise((r) => setTimeout(r, 30));
+      return result({ code: 0, stdout: 'starting with tok-0123456789\nrenewed tok-renewed-999\n' });
+    }) as never;
+    const before = Date.now();
+    const { run } = await runFixedCommand(
+      command(dir),
+      'try',
+      input({ TOKEN: 'tok-0123456789' }, { onProgress: (p) => reports.push(p) }),
+      s.deps,
+    );
+    const ended = reports.length;
+    // The first once it started (its time limit, nothing printed yet), then one for each change.
+    expect(reports[0]!.endsAt).toBeGreaterThanOrEqual(before + HANDOFF_LIMITS.timeoutMin * 60_000);
+    expect(reports.map((r) => [r.output, r.refusedHosts])).toEqual([
+      ['', []],
+      ['starting with ••••', []],
+      ['starting with ••••', ['www.googleapis.com']],
+      ['starting with ••••\nrenewed ••••', ['www.googleapis.com']],
+    ]);
+    expect(run.output).toBe('starting with ••••\nrenewed ••••');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(reports).toHaveLength(ended);
   });
 
   it('masks a value the output limit cut in two', async () => {
