@@ -50,6 +50,13 @@ export interface ScheduleDraft {
   /** The fixed command it runs first ('' for none): its id. */
   command: string;
   /**
+   * The name of the fixed command a proposal (`ScheduleProposal.command`) names, until the form finds it among
+   * the working directory's saved ones (`withCommand()`), which gives `command` its id.
+   */
+  commandName?: string;
+  /** With `command`: only it runs, never the team (`ConversationSchedule.commandOnly`). */
+  commandOnly: boolean;
+  /**
    * `event`: what it waits for, any of them (at least one, at most `WATCH_LIMITS.triggers`), each with
    * every source's fields as the inputs keep them ('' for a condition not given), so that switching
    * sources keeps what was typed: a mail account (`account`), its folder, sender and subject; a
@@ -178,6 +185,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     newChat: false,
     goal: '',
     command: '',
+    commandOnly: false,
     triggers: [EMPTY_TRIGGER],
   };
   if (!s) return draft;
@@ -198,6 +206,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     newChat: s.newChat,
     goal: s.goal ?? '',
     command: s.command ?? '',
+    commandOnly: Boolean(s.command && s.commandOnly),
   };
 }
 
@@ -247,11 +256,29 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     enabled: d.kind === 'manual' || d.enabled,
     approvals: d.approvals,
     missed: d.missed,
-    newChat: d.newChat,
-    ...(d.goal.trim() ? { goal: d.goal.trim() } : {}),
+    newChat: d.newChat && !(d.command && d.commandOnly),
+    // Only its command, never the team: no goal, which no agent would report on.
+    ...(d.goal.trim() && !(d.command && d.commandOnly) ? { goal: d.goal.trim() } : {}),
     // A fixed command runs only on the schedule's own times, never for a webhook's or a trigger's event.
-    ...(d.command && d.kind !== 'event' ? { command: d.command } : {}),
+    ...(d.command && d.kind !== 'event' ? { command: d.command, ...(d.commandOnly ? { commandOnly: true } : {}) } : {}),
   };
+}
+
+/**
+ * The form once the working directory's saved fixed commands are known: a command that is gone is left
+ * out (`command` ''); the one a proposal named (`commandName`) is found by its name. One not saved yet
+ * stays named, with its `commandOnly`, and keeps the form from saving (`draftProblems()`) until it is
+ * saved or the user picks another (or none) in the form: never saved as a schedule that sends its
+ * message to the team each time instead.
+ */
+export function withCommand(d: ScheduleDraft, saved: readonly { id: string; name: string }[]): ScheduleDraft {
+  if (d.commandName !== undefined) {
+    const found = saved.find((c) => c.name === d.commandName);
+    if (!found) return { ...d, command: '' };
+    const { commandName: _named, ...rest } = d;
+    return { ...rest, command: found.id };
+  }
+  return d.command && !saved.some((c) => c.id === d.command) ? { ...d, command: '', commandOnly: false } : d;
 }
 
 /** Whether the form says something other than the saved schedule. */
@@ -271,6 +298,8 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
   if (!text) out.push(p.text);
   else if (text.length > SCHEDULE_LIMITS.maxText) out.push(p.tooLong(SCHEDULE_LIMITS.maxText));
   if (d.goal.trim().length > SCHEDULE_LIMITS.maxGoal) out.push(t.schedule.goalTooLong(SCHEDULE_LIMITS.maxGoal));
+  // The fixed command a proposal named, not saved yet: saved without it, the schedule would do something else.
+  if (d.commandName !== undefined) out.push(t.schedule.commandNotSaved(d.commandName));
   switch (d.kind) {
     case 'once': {
       const at = fromLocalInput(d.at);
@@ -603,7 +632,11 @@ export function scheduleChanges(before: ScheduleDraft, after: ScheduleDraft, t: 
   return out;
 }
 
-/** The schedule form for a schedule an agent proposed (`ScheduleProposal`), in this browser's time zone, to change before saving. */
+/**
+ * The schedule form for a schedule an agent proposed (`ScheduleProposal`), in this browser's time zone, to
+ * change before saving; the fixed command it names by its name, found once the form knows them (`withCommand()`).
+ */
 export function proposalDraft(p: ScheduleProposal, now: number, timeZone = browserTimeZone()): ScheduleDraft {
-  return draftedForm(draftFrom(undefined, now, timeZone), proposalUpdate(p, timeZone), now);
+  const d = draftedForm(draftFrom(undefined, now, timeZone), proposalUpdate(p, timeZone), now);
+  return p.command ? { ...d, commandName: p.command, commandOnly: Boolean(p.commandOnly) } : d;
 }

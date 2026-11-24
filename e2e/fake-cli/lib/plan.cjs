@@ -47,6 +47,7 @@ const DIRECTIVES = {
   secreturl: "with `e2e:secret`, the page where the user gets it (the block's `url`), which the card links to for the user's own browser",
   command:
     'end the reply with a <command> block proposing the fixed command named (`e2e-check` by default), which prints its secrets file (whose values Harness Relay masks) and the input it read, gets `E2E_TOKEN`, and suggests typing `hello from the agent` for Try it (its `input`)',
+  publishes: 'with `e2e:command`, mark the command as one whose runs publish something (`publishes="yes"`): Try it asks first',
   commandrun:
     'end the reply with a <command-run> block putting one run of the fixed command named (`e2e-check` by default) in the outbox, with a line of input',
   skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
@@ -61,7 +62,7 @@ const DIRECTIVES = {
   steer:
     'wait in the turn, about ten seconds (`=<seconds>` for another time), for a message sent into it (steering), then answer, saying what it heard (Claude Code’s and Codex’s fakes; the others answer at once)',
   propose:
-    'end the reply with a <schedule> block proposing a schedule for the chat: "Check the build" every day at 08:00 (`=mail` for one that waits for a new mail, its account for the user to pick)',
+    'end the reply with a <schedule> block proposing a schedule for the chat: "Check the build" every day at 08:00 (`=mail` for one that waits for a new mail, its account for the user to pick; `=command` for one every hour that only runs the fixed command `e2e-check`)',
   title:
     'as the lead agent naming a new conversation, give it the title `=<words>`, with _ for a space (none by default: it keeps its first line)',
 };
@@ -463,7 +464,8 @@ function plan(prompt, turn) {
   }
   if (d.command) {
     const name = typeof d.command === 'string' ? d.command : 'e2e-check';
-    text += `\n\n<command name="${name}" secrets="E2E_TOKEN" input="hello from the agent">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
+    const publishes = d.publishes ? ' publishes="yes"' : '';
+    text += `\n\n<command name="${name}" secrets="E2E_TOKEN"${publishes} input="hello from the agent">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
   }
   if (d.commandrun) {
     const name = typeof d.commandrun === 'string' ? d.commandrun : 'e2e-check';
@@ -473,7 +475,11 @@ function plan(prompt, turn) {
   if (d.propose) {
     const repeat =
       d.propose === 'mail' ? { kind: 'event', triggers: [{ source: 'mail', from: 'ci@example.com' }] } : { kind: 'daily', time: '08:00' };
-    text += `\n\n<schedule>${JSON.stringify({ text: 'Check the build', repeat })}</schedule>`;
+    const proposal =
+      d.propose === 'command'
+        ? { text: 'Run the check', repeat: { kind: 'interval', hours: 1 }, command: 'e2e-check', commandOnly: true }
+        : { text: 'Check the build', repeat };
+    text += `\n\n<schedule>${JSON.stringify(proposal)}</schedule>`;
   }
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   // After its answer, the turn waits for a message sent into it, and answers that too.

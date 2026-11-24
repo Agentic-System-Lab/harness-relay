@@ -7,7 +7,9 @@ import {
   type ApprovalAnswer,
   type ChatMessage,
   type EventSource,
+  type FixedCommand,
   type MessageMeta,
+  type MessagePart,
   type PlanEntry,
   type ProgressStatus,
   type ReviewHighlight,
@@ -30,6 +32,7 @@ import {
   isSubagent,
   isTeamResult,
   isTouchScreen,
+  notePieces,
   resultOwner,
   runningStep,
   segments,
@@ -55,11 +58,11 @@ import { HandoverCard } from './HandoverCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { BranchIcon, ClockIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
+import { BranchIcon, ClockIcon, CommandIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
-import { CommandCard, InteractiveCard, SecretsCard } from './HandoffCards';
+import { CommandCard, CommandChanges, InteractiveCard, SecretsCard } from './HandoffCards';
 import { NotePreview } from './NotePreview';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -281,6 +284,8 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
   const approve =
     doc && doc.before === null ? t.outbox.document.create : note && note.before === null ? t.outbox.note.create : t.outbox.note.save;
   const posting = part.tool === 'slack_send_message' || part.tool === 'teams_send_message';
+  // A fixed command's run whose code changed since it was pinned: Send waits for the user's approval, here.
+  const changed = waiting && part.command?.changed?.length ? part.command : undefined;
   const status =
     doc && part.status === 'failed'
       ? t.outbox.document.check
@@ -316,6 +321,12 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
       {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
       {part.result && <p className="approval-reason">{doc ? <DocumentResult text={part.result} /> : part.result}</p>}
       {error && <p className="error-line">{error}</p>}
+      {changed && (
+        <>
+          <p className="warn-line small">{t.handoffs.command.outboxChanged}</p>
+          <CommandChanges convId={convId} commandId={changed.id} changed={changed.changed ?? []} />
+        </>
+      )}
       {waiting && (
         <>
           <p className="muted small">{doc ? t.outbox.document.hint : note ? t.outbox.note.hint : t.outbox.hint}</p>
@@ -334,6 +345,26 @@ function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: str
 }
 
 /**
+ * A fixed command a schedule ran did not run, its code having changed since it was pinned (the note of
+ * that time holds it): what changed and the approval it waits for, or that it was approved since.
+ */
+function CommandChangedCard({ part, convId }: { part: Extract<MessagePart, { type: 'command-changed' }>; convId: string }) {
+  const c = useT().handoffs.command;
+  return (
+    <section className={`outbox-card ${part.approved ? 'outbox-sent' : 'outbox-pending'}`} aria-label={c.changedTitle(part.name)}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          <CommandIcon size={16} />
+        </span>
+        <strong>{c.changedTitle(part.name)}</strong>
+        <span className="approval-waiting">{part.approved ? c.changedApproved : c.changedWaiting}</span>
+      </header>
+      {!part.approved && <CommandChanges convId={convId} commandId={part.commandId} changed={part.changed} />}
+    </section>
+  );
+}
+
+/**
  * A schedule the reply proposed (its `<schedule>` block): what it would send and when, and, while it
  * waits, creating it as it is, changing it in the schedule's form first, or dismissing it. Its times are
  * this browser's time zone's.
@@ -344,6 +375,7 @@ function ScheduleCard({
   messageId,
   agentName,
   hasSchedule,
+  commandsKey,
   onEdit,
 }: {
   part: SchedulePart;
@@ -351,6 +383,7 @@ function ScheduleCard({
   messageId: string;
   agentName: string;
   hasSchedule: boolean;
+  commandsKey?: string;
   onEdit?: (messageId: string, proposal: ScheduleProposal) => void;
 }) {
   const { t, lang } = useI18n();
@@ -358,9 +391,32 @@ function ScheduleCard({
   const [error, setError] = useState('');
   const p = part.proposal;
   const zone = browserTimeZone();
-  const gaps = proposalGaps(p, zone, Date.now());
-  const when = describeRepeat(proposalUpdate(p, zone).repeat, t, lang);
   const waiting = !part.status;
+  // The fixed command it names, as saved in the working directory (read while it waits: the user may save it meanwhile).
+  const [saved, setSaved] = useState<FixedCommand[]>();
+  const named = p.command;
+  const readSaved = useMemo(
+    () => () =>
+      named
+        ? api.conversationCommands(convId).then(
+            (list) => setSaved(list),
+            () => setSaved(undefined),
+          )
+        : Promise.resolve(),
+    [convId, named],
+  );
+  // Again whenever a command card of the chat is saved: the command it names is often proposed in the same reply.
+  useEffect(() => {
+    if (waiting) void readSaved();
+  }, [waiting, readSaved, commandsKey]);
+  const command = named ? saved?.find((c) => c.name === named) : undefined;
+  const gaps = proposalGaps(
+    p,
+    zone,
+    Date.now(),
+    saved?.map((c) => c.name),
+  );
+  const when = describeRepeat(proposalUpdate(p, zone).repeat, t, lang);
   const answer = async (action: 'create' | 'dismiss') => {
     setBusy(true);
     setError('');
@@ -368,6 +424,8 @@ function ScheduleCard({
       await api.answerProposal(convId, messageId, action, zone);
     } catch (e) {
       setError((e as Error).message);
+      // Its command may have been saved, or removed, since it was read.
+      void readSaved();
     } finally {
       setBusy(false);
     }
@@ -399,17 +457,40 @@ function ScheduleCard({
             <dd>{p.goal}</dd>
           </div>
         )}
+        {named && (
+          <div>
+            <dt>{t.proposal.command}</dt>
+            <dd>
+              <code>{named}</code> {p.commandOnly ? t.proposal.commandOnly : t.proposal.commandFirst}
+            </dd>
+          </div>
+        )}
       </dl>
       {p.newChat && <p className="small">{t.proposal.newChat}</p>}
+      {named && waiting && (
+        <p className="warn-line small">{command?.publishes ? t.proposal.commandPublishes : t.proposal.commandUnattended}</p>
+      )}
       {error && <p className="error-line">{error}</p>}
       {waiting && (
         <>
           <p className="muted small">
-            {gaps.includes('past') ? t.proposal.gapPast : gaps.includes('account') ? t.proposal.gapAccount : t.proposal.note}
+            {gaps.includes('past')
+              ? t.proposal.gapPast
+              : gaps.includes('account')
+                ? t.proposal.gapAccount
+                : gaps.includes('command')
+                  ? t.proposal.gapCommand(named ?? '')
+                  : t.proposal.note}
             {hasSchedule ? ` ${t.proposal.replaces}` : ''}
           </p>
           <div className="approval-actions">
-            <button type="button" className="primary small-button" disabled={busy || gaps.length > 0} onClick={() => answer('create')}>
+            {/* A command not saved yet (as far as this card read) leaves Create on: the server says whether it is. */}
+            <button
+              type="button"
+              className="primary small-button"
+              disabled={busy || gaps.some((g) => g !== 'command')}
+              onClick={() => answer('create')}
+            >
               {busy ? t.proposal.creating : t.proposal.create}
             </button>
             {onEdit && (
@@ -796,6 +877,11 @@ interface Props {
   onEditProposal?: (messageId: string, proposal: ScheduleProposal) => void;
   /** The conversation has a schedule already (a proposed one replaces it). */
   hasSchedule?: boolean;
+  /**
+   * The fixed commands the chat's cards saved, as a key that changes when one is saved or replaced
+   * (`savedCommandsKey()`): a proposed schedule naming one reads the folder's commands again then.
+   */
+  commandsKey?: string;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -1446,6 +1532,7 @@ export const MessageItem = memo(function MessageItem({
   onApplyAnyway,
   onEditProposal,
   hasSchedule,
+  commandsKey,
 }: Props) {
   const t = useT();
 
@@ -1485,9 +1572,31 @@ export const MessageItem = memo(function MessageItem({
         />
       );
     }
+    // A note of a fixed command that did not run because its code changed carries the approval it waits for.
+    const changed = msg.parts.filter(
+      (p): p is Extract<MessagePart, { type: 'command-changed' }> => p.type === 'command-changed' && Boolean(p.commandId),
+    );
+    // A fixed command's output it fences shows as a block, not as backticks in the note's line.
+    const pieces = notePieces(msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join(''));
+    const block = pieces.some((p) => p.kind === 'code');
     return (
-      <div className="msg-system">
-        <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
+      <div className={changed.length || block ? 'msg-system with-card' : 'msg-system'}>
+        {block ? (
+          pieces.map((p, i) =>
+            p.kind === 'code' ? (
+              <pre key={i} className="outbox-body msg-system-output">
+                {p.text}
+              </pre>
+            ) : (
+              <span key={i}>{p.text}</span>
+            ),
+          )
+        ) : (
+          <span>{msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')}</span>
+        )}
+        {changed.map((p, i) => (
+          <CommandChangedCard key={`${p.commandId}-${i}`} part={p} convId={convId} />
+        ))}
       </div>
     );
   }
@@ -1518,6 +1627,7 @@ export const MessageItem = memo(function MessageItem({
       marks={marks}
       onEditProposal={onEditProposal}
       hasSchedule={hasSchedule}
+      commandsKey={commandsKey}
     />
   );
 });
@@ -1545,6 +1655,7 @@ function AgentMessage({
   marks,
   onEditProposal,
   hasSchedule,
+  commandsKey,
 }: Pick<
   Props,
   | 'msg'
@@ -1568,6 +1679,7 @@ function AgentMessage({
   | 'marks'
   | 'onEditProposal'
   | 'hasSchedule'
+  | 'commandsKey'
 >) {
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
@@ -1666,6 +1778,8 @@ function AgentMessage({
               return <SecretsCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
             case 'command':
               return <CommandCard key={s.key} part={s.part} convId={convId} messageId={msg.id} agentName={name} />;
+            case 'command-changed':
+              return <CommandChangedCard key={s.key} part={s.part} convId={convId} />;
             case 'steps':
               return (
                 <StepsCard
@@ -1694,6 +1808,7 @@ function AgentMessage({
                   messageId={msg.id}
                   agentName={name}
                   hasSchedule={Boolean(hasSchedule)}
+                  commandsKey={commandsKey}
                   onEdit={onEditProposal}
                 />
               );

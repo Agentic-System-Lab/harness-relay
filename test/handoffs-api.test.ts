@@ -15,7 +15,7 @@ import type { SecretStore } from '../src/server/secrets';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-handoffs-api-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -147,6 +147,31 @@ describe('secrets and fixed commands API', () => {
     const saved = await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id });
     expect(saved.status).toBe(200);
     expect(store.get(conv.id)!.schedule!.command).toBe(id);
+    // Only its command: no team needed, and kept with the schedule.
+    const only = await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id, commandOnly: true });
+    expect(only.status).toBe(200);
+    expect(store.get(conv.id)!.schedule).toMatchObject({ command: id, commandOnly: true, enabled: true });
+    // It takes no webhook: neither made, nor called (one made before for the chat's earlier automation).
+    expect((await send('POST', `/api/conversations/${conv.id}/schedule/hook`, {})).status).toBe(409);
+    const c = store.get(conv.id)!;
+    store.setHook(c, hookHash('hook-token-1234'), Date.now());
+    const hook = await app.request(`/api/hooks/${conv.id}`, {
+      method: 'POST',
+      headers: { ...HOST, 'content-type': 'application/json', authorization: 'Bearer hook-token-1234' },
+      body: '{}',
+    });
+    expect(hook.status).toBe(409);
+    expect(((await hook.json()) as { error: string }).error).toMatch(/webhook/);
+    store.setHook(c, undefined, Date.now());
+    // Removed in Settings: one that ran only it has nothing left, and is turned off.
+    const second = settings.handoffs.commandId(root, 'second');
+    settings.handoffs.saveCommand(root, second, { name: 'second', run: 'true', hosts: [], secrets: [] }, { manifest: {} });
+    await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: second, commandOnly: true });
+    expect((await send('DELETE', `/api/handoffs/commands/${second}`)).status).toBe(200);
+    expect(store.get(conv.id)!.schedule).toMatchObject({ enabled: false });
+    expect(store.get(conv.id)!.schedule).not.toHaveProperty('command');
+    expect(store.get(conv.id)!.schedule).not.toHaveProperty('commandOnly');
+    await send('PUT', `/api/conversations/${conv.id}/schedule`, { ...schedule, command: id });
     // Removed in Settings: the schedule runs none now, rather than failing at each time.
     expect((await send('DELETE', `/api/handoffs/commands/${id}`)).status).toBe(200);
     expect(store.get(conv.id)!.schedule!.command).toBeUndefined();
@@ -173,12 +198,54 @@ describe('secrets and fixed commands API', () => {
     expect(diff.changed).toContain('check.py');
     expect(diff.digest).toMatch(/^[0-9a-f]{32}$/);
     // Approve is the digest the user saw, never a yes.
-    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: true })).status).toBe(400);
-    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: 'not-a-digest' })).status).toBe(400);
-    const stale = await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { approve: '0'.repeat(32) });
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/approve`, { digest: true })).status).toBe(400);
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/approve`, {})).status).toBe(400);
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/approve`, { digest: 'not-a-digest' })).status).toBe(400);
+    const stale = await send('POST', `/api/conversations/${conv.id}/commands/${id}/approve`, { digest: '0'.repeat(32) });
     expect(stale.status).toBe(409);
     expect(((await stale.json()) as { error: string }).error).toMatch(/changed again/);
     expect(settings.handoffs.pin(id)!.manifest).toEqual({});
+    // The digest it showed: pinned again, and nothing runs (no run recorded).
+    const ok = await send('POST', `/api/conversations/${conv.id}/commands/${id}/approve`, { digest: diff.digest });
+    expect(ok.status).toBe(200);
+    expect(settings.handoffs.pin(id)!.manifest).toHaveProperty(['check.py']);
+    expect(settings.handoffs.command(id)!.lastRun).toBeUndefined();
+  });
+
+  it('creates a proposed schedule that names a fixed command with its id, once it is saved', async () => {
+    const { conv } = chatAsking();
+    const c = store.get(conv.id)!;
+    const reply = c.messages[1]!;
+    reply.parts.push({
+      type: 'schedule',
+      proposal: { text: 'Post what is due', repeat: { kind: 'interval', hours: 1 }, command: 'post', commandOnly: true },
+    });
+    store.saveMessage(conv.id, reply, true);
+    const create = () => send('POST', `/api/conversations/${conv.id}/messages/m2/schedule`, { action: 'create', timeZone: 'UTC' });
+    const missing = await create();
+    expect(missing.status).toBe(409);
+    expect(((await missing.json()) as { error: string }).error).toMatch(/"post" is not saved yet/);
+    expect(store.get(conv.id)!.schedule).toBeUndefined();
+    const id = settings.handoffs.commandId(root, 'post');
+    settings.handoffs.saveCommand(root, id, { name: 'post', run: 'true', hosts: [], secrets: [] }, { manifest: {} });
+    expect((await create()).status).toBe(200);
+    expect(store.get(conv.id)!.schedule).toMatchObject({ command: id, commandOnly: true, repeat: { kind: 'interval', hours: 1 } });
+  });
+
+  it('tries a command whose runs publish something only once the user confirmed it', async () => {
+    const { conv } = chatAsking();
+    const id = settings.handoffs.commandId(root, 'post');
+    settings.handoffs.saveCommand(
+      root,
+      id,
+      { name: 'post', run: 'python3 post.py', hosts: [], secrets: [], publishes: true },
+      { manifest: {} },
+    );
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, { confirm: 'yes' })).status).toBe(400);
+    const refused = await send('POST', `/api/conversations/${conv.id}/commands/${id}/try`, {});
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/publishes, posts or sends/);
+    expect(settings.handoffs.command(id)!.lastRun).toBeUndefined();
   });
 });
 

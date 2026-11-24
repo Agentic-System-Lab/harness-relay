@@ -216,6 +216,7 @@ interface ScheduleRow {
   hook: string | null;
   watch: string | null;
   command: string | null;
+  command_only: number;
 }
 
 interface ChangeRow {
@@ -394,6 +395,16 @@ function toPart(r: PartRow): MessagePart {
         type: 'handover',
         ...parseJson(r.data, { id: '', reason: '', modes: ['screencast' as const], status: 'expired' as const }),
       };
+    case 'command-changed': {
+      const d = parseJson<Record<string, unknown>>(r.data, {});
+      return {
+        type: 'command-changed',
+        commandId: typeof d.commandId === 'string' ? d.commandId : '',
+        name: typeof d.name === 'string' ? d.name : '',
+        changed: Array.isArray(d.changed) ? d.changed.filter((f): f is string => typeof f === 'string') : [],
+        ...(d.approved === true ? { approved: true } : {}),
+      };
+    }
     case 'interactive': {
       const d = parseJson<Record<string, unknown>>(r.data, {});
       const status = d.status === 'proposed' || d.status === 'started' ? d.status : 'dismissed';
@@ -467,6 +478,7 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'outbox':
     case 'secrets':
     case 'command':
+    case 'command-changed':
     case 'handover':
     case 'interactive': {
       const { type: _type, ...data } = p;
@@ -574,7 +586,7 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.goal && tracking ? { tracking } : {}),
     ...(hook ? { hook } : {}),
     ...(watches ? { watches } : {}),
-    ...(r.command ? { command: r.command } : {}),
+    ...(r.command ? { command: r.command, ...(r.command_only ? { commandOnly: true } : {}) } : {}),
   };
 }
 
@@ -1408,14 +1420,16 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
-                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch, command)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook, watch, command,
+                                command_only)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
            missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
            next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
            last_error = excluded.last_error, last_chat_id = excluded.last_chat_id, goal = excluded.goal,
-           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch, command = excluded.command`,
+           tracking = excluded.tracking, hook = excluded.hook, watch = excluded.watch, command = excluded.command,
+           command_only = excluded.command_only`,
       )
       .run(
         conv.id,
@@ -1438,6 +1452,7 @@ export class Store {
         s.hook ? JSON.stringify(s.hook) : null,
         s.repeat.kind === 'event' && s.watches?.length ? JSON.stringify(s.watches) : null,
         nul(s.command),
+        s.command && s.commandOnly ? 1 : 0,
       );
     // A schedule without a webhook has no token either.
     if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);

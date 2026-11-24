@@ -78,7 +78,8 @@ export const BUSY_RETRY_MS = 30 * 60_000;
 const TICK_MS = 15_000;
 
 /** How a time that came due went; `chatId`: the conversation it opened (`newChat`). */
-type Outcome = { result: ScheduleResult; reason?: string; chatId?: string };
+/** `noted`: the chat has a note of it already (its fixed command's), not written again. */
+type Outcome = { result: ScheduleResult; reason?: string; chatId?: string; noted?: boolean };
 
 /** The time a schedule came due, as its notes in the chat write it. */
 export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 'timeZone'>): string {
@@ -511,6 +512,7 @@ export class Scheduler {
     const why = (outcome.reason ?? '').replace(/[.。]\s*$/, '');
     if (outcome.result === 'skipped') this.orchestrator.noteSkipped(conv, s, due, why);
     else if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
-    else if (outcome.result === 'failed') this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
+    else if (outcome.result === 'failed' && !outcome.noted)
+      this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
   }
 }

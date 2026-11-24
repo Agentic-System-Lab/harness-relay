@@ -136,6 +136,7 @@ export function checkProposal(p: {
   hosts?: readonly string[];
   secrets?: readonly string[];
   cwd?: string;
+  publishes?: boolean;
 }): CommandProposal | undefined {
   const name = commandName(p.name);
   // A reply written with CRLF line ends: its line feeds (a carriage return alone is refused).
@@ -154,6 +155,7 @@ export function checkProposal(p: {
     hosts: [...new Set(hosts as string[])],
     secrets: [...new Set(secrets as string[])],
     ...(cwd ? { cwd } : {}),
+    ...(p.publishes === true ? { publishes: true } : {}),
   };
 }
 
@@ -213,6 +215,8 @@ function blockAt(text: string, pos: number): { block: HandoffBlock; end: number 
       hosts: list(attr(attrs, 'hosts')),
       secrets: list(attr(attrs, 'secrets')),
       cwd: attr(attrs, 'cwd'),
+      // Its runs publish, post or send something: Try it asks the user to confirm first.
+      publishes: /^(?:yes|true|1)$/i.test(attr(attrs, 'publishes') ?? ''),
     });
     if (!proposal) return undefined;
     // What to type in Try it's box (the command reads its standard input): the card's box starts with it.

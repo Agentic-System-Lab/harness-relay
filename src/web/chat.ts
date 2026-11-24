@@ -402,6 +402,7 @@ export type Segment =
   | { kind: 'secrets'; part: Extract<MessagePart, { type: 'secrets' }>; key: number }
   /** A fixed command the reply proposes. */
   | { kind: 'command'; part: Extract<MessagePart, { type: 'command' }>; key: number }
+  | { kind: 'command-changed'; part: Extract<MessagePart, { type: 'command-changed' }>; key: number }
   /** Steps the reply asks the user to take outside Harness Relay. */
   | { kind: 'steps'; part: StepsPart; key: number }
   /** A command the reply asks the user to run themselves. */
@@ -482,6 +483,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'command':
         out.push({ kind: 'command', part: p, key: i });
+        break;
+      case 'command-changed':
+        if (p.commandId) out.push({ kind: 'command-changed', part: p, key: i });
         break;
       case 'steps':
         if (p.items.length) out.push({ kind: 'steps', part: p, key: i });
@@ -609,4 +613,44 @@ export function thoughtTail(text: string): string {
       .filter((l) => l.trim())
       .pop() ?? '';
   return plainLine(line);
+}
+
+/**
+ * A system note's text in pieces: its words, and the output it fences (a fixed command's run, its
+ * secrets masked: a line of three or more backticks, the output, the same line again), which the
+ * chat shows as a block rather than as backticks in a line. A fence never closed stays words.
+ */
+export function notePieces(text: string): { kind: 'text' | 'code'; text: string }[] {
+  const out: { kind: 'text' | 'code'; text: string }[] = [];
+  const lines = text.split('\n');
+  let words: string[] = [];
+  const flush = () => {
+    const t = words.join('\n').trim();
+    if (t) out.push({ kind: 'text', text: t });
+    words = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const mark = /^(`{3,})$/.exec(lines[i]!)?.[1];
+    const close = mark ? lines.indexOf(mark, i + 1) : -1;
+    if (!mark || close < 0) {
+      words.push(lines[i]!);
+      continue;
+    }
+    flush();
+    out.push({ kind: 'code', text: lines.slice(i + 1, close).join('\n') });
+    i = close;
+  }
+  flush();
+  return out;
+}
+
+/**
+ * The fixed commands the chat's cards saved, as a key: it changes when a card saves (or replaces) one, so
+ * that a proposed schedule naming a command reads the folder's saved commands again.
+ */
+export function savedCommandsKey(messages: readonly { parts: readonly MessagePart[] }[]): string {
+  const saved: string[] = [];
+  for (const m of messages)
+    for (const p of m.parts) if (p.type === 'command' && p.status === 'saved') saved.push(`${p.commandId ?? ''}:${p.proposal.name}`);
+  return saved.join('|');
 }

@@ -10,6 +10,7 @@ import {
   parseMentions,
   proposalRules,
   renderMessage,
+  scheduleNow,
   subagentRules,
   trackingSection,
 } from '../src/server/prompt';
@@ -160,6 +161,41 @@ describe('a schedule an agent proposes', () => {
     expect(proposalRules(false)).toContain('<schedule>{"text": "the message the team gets each time"');
     expect(proposalRules(false)).toContain('nothing is scheduled until then');
     expect(proposalRules(true)).toBe('');
+    // A saved fixed command a schedule runs itself, with no Send; one automation per chat.
+    expect(proposalRules(false)).toContain('"command": "its-name"');
+    expect(proposalRules(false)).toContain('"commandOnly": true');
+    expect(proposalRules(false)).toContain('never ask the user to delete or keep an older one');
+  });
+
+  it("says what the chat's automation is now: when, what, the command it runs, its goal and its last time", () => {
+    const base = {
+      text: 'Post the joke that is due.',
+      repeat: { kind: 'daily' as const, time: '05:15' },
+      timeZone: 'Asia/Taipei',
+      lang: 'zh-TW' as const,
+      enabled: true,
+      approvals: 'deny' as const,
+      missed: 'skip' as const,
+      newChat: false,
+      updatedAt: 0,
+    };
+    expect(scheduleNow(undefined)).toBe('');
+    const plain = scheduleNow({ ...base, goal: 'All 14 posted', lastRunAt: Date.UTC(2026, 10, 23, 21, 15), lastResult: 'sent' });
+    expect(plain).toContain('On: every day at 05:15 (times in Asia/Taipei).');
+    expect(plain).toContain(`Its message to the team: "Post the joke that is due."`);
+    expect(plain).toContain('Its goal: "All 14 posted" (working).');
+    // How its last time went, not when: told again only when that changes, not after every time.
+    expect(plain).toContain('Its last time: its message was sent to the team.');
+    expect(plain).not.toContain('2026-11-24');
+    const first = scheduleNow({ ...base, enabled: false, repeat: { kind: 'interval', hours: 1 }, command: 'c1' }, 'run-schedule');
+    expect(first).toContain('Paused');
+    expect(first).toContain('every hour');
+    expect(first).toContain('It runs the fixed command "run-schedule" first');
+    const only = scheduleNow({ ...base, command: 'c1', commandOnly: true, lastRunAt: 0, lastResult: 'noted' }, 'run-schedule');
+    expect(only).toContain('It only runs the fixed command "run-schedule": nothing goes to the team');
+    expect(only).not.toContain('Its message to the team');
+    expect(only).toContain('found something, noted in the chat for the user');
+    expect(only).toContain('Agents never get those notes');
   });
 
   it('is forwarded to teammates as data, with what the user did with it', () => {

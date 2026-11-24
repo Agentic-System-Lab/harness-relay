@@ -157,6 +157,7 @@ import {
   buildSteerPrompt,
   buildTurnPrompt,
   handoffsNow,
+  scheduleNow,
   notesForAgent,
   outboxNotes,
   commandRunNotes,
@@ -368,6 +369,11 @@ interface Run {
   abort: AbortController;
   active: Set<string>;
   /**
+   * The fixed commands whose runs this run's replies put in the outbox: their pins are checked once it
+   * ends (its folders let go), and their cards say whether the code changed (`checkCommandPin()`).
+   */
+  pinChecks?: Set<string>;
+  /**
    * "Approve for me": the requests the lead agent approved in this run, by what they would do exactly
    * (`reviewKey()`), with its reason: the same request again is allowed without another review.
    */
@@ -497,9 +503,12 @@ export type ScheduledSend =
   | { result: 'queued' }
   /** Its fixed command ran and found nothing for the team: no message. */
   | { result: 'ran' }
+  /** Its fixed command ran alone (`commandOnly`) and found something, which a note in the chat says: no message. */
+  | { result: 'noted' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped'; reason: string }
-  | { result: 'failed'; reason: string; code?: string };
+  /** `noted`: the chat has a note of it already (its fixed command's), which the scheduler does not repeat. */
+  | { result: 'failed'; reason: string; code?: string; noted?: boolean };
 
 /** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
 type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
@@ -832,6 +841,8 @@ const secretsCardKey = (convId: string, partId: string) => `${convId}\n${partId}
 
 /** How a member's `seen` keeps the version of the working directory's secrets and commands it heard last. */
 const HANDOFFS_SEEN = 'handoffs:';
+/** A member's `seen` key of this chat's automation as it last heard it (`scheduleNow()`). */
+const SCHEDULE_SEEN = 'schedule:';
 
 /** The name outbox items of fixed command runs are kept under (no gateway tool has it). */
 export const FIXED_COMMAND_TOOL = 'relay_fixed_command';
@@ -1281,6 +1292,22 @@ export class Orchestrator {
     return { text, key };
   }
 
+  /**
+   * This chat's automation for a member's turn prompt (`scheduleNow()`), when it is not what its session
+   * last heard (`seen`, as `schedule:<digest>`): undefined when it is, or when there is none and it never
+   * heard of one. `text` is '' once it is gone. However it changed (an agent's proposal created, the
+   * user's own edit in the form, a run's result), the member hears it at its next turn.
+   */
+  private scheduleNow(conv: Conversation, seen: ReadonlySet<string>): { text: string; key: string } | undefined {
+    const s = conv.schedule;
+    const command = s?.command ? this.settings.handoffs.command(s.command)?.name : undefined;
+    const text = scheduleNow(s, command);
+    const key = `${SCHEDULE_SEEN}${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
+    if (seen.has(key)) return undefined;
+    if (!text && ![...seen].some((k) => k.startsWith(SCHEDULE_SEEN))) return undefined;
+    return { text, key };
+  }
+
   /** The working directory a conversation's secrets and fixed commands are kept for: its first one, as a real path. */
   handoffFolder(conv: Conversation): string {
     return realPath(conv.settings.cwd);
@@ -1399,7 +1426,15 @@ export class Orchestrator {
         { commandId: cmd.id, run: cmd.run, hosts: cmd.hosts, secrets: cmd.secrets, cwd: cmd.cwd ?? '', input: b.input },
       );
       if (!existing)
-        msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
+        msg.parts.push({
+          type: 'outbox',
+          id: item.id,
+          tool: item.tool,
+          title: item.title,
+          preview: item.preview,
+          status: 'pending',
+          command: { id: cmd.id },
+        });
     }
     return asks.length > 0 || proposed > 0 || interactive > 0;
   }
@@ -1686,32 +1721,102 @@ export class Orchestrator {
   }
 
   /**
-   * Try it, on a fixed command's card: one run, in the background (its card follows it). `approve`: the
-   * user saw what changed in its code and approves it, which pins it again first. `extra`: words added
-   * to its command line for this run only.
+   * Try it, on a fixed command's card: one run, in the background (its card follows it). `extra`: words
+   * added to its command line for this run only. A command whose runs publish, post or send something
+   * (`publishes`) runs only once the user confirmed it (`confirm`), as a try really does it.
    */
-  async tryCommand(convId: string, commandId: string, o: { extra?: string; stdin?: string; approve?: string } = {}): Promise<void> {
+  async tryCommand(convId: string, commandId: string, o: { extra?: string; stdin?: string; confirm?: boolean } = {}): Promise<void> {
     const { conv, cmd } = this.ownCommand(convId, commandId);
     if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
-    if (o.approve) {
-      // Pinned again only as the user saw it: the digest of the code whose diff they read.
-      const old = this.settings.handoffs.pin(cmd.id);
-      let pin: CommandPin;
-      try {
-        pin = await takePin(cmd.folder, cmd.id, commandFiles(cmd, cmd.folder));
-      } catch (err) {
-        throw new HttpError(409, (err as Error).message);
-      }
-      if (manifestDigest(pin.manifest) !== o.approve) {
-        await dropPin(cmd.id, pin, old);
-        throw new HttpError(409, t().handoffs.changedAgain);
-      }
-      this.settings.handoffs.repin(cmd.id, pin);
-      await dropPin(cmd.id, old, pin);
-    }
+    if (cmd.publishes && !o.confirm) throw new HttpError(409, t().handoffs.confirmPublish(cmd.name));
     this.trackCommand(
       this.executeCommand(conv, cmd, 'try', { ...(o.extra?.trim() ? { extra: o.extra } : {}), ...(o.stdin ? { stdin: o.stdin } : {}) }),
     );
+  }
+
+  /**
+   * The user looked at what changed in a fixed command's code (`commandDiff()`) and approves it: its code
+   * is pinned again, only as they saw it (`digest`: the digest of the code whose diff they read). Nothing
+   * runs: Try it, Send or its schedule does that. The cards of this conversation that waited on it say so.
+   */
+  async approveCommand(convId: string, commandId: string, digest: string): Promise<void> {
+    const { conv, cmd } = this.ownCommand(convId, commandId);
+    if (this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
+    if (this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+    const old = this.settings.handoffs.pin(cmd.id);
+    let pin: CommandPin;
+    try {
+      pin = await takePin(cmd.folder, cmd.id, commandFiles(cmd, cmd.folder));
+    } catch (err) {
+      throw new HttpError(409, (err as Error).message);
+    }
+    if (manifestDigest(pin.manifest) !== digest) {
+      await dropPin(cmd.id, pin, old);
+      throw new HttpError(409, t().handoffs.changedAgain);
+    }
+    this.settings.handoffs.repin(cmd.id, pin);
+    await dropPin(cmd.id, old, pin);
+    this.settings.handoffs.clearChangedRun(cmd.id);
+    this.markCommandChanged(conv.id, cmd.id, undefined);
+  }
+
+  /** What changed in a fixed command's pinned code now (every file, when it has no pin); [] when nothing did. */
+  private async commandChanges(cmd: FixedCommand): Promise<string[]> {
+    const pin = this.settings.handoffs.pin(cmd.id);
+    if (!pin) return ['.'];
+    return pinChanges(cmd.folder, pin, commandFiles(cmd, cmd.folder));
+  }
+
+  /**
+   * Checks a fixed command's pin for the runs of it waiting in a conversation's outbox, and has their
+   * cards say whether its code changed (never throws: a check that cannot be made leaves them as they are).
+   */
+  private async checkCommandPin(convId: string, commandId: string): Promise<void> {
+    try {
+      const conv = this.store.get(convId);
+      const cmd = this.settings.handoffs.command(commandId);
+      if (!conv || !cmd || cmd.folder !== this.handoffFolder(conv) || this.writingIn(convId, cmd.folder)) return;
+      const changed = await this.commandChanges(cmd);
+      this.markCommandChanged(convId, commandId, changed.length ? changed : undefined, 'holds');
+    } catch (err) {
+      console.warn('[orchestrator] could not check a fixed command for the outbox:', (err as Error).message);
+    }
+  }
+
+  /**
+   * The cards of a conversation that wait on a fixed command's code: its runs waiting in the outbox (which
+   * Send runs once it is approved) list what changed (`changed`), or nothing once it was approved; its
+   * notes that a run did not happen (`command-changed`) and its cards whose last run did not, for the
+   * same reason, say it is approved.
+   */
+  private markCommandChanged(
+    convId: string,
+    commandId: string,
+    changed: string[] | undefined,
+    how: 'approved' | 'holds' = 'approved',
+  ): void {
+    const conv = this.store.get(convId);
+    if (!conv) return;
+    // Its pin found to hold without an approval (the code put back): only its runs in the outbox stop waiting.
+    const approved = !changed && how === 'approved';
+    for (const msg of conv.messages) {
+      let touched = false;
+      for (const p of msg.parts) {
+        if (p.type === 'outbox' && p.status === 'pending' && p.command?.id === commandId) {
+          const before = JSON.stringify(p.command.changed ?? null);
+          if (changed?.length) p.command.changed = changed.slice(0, 50);
+          else delete p.command.changed;
+          if (JSON.stringify(p.command.changed ?? null) !== before) touched = true;
+        } else if (approved && p.type === 'command-changed' && p.commandId === commandId && !p.approved) {
+          p.approved = true;
+          touched = true;
+        } else if (approved && p.type === 'command' && p.commandId === commandId && p.run?.status === 'changed') {
+          delete p.run;
+          touched = true;
+        }
+      }
+      if (touched) this.saveCard(conv, msg);
+    }
   }
 
   /** A fixed command's run, waited for at shutdown before the database closes. */
@@ -1803,6 +1908,7 @@ export class Orchestrator {
       if (!pin || changed.length) {
         const run: FixedCommandRun = { at: Date.now(), source, status: 'changed', changed: changed.slice(0, 50) };
         record(run);
+        if (conv) this.markCommandChanged(conv.id, cmd.id, changed.length ? changed : ['.']);
         return run;
       }
       record({ at: Date.now(), source, status: 'running' });
@@ -2242,6 +2348,20 @@ export class Orchestrator {
     if (pending?.tool === FIXED_COMMAND_TOOL && pending.convId === convId && pending.status === 'pending') {
       const cmd = this.settings.handoffs.command(String(this.outbox.argsOf(itemId)?.commandId ?? ''));
       if (cmd && this.writingIn(convId, cmd.folder)) throw new HttpError(409, t().handoffs.folderBusy);
+      // A run of it under way (its schedule's): Send can be clicked again once it ends.
+      if (cmd && this.commandRuns.has(cmd.id)) throw new HttpError(409, t().handoffs.commandRunning);
+      // Its code changed since it was pinned: Send waits (the item stays) until the user approved it, which
+      // its card now offers, rather than failing the item and leaving the agent to put it there again. A pin
+      // that cannot be read now is left to the run, which fails the item with the reason.
+      if (cmd && cmd.folder === this.handoffFolder(conv)) {
+        const changed = await this.commandChanges(cmd).catch(() => undefined);
+        if (changed?.length) {
+          this.markCommandChanged(convId, cmd.id, changed);
+          throw new HttpError(409, t().handoffs.approveFirst(cmd.name));
+        }
+        // Its pin holds (approved elsewhere since, or the code put back): its runs in the outbox no longer wait.
+        if (changed) this.markCommandChanged(convId, cmd.id, undefined, 'holds');
+      }
     }
     // A fixed command's run, as it went: its note says it ran (never "not sent") and shows its output.
     let ran: { name: string; run: FixedCommandRun } | undefined;
@@ -2654,6 +2774,9 @@ export class Orchestrator {
     if (!s) throw new HttpError(404, t().scheduleNotFound);
     // Not lost: sent (or counted as missed) when the server is back.
     if (this.closing) return { result: 'busy', reason: t().shuttingDown };
+    // Only its fixed command runs, never the team. A webhook's call, whose body only the team would read,
+    // is refused before it gets here (`POST /api/hooks/:id`).
+    if (s.command && s.commandOnly) return this.runCommandOnly(conv, s);
     // The current team takes it (a schedule never has the lead agent design a team: nobody may be
     // there to confirm it), so there must be one.
     if (conv.agents.length === 0 || pendingPlan(conv.messages)) {
@@ -2769,6 +2892,53 @@ export class Orchestrator {
   }
 
   /**
+   * A schedule's fixed command did not run, its code having changed since it was pinned: the chat's note
+   * says so with the approval it waits for (a `command-changed` card), and the scheduler adds none. While
+   * the chat's latest message is such a note of this command still waiting, no other is written: an hourly
+   * automation leaves one note until the user approves, not one an hour.
+   */
+  private changedNote(conv: Conversation, cmd: FixedCommand, run: FixedCommandRun): ScheduledSend {
+    const changed = run.changed?.length ? run.changed : ['.'];
+    const waiting = conv.messages.at(-1)?.parts.some((p) => p.type === 'command-changed' && p.commandId === cmd.id && !p.approved);
+    if (!waiting)
+      this.systemNote(conv, t().handoffs.scheduleChangedNote(cmd.name), [
+        { type: 'command-changed', commandId: cmd.id, name: cmd.name, changed: changed.slice(0, 50) },
+      ]);
+    return { result: 'failed', reason: t().handoffs.runLine(run), noted: true };
+  }
+
+  /**
+   * A schedule that only runs its fixed command (`commandOnly`): it runs as its time came, whatever the team
+   * is doing (a question waiting for the user, a run under way, no team at all), but not while a run
+   * writes in its folder (`busy`, tried again). Nothing goes to the team and no model runs: what it found
+   * (`FIXED_COMMAND_NEWS`) or how it failed is a note in the chat with its output, its secrets masked.
+   */
+  private async runCommandOnly(conv: Conversation, s: ConversationSchedule): Promise<ScheduledSend> {
+    const cmd = this.settings.handoffs.command(s.command!);
+    if (!cmd || cmd.folder !== this.handoffFolder(conv)) return { result: 'failed', reason: t().handoffs.commandNotFound };
+    if (this.commandRuns.has(cmd.id)) return { result: 'busy', reason: t().handoffs.commandRunning };
+    if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
+    // A finding held for the team while it ran its command first is not the team's any more.
+    this.heldCommandEvents.delete(conv.id);
+    const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
+    // Its folder let go: what waits in the queue goes now, when nothing else holds the chat.
+    this.queueAfterHold(conv.id);
+    const now = this.store.get(conv.id) ?? conv;
+    switch (run.status) {
+      case 'passed':
+        return { result: 'ran' };
+      case 'news':
+        this.systemNote(now, t().handoffs.scheduleRunNote(cmd.name, run));
+        return { result: 'noted' };
+      case 'changed':
+        return this.changedNote(now, cmd, run);
+      default:
+        this.systemNote(now, t().handoffs.scheduleRunNote(cmd.name, run));
+        return { result: 'failed', reason: t().handoffs.runLine(run), noted: true };
+    }
+  }
+
+  /**
    * A schedule's fixed command, run as its time came: nothing for the team (`ran`), a reason it could
    * not (`failed`: gone, or its code changed and waits for the user's approval; `busy`: a run of it is
    * under way), or the event its message takes: what it found, or how it failed, with its output masked.
@@ -2781,7 +2951,7 @@ export class Orchestrator {
     if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
     const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
     if (run.status === 'passed') return { result: 'ran' };
-    if (run.status === 'changed') return { result: 'failed', reason: t().handoffs.runLine(run) };
+    if (run.status === 'changed') return this.changedNote(conv, cmd, run);
     const what =
       run.status === 'news'
         ? `found something new (exit code ${FIXED_COMMAND_NEWS})`
@@ -3526,6 +3696,8 @@ export class Orchestrator {
           if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id);
           this.runs.delete(convId);
           this.designing.delete(convId);
+          // Checked before anything else starts in the folder (`checkCommandPin()` looks at once).
+          for (const id of run.pinChecks ?? []) void this.checkCommandPin(conv.id, id);
           if (run.tracking) this.trackedRunEnded(conv, run);
           // The lead agent tidies the long-term memory now and then, once runs have saved enough notes.
           if (!this.closing) this.memory.maybeTidy();
@@ -6524,12 +6696,19 @@ export class Orchestrator {
       // The working directory's secrets and fixed commands, told when they changed since this session
       // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
       const handoffs = this.handoffsNow(conv, seen);
+      // This chat's automation, told when it changed since this session last heard it (`schedule:<digest>`).
+      const scheduled = this.scheduleNow(conv, seen);
       const prompt = buildTurnPrompt(
         conv,
         agent,
         delta,
         !state.sessionId,
-        { ...info, notes: [...noted.notes, ...outcomes.notes, ...tried.notes], ...(handoffs ? { handoffs: handoffs.text } : {}) },
+        {
+          ...info,
+          notes: [...noted.notes, ...outcomes.notes, ...tried.notes],
+          ...(handoffs ? { handoffs: handoffs.text } : {}),
+          ...(scheduled ? { schedule: scheduled.text } : {}),
+        },
         recalled,
       );
       const files = delta.flatMap((m) =>
@@ -6538,13 +6717,14 @@ export class Orchestrator {
       const seenBefore = state.seen;
       committedSeen = seenBefore;
       state.seen = [
-        ...(handoffs ? state.seen.filter((k) => !k.startsWith(HANDOFFS_SEEN)) : state.seen),
+        ...state.seen.filter((k) => !(handoffs && k.startsWith(HANDOFFS_SEEN)) && !(scheduled && k.startsWith(SCHEDULE_SEEN))),
         ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
         ...recalled.map((n) => memorySeenKey(n.id)),
         ...(noted.id ? [`notice:${noted.id}`] : []),
         ...outcomes.ids.map((id) => `outbox:${id}`),
         ...tried.keys,
         ...(handoffs ? [handoffs.key] : []),
+        ...(scheduled ? [scheduled.key] : []),
       ];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
@@ -6806,6 +6986,10 @@ export class Orchestrator {
       } catch (err) {
         console.error('[orchestrator] could not save the end of a turn:', err);
       }
+      // A run it put in the outbox of a command whose code changed since it was pinned: its card says so
+      // once the run ends (its writes over), and offers the approval Send would wait for.
+      for (const p of msg.parts)
+        if (p.type === 'outbox' && p.status === 'pending' && p.command) (run.pinChecks ??= new Set()).add(p.command.id);
       this.trace(conv);
     }
     return msg;
@@ -6864,12 +7048,12 @@ export class Orchestrator {
     return { root, base: before.commit, head: after.commit, files, isolated: false };
   }
 
-  systemNote(conv: Conversation, text: string): ChatMessage {
+  systemNote(conv: Conversation, text: string, more: MessagePart[] = []): ChatMessage {
     const msg: ChatMessage = {
       id: randomUUID(),
       author: { kind: 'system' },
       createdAt: Date.now(),
-      parts: [{ type: 'text', text }],
+      parts: [{ type: 'text', text }, ...more],
       status: 'done',
     };
     conv.messages.push(msg);

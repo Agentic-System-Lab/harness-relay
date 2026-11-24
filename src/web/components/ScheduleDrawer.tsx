@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { pendingPlan, permissionLevel, type Conversation, type FixedCommand } from '../../shared/types';
 import { api } from '../api';
+import { savedCommandsKey } from '../chat';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
 import {
@@ -13,6 +14,7 @@ import {
   scheduleTrouble,
   shownZone,
   toUpdate,
+  withCommand,
   type ScheduleDraft,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
@@ -76,6 +78,9 @@ export function ScheduleDrawer({
   // Scheduled messages go to the current team (the lead agent designs none when one comes due).
   const waitingPlan = Boolean(pendingPlan(conv.messages));
   const teamReady = conv.agents.length > 0 && !waitingPlan;
+  // One that only runs its fixed command never goes to the team: it needs none (the server agrees).
+  const onlyCommand = (s?: { command?: string; commandOnly?: boolean; kind?: string }) =>
+    Boolean(s?.command && s.commandOnly && s.kind !== 'event');
   // The latest team design is for the schedule's message (New schedule), not for a question.
   const forSchedule = Boolean(conv.messages.findLast((m) => m.plan)?.plan?.forSchedule);
   const { mode, rounds, maxHops, permission, cwd } = conv.settings;
@@ -84,23 +89,26 @@ export function ScheduleDrawer({
   /** A saved schedule without a team, in a chat whose lead agent may design one for it now. */
   const mayDesign = Boolean(saved) && !teamReady && !waitingPlan && !running && Boolean(conv.settings.autoTeam);
   const [designing, setDesigning] = useState(false);
-  // The working directory's fixed commands, which the schedule may run first.
+  // The working directory's fixed commands, which the schedule may run first: read again when a card of the
+  // chat saves one (the command a proposal named, saved while the form is open).
   const [commands, setCommands] = useState<FixedCommand[]>();
+  const commandsKey = useMemo(() => savedCommandsKey(conv.messages), [conv.messages]);
   useEffect(() => {
     let live = true;
     api.conversationCommands(conv.id).then(
       (list) => {
         if (!live) return;
         setCommands(list);
-        // A command removed meanwhile (in Settings): not one the form could save, nor show.
-        setDraft((d) => (d.command && !list.some((c) => c.id === d.command) ? { ...d, command: '' } : d));
+        // A command removed meanwhile (in Settings): not one the form could save, nor show. The one a
+        // proposal named, found by its name.
+        setDraft((d) => withCommand(d, list));
       },
       () => live && setCommands([]),
     );
     return () => {
       live = false;
     };
-  }, [conv.id]);
+  }, [conv.id, commandsKey]);
 
   const design = async () => {
     setDesigning(true);
@@ -156,8 +164,20 @@ export function ScheduleDrawer({
     setInfo('');
     setRanIn(undefined);
     try {
-      const { queued, ran, chatId } = await api.runSchedule(conv.id);
-      setInfo(ran ? t.schedule.ranNow : chatId ? t.schedule.sentInNewChat : queued ? t.schedule.queuedNow : t.schedule.sentNow);
+      const { queued, ran, noted, chatId } = await api.runSchedule(conv.id);
+      setInfo(
+        noted
+          ? t.schedule.notedNow
+          : ran
+            ? conv.schedule?.commandOnly
+              ? t.schedule.ranOnlyNow
+              : t.schedule.ranNow
+            : chatId
+              ? t.schedule.sentInNewChat
+              : queued
+                ? t.schedule.queuedNow
+                : t.schedule.sentNow,
+      );
       setRanIn(chatId);
     } catch (e) {
       setError((e as Error).message);
@@ -260,7 +280,7 @@ export function ScheduleDrawer({
               <button
                 type="button"
                 className="ghost small-button"
-                disabled={sending || changed || !teamReady}
+                disabled={sending || changed || (!teamReady && !onlyCommand(saved && { ...saved, kind: saved.repeat.kind }))}
                 title={changed ? t.schedule.runNowSaveFirst : t.schedule.runNowTitle}
                 onClick={runNow}
               >
@@ -274,9 +294,14 @@ export function ScheduleDrawer({
         )}
 
         {saved?.goal && <ScheduleProgress schedule={saved} />}
-        {saved && <ScheduleHookPanel convId={conv.id} schedule={saved} onError={setError} />}
+        {saved &&
+          (saved.commandOnly ? (
+            <p className="small muted">{t.schedule.hookCommandOnly}</p>
+          ) : (
+            <ScheduleHookPanel convId={conv.id} schedule={saved} onError={setError} />
+          ))}
 
-        {!teamReady && (
+        {!teamReady && !onlyCommand(draft) && (
           <p className="warn-line">
             {waitingPlan && forSchedule
               ? t.schedule.confirmTeamFirst
@@ -348,7 +373,7 @@ export function ScheduleDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || drafting || problems.length > 0 || !changed || (draft.enabled && !teamReady)}
+            disabled={saving || drafting || problems.length > 0 || !changed || (draft.enabled && !teamReady && !onlyCommand(draft))}
             onClick={save}
           >
             {saving ? t.schedule.saving : t.common.save}

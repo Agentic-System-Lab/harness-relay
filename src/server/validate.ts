@@ -952,6 +952,12 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     bad(t().invalidField('command'));
   const command = typeof b.command === 'string' ? b.command : '';
   const repeat = validRepeat(b.repeat, enabled, now);
+  if (b.commandOnly !== undefined && b.commandOnly !== null && typeof b.commandOnly !== 'boolean') bad(t().invalidField('commandOnly'));
+  // Only on its own times: an automation that waits for something never runs it.
+  const runs = command && repeat.kind !== 'event' ? command : '';
+  // Only its command, never the team: nobody reports on a goal, and there is no chat to open each time.
+  const commandOnly = Boolean(runs) && b.commandOnly === true;
+  if (commandOnly && goal) bad(t().scheduleCommandOnlyGoal);
   return {
     text,
     repeat,
@@ -959,10 +965,9 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     enabled,
     approvals: b.approvals === 'ask' ? 'ask' : 'deny',
     missed: b.missed === 'run' ? 'run' : 'skip',
-    newChat: b.newChat === true,
+    newChat: b.newChat === true && !commandOnly,
     ...(goal ? { goal } : {}),
-    // Only on its own times: an automation that waits for something never runs it.
-    ...(command && repeat.kind !== 'event' ? { command } : {}),
+    ...(runs ? { command: runs, ...(commandOnly ? { commandOnly: true } : {}) } : {}),
   };
 }
 

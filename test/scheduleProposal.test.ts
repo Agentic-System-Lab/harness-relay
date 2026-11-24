@@ -148,5 +148,32 @@ describe('making a proposed schedule', () => {
       proposalGaps(readProposal({ text: 't', repeat: { kind: 'event', triggers: [{ source: 'github', repo: 'a/b' }] } })!, 'UTC', now),
     ).toEqual([]);
     expect(proposalGaps(readProposal(weekdays)!, 'UTC', now)).toEqual([]);
+    // The fixed command it names is not saved (when the saved ones are known).
+    const posting = readProposal({ ...weekdays, command: 'post' })!;
+    expect(proposalGaps(posting, 'UTC', now, ['check'])).toEqual(['command']);
+    expect(proposalGaps(posting, 'UTC', now, ['post'])).toEqual([]);
+    expect(proposalGaps(posting, 'UTC', now)).toEqual([]);
+  });
+
+  it('names a fixed command that runs first, or alone, on its own times; then no goal and no new chat', () => {
+    const p = readProposal({ ...weekdays, command: ' Post ', commandOnly: true, goal: 'all posted', newChat: true })!;
+    expect(p).toMatchObject({ command: 'post', commandOnly: true });
+    expect(p).not.toHaveProperty('goal');
+    expect(p).not.toHaveProperty('newChat');
+    expect(readProposal({ ...weekdays, command: 'post' })).not.toHaveProperty('commandOnly');
+    expect(readProposal({ ...weekdays, commandOnly: true })).not.toHaveProperty('commandOnly');
+    // A name that is not one: the block proposes nothing, so the agent's mistake shows.
+    expect(readProposal({ ...weekdays, command: 'Bad Name!' })).toBeUndefined();
+    // An automation that waits for something never runs one: the block proposes nothing, as the agent's mistake.
+    expect(
+      readProposal({ text: 't', repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.csv' }] }, command: 'post' }),
+    ).toBeUndefined();
+    // Made with the saved command's id; without it (not saved), with none.
+    expect(proposalUpdate(p, 'UTC', 'cmd-9')).toMatchObject({ command: 'cmd-9', commandOnly: true });
+    expect(proposalUpdate(p, 'UTC')).not.toHaveProperty('command');
+    expect(validateSchedule(proposalUpdate(p, 'UTC', 'cmd-9'), Date.UTC(2026, 10, 23))).toMatchObject({
+      command: 'cmd-9',
+      commandOnly: true,
+    });
   });
 });

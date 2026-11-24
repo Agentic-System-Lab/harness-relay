@@ -570,6 +570,11 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE schedules ADD COLUMN command TEXT;
   `,
+  // 43: a schedule that only runs its fixed command, never the team (docs/architecture.md, "Secrets and
+  // fixed commands").
+  `
+  ALTER TABLE schedules ADD COLUMN command_only INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /**

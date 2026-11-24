@@ -98,15 +98,31 @@ export interface CommandForm {
   hosts: string;
   secrets: string;
   cwd: string;
+  /** Its runs publish, post or send something: Try it asks first. */
+  publishes: boolean;
 }
 
 export function formOf(p: CommandProposal): CommandForm {
-  return { name: p.name, run: p.run, hosts: p.hosts.join(', '), secrets: p.secrets.join(', '), cwd: p.cwd ?? '' };
+  return {
+    name: p.name,
+    run: p.run,
+    hosts: p.hosts.join(', '),
+    secrets: p.secrets.join(', '),
+    cwd: p.cwd ?? '',
+    publishes: Boolean(p.publishes),
+  };
 }
 
 /** The edit form as a proposal, checked as the server will check it; undefined when it is not valid. */
 export function proposalOf(f: CommandForm): CommandProposal | undefined {
-  return checkProposal({ name: f.name, run: f.run, hosts: wordsOf(f.hosts), secrets: wordsOf(f.secrets), cwd: f.cwd });
+  return checkProposal({
+    name: f.name,
+    run: f.run,
+    hosts: wordsOf(f.hosts),
+    secrets: wordsOf(f.secrets),
+    cwd: f.cwd,
+    publishes: f.publishes,
+  });
 }
 
 /** What a command card offers now. */

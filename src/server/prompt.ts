@@ -269,6 +269,104 @@ export function handoffsNow(h: HandoffsNow): string {
     .join('\n');
 }
 
+const DAY_NAMES_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** What a schedule's last time did, for an agent. */
+const LAST_RESULT: Record<NonNullable<ConversationSchedule['lastResult']>, string> = {
+  sent: 'its message was sent to the team',
+  queued: 'its message was queued for the team',
+  missed: 'missed (Harness Relay was not running)',
+  skipped: 'skipped',
+  failed: 'failed',
+  ran: 'its fixed command ran and found nothing new',
+  noted: 'its fixed command ran and found something, noted in the chat for the user',
+};
+
+/** A moment as an agent reads it: the date and time in the schedule's time zone. */
+function localTime(at: number, timeZone: string): string {
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      })
+        .formatToParts(at)
+        .map((x) => [x.type, x.value]),
+    );
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+  } catch {
+    return new Date(at).toISOString();
+  }
+}
+
+/** When a schedule sends, in words, for an agent. */
+function repeatWords(s: ConversationSchedule): string {
+  const r = s.repeat;
+  switch (r.kind) {
+    case 'daily':
+      return `every day at ${r.time}`;
+    case 'weekly':
+      return `every ${r.days.map((d) => DAY_NAMES_EN[d] ?? d).join(', ')} at ${r.time}`;
+    case 'interval':
+      return `every ${r.hours === 1 ? 'hour' : `${r.hours} hours`}`;
+    case 'once':
+      return `once, at ${localTime(r.at, s.timeZone)}`;
+    case 'event':
+      return `whenever one of these happens: ${r.triggers
+        .map((t) =>
+          t.source === 'mail'
+            ? `a new mail${t.from ? ` from ${t.from}` : ''}${t.subject ? ` about "${t.subject}"` : ''}`
+            : t.source === 'calendar'
+              ? `an event${t.title ? ` "${t.title}"` : ''} about to begin (${t.minutes} min before)`
+              : t.source === 'github'
+                ? `${t.on === 'ci' ? 'a failed CI run' : 'a new pull request'} in ${t.repo}`
+                : `a file matching ${t.pattern} appearing or changing`,
+        )
+        .join('; ')}`;
+    default:
+      return 'only when the user runs it';
+  }
+}
+
+/**
+ * This chat's automation (its schedule) as it is now, for a member's turn prompt: how it was set, by an
+ * agent's proposal or by the user's own hand, whether it is on, when it runs, what it sends, the fixed
+ * command it runs (`command`: its name, when it is still saved), its goal and how its last time went (not
+ * when, nor the reason in the user's language: the section is told again only when what it says changes,
+ * not after every time). '' when the chat has none. Shown when it changed since the member's session last
+ * heard it.
+ */
+export function scheduleNow(s: ConversationSchedule | undefined, command?: string): string {
+  if (!s) return '';
+  const lines = [
+    `- ${s.enabled ? 'On' : 'Paused (its times send nothing until the user turns it on)'}: ${repeatWords(s)} (times in ${s.timeZone}).`,
+    s.command && s.commandOnly
+      ? `- It only runs the fixed command "${command ?? '(removed)'}": nothing goes to the team and no agent runs; what the command finds (exit code ${FIXED_COMMAND_NEWS}) or how it fails is noted in the chat for the user, with its output. Agents never get those notes: to know what a run did, read what the command keeps in the working directory (its state or log files).`
+      : `- Its message to the team: ${JSON.stringify(s.text)}${s.newChat ? ', in a new chat each time' : ''}.`,
+    ...(s.command && !s.commandOnly
+      ? [
+          `- It runs the fixed command "${command ?? '(removed)'}" first: the message goes to the team only when the command finds something new (exit code ${FIXED_COMMAND_NEWS}) or fails, with its output; when it finds nothing, nothing is sent.`,
+        ]
+      : []),
+    ...(s.goal ? [`- Its goal: ${JSON.stringify(s.goal)} (${s.tracking?.status ?? 'working'}).`] : []),
+    ...(s.lastResult ? [`- Its last time: ${LAST_RESULT[s.lastResult]}.`] : []),
+  ];
+  return lines.join('\n');
+}
+
+/** The turn prompt's section of what `scheduleNow()` says ('' for none: the chat has no automation now). */
+function scheduleTurnSection(now: string | undefined): string {
+  if (now === undefined) return '';
+  return `\n\nThis chat's automation, as it is now (it changed since you last heard, or this is your first turn; the user may have set or changed it themselves). A chat has one at most, so a schedule you propose replaces it once the user creates it:\n${
+    now || 'This chat has no automation now.'
+  }`;
+}
+
 /** The turn prompt's section of what `handoffsNow()` says ('' for none: the working directory has nothing left). */
 function handoffsTurnSection(now: string | undefined): string {
   if (now === undefined) return '';
@@ -287,8 +385,8 @@ export function handoffSection(platform: NodeJS.Platform = process.platform): st
   return `\n\n# Secrets and fixed commands
 When the work needs a secret (an API token, an app secret, a password) or a script that uses one, never ask for it in the chat, never ask the user to type it in a terminal or paste it into a file, and never write one yourself.${windows ? '' : ' Nor ask the user to run commands in a terminal to set things up: run them yourself, or use these blocks.'} Instead, put these blocks in your reply, each on lines of its own and never inside code; Harness Relay takes them out and shows the user a card, and leaves out the blocks past each one's limit per reply:${windows ? ' (Harness Relay runs on native Windows here, where fixed commands and interactive commands do not run yet: ask for secrets only for later, and give the user steps instead.)' : ''}
 - \`<secret name="NAME" label="What it is">why you need it</secret>\`: asks the user for a secret (NAME in capital letters, digits and _; at most ${HANDOFF_LIMITS.secretsPerReply} in a reply). The team waits for their answer, as for ${ASK_TOKEN}. The value is kept for this working directory and never shown to you or the chat; only a fixed command that names it gets it. When you know the page where the user gets it (a token generator, an app's keys page), add url="https://…" with it: the card links to it, for the user to open in their own browser and paste the value on the card. Ask only for what must stay secret (a token, a password, an app secret): an account's id or a user name is not one, so put it in the command line or a file in the working directory instead, where a run's output shows it unmasked and a wrong one can be told.
-- \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule; at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first, and the others in a later reply. A later proposal of the same name replaces one the user has not saved yet. The user saves and tries it; you cannot run it yourself. Ask in the same reply for each secret it names that is not kept yet (a <secret> block each), so that the user gives them before trying it. Trying it from its card gives it what the user types in the card's input box on its standard input (nothing when they type nothing): for a command that reads its standard input, add input="…" with what to type for a first try (the box starts with it; the user can change it), but never for one whose run publishes, posts or sends something: its Try it would really do it. Propose that one without input, and put each real run in the outbox with <command-run> once the user agreed to what it sends. Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration in the folder) changes, until the user approves the change. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A fixed command gets its secrets from that file only, never from a file in the working directory such as a .env: agents can read the working directory, and a command's output is masked only for the secrets Harness Relay keeps. If the user already put a secret in such a file, do not read it nor build a command around it: ask for it with a <secret> block, and once it is saved, suggest the user delete that file. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you at your next turn: each run the user tries from the card of a command you proposed, and each run the outbox sends for you. Never ask the user to run again what they already ran.
-- \`<command-run name="post">what it reads on its standard input</command-run>\`: puts one run of a saved fixed command in the outbox (to post or send something); it runs only when the user clicks Send.
+- \`<command name="post" hosts="api.example.com" secrets="NAME">python3 post.py</command>\`: proposes a fixed command (name in lower case), for a script that needs secrets or should run on a schedule; at most ${HANDOFF_LIMITS.commandsPerReply} in a reply, so propose the ones needed first, and the others in a later reply. A later proposal of the same name replaces one the user has not saved yet. The user saves and tries it; you cannot run it yourself. Ask in the same reply for each secret it names that is not kept yet (a <secret> block each), so that the user gives them before trying it. Trying it from its card gives it what the user types in the card's input box on its standard input (nothing when they type nothing): for a command that reads its standard input, add input="…" with what to type for a first try (the box starts with it; the user can change it), but never for one whose run publishes, posts or sends something: its Try it would really do it. Propose that one without input and with publishes="yes" (its card then asks the user to confirm before a try), and put each real run in the outbox with <command-run> once the user agreed to what it sends. Harness Relay runs it in its own sandbox: it may write only in the working directory and reach only the hosts listed (list every host it calls), and once saved it does not run again after its code (the scripts, modules and configuration anywhere in the working directory) changes, until the user approves the change: the card of a run waiting in the outbox, and the note of a scheduled run that did not happen, offer that approval, which only pins the code again and never runs the command itself. So finish changing code before the user saves a command, change it later only when the user asks, and then say plainly that they must approve the change before its next run. Its secrets are in the file named by $RELAY_SECRETS_FILE, one NAME=value per line (the value is everything after the first =, no quotes): have the script read that file itself; never pass a value to another program as an argument, print it, log it or write it into the working directory. A fixed command gets its secrets from that file only, never from a file in the working directory such as a .env: agents can read the working directory, and a command's output is masked only for the secrets Harness Relay keeps. If the user already put a secret in such a file, do not read it nor build a command around it: ask for it with a <secret> block, and once it is saved, suggest the user delete that file. A script may write a new value for one of its own names back to that file (a renewed token), and Harness Relay keeps it. Exit 0 when all is well and there is nothing new, ${FIXED_COMMAND_NEWS} when a scheduled run found something for the team (its output goes to them), anything else on failure. Its output reaches the user with secrets masked, and you at your next turn: each run the user tries from the card of a command you proposed, and each run the outbox sends for you. Never ask the user to run again what they already ran.
+- \`<command-run name="post">what it reads on its standard input</command-run>\`: puts one run of a saved fixed command in the outbox (to post or send something); it runs only when the user clicks Send. For work the user wants done at set times without confirming each run (posting on a schedule, a check each hour), do not plan to put a run in the outbox at each time: propose a schedule that runs the saved command itself (its "command", see the schedule rule), which needs no Send.
 - \`<interactive reason="why">gcloud auth login --no-launch-browser</interactive>\`: asks the user to run, themselves, a command only they can complete (at most ${INTERACTIVE_LIMITS.perReply} in a reply): a sign-in that shows a link or a device code (\`gcloud auth login --no-launch-browser\`, \`npm login\`), or a password prompt (\`sudo -A …\`; ssh and git ask through Harness Relay's password helper). The team waits, as for ${ASK_TOKEN}. The user starts it from a card, with their own rights and outside every sandbox, in an empty folder of its own; add workdir="yes" when it must run in the working directory (\`git push\`). It has no terminal, so a full-screen program or one that insists on a terminal cannot be answered. You see its output only if the user sends it to the team. Never use it for a secret (that is \`<secret>\`), nor for a command you can run yourself.
 Each turn prompt says which secrets and fixed commands this working directory has whenever that changed.`;
 }
@@ -405,7 +503,7 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
  */
 export function proposalRules(unattended: boolean): string {
   if (unattended) return '';
-  return `\n- When the user asks for something to be done for them again later, at set times (every morning, each Monday, once next Friday) or whenever something happens (a new mail, an event about to begin, a pull request opened, a CI run that failed, a file appearing), you can propose a schedule for this chat: write one block on lines of its own, not in a code block, <schedule>{"text": "the message the team gets each time", "repeat": {"kind": "weekly", "time": "09:00", "days": [1, 2, 3, 4, 5]}}</schedule>. "repeat" is {"kind": "daily", "time": "HH:MM"}, {"kind": "weekly", "time": "HH:MM", "days": [0-6, 0 = Sunday]}, {"kind": "interval", "hours": N}, {"kind": "once", "at": "YYYY-MM-DDTHH:MM"} or {"kind": "event", "triggers": [{"source": "mail", "from": "…", "subject": "…"}, {"source": "calendar", "minutes": 10, "title": "…"}, {"source": "github", "repo": "owner/name", "on": "pr" or "ci"}, {"source": "file", "pattern": "inbox/*.csv"}]}, in the user's local time. Add "goal" when the work has an end (the schedule then stops once it is met), and "newChat": true for a fresh chat each run. The user sees it as a card and creates it or not: nothing is scheduled until then, so say that, and propose at most one, only when the user asked for work to be done later or again.`;
+  return `\n- When the user asks for something to be done for them again later, at set times (every morning, each Monday, once next Friday) or whenever something happens (a new mail, an event about to begin, a pull request opened, a CI run that failed, a file appearing), you can propose a schedule for this chat: write one block on lines of its own, not in a code block, <schedule>{"text": "the message the team gets each time", "repeat": {"kind": "weekly", "time": "09:00", "days": [1, 2, 3, 4, 5]}}</schedule>. "repeat" is {"kind": "daily", "time": "HH:MM"}, {"kind": "weekly", "time": "HH:MM", "days": [0-6, 0 = Sunday]}, {"kind": "interval", "hours": N}, {"kind": "once", "at": "YYYY-MM-DDTHH:MM"} or {"kind": "event", "triggers": [{"source": "mail", "from": "…", "subject": "…"}, {"source": "calendar", "minutes": 10, "title": "…"}, {"source": "github", "repo": "owner/name", "on": "pr" or "ci"}, {"source": "file", "pattern": "inbox/*.csv"}]}, in the user's local time. Add "goal" when the work has an end (the schedule then stops once it is met), and "newChat": true for a fresh chat each run. When each run is a saved fixed command's work (see "Secrets and fixed commands"), name it: "command": "its-name" has Harness Relay run it first each time, with no model and no Send, and the message goes to the team only when the command exits ${FIXED_COMMAND_NEWS} (something new) or fails; add "commandOnly": true when the team need not act on what it finds (posting on a schedule): then only the command runs and what it finds is noted in the chat for the user (agents never get those notes), with no goal, no new chat and no webhook. "text" is still required (say what the command does), a command works only with set times (never "event", which refuses the block), and the command must be saved before the user creates the schedule. The user sees it as a card and creates it or not: nothing is scheduled until then, so say that, and propose at most one, only when the user asked for work to be done later or again. A chat has one automation at most: creating yours replaces the one it has (your turn prompt says which, as it is now, also after the user changed it themselves), so never ask the user to delete or keep an older one, and never guess what it is.`;
 }
 
 /**
@@ -547,7 +645,7 @@ ${team}
 - Each turn you receive the chat messages that are new to you, wrapped in <message> tags. Your entire reply is posted to the group verbatim.
 - Address teammates by @Name. Stay within your role; don't do a teammate's job unless asked.
 - Be concise and don't restate what others already said. If you have nothing useful to add, reply with exactly ${PASS_TOKEN}.
-- If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled.
+- If a good answer depends on something only the user knows (their situation, goal, constraints or preference) and a guess would likely send your answer the wrong way, ask before answering: ask briefly (at most three questions, with options when that helps), don't answer yet, and end your reply with ${ASK_TOKEN} on its own line. The team then waits for the user; once they reply, you answer first, with their answer in hand. Don't ask about details you can reasonably assume — state the assumption and answer — and don't ask what the user or a teammate has already settled. When a reply ends waiting for the user to choose or confirm something before the team can go on, end it with ${ASK_TOKEN} too, so that their answer comes straight back to you; but not when what it waits for is a card's own answer (a schedule to create, a fixed command to save, a secret), which the card takes: ${ASK_TOKEN} would hold the chat, and a schedule's first time with it.
 - When the work needs something only the user can do outside this chat, and you cannot do it for them (sign in to a site, create an app or a key in a developer console, approve a payment, press a button on a device), end your reply with the steps in a block on lines of its own: <steps>, then one numbered step per line, in order ("1. Open [the app dashboard](https://example.com/apps) and click Create app."), then </steps>, as plain text: never in a code block or backticks, and the tags only for real steps (to mention them, call it a steps block). The user gets a box to tick for each step and answers with the steps they did, those they did not, where they got stuck and a note; the team waits for them as for ${ASK_TOKEN} (no need to add it), and once they answer you go on first. Use it only for such steps, never for questions (ask those with ${ASK_TOKEN}). Never ask the user for a password, token, API key or other secret, in a step or anywhere else in the chat, nor to paste one into it, put one in a file or type one in a terminal: ask for it with a <secret> block (see "Secrets and fixed commands").
 - Reply in the same language the user writes in.${scheduleRules(conv, unattended)}${proposalRules(unattended)}${branchRules(conv)}${subagentRules(agent.provider, nativeOff)}${trackingSection(tracked)}
 - The chat renders Markdown, and \`\`\`mermaid code blocks are drawn as diagrams. To show an image or video (PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV), save it inside your working directory and embed it with a path relative to that directory, e.g. \`![Sales by month](charts/sales.png)\` or \`![Demo](out/demo.mp4)\`. Images from websites are shown only as links.
@@ -757,6 +855,8 @@ export interface TurnInfo {
    * member's session last heard them ('' when it has none left); undefined when they did not.
    */
   handoffs?: string;
+  /** This chat's automation (`scheduleNow()`), when it changed since this member's session last heard it ('' for none now). */
+  schedule?: string;
 }
 
 export function buildTurnPrompt(
@@ -794,7 +894,7 @@ export function buildTurnPrompt(
     if (turn.round > 1) cue += ` Reply with ${PASS_TOKEN} if you have nothing new to add.`;
   }
   const notes = turn.notes?.length ? `\n\n${turn.notes.map((n) => `Note from Harness Relay: ${n}`).join('\n')}` : '';
-  return `${header}${chat}${recalledSection(recalled)}${handoffsTurnSection(turn.handoffs)}${notes}\n\n${cue}`;
+  return `${header}${chat}${recalledSection(recalled)}${handoffsTurnSection(turn.handoffs)}${scheduleTurnSection(turn.schedule)}${notes}\n\n${cue}`;
 }
 
 /**

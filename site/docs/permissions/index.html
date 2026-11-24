@@ -440,7 +440,8 @@
           <ul>
             <li>always in its own sandbox, whatever the permission: it writes only in the working directory and reaches only the hosts listed;</li>
             <li>its secrets in a file only it can read, and its output with every secret replaced by <b>••••</b>;</li>
-            <li>only with the code as it was when you saved it (<b>Show the code it runs</b> shows it first, a file a row), and only while the code in its folder stays so: once an agent changes the script, the card shows you the diff, and it runs again only when you approve it;</li>
+            <li>only with the code as it was when you saved it (<b>Show the code it runs</b> shows it first, a file a row), and only while the code in its folder stays so: once an agent changes the script, the card shows you the diff, and it runs again only after you approve it, which itself runs nothing (the approval is offered on its card, on a run of it in the outbox and on the note of an automation's skipped time);</li>
+            <li>a command that publishes, posts or sends something asks before <b>Try it</b>, since a try really does it;</li>
             <li>when you click <b>Try it</b> (what you type in <b>Input for this run</b> is what it reads, such as the text of a post), <b>Send</b> on its outbox card, or on an automation's times (<b>Run a fixed command first</b>), where exit code 0 sends nothing and runs no model.</li>
           </ul>
           <p>

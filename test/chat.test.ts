@@ -30,6 +30,8 @@ import {
   revisionOutcome,
   scrollSpot,
   segments,
+  notePieces,
+  savedCommandsKey,
   shownSegments,
   showsToEnd,
   teamChanges,
@@ -541,6 +543,47 @@ describe("an agent's work between its words", () => {
     ]);
     expect(segs.map((s) => s.kind)).toEqual(['activity', 'todo', 'activity', 'approval', 'activity']);
     expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
+  });
+
+  it("keys the commands the chat's cards saved, so that a proposed schedule reads them again once one is saved", () => {
+    const card = (status: 'proposed' | 'saved', commandId?: string) => ({
+      parts: [
+        {
+          type: 'command' as const,
+          id: 'k',
+          folder: '/w',
+          proposal: { name: 'post', run: 'true', hosts: [], secrets: [] },
+          status,
+          ...(commandId ? { commandId } : {}),
+        },
+      ],
+    });
+    expect(savedCommandsKey([card('proposed')])).toBe('');
+    expect(savedCommandsKey([card('saved', 'c1')])).toBe('c1:post');
+    expect(savedCommandsKey([{ parts: [{ type: 'text', text: 'hi' }] }])).toBe('');
+  });
+
+  it('shows the output a system note fences as a block, and a fence never closed as words', () => {
+    expect(notePieces('Ran the fixed command "post" once: done.\n\nIts output (secrets masked):\n```\nposted joke 2\n```')).toEqual([
+      { kind: 'text', text: 'Ran the fixed command "post" once: done.\n\nIts output (secrets masked):' },
+      { kind: 'code', text: 'posted joke 2' },
+    ]);
+    // More backticks than the output has, as the server writes them; the output's own ``` stays in it.
+    expect(notePieces('Output:\n````\na\n```\nb\n````')).toEqual([
+      { kind: 'text', text: 'Output:' },
+      { kind: 'code', text: 'a\n```\nb' },
+    ]);
+    expect(notePieces('A note.\n```\nnot closed')).toEqual([{ kind: 'text', text: 'A note.\n```\nnot closed' }]);
+    expect(notePieces('Just words.')).toEqual([{ kind: 'text', text: 'Just words.' }]);
+  });
+
+  it("shows a note's card of a fixed command whose code changed, not one a server could not read again", () => {
+    const segs = segments([
+      text('The automation did not run the fixed command "post".'),
+      { type: 'command-changed', commandId: 'c1', name: 'post', changed: ['post.py'] },
+      { type: 'command-changed', commandId: '', name: '', changed: [] },
+    ]);
+    expect(segs.map((s) => s.kind)).toEqual(['text', 'command-changed']);
   });
 
   it("shows what Harness Relay noted about the turn (an MCP server left out of it) apart from the agent's words", () => {

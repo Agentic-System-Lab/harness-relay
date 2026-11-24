@@ -16,6 +16,7 @@ import type { FixedCommandDeps } from '../src/server/fixedCommands';
 import type { SecretStore } from '../src/server/secrets';
 import type { SpawnResult } from '../src/server/process';
 import { FIXED_COMMAND_TOOL } from '../src/server/orchestrator';
+import { Scheduler } from '../src/server/scheduler';
 import { Outbox } from '../src/server/outbox';
 import { defaultInteractiveDeps } from '../src/server/interactive';
 import {
@@ -250,14 +251,19 @@ describe('fixed command cards', () => {
     expect(diff.digest).toMatch(/^[0-9a-f]{32}$/);
     // Changed again after the user looked: their approval is of other code, and is refused.
     writeFileSync(join(project, 'post.py'), 'print("leak more")\n');
-    await expect(orchestrator.tryCommand(conv.id, id, { approve: diff.digest })).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.approveCommand(conv.id, id, diff.digest)).rejects.toMatchObject({ status: 409 });
     expect(ran).toHaveLength(1);
     const seen = await orchestrator.commandDiff(conv.id, id);
     expect(seen.diff).toContain('+print("leak more")');
-    await orchestrator.tryCommand(conv.id, id, { approve: seen.digest });
+    // Approving pins the code again and runs nothing: the card shows Try it again, its last run forgotten.
+    await orchestrator.approveCommand(conv.id, id, seen.digest);
+    expect(ran).toHaveLength(1);
+    expect(partOf(conv.id, 'command').part.run).toBeUndefined();
+    expect(settings.handoffs.command(id)!.lastRun).toBeUndefined();
+    expect((await orchestrator.commandDiff(conv.id, id)).changed).toEqual([]);
+    await orchestrator.tryCommand(conv.id, id);
     await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('passed'));
     expect(ran).toHaveLength(2);
-    expect((await orchestrator.commandDiff(conv.id, id)).changed).toEqual([]);
   });
 
   it('does not run while a run may be writing in its folder', async () => {
@@ -920,6 +926,223 @@ describe('a schedule that runs a fixed command first', () => {
       .messages.filter((m) => m.author.kind === 'user')
       .map((m) => m.event ?? '');
     expect(events.some((e) => e.includes('3 new items'))).toBe(true);
+  });
+
+  it('notes in the chat that its code changed, with the approval it waits for, which runs nothing and marks the note', async () => {
+    const { conv, id } = await scheduled();
+    writeFileSync(join(project, 'check.py'), 'print("changed")\n');
+    const sent = await orchestrator.sendScheduled(conv.id);
+    expect(sent).toMatchObject({ result: 'failed', noted: true });
+    expect(ran).toHaveLength(0);
+    const note = store.get(conv.id)!.messages.at(-1)!;
+    expect(note.author.kind).toBe('system');
+    const card = note.parts.find((p): p is Extract<MessagePart, { type: 'command-changed' }> => p.type === 'command-changed')!;
+    expect(card).toMatchObject({ commandId: id, name: 'check', changed: ['check.py'] });
+    expect(card.approved).toBeUndefined();
+    // Approved from the note: pinned again, nothing runs, and the note says it is approved.
+    const { digest } = await orchestrator.commandDiff(conv.id, id);
+    await orchestrator.approveCommand(conv.id, id, digest);
+    expect(ran).toHaveLength(0);
+    const after = store
+      .get(conv.id)!
+      .messages.at(-1)!
+      .parts.find((p) => p.type === 'command-changed');
+    expect(after).toMatchObject({ approved: true });
+    play = () => ({ code: 0 });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('ran');
+    expect(ran).toHaveLength(1);
+  });
+});
+
+describe('a schedule that only runs its fixed command (commandOnly)', () => {
+  const commandOnly = async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print("post")\n');
+    const folder = orchestrator.handoffFolder(conv);
+    const { takePin } = await import('../src/server/fixedCommands');
+    const id = settings.handoffs.commandId(folder, 'post');
+    settings.handoffs.saveCommand(
+      folder,
+      id,
+      { name: 'post', run: 'python3 post.py', hosts: [], secrets: [], publishes: true },
+      await takePin(folder, id),
+    );
+    conv.schedule = {
+      text: 'Post what is due.',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+      command: id,
+      commandOnly: true,
+    };
+    store.saveSchedule(conv);
+    return { conv, id };
+  };
+
+  it('keeps it with the schedule', async () => {
+    const { conv } = await commandOnly();
+    const { Store } = await import('../src/server/store');
+    expect(new Store(db).get(conv.id)!.schedule).toMatchObject({ commandOnly: true });
+  });
+
+  it('never runs a model: nothing when it found nothing, a note with its output when it found something or failed', async () => {
+    const { conv } = await commandOnly();
+    play = () => ({ code: 0, stdout: 'nothing due' });
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'ran' });
+    expect(store.get(conv.id)!.messages).toHaveLength(0);
+
+    play = () => ({ code: 10, stdout: 'posted joke 2' });
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'noted' });
+    const note = store.get(conv.id)!.messages.at(-1)!;
+    expect(note.author.kind).toBe('system');
+    expect(textOf(note)).toMatch(/^自動任務執行了固定指令「post」：完成，有新的內容（結束碼 10）。/);
+    expect(textOf(note)).toContain('posted joke 2');
+
+    play = () => ({ code: 1, stdout: 'token expired' });
+    expect(await orchestrator.sendScheduled(conv.id)).toMatchObject({ result: 'failed', noted: true });
+    expect(textOf(store.get(conv.id)!.messages.at(-1)!)).toContain('token expired');
+    // No message to the team, no model.
+    expect(calls).toHaveLength(0);
+    expect(store.get(conv.id)!.messages.some((m) => m.author.kind === 'user')).toBe(false);
+    expect(ran).toHaveLength(3);
+  });
+
+  it('runs while the team waits for the user, and without a team', async () => {
+    const { conv } = await commandOnly();
+    const c = store.get(conv.id)!;
+    c.pause = { mode: 'relay', askers: ['x'], rest: [], participants: [], round: 1 } as never;
+    store.saveMeta(c);
+    play = () => ({ code: 0 });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('ran');
+    c.agents = [];
+    store.saveMeta(c);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('ran');
+    expect(ran).toHaveLength(2);
+  });
+
+  it("records its times through the scheduler: one note of its own (never the scheduler's too), and `noted`", async () => {
+    const { conv } = await commandOnly();
+    const T0 = Date.UTC(2026, 10, 24, 6);
+    let now = T0 + 3_600_000 + 1000;
+    const c = store.get(conv.id)!;
+    c.schedule = { ...c.schedule!, updatedAt: T0, nextRunAt: T0 + 3_600_000 };
+    store.saveSchedule(c);
+    const scheduler = new Scheduler(store, orchestrator, () => now);
+    play = () => ({ code: 10, stdout: 'posted joke 3' });
+    await scheduler.tick();
+    expect(store.get(conv.id)!.schedule).toMatchObject({ lastResult: 'noted', nextRunAt: T0 + 2 * 3_600_000 });
+    expect(store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system')).toHaveLength(1);
+    // A failure: its own note with the output, and no "could not run" note from the scheduler beside it.
+    play = () => ({ code: 1, stdout: 'token expired' });
+    now += 3_600_000;
+    await scheduler.tick();
+    const notes = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system');
+    expect(notes).toHaveLength(2);
+    expect(textOf(notes[1]!)).toContain('token expired');
+    expect(store.get(conv.id)!.schedule).toMatchObject({ lastResult: 'failed' });
+    // Its code changes: one note waiting for the approval, not one more at each time.
+    writeFileSync(join(project, 'post.py'), 'print("changed")\n');
+    for (let i = 0; i < 2; i++) {
+      now += 3_600_000;
+      await scheduler.tick();
+    }
+    const after = store.get(conv.id)!.messages.filter((m) => m.author.kind === 'system');
+    expect(after).toHaveLength(3);
+    expect(after[2]!.parts.some((p) => p.type === 'command-changed')).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('starts what waits in the queue once its run let go of the folder', async () => {
+    const { conv } = await commandOnly();
+    const c = store.get(conv.id)!;
+    c.queue = [{ id: 'mine', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'Mine, queued' }], status: 'done' }];
+    (orchestrator as unknown as { saveQueue: (conv: unknown) => void }).saveQueue(c);
+    play = () => ({ code: 10, stdout: 'posted' });
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('noted');
+    await finish(conv.id);
+    expect(userTexts(conv.id)).toContain('Mine, queued');
+  });
+
+  it('waits, as busy, while a run writes in its folder', async () => {
+    const { conv } = await commandOnly();
+    const locks = (orchestrator as unknown as { dirLocks: Map<string, string> }).dirLocks;
+    locks.set(orchestrator.handoffFolder(conv), 'another-conversation');
+    try {
+      expect((await orchestrator.sendScheduled(conv.id)).result).toBe('busy');
+      expect(ran).toHaveLength(0);
+    } finally {
+      locks.delete(orchestrator.handoffFolder(conv));
+    }
+  });
+
+  it("tells each member the chat's automation as it is now, again only once it changed (the user's own edit too)", async () => {
+    const { conv } = await commandOnly();
+    fake.reply = () => 'OK.';
+    await orchestrator.send(conv.id, 'how does it run?');
+    await finish(conv.id);
+    const first = calls.at(-1)!.prompt;
+    expect(first).toContain("This chat's automation, as it is now");
+    expect(first).toContain('every hour (times in UTC)');
+    expect(first).toContain('It only runs the fixed command "post"');
+    await orchestrator.send(conv.id, 'and now?');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).not.toContain("This chat's automation");
+    // The user changed it in the form: the next turn hears it.
+    const c = store.get(conv.id)!;
+    c.schedule = { ...c.schedule!, repeat: { kind: 'daily', time: '05:15' }, commandOnly: false };
+    store.saveSchedule(c);
+    await orchestrator.send(conv.id, 'changed it');
+    await finish(conv.id);
+    const changed = calls.at(-1)!.prompt;
+    expect(changed).toContain('every day at 05:15');
+    expect(changed).toContain('It runs the fixed command "post" first');
+    // Removed: told once that there is none.
+    c.schedule = undefined;
+    store.saveSchedule(c);
+    await orchestrator.send(conv.id, 'removed it');
+    await finish(conv.id);
+    expect(calls.at(-1)!.prompt).toContain('This chat has no automation now.');
+  });
+});
+
+describe('a fixed command run waiting in the outbox whose code changed', () => {
+  it('says so on its card and keeps it waiting at Send until the user approves the change, then runs it once', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writeFileSync(join(project, 'post.py'), 'print("v1")\n');
+    const folder = orchestrator.handoffFolder(conv);
+    const { takePin } = await import('../src/server/fixedCommands');
+    const id = settings.handoffs.commandId(folder, 'post');
+    settings.handoffs.saveCommand(folder, id, { name: 'post', run: 'python3 post.py', hosts: [], secrets: [] }, await takePin(folder, id));
+    // The agent changed the code after the user saved the command, then put a run in the outbox.
+    writeFileSync(join(project, 'post.py'), 'print("v2")\n');
+    fake.reply = () => 'Ready.\n\n<command-run name="post">Hello</command-run>';
+    await orchestrator.send(conv.id, 'post it');
+    await finish(conv.id);
+    const item = () =>
+      agentMessages(store.get(conv.id)!)
+        .at(-1)!
+        .parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox')!;
+    expect(item().command?.id).toBe(id);
+    await vi.waitFor(() => expect(item().command?.changed).toEqual(['post.py']));
+    // Send waits: the item stays, nothing runs, and the reason says what to do.
+    await expect(withLang('en', () => orchestrator.answerOutbox(conv.id, item().id, 'send'))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/look at the changes on this card and approve them/),
+    });
+    expect(item().status).toBe('pending');
+    expect(ran).toHaveLength(0);
+    const { digest } = await orchestrator.commandDiff(conv.id, id);
+    await orchestrator.approveCommand(conv.id, id, digest);
+    expect(item().command?.changed).toBeUndefined();
+    expect(ran).toHaveLength(0);
+    expect((await orchestrator.answerOutbox(conv.id, item().id, 'send')).status).toBe('sent');
+    expect(ran).toHaveLength(1);
+    expect(ran[0]!.stdin).toBe('Hello');
   });
 });
 
