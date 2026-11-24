@@ -1388,8 +1388,24 @@ export class Orchestrator {
     if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder, asks });
     let proposed = 0;
     const renewed = new Set<string>();
+    let replaced = false;
     for (const b of blocks) {
-      if (b.kind !== 'command' || had.commands.has(b.name)) continue;
+      if (b.kind !== 'command') continue;
+      if (had.commands.has(b.name)) {
+        // Proposed again by the run that asked for left-out cards (its secrets named, say): it replaces the
+        // reply's own card of that name, while the user has not decided it.
+        const card = msg.parts.find(
+          (p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command' && p.proposal.name === b.name,
+        );
+        if (card?.status === 'proposed') {
+          const { kind: _kind, input, ...proposal } = b;
+          card.proposal = proposal;
+          if (input) card.input = input;
+          else delete card.input;
+          replaced = true;
+        }
+        continue;
+      }
       if (had.commands.size + proposed >= HANDOFF_LIMITS.commandsPerReply) {
         if (!left.commands.includes(b.name)) left.commands.push(b.name);
         continue;
@@ -1480,32 +1496,46 @@ export class Orchestrator {
           command: { id: cmd.id },
         });
     }
-    return asks.length > 0 || proposed > 0 || interactive > 0;
+    return asks.length > 0 || proposed > 0 || interactive > 0 || replaced;
   }
 
   /**
    * The cards a finished reply leaves the user without (`handoffGaps()`): a script its turn wrote that
    * reads $RELAY_SECRETS_FILE in a reply that proposes no command and with none to run it (not on native
    * Windows, where no fixed command runs), and a secret a command it proposes names that is neither kept
-   * nor asked for on a card, while the reply has room for one. None for a reply that passed. `scripts`:
-   * those found already (a second check reads no file again). None when they cannot be told (a working
-   * directory gone): the reply stands as it is.
+   * nor asked for on a card, while the reply has room for one; and a command it proposes that runs such
+   * a script but names no secret. None for a reply that passed. `worktrees`: a parallel turn's, whose
+   * files are read there. `scripts`: those found already (a second check reads no file again). None
+   * when they cannot be told (a working directory gone): the reply stands as it is.
    */
-  private async replyGaps(conv: Conversation, msg: ChatMessage, scripts?: string[]): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
+  private async replyGaps(
+    conv: Conversation,
+    msg: ChatMessage,
+    o: { worktrees?: readonly AgentWorktree[]; scripts?: string[] } = {},
+  ): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
     try {
-      return await this.gapsOf(conv, msg, scripts);
+      return await this.gapsOf(conv, msg, o);
     } catch (err) {
       console.warn('[orchestrator] could not check the cards a reply needs:', (err as Error).message);
       return { gaps: [], scripts: [] };
     }
   }
 
-  private async gapsOf(conv: Conversation, msg: ChatMessage, known?: string[]): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
+  private async gapsOf(
+    conv: Conversation,
+    msg: ChatMessage,
+    o: { worktrees?: readonly AgentWorktree[]; scripts?: string[] },
+  ): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
     if (isPass(textOf(msg))) return { gaps: [], scripts: [] };
     const folder = this.handoffFolder(conv);
     const proposed = msg.parts.flatMap((p) => (p.type === 'command' ? [p.proposal] : []));
+    // Read only where they would count: no command proposed, or one that names no secret.
+    const count = !proposed.length || proposed.some((c) => !c.secrets.length);
     const scripts =
-      known ?? (proposed.length || this.fixedCommandDeps.platform === 'win32' ? [] : await secretsScripts(msg.changes, folder));
+      o.scripts ??
+      (this.fixedCommandDeps.platform === 'win32' || !count
+        ? []
+        : await secretsScripts(msg.changes, folder, (root) => o.worktrees?.find((w) => w.root === root)?.path));
     const room = HANDOFF_LIMITS.secretsPerReply - msg.parts.reduce((n, p) => n + (p.type === 'secrets' ? p.asks.length : 0), 0);
     if (!scripts.length && !(room > 0 && proposed.some((c) => c.secrets.length))) return { gaps: [], scripts };
     const store = this.settings.handoffs;
@@ -1539,6 +1569,14 @@ export class Orchestrator {
       g.kind === 'secret' ? [{ name: g.name, reason: t().handoffs.secretForCommand(g.command), status: 'waiting' as const }] : [],
     );
     if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder: this.handoffFolder(conv), asks, byRelay: true });
+    for (const g of gaps) {
+      if (g.kind !== 'unnamed') continue;
+      msg.parts.push({
+        type: 'notice',
+        text: t().handoffs.commandWithoutSecrets(agent.name, g.command, g.path),
+        forAgent: `The fixed command "${g.command}" your last reply proposed runs the file ${JSON.stringify(g.path)}, which reads $RELAY_SECRETS_FILE, but names no secret, so a run of it gets none. If it needs secrets, propose it again with secrets="…" naming them, and a <secret> block for each not kept yet.`,
+      });
+    }
     const scripts = gaps.flatMap((g) => (g.kind === 'script' ? [g.path] : []));
     if (scripts.length) {
       const one = scripts.length === 1;
@@ -1619,9 +1657,12 @@ export class Orchestrator {
    * Refuses, as `send()` would, the user's answer on a card while it could not be posted (the conversation
    * held for a moment, its queue full): asked before the card is decided, so that it can be answered again.
    */
-  private cardAnswerable(convId: string): void {
+  private cardAnswerable(convId: string, msg?: ChatMessage): void {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
+    // Its reply still being written (its agent asked once more for the cards it left out): the answer
+    // would wait behind the question that reply ends with, so it waits for the reply instead.
+    if (msg?.status === 'streaming') throw new HttpError(409, t().handoffs.replyWriting);
     if (this.queues(conv)) {
       if ((conv.queue?.length ?? 0) >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
       return;
@@ -1643,7 +1684,7 @@ export class Orchestrator {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
     const waiting = part.asks.filter((a) => a.status === 'waiting');
     if (!waiting.length) throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     let saved: string[] = [];
     if (!answer.decline) {
       const values = Object.fromEntries(
@@ -1798,7 +1839,7 @@ export class Orchestrator {
   async dismissCommand(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.commandDismissed(part.proposal.name));
@@ -1811,7 +1852,7 @@ export class Orchestrator {
   async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
     // Sent as the answer: the chat has it, so the agent's next turn does not tell it again (`commandRunNotes()`).
     // Marked before it is sent (the turn it starts reads it), and not, should it go nowhere.
@@ -2329,7 +2370,7 @@ export class Orchestrator {
     if (!session || this.interactive.has(interactiveKey(convId, part.id)) || session.state === 'running')
       throw new HttpError(409, t().handoffs.interactiveNotEnded);
     if (session.sent) throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     const values = Object.values(this.settings.handoffs.values(part.folder));
     const output = maskValues(session.output, values);
     part.session = { ...session, output, sent: true };
@@ -2341,7 +2382,7 @@ export class Orchestrator {
   async dismissInteractive(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.interactiveDismissed(part.run));
@@ -7135,10 +7176,12 @@ export class Orchestrator {
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       // A card the reply needs but left out (a script written for a fixed command with none proposed, a
-      // secret its command names that nobody asks for): asked for once more, in the same reply, where
-      // someone may answer it; what is still missing then, Harness Relay asks for itself or says.
+      // command that runs one and names no secret, a secret its command names that nobody asks for): asked
+      // for once more, in the same reply, where someone may answer it; what is still missing then,
+      // Harness Relay asks for itself or says.
       await recordChanges();
-      let { gaps, scripts } = await this.replyGaps(conv, msg);
+      const worktrees = run.ws.isolated ? wts : undefined;
+      let { gaps, scripts } = await this.replyGaps(conv, msg, { worktrees });
       if (gaps.length && !run.unattended && state.sessionId && !run.abort.signal.aborted) {
         const asking: MessagePart = { type: 'notice', text: t().handoffs.askedAgain(agent.name) };
         textOpen = false;
@@ -7146,29 +7189,25 @@ export class Orchestrator {
         const from = msg.parts.length;
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
-        // The pass token alone: no script there was meant for a fixed command, or a command runs it.
-        let passedOn = false;
+        let failed = false;
         try {
-          const more = await attempt(false, handoffRepairPrompt(gaps));
-          result = addUsage(result, more);
-          for (let i = msg.parts.length - 1; i >= from; i--) {
-            const part = msg.parts[i]!;
-            if (part.type === 'text' && isPass(part.text)) {
-              msg.parts.splice(i, 1);
-              passedOn = true;
-            }
-          }
-          this.takeMemory(conv, msg, agent);
-          takeSchedule(msg);
-          if (this.takeHandoffs(conv, msg, agent, { again: true })) asks = true;
-          if (takeAsk(msg)) asks = true;
+          result = addUsage(result, await attempt(false, handoffRepairPrompt(gaps)));
         } catch (err) {
-          // Stopped, or its CLI failed: the reply stands as it was, what that run wrote of the blocks
-          // taken out unacted (as from a reply that failed), what it spent added, and what is still
-          // missing filled below.
+          // Stopped, or its CLI failed: the reply stands as it was, what that run wrote of the hand-off
+          // and steps blocks taken out unacted (as from a reply that failed), what it spent added, and
+          // what is still missing filled below.
+          failed = true;
           if (!(err instanceof AgentRunError && err.aborted))
             console.warn(`[orchestrator] @${agent.name} gave no missing cards:`, (err as Error).message);
           if (err instanceof AgentRunError && err.usage) result = addUsage(result, err.usage);
+        }
+        // Its notes and a schedule it proposed are kept, as from any reply, finished or not.
+        this.takeMemory(conv, msg, agent);
+        takeSchedule(msg);
+        if (!failed) {
+          if (this.takeHandoffs(conv, msg, agent, { again: true })) asks = true;
+          if (takeAsk(msg)) asks = true;
+        } else {
           for (let i = msg.parts.length - 1; i >= from; i--) {
             const part = msg.parts[i]!;
             if (part.type !== 'text') continue;
@@ -7178,10 +7217,20 @@ export class Orchestrator {
             else msg.parts.splice(i, 1);
           }
         }
+        // The pass token alone, once the blocks are out: no script there was meant for a fixed command,
+        // reads a secret, or goes without a command that runs it.
+        let passedOn = false;
+        for (let i = msg.parts.length - 1; i >= from; i--) {
+          const part = msg.parts[i]!;
+          if (part.type === 'text' && isPass(part.text)) {
+            msg.parts.splice(i, 1);
+            passedOn = true;
+          }
+        }
         // Its run changed files after all (it was told not to): recorded again once the turn ends.
         if (msg.parts.slice(from).some((p) => p.type === 'tool')) changesKept = false;
-        ({ gaps } = await this.replyGaps(conv, msg, scripts));
-        if (passedOn) gaps = gaps.filter((g) => g.kind !== 'script');
+        ({ gaps } = await this.replyGaps(conv, msg, { worktrees, scripts }));
+        if (passedOn) gaps = gaps.filter((g) => g.kind === 'secret');
         // Nothing was missing after all, and the run that asked said nothing else: the note that it was asked goes.
         if (passedOn && !gaps.length && !msg.parts.slice(from).some((p) => p.type === 'text' || p.type === 'tool')) {
           msg.parts.splice(msg.parts.indexOf(asking), 1);

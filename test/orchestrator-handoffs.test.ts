@@ -1447,6 +1447,135 @@ describe('cards a reply leaves out', () => {
     expect(alice()).toHaveLength(1);
     expect(notices(agentMessages(store.get(conv.id)!)[0]!)).toEqual([]);
   });
+
+  it('refuses a card of the reply while it is still written, the run that asks going: the answer would wait behind it', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    let refused: unknown;
+    fake.inTurn = async (name, o) => {
+      if (name !== 'Alice' || !o.prompt.startsWith(REPAIR)) return;
+      const { msg, part } = partOf(conv.id, 'secrets');
+      refused = await withLang('en', () =>
+        orchestrator.answerSecrets(conv.id, msg.id, part.id, { values: { KAGGLE_API_TOKEN: 'tok-123456' } }),
+      ).catch((err: unknown) => err);
+    };
+    fake.reply = (name, prompt) =>
+      name === 'Alice'
+        ? prompt.includes(REPAIR)
+          ? blocks
+          : '<secret name="KAGGLE_API_TOKEN">To download.</secret>\nI wrote download.py: give the token and try the command.'
+        : undefined;
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(refused).toMatchObject({ status: 409, message: 'This reply is still being written: answer this card once it is done.' });
+    expect(settings.handoffs.has(orchestrator.handoffFolder(conv), 'KAGGLE_API_TOKEN')).toBe(false);
+    // The secret the reply asked for already: one card, the run's repeat of it left out.
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(msg.parts.flatMap((p) => (p.type === 'secrets' ? p.asks.map((a) => a.name) : []))).toEqual(['KAGGLE_API_TOKEN']);
+    // Once it is written, the card takes its answer, and the team goes on.
+    const { part } = partOf(conv.id, 'secrets');
+    await orchestrator.answerSecrets(conv.id, msg.id, part.id, { values: { KAGGLE_API_TOKEN: 'tok-123456' } });
+    await finish(conv.id);
+    expect(settings.handoffs.has(orchestrator.handoffFolder(conv), 'KAGGLE_API_TOKEN')).toBe(true);
+    expect(alice().at(-1)!.prompt).toContain('KAGGLE_API_TOKEN');
+    expect(alice().at(-1)!.prompt.startsWith(REPAIR)).toBe(false);
+  });
+
+  it('asks again for a proposed command that runs such a script and names no secret, which its new proposal replaces', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.reply = (name, prompt) =>
+      name === 'Alice'
+        ? prompt.includes(REPAIR)
+          ? blocks
+          : 'Give the token on its card, then try it.\n\n<command name="download" hosts="www.kaggle.com">python3 download.py</command>'
+        : undefined;
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    expect(alice()[1]!.prompt).toContain(
+      '- The fixed command "download" you proposed runs the file "download.py", which reads $RELAY_SECRETS_FILE, but names no secret',
+    );
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    const cards = msg.parts.filter((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command');
+    expect(cards.map((c) => c.proposal.secrets)).toEqual([['KAGGLE_API_TOKEN']]);
+    expect(partOf(conv.id, 'secrets').part.asks.map((a) => a.name)).toEqual(['KAGGLE_API_TOKEN']);
+    expect(msg.asked).toBe(true);
+  });
+
+  it('says so when that command still names no secret', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    fake.reply = (name, prompt) =>
+      name === 'Alice' ? (prompt.includes(REPAIR) ? 'OK.' : '<command name="download">python3 download.py</command>') : undefined;
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const told = notices(agentMessages(store.get(conv.id)!).at(-1)!);
+    expect(told.at(-1)!.text).toBe(
+      'The fixed command "download" that @Alice proposed runs "download.py", which reads the secrets Harness Relay keeps, but the command names none, so a run of it gets none. Ask @Alice which secrets it needs.',
+    );
+    expect(told.at(-1)!.forAgent).toContain('The fixed command "download" your last reply proposed runs the file "download.py"');
+  });
+
+  it('takes the pass token, notes and a schedule out of a run that asks and is stopped', async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    const schedule = '<schedule>{"text": "Fetch it", "repeat": {"kind": "daily", "time": "08:00"}}</schedule>';
+    fake.inTurn = async (name, o) => {
+      if (name !== 'Alice' || !o.prompt.startsWith(REPAIR)) return;
+      o.onEvent({ type: 'text', text: `${schedule}\n\n[PASS]` });
+      orchestrator.stop(conv.id);
+    };
+    fake.reply = (name) => (name === 'Alice' ? asksInWords : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(textOf(msg)).toBe('I wrote download.py: give the token and try the command.');
+    expect(msg.parts.map((p) => p.type)).toContain('schedule');
+    // It said nothing was missing before it was stopped: no note of a script left without a command.
+    expect(notices(msg)).toEqual([]);
+  });
+
+  it("counts the reply's own cards against each limit when the run that asks adds more", async () => {
+    const conv = conversation({ mode: 'relay' });
+    writesScript();
+    const five = ['A', 'B', 'C', 'D', 'E'].map((n) => `<secret name="${n}">why</secret>`).join('\n');
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? blocks : `${five}\nI wrote download.py.`) : undefined);
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+    const msg = agentMessages(store.get(conv.id)!).at(-1)!;
+    expect(msg.parts.flatMap((p) => (p.type === 'secrets' ? p.asks.map((a) => a.name) : []))).toEqual(['A', 'B', 'C', 'D', 'E']);
+    expect(msg.parts.filter((p) => p.type === 'command')).toHaveLength(1);
+    expect(notices(msg).map((n) => n.text)).toContain('A reply may ask for 5 secrets at most, so these got no card: KAGGLE_API_TOKEN.');
+  });
+
+  it('keeps what was sent into the turn itself seen, though the run that asks follows it', async () => {
+    const conv = conversation({ mode: 'relay', steer: true });
+    writesScript();
+    fake.steer.add('Alice');
+    fake.inTurn = async (name, o) => {
+      if (name === 'Alice' && !o.prompt.startsWith(REPAIR) && alice().length === 1) await orchestrator.send(conv.id, 'Also save the model');
+    };
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? blocks : asksInWords) : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice()[0]!.steered).toHaveLength(1);
+    // Answered: the next turn is not given it again.
+    const { msg, part } = partOf(conv.id, 'secrets');
+    await orchestrator.answerSecrets(conv.id, msg.id, part.id, { values: { KAGGLE_API_TOKEN: 'tok-123456' } });
+    await finish(conv.id);
+    expect(alice().at(-1)!.prompt).not.toContain('Also save the model');
+  });
+
+  it("reads a parallel turn's script in its worktree, and asks there too", async () => {
+    const conv = conversation({ mode: 'parallel' });
+    writesScript();
+    fake.reply = (name, prompt) => (name === 'Alice' ? (prompt.includes(REPAIR) ? blocks : asksInWords) : undefined);
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(alice().map((c) => c.prompt.startsWith(REPAIR))).toEqual([false, true]);
+    expect(calls.filter((c) => c.name === 'Bob' && c.prompt.startsWith(REPAIR))).toEqual([]);
+    expect(partOf(conv.id, 'command').part.proposal.name).toBe('download');
+  });
 });
 
 describe('a schedule that runs a fixed command first', () => {

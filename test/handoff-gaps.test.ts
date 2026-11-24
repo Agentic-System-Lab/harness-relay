@@ -95,12 +95,38 @@ describe('secretsScripts: what it reads and names', () => {
     expect(await secretsScripts(edited, repo)).toEqual([':weird.py']);
   });
 
-  it("reads a parallel turn's files from its commit, not the working tree", async () => {
+  it("reads a parallel turn's files in its worktree, else from its commit, never the working tree", async () => {
     const changes = await changesOf(() => writeFileSync(join(repo, 'fetch.py'), 'RELAY_SECRETS_FILE\n'));
-    // Not in the working tree any more: as in a worktree of its own, it is read from the commit.
+    // Not in the working tree any more: as in a worktree of its own.
     rmSync(join(repo, 'fetch.py'));
     expect(await secretsScripts(changes, repo)).toEqual([]);
-    expect(await secretsScripts([{ ...changes[0]!, isolated: true }], repo)).toEqual(['fetch.py']);
+    const isolated = [{ ...changes[0]!, isolated: true }];
+    // From its commit, when its worktree is not known.
+    expect(await secretsScripts(isolated, repo)).toEqual(['fetch.py']);
+    // In its worktree on disk, as it is there.
+    const worktree = realpathSync(mkdtempSync(join(tmpdir(), 'relay-gaps-wt-')));
+    try {
+      writeFileSync(join(worktree, 'fetch.py'), 'print("no secrets")\n');
+      expect(await secretsScripts(isolated, repo, (root) => (root === changes[0]!.root ? worktree : undefined))).toEqual([]);
+      writeFileSync(join(worktree, 'fetch.py'), 'RELAY_SECRETS_FILE\n');
+      expect(await secretsScripts(isolated, repo, () => worktree)).toEqual(['fetch.py']);
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
+  it('reads no more than its budget of bytes in all', async () => {
+    const changes = await changesOf(() => {
+      writeFileSync(join(repo, 'a.py'), `${'#'.repeat(100)}\nRELAY_SECRETS_FILE\n`);
+      writeFileSync(join(repo, 'b.py'), 'RELAY_SECRETS_FILE\n');
+    });
+    const total = GAP_LIMITS.totalBytes;
+    GAP_LIMITS.totalBytes = 130;
+    try {
+      expect(await secretsScripts(changes, repo)).toEqual(['a.py']);
+    } finally {
+      GAP_LIMITS.totalBytes = total;
+    }
   });
 });
 
@@ -129,6 +155,18 @@ describe('handoffGaps', () => {
         asked: new Set(),
       }),
     ).toEqual([]);
+    // Any other word of a command line names no script: `main` in a branch, `run` in a sentence.
+    expect(
+      handoffGaps({
+        scripts: ['main.py', 'run.sh', 'fetch.js'],
+        commands: [{ run: 'git checkout main && python3 other.py run' }, { run: 'yarn fetch' }],
+        proposed: [],
+        asked: new Set(),
+      }),
+    ).toEqual([
+      { kind: 'script', path: 'main.py' },
+      { kind: 'script', path: 'run.sh' },
+    ]);
     // A name that only begins the same is not the script's.
     expect(handoffGaps({ scripts: ['post.py'], commands: [{ run: 'python3 post.py.bak' }], proposed: [], asked: new Set() })).toEqual([
       { kind: 'script', path: 'post.py' },
@@ -136,9 +174,28 @@ describe('handoffGaps', () => {
   });
 
   it('names no script in a reply that proposes a command: a script it does not name is likely its helper', () => {
-    expect(handoffGaps({ scripts: ['lib/secrets.py'], commands: [], proposed: [{ name: 'post', secrets: [] }], asked: new Set() })).toEqual(
-      [],
-    );
+    expect(
+      handoffGaps({
+        scripts: ['lib/secrets.py'],
+        commands: [],
+        proposed: [{ name: 'post', run: 'python3 post.py', secrets: ['T'] }],
+        asked: new Set(['T']),
+      }),
+    ).toEqual([]);
+  });
+
+  it('names a proposed command that runs such a script but names no secret', () => {
+    expect(
+      handoffGaps({
+        scripts: ['titanic/download.py'],
+        commands: [],
+        proposed: [
+          { name: 'dl', run: 'python3 titanic/download.py', secrets: [] },
+          { name: 'train', run: 'python3 titanic/train.py', secrets: [] },
+        ],
+        asked: new Set(),
+      }),
+    ).toEqual([{ kind: 'unnamed', command: 'dl', path: 'titanic/download.py' }]);
   });
 
   it('names each secret a proposed command needs that is neither kept nor asked for, once', () => {
@@ -147,8 +204,8 @@ describe('handoffGaps', () => {
         scripts: [],
         commands: [],
         proposed: [
-          { name: 'post', secrets: ['TOKEN', 'APP_SECRET', 'KEPT'] },
-          { name: 'refresh', secrets: ['TOKEN', 'REFRESH'] },
+          { name: 'post', run: 'python3 post.py', secrets: ['TOKEN', 'APP_SECRET', 'KEPT'] },
+          { name: 'refresh', run: 'python3 refresh.py', secrets: ['TOKEN', 'REFRESH'] },
         ],
         asked: new Set(['APP_SECRET', 'KEPT']),
       }),

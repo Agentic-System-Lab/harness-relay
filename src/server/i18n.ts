@@ -198,6 +198,9 @@ const zhTW = {
     leftOutInteractive: (n: number, more: number) => `一則回覆最多 ${n} 個要你自己執行的指令，所以另外 ${more} 個沒有卡片。`,
     askedAgain: (agent: string) => `這則回覆少了它需要的卡片，Harness Relay 已請 @${agent} 補上。`,
     secretForCommand: (command: string) => `固定指令「${command}」需要它。`,
+    commandWithoutSecrets: (agent: string, command: string, path: string) =>
+      `@${agent} 提議的固定指令「${command}」會執行「${path}」，它會讀取 Harness Relay 保管的密鑰，但這個指令沒有指名任何密鑰，所以執行時拿不到。請問 @${agent} 它需要哪些密鑰。`,
+    replyWriting: '這則回覆還在寫，等它寫完再回答這張卡片。',
     scriptWithoutCommand: (agent: string, paths: string[]) =>
       `@${agent} 寫的 ${paths.map((p) => `「${p}」`).join('、')} 會讀取 Harness Relay 保管的密鑰，但沒有提出執行它的固定指令，所以沒有卡片可以儲存和試跑。請 @${agent} 提出這個固定指令。`,
     outboxTitle: (name: string) => `執行一次固定指令「${name}」`,
@@ -1641,6 +1644,9 @@ const en: ServerMessages = {
     leftOutInteractive: (n, more) => `A reply may give you ${n} commands to run yourself at most, so ${more} more got no card.`,
     askedAgain: (agent) => `This reply left out a card it needs, so Harness Relay asked @${agent} for it.`,
     secretForCommand: (command) => `The fixed command "${command}" needs it.`,
+    commandWithoutSecrets: (agent, command, path) =>
+      `The fixed command "${command}" that @${agent} proposed runs "${path}", which reads the secrets Harness Relay keeps, but the command names none, so a run of it gets none. Ask @${agent} which secrets it needs.`,
+    replyWriting: 'This reply is still being written: answer this card once it is done.',
     scriptWithoutCommand: (agent, paths) =>
       `@${agent} wrote ${paths.map((p) => `"${p}"`).join(', ')} to read the secrets Harness Relay keeps, but proposed no fixed command that runs it, so there is no card to save and try it with. Ask @${agent} to propose that command.`,
     outboxTitle: (name) => `Run the fixed command "${name}" once`,

@@ -402,11 +402,13 @@ export function handoffRepairPrompt(gaps: readonly HandoffGap[]): string {
   const lines = gaps.map((g) =>
     g.kind === 'script'
       ? `- The file ${JSON.stringify(g.path)}, which you wrote in this turn, reads $RELAY_SECRETS_FILE, but no fixed command runs it: the user has no card to save and try it with.`
-      : `- The fixed command "${g.command}" you proposed names the secret ${g.name}, which is not kept and which no card asks for.`,
+      : g.kind === 'unnamed'
+        ? `- The fixed command "${g.command}" you proposed runs the file ${JSON.stringify(g.path)}, which reads $RELAY_SECRETS_FILE, but names no secret: a run of it gets none.`
+        : `- The fixed command "${g.command}" you proposed names the secret ${g.name}, which is not kept and which no card asks for.`,
   );
   return `Harness Relay checked your reply before the user answers it: the user gets a card only for a block in the reply, and yours left these out.
 ${lines.join('\n')}
-Write the missing blocks now, each on lines of its own: a <command> block for each such script, with every host it calls and the secrets it reads, and a <secret> block for each secret it names that is not kept yet. Write nothing else (the user has read your reply), and change no files. If such a script is not meant to run as a fixed command, or a saved command runs it already, reply with ${PASS_TOKEN} alone.`;
+Write the missing blocks now, each on lines of its own: a <command> block for each such script, with every host it calls and the secrets it reads (a command proposed again under its name replaces the one in your reply), and a <secret> block for each secret it names that is not kept yet. Write nothing else (the user has read your reply), and change no files. If such a script is not meant to run as a fixed command, reads no secret after all, or a saved command runs it already, reply with ${PASS_TOKEN} alone.`;
 }
 
 /**

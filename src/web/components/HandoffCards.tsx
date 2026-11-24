@@ -89,6 +89,7 @@ export function SecretsCard({
         <strong>{c.title}</strong>
         {!waiting.length && <span className="approval-waiting">{c.status[part.asks[0]?.status ?? 'saved']}</span>}
       </header>
+      {part.byRelay && <p className="muted small">{c.byRelay}</p>}
       <p className="muted small">{c.folder(part.folder)}</p>
       <ul className="handoff-asks">
         {part.asks.map((a) => {
