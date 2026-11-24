@@ -173,7 +173,6 @@ Thanks to everyone who has helped make Harness Relay. A workflow keeps this list
 <!-- contributors:start -->
 <table>
   <tr>
-    <td align="center" valign="top" width="120"><a href="https://github.com/cyyeh"><img src="https://avatars.githubusercontent.com/u/11023068?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Chih-Yu Yeh</b></sub></a></td>
     <td align="center" valign="top" width="120"><a href="https://github.com/davidho27941"><img src="https://avatars.githubusercontent.com/u/49113240?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Ta Wei (David) Ho</b></sub></a></td>
   </tr>
 </table>
