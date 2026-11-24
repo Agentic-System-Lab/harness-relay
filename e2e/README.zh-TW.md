@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、654 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、656 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 5 | [使用者說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
-| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 42 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
+| [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 44 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [使用者自己執行的指令](#使用者自己執行的指令) | [`interactive.spec.ts`](specs/interactive.spec.ts) | 3 | [使用者說明 → 你自己執行的指令](../docs/user-guide.zh-TW.md#你自己執行的指令)、[架構 → 互動指令](../docs/architecture.zh-TW.md#互動指令) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 26 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 修改檔案](../docs/architecture.zh-TW.md#修改檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 22 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
@@ -291,7 +291,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 核准
 
-[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 與 Copilot 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，Copilot 不詢問就執行 `echo`（它把它當成唯讀指令），所以它們在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、Copilot、Muse Code、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。選 **替我核准** 時，假的首席 agent 會核准它審查的每個請求，除非使用者最新的訊息寫了 `e2e:flag`（`e2e:slowapprove=<秒數>` 讓它審查那麼久）。`e2e:approve=long` 要求執行一段六行、179 個字元的 Python heredoc，回答之後會摺起來。
+[`approvals.spec.ts`](specs/approvals.spec.ts)：在會詢問使用者的對話中，agent 想執行指令（`echo e2e-approval`）。除了 Pi 與 Copilot 之外都是唯讀對話：Pi 在唯讀時沒有執行指令的工具，Copilot 不詢問就執行 `echo`（它把它當成唯讀指令），所以它們在編輯模式下，針對那裡唯一會詢問的那種指令詢問（`npm publish e2e-approval`，用 `e2e:approve=publish`）。Goose 要求執行的是 `env echo e2e-approval`，因為在唯讀時 Harness Relay 讓它不詢問就執行 `echo` 這類單純讀取的指令。回答會交給各 CLI 自己的請求：Claude Code 的 `can_use_tool`、Codex 的核准請求、ACP agent 的 `session/request_permission`（Grok、Cursor、Antigravity、Copilot、Muse Code、OpenCode、Goose、Cline、OpenHands），以及 Pi 的 gate 擴充功能的對話框。選 **替我核准** 時，假的首席 agent 會核准它審查的每個請求，除非使用者最新的訊息寫了 `e2e:flag`（`e2e:slowapprove=<秒數>` 讓它審查那麼久）。加上 `e2e:withdraw=<秒數>` 時，假的 Claude Code 在那段時間後就不再等回答（`control_cancel_request`），照樣執行指令，就像它自己的規則或 hook 先做了決定；加上 `e2e:bgask` 時，它的背景子代理會在這一輪回答時要求執行 `echo e2e-approval`，再用它自己的一輪說明有沒有執行（輸入先結束的話，請求會被拒絕，和 Claude Code 一樣）。`e2e:approve=long` 要求執行一段六行、179 個字元的 Python heredoc，回答之後會摺起來。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -303,7 +303,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 很長的指令回答後只顯示第一行、後面還有幾行與回答，點開可看完整指令 | Claude Code | 等待時卡片顯示完整指令（`e2e:approve=long`）。附上很長的說明拒絕之後，那一行顯示 `python3 - <<'EOF'`、**+5 lines** 和含說明的「Declined: …」；指令本身在點那一行之前是隱藏的，點開後保留換行，在那一行按 Enter 會再收起來。 |
 | 自動拒絕的對話不詢問就拒絕 | Claude Code | 指令被拒絕，沒有卡片。 |
 | 在團隊設定選「替我核准」：首席 agent 放行一個指令，把它標記的那個留給使用者 | Claude Code | 在可編輯的對話中，於團隊設定選 **替我核准**：顯示它的說明，權限範圍以外的動作那個選項消失，標頭的標籤顯示 **替我核准**，對話存成可編輯加上 `approvals: "auto"`。假的首席 agent 核准第一個指令：它直接執行，沒有等待的卡片，那一行顯示 **首席 agent 已替你核准** 與理由。被要求標記第二個（`e2e:flag`）時，它把指令留給使用者：卡片附上首席 agent 的理由等待，不提供 **本對話都允許**，並說明只能允許這一次，側邊欄顯示 **等你核准**，按 **允許** 後執行。 |
-| 「替我核准」：首席 agent 審查時不等任何人，使用者可以先回答；推送一律不送審 | Claude Code | 假的首席 agent 慢慢審查時（`e2e:slowapprove`），卡片顯示 **首席 agent 審查中**，並說明可以現在就決定，沒有提示列，也沒有 **等你核准**；按 **允許** 後指令執行，那一行顯示 **已允許**（使用者的回答）。`npm publish`（`e2e:approve=publish`）立即等使用者決定，卡片說明推送與發佈一律由使用者決定，並出現提示列；按 **拒絕** 後被拒絕。 |
+| 「替我核准」：首席 agent 審查時不等任何人，使用者可以先回答；推送一律不送審 | Claude Code | 假的首席 agent 慢慢審查時（`e2e:slowapprove`），卡片顯示 **首席 agent 審查中…**，說明接下來會怎樣、也可以現在就決定，而且看起來不像等使用者的卡片（logo 轉動、按鈕是次要樣式、沒有留言欄），沒有提示列，也沒有 **等你核准**；按 **不等審查，直接允許** 後指令執行，那一行顯示 **已允許**（使用者的回答）。`npm publish`（`e2e:approve=publish`）立即等使用者決定，卡片說明推送與發佈一律由使用者決定，並出現提示列；按 **拒絕** 後被拒絕。 |
+| 背景子代理在這一輪回答時提出的請求，回覆出來之後仍然可以回答 | Claude Code | 在唯讀對話中，假的 Claude Code 開了一個背景子代理，它在這一輪回答時要求執行 `echo e2e-approval`（`e2e:bgask`）。回覆出來、又過了一下之後，卡片仍顯示 **等你決定**；按 **允許** 後回答送到子代理，它執行了指令，Claude Code 之後自己的一輪（「The background job's command ran: e2e-approval.」）也接在同一則回覆裡，那一行顯示 **已允許**。 |
+| 首席 agent 審查期間 CLI 就不再等待的請求會立即標明，回覆照樣繼續 | Claude Code | 在 **替我核准** 的對話中，假的首席 agent 還在審查（`e2e:slowapprove`）時，假的 Claude Code 撤回了它的請求（`e2e:withdraw=2`）：卡片立即消失，那一行顯示 **已撤回**（它的 CLI 不再等使用者回答）和它自己的標記，絕不顯示 **首席 agent 已替你核准**，對話也不會顯示 **等你核准**，回覆照樣繼續（指令執行了）。 |
 
 ## 使用者自己執行的指令
 
@@ -890,6 +892,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | subagent 的呼叫摺進啟動它的那次呼叫，以及 CLI 對自己這次執行的附註 | ✓ | — | — | — | — | — | — |
 | 設定頁的方案用量 | ✓（5 小時與每週額度） | ✓（5 小時與每週時段） | ✓（這週的點數） | 只有方案 | ✓（用 API key：沒有方案，從不詢問 agy） | ✓（以次數計的 premium 請求） | ✓（訂閱額度） |
 | 允許指令，以及附註後拒絕 | ✓（以及回答後摺起來的長指令） | ✓（沒有附註） | ✓ | ✓（丟掉附註） | ✓（被拒絕就結束回合） | ✓（編輯模式下的 `npm publish`；被拒絕就結束回合） | ✓（丟掉附註） |
+| 首席 agent 審查期間，CLI 自己撤回的請求 | ✓ | — | — | — | — | — | — |
+| 背景子代理的請求在這一輪回覆之後才回答 | ✓ | — | — | — | — | — | — |
 | 完全存取：不詢問就執行並寫到任何地方 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 唯讀對話不寫入任何檔案 | ✓（沒有檔案工具） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（被自己的規則拒絕，沒有卡片） | ✓（詢問後被拒絕；結束回合） | ✓（被它的沙箱拒絕，沒有卡片） | ✓（沒有檔案工具） |
 | 對話沒有的資料夾碰不到 | ✓（詢問後被拒絕） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；不在 Windows 上） | ✓（詢問後被拒絕） | ✓（詢問後被拒絕；結束回合） | ✓（它的沙箱不詢問就拒絕） | ✓（檔案工具拒絕，它接著試的指令被沙箱拒絕） |

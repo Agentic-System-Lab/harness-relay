@@ -113,9 +113,11 @@ export interface RunOptions {
   onEvent: (e: AgentEvent) => void;
   /**
    * Ask the user about something the permission does not cover; resolves with their answer.
-   * Absent when the conversation refuses such requests automatically.
+   * Absent when the conversation refuses such requests automatically. `withdrawn`: aborted by the
+   * adapter when its CLI stops waiting for this answer while the turn goes on (it withdrew the request,
+   * or decided it by itself): the card then says so at once, and the adapter sends no answer.
    */
-  requestApproval?: (req: ApprovalRequest) => Promise<ApprovalAnswer>;
+  requestApproval?: (req: ApprovalRequest, withdrawn?: AbortSignal) => Promise<ApprovalAnswer>;
   /** Images the user attached to the messages in this prompt, passed to the CLI as images. */
   images?: { path: string; mimeType: string }[];
   /** Folder holding the conversation's attached files (their paths are listed in the prompt). */

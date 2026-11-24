@@ -678,7 +678,9 @@ function ApprovalCard({
               : t.approval.allowed
         : status === 'denied'
           ? t.approval.denied
-          : t.approval.expired;
+          : status === 'withdrawn'
+            ? t.approval.withdrawn
+            : t.approval.expired;
     // The lead agent's reason it approved it ("Approve for me").
     const why = status === 'allowed' && part.review?.status === 'approved' && part.review.reason ? part.review.reason : '';
     const said = (
@@ -690,7 +692,7 @@ function ApprovalCard({
     );
     const mark = (
       <span className="approval-mark" aria-hidden>
-        {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : '–'}
+        {status === 'allowed' ? '✓' : status === 'denied' ? '✗' : status === 'withdrawn' ? '↩' : '–'}
       </span>
     );
     // A long command: its first line beside the answer, click it to read all of it. Never the files a
@@ -734,11 +736,13 @@ function ApprovalCard({
     }
   };
 
+  // "Approve for me" still reviewing it: nothing waits for the user yet, so the card does not look as if
+  // it did (no pause sign, no warning colour, its answers secondary), and says what happens next.
   return (
-    <section className="approval-card" id={`approval-${part.id}`} aria-label={heading}>
+    <section className={`approval-card${reviewing ? ' reviewing' : ''}`} id={`approval-${part.id}`} aria-label={heading}>
       <header className="approval-head">
         <span className="approval-icon" aria-hidden>
-          ⏸
+          {reviewing ? <LogoSpinner size={14} /> : '⏸'}
         </span>
         <strong>{heading}</strong>
         <span className={`approval-waiting${reviewing ? ' approval-reviewing' : ''}`}>
@@ -763,18 +767,26 @@ function ApprovalCard({
         </p>
       )}
       {part.review?.status === 'flagged' && part.ruleLabel && <p className="muted small approval-once">{t.approval.flaggedOnce}</p>}
-      <input
-        className="approval-note"
-        value={note}
-        placeholder={t.approval.notePlaceholder}
-        onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.nativeEvent.isComposing && note.trim()) void answer({ allow: false, note });
-        }}
-      />
+      {/* While the lead agent reviews, a reason to give when declining waits for its verdict. */}
+      {!reviewing && (
+        <input
+          className="approval-note"
+          value={note}
+          placeholder={t.approval.notePlaceholder}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && note.trim()) void answer({ allow: false, note });
+          }}
+        />
+      )}
       <div className="approval-actions">
-        <button type="button" className="primary small-button" disabled={sending || !onAnswer} onClick={() => answer({ allow: true })}>
-          {t.approval.allow}
+        <button
+          type="button"
+          className={`${reviewing ? 'ghost' : 'primary'} small-button`}
+          disabled={sending || !onAnswer}
+          onClick={() => answer({ allow: true })}
+        >
+          {reviewing ? t.approval.allowNow : t.approval.allow}
         </button>
         {/* One the lead agent flagged is allowed once only: a rule would let the next one like it through unreviewed. */}
         {part.ruleLabel && part.review?.status !== 'flagged' && (
@@ -793,7 +805,7 @@ function ApprovalCard({
           disabled={sending || !onAnswer}
           onClick={() => answer({ allow: false, note: note.trim() || undefined })}
         >
-          {t.approval.deny}
+          {reviewing ? t.approval.denyNow : t.approval.deny}
         </button>
       </div>
     </section>

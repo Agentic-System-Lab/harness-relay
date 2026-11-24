@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 /*
  * A stand-in for an ACP agent on stdio (JSON-RPC, one message per line), for tests of the generic ACP
@@ -15,7 +15,11 @@ import { writeFileSync } from 'node:fs';
  *   - `permission`: announces `FAKE_ACP_ANNOUNCE` (JSON, a `tool_call`; default the call below), asks
  *     `session/request_permission` about `FAKE_ACP_CALL` (JSON, the tool call; an edit by default), then
  *     reports the call completed when allowed and failed when not (the announced one too, with
- *     `FAKE_ACP_END_ANNOUNCED`), and says the outcome it got in its reply;
+ *     `FAKE_ACP_END_ANNOUNCED`), and says the outcome it got in its reply; with `FAKE_ACP_WITHDRAW` it
+ *     withdraws the request itself after 100 ms (`$/cancel_request`), as an agent whose own rule decided;
+ *     with `FAKE_ACP_END=during` it reports the call failed 100 ms after asking, without withdrawing the
+ *     request (as an agent that stops waiting without saying so), and with `=before` just before asking
+ *     (as OpenCode hands over a request for a call it already refused);
  *   - `client`: asks the client to write a file, read one and start a terminal (as some agents do although
  *     `initialize` said the client does none of these), and says what it got back;
  *   - `hang`: starts a tool call and says something, then waits; a `session/cancel` ends the prompt with
@@ -45,7 +49,12 @@ const scenario = env.FAKE_ACP_SCENARIO || 'basic';
 let nextId = 100;
 const waiting = new Map();
 let cancel;
-const ask = (method, params) => new Promise((resolve) => { const id = nextId++; waiting.set(id, resolve); send({ id, method, params }); });
+const ask = (method, params) => new Promise((resolve) => {
+  const id = nextId++;
+  waiting.set(id, resolve);
+  send({ id, method, params });
+  if (env.FAKE_ACP_WITHDRAW && method === 'session/request_permission') setTimeout(() => send({ method: '$/cancel_request', params: { id } }), 100);
+});
 const rejected = (v) => env.FAKE_ACP_REJECT && v === env.FAKE_ACP_REJECT;
 
 async function prompt(id, p) {
@@ -63,6 +72,9 @@ async function prompt(id, p) {
   if (scenario === 'permission') {
     const call = env.FAKE_ACP_CALL ? JSON.parse(env.FAKE_ACP_CALL) : { toolCallId: 'e1', title: 'Edit a.txt', kind: 'edit', rawInput: { path: 'a.txt' } };
     update(s, { sessionUpdate: 'tool_call', status: 'pending', ...(env.FAKE_ACP_ANNOUNCE ? JSON.parse(env.FAKE_ACP_ANNOUNCE) : call) });
+    const ended = () => update(s, { sessionUpdate: 'tool_call_update', toolCallId: call.toolCallId, status: 'failed' });
+    if (env.FAKE_ACP_END === 'before') ended();
+    if (env.FAKE_ACP_END === 'during') setTimeout(ended, 100);
     const answer = await ask('session/request_permission', {
       sessionId: s,
       toolCall: call,
@@ -154,4 +166,34 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
 export function writeFakeAcp(path: string): string {
   writeFileSync(path, FAKE_ACP, { mode: 0o755 });
   return path;
+}
+
+/**
+ * A recorded ACP exchange (`test/fixtures/<agent>/*.jsonl`) changed so that the agent reports the call of
+ * its first permission request `failed` right after asking, without withdrawing the request, as OpenCode
+ * 1.19.5 does with a call it refused along with another the user declined: written to `dest` (returned),
+ * for a stand-in that replays it (fake-muse, fake-copilot, fake-antigravity).
+ */
+export function endedAfterAsk(src: string, dest: string): string {
+  const lines = readFileSync(src, 'utf8').split('\n').filter(Boolean);
+  const at = lines.findIndex((l) => {
+    const o = JSON.parse(l) as { dir: string; msg: { method?: string } };
+    return o.dir === 'agent->client' && o.msg.method === 'session/request_permission';
+  });
+  if (at < 0) throw new Error(`${src} asks no permission`);
+  const asked = (JSON.parse(lines[at]!) as { msg: { params: { sessionId: string; toolCall: { toolCallId: string } } } }).msg.params;
+  const ended = {
+    dir: 'agent->client',
+    msg: {
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: asked.sessionId,
+        update: { sessionUpdate: 'tool_call_update', toolCallId: asked.toolCall.toolCallId, status: 'failed' },
+      },
+    },
+  };
+  lines.splice(at + 1, 0, JSON.stringify(ended));
+  writeFileSync(dest, lines.join('\n') + '\n');
+  return dest;
 }

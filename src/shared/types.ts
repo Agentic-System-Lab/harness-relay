@@ -2318,7 +2318,12 @@ export type ToolCallKind = (typeof TOOL_CALL_KINDS)[number];
 /** What an agent asks to be allowed to do. */
 export type ApprovalKind = 'command' | 'edit' | 'fetch' | 'other';
 
-export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired';
+/**
+ * Where an approval request stands. `expired`: the turn ended before anyone answered. `withdrawn`: the
+ * agent's CLI stopped waiting for the answer while the turn went on (it decided by itself, through its
+ * own hook or rule, say, or the call it asked about ended): nothing the user answers reaches it.
+ */
+export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired' | 'withdrawn';
 
 /**
  * "Approve for me" (`approvals: 'auto'`): the lead agent's review of a request, before the user is

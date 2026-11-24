@@ -195,6 +195,7 @@ const APPROVAL_ANSWER: Record<Extract<MessagePart, { type: 'approval' }>['status
   allowed: 'allowed',
   denied: 'declined',
   expired: 'expired',
+  withdrawn: 'withdrawn by the CLI',
 };
 const PLAN_MARK = { pending: '[ ]', in_progress: '[~]', completed: '[x]' } as const;
 const STEP_MARK = { open: '[ ]', done: '[x]', stuck: '[!]' } as const;

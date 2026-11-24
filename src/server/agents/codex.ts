@@ -1069,6 +1069,9 @@ const codexTurnRunner: AgentRunner = {
     const turnDone = new Promise<Record<string, any>>((r) => (resolveTurn = r));
 
     conn.onNotification = (method, params) => {
+      // A request of Codex's it no longer waits for (codex 0.167 resolves a network approval itself when
+      // the connection that asked for it ends): its card says so, and no answer goes.
+      if (method === 'serverRequest/resolved') return void conn.withdraw(params?.requestId);
       // The turn's own error, not a subagent thread's (one names its thread: only this turn's, or none).
       if (method === 'error' && params?.error?.message && (!params.threadId || !threadId || params.threadId === threadId))
         failure = String(params.error.message);
@@ -1080,14 +1083,14 @@ const codexTurnRunner: AgentRunner = {
         resolveTurn(params.turn ?? {});
       } else updates.handle(method, params);
     };
-    conn.onRequest = async (method, params) => {
+    conn.onRequest = async (method, params, withdrawn) => {
       if (method === 'item/tool/requestUserInput') return { answers: {} };
       // Asked only of clients that take the experimental API, as a profile needs.
       if (method === 'currentTime/read') return { currentTimeAt: Math.floor(Date.now() / 1000) };
       if (method === 'mcpServer/elicitation/request') {
         const tool = codexMcpToolApproval(params ?? {});
         if (!tool || !o.requestApproval) return codexElicitationResponse(false);
-        return codexElicitationResponse((await o.requestApproval(tool)).allow);
+        return codexElicitationResponse((await o.requestApproval(tool, withdrawn)).allow);
       }
       const req = codexApprovalRequest(method, params ?? {}, (id) => updates.filePaths(id));
       if (!req) throw new RpcError(-32601, `${method} is not supported`);
@@ -1095,7 +1098,7 @@ const codexTurnRunner: AgentRunner = {
       if (codexGuardRefuses(method, params ?? {}, updates.changes(String(params?.itemId)), o.guard, o.cwd)) {
         return codexApprovalResponse(method, params ?? {}, false, t().guardRefused);
       }
-      const answer = o.requestApproval ? await o.requestApproval(req) : { allow: false };
+      const answer = o.requestApproval ? await o.requestApproval(req, withdrawn) : { allow: false };
       return codexApprovalResponse(method, params ?? {}, answer.allow, answer.note);
     };
 

@@ -371,11 +371,16 @@
           </p>
           <p>
             With <b>Approve for me</b>, the lead agent reviews each card first, reading your messages in the chat as what
-            you want; the card says <b>Lead agent reviewing</b>, and you can answer it yourself meanwhile. What it
-            approves goes ahead, the card saying <b>Approved for you by the lead agent</b> and why. What it finds
-            potentially unsafe, or could not review, waits for you with its reason; one it found potentially unsafe can then be
-            allowed this once only, never always. Pushing and publishing always wait
+            you want; meanwhile the card is a plain one with the logo turning, not the coloured card that waits for you,
+            and says <b>Lead agent reviewing…</b>: you can still decide yourself with <b>Allow without waiting</b> or
+            <b>Decline</b>. What it approves goes ahead, the card saying <b>Approved for you by the lead agent</b> and
+            why. What it finds potentially unsafe, or could not review, waits for you with its reason; one it found
+            potentially unsafe can then be allowed this once only, never always. Pushing and publishing always wait
             for you. Each review takes a few seconds of the lead agent's model.
+          </p>
+          <p>
+            An agent's CLI can stop waiting for an answer while it goes on (its own rule or hook decided, say): the
+            card then says <b>Withdrawn</b> at once, and your answer no longer reaches it.
           </p>
         </section>
 

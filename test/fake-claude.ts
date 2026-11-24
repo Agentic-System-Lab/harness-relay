@@ -59,6 +59,16 @@ import { writeFileSync } from 'node:fs';
  * answered) and then runs it as a turn of its own (queued, started, its reply, a second result);
  * `refuse` refuses it (`refused`), and `silent` says nothing about it. In these modes it exits as soon as
  * its input ends, so a message whose turn the input's end cut off is never answered.
+ * FAKE_CLAUDE_BACKGROUND makes a user message's run start a background subagent, as Claude Code 2.1.331
+ * does (`background_tasks_changed` with a `local_agent` task, `task_started` backgrounded), which asks
+ * for permission (`can_use_tool` for Bash, `agent_id` set, request id `bg-ask`) before the turn's result
+ * comes. Its input ending while the ask waits refuses it (logged `refusedAtInputEnd`) and exits, as
+ * Claude Code does ("Tool permission stream closed before response received"). Answered (logged
+ * `answered` with the behaviour), the subagent ends (`task_notification`, `background_tasks_changed`
+ * with no task) and a turn of its own follows (`init`, "followed up", a second result); it then exits
+ * once its input ends (logged `inputEnded`). With `withdraw` it withdraws the ask itself after 100 ms
+ * (`control_cancel_request`), as when its own hook decides first, and goes on as if answered; an answer
+ * that still comes is logged `lateAnswer`.
  */
 export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -158,8 +168,54 @@ function steerIn(m) {
   steerResult(0);
   lifecycle(m.uuid, 'completed');
 }
+const background = process.env.FAKE_CLAUDE_BACKGROUND;
+let bgAsking = false;
+let bgDone = false;
+function bgEnd() {
+  out({ type: 'system', subtype: 'task_notification', task_id: 'bg-task', tool_use_id: 'toolu_bg', status: 'completed', summary: 'sub done', session_id: 'fake-session' });
+  out({ type: 'system', subtype: 'background_tasks_changed', tasks: [], session_id: 'fake-session' });
+  setTimeout(() => {
+    out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools: [], mcp_servers: [] });
+    said('followed up');
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'followed up', session_id: 'fake-session', total_cost_usd: 0.2, usage: { input_tokens: 2, output_tokens: 2 }, queued_turn_count: 0 });
+    bgDone = true;
+  }, 30);
+}
+function backgroundRun() {
+  out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools: ['Bash', 'Agent'], mcp_servers: [] });
+  out({ type: 'assistant', session_id: 'fake-session', message: { id: 'm-agent', content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { description: 'Background job', prompt: 'go', run_in_background: true } }] } });
+  out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bg-task', task_type: 'local_agent' }, { task_id: 'bg-shell', task_type: 'local_bash' }], session_id: 'fake-session' });
+  out({ type: 'system', subtype: 'task_started', task_id: 'bg-task', tool_use_id: 'toolu_bg', is_backgrounded: true, task_type: 'local_agent', session_id: 'fake-session' });
+  out({ type: 'user', session_id: 'fake-session', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'Async agent launched successfully.' }] }, tool_use_result: { status: 'async_launched' } });
+  bgAsking = true;
+  out({ type: 'control_request', request_id: 'bg-ask', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm test' }, agent_id: 'sub-1' } });
+  waiting.set('bg-ask', (response) => {
+    if (!bgAsking) return record({ lateAnswer: response.behavior });
+    bgAsking = false;
+    record({ answered: response.behavior });
+    bgEnd();
+  });
+  if (background === 'withdraw') {
+    setTimeout(() => {
+      bgAsking = false;
+      out({ type: 'control_cancel_request', request_id: 'bg-ask' });
+      record({ withdrew: true });
+      bgEnd();
+    }, 100);
+  }
+  said('main answered');
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'main answered', session_id: 'fake-session', total_cost_usd: 0.1, usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: 0 });
+}
 const input = require('node:readline').createInterface({ input: process.stdin });
 if (steerMode) input.on('close', () => process.exit(0));
+if (background) {
+  input.on('close', () => {
+    if (bgAsking) record({ refusedAtInputEnd: true });
+    else record({ inputEnded: true, followedUp: bgDone });
+    // A late answer to a withdrawn ask is read before this.
+    setTimeout(() => process.exit(0), 20);
+  });
+}
 input.on('line', (line) => {
   const m = JSON.parse(line);
   if (steerMode && m.type === 'user' && m.uuid) return steerIn(m);
@@ -218,6 +274,7 @@ input.on('line', (line) => {
     if (process.env.FAKE_CLAUDE_RUN_USAGE) return usageRun(JSON.parse(process.env.FAKE_CLAUDE_RUN_USAGE), tools);
     if (process.env.FAKE_CLAUDE_HOOK_CALL) return void hookRun(JSON.parse(process.env.FAKE_CLAUDE_HOOK_CALL));
     if (steerMode) return steerRun();
+    if (background) return backgroundRun();
     out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
     if (process.env.FAKE_CLAUDE_WAIT) {
       waitingTurn = true;

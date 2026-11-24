@@ -21,10 +21,16 @@ export class JsonRpcConnection {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private closedWith: Error | undefined;
+  /** The peer's requests not answered yet, by id (as JSON: an id may be a number or a string). */
+  private incoming = new Map<string, AbortController>();
 
   onNotification?: (method: string, params: any) => void;
-  /** Answers a request from the peer; throw an RpcError to reply with an error. */
-  onRequest?: (method: string, params: any) => unknown | Promise<unknown>;
+  /**
+   * Answers a request from the peer; throw an RpcError to reply with an error. `withdrawn` aborts once
+   * the peer no longer waits for the answer (`$/cancel_request`, or `withdraw()`): what the handler
+   * then returns is not sent.
+   */
+  onRequest?: (method: string, params: any, withdrawn?: AbortSignal) => unknown | Promise<unknown>;
 
   /** `versionField: false` leaves out `"jsonrpc": "2.0"` (Codex's app-server protocol omits it). */
   constructor(
@@ -60,25 +66,51 @@ export class JsonRpcConnection {
       return;
     }
     if (!hasId) {
+      // The peer gave up on a request of its own (JSON-RPC's `$/cancel_request`, as LSP and ACP have it).
+      if (msg.method === '$/cancel_request') {
+        if (this.withdraw(msg.params?.id))
+          this.send({ jsonrpc: '2.0', id: msg.params.id, error: { code: -32800, message: 'Request cancelled' } });
+        return;
+      }
       this.onNotification?.(msg.method, msg.params);
       return;
     }
     const { id, method, params } = msg;
+    const key = JSON.stringify(id);
+    const withdrawn = new AbortController();
+    this.incoming.set(key, withdrawn);
+    const answer = (reply: Record<string, unknown>) => {
+      if (this.incoming.get(key) === withdrawn) this.incoming.delete(key);
+      if (!withdrawn.signal.aborted) this.send({ jsonrpc: '2.0', id, ...reply });
+    };
     Promise.resolve()
       .then(() => {
         if (!this.onRequest) throw new RpcError(-32601, `${method} is not supported`);
-        return this.onRequest(method, params);
+        return this.onRequest(method, params, withdrawn.signal);
       })
       .then(
-        (result) => this.send({ jsonrpc: '2.0', id, result: result ?? null }),
+        (result) => answer({ result: result ?? null }),
         (err: unknown) =>
-          this.send({
-            jsonrpc: '2.0',
-            id,
+          answer({
             error: { code: err instanceof RpcError ? err.code : -32603, message: err instanceof Error ? err.message : String(err) },
           }),
       );
   };
+
+  /**
+   * The peer no longer waits for its request `id` (it said so in a notification of its own, as Codex's
+   * `serverRequest/resolved`): its handler's signal aborts and no answer is sent. False when no such
+   * request waits for an answer.
+   */
+  withdraw(id: unknown): boolean {
+    if (id === undefined || id === null) return false;
+    const key = JSON.stringify(id);
+    const pending = this.incoming.get(key);
+    if (!pending) return false;
+    this.incoming.delete(key);
+    pending.abort();
+    return true;
+  }
 
   /** The peer is gone: fail every outstanding and future request with `err`. */
   close(err: Error): void {
@@ -149,6 +181,132 @@ export function answerPermission(decision: AcpDecision, options: { optionId: str
     if (optionId) return { outcome: { outcome: 'selected', optionId }, _meta: { followup_message: decision.reason } };
   }
   return { outcome: { outcome: 'cancelled' } };
+}
+
+/** The statuses with which an agent reports a tool call ended (ACP's `completed` and `failed`, and others' words for them). */
+const ENDED_CALL = new Set(['completed', 'failed', 'cancelled', 'canceled', 'rejected']);
+
+/** How many calls `AcpEndedCalls` keeps in mind, for a request that comes after its call ended. */
+const CALLS_KEPT = 2000;
+
+/** Adds to a set or map kept to `CALLS_KEPT` entries, the oldest going first. */
+function keep<K>(set: Set<K> | Map<K, unknown>, key: K, value?: unknown): void {
+  if (set instanceof Map) {
+    set.delete(key);
+    set.set(key, value);
+  } else {
+    set.delete(key);
+    set.add(key);
+  }
+  if (set.size > CALLS_KEPT) set.delete(set.keys().next().value as K);
+}
+
+/**
+ * The tool calls an agent reported ended, against its permission requests: an agent may refuse a call it
+ * still hands over (OpenCode 1.19.5 refuses every request of a session once one is declined, and hands
+ * one of them over a few milliseconds before or after it reports that call failed; left unanswered, it
+ * blocks every later request of the session), or stop waiting for an answer without saying so, and then
+ * report the call ended. A request whose call the agent reports ended while it waits is withdrawn (its
+ * card says so), and a request about a call that no session has live any more, only ended, is not asked
+ * at all; either is answered as refused (`endedAnswer()`), without a reason for the model.
+ *
+ * An id is not unique: a subagent's session may give one its parent uses too, and a model may give one
+ * again (a user's own server numbering each answer's calls). So a call is known by its id in a session:
+ * live there from a `tool_call` or any update but a final one (one with no status too, such as Muse's
+ * network notes), ended there from a final one. A request is about its own session's call when that
+ * one is live, else about the session that made the id live last (a subagent asking under its parent's
+ * session); it is refused unasked only when no session has the id live and one it would be about ended.
+ */
+export class AcpEndedCalls {
+  /** The sessions in which each call id is live, the one that made it live last at the end. */
+  private live = new Map<string, string[]>();
+  private waiting = new Map<string, Set<AbortController>>();
+  private ended = new Set<string>();
+
+  /** A `session/update` of any session, a subagent's too. */
+  note(sessionId: unknown, update: any): void {
+    const kind = update?.sessionUpdate;
+    if (kind !== 'tool_call_update' && kind !== 'tool_call') return;
+    const id = typeof update.toolCallId === 'string' ? update.toolCallId : '';
+    if (!id) return;
+    const session = typeof sessionId === 'string' ? sessionId : '';
+    const key = `${session}\u0000${id}`;
+    const sessions = (this.live.get(id) ?? []).filter((s) => s !== session);
+    const status = typeof update.status === 'string' ? update.status : '';
+    if (!ENDED_CALL.has(status)) {
+      // Under way: a new call, or one going on.
+      this.ended.delete(key);
+      keep(this.live, id, [...sessions, session]);
+      return;
+    }
+    if (sessions.length) keep(this.live, id, sessions);
+    else this.live.delete(id);
+    keep(this.ended, key);
+    for (const c of this.waiting.get(key) ?? []) c.abort();
+    this.waiting.delete(key);
+  }
+
+  /**
+   * A permission request about `toolCallId`, asked in `sessionId`: a signal that aborts when the agent
+   * withdraws the request (`withdrawn`) or reports its call ended, aborted at once for a call that
+   * already ended. `done()` once it is answered.
+   */
+  watch(sessionId: unknown, toolCallId: unknown, withdrawn?: AbortSignal): { signal: AbortSignal; done: () => void } {
+    const id = typeof toolCallId === 'string' ? toolCallId : '';
+    if (!id) return { signal: withdrawn ?? new AbortController().signal, done: () => undefined };
+    const asked = typeof sessionId === 'string' ? sessionId : '';
+    const live = this.live.get(id) ?? [];
+    const session = live.includes(asked) ? asked : (live.at(-1) ?? asked);
+    const key = `${session}\u0000${id}`;
+    const c = new AbortController();
+    if (!live.length && this.ended.has(key)) c.abort();
+    else {
+      const set = this.waiting.get(key) ?? new Set();
+      set.add(c);
+      this.waiting.set(key, set);
+    }
+    return {
+      signal: withdrawn ? AbortSignal.any([withdrawn, c.signal]) : c.signal,
+      done: () => {
+        const set = this.waiting.get(key);
+        set?.delete(c);
+        if (set && !set.size) this.waiting.delete(key);
+      },
+    };
+  }
+}
+
+/**
+ * A permission request asked through `ask` unless its call ended (`AcpEndedCalls`): `gone` when the
+ * agent withdrew it (no answer is to be sent: `withdrawn`) or its call ended before or while it waited
+ * (answer `endedAnswer()`: not the user's refusal), else the answer. `ask` gets the signal to give
+ * `requestApproval`.
+ */
+export async function askUnlessEnded<T>(
+  calls: AcpEndedCalls,
+  params: any,
+  withdrawn: AbortSignal | undefined,
+  ask: (signal: AbortSignal) => Promise<T>,
+): Promise<{ gone: 'withdrawn' | 'ended' } | { answer: T }> {
+  const watched = calls.watch(params?.sessionId, params?.toolCall?.toolCallId, withdrawn);
+  try {
+    if (!watched.signal.aborted) {
+      const answer = await ask(watched.signal);
+      if (!watched.signal.aborted) return { answer };
+    }
+    return { gone: withdrawn?.aborted ? 'withdrawn' : 'ended' };
+  } finally {
+    watched.done();
+  }
+}
+
+/**
+ * The answer to a request whose call already ended: refused once, with nothing for the model (the call is
+ * over), never "always" (an agent would keep it as a rule); cancelled when it offers no such option.
+ */
+export function endedAnswer(options: { optionId: string; kind: string }[]) {
+  const optionId = options.find((o) => o.kind === 'reject_once')?.optionId;
+  return optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } };
 }
 
 /** Text of an ACP tool-call `content` array (e.g. the reason a call failed). */

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 // A data folder of its own: a turn's --settings and --mcp-config files go in its tmp folder.
 const dataDir = await vi.hoisted(async () => {
@@ -35,6 +35,10 @@ import {
   claudeItemsBesideLibrary,
   claudeMcpName,
   CLAUDE_BG_WAIT_MARGIN_MS,
+  CLAUDE_BG_WAIT_DEFAULT_MS,
+  CLAUDE_FOLLOW_UP_MS,
+  ClaudeInputHold,
+  claudeBackgroundHoldMs,
   claudeFeatureEnv,
   claudeTimedOut,
   claudeNativeEnv,
@@ -2076,6 +2080,229 @@ describe("RLM's sub-model through Claude Code (a toolless run)", () => {
       forgetToollessPlugins();
       await run();
       expect(listed() - before).toBe(2);
+    });
+  });
+});
+
+describe('what keeps a run’s input open once its turn has answered', () => {
+  const result = { type: 'result', subtype: 'success' };
+  const init = { type: 'system', subtype: 'init' };
+  const tasks = (...t: (Record<string, unknown> & { task_id: string; task_type: string })[]) => ({
+    type: 'system',
+    subtype: 'background_tasks_changed',
+    tasks: t,
+  });
+  const agent = (task_id: string, more: Record<string, unknown> = {}) => ({ task_id, task_type: 'local_agent', ...more });
+  const shell = (task_id: string) => ({ task_id, task_type: 'local_bash' });
+  const setup = (deadline?: number) => {
+    vi.useFakeTimers();
+    const changes: boolean[] = [];
+    const stopped: string[][] = [];
+    const hold: ClaudeInputHold = new ClaudeInputHold(
+      () => changes.push(hold.holds()),
+      { followUp: 3000, background: 60_000, ...(deadline !== undefined ? { deadline } : {}) },
+      (ids) => stopped.push(ids),
+    );
+    return { hold, changes, stopped };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('holds it for an approval waiting, until it is answered or Claude Code withdraws it', () => {
+    const { hold, changes } = setup();
+    expect(hold.holds()).toBe(false);
+    const first = hold.ask('a');
+    const second = hold.ask('b');
+    hold.handle(result);
+    expect(hold.holds()).toBe(true);
+    hold.settled('a');
+    expect(first.aborted).toBe(false);
+    expect(hold.holds()).toBe(true);
+    // Withdrawn: its signal aborts (its card says so), and it no longer holds the input.
+    expect(hold.withdraw('b')).toBe(true);
+    expect(second.aborted).toBe(true);
+    expect(hold.holds()).toBe(false);
+    expect(changes.at(-1)).toBe(false);
+    // Neither an answered request nor one never asked (a hook's callback) is withdrawn.
+    expect(hold.withdraw('a')).toBe(false);
+    expect(hold.withdraw('hook-PreToolUse')).toBe(false);
+    hold.settled('nothing');
+    hold.close();
+  });
+
+  it('holds it for the subagents and workflows Claude Code waits for, then stops them, as long as it would wait', () => {
+    const { hold, stopped } = setup();
+    // What Claude Code does not wait for itself: a background command, a task it runs elsewhere or keeps
+    // around, another kind of task.
+    hold.handle(
+      tasks(
+        shell('sh'),
+        agent('ambient', { ambient: true }),
+        agent('awaited', { awaited: true }),
+        agent('elsewhere', { off_host: true }),
+        { task_id: 'remote', task_type: 'remote_agent' },
+        { task_id: 'dream', task_type: 'dream' },
+      ),
+    );
+    hold.handle(result);
+    expect(hold.holds()).toBe(false);
+    // Listed after the result too.
+    hold.handle(tasks(shell('sh'), agent('sub'), { task_id: 'flow', task_type: 'local_workflow' }));
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(59_999);
+    expect(hold.holds()).toBe(true);
+    expect(stopped).toEqual([]);
+    // Claude Code's own wait starts only once the input ends: so they are stopped then, not waited for twice.
+    vi.advanceTimersByTime(1);
+    expect(stopped).toEqual([['sub', 'flow']]);
+    expect(hold.holds()).toBe(false);
+    hold.close();
+  });
+
+  it('holds it for the turn Claude Code starts by itself once a background task ended, until that turn answers', () => {
+    const { hold } = setup();
+    hold.handle(tasks(agent('sub')));
+    // A turn's own `init` before its first result is no turn of Claude Code's own.
+    hold.handle(init);
+    hold.handle(result);
+    expect(hold.holds()).toBe(true);
+    // The subagent ends (its news, then the level without it): Claude Code tells the model in a turn of its own.
+    hold.handle({ type: 'system', subtype: 'task_notification', task_id: 'sub', status: 'completed' });
+    hold.handle(tasks());
+    expect(hold.holds()).toBe(true);
+    hold.handle(init);
+    vi.advanceTimersByTime(10_000);
+    expect(hold.holds()).toBe(true);
+    hold.handle(result);
+    expect(hold.holds()).toBe(false);
+    hold.close();
+  });
+
+  it('waits a moment only for a turn that never starts, and not at all after a foreground subagent', () => {
+    const { hold, changes } = setup();
+    // A foreground subagent's news: never listed as background work, so no turn of its own follows.
+    hold.handle({ type: 'system', subtype: 'task_notification', task_id: 'fg', status: 'completed' });
+    hold.handle(result);
+    expect(hold.holds()).toBe(false);
+    // A background task that ended within the turn: its news may have gone into it, or a turn follows.
+    hold.handle(tasks(agent('sub')));
+    hold.handle(tasks());
+    hold.handle(result);
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(2999);
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(hold.holds()).toBe(false);
+    expect(changes.at(-1)).toBe(false);
+    // A background command that ends after the result: its turn follows, and may ask.
+    hold.handle(tasks(shell('sh')));
+    expect(hold.holds()).toBe(false);
+    hold.handle(tasks());
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(hold.holds()).toBe(false);
+    hold.close();
+  });
+
+  it('never holds it past its deadline, whatever still waits, and stops what it waited for then', () => {
+    vi.useFakeTimers();
+    const { hold, changes, stopped } = setup(Date.now() + 5000);
+    hold.ask('a');
+    hold.handle(tasks(agent('sub')));
+    hold.handle(result);
+    hold.handle(init);
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(5000);
+    expect(hold.holds()).toBe(false);
+    expect(changes.at(-1)).toBe(false);
+    expect(stopped).toEqual([['sub']]);
+    // Nothing starts a wait after it.
+    hold.handle(tasks());
+    hold.handle(result);
+    expect(hold.holds()).toBe(false);
+    hold.close();
+  });
+
+  it('waits for background work as long as Claude Code does: ten minutes, or the turn’s own limit with workflows on', () => {
+    expect(CLAUDE_BG_WAIT_DEFAULT_MS).toBe(10 * 60_000);
+    expect(claudeBackgroundHoldMs()).toBe(CLAUDE_BG_WAIT_DEFAULT_MS);
+    expect(claudeBackgroundHoldMs(['workflows'], 60 * 60_000)).toBe(60 * 60_000 - CLAUDE_BG_WAIT_MARGIN_MS);
+    expect(CLAUDE_FOLLOW_UP_MS).toBe(3000);
+  });
+
+  // The stand-in is a script run by its `#!` line, which Windows cannot start.
+  describe.skipIf(process.platform === 'win32')('in a run whose background subagent asks (stand-in claude)', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-claude-bg-')));
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+    const bin = writeFakeClaude(join(dir, 'claude'));
+    let n = 0;
+    const run = (
+      mode: string,
+      answer: (signal: AbortSignal | undefined) => Promise<{ allow: boolean }>,
+      signal = new AbortController().signal,
+    ) => {
+      const log = join(dir, `log-${++n}.jsonl`);
+      writeFileSync(log, '');
+      const events: AgentEvent[] = [];
+      const asked: { signal?: AbortSignal; detail?: string }[] = [];
+      const running = claudeRunner.run({
+        bin,
+        env: { ...process.env, FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_BACKGROUND: mode },
+        prompt: 'start the job',
+        systemPrompt: 'briefing',
+        cwd: dir,
+        permission: 'edit',
+        signal,
+        onEvent: (e) => events.push(e),
+        requestApproval: (req, withdrawn) => {
+          asked.push({ signal: withdrawn, detail: req.detail });
+          return answer(withdrawn);
+        },
+      });
+      const lines = () =>
+        readFileSync(log, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => JSON.parse(l) as Record<string, any>);
+      const texts = () => events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text);
+      return { running, lines, texts, asked };
+    };
+
+    it('keeps the request answerable after the turn answered, and the turn that follows the subagent', async () => {
+      let allow!: () => void;
+      const r = run('ask', () => new Promise((resolve) => (allow = () => resolve({ allow: true }))));
+      await vi.waitFor(() => expect(r.texts()).toContain('main answered'), { timeout: 5000 });
+      expect(r.asked).toEqual([expect.objectContaining({ detail: 'npm test' })]);
+      // The turn has its result, the request still waits: the input stays open for the answer.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(r.lines().some((l) => l.refusedAtInputEnd || l.inputEnded)).toBe(false);
+      allow();
+      await r.running;
+      expect(r.lines()).toContainEqual({ answered: 'allow' });
+      // The turn Claude Code started once the subagent ended ran before the input ended.
+      expect(r.lines()).toContainEqual({ inputEnded: true, followedUp: true });
+      expect(r.texts()).toEqual(['main answered', 'followed up']);
+    });
+
+    it('says when Claude Code withdrew the request, and sends it no answer', async () => {
+      const r = run(
+        'withdraw',
+        (withdrawn) => new Promise((resolve) => withdrawn!.addEventListener('abort', () => resolve({ allow: true }))),
+      );
+      await r.running;
+      expect(r.asked[0]!.signal!.aborted).toBe(true);
+      expect(r.lines()).toContainEqual({ withdrew: true });
+      // Answered after that (the orchestrator does, as it closes the card): nothing reached Claude Code.
+      expect(r.lines().some((l) => 'lateAnswer' in l || 'answered' in l)).toBe(false);
+      expect(r.lines()).toContainEqual({ inputEnded: true, followedUp: true });
+    });
+
+    it('still ends the input at once when the user stops the run', async () => {
+      const stop = new AbortController();
+      const r = run('ask', () => new Promise(() => undefined), stop.signal);
+      await vi.waitFor(() => expect(r.texts()).toContain('main answered'), { timeout: 5000 });
+      stop.abort();
+      await expect(r.running).rejects.toMatchObject({ aborted: true });
+      expect(r.lines()).toContainEqual({ refusedAtInputEnd: true });
     });
   });
 });

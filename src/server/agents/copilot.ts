@@ -30,6 +30,9 @@ import {
   acpTokens,
   answerPermission,
   type AcpDecision,
+  AcpEndedCalls,
+  askUnlessEnded,
+  endedAnswer,
 } from './acp';
 import { agentConfigPath, antigravityProjectFingerprint } from './antigravity';
 import { copilotHooksListed, copilotTeamHooks, type CopilotTeamHooks } from './copilotHooks';
@@ -1782,6 +1785,8 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createCopilotUpdateHandler(o.onEvent, { toolless: o.toolless });
   const usage = createCopilotUsage();
   /** What the turn used so far, kept when it fails or is stopped. */
@@ -1797,6 +1802,7 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       return;
     }
     if (method !== 'session/update' || opening) return;
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId || params?.sessionId !== sessionId) return;
     const u = params?.update;
     if (policy) {
@@ -1807,7 +1813,7 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     }
     updates.handle(u);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     // While its sandbox is checked, nothing runs: the check went to the model, which it never should.
@@ -1833,7 +1839,13 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       decision = { allow: false, reason: verdict.reason };
       label = `${verdict.reason}${t().copilotEndsTurn}`;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(copilotApprovalRequest(o.permission, call, o.cwd, o.addDirs));
+      // Not asked, or withdrawn, when the CLI withdrew it (no answer goes) or reported its call ended:
+      // neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(copilotApprovalRequest(o.permission, call, o.cwd, o.addDirs), signal),
+      );
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? null : endedAnswer(options);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     } else decision = { allow: false, reason: 'Not covered by the permission' };

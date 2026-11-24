@@ -110,6 +110,22 @@ describe('Approve for me', () => {
     expect(approvals(conv)[0]!.review).toBeUndefined();
   });
 
+  it("stops the lead agent's review when the CLI withdraws the request, and the card says the CLI went on", async () => {
+    const conv = solo();
+    const release = holdReviewer();
+    const cli = new AbortController();
+    fake.inTurn = async (_name, o) => void (await o.requestApproval!({ kind: 'command', detail: 'npm test' }, cli.signal));
+    await orchestrator.send(conv.id, 'run the tests');
+    await vi.waitFor(() => expect(approvals(conv)[0]?.review).toEqual({ status: 'reviewing' }));
+    cli.abort();
+    await finish(conv.id);
+    expect(approverCalls()[0]!.aborted).toBe(true);
+    release();
+    // Neither approved for the user nor expired: withdrawn, with no verdict on it.
+    expect(approvals(conv)[0]).toMatchObject({ status: 'withdrawn' });
+    expect(approvals(conv)[0]!.review).toBeUndefined();
+  });
+
   it('asks the user when the lead agent cannot review, saying why', async () => {
     const conv = solo();
     fake.approverFail = 'not signed in';

@@ -944,7 +944,10 @@ describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks
   // two keys; FAKE_CODEX_SLOW answers hooks/list after two seconds; FAKE_CODEX_NO_PROFILE a Codex
   // that ignores the thread's permission profile; FAKE_CODEX_PROFILE_FAILS one that cannot load it
   // (a turn in it fails, as Codex 0.167 on Linux does). FAKE_CODEX_SAYS (JSON) are its turn's agent
-  // messages. Each request goes to the log, and each turn's outputSchema.
+  // messages. FAKE_CODEX_NETWORK_ASK asks a network approval for a running command (id `net-1`) and,
+  // 100 ms later, resolves it itself (`serverRequest/resolved`), as Codex 0.167 does when the connection
+  // that asked ends; the turn ends 200 ms after that. Each request goes to the log, and each turn's
+  // outputSchema; the client's answers too.
   const FAKE_CODEX = `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify(o) + '\\n');
@@ -1014,6 +1017,12 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       }
       // Asked of clients that take the experimental API.
       if (init.capabilities?.experimentalApi) out({ id: 'time-1', method: 'currentTime/read', params: { threadId: 'thr-1' } });
+      if (process.env.FAKE_CODEX_NETWORK_ASK) {
+        out({ id: 'net-1', method: 'item/commandExecution/requestApproval', params: { threadId: 'thr-1', turnId: 'turn-1', itemId: 'exec-1',
+          command: 'curl https://example.com', networkApprovalContext: { host: 'example.com', protocol: 'https' } } });
+        setTimeout(() => out({ method: 'serverRequest/resolved', params: { threadId: 'thr-1', requestId: 'net-1' } }), 100);
+        return setTimeout(() => out({ method: 'turn/completed', params: { threadId: 'thr-1', turn: { id: 'turn-1', status: 'completed' } } }), 300);
+      }
       if (process.env.FAKE_CODEX_SUBAGENT) {
         // A subagent, as Codex 0.167.0's schema has it: its spawn call, its thread, a command in it, its tokens.
         const spawn = (status, receiverThreadIds) => ({ type: 'collabAgentToolCall', id: 'spawn-1', tool: 'spawnAgent', status,
@@ -1097,6 +1106,25 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
           }
         : {}),
     });
+
+  it('tells the card when Codex resolves an approval itself, and sends no answer to it', async () => {
+    let signal: AbortSignal | undefined;
+    const r = run({ FAKE_CODEX_NETWORK_ASK: '1' }, undefined, [], {
+      requestApproval: (req, withdrawn) => {
+        signal = withdrawn;
+        expect(req).toMatchObject({ kind: 'command', detail: 'curl https://example.com' });
+        // The orchestrator answers once the card is withdrawn, as it closes it.
+        return new Promise((resolve) => withdrawn!.addEventListener('abort', () => resolve({ allow: true })));
+      },
+    });
+    await r.result;
+    expect(signal!.aborted).toBe(true);
+    // Nothing went back for it.
+    const answers = r
+      .lines()
+      .flatMap((l) => ((l as { answer?: { id: string } }).answer ? [(l as { answer: { id: string } }).answer.id] : []));
+    expect(answers).not.toContain('net-1');
+  });
 
   it("asks its maker's model for the answer's shape on this turn only, and gives back its last message as it", async () => {
     const schema = { type: 'object', properties: { group: { type: 'integer' } }, required: ['group'], additionalProperties: false };
