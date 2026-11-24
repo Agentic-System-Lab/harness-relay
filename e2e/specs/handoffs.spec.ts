@@ -279,10 +279,7 @@ test.describe('secrets and fixed commands', () => {
     // the draft), its placeholder saying why; no error. The card takes no answer meanwhile either.
     const chatStop = page.locator('.composer-actions button.stop');
     await expect(chatStop).toBeVisible();
-    await expect(composer(page)).toHaveAttribute(
-      'placeholder',
-      "A fixed command is running in this chat's folder: you can send once it ends, or Stop it",
-    );
+    await expect(composer(page)).toHaveAttribute('placeholder', 'Send once the fixed command ends, or Stop it');
     await composer(page).fill('meanwhile');
     await expect(page.locator('.composer-actions button.send')).toBeDisabled();
     await composer(page).press('Enter');

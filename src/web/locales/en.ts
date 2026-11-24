@@ -436,8 +436,8 @@ export const en: Messages = {
     placeholderReviewing:
       'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
-    placeholderCommand: "A fixed command is running in this chat's folder: you can send once it ends, or Stop it",
-    placeholderHeld: "A command or a change in Files is using this chat's folder: you can send once it ends",
+    placeholderCommand: 'Send once the fixed command ends, or Stop it',
+    placeholderHeld: "Send once the command or Files change in this chat's folder ends",
     placeholderSteer: 'Add to the discussion… (goes into the running turn when it can)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,
