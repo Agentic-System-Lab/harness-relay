@@ -238,7 +238,12 @@ describe('deleting files and folders', () => {
   it('deletes a file and a folder in the working directory, never the root', async () => {
     const conv = await createConversation({ permission: 'read-only' });
     writeFileSync(join(project, 'notes', 'a.md'), '# A\n');
+    // The folder it is in is held while it is removed, and let go after.
+    const hold = vi.spyOn(orchestrator, 'holdForFiles');
     const file = await remove(conv, { path: 'queue.csv' });
+    expect(hold).toHaveBeenCalledWith(conv.id, realpathSync(project));
+    expect(orchestrator.writingIn(conv.id, realpathSync(project))).toBe(false);
+    hold.mockRestore();
     expect(file.status).toBe(200);
     expect(await file.json()).toEqual({ path: 'queue.csv', kind: 'file' });
     expect(await (await remove(conv, { root: 'cwd', path: 'notes' })).json()).toEqual({ path: 'notes', kind: 'dir' });

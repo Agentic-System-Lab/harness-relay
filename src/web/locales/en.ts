@@ -1710,7 +1710,7 @@ export const en: Messages = {
     folderLeftOut: (names) => `Left out: ${names}`,
     folderReading: 'Reading…',
     folderSameName: (name, path) =>
-      `The folder "${name}" has two files named "${path}" (names that differ only in letter case count as one) and was not attached.`,
+      `In the folder "${name}", "${path}" clashes with another name on some systems (they differ only in letter case, or a file and a folder share a name), so it was not attached.`,
     folderPickedEmpty: 'That folder has no files to attach.',
     readFailed: 'Could not read an attached file.',
   },

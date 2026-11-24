@@ -1,3 +1,4 @@
+import { lastAutoConfirm, rememberAutoConfirm } from '../autoConfirm';
 import { useEffect, useRef, useState } from 'react';
 import {
   cwdSettings,
@@ -24,35 +25,6 @@ import { TemplateLibrary } from './TemplateLibrary';
 import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
-
-/**
- * Whether the last new chat used the lead agent's teams without asking ("1") or waited for the user's
- * confirmation ("0"), so the next one starts the same way; without either, it uses them without asking.
- */
-const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
-
-function read(key: string): string {
-  try {
-    return localStorage.getItem(key) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function write(key: string, value: string): void {
-  try {
-    if (value) localStorage.setItem(key, value);
-    else localStorage.removeItem(key);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-/** Whether the next new chat (or schedule) uses the lead agent's teams without asking: as the last one did, else yes. */
-export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) !== '0';
-
-/** Remember whether this one did, so the next one starts the same way. */
-export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '0');
 
 /**
  * A new conversation: the lead agent designs the team for each question, so only the settings are
@@ -127,7 +99,7 @@ export function NewChat({ appStatus, providers, catalog, draft, onDraft, busy, s
       .then((settings) => {
         if (!current) return;
         setLead(settings.lead);
-        // The default working directory from Settings; asking first unless the last chat did not.
+        // The default working directory from Settings; answering right away unless the last chat waited to be confirmed.
         setDefaults(
           autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), settings.checksDefault),
         );

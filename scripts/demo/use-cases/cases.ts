@@ -130,8 +130,10 @@ async function startChat(
     });
     mark('permission', { permission: o.permission });
   }
-  // Lead review is ticked in every new chat; unticked without the cursor, as the demo does.
-  if (!o.leadReview) await page.locator('.lead-review input[type="checkbox"]').uncheck();
+  // The team waits to be confirmed (a fresh browser's first new chat answers right away), and lead review
+  // is set as the case asks (off in every new chat), both without the cursor, as the demo does.
+  await page.locator('.team-confirmation input[type="radio"]').first().check();
+  await page.locator('.lead-review input[type="checkbox"]').setChecked(o.leadReview);
   if (o.files?.length) await attach(s, o.files);
   mark('chat-open');
   await moveClick('#first-question');
@@ -145,10 +147,11 @@ async function startChat(
   return id;
 }
 
-/** Attaches files with the message box's 📎 button, as a person would pick them. */
+/** Attaches files with the message box's 📎 button and its Files… item, as a person would pick them. */
 async function attach(s: Session, files: string[]): Promise<void> {
+  await s.moveClick(s.page.getByRole('button', { name: M(s).composer.attachFilesOrFolder }), { after: 400 });
   const chooser = s.page.waitForEvent('filechooser');
-  await s.moveClick(s.page.getByRole('button', { name: M(s).composer.attach }), { after: 200 });
+  await s.moveClick(s.page.getByRole('menuitem', { name: M(s).composer.attachFiles }), { after: 200 });
   await (await chooser).setFiles(files);
   await s.page
     .locator('.attach-tray li')

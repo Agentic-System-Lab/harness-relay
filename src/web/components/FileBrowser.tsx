@@ -50,6 +50,9 @@ export function FileBrowser({
   useDialog(dialog, () => leaving(onClose));
   const start = lastPlace.get(conv.id) ?? { root: 'cwd', dir: '' };
   const [root, setRoot] = useState(start.root);
+  /** The root on screen now, for what ends after it may have changed. */
+  const rootNow = useRef(root);
+  rootNow.current = root;
   const [dir, setDir] = useState(start.dir);
   const [file, setFile] = useState<string | undefined>(start.file);
   const [listing, setListing] = useState<FileListing | null>(null);
@@ -166,8 +169,10 @@ export function FileBrowser({
     },
     // The file on screen when the delete ends (one opened meanwhile too), when it was it or in it: its
     // unsaved changes went with it, as the user agreed.
-    onDeleted: (path) =>
+    onDeleted: (deletedIn, path) =>
       setFile((open) => {
+        // Another root may be on screen by now, with a file at the same path.
+        if (rootNow.current !== deletedIn) return open;
         if (open === undefined || (open !== path && !open.startsWith(`${path}/`))) return open;
         unsaved.current = false;
         return undefined;

@@ -13,7 +13,17 @@ import { ATTACHMENT_LIMITS } from '../shared/types';
  */
 export const LEFT_OUT = ['.git', '.hg', '.svn', 'node_modules', '.DS_Store', 'Thumbs.db', 'desktop.ini'];
 
-const leftOutNames = new Set(LEFT_OUT);
+/**
+ * The name of `LEFT_OUT` a name is, as a disk would name it (in any letter case, without the spaces
+ * around it or the dots after it, which the server takes off too), or undefined.
+ */
+const leftOutAs = (name: string) => {
+  const key = name
+    .trim()
+    .replace(/[. ]+$/, '')
+    .toLowerCase();
+  return LEFT_OUT.find((n) => n.toLowerCase() === key);
+};
 
 /** The names left out, in `LEFT_OUT`'s order, whichever order the browser gave the files in. */
 function inOrder(f: PendingFolder): PendingFolder {
@@ -44,7 +54,11 @@ export const isFolder = (p: Picked): p is PendingFolder => !(p instanceof Blob);
 
 /** The name of `LEFT_OUT` a path in a folder goes through, if any. */
 function leftOutName(path: string): string | undefined {
-  return path.split('/').find((name) => leftOutNames.has(name));
+  for (const name of path.split('/')) {
+    const as = leftOutAs(name);
+    if (as) return as;
+  }
+  return undefined;
 }
 
 function folder(name: string): PendingFolder {
@@ -107,8 +121,9 @@ export async function readDroppedFolder(entry: DroppedEntry): Promise<PendingFol
       for (const child of batch) {
         if (f.tooMany) return;
         const path = prefix + child.name;
-        if (leftOutNames.has(child.name)) {
-          if (!f.leftOut.includes(child.name)) f.leftOut.push(child.name);
+        const skip = leftOutAs(child.name);
+        if (skip) {
+          if (!f.leftOut.includes(skip)) f.leftOut.push(skip);
         } else if (child.isDirectory) {
           await walk(child, `${path}/`);
         } else if (child.isFile) {

@@ -1725,7 +1725,8 @@ export const zhTW = {
     folderSize: (files: number, size: string) => `${files.toLocaleString('zh-TW')} 個檔案 · ${size}`,
     folderLeftOut: (names: string) => `沒有附加：${names}`,
     folderReading: '讀取中…',
-    folderSameName: (name: string, path: string) => `資料夾「${name}」裡有兩個檔案都叫「${path}」（只差大小寫的名稱算同一個），沒有附加。`,
+    folderSameName: (name: string, path: string) =>
+      `資料夾「${name}」裡的「${path}」在有些系統上會和另一個名稱撞在一起（只差大小寫，或同名的檔案和資料夾），沒有附加。`,
     folderPickedEmpty: '這個資料夾裡沒有可以附加的檔案。',
     readFailed: '無法讀取附加的檔案。',
   },

@@ -13,7 +13,8 @@ import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
-import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
+import { lastAutoConfirm, rememberAutoConfirm } from '../autoConfirm';
+import { autoTeam } from './NewChat';
 import { readUploads } from './MessageFiles';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
@@ -93,7 +94,7 @@ export function NewSchedule({
       .then((settings) => {
         if (!live) return;
         setLead(settings.lead);
-        // The default working directory from Settings; asking first unless the last chat did not.
+        // The default working directory from Settings; answering right away unless the last chat waited to be confirmed.
         setDefaults(
           autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), settings.checksDefault),
         );

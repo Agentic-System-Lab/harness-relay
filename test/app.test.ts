@@ -4267,9 +4267,7 @@ describe('schedules', () => {
     expect((await put(conv.id, { ...valid, attachments: [clash] })).status).toBe(400);
     expect(store.get(conv.id)!.schedule!.attachments).toHaveLength(1);
     // No check folder is left behind.
-    expect(
-      existsSync(join(root, 'data', 'tmp')) ? readdirSync(join(root, 'data', 'tmp')).filter((n) => n.startsWith('attach-check-')) : [],
-    ).toEqual([]);
+    expect(readdirSync(join(root, 'data', 'attachments')).filter((n) => n.startsWith('check-'))).toEqual([]);
   });
 
   it('refuses a schedule that could never send, and one for a team that is not confirmed yet', async () => {

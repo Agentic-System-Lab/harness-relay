@@ -272,7 +272,7 @@ test.describe('schedules', () => {
     await expect(goal).toBeVisible();
     await expect(goal).toHaveAttribute('placeholder', 'For example, finish when everyone has confirmed a time and place for dinner.');
     await expect(goal).toBeEmpty();
-    const attach = page.getByRole('button', { name: en.composer.attach });
+    const attach = page.getByRole('button', { name: en.composer.attachFilesOrFolder });
     const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     await task.press('Tab');
     const apps = page.locator('.first-input-tools').getByRole('button', { name: new RegExp(en.apps.title) });

@@ -377,7 +377,8 @@ export function deletePath(root: string, rel: unknown, hold: (folder: string) =>
   if (insideAny(self, guarded) || (kind === 'dir' && guarded.some((p) => insideAny(p, [self])))) {
     throw new HttpError(403, t().filesEdit.protectedDelete);
   }
-  const release = hold(realPath(folder.path));
+  // Spelled as runs lock their folders (`realpathSync`, as the root is here), so that a run's lock and this hold meet.
+  const release = hold(folder.path);
   const removal = kind === 'dir' ? rm(full, { recursive: true, maxRetries: 2 }) : unlink(full);
   return removal.then(
     () => {

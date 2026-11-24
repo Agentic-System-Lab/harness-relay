@@ -222,8 +222,8 @@ export function useFolderWrites({
   onWritten: () => void;
   /** A new file was made, to open for editing. */
   onCreated: (path: string) => void;
-  /** A file or folder was deleted (its path): the file on screen goes when it was it or in it. */
-  onDeleted: (path: string) => void;
+  /** A file or folder was deleted (the root it was in, and its path): the file on screen goes when it was it or in it. */
+  onDeleted: (root: string, path: string) => void;
 }): {
   buttons: ReactNode;
   panel: ReactNode;
@@ -335,7 +335,7 @@ export function useFolderWrites({
     try {
       await api.deleteFile(convId, { root, path });
       setStatus(t.filesEdit.deleted(entry.name));
-      onDeleted(path);
+      onDeleted(root, path);
     } catch (err) {
       setStatus('');
       setErrors([(err as Error).message]);

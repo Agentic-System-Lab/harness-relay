@@ -1014,6 +1014,14 @@ export class Orchestrator {
    * runs once pinned.
    */
   private folderHolds = new Map<string, number>();
+  /**
+   * Each folder a conversation holds (`holdFolder()`): how many holds it has, and whether the
+   * conversation had a lock on it before (left to it once they end). Each folder is let go when its own
+   * holds end, whatever else the conversation holds.
+   */
+  private heldFolders = new Map<string, Map<string, { holds: number; had: boolean }>>();
+  /** How many of a conversation's holds are the Files panel's deletes (`holdForFiles()`), so that a refusal says what holds it. */
+  private filesHolds = new Map<string, number>();
   /** How interactive commands run (swapped in tests); `askpass` is the gateway's, once there is one. */
   interactiveDeps: InteractiveDeps = defaultInteractiveDeps;
   /** Interactive commands running from their cards, by conversation and card (`interactiveKey()`), and their cards' pending updates. */
@@ -1157,7 +1165,7 @@ export class Orchestrator {
     if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
     // No team replies then, nor is there a Stop: say what holds it.
-    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, t().handoffs.folderHeld);
+    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, this.heldMessage(convId));
     if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
   }
 
@@ -1958,7 +1966,12 @@ export class Orchestrator {
   holdForFiles(convId: string, folder: string): () => void {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
-    return this.holdFolder(conv, folder);
+    return this.holdFolder(conv, folder, { files: true });
+  }
+
+  /** What holds a conversation's folder, for what it refuses meanwhile: only the Files panel's deletes, or a command. */
+  private heldMessage(convId: string): string {
+    return this.filesHolds.get(convId) === this.folderHolds.get(convId) ? t().filesEdit.deleteHolds : t().handoffs.folderHeld;
   }
 
   /**
@@ -1967,22 +1980,40 @@ export class Orchestrator {
    * for a schedule's own run (`startQueue: false`), whose message goes next. Throws 409 when another
    * conversation holds the folder.
    */
-  private holdFolder(conv: Conversation, folder: string, o: { startQueue?: boolean } = {}): () => void {
-    // A lock this conversation had on it already (an action allowed in a read-only run) is left to it.
-    const had = this.dirLocks.get(folder) === conv.id && !this.folderHolds.has(conv.id);
-    this.lockDirs([folder], conv);
-    this.folderHolds.set(conv.id, (this.folderHolds.get(conv.id) ?? 0) + 1);
+  private holdFolder(conv: Conversation, folder: string, o: { startQueue?: boolean; files?: boolean } = {}): () => void {
+    const count = (map: Map<string, number>, by: number) => {
+      const n = (map.get(conv.id) ?? 0) + by;
+      if (n > 0) map.set(conv.id, n);
+      else map.delete(conv.id);
+      return n;
+    };
+    const held = this.heldFolders.get(conv.id) ?? new Map<string, { holds: number; had: boolean }>();
+    const entry = held.get(folder);
+    if (entry) entry.holds++;
+    else {
+      // A lock this conversation had on it already (an action allowed in a read-only run) is left to it.
+      const had = this.dirLocks.get(folder) === conv.id;
+      this.lockDirs([folder], conv);
+      held.set(folder, { holds: 1, had });
+      this.heldFolders.set(conv.id, held);
+    }
+    count(this.folderHolds, 1);
+    if (o.files) count(this.filesHolds, 1);
     this.emitStatus(conv.id);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const left = (this.folderHolds.get(conv.id) ?? 1) - 1;
-      if (left > 0) this.folderHolds.set(conv.id, left);
-      else {
-        this.folderHolds.delete(conv.id);
-        if (!had) this.unlockDirs([folder], conv.id);
+      // This folder is let go once its own holds end.
+      const mine = this.heldFolders.get(conv.id);
+      const it = mine?.get(folder);
+      if (mine && it && --it.holds <= 0) {
+        mine.delete(folder);
+        if (!mine.size) this.heldFolders.delete(conv.id);
+        if (!it.had) this.unlockDirs([folder], conv.id);
       }
+      if (o.files) count(this.filesHolds, -1);
+      const left = count(this.folderHolds, -1);
       this.emitStatus(conv.id);
       const now = this.store.get(conv.id);
       if (left <= 0 && o.startQueue !== false && now && !this.closing && !this.deleting.has(conv.id)) this.startQueued(now);
@@ -3987,8 +4018,8 @@ export class Orchestrator {
     // A run that has ended let go of its lock already: taking one now would keep it until a restart.
     if (this.runs.get(conv.id) !== run) return undefined;
     if (run.ws.isolated || run.lockRoots) return undefined;
-    // A fixed or interactive command of this conversation holds the folder: no action writes there meanwhile.
-    if (this.folderHolds.has(conv.id)) return t().handoffs.folderHeld;
+    // A fixed or interactive command of this conversation (or a Files delete) holds the folder: no action writes there meanwhile.
+    if (this.folderHolds.has(conv.id)) return this.heldMessage(conv.id);
     const dirs: string[] = [];
     for (const cwd of cwdsOf(conv.settings)) {
       try {

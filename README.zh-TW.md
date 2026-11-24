@@ -52,7 +52,7 @@
 ## 功能
 
 - **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#模型連線)）
-- **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），團隊可以直接開始，也可以等你確認；你要求時，團隊回答完它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
+- **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），團隊會直接開始回答，你也可以要求先等你確認；開啟審閱時，團隊回答完它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作，另一個對話正在修改同一個資料夾時開始的對話也在自己的 worktree 裡工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)、[兩個對話同一個資料夾](docs/user-guide.zh-TW.md#兩個對話同一個資料夾)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、替我核准、完全存取），超出範圍的動作在對話中請你核准（替我核准時，首席 agent 先放行它認為安全的，其餘才問你）；agent 不確定時先問你而不亂猜，或給你一張可以逐項勾選的步驟清單；要密鑰時用卡片，值不進聊天也不交給 agent，只交給 Harness Relay 在自己的沙箱裡執行的腳本；需要登入的指令由你從卡片上執行；要你親自登入網站時，對話的瀏覽器會交給你；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[密鑰與固定指令](docs/user-guide.zh-TW.md#密鑰與固定指令)、[對話](docs/user-guide.zh-TW.md#4-對話)）

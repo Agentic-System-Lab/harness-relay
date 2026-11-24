@@ -88,18 +88,49 @@ describe('attached folders', () => {
     expect(pathClash(['x/y', 'X'])).toBe('X');
   });
 
-  it('leaves out what is in a .git folder, and refuses a folder that holds nothing else', () => {
+  it('takes a Windows device name only as it ends up on disk, and never a name over 255 bytes for one', () => {
+    // `con .` is `con` once its trailing dot and space are gone.
+    expect(folderFilePath('con .')).toBe('_con');
+    expect(folderFilePath(folderFilePath('con .')!)).toBe('_con');
+    expect(folderFilePath('a/NUL. ')).toBe('a/_NUL');
+    // Prefixed, a name already 255 bytes long is cut again, its extension kept.
+    const long = `nul.${'長'.repeat(100)}`;
+    const [file] = decodeAttachments([{ name: long, data: b64('x') }]);
+    expect(Buffer.byteLength(file!.name)).toBeLessThanOrEqual(255);
+    expect(file!.name.startsWith('_nul')).toBe(true);
+    const seg = folderFilePath(long)!;
+    expect(Buffer.byteLength(seg)).toBeLessThanOrEqual(255);
+    expect(folderFilePath(seg)).toBe(seg);
+  });
+
+  it('leaves out what is in a .git folder, however it is spelled, and refuses a folder that holds nothing else', () => {
     const [dir] = decodeAttachments(
       folder([
         { path: 'a.md', data: b64('a') },
         { path: '.git/config', data: b64('[core]') },
         { path: 'sub/.GIT/hooks/post-checkout', data: b64('#!/bin/sh') },
         { path: '.github/workflows/ci.yml', data: b64('on: push') },
+        // Spaces around it, a dot after it: still `.git` on disk.
+        { path: ' .git/config', data: b64('[core]') },
+        { path: '\u00a0.git/config', data: b64('[core]') },
+        { path: '.git\u00a0/config', data: b64('[core]') },
+        { path: '\ufeff.GIT/hooks/x', data: b64('#!/bin/sh') },
+        { path: 'sub/.git./x', data: b64('x') },
       ]),
     );
     expect(dir!.files!.map((f) => f.path)).toEqual(['a.md', '.github/workflows/ci.yml']);
     expect(statusOf(() => decodeAttachments(folder([{ path: '.git/HEAD', data: b64('ref') }])))).toBe(400);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    "checks an automation's paths where a run writes them, so one too long for this disk is refused when it is saved",
+    () => {
+      // Twenty names of 250 bytes: longer than macOS's (1,024) or Linux's (4,096) longest path.
+      const deep = Array.from({ length: 20 }, (_, i) => `${String(i).padStart(2, '0')}${'d'.repeat(248)}`).join('/');
+      expect(statusOf(() => checkFolderNames(decodeAttachments(folder([{ path: `${deep}/x.md`, data: b64('x') }]))))).toBe(400);
+      expect(readdirSync(join(root, 'data', 'attachments')).filter((n) => n.startsWith('check-'))).toEqual([]);
+    },
+  );
 
   it("checks an automation's folder names on this disk before it is saved, leaving nothing behind", () => {
     checkFolderNames(decodeAttachments(folder([{ path: 'a/b.md', data: b64('x') }])));
@@ -115,7 +146,7 @@ describe('attached folders', () => {
       },
     ];
     expect(statusOf(() => checkFolderNames(dup))).toBe(400);
-    expect(readdirSync(join(root, 'data', 'tmp')).filter((n) => n.startsWith('attach-check-'))).toEqual([]);
+    expect(readdirSync(join(root, 'data', 'attachments')).filter((n) => n.startsWith('check-'))).toEqual([]);
   });
 
   it('decodes a folder of files beside a file, and never takes a file for a folder', () => {
