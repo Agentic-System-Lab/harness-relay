@@ -1076,6 +1076,11 @@ async function inParts(o: {
     const at = address;
     const sent = headersAt(at);
     const watch = new Stall(o.stallMs);
+    // A part gone `stallMs` without a byte is asked for again (`connection`), and the download waits as long
+    // for that ask: its own watch, set by the last byte of any part, falls due just after this one when this
+    // part is the last with bytes to come, and on a busy computer runs in the same turn of timers, before
+    // the ask is made. Touched here, in the abort itself, it is put off first.
+    watch.signal.addEventListener('abort', () => stop.aborted || stall.touch(), { once: true });
     const signal = AbortSignal.any([stop, watch.signal]);
     try {
       const ask = (s: AbortSignal) =>

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACHMENT_LIMITS } from '../src/shared/types';
 import {
+  FOLDER_PICKER_SINCE,
   LEFT_OUT,
   acceptAttachments,
+  canPickFolders,
   foldersOfPicked,
   isFolder,
+  pickedFromFolderPicker,
   readDroppedFolder,
   type DroppedEntry,
   type PendingFolder,
@@ -90,6 +93,113 @@ describe('a picked folder', () => {
     const [big] = foldersOfPicked(many);
     expect(big!.files).toHaveLength(ATTACHMENT_LIMITS.maxFolderFiles);
     expect(big!.tooMany).toBe(true);
+  });
+});
+
+describe('what a folder picker gave', () => {
+  it('is the folders its files came from, or the files themselves where none came with a folder path', () => {
+    const [docs] = pickedFromFolderPicker([picked('docs/a.md', 2), picked('docs/b/c.md', 3)]) as PendingFolder[];
+    expect(docs!.name).toBe('docs');
+    expect(docs!.files.map((f) => f.path)).toEqual(['a.md', 'b/c.md']);
+    // A picker that takes files only (an older phone's): the files picked, attached as files.
+    const loose = [new File(['x'], 'photo.jpg'), picked('notes.txt')];
+    expect(pickedFromFolderPicker(loose)).toEqual(loose);
+    expect(pickedFromFolderPicker(loose).some(isFolder)).toBe(false);
+    // Some with a folder path: the folders, as ever (a file without one left out).
+    const [mixed, ...more] = pickedFromFolderPicker([picked('docs/a.md'), new File(['x'], 'loose.txt')]);
+    expect(more).toEqual([]);
+    expect(isFolder(mixed!) && mixed.files.map((f) => f.path)).toEqual(['a.md']);
+    // An empty folder gives nothing, which the composer says.
+    expect(pickedFromFolderPicker([])).toEqual([]);
+  });
+});
+
+describe('whether a browser can pick a folder', () => {
+  // Iterator helpers are in every browser of today; an older iPad's WebKit has none.
+  const computer = { attribute: true, maxTouchPoints: 0, touchScreen: false, iteratorHelpers: true };
+  const phone = { attribute: true, maxTouchPoints: 5, touchScreen: true, iteratorHelpers: true };
+  const safari = (system: string, version: string, device = 'iPhone; CPU iPhone OS') =>
+    `Mozilla/5.0 (${device} ${system} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${version} Mobile/15E148 Safari/604.1`;
+  const android = (chrome: number, extra = '') =>
+    `Mozilla/5.0 (Linux; Android 14; Pixel 7${extra}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome}.0.0.0 Mobile Safari/537.36`;
+  const can = (userAgent: string, b: typeof computer = phone) => canPickFolders({ ...b, userAgent });
+
+  it('on a computer, wherever the attribute is, also on a touch screen with a browser from the versions that pick folders', () => {
+    const chrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    const firefox = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0';
+    for (const ua of [chrome, mac, firefox]) expect(can(ua, computer)).toBe(true);
+    expect(canPickFolders({ ...computer, attribute: false, userAgent: chrome })).toBe(false);
+    // A tablet running a computer's system (Windows, ChromeOS), or Chrome on an Android tablet asking for
+    // desktop sites, which gives Linux.
+    const edge =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0';
+    expect(can(edge)).toBe(true);
+    expect(can('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36')).toBe(true);
+    expect(can('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')).toBe(false);
+    expect(can(firefox)).toBe(false);
+  });
+
+  it('on an iPhone or iPad, from iOS 18.4 on, in Safari, in another browser, and on an iPad asking for desktop sites', () => {
+    expect(FOLDER_PICKER_SINCE.ios).toEqual([18, 4]);
+    expect(can(safari('18_3_1', '18.3'))).toBe(false);
+    expect(can(safari('18_4', '18.4'))).toBe(true);
+    expect(can(safari('17_7', '17.7', 'iPad; CPU OS'))).toBe(false);
+    expect(can(safari('18_5', '18.5', 'iPad; CPU OS'))).toBe(true);
+    // From iOS 26 on Safari gives the system as 18.6 or later, and its own version as it is.
+    expect(can(safari('18_6', '26.1'))).toBe(true);
+    // Chrome and Firefox there give the system's version only, whatever their own.
+    const crios = (system: string) =>
+      `Mozilla/5.0 (iPhone; CPU iPhone OS ${system} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.7339.122 Mobile/15E148 Safari/604.1`;
+    expect(can(crios('17_5'))).toBe(false);
+    // On an iPad, in its mobile layout, the system's own token alone decides.
+    const iPadChrome = (system: string) =>
+      `Mozilla/5.0 (iPad; CPU OS ${system} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.7339.122 Mobile/15E148 Safari/604.1`;
+    expect(can(iPadChrome('17_7'))).toBe(false);
+    expect(can(iPadChrome('18_5'))).toBe(true);
+    expect(can(crios('26_1'))).toBe(true);
+    const fxios =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/145.0 Mobile/15E148 Safari/605.1.15';
+    expect(can(fxios)).toBe(false);
+    // An iPad asking for desktop sites says it is a Mac: its touch points tell, and Safari's version.
+    const asMac = (version: string) =>
+      `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${version} Safari/605.1.15`;
+    expect(can(asMac('18.3'))).toBe(false);
+    expect(can(asMac('18.4'))).toBe(true);
+    expect(can(asMac('18.3'), { ...phone, touchScreen: false })).toBe(false);
+    expect(can(asMac('16.0'), computer)).toBe(true);
+    // An iPad's home-screen web app gives no version at all: the system's WebKit tells it, by Iterator
+    // helpers (Safari 18.4).
+    const homeScreen = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)';
+    expect(can(homeScreen)).toBe(true);
+    expect(can(homeScreen, { ...phone, iteratorHelpers: false })).toBe(false);
+    // Where a version is given, it decides.
+    expect(can(asMac('18.3'), { ...phone, iteratorHelpers: true })).toBe(false);
+  });
+
+  it('on Android, from Chrome 132 and Firefox 142 on, in any Chromium browser, never in an app’s WebView', () => {
+    expect(can(android(131))).toBe(false);
+    expect(can(android(132))).toBe(true);
+    expect(can(android(140), computer)).toBe(true);
+    expect(can(android(131), computer)).toBe(false);
+    const samsung = (chrome: number) =>
+      `Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/${chrome}.0.0.0 Mobile Safari/537.36`;
+    expect(can(samsung(125))).toBe(false);
+    expect(can(samsung(132))).toBe(true);
+    expect(can(`${android(133)} EdgA/133.0.0.0`)).toBe(true);
+    const firefox = (v: number) => `Mozilla/5.0 (Android 14; Mobile; rv:${v}.0) Gecko/${v}.0 Firefox/${v}.0`;
+    expect(can(firefox(141))).toBe(false);
+    expect(can(firefox(142))).toBe(true);
+    expect(can(android(140, ' Build/UQ1A.240205.004; wv').replace('Chrome/', 'Version/4.0 Chrome/'))).toBe(false);
+    // An app's browser on a WebView that leaves `wv` out still gives its `Version/4.0`.
+    expect(can(android(140).replace('Chrome/', 'Version/4.0 Chrome/'))).toBe(false);
+  });
+
+  it('nowhere else touch comes first', () => {
+    expect(can('Mozilla/5.0 (Mobile; LYF/F300B; Android; rv:48.0) Gecko/48.0 Firefox/48.0 KAIOS/2.5')).toBe(false);
+    expect(can('Opera/9.80 (J2ME/MIDP; Opera Mini/9.80; U; en) Presto/2.12.423 Version/12.16')).toBe(false);
+    expect(can('')).toBe(false);
+    expect(canPickFolders({ ...phone, attribute: false, userAgent: android(140) })).toBe(false);
   });
 });
 

@@ -3,8 +3,9 @@ import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE, isFolderAttachment, isInlineImage,
 import type { AttachmentUpload } from '../api';
 import {
   acceptAttachments,
-  foldersOfPicked,
+  canPickFolders,
   isFolder,
+  pickedFromFolderPicker,
   readDroppedFolder,
   type DroppedEntry,
   type Picked,
@@ -185,9 +186,16 @@ export function useMessageFiles(
   return { addFiles, removeFile, onPaste, dragging, dropZone: { onDragOver, onDragLeave, onDrop } };
 }
 
-/** Whether this browser can pick a folder: not on a phone or tablet, whose pickers take files only. */
-function canPickFolders(): boolean {
-  return typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input') && !isTouchScreen();
+/** Whether this browser can pick a folder (`canPickFolders` in `attachments.ts`). */
+function browserPicksFolders(): boolean {
+  if (typeof document === 'undefined') return false;
+  return canPickFolders({
+    attribute: 'webkitdirectory' in document.createElement('input'),
+    userAgent: navigator.userAgent,
+    maxTouchPoints: navigator.maxTouchPoints ?? 0,
+    touchScreen: isTouchScreen(),
+    iteratorHelpers: typeof (globalThis as { Iterator?: { prototype?: { map?: unknown } } }).Iterator?.prototype?.map === 'function',
+  });
 }
 
 /**
@@ -200,7 +208,7 @@ export function AttachmentPicker({ addFiles, onNotice }: { addFiles: (items: Pic
   const folderPicker = useRef<HTMLInputElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const [folders] = useState(canPickFolders);
+  const [folders] = useState(browserPicksFolders);
   const [open, setOpen] = useState(false);
 
   // Open, the menu takes the focus, and a press anywhere else closes it.
@@ -290,9 +298,9 @@ export function AttachmentPicker({ addFiles, onNotice }: { addFiles: (items: Pic
           type="file"
           hidden
           onChange={(e) => {
-            const folders = foldersOfPicked(e.target.files ?? []);
+            const picked = pickedFromFolderPicker(e.target.files ?? []);
             // An empty folder gives no files, and so no folder to name.
-            if (folders.length) addFiles(folders);
+            if (picked.length) addFiles(picked);
             else onNotice(t.composer.folderPickedEmpty);
             e.target.value = '';
           }}
