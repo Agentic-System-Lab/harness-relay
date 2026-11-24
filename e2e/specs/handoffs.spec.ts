@@ -78,6 +78,8 @@ test.describe('secrets and fixed commands', () => {
       page,
       relay,
     }) => {
+      // No fixed command runs on native Windows, so Harness Relay asks for none there (`gapsOf()` in the orchestrator).
+      test.skip(process.platform === 'win32', 'Fixed commands do not run on native Windows');
       const id = await chatWith(page, relay, c, { permission: 'full' });
       await send(page, 'Fetch the data e2e:secretscript');
       const reply = await finishedReply(page, c.name);
