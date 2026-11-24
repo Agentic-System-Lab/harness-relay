@@ -45,10 +45,10 @@ describe("the READMEs' contributors", () => {
     }
   });
 
-  it("the repository's list adds davidho27941 and leaves the claude account out", () => {
+  it("the repository's list adds davidho27941 and leaves the claude and cyyeh accounts out", () => {
     const list = parseList(read('.github/contributors.json'));
     expect(list.add).toContain('davidho27941');
-    expect(list.leaveOut).toContain('claude');
+    expect(list.leaveOut).toEqual(expect.arrayContaining(['claude', 'cyyeh']));
   });
 
   it('draws each person as their avatar and name, linking to their profile, a row at a time', () => {
