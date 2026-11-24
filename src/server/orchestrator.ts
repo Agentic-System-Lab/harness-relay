@@ -540,7 +540,7 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
       // So does a fixed command's run from a card: it goes on for the conversation it was started in.
       if (p.type === 'command' && p.run?.status === 'running') {
         const { endsAt: _endsAt, ...run } = p.run;
-        p.run = { ...run, status: 'error', reason: t().stoppedNote, stopped: true };
+        p.run = { ...run, status: 'error', stopped: true };
       }
       if (p.type !== 'interactive' || p.session?.state !== 'running') continue;
       const { asking: _asking, ...session } = p.session;
@@ -1614,6 +1614,8 @@ export class Orchestrator {
   /** Forgets what a schedule held of a removed fixed command's finding (its id may come back with its name). */
   forgetCommand(commandId: string): void {
     for (const [convId, held] of this.heldCommandEvents) if (held.command === commandId) this.heldCommandEvents.delete(convId);
+    // A run of it under way stops: the user removed what it runs.
+    this.commandRuns.get(commandId)?.abort.abort();
   }
 
   /**
@@ -1755,10 +1757,11 @@ export class Orchestrator {
    * schedule), when its card is this conversation's. The run ends as stopped, and its folder is let go.
    */
   stopCommand(convId: string, commandId: string): void {
-    const { cmd } = this.ownCommand(convId, commandId);
-    const run = this.commandRuns.get(cmd.id);
-    if (!run || run.convId !== convId) throw new HttpError(409, t().handoffs.commandNotRunning);
-    run.abort.abort();
+    // Its run first: the command may have been removed in Settings while it ran.
+    const run = this.commandRuns.get(commandId);
+    if (run && run.convId === convId) return run.abort.abort();
+    this.ownCommand(convId, commandId);
+    throw new HttpError(409, t().handoffs.commandNotRunning);
   }
 
   /**
@@ -1943,7 +1946,7 @@ export class Orchestrator {
       // Its cards follow it as it runs (when it stops, what it printed so far, the hosts refused it); the
       // command's own last run (Settings) only once it ended.
       const onProgress = (p: FixedRunProgress) => {
-        if (!conv || abort.signal.aborted) return;
+        if (!conv) return;
         this.updateCommandCards(conv.id, cmd.id, {
           ...running,
           endsAt: p.endsAt,
@@ -2997,6 +3000,7 @@ export class Orchestrator {
     // Its folder let go: what waits in the queue goes now, when nothing else holds the chat.
     this.queueAfterHold(conv.id);
     const now = this.store.get(conv.id) ?? conv;
+    if (run.stopped) return { result: 'skipped', reason: t().handoffs.commandStopped(cmd.name) };
     switch (run.status) {
       case 'passed':
         // It ended with 0, but the sandbox refused it hosts: what it was to do may not have been done.
@@ -3025,7 +3029,13 @@ export class Orchestrator {
     // Its own team (or another chat) writing in the folder: tried again a little later, as for any busy moment.
     if (this.writingIn(conv.id, cmd.folder)) return { result: 'busy', reason: t().handoffs.folderBusy };
     const run = await this.trackCommand(this.executeCommand(conv, cmd, 'schedule', {}));
-    if (run.status === 'passed') return { result: 'ran' };
+    // Stopped (Stop, the command removed, the server stopping): this time is skipped, never sent to the team.
+    if (run.stopped) return { result: 'skipped', reason: t().handoffs.commandStopped(cmd.name) };
+    if (run.status === 'passed') {
+      // It ended with 0, but the sandbox refused it hosts: what it was to do may not have been done.
+      if (refusedHostsToTell(run).length) this.systemNote(this.store.get(conv.id) ?? conv, t().handoffs.scheduleRunNote(cmd.name, run));
+      return { result: 'ran' };
+    }
     if (run.status === 'changed') return this.changedNote(conv, cmd, run);
     const what =
       run.status === 'news'
@@ -3885,6 +3895,15 @@ export class Orchestrator {
   stop(convId: string): void {
     this.runs.get(convId)?.abort.abort();
     this.checking.get(convId)?.abort();
+    // A fixed command's run its cards follow (`commandRunning()`): the chat's Stop is there even where
+    // the chat has no card of it (a run of a command saved from another chat of the folder, or removed since).
+    for (const r of this.commandRuns.values()) if (r.convId === convId) r.abort.abort();
+  }
+
+  /** Whether a fixed command's run of this conversation goes (its folder held): the chat offers Stop. */
+  commandRunning(convId: string): boolean {
+    for (const r of this.commandRuns.values()) if (r.convId === convId) return true;
+    return false;
   }
 
   /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */
@@ -7173,6 +7192,11 @@ export class Orchestrator {
   }
 
   private emitStatus(id: string): void {
-    this.hub.emit(id, { type: 'status', running: this.isRunning(id), activeAgentIds: this.activeAgentIds(id) });
+    this.hub.emit(id, {
+      type: 'status',
+      running: this.isRunning(id),
+      activeAgentIds: this.activeAgentIds(id),
+      commandRunning: this.commandRunning(id),
+    });
   }
 }

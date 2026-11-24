@@ -12,6 +12,8 @@ interface Props {
   agents: AgentConfig[];
   /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
   running: boolean;
+  /** A fixed command's run of this chat holds its folder: Stop is offered (nothing is sent meanwhile). */
+  commandRunning?: boolean;
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
@@ -40,6 +42,7 @@ const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 export function Composer({
   agents,
   running,
+  commandRunning = false,
   canContinue,
   locked = false,
   reviewing = false,
@@ -246,7 +249,7 @@ export function Composer({
           />
           <div className="composer-actions">
             <VoiceButton onText={insertVoice} onError={setNotice} />
-            {running ? (
+            {running || commandRunning ? (
               <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
                 {t.composer.stop}
               </button>

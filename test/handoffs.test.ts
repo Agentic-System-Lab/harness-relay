@@ -598,10 +598,13 @@ describe('what an agent hears of the runs and outbox items it asked for', () => 
     const stopped = run({
       status: 'error',
       exitCode: null,
-      reason: withLang('en', () => t().stoppedNote),
       stopped: true,
       refusedHosts: ['a.com', 'b.com'],
     });
+    // A note of another kind (a renewed value not kept) still said after it.
+    expect(withLang('en', () => t().handoffs.commandAnswer('submit', { ...stopped, refusedHosts: [], reason: 'not kept' }))).toContain(
+      'stopped before it ended: not kept.',
+    );
     expect(withLang('en', () => t().handoffs.commandAnswer('submit', stopped))).toContain('stopped before it ended.');
     expect(withLang('zh-TW', () => t().handoffs.commandAnswer('submit', stopped))).toContain('執行到一半被停止了。');
     for (const lang of ['zh-TW', 'en'] as const) {

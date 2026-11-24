@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { lstat, open, readdir, readlink, realpath, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   FIXED_COMMAND_NEWS,
@@ -846,18 +847,31 @@ export function pinnedCwd(folder: string, cwd: string): boolean {
   return !parts.includes('.git') && !unpinnedFolders(parts);
 }
 
-/** The hosts the sandbox refused a run so far, each masked (a command could put a value in a name it asks for). */
+/**
+ * The hosts the sandbox refused a run so far, each masked (a command could put a value in a name it asks
+ * for), also as the sandbox writes a name: in lower case.
+ */
 function refusedOf(run: { readonly refusedHosts: readonly string[] } | undefined, masks: readonly string[]): string[] {
-  return (run?.refusedHosts ?? []).map((h) => maskValues(h, masks));
+  const all = [...masks, ...masks.map((v) => v.toLowerCase())];
+  return (run?.refusedHosts ?? []).map((h) => maskValues(h, all));
 }
 
 /** Characters of a running run's output held to report from (its end): more than it shows, so that masking sees whole values. */
 const LIVE_HELD = HANDOFF_LIMITS.output * 4;
 
+/** Where the last line of `text` that has ended ends (after its line break), or 0. */
+function endedLines(text: string): number {
+  return Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r')) + 1;
+}
+
 /**
- * A running run's progress for its card: its output lines as they come (`add`), and a report of them
- * with the hosts refused it so far, made only when something changed (`report`), until it ended (`end`).
- * Masked at each report with the folder's values and those its secrets file holds then.
+ * A running run's progress for its card: its output as it comes (`add`, raw chunks, decoded and held to
+ * its end, so that output without line breaks never grows without bound), and a report of it with the
+ * hosts refused it so far, made only when something changed (`report`), until it ended (`end`). A report
+ * shows only lines that had ended at the report before it: a line being written waits for its end (a
+ * value never shows cut in two), and a value the command prints just before writing it back to its
+ * secrets file is masked by then. Masked with the folder's values and every value its secrets file held
+ * at a report (`values()`, trimmed as values are kept: also for its output once it ended).
  */
 function liveProgress(
   onProgress: (p: FixedRunProgress) => void,
@@ -865,23 +879,35 @@ function liveProgress(
   values: readonly string[],
   file: string,
   run: { readonly refusedHosts: readonly string[] } | undefined,
-): { add: (line: string) => void; report: () => void; end: () => void } {
+): { add: (chunk: Buffer) => void; report: () => void; end: () => void; values: () => string[] } {
+  const decoder = new StringDecoder('utf8');
   let printed = '';
   let cut = false;
+  // How much of `printed` the next report shows: the lines that had ended at this one.
+  let ready = 0;
+  const seen = new Set<string>();
   let last: string | undefined;
   let ended = false;
   return {
-    add: (line) => {
-      printed += `${line}\n`;
+    add: (chunk) => {
+      printed += decoder.write(chunk);
       if (printed.length > LIVE_HELD) {
-        printed = printed.slice(printed.length - LIVE_HELD);
+        const drop = printed.length - LIVE_HELD;
+        printed = printed.slice(drop);
+        ready = Math.max(0, ready - drop);
         cut = true;
       }
     },
     report: () => {
       if (ended) return;
-      const masks = [...values, ...Object.values(readBack(file))];
-      const output = printed ? maskEdges(keptOutput(maskValues(printed, masks), HANDOFF_LIMITS.output), masks, cut) : '';
+      for (const v of Object.values(readBack(file))) {
+        const kept = v.trim();
+        if (kept) seen.add(kept);
+      }
+      const masks = [...values, ...seen];
+      const text = printed.slice(0, ready);
+      ready = endedLines(printed);
+      const output = text ? maskEdges(keptOutput(maskValues(text, masks), HANDOFF_LIMITS.output), masks, cut) : '';
       const p: FixedRunProgress = { endsAt, output, refusedHosts: refusedOf(run, masks) };
       const key = JSON.stringify([p.output, p.refusedHosts]);
       if (key === last) return;
@@ -895,6 +921,7 @@ function liveProgress(
     end: () => {
       ended = true;
     },
+    values: () => [...seen],
   };
 }
 
@@ -925,6 +952,9 @@ export async function runFixedCommand(
   const line = input.extra?.trim() ? `${cmd.run} ${input.extra.trim()}` : cmd.run;
   const own = Object.fromEntries(cmd.secrets.map((n) => [n, input.values[n]!]));
 
+  // Stopped before it started (Stop while its pin was checked): nothing starts.
+  const stoppedRun = (): FixedRunResult => ({ run: { at, source, status: 'error', stopped: true }, written: {} });
+  if (input.signal?.aborted) return stoppedRun();
   let dirs: RelaySandboxRunDirs | undefined;
   let disposed = false;
   try {
@@ -963,7 +993,7 @@ export async function runFixedCommand(
         signal: input.signal,
         timeoutMs,
         maxCapture: HANDOFF_LIMITS.output * 4,
-        ...(live ? { onLine: live.add } : {}),
+        ...(live ? { onStdout: live.add } : {}),
         ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
       });
     } finally {
@@ -986,9 +1016,15 @@ export async function runFixedCommand(
       const value = left[name]?.trim();
       if (value !== undefined && value !== own[name] && !secretValueProblem(value)) written[name] = value;
     }
-    const failure = sandboxed.failure();
+    // Stopped: whatever the sandbox says of a host stopped before its command started (no control channel yet), it was stopped.
+    const failure = res.aborted ? undefined : sandboxed.failure();
     if (failure) return { run: errorRun(failure).run, written };
-    const masks = [...allValues, ...Object.values(written)];
+    // Also every value its secrets file held while it ran or holds now (trimmed, as values are kept), which
+    // its card may have masked already while it ran: one it renewed twice, or wrote with a space after it.
+    const leftValues = Object.values(left)
+      .map((v) => v.trim())
+      .filter(Boolean);
+    const masks = [...allValues, ...Object.values(written), ...leftValues, ...(live?.values() ?? [])];
     // Masked whole before it is cut, and at its start after (the output is kept from its end): a value
     // cut in two shows neither part.
     const output = res.stdout
@@ -1005,7 +1041,7 @@ export async function runFixedCommand(
       ...(output ? { output } : {}),
       ...(refused.length ? { refusedHosts: refused } : {}),
     };
-    if (res.aborted) return { run: { ...base, status: 'error', reason: t().stoppedNote, stopped: true }, written };
+    if (res.aborted) return { run: { ...base, status: 'error', stopped: true }, written };
     if (res.timedOut) return { run: { ...base, status: 'error', reason: t().handoffs.timedOut(HANDOFF_LIMITS.timeoutMin) }, written };
     if (res.code === 0) return { run: base, written };
     if (res.code === FIXED_COMMAND_NEWS) return { run: { ...base, status: 'news' }, written };

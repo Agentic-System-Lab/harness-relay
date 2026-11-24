@@ -1328,6 +1328,7 @@ export const en: Messages = {
       commands: 'Fixed commands',
       setAt: (when) => `set ${when}`,
       lastRun: (status, when) => `Last run: ${status} (${when})`,
+      lastRefused: (hosts) => `the sandbox refused: ${hosts}`,
       never: 'Not run yet',
       replace: 'Replace',
       newValue: 'New value',

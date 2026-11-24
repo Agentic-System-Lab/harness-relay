@@ -3523,10 +3523,11 @@ export interface SearchResult {
 
 /** Events pushed to the browser over SSE for one conversation. */
 export type ServerEvent =
-  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[] }
+  /** `commandRunning`: a fixed command's run whose cards this conversation follows holds its folder (the chat's Stop stops it). */
+  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[]; commandRunning?: boolean }
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
-  | { type: 'status'; running: boolean; activeAgentIds: string[] }
+  | { type: 'status'; running: boolean; activeAgentIds: string[]; commandRunning?: boolean }
   | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';

@@ -175,6 +175,8 @@ describe('a fixed command run', () => {
       stand(() => ({ code: null, aborted: true })).deps,
     );
     expect(stopped.run).toMatchObject({ status: 'error', stopped: true });
+    // Stopped says it all: no reason of its own (one is only another note, a renewed value not kept).
+    expect(stopped.run.reason).toBeUndefined();
   });
 
   it('gives an outbox run its input on its standard input, and a try its extra words on its command line', async () => {
@@ -276,6 +278,32 @@ describe('what a fixed command run leaves behind', () => {
     expect(existsSync(file)).toBe(false);
   });
 
+  it('is stopped, not failed, when Stop comes before it starts or before its sandbox started its command', async () => {
+    const dir = folder();
+    // Before it starts (Stop while its pin was checked): nothing starts.
+    const before = stand(() => ({ code: 0 }));
+    const early = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'abcdef' }, { signal: AbortSignal.abort() }), before.deps);
+    expect(early.run).toMatchObject({ status: 'error', stopped: true });
+    expect(early.run.reason).toBeUndefined();
+    expect(before.deps.sandboxCommand).not.toHaveBeenCalled();
+    // Its sandbox's host stopped before it attached its control channel, which the sandbox then reports.
+    const s = stand(() => ({ code: null, aborted: true }));
+    (s.deps.sandboxCommand as unknown as { mockImplementationOnce: (f: unknown) => void }).mockImplementationOnce(
+      async (_b: string, _a: string[], env: NodeJS.ProcessEnv) => ({
+        bin: 'host',
+        args: [],
+        env,
+        channel: {} as never,
+        failure: () => "Harness Relay's own sandbox did not get its control channel",
+        dispose: async () => undefined,
+        run: { refusedHosts: [] } as never,
+      }),
+    );
+    const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'abcdef' }), s.deps);
+    expect(run).toMatchObject({ status: 'error', stopped: true });
+    expect(run.reason).toBeUndefined();
+  });
+
   it('masks the hosts the sandbox refused, in its reason', async () => {
     const dir = folder();
     const s = stand(() => ({ code: 1 }), { refused: ['tok-0123456789.example.com'] });
@@ -304,15 +332,15 @@ describe('what a fixed command run leaves behind', () => {
     // Each change waits until a report showed it: one report a change, however slow the timers.
     const shown = (what: (r: (typeof reports)[number]) => boolean) => vi.waitFor(() => expect(reports.some(what)).toBe(true));
     s.deps.progressMs = 5;
-    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onLine?: (line: string) => void }) => {
+    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onStdout?: (chunk: Buffer) => void }) => {
       await shown(() => true);
-      p.onLine!('starting with tok-0123456789');
+      p.onStdout!(Buffer.from('starting with tok-0123456789\n'));
       await shown((r) => r.output !== '');
       refused.push('www.googleapis.com');
       await shown((r) => r.refusedHosts.length > 0);
-      // A value it renews: masked from the report after it wrote it back.
-      writeFileSync(p.env.RELAY_SECRETS_FILE!, 'TOKEN=tok-renewed-999\n');
-      p.onLine!('renewed tok-renewed-999');
+      // A value it renews, written back with a space after it (kept trimmed): masked as it is kept.
+      writeFileSync(p.env.RELAY_SECRETS_FILE!, 'TOKEN=tok-renewed-999 \n');
+      p.onStdout!(Buffer.from('renewed tok-renewed-999\n'));
       await shown((r) => r.output.includes('renewed'));
       // Nothing changed: no report.
       await new Promise((r) => setTimeout(r, 30));
@@ -337,6 +365,98 @@ describe('what a fixed command run leaves behind', () => {
     expect(run.output).toBe('starting with ••••\nrenewed ••••');
     await new Promise((r) => setTimeout(r, 30));
     expect(reports).toHaveLength(ended);
+  });
+
+  it('shows only lines that ended, a report after they did: never half a line, half a character, or a value it writes back just after', async () => {
+    const dir = folder();
+    const s = stand(() => ({}));
+    const reports: string[] = [];
+    s.deps.progressMs = 5;
+    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onStdout?: (chunk: Buffer) => void }) => {
+      const text = Buffer.from('héllo world\npartial tok-0123');
+      // A chunk ending inside the two bytes of é, then the rest; a line still being written, a value's start in it.
+      const at = text.indexOf(0xc3) + 1;
+      p.onStdout!(text.subarray(0, at));
+      p.onStdout!(text.subarray(at));
+      await vi.waitFor(() => expect(reports).toContain('héllo world'));
+      // A renewed value printed, then written back to its file before any report could show it.
+      p.onStdout!(Buffer.from('456789\nnew tok-renewed-777\n'));
+      writeFileSync(p.env.RELAY_SECRETS_FILE!, 'TOKEN=tok-renewed-777\n');
+      await vi.waitFor(() => expect(reports.at(-1)).toContain('new '));
+      return result({ code: 0 });
+    }) as never;
+    await runFixedCommand(command(dir), 'try', input({ TOKEN: 'tok-0123456789' }, { onProgress: (p) => reports.push(p.output) }), s.deps);
+    expect(reports).toContain('héllo world');
+    expect(reports.at(-1)).toBe('héllo world\npartial ••••\nnew ••••');
+    for (const r of reports) {
+      expect(r).not.toContain('tok-');
+      expect(r).not.toContain('\ufffd');
+    }
+  });
+
+  it('shows a line a report after it ended: a value it prints, then writes back before the next report, never shows', async () => {
+    const dir = folder();
+    const s = stand(() => ({}));
+    const reports: string[] = [];
+    s.deps.progressMs = 1000;
+    s.deps.runProcess = (async (p: { env: NodeJS.ProcessEnv; onStdout?: (chunk: Buffer) => void }) => {
+      p.onStdout!(Buffer.from('new tok-renewed-777\n'));
+      // One report: the line had not ended at the one before, so it waits.
+      vi.advanceTimersByTime(1000);
+      writeFileSync(p.env.RELAY_SECRETS_FILE!, 'TOKEN=tok-renewed-777\n');
+      vi.advanceTimersByTime(1000);
+      return result({ code: 0, stdout: 'new tok-renewed-777\n' });
+    }) as never;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const { run } = await runFixedCommand(
+        command(dir),
+        'try',
+        input({ TOKEN: 'tok-0123456789' }, { onProgress: (p) => reports.push(p.output) }),
+        s.deps,
+      );
+      expect(reports).toEqual(['', 'new ••••']);
+      expect(run.output).toBe('new ••••');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('holds only the end of what it prints, also without line breaks, and masks a value that end cut at its start', async () => {
+    const dir = folder();
+    const token = `tok-${'x'.repeat(1000)}END1234`;
+    const s = stand(() => ({}));
+    const reports: string[] = [];
+    const ticks = () => new Promise((r) => setTimeout(r, 40));
+    s.deps.progressMs = 5;
+    s.deps.runProcess = (async (p: { onStdout?: (chunk: Buffer) => void }) => {
+      // Forty lines of the token: more than the end it holds, cut inside one of them.
+      p.onStdout!(Buffer.from(`${token}\n`.repeat(40)));
+      await vi.waitFor(() => expect(reports.some((r) => r.includes('••••'))).toBe(true));
+      // Then 8 MB on one line: none of it shows until the line ends, and only its end then.
+      const block = Buffer.alloc(64 * 1024, 'y');
+      for (let i = 0; i < 128; i++) p.onStdout!(block);
+      await ticks();
+      expect(reports.join('')).not.toContain('y');
+      p.onStdout!(Buffer.from('\ndone\n'));
+      await vi.waitFor(() => expect(reports.at(-1)).toMatch(/done$/));
+      return result({ code: 0 });
+    }) as never;
+    await runFixedCommand(command(dir), 'try', input({ TOKEN: token }, { onProgress: (p) => reports.push(p.output) }), s.deps);
+    const withTokens = reports.find((r) => r.includes('••••'))!;
+    expect(withTokens).not.toContain('END1234');
+    expect(withTokens).not.toContain('xxxx');
+    expect(withTokens.startsWith('••••')).toBe(true);
+    const last = reports.at(-1)!;
+    expect(last.endsWith('yyyy\ndone')).toBe(true);
+    expect(last.length).toBeLessThanOrEqual(HANDOFF_LIMITS.output + 2);
+  });
+
+  it('masks a value in a refused host as the sandbox writes a name, in lower case', async () => {
+    const dir = folder();
+    const s = stand(() => ({ code: 0 }), { refused: ['tok-abcdef0123.example.com'] });
+    const { run } = await runFixedCommand(command(dir), 'try', input({ TOKEN: 'TOK-ABCDEF0123' }), s.deps);
+    expect(run.refusedHosts).toEqual(['••••.example.com']);
   });
 
   it('masks a value the output limit cut in two', async () => {

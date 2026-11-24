@@ -1339,6 +1339,7 @@ export const zhTW = {
       commands: '固定指令',
       setAt: (when: string) => `${when} 設定`,
       lastRun: (status: string, when: string) => `上次執行：${status}（${when}）`,
+      lastRefused: (hosts: string) => `沙箱擋下了：${hosts}`,
       never: '還沒執行過',
       replace: '取代',
       newValue: '新的值',

@@ -81,6 +81,18 @@ async function stopAfterFirstLine(bin: string) {
 }
 
 describe('runProcess', () => {
+  it('hands each chunk of stdout to onStdout as it comes, raw, also a long one with no line break', async () => {
+    const chunks: Buffer[] = [];
+    const res = await runProcess({
+      bin: process.execPath,
+      args: ['-e', "process.stdout.write('é'.repeat(100000))"],
+      env: process.env,
+      onStdout: (chunk) => chunks.push(chunk),
+    });
+    expect(res.code).toBe(0);
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('é'.repeat(100000));
+  });
+
   posixIt(
     'kills subprocesses that ignore SIGTERM after the CLI itself exited',
     async () => {

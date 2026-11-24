@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeViewFile } from '../../shared/types';
 import { refusedHostsToTell } from '../../shared/handoffs';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import {
   codeFiles,
   commandActions,
@@ -295,7 +295,15 @@ export function CommandCard({
       }
       setEditing(false);
     });
-  const stop = () => call(() => api.stopCommand(convId, part.commandId!));
+  // A click that lands just after it ended finds nothing to stop (409): the card shows how it ended, no error.
+  const stop = () =>
+    call(async () => {
+      try {
+        await api.stopCommand(convId, part.commandId!);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+      }
+    });
   const tryIt = (confirm = false) =>
     call(async () => {
       await api.tryCommand(convId, part.commandId!, {
@@ -408,7 +416,7 @@ export function CommandCard({
               </span>
             )}
           </div>
-          {run.reason && !run.stopped && <p className="small">{run.reason}</p>}
+          {run.reason && <p className="small">{run.reason}</p>}
           {refused.length > 0 && <p className="warn-line small">{c.refusedHosts(refused.join(', '))}</p>}
           {run.status === 'changed' && (
             <>
@@ -420,6 +428,8 @@ export function CommandCard({
           {running && (
             <details
               className="handoff-live-log"
+              // Inside the result's status region: its lines, once a second, are not read out each time.
+              aria-live="off"
               onToggle={(e) => {
                 const el = live.current;
                 if ((e.currentTarget as HTMLDetailsElement).open && el) {
