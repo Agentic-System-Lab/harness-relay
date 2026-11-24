@@ -2182,7 +2182,8 @@ describe.skipIf(process.platform === 'win32')(
       expect(probe.mcpServers.map((s) => s.name)).toEqual(['docs']);
       expect(probe.hooks).toEqual([expect.objectContaining({ event: 'PreToolUse', matcher: 'bash' })]);
       expect(probe.asRun).toBe(true);
-      const start = r.log().find((l) => l.start)!;
+      // Its version first (`tooOld()`), then the question.
+      const start = r.log().find((l) => l.start && l.argv[0] !== '--version')!;
       expect(start.argv).toEqual(['skills', 'list', '--json']);
       expect(start.cwd).toBe(r.o.cwd);
       expect(start.env).toMatchObject({

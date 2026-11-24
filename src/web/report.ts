@@ -120,7 +120,11 @@ export function infoLines(
   if (o.userAgent) lines.push(line(i.browser, o.userAgent));
   for (const p of PROVIDERS) {
     const s = o.providers.find((x) => x.provider === p);
-    if (s) lines.push(line(PROVIDER_LABEL[p], s.installed ? s.version?.trim() || i.installed : i.notInstalled));
+    if (!s) continue;
+    const version = s.version?.trim();
+    // Too old: found, with its version, but not started (`tooOld`).
+    const said = s.installed ? version || i.installed : s.tooOld && version ? i.tooOld(version, s.tooOld) : i.notInstalled;
+    lines.push(line(PROVIDER_LABEL[p], said));
   }
   lines.push(line(i.language, o.lang));
   return lines;

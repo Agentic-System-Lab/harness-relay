@@ -1990,6 +1990,20 @@ describe('accounts', () => {
     expect(removed.providers[0]!.accounts[1]!.apiKeyMasked).toBe('');
   });
 
+  it.skipIf(process.platform === 'win32')('refuses a sign-in on a CLI too old to start, saying which version it needs', async () => {
+    const { call, settings } = accountsApp();
+    const bin = join(root, `codex-too-old-${++n}`);
+    writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${bin}.starts"\n[ "$1" = "--version" ] && echo "codex-cli 0.27.0"\nexit 0\n`, {
+      mode: 0o755,
+    });
+    settings.update('codex', { bin });
+    const res = await call('POST', '/api/providers/codex/login', { method: 'device' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/^Codex 0\.27\.0 is too old: Harness Relay needs \d+\.\d+\.\d+ or later/);
+    // `codex login` was never started.
+    expect(readFileSync(`${bin}.starts`, 'utf8').trim().split('\n')).toEqual(['--version']);
+  });
+
   it('refuses a browser sign-in for a Cursor account besides the default one, which signs in with its key', async () => {
     const { call, read } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/cursor/accounts', { label: 'Team' })).json()) as { id: string }).id;

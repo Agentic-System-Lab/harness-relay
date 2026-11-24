@@ -625,10 +625,23 @@ describe('NativeSetupService', () => {
 
   // A stand-in for `grok inspect --json` that counts its runs in its home and names its skill after the count.
   const COUNTING_GROK = `#!/bin/sh
+[ "$1" = "--version" ] && { echo "grok 99.0.0"; exit 0; }
 n=$(cat "$GROK_HOME/runs" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$GROK_HOME/runs"
 printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD" "$n"
 `;
   const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt('does not ask a CLI too old what it loads: its version only, and why in its problems', async () => {
+    const { MIN_VERSIONS } = await import('../src/shared/cliVersions');
+    const { t } = await import('../src/server/i18n');
+    const bin = join(root, 'too-old-codex');
+    writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${bin}.starts"\n[ "$1" = "--version" ] && echo "codex-cli 0.27.0"\nexit 0\n`, {
+      mode: 0o755,
+    });
+    const probe = await new NativeSetupService({ bin: () => bin, env: () => ({ ...process.env }) }).get('codex', root);
+    expect(probe.problems).toEqual([{ kind: 'failed', detail: t().cliTooOld('Codex', '0.27.0', MIN_VERSIONS.codex!) }]);
+    expect(readFileSync(`${bin}.starts`, 'utf8').trim().split('\n')).toEqual(['--version']);
+  });
 
   posixIt(
     'gives the lead the last answer at once and asks again in the background once it is old; each account in its own home, with what it leaves out',
@@ -906,7 +919,8 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { args?: string[] })
-      .filter((l) => l.args && l.args[0] !== 'plugin' && !l.args.includes('--setting-sources'));
+      // Its version apart (`tooOld()`).
+      .filter((l) => l.args && l.args[0] !== 'plugin' && l.args[0] !== '--version' && !l.args.includes('--setting-sources'));
     // Both asks, the second the way a run starts it.
     expect(starts).toHaveLength(2);
     expect(starts[1]!.args).toContain('--disable-slash-commands');
@@ -1107,7 +1121,8 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { args?: string[] })
-      .filter((l) => l.args && !l.args.includes('--setting-sources'));
+      // Its version apart (`tooOld()`).
+      .filter((l) => l.args && l.args[0] !== '--version' && !l.args.includes('--setting-sources'));
     expect(starts).toHaveLength(1);
   });
 

@@ -146,6 +146,7 @@ export const en: Messages = {
     health: {
       checking: 'Checking…',
       notInstalled: 'Not installed',
+      tooOld: 'Too old: needs an update',
       apiKey: 'Using an API key',
       notLoggedIn: 'Not signed in',
       loggedIn: (account) => `Signed in${account ? `: ${account}` : ''}`,
@@ -244,6 +245,7 @@ export const en: Messages = {
     notLoggedIn: (p) => `${p} is not signed in.`,
     noBackend: (p) => `${p} cannot run yet: add an API key or endpoint under Settings → Model connections.`,
     cliMissing: (p) => `${p} CLI not found.`,
+    cliTooOld: (p, min) => `${p} is too old: Harness Relay needs ${min} or later. Update it first.`,
     goSettings: 'Go to Settings →',
     addMember: 'Add member',
     rules: 'Conversation rules',
@@ -371,6 +373,7 @@ export const en: Messages = {
       timedOut: 'The CLI did not answer in time.',
       noAnswer: 'The CLI did not report its usage.',
       cliMissing: (cli) => `${cli}'s CLI was not found.`,
+      cliTooOld: (cli) => `${cli} is too old, so its usage was not asked: update it first.`,
     },
     notReported: {
       cursor:
@@ -2074,6 +2077,7 @@ export const en: Messages = {
       language: 'Language',
       installed: 'installed',
       notInstalled: 'not installed',
+      tooOld: (version, min) => `${version} (too old: needs ${min} or later)`,
       unknown: '(the server did not answer: version and system unknown)',
     },
     mail: {
@@ -2994,6 +2998,7 @@ export const en: Messages = {
       readyAccount: (name) => `Ready · ${name}`,
       signIn: 'Sign in',
       install: 'Needs installation',
+      update: 'Needs an update',
       backend: 'Set up model connections',
       requirements: 'View install requirements',
       executable: 'Check executable',
@@ -3038,6 +3043,10 @@ export const en: Messages = {
     leadNoBackend: (p) => `${p} needs a model. Set one up under Settings → Model connections or pick another agent.`,
     leadNotInstalled: (p) => `${p} was not found on this computer: install it (or set its executable on its card), or pick another agent.`,
     goCard: (p) => `Go to ${p} →`,
+    leadTooOld: (p, min) => `${p} is too old (it needs ${min} or later): update it, or pick another agent.`,
+    tooOld: (p, version, min) => `${p} ${version} is older than Harness Relay supports (it needs ${min} or later), so nothing runs on it.`,
+    tooOldUpdate:
+      'Update it where you installed it, or install a separate, current copy here: Harness Relay then uses that one. Your own copy stays as it is, and so do its sign-in and settings.',
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
     nav: {
@@ -3096,6 +3105,7 @@ export const en: Messages = {
     pill: {
       checking: 'Checking…',
       notInstalled: 'Not installed',
+      tooOld: 'Too old',
       apiKey: 'Using an API key',
       loggedIn: 'Signed in',
       notLoggedIn: 'Not signed in',
@@ -3244,6 +3254,9 @@ export const en: Messages = {
       noOutput: '(no output)',
       installedHere: (dir) => `Installed by Harness Relay in ${dir}`,
       notInUse: ' (the executable path is set to another program now, so this one is not in use)',
+      update: (p) => `Update ${p}`,
+      updateHint:
+        'Harness Relay installed this copy: Update deletes it and installs a current one in the same folder. Its sign-in and settings stay as they are.',
       remove: 'Remove',
       confirmRemove: (p, dir) =>
         `Remove the ${p} Harness Relay installed? This deletes ${dir}. ${p}'s sign-in, settings and sessions are not deleted.`,

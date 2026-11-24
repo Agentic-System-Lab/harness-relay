@@ -39,7 +39,8 @@ import { ANTIGRAVITY_PROBE_SETTINGS, antigravityGeminiDir, antigravityHasKey, an
 import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } from './agents/copilot';
 import { museConfigBase, museEnv, prepareMuseRun } from './agents/muse';
 import { grokNativeEnv } from './agents/grok';
-import { openAgents } from './agents/index';
+import { openAgents, versionEnv } from './agents/index';
+import { assertNotTooOld } from './cliVersion';
 import { openHomeEnv } from './agents/open';
 import { parseFrontMatter } from './tools';
 import { t } from './i18n';
@@ -2034,9 +2035,11 @@ export class NativeSetupService {
     const hit = this.cache.get(key);
     if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items))
       return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs, addDirs).catch(
-      (err: Error) => failedProbe(provider, cwd, off, items, err),
-    );
+    const env = this.settings.env(provider, account);
+    // Older than Harness Relay supports: not asked (it might take the question for a prompt), and why is its error.
+    const result = assertNotTooOld(provider, bin, versionEnv(provider, env))
+      .then(() => PROBES[provider](bin, env, cwd, off, items, this.timeoutMs, addDirs))
+      .catch((err: Error) => failedProbe(provider, cwd, off, items, err));
     this.cache.set(key, { at: Date.now(), off, items, result });
     void result.then((probe) => this.answered.set(key, { off, items, probe }));
     return result;

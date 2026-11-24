@@ -1,4 +1,5 @@
 import { PROVIDERS, type ModelBackendsView, type Provider } from '../../src/shared/types';
+import { MIN_VERSIONS } from '../../src/shared/cliVersions';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, openToolCategory, replies, send, startChat, confirmTeam } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
@@ -163,6 +164,43 @@ test.describe('a CLI that is not installed', () => {
       );
       await expect(page.locator(`#settings-${c.provider} .provider-head .pill`)).toHaveText('Not installed');
     }
+  });
+});
+
+test.describe('a CLI older than Harness Relay supports', () => {
+  // Its fake says 0.0.1 and fails at anything else, as Codex 0.27 does without a terminal.
+  test.use({ serverEnv: { E2E_FAKE_TOO_OLD: 'codex' } });
+
+  test('says so in Settings and the sidebar, offers a current one, and its turn says which version it needs; it is asked nothing but its version', async ({
+    page,
+    relay,
+  }) => {
+    const min = MIN_VERSIONS.codex!;
+    await expect(page.locator('.provider-health a[href="#/settings/codex"]')).toHaveAttribute('title', 'Codex · Too old: needs an update');
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const overview = page.locator('#settings-overview');
+    await overview.getByText('Connect another assistant').click();
+    await expect(overview.getByRole('link', { name: 'Codex Needs an update' })).toBeVisible();
+    const card = page.locator('#settings-codex');
+    await expect(card.locator('.provider-head .pill')).toHaveText('Too old');
+    await expect(card.locator('.provider-head')).toContainText('v0.0.1');
+    await expect(card.locator('.warn-line').first()).toContainText(
+      `Codex 0.0.1 is older than Harness Relay supports (it needs ${min} or later), so nothing runs on it.`,
+    );
+    await expect(card.locator('.warn-line').first()).toContainText('Your own copy stays as it is');
+    // Another copy, in Harness Relay's own folder (not clicked: it would download Codex).
+    await expect(card.getByRole('button', { name: 'Install Codex', exact: true })).toBeVisible();
+    await expect(card.locator('.account-block').first().locator('.account-head .pill')).toHaveText('Too old');
+    await expect(card.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+
+    const codex = SIGNED_IN.find((c) => c.provider === 'codex')!;
+    await openTeamChat(page, relay, [member(codex)]);
+    await send(page, 'Anyone there?');
+    await expect(replies(page, codex.name).last().locator('.msg-error')).toContainText(
+      `Codex 0.0.1 is too old: Harness Relay needs ${min} or later.`,
+    );
+    // Not its sign-in, usage, models or a turn: only its version.
+    expect(relay.fakeLog().filter((e) => e.cli === 'codex' && e.args && e.args.join(' ') !== '--version')).toEqual([]);
   });
 });
 
