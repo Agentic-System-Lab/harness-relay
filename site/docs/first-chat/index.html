@@ -6,7 +6,7 @@
     <title>Your first chat · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: start a chat, ask your question, confirm the team the lead agent designs, talk with it while it works, and read its review."
+      content="Harness Relay docs: start a chat, ask your question, see (or confirm) the team the lead agent designs, talk with it while it works, and read its review."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Your first chat · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Your first chat in Harness Relay: choose the folder and the permission, ask, confirm the team the lead agent designs, add to the discussion while the agents reply, answer their questions, and read the lead agent's review of their replies."
+      content="Your first chat in Harness Relay: choose the folder and the permission, ask, see (or confirm) the team the lead agent designs, add to the discussion while the agents reply, answer their questions, and read the lead agent's review of their replies."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/",
         "name": "Your first chat · Harness Relay docs",
-        "description": "Harness Relay docs: start a chat, ask your question, confirm the team the lead agent designs, talk with it while it works, and read its review.",
+        "description": "Harness Relay docs: start a chat, ask your question, see (or confirm) the team the lead agent designs, talk with it while it works, and read its review.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -230,7 +230,7 @@
           </div>
         </div>
         <p class="lead">
-          Start a chat, ask your question and confirm the team: the agents answer in the same chat, and you can join in
+          Start a chat and ask your question; the lead agent designs a team, which answers right away or once you confirm it: the agents answer in the same chat, and you can join in
           at any time. This page walks through one question from start to finish.
         </p>
       </header>
@@ -287,10 +287,10 @@
               or full access.
             </li>
             <li>
-              Under <b>Once the team is ready</b>, choose <b>Wait for my confirmation</b> or <b>Start answering right away</b>. The next chat remembers your choice.
+              Under <b>Once the team is ready</b>, choose <b>Wait for my confirmation</b> or <b>Start answering right away</b>. The first new chat answers right away; the next chat remembers your choice.
             </li>
             <li>
-              <b>Have the lead agent review the team's replies</b> sits below the team confirmation options and starts checked. Once the team has
+              <b>Have the lead agent review the team's replies</b> sits below the team confirmation options and starts unchecked; tick it when you want it. Once the team has
               answered, the lead agent reads the replies and points out what to check (see
               <a href="#lead-review">below</a>).
             </li>
@@ -328,9 +328,11 @@
           </p>
           <ul>
             <li>
-              <b>Attach files</b>: paste a screenshot straight into the message box, drag files onto it, or click the
-              paper clip. Up to 10 files of 20 MB each go with a message. Every agent that reads it can open them, and
-              it sees the images too.
+              <b>Attach files and folders</b>: paste a screenshot straight into the message box, drag files or folders
+              onto it, or click the paper clip and choose <b>Files…</b> or <b>Folder…</b>. Up to 10 files and folders go
+              with a message, each file up to 20 MB, a folder up to 1,000 files, 200 MB in all; a folder leaves out
+              <code>.git</code> and <code>node_modules</code>. Every agent that reads it can open them, and it sees the
+              images too.
             </li>
             <li>
               <b>Address members</b>: type <code>@</code> to pick a teammate. When your message mentions members, only
@@ -349,7 +351,9 @@
           <p>
             Before anyone answers, the lead agent reads your question and puts a <b>Team design</b> card in the chat:
             the team it chose (the current team, one of your templates, a template it adapted, or a new team), why, and
-            each member's role. Until you answer it, the sidebar marks the chat <b>Confirm the team</b>.
+            each member's role. With <b>Start answering right away</b> (a first new chat's choice) the team starts at
+            once, and the card says it was used without asking. With <b>Wait for my confirmation</b>, the sidebar marks
+            the chat <b>Confirm the team</b> until you answer the card:
           </p>
           <ul>
             <li><b>Confirm team</b>: the team starts on your question.</li>

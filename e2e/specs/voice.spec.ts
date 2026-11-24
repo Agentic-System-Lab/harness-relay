@@ -151,7 +151,8 @@ for (const name of ['New chat', 'New automation']) {
   test(name + ' keeps the attachment and microphone buttons in place', async ({ page, relay }) => {
     await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
     await page.getByRole('button', { name, exact: true }).first().click();
-    const attach = page.getByRole('button', { name: en.composer.attach });
+    // The paperclip, whose menu offers files or a folder.
+    const attach = page.getByRole('button', { name: en.composer.attachFilesOrFolder });
     const mic = page.getByRole('button', { name: en.voice.start, exact: true });
     const apps = page.locator('.first-input-tools').getByRole('button', { name: en.apps.title });
     const stop = page.getByRole('button', { name: en.voice.stop, exact: true });
@@ -180,8 +181,9 @@ for (const name of ['New chat', 'New automation']) {
         expect(icon.x + icon.width / 2).toBeCloseTo(outer.x + outer.width / 2, 1);
         expect(icon.y + icon.height / 2).toBeCloseTo(outer.y + outer.height / 2, 1);
       }
-      const picker = page.waitForEvent('filechooser');
       await attach.click();
+      const picker = page.waitForEvent('filechooser');
+      await page.getByRole('menuitem', { name: en.composer.attachFiles }).click();
       const files = ['weekly-report.txt', 'release-notes.txt', 'meeting-agenda.txt', 'review-checklist.txt'];
       await (await picker).setFiles(files.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('draft') })));
       await expect(page.getByRole('button', { name: en.composer.removeFile(files[0]!) })).toBeVisible();

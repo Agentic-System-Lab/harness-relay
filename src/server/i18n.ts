@@ -856,8 +856,13 @@ const zhTW = {
   emptyMessage: '訊息不能是空的',
   typeFirst: '請先輸入訊息',
   badAttachment: '附加檔案的格式不正確',
-  tooManyAttachments: (n: number) => `一則訊息最多附加 ${n} 個檔案`,
+  tooManyAttachments: (n: number) => `一則訊息最多附加 ${n} 個檔案或資料夾`,
   attachmentTooLarge: (name: string, max: number) => `「${name}」太大了（上限 ${Math.round(max / 1024 / 1024)} MB）`,
+  attachmentsTooLarge: (max: number) => `一則訊息附加的檔案合計最多 ${Math.round(max / 1024 / 1024)} MB`,
+  folderTooManyFiles: (name: string, max: number) => `資料夾「${name}」的檔案超過 ${max.toLocaleString('zh-TW')} 個`,
+  folderSameName: (folder: string, path: string) =>
+    `資料夾「${folder}」裡的「${path}」在有些系統上會和另一個名稱撞在一起（只差大小寫、系統不接受的字元被換掉後相同，或同名的檔案和資料夾）`,
+  folderBadName: (folder: string, path: string) => `資料夾「${folder}」裡的「${path}」這個名稱或路徑，這台電腦的檔案系統不接受（可能太長）`,
   attachmentNotFound: '找不到這個附加檔案',
   mediaNotFound: '找不到這個圖片或影片（只能顯示工作目錄裡的圖片與影片）',
   downloadNotFound: '找不到這個檔案（只能下載工作目錄裡的檔案）',
@@ -1463,6 +1468,11 @@ const zhTW = {
     gone: (name: string) => `「${name}」已經不在了。`,
     moved: '儲存期間資料夾有變動，請再試一次。',
     cannotWrite: (name: string, why: string) => `無法寫入「${name}」（${why}）。如果有其他程式開著它，請先關閉再試一次。`,
+    protectedDelete:
+      '「檔案」不會刪除這個位置：它是 Harness Relay 不讓 agent 碰的位置（它的資料、瀏覽器的設定檔或存放權杖的檔案），或裡面有這樣的位置。',
+    deleteHolds: '「檔案」正在刪除這個對話資料夾裡的東西，刪除完成後再試一次。',
+    cannotDelete: (name: string, why: string) =>
+      `無法刪除「${name}」（${why}），可能已刪除一部分。如果有其他程式開著裡面的檔案，請先關閉再試一次。`,
     busy: '有任務正在改動這個資料夾裡的檔案（這個對話或其他對話的團隊）。請等它結束後再儲存。',
   },
 
@@ -2322,8 +2332,14 @@ const en: ServerMessages = {
   emptyMessage: 'The message cannot be empty',
   typeFirst: 'Type a message first',
   badAttachment: 'An attached file is malformed',
-  tooManyAttachments: (n) => `You can attach up to ${n} files to one message`,
+  tooManyAttachments: (n) => `You can attach up to ${n} files or folders to one message`,
   attachmentTooLarge: (name, max) => `"${name}" is too large (limit ${Math.round(max / 1024 / 1024)} MB)`,
+  attachmentsTooLarge: (max) => `What one message attaches can total at most ${Math.round(max / 1024 / 1024)} MB`,
+  folderTooManyFiles: (name, max) => `The folder "${name}" has more than ${max.toLocaleString('en')} files`,
+  folderSameName: (folder, path) =>
+    `In the folder "${folder}", "${path}" clashes with another name on some systems (they differ only in letter case or in characters some systems do not take, or a file and a folder share a name)`,
+  folderBadName: (folder, path) =>
+    `This computer's file system does not take the name or path "${path}" in the folder "${folder}" (it may be too long)`,
   attachmentNotFound: 'Attachment not found',
   mediaNotFound: 'Image or video not found (only images and videos in the working directory can be shown)',
   downloadNotFound: 'File not found (only files in the working directory can be downloaded)',
@@ -2961,6 +2977,11 @@ const en: ServerMessages = {
     gone: (name) => `"${name}" is no longer there.`,
     moved: 'The folder changed while saving. Try again.',
     cannotWrite: (name, why) => `Could not write "${name}" (${why}). If another program has it open, close it and try again.`,
+    protectedDelete:
+      "Files does not delete this: Harness Relay keeps agents away from it, or from something in it (its data, the browsers' profiles or files that hold tokens).",
+    deleteHolds: "Files is deleting something in this conversation's folder: try again once it is done.",
+    cannotDelete: (name, why) =>
+      `Could not delete "${name}" (${why}); some of it may be gone. If another program has a file in it open, close it and try again.`,
     busy: "A run is changing files in this folder (this chat's team, or another chat's). Save once it is done.",
   },
 

@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -36,6 +36,8 @@ import {
   FILE_EDIT_LIMITS,
   FILE_LIMITS,
   FOLDER_BUSY,
+  isFolderAttachment,
+  type FileDeleteRequest,
   type FileSaveRequest,
   type FileUploadRequest,
   keyOnlyAccount,
@@ -94,9 +96,18 @@ import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
-import { attachmentPath, decodeAttachments, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
+import {
+  attachmentPath,
+  attachmentsDir,
+  checkFolderNames,
+  decodeAttachments,
+  isInlineImage,
+  safeFileName,
+  type AttachmentPart,
+  type AttachmentUpload,
+} from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
-import { rootReadOnly, saveText, uploadFile } from './fileEdit';
+import { deletePath, rootReadOnly, saveText, uploadFile } from './fileEdit';
 import { zipStream } from './zip';
 import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTrust';
 import { NativeSetupService, listedFile, nativeForClient } from './native';
@@ -1701,6 +1712,8 @@ export function createApp({
   function scheduleFileChanges(input: unknown) {
     const { attachments, removeAttachments = [] } = input as { attachments?: unknown; removeAttachments?: unknown };
     const add = decodeAttachments(attachments);
+    // Each run writes its folders out later: a name this disk refuses is said now.
+    checkFolderNames(add);
     if (!Array.isArray(removeAttachments) || !removeAttachments.every((id): id is string => typeof id === 'string')) {
       throw new HttpError(400, t().invalidField('removeAttachments'));
     }
@@ -2235,7 +2248,8 @@ export function createApp({
   app.delete('/api/conversations/:id/queue/:messageId', (c) => c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))));
 
   // A file attached to a user message. Only common image types are shown inline; anything else
-  // is a download, so an attached HTML or SVG file can never run in this origin.
+  // is a download, so an attached HTML or SVG file can never run in this origin. An attached folder
+  // is a ZIP file of it, zipped as it is sent.
   app.get('/api/conversations/:id/attachments/:attachmentId', async (c) => {
     const conv = getConv(c.req.param('id'));
     const id = c.req.param('attachmentId');
@@ -2244,6 +2258,25 @@ export function createApp({
       .flatMap((m) => m.parts)
       .find((p): p is AttachmentPart => p.type === 'attachment' && p.id === id);
     if (!part) throw new HttpError(404, t().attachmentNotFound);
+    if (isFolderAttachment(part)) {
+      let plan: ZipPlan | null;
+      try {
+        plan = await zipPlan(join(attachmentsDir(conv.id), part.id), safeFileName(part.name));
+      } catch {
+        throw new HttpError(404, t().attachmentNotFound);
+      }
+      if (!plan) throw new HttpError(413, t().zipTooBig(FILE_LIMITS.zipItems, FILE_LIMITS.zipBytes / 1024 ** 3));
+      return new Response(Readable.toWeb(Readable.from(zipStream(plan.entries))) as ReadableStream, {
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': contentDisposition('attachment', `${plan.name}.zip`),
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+          // Agents in edit mode may change what is in it: zipped afresh each time.
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
     let data: Buffer;
     try {
       data = await readFile(attachmentPath(conv.id, part));
@@ -2612,6 +2645,14 @@ export function createApp({
   app.post('/api/conversations/:id/files/upload', writeLimit(Math.ceil(FILE_EDIT_LIMITS.maxUploadBytes / 3) * 4 + 64 * 1024), async (c) => {
     const b = await body<Partial<FileUploadRequest>>(c);
     return c.json(uploadFile(writableRoot(c.req.param('id'), b.root), b.dir ?? '', b.name, b.data, b.replace === true));
+  });
+
+  // A file or a folder (with all it holds) deleted from the working directory; never the root itself.
+  app.delete('/api/conversations/:id/files', async (c) => {
+    const b = await body<Partial<FileDeleteRequest>>(c);
+    const id = c.req.param('id');
+    // Checked and held at once (nothing awaited between), then removed without blocking the server.
+    return c.json(await deletePath(writableRoot(id, b.root), b.path, (folder) => orchestrator.holdForFiles(id, folder)));
   });
 
   /**

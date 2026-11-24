@@ -575,6 +575,13 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE schedules ADD COLUMN command_only INTEGER NOT NULL DEFAULT 0;
   `,
+  // 44: folders an automation sends on each run. A folder is a row of its own (mime_type
+  // 'inode/directory', no data) and each of its files a row naming it (schedule_attachments.folder: the
+  // folder's id; name: the file's path in it, with '/').
+  `
+  ALTER TABLE schedule_attachments ADD COLUMN folder TEXT;
+  CREATE INDEX schedule_files_by_folder ON schedule_attachments(folder) WHERE folder IS NOT NULL;
+  `,
 ];
 
 /**

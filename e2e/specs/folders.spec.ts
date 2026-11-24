@@ -69,7 +69,7 @@ test.describe('several working directories', () => {
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('radio', { name: 'Start answering right away' }).check();
-    // No lead review here (the page ticks it in every new chat): these tests are about the folders.
+    // No lead review here (off in every new chat anyway): these tests are about the folders.
     await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
     await submitFirstQuestion(page, 'Note it in both e2e:write=one.txt e2e:writeother=two.txt');
     const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);

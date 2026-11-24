@@ -6,7 +6,7 @@
     <title>第一個對話 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：開一個對話、提出問題、確認首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。"
+      content="Harness Relay 文件：開一個對話、提出問題、查看（或確認）首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="第一個對話 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在 Harness Relay 開始第一個對話：選資料夾與權限、提問、確認首席 agent 設計的團隊、在 agent 回覆時插話、回答它們的提問，並閱讀首席 agent 對回覆的審閱。"
+      content="在 Harness Relay 開始第一個對話：選資料夾與權限、提問、查看（或確認）首席 agent 設計的團隊、在 agent 回覆時插話、回答它們的提問，並閱讀首席 agent 對回覆的審閱。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/",
         "name": "第一個對話 · Harness Relay 文件",
-        "description": "Harness Relay 文件：開一個對話、提出問題、確認首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。",
+        "description": "Harness Relay 文件：開一個對話、提出問題、查看（或確認）首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -227,7 +227,7 @@
           </div>
         </div>
         <p class="lead">
-          開一個對話、提出問題、確認團隊：agent 會在同一個對話裡回答，你隨時都可以加入討論。這一頁以一個問題為例，從頭到尾走一遍。
+          開一個對話、提出問題，首席 agent 會組一個團隊，直接開始回答，或等你確認後再回答：agent 會在同一個對話裡回答，你隨時都可以加入討論。這一頁以一個問題為例，從頭到尾走一遍。
         </p>
       </header>
 
@@ -277,10 +277,10 @@
               <b>權限範圍以外的動作</b>：<b>詢問我</b>（在對話中問你，agent 會等你）或<b>自動拒絕</b>（agent 會被告知不行，改用其他方式）。選替我核准或完全存取時不會顯示。
             </li>
             <li>
-              在<b>本次組隊後</b>選<b>等我確認團隊</b>或<b>直接開始回答</b>。下一個新對話會記住這次的選擇。
+              在<b>本次組隊後</b>選<b>等我確認團隊</b>或<b>直接開始回答</b>。第一次的新對話會直接開始回答，下一個新對話會記住你的選擇。
             </li>
             <li>
-              <b>團隊回答後，請首席 agent 審閱回覆</b> 位於組隊確認選項下方，預設勾選。團隊回答完，首席 agent 會讀過回覆，指出該檢查的地方（見<a href="#lead-review">下方</a>）。
+              <b>團隊回答後，請首席 agent 審閱回覆</b> 位於組隊確認選項下方，預設不勾選，需要時再勾選。團隊回答完，首席 agent 會讀過回覆，指出該檢查的地方（見<a href="#lead-review">下方</a>）。
             </li>
           </ul>
           <p>輸入或口述問題後就能按<b>送出問題</b>，也可以附加檔案一起送給團隊。登入 Relay 後會在背景檢查 App 連線。按迴紋針前的<b>常用 App</b>（四個方格的圖示），勾選想請團隊使用的可用服務。無法勾選的 App 會在名稱下方說明原因。若 Slack 需要確認，按<b>檢查 Slack 連線</b>，讓 Codex 讀取你自己的 Slack 個人檔案。選取的名稱會和問題一起送出，每位助理依現有權限使用。需要連結服務時，按<b>管理 App 連線</b>，再按<b>返回新對話草稿</b>，原來的問題、附件與仍可使用的 App 都會保留。送出按鈕固定在表單框內的底部，點向下箭頭可查看更多設定。</p>
@@ -314,8 +314,9 @@
           </p>
           <ul>
             <li>
-              <b>附加檔案</b>：把截圖直接貼到輸入框、把檔案拖到輸入框上，或按迴紋針。每則訊息最多可以附 10 個檔案、每個 20 MB。讀到這則訊息的
-              agent 都打得開，圖片也看得到。
+              <b>附加檔案和資料夾</b>：把截圖直接貼到輸入框、把檔案或資料夾拖到輸入框上，或按迴紋針再選<b>檔案…</b>或<b>資料夾…</b>。每則訊息最多可以附
+              10 個檔案和資料夾，每個檔案最多 20 MB，一個資料夾最多 1,000 個檔案，合計最多 200 MB；資料夾不含 <code>.git</code> 和
+              <code>node_modules</code>。讀到這則訊息的 agent 都打得開，圖片也看得到。
             </li>
             <li>
               <b>指定成員</b>：輸入 <code>@</code> 挑一位隊友。訊息裡 @ 了成員時，只有他們會回覆；沒有 @ 時，整個團隊都會參與。
@@ -329,7 +330,7 @@
         <section id="team-design" aria-labelledby="team-design-title">
           <h2 id="team-design-title">確認團隊</h2>
           <p>
-            在任何人回答之前，首席 agent 會先讀你的問題，在對話中放一張<b>團隊設計</b>卡片：它選的團隊（目前的團隊、你的某個範本、它調整過的範本，或全新的團隊）、為什麼，以及每位成員的角色。在你回應之前，側邊欄會把這個對話標為<b>等你確認團隊</b>。
+            在任何人回答之前，首席 agent 會先讀你的問題，在對話中放一張<b>團隊設計</b>卡片：它選的團隊（目前的團隊、你的某個範本、它調整過的範本，或全新的團隊）、為什麼，以及每位成員的角色。選<b>直接開始回答</b>時（第一次的新對話就是這樣），團隊會立刻開始，卡片會註明已直接採用；選<b>等我確認團隊</b>時，在你回應卡片之前，側邊欄會把這個對話標為<b>等你確認團隊</b>：
           </p>
           <ul>
             <li><b>確認團隊</b>：團隊開始處理你的問題。</li>

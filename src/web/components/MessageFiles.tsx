@@ -1,16 +1,36 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
-import { ATTACHMENT_LIMITS, isInlineImage, type ConversationSchedule } from '../../shared/types';
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE, isFolderAttachment, isInlineImage, type ConversationSchedule } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
+import {
+  acceptAttachments,
+  foldersOfPicked,
+  isFolder,
+  readDroppedFolder,
+  type DroppedEntry,
+  type Picked,
+  type PendingFolder,
+} from '../attachments';
+import { isTouchScreen } from '../chat';
 import { useT } from '../i18n';
 import { formatBytes, toBase64 } from '../util';
-import { PaperclipIcon } from './icons';
+import { FolderIcon, PaperclipIcon } from './icons';
 
 let nextFileId = 0;
 
-export interface PendingFile {
-  id: number;
-  file: File;
-}
+/**
+ * A file or a folder waiting to be sent, or a dropped folder still being read (`reading`: its name and
+ * the read, which takes its place once done; sending waits for it).
+ */
+export type PendingFile =
+  | { id: number; file: File; folder?: undefined; reading?: undefined }
+  | { id: number; folder: PendingFolder; file?: undefined; reading?: undefined }
+  | { id: number; reading: { name: string; done: Promise<PendingFolder> }; file?: undefined; folder?: undefined };
+
+/** Its size: a folder's, all its files' (none yet for one being read). */
+const sizeOf = (p: PendingFile) => (p.folder ? p.folder.size : p.file ? p.file.size : 0);
+
+/** Whether a folder read after a drop can go as it is (`acceptAttachments` said why not when it was read). */
+const sendable = (f: PendingFolder) => !f.tooMany && f.files.length > 0 && f.files.every((x) => x.file.size <= ATTACHMENT_LIMITS.maxBytes);
 
 /** Pasted screenshots are all called "image.png"; give them a time-stamped name. */
 function pastedName(file: File): string {
@@ -23,45 +43,97 @@ function pastedName(file: File): string {
 
 export async function readUploads(files: PendingFile[], readFailed: string): Promise<AttachmentUpload[]> {
   return Promise.all(
-    files.map(async ({ file }) => ({
-      name: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      data: await toBase64(file),
-    })),
+    files.map(async (p): Promise<AttachmentUpload> => {
+      // A dropped folder still being read: sent once it is, when it can go as it is.
+      const folder = p.reading ? await p.reading.done : p.folder;
+      if (folder) {
+        if (!sendable(folder)) throw new Error(readFailed);
+        const files: { path: string; data: string }[] = [];
+        // One file at a time: a folder can hold a thousand.
+        for (const f of folder.files) files.push({ path: f.path, data: await toBase64(f.file) });
+        return { name: folder.name, mimeType: FOLDER_MIME_TYPE, files };
+      }
+      if (!p.file) throw new Error(readFailed);
+      return { name: p.file.name, mimeType: p.file.type || 'application/octet-stream', data: await toBase64(p.file) };
+    }),
   ).catch(() => {
     throw new Error(readFailed);
   });
 }
 
+/**
+ * The files and folders a message (or an automation) is to send: what was picked, pasted or dropped
+ * goes in as far as the limits allow (`acceptAttachments`). `saved`: an automation's files already
+ * saved, which count too.
+ */
 export function useMessageFiles(
   files: PendingFile[],
   onFiles: (files: PendingFile[]) => void,
   onNotice: (notice: string) => void,
-  savedCount = 0,
+  saved: readonly { size: number }[] = [],
 ) {
   const t = useT();
   const [dragging, setDragging] = useState(false);
-  const addFiles = (list: File[]) => {
+  // The files as they are now, also when two changes come before the next render (two drops read at
+  // once), and the latest render's callbacks for what finishes after it.
+  const current = useRef(files);
+  current.current = files;
+  const latest = useRef({ onFiles, onNotice, saved });
+  latest.current = { onFiles, onNotice, saved };
+  const setFiles = (next: PendingFile[]) => {
+    current.current = next;
+    latest.current.onFiles(next);
+  };
+  const attachedBesides = (others: PendingFile[]) => ({
+    count: latest.current.saved.length + others.length,
+    bytes: latest.current.saved.reduce((n, f) => n + f.size, 0) + others.reduce((n, f) => n + sizeOf(f), 0),
+  });
+  const addFiles = (list: Picked[]) => {
     if (!list.length) return;
-    onNotice('');
-    const accepted: PendingFile[] = [];
-    for (const file of list) {
-      if (savedCount + files.length + accepted.length >= ATTACHMENT_LIMITS.maxFiles) {
-        onNotice(t.composer.tooManyFiles(ATTACHMENT_LIMITS.maxFiles));
-        break;
-      }
-      if (file.size > ATTACHMENT_LIMITS.maxBytes) {
-        onNotice(t.composer.fileTooLarge(file.name, formatBytes(ATTACHMENT_LIMITS.maxBytes)));
-        continue;
-      }
-      const named = file.name && file.name !== 'image.png' ? file : new File([file], pastedName(file), { type: file.type });
-      accepted.push({ id: ++nextFileId, file: named });
-    }
-    onFiles([...files, ...accepted]);
+    const { accepted, notice } = acceptAttachments(list, attachedBesides(current.current), t.composer, formatBytes);
+    onNotice(notice);
+    const added = accepted.map((item): PendingFile => {
+      if (isFolder(item)) return { id: ++nextFileId, folder: item };
+      const named = item.name && item.name !== 'image.png' ? item : new File([item], pastedName(item), { type: item.type });
+      return { id: ++nextFileId, file: named };
+    });
+    if (added.length) setFiles([...current.current, ...added]);
   };
 
+  // A dropped folder is read after the drop: once read, it takes its place as far as the limits allow,
+  // or leaves it saying why. Watched again after the composer was away (a draft kept meanwhile).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const watched = useRef(new WeakSet<Promise<PendingFolder>>());
+  useEffect(() => {
+    for (const p of files) {
+      if (!p.reading || watched.current.has(p.reading.done)) continue;
+      watched.current.add(p.reading.done);
+      const { id } = p;
+      p.reading.done.then(
+        (folder) => {
+          if (!mounted.current || !current.current.some((f) => f.id === id)) return;
+          const others = current.current.filter((f) => f.id !== id);
+          const { accepted, notice } = acceptAttachments([folder], attachedBesides(others), t.composer, formatBytes);
+          latest.current.onNotice(notice);
+          setFiles(accepted.length ? current.current.map((f) => (f.id === id ? { id, folder } : f)) : others);
+        },
+        () => {
+          if (!mounted.current || !current.current.some((f) => f.id === id)) return;
+          latest.current.onNotice(t.composer.readFailed);
+          setFiles(current.current.filter((f) => f.id !== id));
+        },
+      );
+    }
+  });
+
   const removeFile = (id: number) => {
-    onFiles(files.filter((f) => f.id !== id));
+    setFiles(current.current.filter((f) => f.id !== id));
     onNotice('');
   };
 
@@ -83,8 +155,27 @@ export function useMessageFiles(
     if (!e.dataTransfer.files.length) return;
     e.preventDefault();
     setDragging(false);
-    addFiles([...e.dataTransfer.files]);
     e.currentTarget.querySelector('textarea')?.focus();
+    // Each dropped item's entry, taken now: the drop's items are gone once it is handled.
+    const items = [...e.dataTransfer.items].filter((i) => i.kind === 'file');
+    const entries = items.map((i) => (i.webkitGetAsEntry?.() ?? null) as DroppedEntry | null);
+    if (!entries.some((entry) => entry?.isDirectory)) {
+      addFiles([...e.dataTransfer.files]);
+      return;
+    }
+    // The files at once; each folder as it is being read, counted among the files and folders already.
+    addFiles(items.flatMap((item, i) => (entries[i]?.isDirectory ? [] : [item.getAsFile()].filter((f): f is File => f !== null))));
+    for (const entry of entries) {
+      if (!entry?.isDirectory) continue;
+      if (latest.current.saved.length + current.current.length >= ATTACHMENT_LIMITS.maxFiles) {
+        onNotice(t.composer.tooManyFiles(ATTACHMENT_LIMITS.maxFiles));
+        break;
+      }
+      const done = readDroppedFolder(entry);
+      // Handled where it is watched, and where it is sent.
+      done.catch(() => undefined);
+      setFiles([...current.current, { id: ++nextFileId, reading: { name: entry.name, done } }]);
+    }
   };
 
   const onDragLeave = (e: DragEvent) => {
@@ -94,22 +185,93 @@ export function useMessageFiles(
   return { addFiles, removeFile, onPaste, dragging, dropZone: { onDragOver, onDragLeave, onDrop } };
 }
 
-export function AttachmentPicker({ addFiles }: { addFiles: (files: File[]) => void }) {
+/** Whether this browser can pick a folder: not on a phone or tablet, whose pickers take files only. */
+function canPickFolders(): boolean {
+  return typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input') && !isTouchScreen();
+}
+
+/**
+ * The paperclip: files, or (where the browser can pick one) a folder, from a menu. Each pick of a
+ * folder takes one; several are attached one after another, or dropped together.
+ */
+export function AttachmentPicker({ addFiles, onNotice }: { addFiles: (items: Picked[]) => void; onNotice: (notice: string) => void }) {
   const t = useT();
-  const picker = useRef<HTMLInputElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [folders] = useState(canPickFolders);
+  const [open, setOpen] = useState(false);
+
+  // Open, the menu takes the focus, and a press anywhere else closes it.
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const away = (e: PointerEvent) => {
+      if (!menu.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
+
+  const pick = (input: HTMLInputElement | null) => {
+    setOpen(false);
+    button.current?.focus();
+    input?.click();
+  };
+
+  const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      items[e.key === 'Home' ? 0 : items.length - 1]?.focus();
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
   return (
-    <>
+    <span className="attach-picker">
       <button
+        ref={button}
         type="button"
         className="icon-button attach-button"
-        onClick={() => picker.current?.click()}
-        aria-label={t.composer.attach}
-        title={t.composer.attach}
+        onClick={() => (folders ? setOpen(!open) : filePicker.current?.click())}
+        // A menu button opens its menu from the keyboard's arrows too.
+        onKeyDown={(e) => {
+          if (!folders || open || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+          e.preventDefault();
+          setOpen(true);
+        }}
+        aria-label={folders ? t.composer.attachFilesOrFolder : t.composer.attach}
+        title={folders ? t.composer.attachFilesOrFolder : t.composer.attach}
+        {...(folders ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': open } : {})}
       >
         <PaperclipIcon />
       </button>
+      {open && (
+        <div ref={menu} className="attach-menu" role="menu" aria-label={t.composer.attachFilesOrFolder} onKeyDown={onMenuKey}>
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(filePicker.current)}>
+            <PaperclipIcon size={16} />
+            {t.composer.attachFiles}
+          </button>
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(folderPicker.current)}>
+            <FolderIcon size={16} />
+            {t.composer.attachFolder}
+          </button>
+        </div>
+      )}
       <input
-        ref={picker}
+        ref={filePicker}
         type="file"
         multiple
         hidden
@@ -118,7 +280,25 @@ export function AttachmentPicker({ addFiles }: { addFiles: (files: File[]) => vo
           e.target.value = '';
         }}
       />
-    </>
+      {folders && (
+        <input
+          ref={(el) => {
+            folderPicker.current = el;
+            // A folder picker (as `webkitdirectory` in markup: React does not know the attribute).
+            el?.setAttribute('webkitdirectory', '');
+          }}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const folders = foldersOfPicked(e.target.files ?? []);
+            // An empty folder gives no files, and so no folder to name.
+            if (folders.length) addFiles(folders);
+            else onNotice(t.composer.folderPickedEmpty);
+            e.target.value = '';
+          }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -149,27 +329,57 @@ export function AttachmentTray({
 }) {
   const t = useT();
   const entries = [
-    ...(saved?.files ?? []).map((f) => ({ ...f, image: undefined, remove: () => saved!.remove(f.id) })),
-    ...files.map(({ id, file }) => ({
-      id,
-      name: file.name,
-      size: file.size,
-      image: isInlineImage(file.type) ? file : undefined,
-      remove: () => removeFile(id),
+    ...(saved?.files ?? []).map((f) => ({
+      id: f.id,
+      name: f.name,
+      size: f.size,
+      count: isFolderAttachment(f) ? (f.files ?? 0) : undefined,
+      reading: false,
+      leftOut: [] as string[],
+      image: undefined,
+      remove: () => saved!.remove(f.id),
+    })),
+    ...files.map((p) => ({
+      id: p.id,
+      name: p.folder ? p.folder.name : p.reading ? p.reading.name : p.file.name,
+      size: sizeOf(p),
+      count: p.folder?.files.length ?? (p.reading ? 0 : undefined),
+      reading: Boolean(p.reading),
+      leftOut: p.folder?.leftOut ?? [],
+      image: p.file && isInlineImage(p.file.type) ? p.file : undefined,
+      remove: () => removeFile(p.id),
     })),
   ];
   if (!entries.length) return null;
   return (
     <ul className="attach-tray" aria-label={t.composer.attachments}>
       {entries.map((f) => (
-        <li key={f.id} className={f.image ? 'attach-thumb' : 'attach-chip'} title={f.name}>
+        <li
+          key={f.id}
+          className={f.image ? 'attach-thumb' : f.count === undefined ? 'attach-chip' : 'attach-chip attach-folder'}
+          title={
+            f.leftOut.length
+              ? `${f.name}/\n${t.composer.folderLeftOut(f.leftOut.join(', '))}`
+              : f.count === undefined
+                ? f.name
+                : `${f.name}/`
+          }
+        >
           {f.image ? (
             <FilePreview file={f.image} />
-          ) : (
+          ) : f.count === undefined ? (
             <>
               <PaperclipIcon size={14} />
               <span className="ellipsis">{f.name}</span>
               <span className="muted">{formatBytes(f.size)}</span>
+            </>
+          ) : (
+            <>
+              <FolderIcon size={14} />
+              <span className="ellipsis">{f.name}</span>
+              <span className="muted" {...(f.reading ? { role: 'status' } : {})}>
+                {f.reading ? t.composer.folderReading : t.composer.folderSize(f.count, formatBytes(f.size))}
+              </span>
             </>
           )}
           <button type="button" className="attach-remove" onClick={f.remove} aria-label={t.composer.removeFile(f.name)}>

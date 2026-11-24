@@ -937,6 +937,47 @@ describe('retrying a reply', () => {
   });
 });
 
+describe("the Files panel's deletes", () => {
+  it('holds each folder until its own holds end, and says what holds it to a message sent meanwhile', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    const { realpathSync } = await import('node:fs');
+    const cwd = realpathSync(conv.settings.cwd);
+    const a = join(cwd, `del-a-${n}`);
+    const b = join(cwd, `del-b-${n}`);
+    for (const dir of [a, b]) mkdirSync(dir, { recursive: true });
+    const { t } = await import('../src/server/i18n');
+    for (const order of [
+      ['a', 'b'],
+      ['b', 'a'],
+    ]) {
+      const release = { a: orchestrator.holdForFiles(conv.id, a), b: orchestrator.holdForFiles(conv.id, b) };
+      expect(orchestrator.writingIn(conv.id, a)).toBe(true);
+      expect(orchestrator.writingIn(conv.id, b)).toBe(true);
+      // Nothing starts meanwhile, and the user is told why.
+      await expect(orchestrator.send(conv.id, 'hello')).rejects.toMatchObject({ status: 409, message: t().filesEdit.deleteHolds });
+      release[order[0] as 'a' | 'b']();
+      expect(orchestrator.writingIn(conv.id, order[0] === 'a' ? a : b)).toBe(false);
+      expect(orchestrator.writingIn(conv.id, order[0] === 'a' ? b : a)).toBe(true);
+      release[order[1] as 'a' | 'b']();
+      // Released twice, a hold changes nothing.
+      release[order[1] as 'a' | 'b']();
+      expect(orchestrator.writingIn(conv.id, a)).toBe(false);
+      expect(orchestrator.writingIn(conv.id, b)).toBe(false);
+    }
+    // The same folder held twice is let go with its last hold.
+    const one = orchestrator.holdForFiles(conv.id, a);
+    const two = orchestrator.holdForFiles(conv.id, a);
+    one();
+    expect(orchestrator.writingIn(conv.id, a)).toBe(true);
+    two();
+    expect(orchestrator.writingIn(conv.id, a)).toBe(false);
+    // Once nothing holds it, the chat takes messages again.
+    await orchestrator.send(conv.id, 'hello');
+    await finish(conv.id);
+    expect(store.get(conv.id)!.messages.some((m) => m.author.kind === 'user')).toBe(true);
+  });
+});
+
 describe('attached files', () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const uploads = () => [
@@ -969,6 +1010,32 @@ describe('attached files', () => {
     await orchestrator.send(conv.id, 'thanks');
     await finish(conv.id);
     expect(calls.every((c) => c.images?.length === 0 && c.attachmentsDir === undefined)).toBe(true);
+  });
+
+  it('saves an attached folder as it was and gives every agent its path, never as images', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    const b64 = (t: string) => Buffer.from(t).toString('base64');
+    await orchestrator.send(conv.id, 'review this project', [
+      {
+        name: 'app',
+        mimeType: 'inode/directory',
+        files: [
+          { path: 'package.json', data: b64('{}') },
+          { path: 'src/logo.png', data: png.toString('base64') },
+        ],
+      },
+    ]);
+    await finish(conv.id);
+    const [folder] = files(store.get(conv.id)!.messages[0]!);
+    expect(folder).toMatchObject({ name: 'app', mimeType: 'inode/directory', files: 2, size: 2 + png.length });
+    expect(readFileSync(join(attachmentPath(conv.id, folder!), 'package.json'), 'utf8')).toBe('{}');
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    for (const call of calls) {
+      expect(call.images).toEqual([]);
+      expect(call.attachmentsDir).toBe(attachmentsDir(conv.id));
+      expect(call.prompt).toContain('The user attached these files and folders');
+      expect(call.prompt).toContain(`- app/ (a folder of 2 files, ${2 + png.length} B in all): ${attachmentPath(conv.id, folder!)}`);
+    }
   });
 
   it('keeps the files of an edited message and deletes those of dropped messages', async () => {

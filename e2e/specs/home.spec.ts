@@ -54,11 +54,12 @@ test.describe('the home page', () => {
     const submit = page.getByRole('button', { name: 'Send question' });
     await expect(submit).toBeDisabled();
     await page
-      .locator('input[type="file"]')
+      .locator('input[type="file"]:not([webkitdirectory])')
       .setInputFiles({ name: 'agenda.txt', mimeType: 'text/plain', buffer: Buffer.from('Release agenda') });
     await question.fill(' \n\t ');
     await expect(submit).toBeDisabled();
-    await expect(wait).toBeChecked();
+    // A first new chat in this browser starts answering right away.
+    await expect(direct).toBeChecked();
     await expect(page.locator('.template-library .preset-main').first()).toBeHidden();
     await question.fill('Prepare a release summary');
     await expect(submit).toBeEnabled();
@@ -233,8 +234,9 @@ test.describe('the home page', () => {
       const message = page.locator('.first-task .task-input');
       await message.fill('Review this week’s invoices');
       const review = page.locator('.creation-fields').getByRole('checkbox', { name: /review the team.s replies/i });
-      await expect(review).toBeChecked();
-      await review.uncheck();
+      // Off in every new chat; ticked here, the draft keeps it.
+      await expect(review).not.toBeChecked();
+      await review.check();
       const expectedSections = automation
         ? ['.chat-options', '.automation-options', '.template-library']
         : ['.chat-options', '.template-library'];
@@ -275,7 +277,7 @@ test.describe('the home page', () => {
           await page.getByRole('link', { name: /Return to .*draft/ }).click();
           await expect(page.getByRole('alert')).toContainText('Creation temporarily unavailable');
           await expect(message).toHaveValue('Review this week’s invoices');
-          await expect(review).not.toBeChecked();
+          await expect(review).toBeChecked();
         } else {
           const { id } = await response.json();
           await page.setViewportSize({ width: 390, height: 844 });

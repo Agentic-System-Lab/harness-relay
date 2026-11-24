@@ -1417,6 +1417,20 @@ export interface FileUploadRequest {
   replace?: boolean;
 }
 
+/** Deleting a file or a folder (with all it holds) from the Files panel (`DELETE /api/conversations/:id/files`). */
+export interface FileDeleteRequest {
+  /** A `FileRoot.id` of a working directory (`cwd` when absent). */
+  root?: string;
+  /** The file or folder, relative to the root, with `/`; never the root itself. */
+  path: string;
+}
+
+/** What the Files panel deleted. */
+export interface FileDeleted {
+  path: string;
+  kind: 'file' | 'dir';
+}
+
 /** A file the Files panel wrote. */
 export interface FileWritten {
   path: string;
@@ -2510,8 +2524,11 @@ export type MessagePart =
       /** The user's message to the agent when declining. */
       note?: string;
     }
-  /** A file the user attached to their message (stored under data/attachments). */
-  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number }
+  /**
+   * A file the user attached to their message (stored under data/attachments), or a folder of files
+   * (`files` set, its `mimeType` `FOLDER_MIME_TYPE` and its `size` all its files' together).
+   */
+  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number; files?: number }
   /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
   | { type: 'progress'; status: ProgressStatus; text: string }
   /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
@@ -2830,8 +2847,31 @@ export interface FolderHandoffs {
 /** A hand-over's card in a reply (`browser_hand_over`). */
 export type HandoverPart = Extract<MessagePart, { type: 'handover' }>;
 
-/** Limits for files attached to one message. */
-export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
+/**
+ * Limits for what one message attaches (an automation's message too): `maxFiles` files and folders,
+ * each file at most `maxBytes` (also in a folder), a folder at most `maxFolderFiles` files, and all of
+ * it together at most `maxTotalBytes`: what ten of the largest files were before folders came, sent
+ * as base64 in one JSON body.
+ */
+export const ATTACHMENT_LIMITS = {
+  maxFiles: 10,
+  maxBytes: 20 * 1024 * 1024,
+  maxFolderFiles: 1000,
+  maxTotalBytes: 200 * 1024 * 1024,
+};
+
+/** The `mimeType` of an attached folder. */
+export const FOLDER_MIME_TYPE = 'inode/directory';
+
+/** Whether an attachment is a folder of files. */
+export function isFolderAttachment(a: { mimeType: string }): boolean {
+  return a.mimeType === FOLDER_MIME_TYPE;
+}
+
+/** An attachment's name as a list of them shows it: a folder's ends with `/`. */
+export function attachmentLabel(a: { name: string; mimeType: string }): string {
+  return isFolderAttachment(a) ? `${a.name}/` : a.name;
+}
 
 /** Image types shown inline in the chat and passed to the agents as images. */
 export function isInlineImage(mimeType: string): boolean {

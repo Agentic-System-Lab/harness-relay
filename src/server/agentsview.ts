@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
-import { PROVIDER_LABEL, type ChatMessage, type Conversation, type MessagePart, type Provider, type ToolCallKind } from '../shared/types';
+import {
+  PROVIDER_LABEL,
+  type ChatMessage,
+  type Conversation,
+  type MessagePart,
+  type Provider,
+  type ToolCallKind,
+  attachmentLabel,
+} from '../shared/types';
 
 /*
  * AgentsView (https://www.agentsview.io) indexes the CLIs' own session transcripts. Each agent of a
@@ -82,7 +90,7 @@ function threadText(m: ChatMessage): string {
   const lines: string[] = [];
   for (const p of m.parts) {
     if (p.type === 'text' && p.text.trim()) lines.push(p.text.trim());
-    else if (p.type === 'attachment') lines.push(`[${p.name}]`);
+    else if (p.type === 'attachment') lines.push(`[${attachmentLabel(p)}]`);
     else if (p.type === 'steps' && p.items.length) lines.push(stepLines(p));
   }
   if (m.passed && !lines.length) lines.push('[PASS]');
@@ -226,7 +234,7 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
       return { type: 'text', text: `[Asked to ${APPROVAL_ASK[p.kind]}${what ? ` ${what}` : ''}: ${answer}]` };
     }
     case 'attachment':
-      return { type: 'text', text: `[${p.name}]` };
+      return { type: 'text', text: `[${attachmentLabel(p)}]` };
     case 'progress':
       return { type: 'text', text: `[Progress on the tracked goal: ${p.status}${p.text ? ` — ${p.text}` : ''}]` };
     case 'outbox': {

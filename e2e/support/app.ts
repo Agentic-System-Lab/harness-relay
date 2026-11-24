@@ -9,12 +9,9 @@ import type { RelayServer } from './relay';
 
 export interface NewChatOptions {
   permission?: Permission;
-  /** Use the lead agent's teams without asking (the default asks first). */
+  /** Use the lead agent's teams without asking (here the default asks first, whatever the page starts with). */
   autoConfirm?: boolean;
-  /**
-   * Have the lead agent review the team's replies. The New chat page ticks it in every new chat; a test
-   * gets it only when it asks, so the other specs see no reviews.
-   */
+  /** Have the lead agent review the team's replies (off on the New chat page, and here unless a test asks). */
   leadReview?: boolean;
   title?: string;
 }
@@ -65,8 +62,7 @@ export async function startChat(page: Page, question: string, o: NewChatOptions 
   await openNewChat(page);
   if (o.permission || o.title) await page.locator('.chat-options > summary').click();
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
-  if (o.autoConfirm !== undefined)
-    await page.getByRole('radio', { name: o.autoConfirm ? 'Start answering right away' : 'Wait for my confirmation' }).check();
+  await page.getByRole('radio', { name: o.autoConfirm ? 'Start answering right away' : 'Wait for my confirmation' }).check();
   await page.getByRole('checkbox', { name: LEAD_REVIEW }).setChecked(o.leadReview ?? false);
   if (o.title) await page.getByPlaceholder(/Conversation title/).fill(o.title);
   await submitFirstQuestion(page, question);

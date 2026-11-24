@@ -122,7 +122,10 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       await moveClick(page.locator('.template-editor-foot .ghost'), { after: 700 });
       await moveClick('.template-library > summary');
 
-      // Send the first question from New chat. The dry run stops before submitting it.
+      // Send the first question from New chat. The dry run stops before submitting it. The team waits to
+      // be confirmed (a fresh browser's first new chat answers right away), without lead review (off by
+      // default), both set without the cursor.
+      await page.locator('.team-confirmation input[type="radio"]').first().check();
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
       await moveClick('#first-question');
       mark('first-question');

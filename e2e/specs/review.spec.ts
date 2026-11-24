@@ -108,10 +108,10 @@ test.describe('lead review', () => {
     expect(conv.settings.leadReview).toBe(true);
     expect(relay.fakeLog().some((e) => e.prompt?.includes('<reply n="1" from="@Claude (Claude Code)">\nHello from Claude'))).toBe(true);
 
-    // Every new chat starts with it on, whatever the last one had.
-    await startChat(page, 'Check the draft', { leadReview: false });
+    // Every new chat starts with it off, whatever the last one had.
+    await startChat(page, 'Check the draft', { leadReview: true });
     await openNewChat(page);
-    await expect(page.locator('.creation-fields').getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(page.locator('.creation-fields').getByRole('checkbox', { name: LEAD_REVIEW })).not.toBeChecked();
   });
 
   test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({
@@ -289,12 +289,12 @@ test.describe('lead review', () => {
     await expect(reviewCards(page)).toHaveCount(2);
   });
 
-  test("the New automation page's box is ticked at first, and the automation's chat has it as set there", async ({ page, relay }) => {
+  test("the New automation page's box is unticked at first, and the automation's chat has it as set there", async ({ page, relay }) => {
     const create = async (review: boolean) => {
       await page.getByRole('button', { name: 'New automation' }).click();
       await page.getByRole('textbox', { name: 'What should the team do?' }).fill('Check the build');
       const box = page.locator('.creation-fields').getByRole('checkbox', { name: LEAD_REVIEW });
-      await expect(box).toBeChecked();
+      await expect(box).not.toBeChecked();
       await box.setChecked(review);
       // The new chats it opens each time copy its setting, as they copy its other settings.
       await page.locator('.automation-options > summary').click();
@@ -309,7 +309,7 @@ test.describe('lead review', () => {
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
     await drawer.getByRole('button', { name: 'Cancel' }).click();
-    // Unticked there: off (and ticked again on the next New automation page).
+    // Left unticked: off (and unticked again on the next New automation page, whatever the last one had).
     expect(await create(false)).toBeUndefined();
   });
 

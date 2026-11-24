@@ -20,7 +20,9 @@ test.describe('in Traditional Chinese', () => {
     await expect(page.locator('.preset-card', { hasText: '三方辯論' })).toBeVisible();
     // Lead review, ticked in every new chat, is not what this test is about.
     await page.locator('.chat-options > summary').click();
-    await page.getByRole('checkbox', { name: '團隊回答後，請首席 agent 審閱回覆' }).uncheck();
+    await expect(page.getByRole('checkbox', { name: '團隊回答後，請首席 agent 審閱回覆' })).not.toBeChecked();
+    // The team waits to be confirmed (a first new chat answers right away).
+    await page.getByRole('radio', { name: '等我確認團隊' }).check();
 
     const submit = page.getByRole('button', { name: '送出問題' });
     await expect(submit).toBeDisabled();

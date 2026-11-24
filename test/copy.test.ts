@@ -286,11 +286,12 @@ describe('copying a conversation', () => {
           parts: [
             { type: 'text', text: 'Look at this' },
             { type: 'attachment', id: 'f', name: 'screen.png', mimeType: 'image/png', size: 10 },
+            { type: 'attachment', id: 'd', name: 'site', mimeType: 'inode/directory', size: 30, files: 3 },
           ],
         },
       ],
     };
-    expect(conversationMarkdown(withFiles, en)).toContain('**User**\n\nLook at this\n\n📎 screen.png');
+    expect(conversationMarkdown(withFiles, en)).toContain('**User**\n\nLook at this\n\n📎 screen.png\n📁 site/');
   });
 });
 

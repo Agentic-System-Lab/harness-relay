@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、653 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、655 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -52,7 +52,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 44 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [使用者自己執行的指令](#使用者自己執行的指令) | [`interactive.spec.ts`](specs/interactive.spec.ts) | 3 | [使用者說明 → 你自己執行的指令](../docs/user-guide.zh-TW.md#你自己執行的指令)、[架構 → 互動指令](../docs/architecture.zh-TW.md#互動指令) |
-| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 24 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 修改檔案](../docs/architecture.zh-TW.md#修改檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
+| [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 26 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 修改檔案](../docs/architecture.zh-TW.md#修改檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [應用程式預覽](#應用程式預覽) | [`app-preview.spec.ts`](specs/app-preview.spec.ts)、[`app-preview-docker.spec.ts`](specs/app-preview-docker.spec.ts) | 22 | [使用者說明 → 預覽應用程式](../docs/user-guide.zh-TW.md#預覽應用程式) |
 | [發布應用程式](#發布應用程式) | [`app-publish.spec.ts`](specs/app-publish.spec.ts) | 2 | [使用者說明 → 發布應用程式](../docs/user-guide.zh-TW.md#發布應用程式)、[架構 → 發布應用程式](../docs/architecture.zh-TW.md#發布應用程式) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
@@ -126,7 +126,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | 檢查的內容 |
 | --- | --- |
 | 新對話與新自動任務的固定操作區（兩個案例） | 長說明在文字框內捲動。內容少時外框隨內容縮短，送出按鈕固定在框內底部。有無捲動箭頭時，按鈕列的上下留白都相等。組隊選項與首席審閱隨表單捲動，點箭頭會往下捲。最後一個欄位完全可見時箭頭隱藏，包含下方只剩留白的情況，偏好減少動態效果時箭頭靜止，並在圓框內水平垂直置中。 |
-| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。在手機版可從問題欄位用 Tab 移到下方第一個按鈕「常用 App」，按 Enter 展開選擇器。勾選與取消勾選會更新隨提問送出的 App 名單，從管理連線返回後，問題、附件與 App 選項仍在，也尚未建立對話或變更任何助理權限。前往首席 agent 設定也會保留標題、資料夾、權限與組隊確認方式。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
+| 從收合側欄的首頁提出第一個問題 | 問題尚未填寫、只有空白或清除後，即使有附檔也不能送出。瀏覽器裡第一次的新對話會直接開始回答。在手機版可從問題欄位用 Tab 移到下方第一個按鈕「常用 App」，按 Enter 展開選擇器。勾選與取消勾選會更新隨提問送出的 App 名單，從管理連線返回後，問題、附件與 App 選項仍在，也尚未建立對話或變更任何助理權限。前往首席 agent 設定也會保留標題、資料夾、權限與組隊確認方式。問題和附件一起送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
 | 新對話與新自動任務的建立請求較慢時（各測一次） | 從設定返回後，失敗訊息、草稿與表單上的審閱選擇都保留。重試成功時仍停留在設定，在手機寬度也能從該頁直接開啟剛建立的對話或自動任務、取得一次性 webhook 權杖。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
@@ -180,17 +180,17 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 首席 agent 的審閱
 
-[`review.spec.ts`](specs/review.spec.ts)：**團隊回答後，請首席 agent 審閱回覆**（Have the lead agent review the team's replies）。假首席 agent 會把它讀到的第一則回覆開頭的幾個字標成風險，並建議一個給使用者、一個給團隊的下一步（`e2e:badreview`、`e2e:slowreview` 與 `e2e:reviewkind` 會改變這些）。新對話頁面每個新對話都會勾選這個勾選框，所以除非測試要求（`leadReview: true`），`startChat()` 會取消勾選，自己在這個頁面開始對話的測試（`folders.spec.ts` 與 `i18n.spec.ts` 裡的）也會，其他 spec 就不會出現審閱。
+[`review.spec.ts`](specs/review.spec.ts)：**團隊回答後，請首席 agent 審閱回覆**（Have the lead agent review the team's replies）。假首席 agent 會把它讀到的第一則回覆開頭的幾個字標成風險，並建議一個給使用者、一個給團隊的下一步（`e2e:badreview`、`e2e:slowreview` 與 `e2e:reviewkind` 會改變這些）。新對話頁面每個新對話都不勾選這個勾選框，`startChat()` 只在測試要求時（`leadReview: true`）才勾選，其他 spec 就不會出現審閱。`startChat()` 也一定會選好團隊怎麼開始：除非測試要求（`autoConfirm: true`），都是等待確認，而瀏覽器裡第一次的新對話則會直接開始回答；自己在這個頁面開始對話的測試（`folders.spec.ts`、`i18n.spec.ts` 與 `schedule.spec.ts` 裡的）也會自己選。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 首席 agent 審閱團隊的回覆，把它引用的文字標在回覆中，給團隊的下一步可以放進輸入框 | Claude Code | 勾選後開始的新對話，回覆之後出現**首席 agent 的審閱**（Lead agent's review）卡片：摘要、一個**風險**（Risk）及回覆的原文與說明，以及下一步（**你**，與附上**交給團隊**的**團隊**）。引用的文字標在回覆中（`CSS.highlights` 的 `review-risk` 裡有一個範圍），回覆標頭顯示 **⚑ 1 處注意**（1 to note）：點它跳到卡片（卡片會閃一下），點卡片上的 **@Claude** 跳到引用的那段話，那段話會在標記上短暫加強顯示（`review-focus`），焦點移到那則回覆。**交給團隊**（Ask the team）會把那一步的訊息放進輸入框；送出後團隊回答並再次被審閱，每則回覆各有一個標記範圍（第一則回覆不會重複標記）。首席 agent 拿到了編號的回覆；設定有保存，以未勾選開始一個對話之後，新對話頁面又會是勾選的。 |
+| 首席 agent 審閱團隊的回覆，把它引用的文字標在回覆中，給團隊的下一步可以放進輸入框 | Claude Code | 勾選後開始的新對話，回覆之後出現**首席 agent 的審閱**（Lead agent's review）卡片：摘要、一個**風險**（Risk）及回覆的原文與說明，以及下一步（**你**，與附上**交給團隊**的**團隊**）。引用的文字標在回覆中（`CSS.highlights` 的 `review-risk` 裡有一個範圍），回覆標頭顯示 **⚑ 1 處注意**（1 to note）：點它跳到卡片（卡片會閃一下），點卡片上的 **@Claude** 跳到引用的那段話，那段話會在標記上短暫加強顯示（`review-focus`），焦點移到那則回覆。**交給團隊**（Ask the team）會把那一步的訊息放進輸入框；送出後團隊回答並再次被審閱，每則回覆各有一個標記範圍（第一則回覆不會重複標記）。首席 agent 拿到了編號的回覆；設定有保存，以勾選開始一個對話之後，新對話頁面又會是未勾選的。 |
 | 對話沒要求就不審閱；在團隊設定開啟後，讀的是最新一個問題的回覆 | Claude Code | 透過 API 建立、沒開啟的對話沒有卡片；在**團隊設定**勾選並儲存後，下一次回答的卡片只讀了那次的回答（**讀了 1 則回覆**，Read 1 reply），第一個問題則作為背景放在首席 agent 的 prompt 中。 |
 | 「停止」會停止它，讀不懂首席 agent 的回答時也會說明 | Claude Code | 審閱很慢時，卡片顯示首席 agent 正在審閱，並有團隊設計卡片那個旋轉中的標誌（`.plan-logo.turning`），輸入框也這樣說明；**■ 停止**讓卡片顯示已中斷，標誌消失，原處換成 ✦。下一次回答的審閱會再讀那些回覆（prompt 中有被停止的那次審閱的問題，並編了兩則回覆），回答不是 JSON 時卡片會說明無法審閱，以及原因。 |
 | 審閱期間送出的訊息會停止審閱並立刻送出，下一次審閱從被停止的那次開始讀的地方讀起，團隊設定也能在審閱途中關閉它 | Claude Code | 審閱很慢時，輸入框的提示說明按 Enter 會停止審閱並立刻送出（Enter to stop the review and send it now），提示文字也說明送出訊息會停止審閱。這時按 Enter 送出的訊息讓卡片顯示已中斷，並立刻送出：佇列區從頭到尾都不會出現。它的回答有第二次審閱，同樣很慢，因為它從被停止的那次開始讀的地方讀起（prompt 中有第一個問題和新的訊息）。這段期間 **團隊設定** 會說明只改首席 agent 審閱或插話方式的話現在就能儲存（lead review and steering alone can be saved now）：**儲存**（Save）在取消勾選之前是停用的，之後就能儲存，那次審閱也隨之停止。之後兩張被停止的卡片都說明 *審閱已中斷。首席 agent 審閱目前已關閉…*（The review was stopped. Lead review is off now…），對話的審閱是關閉的、沒有等待中的訊息，也沒有多出 *已停止*（Stopped.）的說明。 |
 | 審閱期間到期的排程訊息會在佇列區等審閱，「略過審閱並立即送出」會立刻送出它 | Claude Code | 對話裡有排程（透過 API 設定），審閱很慢時執行排程（`POST …/schedule/run`，和到期時一樣）：佇列區顯示 **1 則等待送出**（1 waiting）與 *首席 agent 審閱完回覆後送出*（Sent once the lead agent has reviewed the replies）。**略過審閱並立即送出**（Skip the review and send now）讓卡片顯示已中斷，佇列區消失，由團隊回答排程訊息。 |
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
-| 新自動任務頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新自動任務**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立自動任務**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
+| 新自動任務頁的勾選框一開始是未勾選的，排程的對話照那裡的設定 | — | 在**新自動任務**，勾選框一開始是未勾選的。勾選它並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立自動任務**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、讓（一開始又是未勾選的）勾選框保持未勾選，對話就是關閉的。 |
 | 重點上的 @名稱 把它引用的文字帶到對話中間，即使在比視窗還高的回覆開頭 | Claude Code | 用 `e2e:long`（回覆多了四十段），卡片引用回覆開頭的幾個字，在畫面中的卡片上方很遠處；按它的 **@Claude** 會捲動對話，直到那段標記離中間不到 30px，並在標記上加強顯示（`review-focus`），對話停在那裡。 |
 | 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。在 Harness Relay 的分享頁開啟（離線攔截），在它不執行腳本的框架裡捲到底後，點連結會把標記帶進畫面，成為框架的 `:target`（`about:srcdoc#quote-…`）並加上底線，分享頁本身的網址不變。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。在分享頁上它們是兩個標記，每個項目各一個、項目之間沒有，那一點的 **@Claude** 連到第一個。 |
@@ -335,6 +335,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在「檔案」中編輯並儲存文字檔，儲存時檔案已有較新版本會提議重新載入 | Claude Code | 在唯讀對話中，`queue.csv`（CRLF 換行）用**編輯**（Edit）打開，文字框取得焦點，有修改之前**儲存**（Save）不能按，修改後顯示**尚未儲存**（Not saved）；存檔後檔案多了新的一列且保留 CRLF 換行，預覽也顯示出來。編輯期間磁碟上的檔案被改過時，Ctrl+S（⌘S）會被拒絕並說明檔案已改變，檔案維持另一方寫入的內容；**重新載入**（Reload）把新版本放進文字框，再存一次就會保留。有未儲存的修改時按 Escape 會先詢問，拒絕就保留修改；確認後按**取消**（Cancel），檔案維持原樣。 |
 | 新檔案與上傳的檔案放進目前所在的資料夾，同名檔案確認後才取代 | Claude Code | 在 `src` 裡：**新增檔案**（New file）拒絕 `a/b.md` 並說明原因，接著建立 `notes.md` 並在編輯器中打開，存入它的內容。選了兩個檔案，其中一個是 `hello.ts`：拒絕取代時只上傳 `photo.png`（**Uploaded 1 file.**），`hello.ts` 維持原樣；再選一次並同意，就會取代它。拖放到列表上的檔案（`dragenter` 顯示放置區域）會放進 `src`。 |
 | 有任務在資料夾寫入時，儲存要等它結束 | Claude Code | 在可編輯模式的對話中，緩慢的回覆（`e2e:slow`）執行期間儲存會被拒絕，說明有任務正在改動資料夾裡的檔案，文字留在文字框裡；停止任務後，同樣的儲存就會成功。 |
+| 在「檔案」中確認後刪除檔案與資料夾，預覽中的檔案跟著關閉 | Claude Code | **刪除 scratch.txt** 會先詢問（「刪除後無法復原」）：拒絕時檔案留著；同意後它從列表和磁碟上消失，並有狀態訊息說明。預覽中開著 `drafts/b.md` 時，**刪除 drafts** 會詢問是否刪除資料夾和裡面的所有東西，整個刪除，預覽回到 **選一個檔案預覽內容。** |
+| 附加到訊息的資料夾以路徑交給 agent，不含 .git 與 node_modules，並可下載成 ZIP 檔 | Claude Code | 迴紋針的選單提供 **檔案…** 和 **資料夾…**（焦點在第一個，方向鍵在兩者間移動，Escape 關閉選單並把焦點放回迴紋針；在迴紋針上按向下鍵會打開選單，點選單外面會關閉）。透過 **資料夾…** 選取空資料夾時，會說明裡面沒有可以附加的檔案（WebKit 除外，Playwright 在那裡無法給資料夾選擇器空資料夾）。透過 **資料夾…** 選取一個含有 `.git` 與 `node_modules` 的資料夾，會顯示成一個寫著 2 個檔案的標籤，它的提示文字列出略過的項目；agent 的提示詞把它列成 `site/`（2 個檔案的資料夾）並附上路徑，檔案都在那裡，`.git` 不在；送出的訊息標籤寫著 2 個檔案，下載的 `site.zip` 裡有資料夾的兩個檔案。 |
 
 ## 應用程式預覽
 
@@ -790,7 +792,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。另外檢查常用 App 排在最前面，後面依序是附件與麥克風按鈕：三個同樣大小、沒有外框的圖示，圖示在按鈕內水平垂直置中，常用 App 以提示文字標示名稱。 |
+| 新對話與新自動任務的附件和麥克風按鈕保持原位（各一個測試） | 在桌面和手機寬度下，量測選取多個檔案（從迴紋針的選單選 **檔案…**）前後、錄音中、取消後、轉寫中與移除附件後兩個按鈕的位置及大小。另外檢查常用 App 排在最前面，後面依序是附件與麥克風按鈕：三個同樣大小、沒有外框的圖示，圖示在按鈕內水平垂直置中，常用 App 以提示文字標示名稱。 |
 | 離開新對話後才取得麥克風權限 | 開啟首席設定後才允許使用合成麥克風，音軌會立即關閉。 |
 | 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色；安裝狀態旁有 app 的載入標示，新對話、新自動任務和聊天輸入列的麥克風右上角都有 12px 的安裝標示。 |
 | 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |
@@ -982,6 +984,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
 - [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
+- [檔案與修改](#檔案與修改)中附加資料夾的測試，在 WebKit 只檢查送出標籤的下載檔名而不下載，因為 WebKit 在 Playwright 下不會下載連結開啟的任何東西；WebKit 的資料夾選擇器會自己略過名稱以點開頭的資料夾，所以它的標籤可能只列出略過了 `node_modules`；空資料夾那一步在 WebKit 也會跳過。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 - [接手瀏覽器](#接手瀏覽器)在 Windows 上用 Playwright 的 Chromium 啟動對話的瀏覽器，而不是系統的 Chrome 或 Edge：它們在那裡的測試伺服器自己的家目錄下啟動不了（那裡沒有 AppData 資料夾）。
 
@@ -1029,7 +1032,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
 - **端點模型的上下文長度在執行中的作用。** [設定](#設定) 測儲存時會讀取它、並以使用者填的優先；各轉接器據此寫入的內容（OpenCode 的 `limit` 與清理、Goose 的 `context_limit` 與環境變數、Pi 的 `contextWindow` 與壓縮、OpenHands 的 condenser、Codex 與 Claude Code 的設定）由轉接器自己的測試檢查，因為假 CLI 不會壓縮。測試伺服器預設的端點 `e2e` 是沒經過模型檢查就設定的，所以它的執行拿不到上下文長度。
 - **成員自己的上限在執行中的作用、首席 agent 依形狀回答，以及以 interrupt 停止 Claude Code。** 團隊編輯器的上限欄位由範本與團隊的測試檢查，但沒有假 CLI 會依上限或 JSON 形狀行動：各轉接器傳出的內容（`--max-budget-usd`、`--max-ai-credits`、`GOOSE_MAX_TURNS`、`steps`、`--json-schema`、`outputSchema`）與 Claude Code 在結束程序前的 interrupt 由單元測試涵蓋（`test/orchestrator-budgets.test.ts`、各轉接器的測試）。透過 Grok、Antigravity、Goose 與 Pi 的引導也由單元測試涵蓋（`test/steer.test.ts`）；只有 Claude Code 與 Codex 的假 CLI 會在回合中接收訊息。
-- **「檔案」面板大部分的拒絕情況。** spec 測試了儲存時檔案已有較新版本、有任務在資料夾寫入時儲存，以及新檔案用了不合法的名稱；其他的在離線測試中涵蓋（`test/fileEdit.test.ts` 用真的資料夾，`test/files-edit-api.test.ts` 透過 HTTP）：路徑上的連結、`.git`、伺服器保留不給的檔案或 Harness Relay 的資料資料夾、成員的 worktree 與不允許可編輯模式的資料夾（列表的 `writable`）、唯讀檔案、某個系統不能用的名稱、超過上限的檔案，以及不是來自介面的請求。兩者都沒有測試其他程式在儲存最後一次檢查與改名之間的瞬間改動資料夾，也沒有測試 Windows 上被其他程式開著的檔案。
+- **「檔案」面板大部分的拒絕情況。** spec 測試了儲存時檔案已有較新版本、有任務在資料夾寫入時儲存，以及新檔案用了不合法的名稱；其他的在離線測試中涵蓋（`test/fileEdit.test.ts` 用真的資料夾，`test/files-edit-api.test.ts` 透過 HTTP）：路徑上的連結、`.git`、伺服器保留不給的檔案或 Harness Relay 的資料資料夾、成員的 worktree 與不允許可編輯模式的資料夾（列表的 `writable`）、唯讀檔案、某個系統不能用的名稱、超過上限的檔案，以及不是來自介面的請求。刪除只從列表試了一個檔案和一個資料夾；拒絕刪除根目錄、`.git`、保留不給的檔案、途經的連結資料夾、包含 Harness Relay 資料的資料夾、worktree 與有任務寫入的資料夾，以及連結只刪連結本身，都在同樣兩個檔案中離線測試。兩者都沒有測試其他程式在儲存或刪除最後一次檢查與改名或移除之間的瞬間改動資料夾，也沒有測試 Windows 上被其他程式開著的檔案（刪除時會回報只刪掉一部分）。
+- **拖放的資料夾。** Playwright 無法拖放資料夾（它做出的 `DataTransfer` 只能放檔案），所以 spec 透過迴紋針的資料夾選擇器附加資料夾；一批一批讀取拖放資料夾的 entry、不進入 `.git` 或 `node_modules`、超過 1,000 個檔案就停止、讀不到檔案時失敗，都在離線測試中涵蓋（`test/attachments-web.test.ts`），伺服器對資料夾路徑的檢查也是（`test/attachments.test.ts`）。拖放的資料夾還在讀取時的標籤，以及送出會等它讀完，都沒有測試。自動任務附加的資料夾同樣在離線測試中涵蓋：保存與計算（`test/store.test.ts`）、透過 HTTP 儲存（`test/app.test.ts`），以及每次執行時寫出（`test/orchestrator-schedule.test.ts`）。
 - **首席 agent 的草稿在固定回覆之外的部分**：假的首席 agent 對範本、團隊檢查、排程和群組建議都回固定的草稿，所以每個 prompt 告訴它什麼（要讀的專案、使用者時區的時間、帳號、分支家族），以及它可能寫錯的草稿（用不了的規則、沒設定的帳號、已過的時間、和現有群組同名），都在 `test/checksDraft.test.ts`、`test/scheduleDraft.test.ts`、`test/grouping.test.ts`、`test/planner.test.ts` 與 `test/orchestrator-drafts.test.ts` 裡；在分類群組的同一次執行裡替對話命名，以及使用者期間打的標題，也在那裡。
 - **還沒有 spec 走過的功能**：agent 從「設定 → 實驗室」呼叫 `run_code`，以及它 RLM 模式的子模型（沒有假 CLI 會呼叫它：`test/runCode.test.ts` 跑它真的 runner，並透過真的 gateway 發出呼叫，`test/llmQuery.test.ts` 測子模型的請求，`test/cliSubModel.test.ts` 測透過 CLI 的問題，`scripts/cli-check.ts` 的 `toolless` 情境測真的 CLI 沒有工具的執行，`scripts/sandbox-check.ts --only run-code` 在真的沙箱裡跑 runner）；同時在第二個瀏覽器裡看通知收件匣（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；實體麥克風與下載的引擎一起執行語音轉寫（自動任務的瀏覽器測試使用合成音訊與固定的轉寫結果）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；Claude Code 以外每個 CLI 的 subagent，以及 Codex、Grok、Copilot 與 Pi 對自己這次執行的附註（只有 Claude Code 的假 CLI 會送出：各轉接器的測試播放它的 CLI 的訊息，`test/codex.test.ts`、`test/grok.test.ts`（用替身等一個背景 subagent，以及它喚醒 Grok 的那一輪）、`test/cursor.test.ts`、`test/copilot.test.ts`、`test/pi.test.ts`）；Pi 和 Muse Code 的團隊 hook（它們的假 CLI 不會呼叫：`test/pi.test.ts` 跑 Pi 真的 gate，`test/muse.test.ts` 測 Muse Code 的設定和答案，`scripts/cli-check.ts` 的 hook 情境則用真的 CLI）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上；那裡預覽的 **New tab** 以 Electron 的 user agent 和替身 `window.open()` 測試，視窗的防護把預覽網址交給預設瀏覽器則在 `test/desktop-app.test.ts`）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 

@@ -397,6 +397,19 @@ p {
   flex: none;
 }
 
+/* The plus's strokes stop 2.5px inside its 15px box, which the label's last character does not: drawn 2px
+   further out, what is seen of the two stands in the middle of the button, as the bolt and its label do. */
+.new-row .new-chat:not(.new-schedule) svg {
+  margin-inline-start: -2px;
+}
+
+/* The bolt reaches higher than the label's characters, and its slant leaves room on its left: half a pixel
+   down and one further out. */
+.new-row .new-schedule svg {
+  margin-inline-start: -1px;
+  translate: 0 0.5px;
+}
+
 .new-row .new-label {
   min-width: 0;
   overflow: hidden;
@@ -4227,6 +4240,56 @@ video.chat-media {
   width: 38px;
   height: 38px;
   border-radius: 50%;
+}
+
+/* The paperclip and its menu (files, or a folder), which opens above it. */
+.attach-picker {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.attach-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.attach-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.attach-menu [role='menuitem']:hover,
+.attach-menu [role='menuitem']:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.attach-menu [role='menuitem']:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 40%, transparent);
 }
 
 .composer-notice {
@@ -8785,25 +8848,58 @@ summary + .checks-editor-body {
   font-size: 13.5px;
 }
 
-.file-item:hover {
-  background: var(--surface);
-}
-
-/* A folder's row: the folder, and a button to download it as a ZIP file (shown on hover where there is one). */
+/*
+ * A row: the file or folder (its button covers the whole row, so a press anywhere on it opens it), the
+ * buttons to download a folder as a ZIP file and to delete it (shown on hover where there is one, above
+ * the row's button), then its size or the arrow into the folder, at the row's end.
+ */
 .file-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
+  border-radius: 8px;
+}
+
+.file-row:hover {
+  background: var(--surface);
+}
+
+.file-row:has(.file-item.selected) {
+  background: var(--surface-2);
 }
 
 .file-row .file-item {
   flex: 1;
   min-width: 0;
+  background: transparent;
+}
+
+.file-row .file-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+
+.file-row .file-item:focus-visible {
+  outline: none;
+}
+
+.file-row .file-item:focus-visible::after {
+  outline: 2px solid color-mix(in srgb, var(--text) 35%, transparent);
+  outline-offset: -2px;
 }
 
 .file-row-zip {
+  position: relative;
+  z-index: 1;
   flex: none;
   color: var(--muted);
+}
+
+.file-row > .file-meta {
+  padding: 0 8px 0 4px;
 }
 
 @media (hover: hover) {
@@ -8817,8 +8913,12 @@ summary + .checks-editor-body {
   }
 }
 
+.file-row-delete:hover:not(:disabled),
+.file-row-delete:focus-visible {
+  color: var(--danger);
+}
+
 .file-item.selected {
-  background: var(--surface-2);
   font-weight: 600;
 }
 

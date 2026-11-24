@@ -132,6 +132,15 @@ export function SearchIcon({ size }: { size?: number }) {
   );
 }
 
+/** A bin with its lid: delete. */
+export function TrashIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </Svg>
+  );
+}
+
 export function FolderIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

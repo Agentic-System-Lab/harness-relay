@@ -9,6 +9,8 @@ import {
   type UsageSpan,
   type Provider,
   type TeamPlan,
+  attachmentLabel,
+  isFolderAttachment,
 } from '../shared/types';
 import { mentionsInMarkdown, unknownMentions } from '../shared/mentions';
 import type { TeamChange } from './chat';
@@ -71,9 +73,11 @@ function quote(text: string): string {
     .join('\n');
 }
 
-/** The files attached to a message, one "📎 name" line each. */
+/** The files attached to a message, one "📎 name" line each (a folder's "📁 name/"). */
 export function attachmentLines(m: ChatMessage): string {
-  return m.parts.flatMap((p) => (p.type === 'attachment' ? [`📎 ${p.name}`] : [])).join('\n');
+  return m.parts
+    .flatMap((p) => (p.type === 'attachment' ? [`${isFolderAttachment(p) ? '📁' : '📎'} ${attachmentLabel(p)}`] : []))
+    .join('\n');
 }
 
 /**
