@@ -152,6 +152,41 @@ describe('schedules', () => {
     expect(readFileSync(childFile, 'utf8')).toBe('updated');
   });
 
+  it("writes out an automation's folder for each scheduled message, in place and in a new chat", async () => {
+    const conv = solo();
+    schedule(conv);
+    const folder = {
+      name: 'reports',
+      mimeType: 'inode/directory',
+      bytes: new Uint8Array(0),
+      files: [
+        { path: 'q1/summary.md', bytes: Buffer.from('# Q1') },
+        { path: 'q2.md', bytes: Buffer.from('# Q2') },
+      ],
+    };
+    store.setSchedule(conv, conv.schedule!, [folder], []);
+    const folderOf = (target: Conversation) => {
+      const part = target.messages
+        .filter((m) => m.scheduled)
+        .at(-1)
+        ?.parts.find((p) => p.type === 'attachment');
+      expect(part).toMatchObject({ name: 'reports', mimeType: 'inode/directory', files: 2, size: 8 });
+      return attachmentPath(target.id, part!);
+    };
+    await orchestrator.sendScheduled(conv.id);
+    await finish(conv.id);
+    const here = folderOf(conv);
+    expect(readFileSync(join(here, 'q1', 'summary.md'), 'utf8')).toBe('# Q1');
+    expect(calls.at(-1)!.prompt).toContain(`- reports/ (a folder of 2 files, 8 B in all): ${here}`);
+    store.setSchedule(conv, { ...conv.schedule!, newChat: true }, [], []);
+    const next = await orchestrator.sendScheduled(conv.id);
+    if (next.result !== 'sent' || !next.chatId) throw new Error('Expected the automation to open a new chat');
+    await finish(next.chatId);
+    const there = folderOf(store.get(next.chatId)!);
+    expect(there).not.toBe(here);
+    expect(readFileSync(join(there, 'q2.md'), 'utf8')).toBe('# Q2');
+  });
+
   const approvalParts = (conv: Conversation) =>
     conv.messages.flatMap((m) => m.parts).filter((p) => p.type === 'approval') as Extract<
       Conversation['messages'][number]['parts'][number],

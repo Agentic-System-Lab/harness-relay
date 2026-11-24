@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { constants, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, copyFile, cp, mkdir } from 'node:fs/promises';
 import { basename, dirname, join, sep } from 'node:path';
+import { cutName, isWindowsDevice, pathClash } from '../shared/fileNames';
 import type { ChatMessage, MessagePart } from '../shared/types';
 import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE, isFolderAttachment, isInlineImage } from '../shared/types';
 import { HttpError } from './errors';
@@ -39,19 +40,29 @@ export function safeFileName(name: string): string {
 }
 
 /**
- * One name on a path inside an attached folder, safe to put on disk: no separator, control or
- * reserved character, nothing a Windows name cannot end with (dots, spaces), so never `.` or `..`. A
- * leading dot stays (`.gitignore`), unlike an attached file's own name.
+ * The name an attached file or folder is kept under (`AttachmentPart.name`): `safeFileName`'s, at most
+ * 255 bytes in UTF-8 (`cutName`, its extension kept), and never a Windows device name. `attachmentPath`
+ * puts `safeFileName` of it on disk, as it did before: kept names stay where they are.
+ */
+function uploadName(name: string): string {
+  const cut = safeFileName(cutName(safeFileName(name)));
+  return isWindowsDevice(cut) ? `_${cut}` : cut;
+}
+
+/**
+ * One name on a path inside an attached folder, safe to put on disk on any system: no separator,
+ * control or reserved character, nothing a Windows name cannot end with (dots, spaces), so never `.`
+ * or `..`; no Windows device name; at most 255 bytes in UTF-8 (`cutName`, its extension kept). A
+ * leading dot stays (`.gitignore`), unlike an attached file's own name. Made safe again, it stays as it is.
  */
 function safeSegment(name: string): string {
-  return (
-    name
-      .replace(/[\u0000-\u001f\u007f<>:"|?*\\]/g, '_')
-      .trim()
-      .slice(0, 120)
-      .replace(/[. ]+$/, '') || '_'
-  );
+  const clean = name.replace(/[\u0000-\u001f\u007f<>:"|?*\\]/g, '_').trim();
+  const named = isWindowsDevice(clean) ? `_${clean}` : clean;
+  return cutName(named).replace(/[. ]+$/, '') || '_';
 }
+
+/** Whether a name is git's own folder, in any letter case and with the dots and spaces Windows drops. */
+const isGitName = (name: string) => name.toLowerCase().replace(/[. ]+$/, '') === '.git';
 
 /** A path inside an attached folder made safe (`/` between its names, none of them empty), or undefined when it has none. */
 export function folderFilePath(path: string): string | undefined {
@@ -92,9 +103,9 @@ export function decodeAttachments(uploads: unknown): AttachmentData[] {
     return bytes;
   };
   return uploads.map((u) => {
-    if (u?.files !== undefined && typeof u.name === 'string') return decodeFolder(safeFileName(u.name), u.files, decode);
+    if (u?.files !== undefined && typeof u.name === 'string') return decodeFolder(uploadName(u.name), u.files, decode);
     if (typeof u?.data !== 'string' || typeof u.name !== 'string') throw new HttpError(400, t().badAttachment);
-    const name = safeFileName(u.name);
+    const name = uploadName(u.name);
     const bytes = decode(u.data, name);
     // A file is never taken for a folder.
     const mimeType =
@@ -108,7 +119,9 @@ export function decodeAttachments(uploads: unknown): AttachmentData[] {
 /**
  * An attached folder's files: at least one, at most `maxFolderFiles`, each path made safe and none
  * there twice, as the disk would take them (names that differ in letter case or Unicode form only are
- * one name on macOS and Windows), nor a file where another's path has a folder.
+ * one name on macOS and Windows: `pathClash`), nor a file where another's path has a folder. A file in
+ * a `.git` folder is left out, as the browser leaves it out and a folder's ZIP file does: an agent's
+ * git in the folder must not take a config it was sent.
  */
 function decodeFolder(name: string, files: unknown, decode: (data: string, name: string) => Uint8Array): AttachmentData {
   if (!Array.isArray(files) || !files.length) throw new HttpError(400, t().badAttachment);
@@ -116,21 +129,40 @@ function decodeFolder(name: string, files: unknown, decode: (data: string, name:
     throw new HttpError(400, t().folderTooManyFiles(name, ATTACHMENT_LIMITS.maxFolderFiles));
   }
   const out: FolderFileData[] = [];
-  /** Each file's path, and each folder's with a `/` after it, as the disk compares them. */
-  const taken = new Set<string>();
   for (const f of files as { path?: unknown; data?: unknown }[]) {
     if (typeof f?.path !== 'string' || typeof f.data !== 'string') throw new HttpError(400, t().badAttachment);
+    if (f.path.split(/[\\/]/).some(isGitName)) continue;
     const path = folderFilePath(f.path);
     if (!path) throw new HttpError(400, t().badAttachment);
-    const key = path.normalize('NFC').toLowerCase();
-    const folders = key.split('/').slice(0, -1);
-    const clash = taken.has(key) || taken.has(`${key}/`) || folders.some((_, i) => taken.has(folders.slice(0, i + 1).join('/')));
-    if (clash) throw new HttpError(400, t().folderSameName(name, path));
-    taken.add(key);
-    folders.forEach((_, i) => taken.add(`${folders.slice(0, i + 1).join('/')}/`));
     out.push({ path, bytes: decode(f.data, `${name}/${path}`) });
   }
+  if (!out.length) throw new HttpError(400, t().badAttachment);
+  const clash = pathClash(out.map((f) => f.path));
+  if (clash) throw new HttpError(400, t().folderSameName(name, clash));
   return { name, mimeType: FOLDER_MIME_TYPE, bytes: new Uint8Array(0), files: out };
+}
+
+/**
+ * Whether this disk takes every name of the folders in `files` (an automation's, which each run writes
+ * out later): their paths written as empty files in a temporary folder of the data folder, then removed.
+ * A name it refuses (too long for its file system, two it takes for one) is a 400 now, not at a run.
+ */
+export function checkFolderNames(files: AttachmentData[]): void {
+  const folders = files.filter((f) => f.files);
+  if (!folders.length) return;
+  mkdirSync(join(DATA_DIR, 'tmp'), { recursive: true, mode: 0o700 });
+  const dir = mkdtempSync(join(DATA_DIR, 'tmp', 'attach-check-'));
+  try {
+    folders.forEach((f, i) =>
+      writeFolder(
+        join(dir, String(i)),
+        f.name,
+        f.files!.map((file) => ({ path: file.path, bytes: new Uint8Array(0) })),
+      ),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Write a folder's files under `root`, which must not be there yet: folders `0700`, files `0600`. */
@@ -140,12 +172,15 @@ function writeFolder(root: string, folder: string, files: FolderFileData[]): voi
     const path = folderFilePath(f.path);
     if (!path) throw new HttpError(400, t().badAttachment);
     const to = join(root, ...path.split('/'));
-    mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
     try {
+      mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
       writeFileSync(to, f.bytes, { mode: 0o600, flag: 'wx' });
     } catch (err) {
-      // Two names this disk takes for one (a letter case or Unicode form the check above did not see as one).
-      if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new HttpError(400, t().folderSameName(folder, path));
+      const code = (err as NodeJS.ErrnoException).code;
+      // Two names this disk takes for one (a letter case or Unicode form the check did not see as one).
+      if (code === 'EEXIST' || code === 'ENOTDIR' || code === 'EISDIR') throw new HttpError(400, t().folderSameName(folder, path));
+      // A name or path this file system does not take.
+      if (code === 'ENAMETOOLONG' || code === 'EINVAL') throw new HttpError(400, t().folderBadName(folder, path));
       throw err;
     }
   }

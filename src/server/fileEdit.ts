@@ -11,11 +11,11 @@ import {
   readSync,
   realpathSync,
   renameSync,
-  rmSync,
   unlinkSync,
   writeFileSync,
   type BigIntStats,
 } from 'node:fs';
+import { rm, unlink } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileNameProblem, hasLoneSurrogate } from '../shared/fileNames';
 import { FILE_CHANGED, FILE_EDIT_LIMITS, FILE_EXISTS, type FileDeleted, type FileRoot, type FileWritten } from '../shared/types';
@@ -323,15 +323,14 @@ export function uploadFile(root: string, dir: unknown, name: unknown, data: unkn
 }
 
 /**
- * The name `name` (whose `lstat` is `st`) is listed under in `folder`: itself, but on Windows, where a
- * name is also found in another letter case or by its short name (`GIT~1`), the one the folder lists
- * for that file or folder (undefined when none is).
+ * The name `name` (whose `lstat` is `st`) is listed under in `folder`: itself when the folder lists it
+ * so, else the one it lists for that file or folder (on a file system that ignores letter case or
+ * Unicode form, and on Windows by its short name, `GIT~1`), found by its device and inode; undefined
+ * when none is.
  */
 function listedName(folder: string, name: string, st: BigIntStats): string | undefined {
-  if (process.platform !== 'win32') return name;
   const names = readdirSync(folder);
-  const same = names.find((n) => n.toLowerCase() === name.toLowerCase());
-  if (same !== undefined) return same;
+  if (names.includes(name)) return name;
   const key = fileKey(st);
   return names.find((n) => {
     try {
@@ -346,11 +345,13 @@ function listedName(folder: string, name: string, st: BigIntStats): string | und
  * Deletes the file or folder `rel` names in `root`, never the root itself: the name itself, reached
  * through no link (a link is removed as a link, never what it leads to), not `.git` nor anything in it
  * (404, as browsing has it), not a file the server withholds (404), nothing Harness Relay protects nor a
- * folder that holds such a place (403). A folder goes with all it holds, the links in it removed as
- * links. Refused (409) when the folder it is in moved or became a link meanwhile; a folder that could
- * be deleted only in part (a file another program holds open on Windows) is a 409 that says so.
+ * folder that holds such a place (403), each compared by the place as the disk spells it. The checks
+ * run at once; then `hold()` holds the folder it is in (`Orchestrator.holdForFiles()`: no run starts
+ * writing there) while it is removed without blocking the server (`fs.promises.rm`, which removes a
+ * link it finds as a link), and lets it go after. A folder that could be deleted only in part (a file
+ * another program holds open on Windows) is a 409 that says so.
  */
-export function deletePath(root: string, rel: unknown): FileDeleted {
+export function deletePath(root: string, rel: unknown, hold: (folder: string) => () => void = () => () => {}): Promise<FileDeleted> {
   const { parts, name } = splitPath(rel);
   if (isGit(name) || (process.platform === 'win32' && name.includes(':'))) throw notFound();
   const realRoot = realRootOf(root);
@@ -362,35 +363,30 @@ export function deletePath(root: string, rel: unknown): FileDeleted {
   } catch {
     throw notFound();
   }
-  // On Windows a short name (`GIT~1`) names `.git` too: the name it is listed under says. A link's own
-  // place is checked, never where it leads (`hiddenNatively()` would follow it).
+  // The name the folder lists it under (a short name `GIT~1` names `.git` too). A link's own place is
+  // checked, never where it leads (`hiddenNatively()` would follow it).
   const listed = listedName(folder.path, name, st);
   if (!listed || isGit(listed) || withheldFileKeys().has(fileKey(st)) || (!st.isSymbolicLink() && hiddenNatively(realRoot, full))) {
     throw notFound();
   }
   const kind = st.isDirectory() ? 'dir' : 'file';
-  // The place itself (a link's own, not where it leads) inside a protected one, or one inside it.
+  // The place itself as the disk spells it (a link's own, not where it leads) inside a protected one,
+  // or one inside it.
   const guarded = protectedTargets();
-  const self = st.isSymbolicLink() ? full : realPath(full);
+  const self = st.isSymbolicLink() ? join(realPath(folder.path), listed) : realPath(full);
   if (insideAny(self, guarded) || (kind === 'dir' && guarded.some((p) => insideAny(p, [self])))) {
     throw new HttpError(403, t().filesEdit.protectedDelete);
   }
-  // Nothing moved meanwhile: the folder is the one checked, reached through no link, and the name the
-  // same file or folder.
-  const again = openFolder(realRoot, folder.parts);
-  let now: BigIntStats | undefined;
-  try {
-    now = lstatSync(full, { bigint: true });
-  } catch {
-    /* gone meanwhile */
-  }
-  if (again.key !== folder.key || !now || fileKey(now) !== fileKey(st)) throw new HttpError(409, t().filesEdit.moved);
-  try {
-    // `rmSync` never follows a link, in a folder or as the name itself.
-    if (kind === 'dir') rmSync(full, { recursive: true, maxRetries: 2 });
-    else unlinkSync(full);
-  } catch (err) {
-    throw new HttpError(409, t().filesEdit.cannotDelete(name, (err as NodeJS.ErrnoException).code ?? (err as Error).message));
-  }
-  return { path: [...parts, name].join('/'), kind };
+  const release = hold(realPath(folder.path));
+  const removal = kind === 'dir' ? rm(full, { recursive: true, maxRetries: 2 }) : unlink(full);
+  return removal.then(
+    () => {
+      release();
+      return { path: [...parts, name].join('/'), kind };
+    },
+    (err: unknown) => {
+      release();
+      throw new HttpError(409, t().filesEdit.cannotDelete(name, (err as NodeJS.ErrnoException).code ?? (err as Error).message));
+    },
+  );
 }

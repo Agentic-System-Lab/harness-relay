@@ -4245,6 +4245,33 @@ describe('schedules', () => {
     expect(files.some((f) => f.id === id)).toBe(false);
   });
 
+  it('saves an automation with a folder, and refuses one whose folder is malformed', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const b64 = (t: string) => Buffer.from(t).toString('base64');
+    const folder = {
+      name: 'specs',
+      mimeType: 'inode/directory',
+      files: [
+        { path: 'api.md', data: b64('# API') },
+        { path: 'ui/screens.md', data: b64('# Screens') },
+        { path: '.git/config', data: b64('[core]') },
+      ],
+    };
+    const res = await put(conv.id, { ...valid, attachments: [folder] });
+    expect(res.status).toBe(200);
+    // The .git folder is left out, as the browser leaves it out.
+    expect(((await res.json()) as ConversationSchedule).attachments).toEqual([
+      { type: 'attachment', id: expect.any(String), name: 'specs', mimeType: 'inode/directory', size: 14, files: 2 },
+    ]);
+    const clash = { ...folder, name: 'other', files: [...folder.files, { path: 'API.md', data: b64('x') }] };
+    expect((await put(conv.id, { ...valid, attachments: [clash] })).status).toBe(400);
+    expect(store.get(conv.id)!.schedule!.attachments).toHaveLength(1);
+    // No check folder is left behind.
+    expect(
+      existsSync(join(root, 'data', 'tmp')) ? readdirSync(join(root, 'data', 'tmp')).filter((n) => n.startsWith('attach-check-')) : [],
+    ).toEqual([]);
+  });
+
   it('refuses a schedule that could never send, and one for a team that is not confirmed yet', async () => {
     const conv = await createConversation({ permission: 'read-only' });
     const bad = await put(conv.id, { ...valid, repeat: { kind: 'weekly', time: '09:00', days: [] } });

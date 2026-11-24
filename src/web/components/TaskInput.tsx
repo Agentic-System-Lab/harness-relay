@@ -103,7 +103,7 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
             <AppsIcon />
           </button>
         )}
-        <AttachmentPicker addFiles={addFiles} />
+        <AttachmentPicker addFiles={addFiles} onNotice={setNotice} />
         <VoiceButton fixedButton={creation} onError={setNotice} onText={insertVoice} />
       </div>
       {apps && (

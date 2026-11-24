@@ -249,30 +249,30 @@ describe('uploading a file', () => {
 });
 
 describe('deleting a file or a folder', () => {
-  it('deletes a file, and a folder with everything in it', () => {
+  it('deletes a file, and a folder with everything in it', async () => {
     mkdirSync(join(project, 'notes', 'deep', 'er'), { recursive: true });
     writeFileSync(join(project, 'notes', 'deep', 'er', 'a.md'), 'a');
     writeFileSync(join(project, 'notes', '.hidden'), 'h');
-    expect(deletePath(project, 'queue.csv')).toEqual({ path: 'queue.csv', kind: 'file' });
+    expect(await deletePath(project, 'queue.csv')).toEqual({ path: 'queue.csv', kind: 'file' });
     expect(existsSync(join(project, 'queue.csv'))).toBe(false);
-    expect(deletePath(project, 'notes/deep')).toEqual({ path: 'notes/deep', kind: 'dir' });
+    expect(await deletePath(project, 'notes/deep')).toEqual({ path: 'notes/deep', kind: 'dir' });
     expect(readdirSync(join(project, 'notes'))).toEqual(['.hidden']);
-    expect(deletePath(project, '/notes/')).toEqual({ path: 'notes', kind: 'dir' });
+    expect(await deletePath(project, '/notes/')).toEqual({ path: 'notes', kind: 'dir' });
     expect(readdirSync(project)).toEqual([]);
     // Gone already.
     expect(refusal(() => deletePath(project, 'notes')).status).toBe(404);
   });
 
-  it('removes a link as a link, never what it leads to, also in a folder it deletes', () => {
+  it('removes a link as a link, never what it leads to, also in a folder it deletes', async () => {
     const outside = join(root, `outside-del-${n}`);
     mkdirSync(join(outside, 'kept'), { recursive: true });
     writeFileSync(join(outside, 'kept', 'file.txt'), 'kept');
     symlinkSync(join(outside, 'kept'), join(project, 'to-folder'), 'dir');
     symlinkSync(join(outside, 'kept', 'file.txt'), join(project, 'to-file'));
     symlinkSync(join(outside, 'kept'), join(project, 'notes', 'inside'), 'dir');
-    expect(deletePath(project, 'to-folder')).toEqual({ path: 'to-folder', kind: 'file' });
-    expect(deletePath(project, 'to-file')).toEqual({ path: 'to-file', kind: 'file' });
-    expect(deletePath(project, 'notes')).toEqual({ path: 'notes', kind: 'dir' });
+    expect(await deletePath(project, 'to-folder')).toEqual({ path: 'to-folder', kind: 'file' });
+    expect(await deletePath(project, 'to-file')).toEqual({ path: 'to-file', kind: 'file' });
+    expect(await deletePath(project, 'notes')).toEqual({ path: 'notes', kind: 'dir' });
     expect(readFileSync(join(outside, 'kept', 'file.txt'), 'utf8')).toBe('kept');
     expect(readdirSync(project)).toEqual(['queue.csv']);
     // Nothing is deleted through a folder that is a link.
@@ -281,7 +281,7 @@ describe('deleting a file or a folder', () => {
     expect(existsSync(join(outside, 'kept', 'file.txt'))).toBe(true);
   });
 
-  it('never deletes the root, .git or what is in it, outside the folder, or a file the server withholds', () => {
+  it('never deletes the root, .git or what is in it, outside the folder, or a file the server withholds', async () => {
     mkdirSync(join(project, '.git'));
     writeFileSync(join(project, '.git', 'config'), '[core]\n');
     mkdirSync(join(project, 'sub', '.git'), { recursive: true });
@@ -316,16 +316,60 @@ describe('deleting a file or a folder', () => {
     expect(refusal(() => deletePath(project, 'secrets.key')).status).toBe(404);
     expect(readFileSync(locked, 'utf8')).toBe('key');
     // A folder holding a repository of its own goes with it, as in a file manager.
-    expect(deletePath(project, 'sub')).toEqual({ path: 'sub', kind: 'dir' });
+    expect(await deletePath(project, 'sub')).toEqual({ path: 'sub', kind: 'dir' });
   });
 
-  it('never deletes what Harness Relay protects, nor a folder that holds it', () => {
+  it('never deletes what Harness Relay protects, nor a folder that holds it, in any letter case', async () => {
     mkdirSync(join(holder, 'data', 'tmp'), { recursive: true });
     writeFileSync(join(holder, 'data', 'tmp', 'x'), 'x');
+    symlinkSync(join(holder, 'data', 'tmp', 'x'), join(holder, 'data', 'tmp', 'link'));
     expect(refusal(() => deletePath(holder, 'data/tmp/x')).status).toBe(403);
+    expect(refusal(() => deletePath(holder, 'data/tmp/link')).status).toBe(403);
     expect(refusal(() => deletePath(holder, 'data')).status).toBe(403);
     expect(refusal(() => deletePath(root, 'holder')).status).toBe(403);
+    // Where the file system ignores letter case (macOS and Windows by default), another spelling names the same place.
+    if (existsSync(join(holder, 'DATA'))) {
+      for (const path of ['DATA/tmp/x', 'DATA/tmp/link', 'data/TMP/LINK', 'Data']) {
+        expect(refusal(() => deletePath(holder, path)).status, path).toBe(403);
+      }
+    }
     expect(existsSync(join(holder, 'data', 'tmp', 'x'))).toBe(true);
+    expect(readdirSync(join(holder, 'data', 'tmp')).sort()).toEqual(['link', 'x']);
+  });
+
+  it('holds the folder it deletes in while it removes it, and lets it go after, also when it fails', async () => {
+    mkdirSync(join(project, 'notes', 'old'), { recursive: true });
+    writeFileSync(join(project, 'notes', 'old', 'a.md'), 'a');
+    const held: string[] = [];
+    let released = 0;
+    const hold = (folder: string) => {
+      held.push(folder);
+      return () => void released++;
+    };
+    const removal = deletePath(project, 'notes/old', hold);
+    // Held before anything is removed, and through the removal.
+    expect(held).toEqual([realpathSync.native(join(project, 'notes'))]);
+    expect(released).toBe(0);
+    expect(await removal).toEqual({ path: 'notes/old', kind: 'dir' });
+    expect(released).toBe(1);
+    // Refused by its checks: nothing held.
+    expect(refusal(() => deletePath(project, 'missing', hold)).status).toBe(404);
+    expect(held).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says so when a folder could be deleted only in part', async () => {
+    mkdirSync(join(project, 'notes', 'locked'), { recursive: true });
+    writeFileSync(join(project, 'notes', 'locked', 'a.md'), 'a');
+    writeFileSync(join(project, 'notes', 'b.md'), 'b');
+    chmodSync(join(project, 'notes', 'locked'), 0o500);
+    let released = 0;
+    try {
+      await expect(deletePath(project, 'notes', () => () => void released++)).rejects.toMatchObject({ status: 409 });
+      expect(released).toBe(1);
+      expect(readFileSync(join(project, 'notes', 'locked', 'a.md'), 'utf8')).toBe('a');
+    } finally {
+      chmodSync(join(project, 'notes', 'locked'), 0o700);
+    }
   });
 });
 

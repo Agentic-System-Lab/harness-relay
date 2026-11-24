@@ -444,7 +444,7 @@ test.describe('files and changes', () => {
     writeFileSync(join(site, 'node_modules', 'x', 'index.js'), 'module.exports = 1;\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
 
-    // The paperclip offers files or a folder; Escape closes its menu.
+    // The paperclip offers files or a folder; Escape closes its menu, as a press outside it does.
     const clip = page.getByRole('button', { name: 'Attach files or a folder' });
     await clip.click();
     const menu = page.getByRole('menu', { name: 'Attach files or a folder' });
@@ -455,8 +455,28 @@ test.describe('files and changes', () => {
     await page.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
     await expect(clip).toBeFocused();
+    // The arrow keys open it from the paperclip too.
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Files…' })).toBeFocused();
+    await page.locator('.chat-head').click();
+    await expect(menu).toHaveCount(0);
 
-    await page.locator('.composer input[webkitdirectory]').setInputFiles(site);
+    // An empty folder says so (not in WebKit, where Playwright gives a folder picker no empty folder).
+    if (testInfo.project.name !== 'webkit') {
+      const empty = testInfo.outputPath('empty');
+      mkdirSync(empty, { recursive: true });
+      await clip.click();
+      const none = page.waitForEvent('filechooser');
+      await menu.getByRole('menuitem', { name: 'Folder…' }).click();
+      await (await none).setFiles(empty);
+      await expect(page.locator('.composer-notice')).toHaveText('That folder has no files to attach.');
+    }
+
+    // Folder… opens the folder dialog.
+    await clip.click();
+    const chooser = page.waitForEvent('filechooser');
+    await menu.getByRole('menuitem', { name: 'Folder…' }).click();
+    await (await chooser).setFiles(site);
     const chip = page.locator('.attach-tray .attach-folder');
     await expect(chip).toContainText('site');
     await expect(chip).toContainText('2 files');

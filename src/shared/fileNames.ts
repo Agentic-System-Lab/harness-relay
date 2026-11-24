@@ -34,3 +34,51 @@ export function fileNameProblem(name: string): FileNameProblem | undefined {
   if (new TextEncoder().encode(name).length > MAX_FILE_NAME_BYTES) return 'tooLong';
   return undefined;
 }
+
+/** Whether `name` is one Windows keeps for a device (`CON`, `nul.txt`), which no file there can have. */
+export function isWindowsDevice(name: string): boolean {
+  return WINDOWS_DEVICE.test(name);
+}
+
+const utf8Length = (text: string) => new TextEncoder().encode(text).length;
+
+/**
+ * `name` cut to at most `max` UTF-8 bytes, at the end of a character, keeping its extension (when that
+ * takes 16 bytes or fewer): what Linux allows a name, where macOS and Windows count characters.
+ */
+export function cutName(name: string, max = MAX_FILE_NAME_BYTES): string {
+  if (utf8Length(name) <= max) return name;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 && utf8Length(name.slice(dot)) <= 16 ? name.slice(dot) : '';
+  let stem = '';
+  let bytes = utf8Length(ext);
+  for (const ch of ext ? name.slice(0, dot) : name) {
+    const n = utf8Length(ch);
+    if (bytes + n > max) break;
+    stem += ch;
+    bytes += n;
+  }
+  return stem + ext;
+}
+
+/** A path as a file system that ignores letter case and Unicode form (macOS, Windows) compares it. */
+const pathKey = (path: string) => path.normalize('NFC').toLowerCase();
+
+/**
+ * The first of `paths` (in a folder, with `/`) that one before it already takes on such a file
+ * system: the same path but for letter case or Unicode form, a file where another path has a folder,
+ * or a folder where another has a file. Undefined when none does.
+ */
+export function pathClash(paths: Iterable<string>): string | undefined {
+  /** Each file's key, and each folder's with a `/` after it. */
+  const taken = new Set<string>();
+  for (const path of paths) {
+    const key = pathKey(path);
+    const folders = key.split('/').slice(0, -1);
+    const prefixes = folders.map((_, i) => folders.slice(0, i + 1).join('/'));
+    if (taken.has(key) || taken.has(`${key}/`) || prefixes.some((p) => taken.has(p))) return path;
+    taken.add(key);
+    for (const p of prefixes) taken.add(`${p}/`);
+  }
+  return undefined;
+}

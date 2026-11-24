@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { cutName, isWindowsDevice, pathClash } from '../src/shared/fileNames';
 import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE } from '../src/shared/types';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-attachments-')));
@@ -10,6 +11,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 const {
   attachmentPath,
   attachmentsDir,
+  checkFolderNames,
   copyAttachments,
   decodeAttachments,
   folderFilePath,
@@ -47,6 +49,73 @@ describe('attached folders', () => {
     expect(folderFilePath('bad\u0000name')).toBe('bad_name');
     expect(folderFilePath('')).toBeUndefined();
     expect(folderFilePath('///')).toBeUndefined();
+  });
+
+  it('cuts a name to 255 bytes, keeping its extension, and never takes a Windows device name', () => {
+    const bytes = (n: string) => Buffer.byteLength(n);
+    const long = '報'.repeat(100) + '.pdf';
+    expect(bytes(cutName(long))).toBeLessThanOrEqual(255);
+    expect(cutName(long)).toBe('報'.repeat(83) + '.pdf');
+    expect(cutName('a'.repeat(300))).toBe('a'.repeat(255));
+    expect(cutName('short.md')).toBe('short.md');
+    expect(cutName('😀'.repeat(70))).toBe('😀'.repeat(63));
+    expect(isWindowsDevice('CON')).toBe(true);
+    expect(isWindowsDevice('nul.txt')).toBe(true);
+    expect(isWindowsDevice('console.log')).toBe(false);
+    expect(folderFilePath('src/con.ts')).toBe('src/_con.ts');
+    expect(folderFilePath(`a/${'長'.repeat(100)}.txt`)).toBe(`a/${'長'.repeat(83)}.txt`);
+    // Made safe twice, a path stays as it was.
+    for (const p of ['src/con.ts', `x/${'長'.repeat(100)}.txt`, 'a. /b  ', '../..']) {
+      const once = folderFilePath(p)!;
+      expect(folderFilePath(once), p).toBe(once);
+    }
+    // An attached file's or folder's own name too, and it is written so.
+    const [file, dir] = decodeAttachments([
+      { name: `${'名'.repeat(100)}.pdf`, data: b64('x') },
+      ...folder([{ path: 'a', data: '' }], 'aux'),
+    ]);
+    expect(file!.name).toBe(`${'名'.repeat(83)}.pdf`);
+    expect(dir!.name).toBe('_aux');
+    const [part] = writeAttachments('conv-names', [file!]);
+    expect(readFileSync(attachmentPath('conv-names', part!), 'utf8')).toBe('x');
+  });
+
+  it('finds paths a file system that ignores letter case or Unicode form takes for one', () => {
+    expect(pathClash(['a.md', 'b.md', 'sub/c.md'])).toBeUndefined();
+    expect(pathClash(['Readme.md', 'README.md'])).toBe('README.md');
+    expect(pathClash(['caf\u00e9', 'cafe\u0301'])).toBe('cafe\u0301');
+    expect(pathClash(['x', 'x/y'])).toBe('x/y');
+    expect(pathClash(['x/y', 'X'])).toBe('X');
+  });
+
+  it('leaves out what is in a .git folder, and refuses a folder that holds nothing else', () => {
+    const [dir] = decodeAttachments(
+      folder([
+        { path: 'a.md', data: b64('a') },
+        { path: '.git/config', data: b64('[core]') },
+        { path: 'sub/.GIT/hooks/post-checkout', data: b64('#!/bin/sh') },
+        { path: '.github/workflows/ci.yml', data: b64('on: push') },
+      ]),
+    );
+    expect(dir!.files!.map((f) => f.path)).toEqual(['a.md', '.github/workflows/ci.yml']);
+    expect(statusOf(() => decodeAttachments(folder([{ path: '.git/HEAD', data: b64('ref') }])))).toBe(400);
+  });
+
+  it("checks an automation's folder names on this disk before it is saved, leaving nothing behind", () => {
+    checkFolderNames(decodeAttachments(folder([{ path: 'a/b.md', data: b64('x') }])));
+    const dup = [
+      {
+        name: 'dup',
+        mimeType: FOLDER_MIME_TYPE,
+        bytes: new Uint8Array(0),
+        files: [
+          { path: 'a', bytes: Buffer.from('1') },
+          { path: 'a', bytes: Buffer.from('2') },
+        ],
+      },
+    ];
+    expect(statusOf(() => checkFolderNames(dup))).toBe(400);
+    expect(readdirSync(join(root, 'data', 'tmp')).filter((n) => n.startsWith('attach-check-'))).toEqual([]);
   });
 
   it('decodes a folder of files beside a file, and never takes a file for a folder', () => {
@@ -154,6 +223,17 @@ describe('attached folders', () => {
     ];
     expect(statusOf(() => writeAttachments(conv, data))).toBe(400);
     expect(existsSync(attachmentsDir(conv)) ? readdirSync(attachmentsDir(conv)) : []).toEqual([]);
+  });
+
+  it.skipIf(process.platform === 'win32')('copies a link an agent left in a folder as a link, never what it leads to', async () => {
+    const [part] = writeAttachments('conv-link', decodeAttachments(folder([{ path: 'a.txt', data: b64('a') }])));
+    const outside = join(root, 'outside-secret.txt');
+    rmSync(outside, { force: true });
+    symlinkSync(join(root, 'outside-target'), join(attachmentPath('conv-link', part!), 'link'));
+    await copyAttachments('conv-link', 'conv-link-branch', [part!]);
+    const copied = join(attachmentPath('conv-link-branch', part!), 'link');
+    expect(lstatSync(copied).isSymbolicLink()).toBe(true);
+    expect(existsSync(outside)).toBe(false);
   });
 
   it('copies a folder to a branch, and skips one that is gone', async () => {

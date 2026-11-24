@@ -99,6 +99,7 @@ import type { Scheduler } from './scheduler';
 import {
   attachmentPath,
   attachmentsDir,
+  checkFolderNames,
   decodeAttachments,
   isInlineImage,
   safeFileName,
@@ -1711,6 +1712,8 @@ export function createApp({
   function scheduleFileChanges(input: unknown) {
     const { attachments, removeAttachments = [] } = input as { attachments?: unknown; removeAttachments?: unknown };
     const add = decodeAttachments(attachments);
+    // Each run writes its folders out later: a name this disk refuses is said now.
+    checkFolderNames(add);
     if (!Array.isArray(removeAttachments) || !removeAttachments.every((id): id is string => typeof id === 'string')) {
       throw new HttpError(400, t().invalidField('removeAttachments'));
     }
@@ -2269,7 +2272,8 @@ export function createApp({
           'Content-Disposition': contentDisposition('attachment', `${plan.name}.zip`),
           'X-Content-Type-Options': 'nosniff',
           'Content-Security-Policy': "default-src 'none'; sandbox",
-          'Cache-Control': 'private, max-age=31536000, immutable',
+          // Agents in edit mode may change what is in it: zipped afresh each time.
+          'Cache-Control': 'no-store',
         },
       });
     }
@@ -2646,7 +2650,9 @@ export function createApp({
   // A file or a folder (with all it holds) deleted from the working directory; never the root itself.
   app.delete('/api/conversations/:id/files', async (c) => {
     const b = await body<Partial<FileDeleteRequest>>(c);
-    return c.json(deletePath(writableRoot(c.req.param('id'), b.root), b.path));
+    const id = c.req.param('id');
+    // Checked and held at once (nothing awaited between), then removed without blocking the server.
+    return c.json(await deletePath(writableRoot(id, b.root), b.path, (folder) => orchestrator.holdForFiles(id, folder)));
   });
 
   /**

@@ -164,13 +164,14 @@ export function FileBrowser({
       setEditOnOpen(path);
       setFile(path);
     },
-    onDeleted: (path) => {
-      if (file !== undefined && (file === path || file.startsWith(`${path}/`))) {
-        // Its unsaved changes went with it: the user agreed to delete it.
+    // The file on screen when the delete ends (one opened meanwhile too), when it was it or in it: its
+    // unsaved changes went with it, as the user agreed.
+    onDeleted: (path) =>
+      setFile((open) => {
+        if (open === undefined || (open !== path && !open.startsWith(`${path}/`))) return open;
         unsaved.current = false;
-        setFile(undefined);
-      }
-    },
+        return undefined;
+      }),
   });
   const writable = !loading && Boolean(listing.writable);
 

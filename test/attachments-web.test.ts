@@ -40,6 +40,7 @@ const notices = {
   totalTooLarge: (max: string) => `total ${max}`,
   folderTooManyFiles: (name: string, n: number) => `folder too many ${name} ${n}`,
   folderEmpty: (name: string) => `empty ${name}`,
+  folderSameName: (name: string, path: string) => `same ${name} ${path}`,
 };
 const fmt = (n: number) => `${Math.round(n / 1024 / 1024)} MB`;
 /** A file of `size` bytes, without holding them. */
@@ -161,5 +162,17 @@ describe('what can be attached', () => {
     expect(acceptAttachments([pending('h', [ATTACHMENT_LIMITS.maxBytes + 1])], { count: 0, bytes: 0 }, notices, fmt).notice).toBe(
       'too large h/f0 20 MB',
     );
+    // Two paths a disk that ignores letter case takes for one, which the server would refuse.
+    const clash: PendingFolder = {
+      name: 'linux',
+      files: [
+        { path: 'Makefile', file: sized('Makefile', 1) },
+        { path: 'makefile', file: sized('makefile', 1) },
+      ],
+      size: 2,
+      leftOut: [],
+    };
+    const refused = acceptAttachments([clash], { count: 0, bytes: 0 }, notices, fmt);
+    expect(refused).toEqual({ accepted: [], notice: 'same linux makefile' });
   });
 });

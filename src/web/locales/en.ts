@@ -1708,6 +1708,10 @@ export const en: Messages = {
     folderEmpty: (name) => `The folder "${name}" has no files to attach.`,
     folderSize: (files, size) => `${files.toLocaleString('en')} file${files === 1 ? '' : 's'} · ${size}`,
     folderLeftOut: (names) => `Left out: ${names}`,
+    folderReading: 'Reading…',
+    folderSameName: (name, path) =>
+      `The folder "${name}" has two files named "${path}" (names that differ only in letter case count as one) and was not attached.`,
+    folderPickedEmpty: 'That folder has no files to attach.',
     readFailed: 'Could not read an attached file.',
   },
 

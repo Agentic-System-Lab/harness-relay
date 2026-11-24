@@ -1952,6 +1952,16 @@ export class Orchestrator {
   }
 
   /**
+   * Holds `folder` (a real path) while the Files panel deletes in it (`deletePath()`), as a command's run
+   * holds its folder: no run of this conversation starts, and another's works in a worktree of its own.
+   */
+  holdForFiles(convId: string, folder: string): () => void {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    return this.holdFolder(conv, folder);
+  }
+
+  /**
    * Holds `folder` for a command of `conv`'s running (`folderHolds`): another conversation's run cannot
    * take it, and this one is busy. Returns the release, which then starts what waits in the queue, but
    * for a schedule's own run (`startQueue: false`), whose message goes next. Throws 409 when another

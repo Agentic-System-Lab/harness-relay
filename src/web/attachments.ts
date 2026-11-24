@@ -1,3 +1,4 @@
+import { pathClash } from '../shared/fileNames';
 import { ATTACHMENT_LIMITS } from '../shared/types';
 
 /*
@@ -127,13 +128,15 @@ export interface AttachNotices {
   totalTooLarge: (max: string) => string;
   folderTooManyFiles: (name: string, n: number) => string;
   folderEmpty: (name: string) => string;
+  folderSameName: (name: string, path: string) => string;
 }
 
 /**
  * Which of what the user picked can be attached beside what is attached already (`count` files and
  * folders, `bytes` in all), in order: at most `maxFiles` in all, no file over `maxBytes` (in a folder
- * neither), no folder without files or over `maxFolderFiles`, and `maxTotalBytes` together. What does
- * not fit is left out, and the last reason why is the notice.
+ * neither), no folder without files or over `maxFolderFiles`, nor with two paths a disk that ignores
+ * letter case takes for one (`pathClash`, which the server refuses), and `maxTotalBytes` together. What
+ * does not fit is left out, and the last reason why is the notice.
  */
 export function acceptAttachments(
   picked: Picked[],
@@ -152,9 +155,11 @@ export function acceptAttachments(
     }
     if (isFolder(item)) {
       const big = item.files.find((f) => f.file.size > L.maxBytes);
+      const clash = item.files.length <= L.maxFolderFiles ? pathClash(item.files.map((f) => f.path)) : undefined;
       if (item.tooMany) notice = notices.folderTooManyFiles(item.name, L.maxFolderFiles);
       else if (!item.files.length) notice = notices.folderEmpty(item.name);
       else if (big) notice = notices.fileTooLarge(`${item.name}/${big.path}`, formatBytes(L.maxBytes));
+      else if (clash) notice = notices.folderSameName(item.name, clash);
       else if (bytes + item.size > L.maxTotalBytes) notice = notices.totalTooLarge(formatBytes(L.maxTotalBytes));
       else {
         accepted.push(item);

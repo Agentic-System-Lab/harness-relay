@@ -860,6 +860,7 @@ const zhTW = {
   attachmentsTooLarge: (max: number) => `一則訊息附加的檔案合計最多 ${Math.round(max / 1024 / 1024)} MB`,
   folderTooManyFiles: (name: string, max: number) => `資料夾「${name}」的檔案超過 ${max.toLocaleString('zh-TW')} 個`,
   folderSameName: (folder: string, path: string) => `資料夾「${folder}」裡有兩個檔案都叫「${path}」（只差大小寫的名稱算同一個）`,
+  folderBadName: (folder: string, path: string) => `資料夾「${folder}」裡的「${path}」這個名稱或路徑，這台電腦的檔案系統不接受（可能太長）`,
   attachmentNotFound: '找不到這個附加檔案',
   mediaNotFound: '找不到這個圖片或影片（只能顯示工作目錄裡的圖片與影片）',
   downloadNotFound: '找不到這個檔案（只能下載工作目錄裡的檔案）',
@@ -2334,6 +2335,8 @@ const en: ServerMessages = {
   folderTooManyFiles: (name, max) => `The folder "${name}" has more than ${max.toLocaleString('en')} files`,
   folderSameName: (folder, path) =>
     `The folder "${folder}" has two files named "${path}" (names that differ only in letter case count as one)`,
+  folderBadName: (folder, path) =>
+    `This computer's file system does not take the name or path "${path}" in the folder "${folder}" (it may be too long)`,
   attachmentNotFound: 'Attachment not found',
   mediaNotFound: 'Image or video not found (only images and videos in the working directory can be shown)',
   downloadNotFound: 'File not found (only files in the working directory can be downloaded)',

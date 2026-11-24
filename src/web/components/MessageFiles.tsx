@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import { FOLDER_MIME_TYPE, isFolderAttachment, isInlineImage, type ConversationSchedule } from '../../shared/types';
+import { ATTACHMENT_LIMITS, FOLDER_MIME_TYPE, isFolderAttachment, isInlineImage, type ConversationSchedule } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
 import {
   acceptAttachments,
@@ -17,11 +17,20 @@ import { FolderIcon, PaperclipIcon } from './icons';
 
 let nextFileId = 0;
 
-/** A file or a folder waiting to be sent. */
-export type PendingFile = { id: number; file: File; folder?: undefined } | { id: number; folder: PendingFolder; file?: undefined };
+/**
+ * A file or a folder waiting to be sent, or a dropped folder still being read (`reading`: its name and
+ * the read, which takes its place once done; sending waits for it).
+ */
+export type PendingFile =
+  | { id: number; file: File; folder?: undefined; reading?: undefined }
+  | { id: number; folder: PendingFolder; file?: undefined; reading?: undefined }
+  | { id: number; reading: { name: string; done: Promise<PendingFolder> }; file?: undefined; folder?: undefined };
 
-/** Its size: a folder's, all its files'. */
-const sizeOf = (p: PendingFile) => (p.folder ? p.folder.size : p.file.size);
+/** Its size: a folder's, all its files' (none yet for one being read). */
+const sizeOf = (p: PendingFile) => (p.folder ? p.folder.size : p.file ? p.file.size : 0);
+
+/** Whether a folder read after a drop can go as it is (`acceptAttachments` said why not when it was read). */
+const sendable = (f: PendingFolder) => !f.tooMany && f.files.length > 0 && f.files.every((x) => x.file.size <= ATTACHMENT_LIMITS.maxBytes);
 
 /** Pasted screenshots are all called "image.png"; give them a time-stamped name. */
 function pastedName(file: File): string {
@@ -35,12 +44,16 @@ function pastedName(file: File): string {
 export async function readUploads(files: PendingFile[], readFailed: string): Promise<AttachmentUpload[]> {
   return Promise.all(
     files.map(async (p): Promise<AttachmentUpload> => {
-      if (p.folder) {
+      // A dropped folder still being read: sent once it is, when it can go as it is.
+      const folder = p.reading ? await p.reading.done : p.folder;
+      if (folder) {
+        if (!sendable(folder)) throw new Error(readFailed);
         const files: { path: string; data: string }[] = [];
         // One file at a time: a folder can hold a thousand.
-        for (const f of p.folder.files) files.push({ path: f.path, data: await toBase64(f.file) });
-        return { name: p.folder.name, mimeType: FOLDER_MIME_TYPE, files };
+        for (const f of folder.files) files.push({ path: f.path, data: await toBase64(f.file) });
+        return { name: folder.name, mimeType: FOLDER_MIME_TYPE, files };
       }
+      if (!p.file) throw new Error(readFailed);
       return { name: p.file.name, mimeType: p.file.type || 'application/octet-stream', data: await toBase64(p.file) };
     }),
   ).catch(() => {
@@ -61,24 +74,34 @@ export function useMessageFiles(
 ) {
   const t = useT();
   const [dragging, setDragging] = useState(false);
+  // The files as they are now, also when two changes come before the next render (two drops read at
+  // once), and the latest render's callbacks for what finishes after it.
+  const current = useRef(files);
+  current.current = files;
+  const latest = useRef({ onFiles, onNotice, saved });
+  latest.current = { onFiles, onNotice, saved };
+  const setFiles = (next: PendingFile[]) => {
+    current.current = next;
+    latest.current.onFiles(next);
+  };
+  const attachedBesides = (others: PendingFile[]) => ({
+    count: latest.current.saved.length + others.length,
+    bytes: latest.current.saved.reduce((n, f) => n + f.size, 0) + others.reduce((n, f) => n + sizeOf(f), 0),
+  });
   const addFiles = (list: Picked[]) => {
     if (!list.length) return;
-    const attached = {
-      count: saved.length + files.length,
-      bytes: saved.reduce((n, f) => n + f.size, 0) + files.reduce((n, f) => n + sizeOf(f), 0),
-    };
-    const { accepted, notice } = acceptAttachments(list, attached, t.composer, formatBytes);
+    const { accepted, notice } = acceptAttachments(list, attachedBesides(current.current), t.composer, formatBytes);
     onNotice(notice);
     const added = accepted.map((item): PendingFile => {
       if (isFolder(item)) return { id: ++nextFileId, folder: item };
       const named = item.name && item.name !== 'image.png' ? item : new File([item], pastedName(item), { type: item.type });
       return { id: ++nextFileId, file: named };
     });
-    if (added.length) onFiles([...files, ...added]);
+    if (added.length) setFiles([...current.current, ...added]);
   };
-  // A dropped folder is read after the drop: what it holds is added to the files there are by then.
-  const latest = useRef(addFiles);
-  latest.current = addFiles;
+
+  // A dropped folder is read after the drop: once read, it takes its place as far as the limits allow,
+  // or leaves it saying why. Watched again after the composer was away (a draft kept meanwhile).
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -86,9 +109,31 @@ export function useMessageFiles(
       mounted.current = false;
     };
   }, []);
+  const watched = useRef(new WeakSet<Promise<PendingFolder>>());
+  useEffect(() => {
+    for (const p of files) {
+      if (!p.reading || watched.current.has(p.reading.done)) continue;
+      watched.current.add(p.reading.done);
+      const { id } = p;
+      p.reading.done.then(
+        (folder) => {
+          if (!mounted.current || !current.current.some((f) => f.id === id)) return;
+          const others = current.current.filter((f) => f.id !== id);
+          const { accepted, notice } = acceptAttachments([folder], attachedBesides(others), t.composer, formatBytes);
+          latest.current.onNotice(notice);
+          setFiles(accepted.length ? current.current.map((f) => (f.id === id ? { id, folder } : f)) : others);
+        },
+        () => {
+          if (!mounted.current || !current.current.some((f) => f.id === id)) return;
+          latest.current.onNotice(t.composer.readFailed);
+          setFiles(current.current.filter((f) => f.id !== id));
+        },
+      );
+    }
+  });
 
   const removeFile = (id: number) => {
-    onFiles(files.filter((f) => f.id !== id));
+    setFiles(current.current.filter((f) => f.id !== id));
     onNotice('');
   };
 
@@ -118,18 +163,19 @@ export function useMessageFiles(
       addFiles([...e.dataTransfer.files]);
       return;
     }
-    const dropped = items.map((item, i) => {
-      const entry = entries[i];
-      return entry?.isDirectory ? readDroppedFolder(entry) : Promise.resolve(item.getAsFile());
-    });
-    void Promise.all(dropped).then(
-      (list) => {
-        if (mounted.current) latest.current(list.filter((p): p is Picked => p !== null));
-      },
-      () => {
-        if (mounted.current) onNotice(t.composer.readFailed);
-      },
-    );
+    // The files at once; each folder as it is being read, counted among the files and folders already.
+    addFiles(items.flatMap((item, i) => (entries[i]?.isDirectory ? [] : [item.getAsFile()].filter((f): f is File => f !== null))));
+    for (const entry of entries) {
+      if (!entry?.isDirectory) continue;
+      if (latest.current.saved.length + current.current.length >= ATTACHMENT_LIMITS.maxFiles) {
+        onNotice(t.composer.tooManyFiles(ATTACHMENT_LIMITS.maxFiles));
+        break;
+      }
+      const done = readDroppedFolder(entry);
+      // Handled where it is watched, and where it is sent.
+      done.catch(() => undefined);
+      setFiles([...current.current, { id: ++nextFileId, reading: { name: entry.name, done } }]);
+    }
   };
 
   const onDragLeave = (e: DragEvent) => {
@@ -148,7 +194,7 @@ function canPickFolders(): boolean {
  * The paperclip: files, or (where the browser can pick one) a folder, from a menu. Each pick of a
  * folder takes one; several are attached one after another, or dropped together.
  */
-export function AttachmentPicker({ addFiles }: { addFiles: (items: Picked[]) => void }) {
+export function AttachmentPicker({ addFiles, onNotice }: { addFiles: (items: Picked[]) => void; onNotice: (notice: string) => void }) {
   const t = useT();
   const filePicker = useRef<HTMLInputElement>(null);
   const folderPicker = useRef<HTMLInputElement>(null);
@@ -200,6 +246,12 @@ export function AttachmentPicker({ addFiles }: { addFiles: (items: Picked[]) => 
         type="button"
         className="icon-button attach-button"
         onClick={() => (folders ? setOpen(!open) : filePicker.current?.click())}
+        // A menu button opens its menu from the keyboard's arrows too.
+        onKeyDown={(e) => {
+          if (!folders || open || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+          e.preventDefault();
+          setOpen(true);
+        }}
         aria-label={folders ? t.composer.attachFilesOrFolder : t.composer.attach}
         title={folders ? t.composer.attachFilesOrFolder : t.composer.attach}
         {...(folders ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': open } : {})}
@@ -238,7 +290,10 @@ export function AttachmentPicker({ addFiles }: { addFiles: (items: Picked[]) => 
           type="file"
           hidden
           onChange={(e) => {
-            addFiles(foldersOfPicked(e.target.files ?? []));
+            const folders = foldersOfPicked(e.target.files ?? []);
+            // An empty folder gives no files, and so no folder to name.
+            if (folders.length) addFiles(folders);
+            else onNotice(t.composer.folderPickedEmpty);
             e.target.value = '';
           }}
         />
@@ -279,15 +334,17 @@ export function AttachmentTray({
       name: f.name,
       size: f.size,
       count: isFolderAttachment(f) ? (f.files ?? 0) : undefined,
+      reading: false,
       leftOut: [] as string[],
       image: undefined,
       remove: () => saved!.remove(f.id),
     })),
     ...files.map((p) => ({
       id: p.id,
-      name: p.folder ? p.folder.name : p.file.name,
+      name: p.folder ? p.folder.name : p.reading ? p.reading.name : p.file.name,
       size: sizeOf(p),
-      count: p.folder?.files.length,
+      count: p.folder?.files.length ?? (p.reading ? 0 : undefined),
+      reading: Boolean(p.reading),
       leftOut: p.folder?.leftOut ?? [],
       image: p.file && isInlineImage(p.file.type) ? p.file : undefined,
       remove: () => removeFile(p.id),
@@ -320,7 +377,9 @@ export function AttachmentTray({
             <>
               <FolderIcon size={14} />
               <span className="ellipsis">{f.name}</span>
-              <span className="muted">{t.composer.folderSize(f.count, formatBytes(f.size))}</span>
+              <span className="muted" {...(f.reading ? { role: 'status' } : {})}>
+                {f.reading ? t.composer.folderReading : t.composer.folderSize(f.count, formatBytes(f.size))}
+              </span>
             </>
           )}
           <button type="button" className="attach-remove" onClick={f.remove} aria-label={t.composer.removeFile(f.name)}>
